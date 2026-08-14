@@ -1,0 +1,41 @@
+# Structs del motor LIME.
+#
+# Formato:
+#   struct NOMBRE tamano
+#     offset  tipo  nombre
+#
+# Los huecos se dejan sin declarar: Ghidra los rellena con undefined.
+#
+# Origen: desensamblado de _LIME_LoadMeshSet verificado y contrastado con la
+# salida del decompilador (ver OUTPUT/meshset-format.md seccion 6). Los tamanos
+# 0x4C y 0x58 vienen de las llamadas a _limeMalloc, y los offsets de los
+# accesos reales del loader.
+
+# Vertice tal y como queda EN MEMORIA tras cargar (16 bytes).
+# Ojo: en disco ocupa 26 bytes; el loader descarta 12 (probablemente la normal).
+struct LIMEVERTEX 0x10
+  0x00  short  x
+  0x02  short  y
+  0x04  short  z
+  0x06  short  pad
+  0x08  float  u
+  0x0c  float  v
+
+# Una malla. limeMalloc(tag, 0x58).
+struct MESHINFO 0x58
+  0x00  int          numVerts
+  0x04  int          numFaces
+  0x10  float        boundsRadius
+  0x18  LIMEVERTEX*  verts
+  0x1c  ushort*      indices
+  0x24  byte*        vertLight
+  0x3c  char*        meshName
+  0x40  char*        textureName
+  0x50  int          fullBright
+
+# Un conjunto de mallas = un archivo .meshset. limeMalloc(tag, 0x4C).
+struct MESHSETINFO 0x4c
+  0x00  char       name[64]
+  0x40  int        texturesLoaded
+  0x44  int        numMeshes
+  0x48  MESHINFO** meshes
