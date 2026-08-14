@@ -16,7 +16,7 @@
 
 **This repository ships no game files.** No textures, no models, no audio, no compiled code — nothing you could extract from here and use. Every release is built against **a copy you supply yourself**.
 
-The banner at the top of this page is the one piece of imagery here, and it is worth being precise about: it is fan art of the *Ultimate Mortal Kombat 3* wordmark, credited [below](#the-banner), composited over a **screenshot** of the game running. A screenshot depicts the game; it is not an asset file, it cannot be unpacked back into one, and it is not part of any build. The *Mortal Kombat* marks and the artwork they depict belong to Warner Bros. Entertainment.
+The banner at the top of this page is the one piece of imagery here, and it is worth being precise about. It combines fan art of the *Ultimate Mortal Kombat 3* wordmark with **renders of the game's models made by ermaccer**, licensed CC BY 4.0 — both credited [below](#the-banner). A render depicts the game's geometry; it is not an asset file, it cannot be unpacked back into one, and it is not part of any build. The *Mortal Kombat* marks and the characters depicted belong to Warner Bros. Entertainment.
 
 What lives here is *our own* work: analysis tools, documentation of file formats, hand-written C, and test harnesses. Everything that touches the original game reads it from **a copy you supply yourself** and produces its output locally, where `.gitignore` keeps it out of the repository.
 
@@ -312,8 +312,17 @@ r/MortalKombat as
 It is used here with credit. If you are the artist and would rather this project
 did not use it, open an issue and it comes down.
 
-Everything around it — the "RECOMP" word, the iOS badge, and the Sub-Zero
-screenshot behind it — was assembled by [MaryNCRT](https://github.com/MaryNCRT).
+The Sub-Zero figure and the stage behind him are **renders by
+[ermaccer](https://github.com/ermaccer)**, from
+*[UMK3 iOS MeshSet Tool](https://ermaccer.github.io/posts/umk3iosmeshsettool/)*
+(the files `csubzero.png` and `m_balcony.jpg`), used under
+**[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)** — the licence that
+post is published under. They are output from ermaccer's own converter, which is
+also the tool our `.meshset` parser was originally checked against, so the
+banner is quite literally made of the thing this project studies.
+
+The "RECOMP" word, the iOS badge and the composition are by
+[MaryNCRT](https://github.com/MaryNCRT).
 
 **Yes, it looks like a 2011 App Store icon. That is the joke.**
 
@@ -343,7 +352,7 @@ This project stands on other people's work:
 - **[touchHLE](https://github.com/touchHLE/touchHLE)** — high-level emulator for iPhone OS applications. Used as a behavioural reference, and the target of our compatibility patch.
 - **[N64Recomp](https://github.com/N64Recomp/N64Recomp)** and **[Zelda64Recomp](https://github.com/Zelda64Recomp/Zelda64Recomp)** — the static recompilation approach that `recomp.py` is modelled on.
 - **[BattleShip](https://github.com/JRickey/BattleShip)** — a Super Smash Bros. 64 PC port whose repository structure and legal model this project follows.
-- **[ermaccer/UMK3IOS.MeshSetTool](https://github.com/ermaccer/UMK3IOS.MeshSetTool)** — the first public tool for this game's mesh format, and the reference our own parser was checked against.
+- **[ermaccer](https://github.com/ermaccer)** — [UMK3IOS.MeshSetTool](https://github.com/ermaccer/UMK3IOS.MeshSetTool), the first public tool for this game's mesh format and the reference our own parser was checked against. The renders in this page's banner are also his, from [his write-up](https://ermaccer.github.io/posts/umk3iosmeshsettool/), used under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 - **[Ghidra](https://ghidra-sre.org/)**, **[Capstone](https://www.capstone-engine.org/)**, and **[GhidraMCP](https://github.com/13bm/GhidraMCP)**.
 
 ---
