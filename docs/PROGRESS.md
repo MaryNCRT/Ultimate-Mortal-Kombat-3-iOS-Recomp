@@ -9,15 +9,15 @@ Current state of the project. Written so that someone can pick it up with no pri
 ## Overall progress
 
 ```
-██████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  15%
+███████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  17%
 ```
 
-**≈15% of the total estimated effort. Nothing is playable yet.**
+**≈17% of the total estimated effort. Nothing is playable yet.**
 
 Weights are our judgement of how much of the total each area represents;
 the completion figures are measured. Two numbers are worth keeping apart:
 
-- **15%** — share of the *whole project*, counting analysis, tooling and formats.
+- **17%** — share of the *whole project*, counting analysis, tooling and formats.
 - **0.6%** — share of the *decompilation itself*: 16 finished functions of 2,572.
 
 Both are true. The first says the foundations are in place; the second says the
@@ -27,10 +27,10 @@ bulk of the work has not started.
 |---|---:|---:|---|
 | Binary analysis and source-tree mapping | 4% | 100% | `██████████` |
 | Tooling and the verification oracle | 8% | 90% | `█████████░` |
-| Asset format specifications | 8% | 50% | `█████░░░░░` |
+| Asset format specifications | 8% | 65% | `██████░░░░` |
 | `lime/common` — engine core (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
-| `gamecode/logic` — fight engine (2,172 fn) | 28% | 0% | `░░░░░░░░░░` |
+| `gamecode/logic` — fight engine (2,172 fn) | 28% | 2% | `░░░░░░░░░░` |
 | Native PC platform layer (229 fn rewritten) | 17% | 0% | `░░░░░░░░░░` |
 | EA SDK stubs (~1,412 fn) | 5% | 0% | `░░░░░░░░░░` |
 
@@ -42,7 +42,7 @@ bulk of the work has not started.
 | A verification method exists and is proven | ✅ done |
 | The game runs somewhere as a behavioural reference | ✅ done (touchHLE) |
 | Model format readable | ✅ done |
-| Animation formats readable | 🔄 `.skin` and `.bones` done; `.skinanim` open |
+| Animation formats readable | ✅ `.skin`, `.bones` and `.skinanim` done |
 | Something renders on a PC screen | ⬜ not started |
 | The game boots natively | ⬜ far off |
 | The game is playable natively | ⬜ far off |
@@ -54,7 +54,7 @@ bulk of the work has not started.
 | Phase | Status |
 |---|---|
 | 0 — Binary analysis and source-tree mapping | ✅ complete |
-| 1 — Asset formats | 🔄 `.meshset`, `.skin` and `.bones` solved; `.skinanim` open |
+| 1 — Asset formats | 🔄 `.meshset`, `.skin`, `.bones`, `.skinanim` solved; `.scene`/`.events` open |
 | 2 — Verification oracle | ✅ complete and proven |
 | 3 — Ghidra automation | ✅ headless pipeline working |
 | 4 — Decompile `lime/common` | 🔄 109/109 drafted, 2.5 modules finished |
@@ -195,6 +195,76 @@ try the counted layout and fall back to a bare single block.
 
 **Still open:** what the 24 and 6 bytes per vertex contain, and why `indexes`
 decodes negative. Those are questions of interpretation; the layout is settled.
+
+---
+
+## `.skinanim` — format solved
+
+`python tools/skin.py validate-anim <res dir>` → **28 of 29 files**, 9,590
+animation frames. From `UnpackAnimFrame` (`0x0006012c`).
+
+```
+float  scale          // always 1.0 in the shipped data
+int32  numFrames
+int32  frameSize      // == 16 + numBones*20
+FRAME  frames[numFrames]
+```
+
+A frame is an `int32` tag, a `limeVECTOR3` root position, then one 20-byte
+`BONEANIMFRAME` per bone. `GetSlerpedQ` and `GetMFromQuat2` operate on those,
+so four of the five floats are a quaternion; the fifth is unidentified.
+
+**Read `frameSize` from the header; never derive it from the matching
+`.bones`.** Deriving it looks right on most characters and then fails on ROBO1
+and ROBO2, whose animations carry a different bone count than their skeletons —
+ROBO1's animation has 20 bones where its `.bones` declares 25. That cost an
+iteration.
+
+`SINDEL_STANDARD.skinanim` is the one file that does not fit: its header reads
+a second float where the frame count belongs. A 16-byte header gives
+`frameSize = 1256`, exactly `16 + 62*20` for Sindel's 62 bones, and
+`16 + 844*1256` is exactly the file size — but the header's own count says 422,
+half of 844. Two streams or one longer header; the arithmetic works either way.
+**Unresolved.**
+
+---
+
+## Research contributed by DeepSeek, audited
+
+A handover package arrived on 2026-08-14. Every symbol/address pair in it was
+checked against `functions.txt` before anything was adopted:
+
+```
+pairs checked:  258
+correct:        223
+wrong:           15
+non-existent:    20
+```
+
+The failures were not spread evenly. All twenty non-existent symbols — `_slave`,
+`_him_x`, `_shake_ob_up`, `_a0_for_him`, `_rough_hypotenuse` and the rest — sat
+in the notes that mapped iOS addresses onto names taken from other releases of
+the game. Those notes were rejected. The material derived from disassembling our
+own binary verified at essentially 100% and was kept.
+
+**Adopted** (in `OUTPUT/research/`, verified):
+
+- The cooperative process scheduler in `gamecode/logic/other.c`:
+  `_StartThreadAt` (`0x56cac`), `_KillSThread` (`0x56cbc`), `_KillProc`
+  (`0x56d14`), `_QueueAndJump` (`0x572b8`), `_SwitchQueue` (`0x55ed4`),
+  `_DoSwitchJump` (`0x55efc`), `_UnstackSwitches` (`0x573e8`), `_clear_queues`
+  (`0x58974`).
+- `PROC` struct: 268 bytes (`0x10c`) of stride per player, with field offsets.
+- Function-pointer dispatch tables. I confirmed the contents of both:
+  `0xf3150` holds `_t_do_fatality_1`, `_t_do_stationary`, `_t_drone_animality`,
+  `_t_do_friendship`, `_t_master_proc_mercy`, `_t_drone_babality`; `0xf3200`
+  holds `_t_make_db_tone`, `_t_bonus_count`, `_t_do_shake`. Note they live in
+  `__DATA,__nl_symbol_ptr` and the pointers carry the Thumb bit.
+- An independent run of the differential tests on Linux — they pass off the
+  machine they were written on.
+
+This is why `gamecode/logic` moved from 0% to 2%: nothing is decompiled yet,
+but the entry points into the fight engine are now mapped and verified.
 
 ---
 
