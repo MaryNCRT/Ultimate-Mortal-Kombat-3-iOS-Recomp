@@ -108,21 +108,21 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ## Progreso general
 
 ```
-███████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  17%
+███████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  18%
 ```
 
-**En torno al 17% del esfuerzo total estimado. Todavía no hay nada jugable.**
+**En torno al 18% del esfuerzo total estimado. Todavía no hay nada jugable.**
 
 Ese número es una estimación, así que aquí está la aritmética que hay detrás en vez de una cifra que haya que creerse. Los pesos son nuestro criterio sobre cuánto representa cada área del total; discrepa del reparto si quieres, pero las cifras de avance están medidas.
 
 | Área | Peso | Hecho | |
 |---|---:|---:|---|
 | Análisis del binario y mapeo del árbol de fuentes | 4% | 100% | `██████████` |
-| Herramientas y oráculo de verificación | 8% | 90% | `█████████░` |
+| Herramientas y oráculo de verificación | 8% | 95% | `██████████` |
 | Especificaciones de formatos de assets | 8% | 65% | `██████░░░░` |
 | `lime/common` — núcleo del motor (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — lógica de juego (291 fn) | 18% | 0% | `░░░░░░░░░░` |
-| `gamecode/logic` — motor de combate (2.172 fn) | 28% | 3% | `░░░░░░░░░░` |
+| `gamecode/logic` — motor de combate (2.172 fn) | 28% | 4% | `░░░░░░░░░░` |
 | Capa de plataforma nativa de PC (229 fn reescritas) | 17% | 0% | `░░░░░░░░░░` |
 | Stubs del SDK de EA (~1.412 fn) | 5% | 0% | `░░░░░░░░░░` |
 

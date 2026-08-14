@@ -7,12 +7,12 @@ working agreement and it has not changed.
 
 ## Where the project stands
 
-**17% overall. 0.7% of the decompilation itself — 17 functions of 2,572.**
+**18% overall. 0.7% of the decompilation itself — 17 functions of 2,572.**
 Nothing is playable natively yet.
 
-Those two numbers have not moved much this session, and that is honest: no new
-module was finished. What changed is the *method*, and that is worth more than
-a percentage point.
+Those two numbers barely moved this session, and that is honest: no new module
+was finished. What changed is the *method*. The session ends with a task at the
+top of the route that needs no decompilation at all — see item 1.
 
 | Done | Where |
 |---|---|
@@ -55,9 +55,37 @@ not and could not:
 The old order walked `lime/common` module by module. That was right when the
 oracle was the only verification available. It no longer is.
 
-### 1. Finish `.events` — [issue #3](../../issues/3)
+### 1. Capture the move input tables — no code required
 
-**Do this first.** It is the only remaining format with a free oracle, and the
+**Do this first, because it costs an evening and no skill.**
+
+The in-game moves list **prints the displayed move's input sequence every
+frame**, one integer per line, values 0–22. The period of the repetition is the
+number of inputs in the move. Evidence and the five sequences already captured
+are in [PROGRESS.md](PROGRESS.md#the-moves-list-dumps-the-move-input-tables).
+
+So:
+
+1. Launch with a log: `touchHLE.exe app.ipa *>&1 | Tee-Object -FilePath moves.txt`
+2. Start a fight, open the in-game menu, go to **Moves Info**.
+3. Scroll through **every move**, pausing a second or two on each so the cycle
+   repeats enough times to be unambiguous.
+4. Repeat for as many characters as patience allows. Note in a text file which
+   character and which move order you walked, in the same order — that is what
+   turns the numbers into a table.
+5. Segment the log by periodicity; the code that does it is three lines and is
+   shown in the PROGRESS entry.
+
+The result is the move input table for the whole roster, which is the single
+most valuable dataset in the fight engine and the part static analysis handles
+worst. It also pins down the icon alphabet: with enough moves cross-referenced
+against a public UMK3 move list, each of the 0–22 values gets a name.
+
+Do not decompile anything to get this. The game is already telling you.
+
+### 2. Finish `.events` — [issue #3](../../issues/3)
+
+It is the other remaining format with a free oracle, and the
 resume point is exact: `0x000a47fc`, right after the `limeMalloc(tag, N*216)`
 that allocates the track array.
 
@@ -68,7 +96,7 @@ files are exactly 4 bytes — a lone `count = 0`, which confirms the header.
 Counter-examples that must divide before you believe any layout: Jax (14964
 bytes, 46 tracks), Kung Lao (12216/37), Lair (15728/29), Sektor (14976/45).
 
-### 2. A mesh viewer
+### 3. A mesh viewer
 
 All four model and animation formats are solved. There is enough to draw an
 animated character on screen, and **the project has produced no visible output
@@ -79,7 +107,7 @@ Start from `.meshset` + `.skin` + `.bones` + `.skinanim`, GLFW and OpenGL 3.3.
 PVRTC has to be decoded on the CPU — do not rely on a GL extension, which is
 exactly what fails inside touchHLE.
 
-### 3. Patch the modal dialogs — a small, well-defined win
+### 4. Patch the modal dialogs — a small, well-defined win
 
 ```
 -[modalAlertDelegate initWithRunLoop:]   0x000b53bc   <- the cause
@@ -95,14 +123,14 @@ sessions possible, which feeds everything above.
 
 Use `tools/patch_ipa.py`. Work on a copy.
 
-### 4. `_DoSwitchJump` — [issue #1](../../issues/1)
+### 5. `_DoSwitchJump` — [issue #1](../../issues/1)
 
 Still the biggest prize and still the hardest. Now approach it **through the
 emulator**: reach a state, read the index the game prints, map index to
 function. Do not mark anything verified on the strength of a plausible-looking
 decompilation.
 
-### 5. Everything else
+### 6. Everything else
 
 `RenderScene.cpp`, `RenderSkinned.cpp`, signatures and structs for
 `SKININFO` / `BONE` / `BONEANIMFRAME`. Same loop as before:
@@ -118,7 +146,7 @@ decompilation.
 - **A working gamepad mapping** is in `docs/touchHLE_options.example.txt`.
   touchHLE's own defaults for this app put the touch targets off-screen, so a
   controller appears dead until you replace them.
-- **Avoid any confirmation dialog** until item 3 is done — it closes the
+- **Avoid any confirmation dialog** until item 4 is done — it closes the
   emulator.
 - The log's own output is worth grepping for `triggered event`, `FE_Task_`,
   `loading scene:` and `glError`.
