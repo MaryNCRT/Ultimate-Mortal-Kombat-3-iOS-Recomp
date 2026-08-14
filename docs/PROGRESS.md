@@ -533,6 +533,53 @@ than relying on a GL extension.
 | Babality model invisible | PVRTC upload failing | no — emulator side |
 | 47× `Failed to create OpenAL source` | source limit exhausted | no |
 
+### The fight engine prints more than events
+
+Mining the full arcade log (47,421 lines, 23,551 of them the game's own output)
+turned up three more things the engine reports about itself.
+
+**`seq_lookup` prints its arguments — 366 times:**
+
+```
+seq_lookup( 18, 0, 1 );
+seq_lookup( 17, 3, 1 );
+seq_lookup( 10, 1, 1 );
+```
+
+`_seq_lookup` is at `0x000adb80` in **`playback.c`**, a file with only four
+functions. Structure of the 366 observed calls:
+
+| Arg | Range | Distinct | Reading |
+|---|---|---:|---|
+| 1st | 1–18 | **5** | sequence set — likely character or move class |
+| 2nd | 0–710 | 30 | sequence index within the set |
+| 3rd | 1 | 1 | flag or mode; never varied |
+
+Most frequent: `(18,0,1)` ×50, `(17,3,1)` ×42, `(1,0,1)` ×40, `(10,1,1)` ×34.
+
+The function is **7,608 bytes with 3,964 undecodable as instructions** — about
+4 KB of embedded data, consistent with the large lookup table its name promises.
+
+**This makes `playback.c` the best first target in `gamecode/logic`:** four
+functions, self-contained, and a printed oracle giving real inputs. Comparing
+what a reimplementation would produce against what the game prints is
+verification that needs no differential harness.
+
+**Other engine output mapped to symbols:**
+
+| Log line | Symbol | Address |
+|---|---|---|
+| `########## TASK_GAME_INIT: N` | `_Task_GameInit` | `0x0002e6f4` |
+| `Tsound NxN N` | `_tsound_func` | `0x00057dd0` |
+| `TRACK ALREADY CLOSED (setGain)!` | audio, `GBMusicTrack.m` | — |
+
+`_Task_GameMain` (`0x0002afec`) and `_Task_GameDestroy` (`0x00022c74`) complete
+the game task triple; only the init one announces itself.
+
+There are also **10,208 lines consisting of a bare number**, plus 184 lines of
+32 numbers in a row. Unidentified. Worth finding what prints them — whatever it
+is dumps a lot of engine state for free.
+
 ---
 
 ## The verification oracle
