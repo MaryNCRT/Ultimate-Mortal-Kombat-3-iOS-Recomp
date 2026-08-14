@@ -128,7 +128,7 @@ Ese número es una estimación, así que aquí está la aritmética que hay detr
 
 **Por qué las áreas de base cuentan.** Las dos primeras filas están terminadas o casi, y son las que hacen abordable todo lo demás: el árbol de fuentes está recuperado, y ahora toda función tiene un camino automatizado desde el código máquina hasta un test diferencial. Eso es progreso real aunque no dibuje ni un píxel.
 
-**Por qué la cifra sigue siendo baja.** Dieciséis funciones de 2.572 están realmente terminadas. Solo el motor de combate son 2.172 funciones y no se ha empezado. De forma realista, esto es un año o más de trabajo.
+**Por qué la cifra sigue siendo baja.** Diecisiete funciones de 2.572 están realmente terminadas. Solo el motor de combate son 2.172 funciones y no se ha empezado. De forma realista, esto es un año o más de trabajo.
 
 **Cómo leer los hitos:**
 
@@ -152,6 +152,7 @@ Ese número es una estimación, así que aquí está la aritmética que hay detr
 | `Matrix.cpp` (11 fn) | ✅ | ✅ | ✅ | **40.006 casos, 0 divergencias** |
 | `limeVector.cpp` (2 fn) | ✅ | ✅ | ✅ | **20.013 casos, 0 divergencias** |
 | `RenderMesh.cpp` — cargador (3 de 19 fn) | ✅ | ✅ | ✅ | **590 archivos, 7.327 mallas, 0 divergencias** |
+| `other.c` — `SwitchQueue` (1 de 333 fn) | ✅ | ✅ | ✅ | **500 pushes, 0 divergencias** |
 | `RenderScene.cpp` (14 fn) | ✅ | ⬜ | ⬜ | ⬜ |
 | `RenderSkinned.cpp` (20 fn) | ✅ | ⬜ | ⬜ | ⬜ |
 | `Events.cpp` (22 fn) | ✅ | ⬜ | ⬜ | ⬜ |
@@ -159,7 +160,7 @@ Ese número es una estimación, así que aquí está la aritmética que hay detr
 | `LIMEDS_Misc.cpp` (8 fn) | ✅ | ⬜ | ⬜ | ⬜ |
 | `DS_DebugWin.c` (7 fn) | ✅ | ⬜ | ⬜ | ⬜ |
 
-Dos módulos están de verdad terminados: decompilados, verificados, reescritos a mano y demostrados equivalentes. Eso son 16 funciones de 2.572. El porcentaje es pequeño; el *proceso* que las produjo es el activo de verdad, y ya funciona desatendido.
+Tres módulos y medio están de verdad terminados: decompilados, verificados, reescritos a mano y demostrados equivalentes. Eso son 17 funciones de 2.572, incluida la primera del motor de combate. El porcentaje es pequeño; el *proceso* que las produjo es el activo de verdad, y ya funciona desatendido.
 
 Estado detallado, decisiones y deuda técnica conocida: [docs/PROGRESS.md](docs/PROGRESS.md).
 
