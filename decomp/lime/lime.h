@@ -17,6 +17,7 @@
 #define LIME_H
 
 #include <stdint.h>
+#include <stddef.h>
 
 /* ------------------------------------------------------------------ */
 /* Vectores                                                             */
@@ -112,8 +113,26 @@ void CreatePerspectiveMatrix(float *m, float fov, float aspect,
 
 MESHSETINFO *LIME_LoadMeshSet(const char *filename, int useLighting);
 void         LIME_FreeMeshSet(MESHSETINFO *set);
-MESHINFO    *LIME_FindMeshByName(MESHSETINFO *set, const char *name);
+
+/* Returns the INDEX of the first mesh whose name CONTAINS `name`, or -1.
+ * An index, not a pointer, and a substring match, not an exact one — both
+ * are easy to get wrong and both are verified. */
+int          LIME_FindMeshByName(const MESHSETINFO *set, const char *name);
+
 void         LIME_LoadMeshSetTextures(MESHSETINFO *set);
 void         LIME_FreeMeshSetTextures(MESHSETINFO *set);
+
+/* Non-zero if the texture should be drawn without lighting. The original
+ * decides by looking the name up in a data file. */
+int          IsTextureFullBright(const char *textureName);
+
+/* ------------------------------------------------------------------ */
+/* Provided by the platform layer                                       */
+/* ------------------------------------------------------------------ */
+
+/* Reads a file from the game's asset directory. Returns a malloc'd buffer the
+ * caller owns, or NULL. On iOS this was limeLoadFile(); on PC the runtime
+ * supplies it. */
+void *lime_load_file(const char *path, size_t *out_size);
 
 #endif /* LIME_H */
