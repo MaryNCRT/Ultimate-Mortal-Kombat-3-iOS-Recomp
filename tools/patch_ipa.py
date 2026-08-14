@@ -1,0 +1,215 @@
+"""
+Parchea el binario de UMK3 dentro de una copia del IPA y lo reempaqueta.
+
+El objetivo es neutralizar la inicializacion del SDK de EA lo justo para que la
+app arranque en touchHLE, sin tocar nada de gamecode ni de lime.
+
+NUNCA escribe en EXTRACTED\\ ni en IPA\\: trabaja siempre sobre una copia en
+WORK\\.
+
+Direcciones: se dan en VMADDR de la slice armv7. El offset dentro del fat es
+    0x289000 + (vmaddr - 0x1000)
+porque el segmento __TEXT de la slice empieza en vmaddr 0x1000 / offset 0.
+
+Uso:
+  python patch_ipa.py --list
+  python patch_ipa.py --apply getProperty_asserts --out UMK3_1259_patched.ipa
+"""
+
+import argparse
+import os
+import shutil
+import struct
+import subprocess
+import sys
+import zipfile
+
+ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+SRC_IPA = os.path.join(ROOT, "TouchHLE", "touchHLE_apps",
+                       "UltimateMortalKombat3v1259.ipa")
+WORK = os.path.join(ROOT, "WORK")
+APPS = os.path.join(ROOT, "TouchHLE", "touchHLE_apps")
+
+ARMV7_FAT_OFFSET = 0x289000
+TEXT_VMBASE = 0x1000
+
+NOP16 = b"\x00\xbf"          # nop  (Thumb, 2 bytes)
+
+
+def vm_to_file(vmaddr):
+    return ARMV7_FAT_OFFSET + (vmaddr - TEXT_VMBASE)
+
+
+# ---------------------------------------------------------------- parches
+#
+# Cada parche es una lista de (vmaddr, bytes_nuevos, comentario).
+
+PATCHES = {}
+
+# --- 1: neutralizar los asserts de midp::System::getProperty -------------
+#
+# getProperty hace [NSBundle mainBundle], recibe nil y dispara
+#   SystemIPhone.mm:139  "mainBundle != null"
+#
+# En vez de tocar la llamada al assert (caer por ahi arrastra al codigo de
+# desenrollado de excepciones), se anulan los SALTOS CONDICIONALES que llevan
+# a cada assert. Asi la funcion sigue por su camino normal: mensajear a un
+# objeto nil en Objective-C devuelve nil, que es justo lo que la funcion ya
+# sabe tratar (la rama de 0x9d718 devuelve el String vacio).
+# --- 0: neutralizar TODOS los asserts de un solo golpe -------------------
+#
+# El stub de ___assert_rtn en __symbol_stub4 es codigo ARM de 12 bytes:
+#     e59fc000  ldr r12, [pc, #0]     ; r12 = slot del puntero perezoso
+#     e59cf000  ldr pc,  [r12]        ; salta a la direccion enlazada
+#     000f3acc  <direccion del slot>
+#
+# Sustituyendo la primera instruccion por "bx lr" (0xe12fff1e), cada
+# "blx ___assert_rtn" vuelve de inmediato al llamante. Un solo parche de 4
+# bytes neutraliza los 59 puntos de llamada, y ademas devuelve el control de
+# forma limpia: no hay que preocuparse de caer dentro del codigo del assert
+# ni del desenrollado de excepciones.
+#
+# Los 59 asserts estan TODOS en EA_SDK / eamtx (EASDK_Handler.mm 22,
+# Mayhem.mm 21, LocaleManager.mm 7, SystemIPhone.mm 3, ReferenceCounted.cpp 3,
+# JString.cpp 3). Ninguno en gamecode ni en lime: el juego no se toca.
+PATCHES["assert_stub"] = [
+    (0x000dd5cc, bytes.fromhex("1eff2fe1"), "stub ___assert_rtn -> bx lr (ARM)"),
+]
+
+# --- 2: forzar que el locale siempre se resuelva ------------------------
+#
+# Causa raiz del fallo de arranque en touchHLE:
+#
+#   LocaleManager::setLocale(String *locale) {
+#       int i = getLocaleIndex(locale);
+#       if (i != -1) { ...ok... }
+#       assert(false);            // LocaleManager.mm:172
+#   }
+#
+# touchHLE reporta los idiomas preferidos como codigos cortos ("es", "en"),
+# y la lista de locales soportados de EA no los reconoce: getLocaleIndex
+# devuelve -1 y salta el assert.
+#
+# Parche: getLocaleIndex devuelve siempre 0, es decir el primer idioma
+# soportado. Cuatro bytes en el prologo de la funcion:
+#     movs r0, #0    (0x2000)
+#     bx   lr        (0x4770)
+PATCHES["locale_index"] = [
+    (0x0009e794, bytes.fromhex("00204770"),
+     "getLocaleIndex -> return 0 (movs r0,#0; bx lr)"),
+]
+
+# --- 3: setLocale como no-op -------------------------------------------
+#
+# Variante mas conservadora que 'locale_index'. En vez de inventar un indice
+# de locale (peligroso si la lista de soportados esta vacia), se anula
+# setLocale entera: el LocaleManager se queda con el locale por defecto que
+# le puso su constructor.
+#   bx lr  (0x4770, Thumb)
+PATCHES["setlocale_nop"] = [
+    (0x0009e8c0, bytes.fromhex("7047"), "LocaleManager::setLocale -> bx lr"),
+]
+
+PATCHES["getProperty_asserts"] = [
+    (0x0009d5c8, NOP16 * 2, "beq.w -> assert 'key != null' (linea 95)"),
+    (0x0009d606, NOP16 * 2, "beq.w -> assert 'mainBundle != null' (linea 139)"),
+    (0x0009d610, NOP16 * 2, "beq.w -> assert 'keyRef != null' (linea 141)"),
+]
+
+
+def read_orig(data, vmaddr, n):
+    off = vm_to_file(vmaddr)
+    return data[off:off + n]
+
+
+def apply_patches(data, patches):
+    buf = bytearray(data)
+    for vmaddr, newbytes, comment in patches:
+        off = vm_to_file(vmaddr)
+        old = bytes(buf[off:off + len(newbytes)])
+        buf[off:off + len(newbytes)] = newbytes
+        print("  0x%08x (fat 0x%08x): %s -> %s   %s"
+              % (vmaddr, off, old.hex(), newbytes.hex(), comment))
+    return bytes(buf)
+
+
+def extract(src, dest):
+    if os.path.isdir(dest):
+        shutil.rmtree(dest)
+    os.makedirs(dest)
+    with zipfile.ZipFile(src) as z:
+        z.extractall(dest)
+
+
+def repack(srcdir, out):
+    if os.path.exists(out):
+        os.remove(out)
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED, compresslevel=1) as z:
+        for base, _dirs, files in os.walk(srcdir):
+            for f in files:
+                full = os.path.join(base, f)
+                rel = os.path.relpath(full, srcdir).replace("\\", "/")
+                z.write(full, rel)
+
+
+def find_binary(appdir):
+    for base, _d, files in os.walk(appdir):
+        if base.endswith(".app"):
+            for f in files:
+                if f == "UMK3":
+                    return os.path.join(base, f)
+    raise SystemExit("no se encontro Payload/*.app/UMK3")
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--list", action="store_true")
+    ap.add_argument("--apply", action="append", default=[])
+    ap.add_argument("--out", default="UMK3_1259_patched.ipa")
+    args = ap.parse_args()
+
+    if args.list:
+        for name, plist in PATCHES.items():
+            print("%s  (%d parches)" % (name, len(plist)))
+            for vmaddr, nb, c in plist:
+                print("   0x%08x  %d bytes  %s" % (vmaddr, len(nb), c))
+        return 0
+
+    if not args.apply:
+        raise SystemExit("indica --apply <nombre> o --list")
+
+    os.makedirs(WORK, exist_ok=True)
+    stage = os.path.join(WORK, "stage")
+    print("extrayendo %s ..." % os.path.basename(SRC_IPA))
+    extract(SRC_IPA, stage)
+
+    binpath = find_binary(stage)
+    with open(binpath, "rb") as fh:
+        data = fh.read()
+    print("binario: %s (%d bytes)" % (os.path.relpath(binpath, stage), len(data)))
+
+    # comprobacion de cordura: el fat header debe estar donde esperamos
+    magic = struct.unpack_from(">I", data, 0)[0]
+    if magic != 0xCAFEBABE:
+        raise SystemExit("no es un binario fat, magic=0x%08x" % magic)
+
+    todo = []
+    for name in args.apply:
+        if name not in PATCHES:
+            raise SystemExit("parche desconocido: %s" % name)
+        print("\naplicando '%s':" % name)
+        todo.extend(PATCHES[name])
+        data = apply_patches(data, PATCHES[name])
+
+    with open(binpath, "wb") as fh:
+        fh.write(data)
+
+    out = os.path.join(APPS, args.out)
+    print("\nreempaquetando -> %s" % out)
+    repack(stage, out)
+    print("listo: %.1f MB" % (os.path.getsize(out) / 1048576.0))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
