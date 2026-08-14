@@ -1,4 +1,4 @@
-"""
+﻿"""
 armrecomp — recompilador estatico Thumb/ARM -> C para UMK3 iOS.
 
 Modelo (igual que N64Recomp): traduccion literal, una instruccion ARM por
@@ -25,11 +25,14 @@ sys.path.insert(0, os.path.abspath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")))
 
 import umk3paths  # noqa: E402
+
 from macho import MachO, read_file, N_STAB, N_TYPE, N_SECT  # noqa: E402
 
 from capstone import Cs, CS_ARCH_ARM, CS_MODE_ARM, CS_MODE_THUMB, CS_MODE_LITTLE_ENDIAN
 from capstone.arm_const import (ARM_OP_REG, ARM_OP_IMM, ARM_OP_MEM, ARM_OP_FP,
-                                ARM_CC_AL, ARM_CC_INVALID)
+                                ARM_CC_AL, ARM_CC_INVALID,
+                                ARM_SFT_ASR, ARM_SFT_LSL, ARM_SFT_LSR,
+                                ARM_SFT_ROR)
 
 N_ARM_THUMB_DEF = 0x0008
 
@@ -402,12 +405,18 @@ class Emitter(object):
         val = self.rd(ins, op)
         if op.type == ARM_OP_REG and op.shift.type and op.shift.value:
             st = op.shift.type
-            if st == 1:      # LSL
+            # Capstone's order is ASR, LSL, LSR, ROR, RRX -- NOT the intuitive
+            # LSL, LSR, ASR. Getting this wrong turns "lsl #16" into ">> 16",
+            # which compiles, runs, and is silently wrong.
+            if st == ARM_SFT_LSL:
                 return "((%s) << %d)" % (val, op.shift.value)
-            if st == 2:      # LSR
+            if st == ARM_SFT_LSR:
                 return "((%s) >> %d)" % (val, op.shift.value)
-            if st == 3:      # ASR
+            if st == ARM_SFT_ASR:
                 return "((uint32_t)((int32_t)(%s) >> %d))" % (val, op.shift.value)
+            if st == ARM_SFT_ROR:
+                n = op.shift.value & 31
+                return "(((%s) >> %d) | ((%s) << %d))" % (val, n, val, (32 - n) & 31)
             raise Unsupported("tipo de shift %d" % st)
         return val
 
@@ -705,6 +714,29 @@ class Emitter(object):
 
         raise Unsupported(mn + " " + ins.op_str)
 
+    @staticmethod
+    def is_terminal(ins):
+        """
+        Does control flow definitely stop here?
+
+        Used to tell the end of a function from the literal pool that follows
+        it. Only unconditional forms count: a conditional return still falls
+        through.
+        """
+        if ins is None:
+            return False
+        mn = ins.mnemonic
+        base = mn.split(".")[0]
+        if ins.cc not in (ARM_CC_AL, ARM_CC_INVALID, 0):
+            return False
+        if base == "bx" and ins.op_str.strip() == "lr":
+            return True
+        if base == "pop" and "pc" in ins.op_str:
+            return True
+        if base == "b":                      # unconditional branch
+            return True
+        return False
+
     def callees(self, addr, size):
         """Direcciones de funciones internas a las que llama esta funcion."""
         thumb = self.funcs[addr][1]
@@ -744,6 +776,7 @@ class Emitter(object):
                     if op.type == ARM_OP_IMM and addr <= op.imm < addr + size:
                         labels.add(op.imm)
 
+        prev_ins = None
         cn = self.cname(addr)
         out.append("/* %s @ 0x%08x  (%s, %d bytes, %d instrucciones) */"
                    % (name, addr, "Thumb" if thumb else "ARM", size, len(insns)))
@@ -752,6 +785,14 @@ class Emitter(object):
 
         decoded_bytes = 0
         for ins in insns:
+            # Stop at a terminal instruction when nothing further is a branch
+            # target. What follows is the literal pool, and decoding it as
+            # code produces plausible-looking garbage -- a "bvs" that is really
+            # a constant, jumping to a label that will never be emitted.
+            if decoded_bytes and self.is_terminal(prev_ins) \
+                    and not any(l >= ins.address for l in labels):
+                break
+            prev_ins = ins
             decoded_bytes += ins.size
             if ins.address in labels:
                 out.append("L_%08x:" % ins.address)
