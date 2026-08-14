@@ -1,0 +1,77 @@
+# ---------------------------------------------------------------------------
+# LEGAL — never commit copyrighted game data or derived binaries
+# ---------------------------------------------------------------------------
+# The original game is copyright Electronic Arts / Midway / Warner Bros.
+# NOTHING derived from the retail binary or its assets belongs in this repo.
+# Every user must supply their own legally obtained copy.
+
+# Game packages and extracted bundles
+*.ipa
+*.app/
+IPA/
+EXTRACTED/
+Payload/
+
+# Game assets of any kind
+*.meshset
+*.skin
+*.skinanim
+*.bones
+*.scene
+*.lighting
+*.events
+*.pvr
+*.x
+
+# Machine-translated output of the retail binary (derivative work).
+# Generated locally by tools/armrecomp/recomp.py from YOUR copy.
+recompiled/
+
+# Raw Ghidra output (derivative work, and regenerable).
+# Produced by tools/decomp_driver.py from YOUR copy.
+decomp/**/_raw/
+
+# Dumps taken from the retail binary
+*.armv7
+symbols.txt
+functions.txt
+func-to-file.txt
+asserts.txt
+worklist/
+
+# ---------------------------------------------------------------------------
+# Third-party tools — install them yourself, do not vendor
+# ---------------------------------------------------------------------------
+TouchHLE/
+touchHLE*/
+ghidra_*_PUBLIC/
+GhidraMCP/
+tools/ghidra_*/
+*.gpr
+*.rep/
+
+# ---------------------------------------------------------------------------
+# Build artifacts
+# ---------------------------------------------------------------------------
+build/
+*.exe
+*.o
+*.obj
+*.a
+*.lib
+*.dll
+*.so
+*.dylib
+
+# ---------------------------------------------------------------------------
+# Environment
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.mcp.json
+.claude/settings.local.json
+.DS_Store
+Thumbs.db
+*.log
