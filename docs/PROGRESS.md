@@ -1,4 +1,4 @@
-# Progress
+﻿# Progress
 
 Current state of the project. Written so that someone can pick it up with no prior context.
 
@@ -9,16 +9,16 @@ Current state of the project. Written so that someone can pick it up with no pri
 ## Overall progress
 
 ```
-██████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  14%
+██████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  15%
 ```
 
-**≈14% of the total estimated effort. Nothing is playable yet.**
+**≈15% of the total estimated effort. Nothing is playable yet.**
 
 Weights are our judgement of how much of the total each area represents;
 the completion figures are measured. Two numbers are worth keeping apart:
 
-- **14%** — share of the *whole project*, counting analysis, tooling and formats.
-- **0.5%** — share of the *decompilation itself*: 13 finished functions of 2,572.
+- **15%** — share of the *whole project*, counting analysis, tooling and formats.
+- **0.6%** — share of the *decompilation itself*: 16 finished functions of 2,572.
 
 Both are true. The first says the foundations are in place; the second says the
 bulk of the work has not started.
@@ -26,9 +26,9 @@ bulk of the work has not started.
 | Area | Weight | Done | |
 |---|---:|---:|---|
 | Binary analysis and source-tree mapping | 4% | 100% | `██████████` |
-| Tooling and the verification oracle | 8% | 85% | `████████░░` |
+| Tooling and the verification oracle | 8% | 90% | `█████████░` |
 | Asset format specifications | 8% | 20% | `██░░░░░░░░` |
-| `lime/common` — engine core (109 fn) | 12% | 12% | `█░░░░░░░░░` |
+| `lime/common` — engine core (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | 0% | `░░░░░░░░░░` |
 | Native PC platform layer (229 fn rewritten) | 17% | 0% | `░░░░░░░░░░` |
@@ -57,14 +57,14 @@ bulk of the work has not started.
 | 1 — Asset formats | 🔄 `.meshset` solved; `.skin`/`.bones`/`.skinanim` open |
 | 2 — Verification oracle | ✅ complete and proven |
 | 3 — Ghidra automation | ✅ headless pipeline working |
-| 4 — Decompile `lime/common` | 🔄 109/109 drafted, 2 modules finished |
+| 4 — Decompile `lime/common` | 🔄 109/109 drafted, 2.5 modules finished |
 | 5 — Native PC platform layer | ⬜ not started |
 | 6 — EA SDK stubs | ⬜ not started (scope reduced, see below) |
 | 7 — Decompile `gamecode` | ⬜ not started |
 | 8 — Decompile fight logic | ⬜ not started |
 | 9 — Widescreen, gamepad, mods | ⬜ not started |
 
-**Honest framing:** 13 of 2,572 functions are fully done. That is ~0.5%. The percentage is not the interesting number — the pipeline that produced them is, and it now runs unattended.
+**Honest framing:** 16 of 2,572 functions are fully done. That is ~0.6%. The percentage is not the interesting number — the pipeline that produced them is, and it now runs unattended.
 
 ---
 
@@ -74,7 +74,8 @@ bulk of the work has not started.
 |---|---|---|---|---|
 | `Matrix.cpp` (11 fn) | ✅ | ✅ | ✅ | **40,006 cases, 0 divergences** |
 | `limeVector.cpp` (2 fn) | ✅ | ✅ | ✅ | **20,013 cases, 0 divergences** |
-| `RenderMesh.cpp` (19 fn) | ✅ | 🔄 loader only | ⬜ | **590 files, 7,326 meshes, 1 mismatch** |
+| `RenderMesh.cpp` — loader (3 of 19 fn) | ✅ | ✅ | ✅ | **590 files, 7,327 meshes, 0 divergences** |
+| `RenderMesh.cpp` — rendering (16 fn) | ✅ | ⬜ | ⬜ | needs a graphics backend first |
 | `RenderScene.cpp` (14 fn) | ✅ | ⬜ | ⬜ | ⬜ |
 | `RenderSkinned.cpp` (20 fn) | ✅ | ⬜ | ⬜ | ⬜ |
 | `Events.cpp` (22 fn) | ✅ | ⬜ | ⬜ | ⬜ |
@@ -122,22 +123,42 @@ Both functions (`_Len`, `_Normalise`) are 100% NEON, and **Ghidra's output for b
 
 ---
 
-## `RenderMesh.cpp` — loader validated against real data
+## `RenderMesh.cpp` — loader finished
 
-`test_meshset_loader` runs **the original `_LIME_LoadMeshSet`, recompiled**, over the game's `.meshset` files and compares what it leaves in memory against [MESHSET-FORMAT.md](MESHSET-FORMAT.md):
+Two tests, both over the game's real data:
+
+**`test_meshset_loader`** runs the original `_LIME_LoadMeshSet`, recompiled, and
+checks what it leaves in memory against [MESHSET-FORMAT.md](MESHSET-FORMAT.md).
+That validates the *specification*.
+
+**`test_rendermesh_diff`** runs the hand-written `decomp/lime/RenderMesh.c`
+against the same recompiled original and compares the results. That validates
+the *reimplementation*.
 
 ```
-files loaded:            590
+files compared:          590
 skipped (variants B/C):   14
-meshes checked:        7,326
-vertices:          2,950,669
-triangles:         2,810,730
-mismatches:                1     (KANO_STANDARD.meshset, vertLight)
+meshes compared:       7,327
+divergences:               0
 ```
 
-Byte-for-byte agreement on `numMeshes`, copied names, `numVerts`, `numFaces`, `boundsRadius`, the index buffer, the vertex buffer, and per-vertex lighting on 7,325 of 7,326.
+Byte-for-byte agreement on `numMeshes`, copied names, `numVerts`, `numFaces`,
+`boundsRadius`, the index buffer, the vertex buffer and per-vertex lighting.
 
-Two spec corrections came out of this — see MESHSET-FORMAT.md §7 and §8.
+Three findings came out of this, all now in MESHSET-FORMAT.md:
+
+1. **`LIME_FindMeshByName` returns an index, not a pointer** — and matches by
+   substring, not equality. Asking for `"SKULL"` finds `"SKULL3"`. The
+   signature file had it wrong.
+2. **The in-memory vertex has two undefined bytes.** The copy loop at
+   `0x0005ebcc` writes x, y, z, u and v and nothing else, so the padding at
+   offset 6 keeps whatever the allocator left there. Comparing the 16-byte
+   struct with `memcmp` fails on 584 of 590 files for that reason alone.
+3. **`KANO_STANDARD.lighting` is one byte short** — 42,867 bytes for 42,868
+   vertices. The retail game reads one byte past the end of that buffer every
+   time it loads Kano. Every other lighting file matches its vertex count
+   exactly. This is a defect in EA's shipped data, not a misreading of the
+   format; it took running both loaders side by side to tell those apart.
 
 ---
 

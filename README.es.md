@@ -1,4 +1,4 @@
-<div align="center">
+﻿<div align="center">
 
 # Ultimate Mortal Kombat 3 — Decompilación de iOS y port a PC
 
@@ -108,19 +108,19 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ## Progreso general
 
 ```
-██████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  14%
+██████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  15%
 ```
 
-**En torno al 14% del esfuerzo total estimado. Todavía no hay nada jugable.**
+**En torno al 15% del esfuerzo total estimado. Todavía no hay nada jugable.**
 
 Ese número es una estimación, así que aquí está la aritmética que hay detrás en vez de una cifra que haya que creerse. Los pesos son nuestro criterio sobre cuánto representa cada área del total; discrepa del reparto si quieres, pero las cifras de avance están medidas.
 
 | Área | Peso | Hecho | |
 |---|---:|---:|---|
 | Análisis del binario y mapeo del árbol de fuentes | 4% | 100% | `██████████` |
-| Herramientas y oráculo de verificación | 8% | 85% | `████████░░` |
+| Herramientas y oráculo de verificación | 8% | 90% | `█████████░` |
 | Especificaciones de formatos de assets | 8% | 20% | `██░░░░░░░░` |
-| `lime/common` — núcleo del motor (109 fn) | 12% | 12% | `█░░░░░░░░░` |
+| `lime/common` — núcleo del motor (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — lógica de juego (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — motor de combate (2.172 fn) | 28% | 0% | `░░░░░░░░░░` |
 | Capa de plataforma nativa de PC (229 fn reescritas) | 17% | 0% | `░░░░░░░░░░` |
@@ -128,7 +128,7 @@ Ese número es una estimación, así que aquí está la aritmética que hay detr
 
 **Por qué las áreas de base cuentan.** Las dos primeras filas están terminadas o casi, y son las que hacen abordable todo lo demás: el árbol de fuentes está recuperado, y ahora toda función tiene un camino automatizado desde el código máquina hasta un test diferencial. Eso es progreso real aunque no dibuje ni un píxel.
 
-**Por qué la cifra sigue siendo baja.** Trece funciones de 2.572 están realmente terminadas. Solo el motor de combate son 2.172 funciones y no se ha empezado. De forma realista, esto es un año o más de trabajo.
+**Por qué la cifra sigue siendo baja.** Dieciséis funciones de 2.572 están realmente terminadas. Solo el motor de combate son 2.172 funciones y no se ha empezado. De forma realista, esto es un año o más de trabajo.
 
 **Cómo leer los hitos:**
 
@@ -151,7 +151,7 @@ Ese número es una estimación, así que aquí está la aritmética que hay detr
 |---|---|---|---|---|
 | `Matrix.cpp` (11 fn) | ✅ | ✅ | ✅ | **40.006 casos, 0 divergencias** |
 | `limeVector.cpp` (2 fn) | ✅ | ✅ | ✅ | **20.013 casos, 0 divergencias** |
-| `RenderMesh.cpp` (19 fn) | ✅ | 🔄 cargador verificado | ⬜ | **590 archivos, 7.326 mallas, 1 discrepancia** |
+| `RenderMesh.cpp` — cargador (3 de 19 fn) | ✅ | ✅ | ✅ | **590 archivos, 7.327 mallas, 0 divergencias** |
 | `RenderScene.cpp` (14 fn) | ✅ | ⬜ | ⬜ | ⬜ |
 | `RenderSkinned.cpp` (20 fn) | ✅ | ⬜ | ⬜ | ⬜ |
 | `Events.cpp` (22 fn) | ✅ | ⬜ | ⬜ | ⬜ |
@@ -159,7 +159,7 @@ Ese número es una estimación, así que aquí está la aritmética que hay detr
 | `LIMEDS_Misc.cpp` (8 fn) | ✅ | ⬜ | ⬜ | ⬜ |
 | `DS_DebugWin.c` (7 fn) | ✅ | ⬜ | ⬜ | ⬜ |
 
-Dos módulos están de verdad terminados: decompilados, verificados, reescritos a mano y demostrados equivalentes. Eso son 13 funciones de 2.572. El porcentaje es pequeño; el *proceso* que las produjo es el activo de verdad, y ya funciona desatendido.
+Dos módulos están de verdad terminados: decompilados, verificados, reescritos a mano y demostrados equivalentes. Eso son 16 funciones de 2.572. El porcentaje es pequeño; el *proceso* que las produjo es el activo de verdad, y ya funciona desatendido.
 
 Estado detallado, decisiones y deuda técnica conocida: [docs/PROGRESS.md](docs/PROGRESS.md).
 

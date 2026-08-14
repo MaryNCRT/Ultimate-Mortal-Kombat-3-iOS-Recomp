@@ -106,10 +106,10 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ## Overall progress
 
 ```
-██████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  14%
+██████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  15%
 ```
 
-**Roughly 14% of the total estimated effort. Nothing is playable yet.**
+**Roughly 15% of the total estimated effort. Nothing is playable yet.**
 
 That number is an estimate, so here is the arithmetic behind it rather than a
 figure you have to take on faith. Weights are our judgement of how much of the
@@ -119,9 +119,9 @@ the completion figures are measured.
 | Area | Weight | Done | |
 |---|---:|---:|---|
 | Binary analysis and source-tree mapping | 4% | 100% | `██████████` |
-| Tooling and the verification oracle | 8% | 85% | `████████░░` |
+| Tooling and the verification oracle | 8% | 90% | `█████████░` |
 | Asset format specifications | 8% | 20% | `██░░░░░░░░` |
-| `lime/common` — engine core (109 fn) | 12% | 12% | `█░░░░░░░░░` |
+| `lime/common` — engine core (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | 0% | `░░░░░░░░░░` |
 | Native PC platform layer (229 fn rewritten) | 17% | 0% | `░░░░░░░░░░` |
@@ -133,7 +133,7 @@ tree is recovered, and every function now has an automated path from machine
 code to a differential test. That is real progress even though it renders no
 pixels.
 
-**Why the number is still low.** Thirteen functions of 2,572 are genuinely
+**Why the number is still low.** Sixteen functions of 2,572 are genuinely
 finished. The fight engine alone is 2,172 functions and has not been started.
 Realistically this is a year or more of work.
 
@@ -158,7 +158,7 @@ Realistically this is a year or more of work.
 |---|---|---|---|---|
 | `Matrix.cpp` (11 fn) | ✅ | ✅ | ✅ | **40,006 cases, 0 divergences** |
 | `limeVector.cpp` (2 fn) | ✅ | ✅ | ✅ | **20,013 cases, 0 divergences** |
-| `RenderMesh.cpp` (19 fn) | ✅ | 🔄 loader verified | ⬜ | **590 files, 7,326 meshes, 1 mismatch** |
+| `RenderMesh.cpp` — loader (3 of 19 fn) | ✅ | ✅ | ✅ | **590 files, 7,327 meshes, 0 divergences** |
 | `RenderScene.cpp` (14 fn) | ✅ | ⬜ | ⬜ | ⬜ |
 | `RenderSkinned.cpp` (20 fn) | ✅ | ⬜ | ⬜ | ⬜ |
 | `Events.cpp` (22 fn) | ✅ | ⬜ | ⬜ | ⬜ |
@@ -166,7 +166,9 @@ Realistically this is a year or more of work.
 | `LIMEDS_Misc.cpp` (8 fn) | ✅ | ⬜ | ⬜ | ⬜ |
 | `DS_DebugWin.c` (7 fn) | ✅ | ⬜ | ⬜ | ⬜ |
 
-Two modules are genuinely finished — decompiled, verified, rewritten by hand, and proven equivalent. That is 13 functions out of 2,572. The percentage is small; the *pipeline* that produced them is the actual asset, and it now runs unattended.
+Two and a half modules are genuinely finished — decompiled, verified, rewritten by hand, and proven equivalent. That is 16 functions out of 2,572. The percentage is small; the *pipeline* that produced them is the actual asset, and it now runs unattended.
+
+The `RenderMesh.cpp` row is the loader specifically — `LIME_LoadMeshSet`, `LIME_FreeMeshSet` and `LIME_FindMeshByName`. The remaining 16 functions in that file are the rendering path, which needs a graphics backend before it can be verified.
 
 Detailed status, decisions and known technical debt: [docs/PROGRESS.md](docs/PROGRESS.md).
 
@@ -174,7 +176,9 @@ Detailed status, decisions and known technical debt: [docs/PROGRESS.md](docs/PRO
 
 ## Things discovered along the way
 
-**The `.meshset` model format is solved and verified.** Not by guessing — by running EA's own `LIME_LoadMeshSet`, recompiled, against the game's real data and comparing what it leaves in memory to our specification: **590 files, 7,326 meshes, 2.9M vertices, byte-for-byte agreement** on indices, vertices and bounds. One mismatch, in one lighting buffer. See [docs/MESHSET-FORMAT.md](docs/MESHSET-FORMAT.md).
+**The `.meshset` model format is solved and verified.** Not by guessing — by running EA's own `LIME_LoadMeshSet`, recompiled, against the game's real data and comparing what it leaves in memory to our specification: **590 files, 7,327 meshes, 2.9M vertices, byte-for-byte agreement** on indices, vertices, bounds and per-vertex lighting. See [docs/MESHSET-FORMAT.md](docs/MESHSET-FORMAT.md).
+
+**We found a bug in a shipped asset.** One file, `KANO_STANDARD.lighting`, is exactly one byte shorter than its mesh set needs — 42,867 bytes for 42,868 vertices. The retail game reads one byte past the end of that buffer every time it loads Kano. Every other lighting file in the game matches its vertex count exactly. It took running EA's loader and our own side by side to tell "we misread the format" apart from "the data is wrong."
 
 **Version 1.2.59 now runs in touchHLE, with a 2-byte patch.** The compatibility database only ever listed 1.0.4; as far as we know nobody had the final version working. The cause turned out to be a two-part failure: touchHLE reports preferred languages as short codes (`["es","en"]`), EA's locale table only recognises long ones, `getLocaleIndex` returns −1, and an `assert(false)` fires — which kills the emulator outright, because **touchHLE does not implement `___assert_rtn`**. Patching `LocaleManager::setLocale` to return immediately is enough. Full write-up: [docs/TOUCHHLE-PATCH.md](docs/TOUCHHLE-PATCH.md).
 
