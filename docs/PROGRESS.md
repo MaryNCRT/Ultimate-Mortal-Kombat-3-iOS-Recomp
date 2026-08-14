@@ -368,6 +368,86 @@ Other names visible in this subsystem, not yet investigated:
 
 ---
 
+## The game prints its own dispatch indices
+
+A play session through the menus produced this before dying:
+
+```
+#0:FE_Task_Main_Menu(0)
+#1:FE_Task_Extras(6)
+######################### (FE_Task_Select_Leaderboard)(49)
+```
+
+That is the front-end task stack, with **each task's name and its index**. All
+three are real symbols — `_FE_Task_Main_Menu` at `0x0001ac64`,
+`_FE_Task_Extras` at `0x0001962c`, `_FE_Task_Select_Leaderboard` at
+`0x00013e6c` — and there are **53 `FE_Task_*` functions** in the binary.
+
+**This is a general technique, not a one-off.** The engine dispatches through
+numbered tables and prints the numbers. Walking the menus maps index → function
+by observation, which is exactly the method needed for the tables behind
+`_DoSwitchJump` ([#1](../../issues/1)) that no differential test can reach.
+Reaching a state in the emulator and reading the index it reports is evidence;
+guessing from a name is not.
+
+Indices observed so far, 6 of the 53:
+
+| Index | Task |
+|---:|---|
+| 0 | `FE_Task_Main_Menu` |
+| 5 | `FE_Task_Options` |
+| 6 | `FE_Task_Extras` |
+| 7 | `FE_Task_About` |
+| 9 | `FE_Task_Settings` |
+| 10 | `FE_Task_Button_Config` |
+| 49 | `FE_Task_Select_Leaderboard` |
+
+Filling the rest is a matter of walking the menus and reading the log.
+
+### A second EA SDK blocker, at runtime this time
+
+Entering the leaderboard kills the emulator:
+
+```
+UIAlertView: "¡ERROR AL CARGAR LA PÁGINA SOLICITADA! ¡COMPRUEBA TU CONEXIÓN A INTERNET!"
+panicked at src/dyld.rs:811:9: Call to unimplemented function _CFRunLoopRun
+```
+
+The online layer fails to reach EA's servers, raises a modal alert, and the
+modal needs a nested run loop that touchHLE does not implement.
+
+**This refines the earlier conclusion about the EA SDK.** It remains true that
+the SDK does not block *startup* — one function did, and patching it was
+enough. But the online features still crash when *entered*. It also explains
+the long-standing note that achievements crash the emulator in 1.0.4: same
+layer, same modal path.
+
+For the native port this means the leaderboard, achievements and any other
+online menu entry need to be **removed or stubbed at the menu level**, not just
+given neutral return values further down. A stub that returns "no connection"
+still ends up in the alert.
+
+### The EULA screen is a web view pointed at EA's servers
+
+Opening the licence agreement produces:
+
+```
+UMK3[0] ASSIGNED:http://tos.ea.com/legalapp/mobileeula/US/es/OTHER/
+touchHLE: TODO: [(UIWebView*) 0x3023be20 loadRequest:(null) ()]
+UMK3[0] REQUESTED URL:http://tos.ea.com/legalapp/mobileeula/US/es/OTHER/
+```
+
+The screen renders empty because `UIWebView loadRequest` is unimplemented. It
+does not crash — the interface is simply broken.
+
+That maps to `WebViewController.m` (18 functions in `lime/iphone`), which the
+port has to replace anyway. Worth noting for whoever writes it: **the bundle
+already ships local copies** — `res/defaults/dmg/staticpage/dmg_staticpage_*.html`
+in eight languages. The native version can serve those instead of reaching for
+a URL that will not resolve, and the EULA screen works offline.
+
+---
+
 ## The verification oracle
 
 **Verdict: it works.** `test_matrix` → 22 assertions, 0 failures.
