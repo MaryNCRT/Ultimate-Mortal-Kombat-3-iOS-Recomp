@@ -1,6 +1,6 @@
 ﻿<div align="center">
 
-<img src="docs/img/logo.png" alt="Ultimate Mortal Kombat 3 Recomp" width="820">
+<img src="docs/img/banner.jpg" alt="Ultimate Mortal Kombat 3 Recomp" width="880">
 
 # Ultimate Mortal Kombat 3 — iOS Decompilation & PC Port
 
@@ -14,9 +14,9 @@
 
 ## No copyrighted assets are distributed here
 
-**This repository contains no game code, no game data, and no game assets.** Not one byte extracted from the game — no textures, no models, no audio, no compiled code — is committed here or shipped in any release.
+**This repository ships no game files.** No textures, no models, no audio, no compiled code — nothing you could extract from here and use. Every release is built against **a copy you supply yourself**.
 
-The one exception is the banner at the top of this page, which is fan art of the *Ultimate Mortal Kombat 3* wordmark, credited [below](#the-logo). It is a trademark used to identify what the project is about, not game data, and it is not part of any build.
+The banner at the top of this page is the one piece of imagery here, and it is worth being precise about: it is fan art of the *Ultimate Mortal Kombat 3* wordmark, credited [below](#the-banner), composited over a **screenshot** of the game running. A screenshot depicts the game; it is not an asset file, it cannot be unpacked back into one, and it is not part of any build. The *Mortal Kombat* marks and the artwork they depict belong to Warner Bros. Entertainment.
 
 What lives here is *our own* work: analysis tools, documentation of file formats, hand-written C, and test harnesses. Everything that touches the original game reads it from **a copy you supply yourself** and produces its output locally, where `.gitignore` keeps it out of the repository.
 
@@ -303,21 +303,36 @@ The tooling, analysis, decompilation and documentation were produced with
 for the full account of what that means and how correctness was established
 independently of it.
 
-### The logo
+### The banner
 
-The *Ultimate Mortal Kombat 3* wordmark at the top of this page was **redrawn in
-UHD by [u/JuananoLaGarza](https://www.reddit.com/user/JuananoLaGarza/)**, and
-posted to r/MortalKombat as
+The *Ultimate Mortal Kombat 3* wordmark was **redrawn in UHD by
+[u/JuananoLaGarza](https://www.reddit.com/user/JuananoLaGarza/)** and posted to
+r/MortalKombat as
 *[Ultimate Mortal Kombat 3 logo redone in UHD](https://www.reddit.com/r/MortalKombat/comments/mvm4uo/ultimate_mortal_kombat_3_logo_redone_in_uhd/)*.
-It is used here with credit; the "RECOMP" word underneath and the dark backing
-are this project's addition. The underlying *Mortal Kombat* marks and dragon
-emblem belong to Warner Bros. Entertainment — see [Legal](#legal).
+It is used here with credit. If you are the artist and would rather this project
+did not use it, open an issue and it comes down.
 
-If you are the artist and would rather this project did not use it, open an
-issue and it comes down.
+Everything around it — the "RECOMP" word, the iOS badge, and the Sub-Zero
+screenshot behind it — was assembled by [MaryNCRT](https://github.com/MaryNCRT).
 
-This is a placeholder identity while the project is young. A logo that does not
-lean on the trademark would serve it better in the long run.
+**Yes, it looks like a 2011 App Store icon. That is the joke.**
+
+It was put together quickly and on purpose in the visual language of the thing
+it is about: a mobile port from the era when every game's key art was a
+character standing in front of a stage with the logo dropped on top and a
+platform badge in the corner. Something slicker would have looked like it
+belonged to a different game. This looks like it belongs to *this* one — a 2011
+iPhone conversion of a 1995 arcade game, which is exactly what is being taken
+apart here.
+
+It is a placeholder and nobody is precious about it. But a project with no face
+at all is harder to care about than one with a slightly silly face, and this one
+is going to run for a year or more. Identity is not the work, but it helps the
+work get finished.
+
+If it is ever replaced, the thing to reach for is a mark that does not lean on
+the trademark at all — that would serve the project better the more visible it
+becomes.
 
 ---
 
