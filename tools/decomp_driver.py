@@ -15,17 +15,13 @@ import os
 import subprocess
 import sys
 
-ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-OUTPUT = os.path.join(ROOT, "OUTPUT")
-TOOLS = os.path.join(OUTPUT, "tools")
-BIN = os.path.join(OUTPUT, "armv7", "UMK3.armv7")
-GHIDRA = os.path.join(ROOT, "TOOLS", "ghidra_12.1.2_PUBLIC", "support",
-                      "analyzeHeadless.bat")
-PROJDIR = os.path.join(OUTPUT, "ghidra")
-PROJNAME = "UMK3"
-JDK = r"C:\Program Files\Microsoft\jdk-21.0.12.8-hotspot"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import umk3paths  # noqa: E402
 
-sys.path.insert(0, TOOLS)
+ROOT = umk3paths.REPO
+TOOLS = umk3paths.TOOLS
+GHIDRA_SCRIPTS = os.path.join(TOOLS, "ghidra")
+PROJNAME = "UMK3"
 
 # Los 9 archivos de src/lime/common, en el orden recomendado del plan.
 LIME_COMMON = ["Matrix.cpp", "limeVector.cpp", "RenderMesh.cpp", "RenderScene.cpp",
@@ -34,17 +30,21 @@ LIME_COMMON = ["Matrix.cpp", "limeVector.cpp", "RenderMesh.cpp", "RenderScene.cp
 
 
 def worklist(srcfile):
-    """Devuelve las funciones del archivo, ordenadas de facil a dificil."""
+    """Functions of that source file, ordered from easiest to hardest."""
     from rank import analyze
-    return analyze(BIN, srcfile)
+    return analyze(umk3paths.require_slice(), srcfile)
 
 
 def run_ghidra(listfile, outfile, sigfile="", structfile=""):
     env = dict(os.environ)
-    env["JAVA_HOME"] = JDK
-    env["PATH"] = os.path.join(JDK, "bin") + os.pathsep + env.get("PATH", "")
-    cmd = [GHIDRA, PROJDIR, PROJNAME, "-process", "UMK3.armv7", "-noanalysis",
-           "-scriptPath", TOOLS, "-postScript", "DecompileList.java",
+    jdk = os.environ.get("JAVA_HOME")
+    if jdk:
+        env["PATH"] = os.path.join(jdk, "bin") + os.pathsep + env.get("PATH", "")
+    projdir = umk3paths.work_file("ghidra")
+    os.makedirs(projdir, exist_ok=True)
+    cmd = [umk3paths.analyze_headless(), projdir, PROJNAME,
+           "-process", "UMK3.armv7", "-noanalysis",
+           "-scriptPath", GHIDRA_SCRIPTS, "-postScript", "DecompileList.java",
            listfile, outfile, sigfile, structfile]
     p = subprocess.run(cmd, env=env, capture_output=True, text=True,
                        errors="replace")
@@ -67,7 +67,7 @@ def do_file(srcfile, subdir):
     # en decomp/<subdir>/, y ese si es el producto del proyecto.
     outdir = os.path.join(ROOT, "decomp", subdir, "_raw")
     os.makedirs(outdir, exist_ok=True)
-    listdir = os.path.join(OUTPUT, "worklist")
+    listdir = umk3paths.work_file("worklist")
     os.makedirs(listdir, exist_ok=True)
 
     base = os.path.splitext(srcfile)[0]

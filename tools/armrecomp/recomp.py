@@ -20,10 +20,11 @@ import argparse
 import os
 import sys
 
-TOOLS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..",
-                     "OUTPUT", "tools")
-sys.path.insert(0, os.path.abspath(TOOLS))
+# tools/armrecomp/recomp.py -> the other tools live one level up.
+sys.path.insert(0, os.path.abspath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")))
 
+import umk3paths  # noqa: E402
 from macho import MachO, read_file, N_STAB, N_TYPE, N_SECT  # noqa: E402
 
 from capstone import Cs, CS_ARCH_ARM, CS_MODE_ARM, CS_MODE_THUMB, CS_MODE_LITTLE_ENDIAN
@@ -100,16 +101,9 @@ def load_binary(path):
     return m, text, funcs
 
 
-def load_file_map(outdir):
-    path = os.path.join(outdir, "func-to-file.txt")
-    mapping = {}
-    with open(path, encoding="utf-8") as fh:
-        for line in fh:
-            if line.startswith("0x"):
-                p = line.split()
-                if len(p) >= 3:
-                    mapping[p[1]] = p[2].replace("\\", "/").rsplit("/", 1)[-1]
-    return mapping
+def load_file_map():
+    """Function -> source file map, produced by tools/stabs.py."""
+    return umk3paths.load_func_to_file(required=False)
 
 
 def func_size(addr, funcs, text):
@@ -790,15 +784,11 @@ def main():
                     help="no escribir archivos; solo reportar cobertura")
     ap.add_argument("--out", required=True, help="directorio de salida")
     ap.add_argument("--name", default="recompiled", help="nombre base del .c generado")
-    ap.add_argument("--outputdir", default=None, help="ruta de OUTPUT (para func-to-file.txt)")
     args = ap.parse_args()
-
-    outdir_analysis = args.outputdir or os.path.abspath(
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "OUTPUT"))
 
     m, text, funcs = load_binary(args.binary)
     stubs = m.stub_map()
-    fmap = load_file_map(outdir_analysis)
+    fmap = load_file_map()
 
     targets = []
     for addr, (name, _t) in funcs.items():

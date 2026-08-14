@@ -28,8 +28,9 @@ from macho import MachO, read_file, N_STAB, N_TYPE, N_SECT  # noqa: E402
 from capstone import Cs, CS_ARCH_ARM, CS_MODE_ARM, CS_MODE_THUMB, CS_MODE_LITTLE_ENDIAN
 from capstone.arm_const import ARM_OP_IMM, ARM_OP_REG, ARM_CC_AL, ARM_CC_INVALID
 
+import umk3paths  # noqa: E402
+
 N_ARM_THUMB_DEF = 0x0008
-OUT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 # Pesos: cuanto encarece cada rasgo la decompilacion manual.
 W_INSN = 1.0
@@ -62,16 +63,8 @@ def analyze(path, only_file=None):
         if prev is None or len(name) > len(prev[0]):
             best[a] = (name, thumb)
 
-    # mapa funcion -> archivo fuente
-    fmap = {}
-    ftf = os.path.join(OUT, "func-to-file.txt")
-    if os.path.exists(ftf):
-        with open(ftf, encoding="utf-8") as fh:
-            for line in fh:
-                if line.startswith("0x"):
-                    p = line.split()
-                    if len(p) >= 3:
-                        fmap[p[1]] = p[2].replace("\\", "/").rsplit("/", 1)[-1]
+    # function -> source file map, produced by tools/stabs.py
+    fmap = umk3paths.load_func_to_file(required=False)
 
     addrs = sorted(best)
     end = text.addr + text.size
@@ -129,10 +122,21 @@ def analyze(path, only_file=None):
 
 
 def main():
-    path = sys.argv[1]
+    # With no argument, fall back to the slice in the working directory.
+    if len(sys.argv) < 2 or sys.argv[1].startswith("--"):
+        path = umk3paths.require_slice()
+        args = sys.argv[1:]
+    else:
+        path = sys.argv[1]
+        args = sys.argv[2:]
+        if not os.path.exists(path):
+            sys.exit("No such file: %s\n"
+                     "Extract the armv7 slice from your own copy first:\n"
+                     "    python tools/macho.py thin <path/to/UMK3> armv7 %s"
+                     % (path, umk3paths.slice_path()))
+
     only = None
     csv = None
-    args = sys.argv[2:]
     i = 0
     while i < len(args):
         if args[i] == "--csv":
