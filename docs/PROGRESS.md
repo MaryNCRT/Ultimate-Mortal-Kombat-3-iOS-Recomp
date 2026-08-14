@@ -30,7 +30,7 @@ bulk of the work has not started.
 | Asset format specifications | 8% | 65% | `██████░░░░` |
 | `lime/common` — engine core (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
-| `gamecode/logic` — fight engine (2,172 fn) | 28% | 2% | `░░░░░░░░░░` |
+| `gamecode/logic` — fight engine (2,172 fn) | 28% | 3% | `░░░░░░░░░░` |
 | Native PC platform layer (229 fn rewritten) | 17% | 0% | `░░░░░░░░░░` |
 | EA SDK stubs (~1,412 fn) | 5% | 0% | `░░░░░░░░░░` |
 
@@ -265,6 +265,42 @@ own binary verified at essentially 100% and was kept.
 
 This is why `gamecode/logic` moved from 0% to 2%: nothing is decompiled yet,
 but the entry points into the fight engine are now mapped and verified.
+
+---
+
+## `gamecode/logic` — first function verified
+
+`SwitchQueue` (`0x00055ed4`) → **500 pushes, 0 divergences**
+(`tests/test_switchqueue_diff.c`).
+
+A 20-slot circular buffer. Each entry packs the current PROC's counter, read
+from `PROC+0xa8`, into the low 16 bits and the caller's value into the high
+ones. The wrap is checked *after* the store, so the last slot is written before
+`head` resets — reordering it would drop an entry.
+
+It was picked because it is verifiable at all: pure data manipulation, no
+function pointers and no indirect branches. Most of this file's dispatch code
+will not allow that, which is why the entry points around it were worth mapping
+first.
+
+### Two recompiler bugs it caught
+
+Both produced code that compiled, ran, and was wrong.
+
+**Shift types.** Capstone orders them `ASR, LSL, LSR, ROR` — not the intuitive
+`LSL, LSR, ASR`. The translator assumed the intuitive order, so every
+`lsl #16` became `>> 16`. `SwitchQueue` packs its two halves with exactly that
+instruction, which is how it surfaced. **Every shifted operand in the binary
+was affected**; the previously verified modules happened not to use one.
+
+**Literal pools decoded as code.** The linear sweep ran past the end of the
+function into the constant pool and turned `0x0009d6a0` into a `bvs` branching
+to a label that would never be emitted. Emission now stops at a terminal
+instruction when nothing further is a branch target — a minimal form of the
+recursive descent still owed.
+
+All three finished modules were re-verified after the fixes: 40,006 / 20,013 /
+7,327 cases, still zero divergences.
 
 ---
 

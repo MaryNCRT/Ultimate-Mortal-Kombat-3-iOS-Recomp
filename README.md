@@ -123,7 +123,7 @@ the completion figures are measured.
 | Asset format specifications | 8% | 65% | `██████░░░░` |
 | `lime/common` — engine core (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
-| `gamecode/logic` — fight engine (2,172 fn) | 28% | 2% | `░░░░░░░░░░` |
+| `gamecode/logic` — fight engine (2,172 fn) | 28% | 3% | `░░░░░░░░░░` |
 | Native PC platform layer (229 fn rewritten) | 17% | 0% | `░░░░░░░░░░` |
 | EA SDK stubs (~1,412 fn) | 5% | 0% | `░░░░░░░░░░` |
 
@@ -133,7 +133,7 @@ tree is recovered, and every function now has an automated path from machine
 code to a differential test. That is real progress even though it renders no
 pixels.
 
-**Why the number is still low.** Sixteen functions of 2,572 are genuinely
+**Why the number is still low.** Seventeen functions of 2,572 are genuinely
 finished. The fight engine alone is 2,172 functions and has not been started.
 Realistically this is a year or more of work.
 
@@ -159,6 +159,7 @@ Realistically this is a year or more of work.
 | `Matrix.cpp` (11 fn) | ✅ | ✅ | ✅ | **40,006 cases, 0 divergences** |
 | `limeVector.cpp` (2 fn) | ✅ | ✅ | ✅ | **20,013 cases, 0 divergences** |
 | `RenderMesh.cpp` — loader (3 of 19 fn) | ✅ | ✅ | ✅ | **590 files, 7,327 meshes, 0 divergences** |
+| `other.c` — `SwitchQueue` (1 of 333 fn) | ✅ | ✅ | ✅ | **500 pushes, 0 divergences** |
 | `RenderScene.cpp` (14 fn) | ✅ | ⬜ | ⬜ | ⬜ |
 | `RenderSkinned.cpp` (20 fn) | ✅ | ⬜ | ⬜ | ⬜ |
 | `Events.cpp` (22 fn) | ✅ | ⬜ | ⬜ | ⬜ |
