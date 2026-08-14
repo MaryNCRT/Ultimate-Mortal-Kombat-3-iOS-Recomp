@@ -1,6 +1,6 @@
 ﻿<div align="center">
 
-<img src="docs/img/logo.png" alt="Ultimate Mortal Kombat 3 Recomp" width="820">
+<img src="docs/img/banner.jpg" alt="Ultimate Mortal Kombat 3 Recomp" width="880">
 
 # Ultimate Mortal Kombat 3 — Decompilación de iOS y port a PC
 
@@ -16,9 +16,9 @@
 
 ## Aquí no se distribuye ningún contenido con derechos de autor
 
-**Este repositorio no contiene código del juego, ni datos, ni assets.** Ni un solo byte extraído del juego — ni texturas, ni modelos, ni audio, ni código compilado — está subido aquí ni se incluye en ninguna publicación.
+**Este repositorio no publica ningún archivo del juego.** Ni texturas, ni modelos, ni audio, ni código compilado — nada que puedas sacar de aquí y usar. Todo se compila contra **una copia que aportas tú**.
 
-La única excepción es el banner que encabeza esta página: es fan art del logotipo de *Ultimate Mortal Kombat 3*, acreditado [más abajo](#el-logo). Es una marca usada para identificar de qué va el proyecto, no un dato del juego, y no forma parte de ninguna compilación.
+El banner que encabeza esta página es la única imagen que hay, y conviene ser preciso: es fan art del logotipo de *Ultimate Mortal Kombat 3*, acreditado [más abajo](#el-banner), montado sobre una **captura de pantalla** del juego funcionando. Una captura representa el juego; no es un archivo de assets, no se puede desempaquetar para volver a serlo, y no forma parte de ninguna compilación. Las marcas *Mortal Kombat* y las obras que aparecen en ella pertenecen a Warner Bros. Entertainment.
 
 Lo que hay es trabajo *nuestro*: herramientas de análisis, documentación de formatos de archivo, C escrito a mano y arneses de pruebas. Todo lo que toca el juego original lo lee de **una copia que aportas tú** y produce su salida en local, donde el `.gitignore` la mantiene fuera del repositorio.
 
@@ -279,13 +279,19 @@ Este repositorio no contiene nada de su código. Contiene nuestra descripción d
 
 Las herramientas, el análisis, la decompilación y la documentación se produjeron con **Claude, de Anthropic**, vía Claude Code, bajo esa dirección. Los commits llevan el trailer `Co-Authored-By:` donde corresponde. Ver [AI-DISCLOSURE.md](AI-DISCLOSURE.md) para el relato completo de lo que eso significa y de cómo se estableció la corrección de forma independiente.
 
-### El logo
+### El banner
 
-El logotipo de *Ultimate Mortal Kombat 3* que encabeza esta página lo **rehízo en UHD [u/JuananoLaGarza](https://www.reddit.com/user/JuananoLaGarza/)**, y lo publicó en r/MortalKombat como *[Ultimate Mortal Kombat 3 logo redone in UHD](https://www.reddit.com/r/MortalKombat/comments/mvm4uo/ultimate_mortal_kombat_3_logo_redone_in_uhd/)*. Se usa aquí con crédito; la palabra "RECOMP" de debajo y el fondo oscuro son añadido de este proyecto. Las marcas *Mortal Kombat* y el emblema del dragón pertenecen a Warner Bros. Entertainment — ver [Legal](#legal).
+El logotipo de *Ultimate Mortal Kombat 3* lo **rehízo en UHD [u/JuananoLaGarza](https://www.reddit.com/user/JuananoLaGarza/)** y lo publicó en r/MortalKombat como *[Ultimate Mortal Kombat 3 logo redone in UHD](https://www.reddit.com/r/MortalKombat/comments/mvm4uo/ultimate_mortal_kombat_3_logo_redone_in_uhd/)*. Se usa aquí con crédito. Si eres el autor y prefieres que este proyecto no lo use, abre un issue y se retira.
 
-Si eres el autor y prefieres que este proyecto no lo use, abre un issue y se retira.
+Todo lo demás — la palabra "RECOMP", la insignia de iOS y la captura de Sub-Zero del fondo — lo montó [MaryNCRT](https://github.com/MaryNCRT).
 
-Es una identidad provisional mientras el proyecto es joven. A la larga le vendría mejor un logo que no se apoye en la marca registrada.
+**Sí, parece un icono de la App Store de 2011. Esa es la broma.**
+
+Está hecho rápido y a propósito en el lenguaje visual de aquello de lo que trata: un port móvil de la época en que el arte promocional de cada juego era un personaje plantado delante de un escenario, el logo encima y la insignia de la plataforma en una esquina. Algo más pulido habría parecido de otro juego. Esto parece de **este** — una conversión para iPhone de 2011 de un arcade de 1995, que es exactamente lo que se está desmontando aquí.
+
+Es provisional y a nadie le duele cambiarlo. Pero un proyecto sin cara ninguna es más difícil de querer que uno con una cara un poco tonta, y este va a durar un año o más. La identidad no es el trabajo, pero ayuda a que el trabajo se termine.
+
+Si algún día se sustituye, lo suyo sería una marca que no se apoye en absoluto en la registrada: cuanto más visible se haga el proyecto, mejor le vendrá.
 
 ---
 
