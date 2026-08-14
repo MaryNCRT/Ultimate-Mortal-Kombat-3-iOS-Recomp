@@ -55,7 +55,7 @@ not and could not:
 The old order walked `lime/common` module by module. That was right when the
 oracle was the only verification available. It no longer is.
 
-### 1. Capture the move input tables — no code required
+### 1. Capture the move input tables — [issue #5](../../issues/5)
 
 **Do this first, because it costs an evening and no skill.**
 
@@ -130,7 +130,18 @@ emulator**: reach a state, read the index the game prints, map index to
 function. Do not mark anything verified on the strength of a plausible-looking
 decompilation.
 
-### 6. Everything else
+### 6. `playback.c` / `_seq_lookup` — [issue #6](../../issues/6)
+
+The best first target inside `gamecode/logic`: four functions, self-contained,
+about 4 KB of embedded table, and the function **prints its own arguments** —
+366 calls captured. Verification there needs no differential harness, which
+matters because most of the fight engine dispatches through function pointers
+the recompiler cannot follow.
+
+It also cross-checks item 1: the sequences the moves list prints and the ones
+`seq_lookup` resolves should be the same data seen from two directions.
+
+### 7. Everything else
 
 `RenderScene.cpp`, `RenderSkinned.cpp`, signatures and structs for
 `SKININFO` / `BONE` / `BONEANIMFRAME`. Same loop as before:
@@ -156,5 +167,6 @@ decompilation.
 ## What I would tell you if we only had one sentence
 
 The differential test is what makes a function *correct*; the emulator is what
-tells you *what to look at* — and this session was a reminder that the second
-question is the one that had been under-served.
+tells you *what to look at* — and this session ended with the game handing over
+its own move tables, which is the strongest argument yet that the second
+question was the under-served one.
