@@ -334,6 +334,40 @@ them, the rest being touchHLE's. Two other things visible in it:
 
 ---
 
+## `.events` — started, not finished
+
+From `LIME_LoadEvents` (`0x000a477c`). Established so far:
+
+```
+int32  numTracks
+TRACK  tracks[numTracks]      // VARIABLE length on disk
+```
+
+- **390 of the 545 `.events` files are exactly 4 bytes** — a lone `count = 0`.
+  That is strong confirmation of the header: an empty file is the header alone.
+- `SCENEEVENTS` is **8 bytes** — `limeMalloc(tag, 8)`, with the count at offset 0.
+- `SCENEEVENTTRACK` is **216 bytes** in memory. The allocation is
+  `N*24 + (N*24)*8`, which is `N*216`.
+
+**The tracks are not fixed-size on disk.** Dividing (file size − 4) by the count
+gives 324 bytes for 125 files and 436 for 24, and does not divide at all for the
+rest. So a track carries a header plus a variable number of entries, and the
+parse loop in `LIME_LoadEvents` has to be followed to find out what governs it.
+That is where to pick this up.
+
+### Why this one is worth finishing next
+
+`.events` is the only remaining format with a **free oracle**. The running game
+prints every event it triggers, with source scene, frame number and parameters
+(see above). A parser can be checked by predicting which events fire on which
+frames and diffing against the log — no differential harness needed.
+
+Other names visible in this subsystem, not yet investigated:
+`SCENEINFO`, `LIME_LoadMasterEventOffsets`, `FindIdInMasterOffsets`, and the
+74 `.offsets` files in `res/`.
+
+---
+
 ## The verification oracle
 
 **Verdict: it works.** `test_matrix` → 22 assertions, 0 failures.
