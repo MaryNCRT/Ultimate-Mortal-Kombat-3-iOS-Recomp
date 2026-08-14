@@ -156,12 +156,93 @@ def cmd_dump(path):
             print("    matrix B[0]:       %s" % ["%.3f" % v for v in s.matrices_b[0]])
 
 
+# ------------------------------------------------------------------ .skinanim
+
+ANIM_HEADER = 12          # float scale, int32 numFrames, int32 frameSize
+BONEANIMFRAME_SIZE = 20   # 5 floats per bone per frame
+FRAME_FIXED = 16          # int32 tag + limeVECTOR3 root, before the bone array
+
+
+def parse_anim(data):
+    """
+    Parse a .skinanim header.
+
+    The header describes itself, and that matters: deriving the frame size from
+    the matching .bones file appears to work and then fails on ROBO1 and ROBO2,
+    whose animations carry a different bone count than their skeletons.
+    Read frameSize from the header; never compute it.
+
+    Returns (scale, numFrames, frameSize, numBones, end_offset).
+    """
+    scale, num_frames, frame_size = struct.unpack_from("<f2i", data, 0)
+    if num_frames < 0 or frame_size < FRAME_FIXED:
+        raise ValueError("implausible header: frames=%d frameSize=%d"
+                         % (num_frames, frame_size))
+    num_bones = (frame_size - FRAME_FIXED) // BONEANIMFRAME_SIZE
+    return scale, num_frames, frame_size, num_bones, ANIM_HEADER + num_frames * frame_size
+
+
+def frame_at(data, frame_size, index):
+    """
+    One frame: a root position followed by one BONEANIMFRAME per bone.
+
+    UnpackAnimFrame (0x0006012c) reads three floats at +4 into a limeVECTOR3
+    and then copies 20 bytes per bone starting at +0x10. The int32 at +0 is
+    not touched by it.
+    """
+    base = ANIM_HEADER + index * frame_size
+    tag = struct.unpack_from("<i", data, base)[0]
+    root = struct.unpack_from("<3f", data, base + 4)
+    bones = []
+    off = base + FRAME_FIXED
+    while off + BONEANIMFRAME_SIZE <= base + frame_size:
+        bones.append(struct.unpack_from("<5f", data, off))
+        off += BONEANIMFRAME_SIZE
+    return tag, root, bones
+
+
+def cmd_validate_anim(resdir):
+    files = []
+    for base, _d, names in os.walk(resdir):
+        for n in names:
+            if n.lower().endswith(".skinanim"):
+                files.append(os.path.join(base, n))
+    files.sort()
+
+    ok = bad = 0
+    total_frames = 0
+    for p in files:
+        data = open(p, "rb").read()
+        try:
+            _s, nf, fs, nb, end = parse_anim(data)
+        except Exception as e:                                  # noqa: BLE001
+            print("  %-30s ERROR: %s" % (os.path.basename(p), e))
+            bad += 1
+            continue
+        if end == len(data):
+            ok += 1
+            total_frames += nf
+        else:
+            bad += 1
+            print("  %-30s ends at %d, file is %d (frames=%d frameSize=%d bones=%d)"
+                  % (os.path.basename(p), end, len(data), nf, fs, nb))
+
+    print("")
+    print(".skinanim files:  %d" % len(files))
+    print("  exact:          %d" % ok)
+    print("  mismatched:     %d" % bad)
+    print("animation frames: %d" % total_frames)
+    return bad
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 3:
         print(__doc__)
         raise SystemExit(1)
     if sys.argv[1] == "validate":
         raise SystemExit(1 if cmd_validate(sys.argv[2]) else 0)
+    elif sys.argv[1] == "validate-anim":
+        raise SystemExit(1 if cmd_validate_anim(sys.argv[2]) else 0)
     elif sys.argv[1] == "dump":
         cmd_dump(sys.argv[2])
     else:

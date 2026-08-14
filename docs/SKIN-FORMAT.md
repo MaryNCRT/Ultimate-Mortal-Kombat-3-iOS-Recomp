@@ -177,7 +177,54 @@ real pointers at load time.
 
 ---
 
-## 5. What is still open
+## 5. The `.skinanim` format
+
+The animation itself. From `UnpackAnimFrame` (`0x0006012c`).
+
+```
+float  scale                 // always 1.0 in the shipped data
+int32  numFrames
+int32  frameSize
+FRAME  frames[numFrames]
+```
+
+Total: `12 + numFrames * frameSize`. **Validated on 28 of the 29 files**,
+9,590 animation frames in total.
+
+Reproduce with `python tools/skin.py validate-anim <res dir>`.
+
+### A frame
+
+```
+int32        tag             // not read by UnpackAnimFrame
+limeVECTOR3  rootPosition    // three floats
+BONEANIMFRAME bones[N]       // 20 bytes each
+```
+
+So `frameSize == 16 + N*20`, and the bone count follows from it.
+
+**Read `frameSize` from the header. Never compute it from the matching
+`.bones` file.** Doing so looks correct on most characters and then fails on
+ROBO1 and ROBO2, whose animations carry a different bone count than their
+skeletons — ROBO1's animation has 20 bones where its `.bones` declares 25.
+That mistake cost an iteration here.
+
+`BONEANIMFRAME` is 20 bytes: five floats. `GetSlerpedQ` and `GetMFromQuat2`
+operate on it, so four of them are a quaternion; the fifth is not yet
+identified.
+
+### The one file that does not fit
+
+`SINDEL_STANDARD.skinanim` reads a second float where the frame count should
+be. Treating the header as 16 bytes gives `frameSize = 1256`, which is exactly
+`16 + 62*20` for Sindel's 62 bones, and `16 + 844*1256` is exactly the file
+size — but the header's own count says 422, which is half of 844. Two streams
+of 422, or one of 844 with a longer header; the arithmetic works either way and
+the disassembly has not been read far enough to say which. **Unresolved.**
+
+---
+
+## 6. What is still open
 
 - What the 24 bytes per vertex actually contain.
 - What the 6 bytes per vertex actually contain.

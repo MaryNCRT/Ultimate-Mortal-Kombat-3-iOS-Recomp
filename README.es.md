@@ -108,10 +108,10 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ## Progreso general
 
 ```
-██████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  15%
+███████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  17%
 ```
 
-**En torno al 15% del esfuerzo total estimado. Todavía no hay nada jugable.**
+**En torno al 17% del esfuerzo total estimado. Todavía no hay nada jugable.**
 
 Ese número es una estimación, así que aquí está la aritmética que hay detrás en vez de una cifra que haya que creerse. Los pesos son nuestro criterio sobre cuánto representa cada área del total; discrepa del reparto si quieres, pero las cifras de avance están medidas.
 
@@ -119,10 +119,10 @@ Ese número es una estimación, así que aquí está la aritmética que hay detr
 |---|---:|---:|---|
 | Análisis del binario y mapeo del árbol de fuentes | 4% | 100% | `██████████` |
 | Herramientas y oráculo de verificación | 8% | 90% | `█████████░` |
-| Especificaciones de formatos de assets | 8% | 50% | `█████░░░░░` |
+| Especificaciones de formatos de assets | 8% | 65% | `██████░░░░` |
 | `lime/common` — núcleo del motor (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — lógica de juego (291 fn) | 18% | 0% | `░░░░░░░░░░` |
-| `gamecode/logic` — motor de combate (2.172 fn) | 28% | 0% | `░░░░░░░░░░` |
+| `gamecode/logic` — motor de combate (2.172 fn) | 28% | 2% | `░░░░░░░░░░` |
 | Capa de plataforma nativa de PC (229 fn reescritas) | 17% | 0% | `░░░░░░░░░░` |
 | Stubs del SDK de EA (~1.412 fn) | 5% | 0% | `░░░░░░░░░░` |
 
@@ -138,7 +138,7 @@ Ese número es una estimación, así que aquí está la aritmética que hay detr
 | Existe un método de verificación y está probado | ✅ hecho |
 | El juego corre en algún sitio como referencia de comportamiento | ✅ hecho (touchHLE) |
 | Formato de modelos legible | ✅ hecho |
-| Formatos de animación legibles | 🔄 `.skin` y `.bones` hechos; falta `.skinanim` |
+| Formatos de animación legibles | ✅ `.skin`, `.bones` y `.skinanim` hechos |
 | Algo se dibuja en una pantalla de PC | ⬜ sin empezar |
 | El juego arranca de forma nativa | ⬜ lejos |
 | El juego es jugable de forma nativa | ⬜ lejos |
