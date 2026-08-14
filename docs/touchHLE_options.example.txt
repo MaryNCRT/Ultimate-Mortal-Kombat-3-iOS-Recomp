@@ -1,0 +1,67 @@
+# touchHLE_options.txt — UMK3 iOS 1.2.59 con mando
+#
+# POR QUE ESTE ARCHIVO EXISTE
+#
+# touchHLE trae un mapeo "oficial" para este juego en su archivo de defaults:
+#
+#   com.ea.umk3.bv: --dpad-to-touch=30,690,280,280 --stick-to-touch=30,690,280,280
+#                   --button-to-touch=A,1020,900 --button-to-touch=B,1215,900
+#                   --button-to-touch=X,1400,900
+#
+# Pero su propio --help dice que en horizontal la esquina inferior derecha es
+# 480,320. Esas coordenadas (1020, 1215, 1400, 900, y el 690 del d-pad) estan
+# MUY fuera de ese rango, asi que ninguna pulsacion llega a registrarse.
+# Eso explica que el mando no hiciera nada.
+#
+# Lo de abajo los sustituye por valores dentro de pantalla. Como este archivo
+# se aplica DESPUES de los defaults, sus valores mandan.
+#
+# Botones validos: DPadLeft, DPadUp, DPadRight, DPadDown, Start, LeftShoulder,
+# A, B, X, Y.  (No hay RightShoulder: lo usa el cursor virtual.)
+
+com.ea.umk3.bv: --fullscreen --scale-hack=4 --ignore-gl-errors --stabilize-virtual-cursor=0.1,8 --deadzone=0.15 --dpad-to-touch=15,202,115,113 --stick-to-touch=15,202,115,113 --button-to-touch=A,411,285 --button-to-touch=X,357,285 --button-to-touch=B,465,285 --button-to-touch=Y,438,235 --button-to-touch=LeftShoulder,384,235 --button-to-touch=Start,458,16
+
+# ---------------------------------------------------------------------------
+# Correspondencia
+# ---------------------------------------------------------------------------
+#
+#   Cruceta / stick izq   ->  zona tactil (20,190) de 130x120  = moverse
+#   Cruz        (A)       ->  390,285   J = saltar    (segun los comentarios
+#   Circulo     (B)       ->  445,240   P = punetazo   del propio touchHLE:
+#   Cuadrado    (X)       ->  335,240   K = patada     A=J, B=P, X=K)
+#   Triangulo   (Y)       ->  390,195   cuarto boton
+#   L1                    ->  300,300   bloquear (supuesto)
+#   Options               ->  240,15    pausa
+#   Stick derecho         ->  cursor virtual, para menus
+#   R1 / pulsar stick der ->  "tocar" con el cursor
+#
+# ---------------------------------------------------------------------------
+# ESTAS COORDENADAS SON UNA ESTIMACION
+# ---------------------------------------------------------------------------
+#
+# Lo unico que se con certeza es el RANGO valido (0-480, 0-320) y que A=J,
+# B=P, X=K. La posicion concreta de cada boton es un supuesto: cruceta abajo
+# a la izquierda, botones de ataque en rombo abajo a la derecha, que es la
+# disposicion habitual del genero.
+#
+# Para calibrar sin adivinar:
+#
+#   1. Mueve el cursor virtual con el stick derecho hasta encima de un boton
+#      tactil que se vea en pantalla.
+#   2. Pulsa R1 ahi. Si el personaje reacciona, esa es la posicion buena.
+#   3. Traduce a coordenadas: la pantalla es 480 de ancho por 320 de alto.
+#      Un boton a tres cuartos de ancho y a cuatro quintos de alto esta en
+#      (0.75*480, 0.80*320) = (360, 256).
+#   4. Cambia el numero aqui y reinicia.
+#
+# El juego tambien tiene su pantalla de configuracion de botones
+# (Options -> Button Config, FE_Task_Button_Config indice 10), donde se ven
+# dibujados en su sitio real. Es la referencia mas fiable.
+#
+# ---------------------------------------------------------------------------
+# Recordatorio
+# ---------------------------------------------------------------------------
+#
+# Cualquier UIAlertView cierra el emulador (_CFRunLoopRun sin implementar),
+# incluidos los cuadros de confirmacion normales del juego. Evita Leaderboard,
+# Logros, licencia de usuario y cualquier opcion que pida confirmar.
