@@ -103,6 +103,55 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 
 ---
 
+## Overall progress
+
+```
+██████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  14%
+```
+
+**Roughly 14% of the total estimated effort. Nothing is playable yet.**
+
+That number is an estimate, so here is the arithmetic behind it rather than a
+figure you have to take on faith. Weights are our judgement of how much of the
+total work each area represents; disagree with the weighting if you like, but
+the completion figures are measured.
+
+| Area | Weight | Done | |
+|---|---:|---:|---|
+| Binary analysis and source-tree mapping | 4% | 100% | `██████████` |
+| Tooling and the verification oracle | 8% | 85% | `████████░░` |
+| Asset format specifications | 8% | 20% | `██░░░░░░░░` |
+| `lime/common` — engine core (109 fn) | 12% | 12% | `█░░░░░░░░░` |
+| `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
+| `gamecode/logic` — fight engine (2,172 fn) | 28% | 0% | `░░░░░░░░░░` |
+| Native PC platform layer (229 fn rewritten) | 17% | 0% | `░░░░░░░░░░` |
+| EA SDK stubs (~1,412 fn) | 5% | 0% | `░░░░░░░░░░` |
+
+**Why the foundational areas count for something.** The first two rows are
+finished or nearly so, and they are what makes the rest tractable: the source
+tree is recovered, and every function now has an automated path from machine
+code to a differential test. That is real progress even though it renders no
+pixels.
+
+**Why the number is still low.** Thirteen functions of 2,572 are genuinely
+finished. The fight engine alone is 2,172 functions and has not been started.
+Realistically this is a year or more of work.
+
+**How to read the milestones:**
+
+| Milestone | Status |
+|---|---|
+| The binary is understood and mapped | ✅ done |
+| A verification method exists and is proven | ✅ done |
+| The game runs somewhere as a behavioural reference | ✅ done (touchHLE) |
+| Model format readable | ✅ done |
+| Animation formats readable | ⬜ not started |
+| Something renders on a PC screen | ⬜ not started |
+| The game boots natively | ⬜ far off |
+| The game is playable natively | ⬜ far off |
+
+---
+
 ## Current status
 
 | Module | Decompiled | Verified | Clean C | Differential test |
