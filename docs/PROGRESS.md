@@ -27,7 +27,7 @@ bulk of the work has not started.
 |---|---:|---:|---|
 | Binary analysis and source-tree mapping | 4% | 100% | `██████████` |
 | Tooling and the verification oracle | 8% | 90% | `█████████░` |
-| Asset format specifications | 8% | 20% | `██░░░░░░░░` |
+| Asset format specifications | 8% | 35% | `████░░░░░░` |
 | `lime/common` — engine core (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | 0% | `░░░░░░░░░░` |
@@ -42,7 +42,7 @@ bulk of the work has not started.
 | A verification method exists and is proven | ✅ done |
 | The game runs somewhere as a behavioural reference | ✅ done (touchHLE) |
 | Model format readable | ✅ done |
-| Animation formats readable | ⬜ not started |
+| Animation formats readable | 🔄 `.skin` done; `.bones`/`.skinanim` open |
 | Something renders on a PC screen | ⬜ not started |
 | The game boots natively | ⬜ far off |
 | The game is playable natively | ⬜ far off |
@@ -54,7 +54,7 @@ bulk of the work has not started.
 | Phase | Status |
 |---|---|
 | 0 — Binary analysis and source-tree mapping | ✅ complete |
-| 1 — Asset formats | 🔄 `.meshset` solved; `.skin`/`.bones`/`.skinanim` open |
+| 1 — Asset formats | 🔄 `.meshset` and `.skin` solved; `.bones`/`.skinanim` open |
 | 2 — Verification oracle | ✅ complete and proven |
 | 3 — Ghidra automation | ✅ headless pipeline working |
 | 4 — Decompile `lime/common` | 🔄 109/109 drafted, 2.5 modules finished |
@@ -159,6 +159,42 @@ Three findings came out of this, all now in MESHSET-FORMAT.md:
    time it loads Kano. Every other lighting file matches its vertex count
    exactly. This is a defect in EA's shipped data, not a misreading of the
    format; it took running both loaders side by side to tell those apart.
+
+---
+
+## `.skin` — format solved
+
+`python tools/skin.py validate <res dir>` → **29 of 29 files, 0 mismatches**,
+28,315 skinning matrices, 54,413 vertices. There is no length field anywhere in
+the file, so walking every one of them to its exact last byte is what makes the
+layout credible rather than merely plausible.
+
+Derived from `LIME_LoadSkin` (`0x00060650`) and `LIME_LoadSkin1` (`0x000604c0`).
+Full specification in [SKIN-FORMAT.md](SKIN-FORMAT.md). The short version:
+
+```
+int32   blockCount                  // 1 or 2
+per block:
+  int32  numMatrices (N), numVerts (M)
+  uint32 indexes[N]
+  uint16 weights[N*4]               // scaled by 1/65536 on load
+  { MATRIX43 a; MATRIX43 b; }[N]    // 96 bytes each
+  byte   vertData[M*24]
+  byte   vertExtra[M*6]
+```
+
+Two things made this quick. First, `limeMalloc`'s debug tags survive in the
+binary and name every buffer — `skin_indexes`, `skin_mweights`, `skin_normals`,
+`skin_uvs`. Second, the decoded weights read `0.99998, 0, 0, 0`: one bone at
+full influence and three unused slots, which is what skinning weights are
+supposed to look like. That is semantic confirmation, not just arithmetic.
+
+`ROBO1_STANDARD.skin` and `ROBO2_STANDARD.skin` omit the leading block count —
+the same two files that use the unindexed `.meshset` variant. A reader should
+try the counted layout and fall back to a bare single block.
+
+**Still open:** what the 24 and 6 bytes per vertex contain, and why `indexes`
+decodes negative. Those are questions of interpretation; the layout is settled.
 
 ---
 
