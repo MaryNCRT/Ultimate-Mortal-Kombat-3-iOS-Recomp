@@ -4,7 +4,7 @@
 
 **Decompilación en curso de la versión iOS de 2011 de Ultimate Mortal Kombat 3, con el objetivo de llegar a un port nativo para Windows y Linux.**
 
-[Primeros pasos](docs/GETTING-STARTED.md) · [Metodología](docs/METHODOLOGY.md) · [Arquitectura](docs/ARCHITECTURE.md) · [Progreso](docs/PROGRESS.md) · [Declaración sobre IA](AI-DISCLOSURE.md) · [English](README.md)
+[Primeros pasos](docs/GETTING-STARTED.md) · [Metodología](docs/METHODOLOGY.md) · [Arquitectura](docs/ARCHITECTURE.md) · [Progreso](docs/PROGRESS.md) · [Relevo](docs/HANDOFF.md) · [Declaración sobre IA](AI-DISCLOSURE.md) · [English](README.md)
 
 </div>
 

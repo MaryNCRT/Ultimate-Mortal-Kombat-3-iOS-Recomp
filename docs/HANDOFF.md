@@ -1,0 +1,132 @@
+# Handoff — 2026-08-14
+
+For whoever picks this up next. Read [AGENTS.md](../AGENTS.md) first; it is the
+working agreement and it has not changed.
+
+---
+
+## Where the project stands
+
+**17% overall. 0.7% of the decompilation itself — 17 functions of 2,572.**
+Nothing is playable natively yet.
+
+Those two numbers have not moved much this session, and that is honest: no new
+module was finished. What changed is the *method*, and that is worth more than
+a percentage point.
+
+| Done | Where |
+|---|---|
+| `Matrix.cpp` — 11 fn | 40,006 cases, 0 divergences |
+| `limeVector.cpp` — 2 fn | 20,013 cases, 0 divergences |
+| `RenderMesh.cpp` loader — 3 fn | 7,327 meshes, 0 divergences |
+| `other.c` `SwitchQueue` — 1 fn | 500 pushes, 0 divergences |
+| `.meshset`, `.skin`, `.bones`, `.skinanim` | all validated against every file |
+| Game runs in touchHLE with a 2-byte patch | `docs/TOUCHHLE-PATCH.md` |
+
+---
+
+## The thing that changed today
+
+**Playing the game is a first-class analysis method, not a sanity check.**
+
+Nine sessions and a full arcade run produced findings that static analysis had
+not and could not:
+
+- The engine **prints its own dispatch indices**. `FE_Task_Main_Menu(0)`,
+  `FE_Task_Character_Select(27)`, `FE_Task_Select_Leaderboard(49)` — 12 of 53
+  mapped just by walking menus. This is the only way to attack the tables
+  behind `_DoSwitchJump`, which no differential test can reach.
+- The game **prints every event it triggers**, with source scene and frame
+  number. That is a free oracle for `.events`.
+- Holding a finger on Smoke reveals Human Smoke, so character select measures
+  **press duration**. A port implementing only "tap" loses the hidden
+  characters silently. Static analysis would never have suggested trying it.
+- The babality model sometimes fails to draw — and the logs prove it is a
+  PVRTC upload failure in the emulator, **not** a missing asset and **not** a
+  game bug. Without playing, that would have looked like a format error and
+  sent someone hunting for a bug that does not exist.
+
+**Consequence for how to prioritise: prefer work the emulator can verify.**
+
+---
+
+## Revised route
+
+The old order walked `lime/common` module by module. That was right when the
+oracle was the only verification available. It no longer is.
+
+### 1. Finish `.events` — [issue #3](../../issues/3)
+
+**Do this first.** It is the only remaining format with a free oracle, and the
+resume point is exact: `0x000a47fc`, right after the `limeMalloc(tag, N*216)`
+that allocates the track array.
+
+Established: `int32 numTracks`, then variable-length tracks. 390 of the 545
+files are exactly 4 bytes — a lone `count = 0`, which confirms the header.
+`SCENEEVENTS` is 8 bytes, `SCENEEVENTTRACK` is 216 in memory.
+
+Counter-examples that must divide before you believe any layout: Jax (14964
+bytes, 46 tracks), Kung Lao (12216/37), Lair (15728/29), Sektor (14976/45).
+
+### 2. A mesh viewer
+
+All four model and animation formats are solved. There is enough to draw an
+animated character on screen, and **the project has produced no visible output
+in its entire life**. That matters for morale and for attracting contributors,
+and it validates four format specifications at once in a way no test can.
+
+Start from `.meshset` + `.skin` + `.bones` + `.skinanim`, GLFW and OpenGL 3.3.
+PVRTC has to be decoded on the CPU — do not rely on a GL extension, which is
+exactly what fails inside touchHLE.
+
+### 3. Patch the modal dialogs — a small, well-defined win
+
+```
+-[modalAlertDelegate initWithRunLoop:]   0x000b53bc   <- the cause
++[modalAlert confirm:]                   0x000b54a0
++[modalAlert ask:]                       0x000b54e4
+```
+
+Every confirmation dialog kills touchHLE, because the modal spins a nested run
+loop and `_CFRunLoopRun` is unimplemented. Neutralising `confirm:` and `ask:`
+the way `LocaleManager::setLocale` was neutralised would fix resetting arcade
+progress, the leaderboard and achievements in one go — and make longer play
+sessions possible, which feeds everything above.
+
+Use `tools/patch_ipa.py`. Work on a copy.
+
+### 4. `_DoSwitchJump` — [issue #1](../../issues/1)
+
+Still the biggest prize and still the hardest. Now approach it **through the
+emulator**: reach a state, read the index the game prints, map index to
+function. Do not mark anything verified on the strength of a plausible-looking
+decompilation.
+
+### 5. Everything else
+
+`RenderScene.cpp`, `RenderSkinned.cpp`, signatures and structs for
+`SKININFO` / `BONE` / `BONEANIMFRAME`. Same loop as before:
+`tools/decomp_driver.py`, then a differential test.
+
+---
+
+## Practical notes on the emulator
+
+- **Run it with a log** when you want data: `touchHLE.exe app.ipa *>&1 | Tee-Object -FilePath log.txt`.
+  Expect stutter — a long session writes ~47,000 lines. Run without the pipe
+  when you want it smooth.
+- **A working gamepad mapping** is in `docs/touchHLE_options.example.txt`.
+  touchHLE's own defaults for this app put the touch targets off-screen, so a
+  controller appears dead until you replace them.
+- **Avoid any confirmation dialog** until item 3 is done — it closes the
+  emulator.
+- The log's own output is worth grepping for `triggered event`, `FE_Task_`,
+  `loading scene:` and `glError`.
+
+---
+
+## What I would tell you if we only had one sentence
+
+The differential test is what makes a function *correct*; the emulator is what
+tells you *what to look at* — and this session was a reminder that the second
+question is the one that had been under-served.

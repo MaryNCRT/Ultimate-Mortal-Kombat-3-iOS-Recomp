@@ -2,7 +2,7 @@
 
 Current state of the project. Written so that someone can pick it up with no prior context.
 
-**Last updated:** 2026-08-14
+**Last updated:** 2026-08-14 — see [HANDOFF.md](HANDOFF.md) for the revised route
 
 ---
 
@@ -18,7 +18,7 @@ Weights are our judgement of how much of the total each area represents;
 the completion figures are measured. Two numbers are worth keeping apart:
 
 - **17%** — share of the *whole project*, counting analysis, tooling and formats.
-- **0.6%** — share of the *decompilation itself*: 16 finished functions of 2,572.
+- **0.7%** — share of the *decompilation itself*: 17 finished functions of 2,572.
 
 Both are true. The first says the foundations are in place; the second says the
 bulk of the work has not started.
@@ -58,13 +58,14 @@ bulk of the work has not started.
 | 2 — Verification oracle | ✅ complete and proven |
 | 3 — Ghidra automation | ✅ headless pipeline working |
 | 4 — Decompile `lime/common` | 🔄 109/109 drafted, 2.5 modules finished |
+| 8 — Decompile fight logic | 🔄 `SwitchQueue` verified; entry points mapped |
 | 5 — Native PC platform layer | ⬜ not started |
 | 6 — EA SDK stubs | ⬜ not started (scope reduced, see below) |
 | 7 — Decompile `gamecode` | ⬜ not started |
 | 8 — Decompile fight logic | ⬜ not started |
 | 9 — Widescreen, gamepad, mods | ⬜ not started |
 
-**Honest framing:** 16 of 2,572 functions are fully done. That is ~0.6%. The percentage is not the interesting number — the pipeline that produced them is, and it now runs unattended.
+**Honest framing:** 17 of 2,572 functions are fully done. That is ~0.7%. The percentage is not the interesting number — the pipeline that produced them is, and it now runs unattended.
 
 ---
 
