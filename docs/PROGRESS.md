@@ -304,6 +304,36 @@ All three finished modules were re-verified after the fixes: 40,006 / 20,013 /
 
 ---
 
+## The emulator prints its own event traces
+
+Worth knowing before starting on `.events` or `.scene`: the running game logs
+every event it triggers, with the source scene, the frame number and the
+parameters.
+
+```
+- EVENT CAVE_LEVEL_SCENE.scene (fr 2) triggered event LENSFLARE.scene (FromGround 0, spd 1.00...)
+- EVENT SEKTOR_STANDARD.scene (fr 356) triggered event PULSE_TRAIL.scene (FromGround 0, spd 1.00...)
+```
+
+That is ground truth for the event system, produced by EA's own code running on
+EA's own data. A `.events` parser can be checked directly against it: parse the
+file, predict which events fire on which frames, and compare with the log.
+
+It also names fields — `FromGround`, `spd` — which is a head start on the struct.
+
+`SEKTOR_STANDARD.scene` firing at frame 356 lines up with its `.skinanim`
+declaring 356 frames, so the frame numbers in these traces are animation frames.
+
+The full log of a session is 4,281 lines; the game's own output is 1,623 of
+them, the rest being touchHLE's. Two other things visible in it:
+
+- Hundreds of missing `*_LOW.PNG` textures. The game asks for a low-resolution
+  texture set that is not in the bundle and carries on without it.
+- 47 × `Failed to create OpenAL source, error code a005` — the source limit is
+  exhausted. Sound is partially broken under the emulator.
+
+---
+
 ## The verification oracle
 
 **Verdict: it works.** `test_matrix` → 22 assertions, 0 failures.
