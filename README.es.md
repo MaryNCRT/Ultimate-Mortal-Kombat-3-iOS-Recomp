@@ -287,7 +287,7 @@ La figura de Sub-Zero y el escenario del fondo son **renders de [ermaccer](https
 
 La palabra "RECOMP", la insignia de iOS y la composición son de [MaryNCRT](https://github.com/MaryNCRT).
 
-**Sí, parece un icono de la App Store de 2011. Esa es la broma.**
+**Sí, parece el banner de una aplicacion pirata del 2011, es la idea..**
 
 Está hecho rápido y a propósito en el lenguaje visual de aquello de lo que trata: un port móvil de la época en que el arte promocional de cada juego era un personaje plantado delante de un escenario, el logo encima y la insignia de la plataforma en una esquina. Algo más pulido habría parecido de otro juego. Esto parece de **este** — una conversión para iPhone de 2011 de un arcade de 1995, que es exactamente lo que se está desmontando aquí.
 
