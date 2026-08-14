@@ -9,15 +9,15 @@ Current state of the project. Written so that someone can pick it up with no pri
 ## Overall progress
 
 ```
-███████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  17%
+███████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  18%
 ```
 
-**≈17% of the total estimated effort. Nothing is playable yet.**
+**≈18% of the total estimated effort. Nothing is playable yet.**
 
 Weights are our judgement of how much of the total each area represents;
 the completion figures are measured. Two numbers are worth keeping apart:
 
-- **17%** — share of the *whole project*, counting analysis, tooling and formats.
+- **18%** — share of the *whole project*, counting analysis, tooling and formats.
 - **0.7%** — share of the *decompilation itself*: 17 finished functions of 2,572.
 
 Both are true. The first says the foundations are in place; the second says the
@@ -26,11 +26,11 @@ bulk of the work has not started.
 | Area | Weight | Done | |
 |---|---:|---:|---|
 | Binary analysis and source-tree mapping | 4% | 100% | `██████████` |
-| Tooling and the verification oracle | 8% | 90% | `█████████░` |
+| Tooling and the verification oracle | 8% | 95% | `██████████` |
 | Asset format specifications | 8% | 65% | `██████░░░░` |
 | `lime/common` — engine core (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
-| `gamecode/logic` — fight engine (2,172 fn) | 28% | 3% | `░░░░░░░░░░` |
+| `gamecode/logic` — fight engine (2,172 fn) | 28% | 4% | `░░░░░░░░░░` |
 | Native PC platform layer (229 fn rewritten) | 17% | 0% | `░░░░░░░░░░` |
 | EA SDK stubs (~1,412 fn) | 5% | 0% | `░░░░░░░░░░` |
 
@@ -576,9 +576,54 @@ verification that needs no differential harness.
 `_Task_GameMain` (`0x0002afec`) and `_Task_GameDestroy` (`0x00022c74`) complete
 the game task triple; only the init one announces itself.
 
-There are also **10,208 lines consisting of a bare number**, plus 184 lines of
-32 numbers in a row. Unidentified. Worth finding what prints them — whatever it
-is dumps a lot of engine state for free.
+### The moves list dumps the move input tables
+
+Those 10,208 bare-number lines turned out to be the best find of the session.
+
+They form **four contiguous runs**, and two of them start immediately after
+`LOGGING (50016): INGAME MENU, MOVES INFO`. Each run is one integer per line,
+values 0–22, and every run is **strictly periodic**:
+
+| Run | Values | Structure |
+|---|---:|---|
+| 1 | 1,128 | period 6, `14 0 4 13 22 3` × 188 |
+| 2 | 6,240 | period 6, same cycle × 1,040 |
+| 3 | 318 | period 6, same cycle × 53 |
+| 4 | 2,522 | five different cycles, **in the same order twice** |
+
+Run 4 is the informative one:
+
+```
+period 6  x15   14 0 4 13 22 3
+period 6  x25   22 21 22 3 1 0
+period 5  x34   2 2 10 3 0
+period 5  x94   12 2 0 3 14
+period 7  x29   0 4 3 1 12 5 11
+period 6  x44   14 0 4 13 22 3     <- the same five again
+period 6  x11   22 21 22 3 1 0
+period 5  x10   2 2 10 3 0
+period 5  x27   12 2 0 3 14
+period 7  x132  0 4 3 1 12 5 11
+```
+
+Five cycles, traversed twice in the same order: that is somebody scrolling down
+the moves list and back. So the screen **reprints the displayed move's input
+sequence every frame**, the period is the number of inputs in that move, and
+the values are icon indices — directions and buttons, which is the right size
+for a range of 0–22. Runs 1–3 are the same screen left open on one move for
+188, 1,040 and 53 frames.
+
+**This is a free dump of the move input tables**, which are exactly the fight
+engine data that matters and exactly what static analysis handles worst. Nobody
+has to find and decode the tables in `__DATA`: open the moves list, scroll
+through every move of every character with the log running, and the game
+prints them.
+
+That experiment is written up as the first item in [HANDOFF.md](HANDOFF.md).
+It needs no tooling, no decompilation and no Ghidra — only patience with a
+controller — and it would produce the input table for all 24 characters.
+
+The 184 lines of 32 numbers remain unidentified.
 
 ---
 
