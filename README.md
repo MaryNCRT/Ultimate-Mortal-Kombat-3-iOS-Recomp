@@ -169,24 +169,35 @@ If you have never worked on something like this before, read **[docs/GETTING-STA
 The short version, for the impatient:
 
 ```bash
-# 1. Install: Python 3.10+, capstone, a C compiler (MinGW-w64 or gcc), Ghidra 11+, Java 21+
+# 1. Prerequisites: Python 3.10+, a C compiler (MinGW-w64 or gcc), Ghidra 11+, JDK 21+
 pip install capstone
 
-# 2. Extract the armv7 slice from YOUR OWN copy of the game
-python tools/macho.py path/to/UMK3 --thin armv7 --out UMK3.armv7
+# 2. Extract the armv7 slice from YOUR OWN copy of the game.
+#    An .ipa is a ZIP archive; the executable is at Payload/UMK3.app/UMK3
+python tools/macho.py thin path/to/UMK3 armv7 work/UMK3.armv7
 
-# 3. Rebuild the original source tree from the debug symbols
-python tools/stabs.py UMK3.armv7 --tree
+# 3. Dump the symbols and rebuild EA's original source tree from the debug table
+python tools/macho.py syms  work/UMK3.armv7 work/symbols.txt
+python tools/macho.py funcs work/UMK3.armv7 work/functions.txt
+python tools/stabs.py work/UMK3.armv7 work
 
-# 4. Generate the reference implementation of a module
-python tools/armrecomp/recomp.py UMK3.armv7 --file Matrix.cpp --out recompiled --name matrix
+# 4. See which functions of a module are easiest to attack first
+python tools/rank.py work/UMK3.armv7 Matrix.cpp
 
-# 5. Build and run its differential test
+# 5. Generate the reference implementation — the oracle — for that module
+python tools/armrecomp/recomp.py work/UMK3.armv7 \
+    --file Matrix.cpp --out recompiled --name matrix --with-deps
+
+# 6. Build and run its differential test
 gcc -std=c11 -O1 -I runtime -I recompiled \
     tests/test_matrix_diff.c decomp/lime/Matrix.c recompiled/matrix.c runtime/arm_runtime.c \
     -o build/test_matrix_diff -lm
 ./build/test_matrix_diff
 ```
+
+Everything derived from the binary lands in `work/`, which is git-ignored. Set
+`UMK3_WORK` to put it elsewhere, and `GHIDRA_HOME` before using
+`tools/decomp_driver.py`. All paths are resolved by `tools/umk3paths.py`.
 
 ---
 
@@ -207,6 +218,32 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for how to pick up a module, and [docs/PR
 We state this plainly because the reverse-engineering community holds differing and strongly-held views on AI-assisted decompilation, and because you deserve to know how the code you are reading came to exist. The details — what was AI-generated, what was human-directed, and how correctness was established regardless — are in [AI-DISCLOSURE.md](AI-DISCLOSURE.md).
 
 The short version: every claim in this repository that could be verified, was verified, mechanically, against the original binary's actual behaviour. The differential tests exist precisely because neither a decompiler nor a language model can be taken at its word.
+
+---
+
+## Credits
+
+**The game itself was made by other people, and none of them are us.**
+
+*Ultimate Mortal Kombat 3* was created by **Midway Games** in 1995, designed by
+Ed Boon and John Tobias. The 2011 iPhone conversion that this project studies was
+built by **EA Mobile**, on an in-house 3D engine their code calls **LIME**. The
+engineers who wrote it left their names on the work by accident — the debug table
+they shipped is what makes this project possible at all. Whoever forgot to strip
+that binary: thank you.
+
+This repository contains none of their code. It contains our description of what
+their code does, and our own reimplementation of it.
+
+**This project** is maintained by [MaryNCRT](https://github.com/MaryNCRT), who
+sets the direction, makes the scope decisions, and supplies the legally obtained
+copy of the game that all the analysis runs against.
+
+The tooling, analysis, decompilation and documentation were produced with
+**Anthropic's Claude**, via Claude Code, under that direction. Commits carry a
+`Co-Authored-By:` trailer where that applies. See [AI-DISCLOSURE.md](AI-DISCLOSURE.md)
+for the full account of what that means and how correctness was established
+independently of it.
 
 ---
 

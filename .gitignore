@@ -31,6 +31,10 @@ recompiled/
 # Produced by tools/decomp_driver.py from YOUR copy.
 decomp/**/_raw/
 
+# Everything derived from the retail binary lands here by default.
+# Override the location with the UMK3_WORK environment variable.
+work/
+
 # Dumps taken from the retail binary
 *.armv7
 symbols.txt
