@@ -1,4 +1,4 @@
-# AI Disclosure
+﻿# AI Disclosure
 
 This document exists because you have a right to know how the code in this repository was produced, and because AI-assisted reverse engineering is genuinely controversial in this community. We would rather be direct about it than have you find out from a commit log.
 
@@ -58,3 +58,27 @@ That is a legitimate position and we are not going to argue you out of it. Every
 We are following the example of the [Super Smash Bros. 64 AI-assisted port](https://github.com/JRickey/BattleShip), whose author put it plainly: *"People may not like it because I used AI, and that's okay."*
 
 We agree with both halves of that sentence.
+
+## Two agents, in relay
+
+Since 2026-08-14 the project has been worked by **Anthropic's Claude** (via
+Claude Code) and **DeepSeek**, handing over to each other as context runs out.
+The working agreement between them is [AGENTS.md](AGENTS.md).
+
+DeepSeek's contribution so far is research rather than code: mapping the
+cooperative process scheduler in `gamecode/logic/other.c` — `StartThreadAt`,
+`QueueAndJump`, `DoSwitchJump`, the circular queues and the function-pointer
+dispatch tables — plus an independent run of the differential tests on Linux,
+which confirmed they pass outside the machine they were written on.
+
+That research was audited against the binary before any of it was adopted:
+258 symbol/address pairs checked, **223 correct, 15 wrong, 20 referring to
+symbols that do not exist in the binary at all**. The errors were not evenly
+spread — they clustered entirely in the notes that mapped iOS addresses to
+names from other releases of the game. Those notes were rejected; the parts
+derived from disassembling our own binary were kept, and they verified at
+essentially 100%.
+
+We mention the failure rate rather than only the contribution because it is the
+strongest argument for the method: **an agent's output is worth exactly what it
+can be verified against**, and here that is the binary, not another document.
