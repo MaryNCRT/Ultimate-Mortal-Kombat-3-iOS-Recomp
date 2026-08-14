@@ -122,7 +122,7 @@ Ese número es una estimación, así que aquí está la aritmética que hay detr
 | Especificaciones de formatos de assets | 8% | 65% | `██████░░░░` |
 | `lime/common` — núcleo del motor (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — lógica de juego (291 fn) | 18% | 0% | `░░░░░░░░░░` |
-| `gamecode/logic` — motor de combate (2.172 fn) | 28% | 2% | `░░░░░░░░░░` |
+| `gamecode/logic` — motor de combate (2.172 fn) | 28% | 3% | `░░░░░░░░░░` |
 | Capa de plataforma nativa de PC (229 fn reescritas) | 17% | 0% | `░░░░░░░░░░` |
 | Stubs del SDK de EA (~1.412 fn) | 5% | 0% | `░░░░░░░░░░` |
 
