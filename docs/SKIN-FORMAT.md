@@ -122,7 +122,62 @@ two arrays backwards.
 
 ---
 
-## 4. What is still open
+## 4. The `.bones` format
+
+The skeleton itself. From `LIME_LoadBones` (`0x000603f0`).
+
+```
+int32  numBones (N)
+BONE   bones[N]        // 25 bytes each
+```
+
+Total: `4 + N*25`. **Validated on 27 of the 29 files.**
+
+`ROBO1_STANDARD.bones` and `ROBO2_STANDARD.bones` use **24 bytes** per bone
+instead of 25 — the same two files that are the odd ones out in both
+`.meshset` and `.skin`. At this point it is safe to treat those two as having
+come out of a different exporter entirely.
+
+### A bone on disk — 25 bytes
+
+| Offset | Type | Meaning |
+|---|---|---|
+| `0x00` | `int32` | number of used entries in the link array below |
+| `0x04` | `float` | offset X |
+| `0x08` | `float` | offset Y |
+| `0x0C` | `float` | offset Z |
+| `0x10` | `byte[9]` | link array: parent first, then children; `0xFF` = unused |
+
+The link encoding is what the data itself shows. In `SCORPION_STANDARD.bones`:
+
+```
+bone 0:  count=2   offset=(0.043, 106.068, -0.005)   links = FF 01 FF FF FF FF FF FF FF
+bone 1:  count=2   offset=(0, 0, 0)                  links = 02 2D FF FF FF FF FF FF FF
+bone 2:  count=3   offset=(10.740, 4.117, 0)         links = 03 25 29 FF FF FF FF FF FF
+```
+
+Bone 0 has `0xFF` as its first link and one child — a root. Bone 2 has parent
+`0x03` and children `0x25`, `0x29`, which is three used entries, matching its
+count of 3. The offsets are plausible skeleton dimensions: ~106 units up for
+the root, ~10 units for a limb.
+
+### In memory
+
+`BONESINFO` is 8 bytes — `limeMalloc(tag, 8)`:
+
+| Offset | Field |
+|---|---|
+| `0x00` | `BONE *bones` |
+| `0x04` | `int numBones` |
+
+`BONE` is **56 bytes** — the allocation is `N*64 − N*8`. The loader copies the
+first 16 bytes of each disk record verbatim and then writes a pointer at
+`+0x14`, computed as `bones + index * 56`: the link indices are turned into
+real pointers at load time.
+
+---
+
+## 5. What is still open
 
 - What the 24 bytes per vertex actually contain.
 - What the 6 bytes per vertex actually contain.
