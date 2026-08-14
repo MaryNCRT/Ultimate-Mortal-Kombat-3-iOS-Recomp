@@ -1,5 +1,7 @@
 ﻿<div align="center">
 
+<img src="docs/img/logo.png" alt="Ultimate Mortal Kombat 3 Recomp" width="820">
+
 # Ultimate Mortal Kombat 3 — iOS Decompilation & PC Port
 
 **A work-in-progress decompilation of the 2011 iOS release of Ultimate Mortal Kombat 3, aiming at a native PC port for Windows and Linux.**
@@ -12,7 +14,9 @@
 
 ## No copyrighted assets are distributed here
 
-**This repository contains no game code, no game data, and no game assets.** Not one byte of Electronic Arts' or Warner Bros.' property is committed here or shipped in any release.
+**This repository contains no game code, no game data, and no game assets.** Not one byte extracted from the game — no textures, no models, no audio, no compiled code — is committed here or shipped in any release.
+
+The one exception is the banner at the top of this page, which is fan art of the *Ultimate Mortal Kombat 3* wordmark, credited [below](#the-logo). It is a trademark used to identify what the project is about, not game data, and it is not part of any build.
 
 What lives here is *our own* work: analysis tools, documentation of file formats, hand-written C, and test harnesses. Everything that touches the original game reads it from **a copy you supply yourself** and produces its output locally, where `.gitignore` keeps it out of the repository.
 
@@ -298,6 +302,22 @@ The tooling, analysis, decompilation and documentation were produced with
 `Co-Authored-By:` trailer where that applies. See [AI-DISCLOSURE.md](AI-DISCLOSURE.md)
 for the full account of what that means and how correctness was established
 independently of it.
+
+### The logo
+
+The *Ultimate Mortal Kombat 3* wordmark at the top of this page was **redrawn in
+UHD by [u/JuananoLaGarza](https://www.reddit.com/user/JuananoLaGarza/)**, and
+posted to r/MortalKombat as
+*[Ultimate Mortal Kombat 3 logo redone in UHD](https://www.reddit.com/r/MortalKombat/comments/mvm4uo/ultimate_mortal_kombat_3_logo_redone_in_uhd/)*.
+It is used here with credit; the "RECOMP" word underneath and the dark backing
+are this project's addition. The underlying *Mortal Kombat* marks and dragon
+emblem belong to Warner Bros. Entertainment — see [Legal](#legal).
+
+If you are the artist and would rather this project did not use it, open an
+issue and it comes down.
+
+This is a placeholder identity while the project is young. A logo that does not
+lean on the trademark would serve it better in the long run.
 
 ---
 

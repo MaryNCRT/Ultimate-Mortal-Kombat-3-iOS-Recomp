@@ -1,5 +1,7 @@
 ﻿<div align="center">
 
+<img src="docs/img/logo.png" alt="Ultimate Mortal Kombat 3 Recomp" width="820">
+
 # Ultimate Mortal Kombat 3 — Decompilación de iOS y port a PC
 
 **Decompilación en curso de la versión iOS de 2011 de Ultimate Mortal Kombat 3, con el objetivo de llegar a un port nativo para Windows y Linux.**
@@ -14,7 +16,9 @@
 
 ## Aquí no se distribuye ningún contenido con derechos de autor
 
-**Este repositorio no contiene código del juego, ni datos, ni assets.** Ni un solo byte de propiedad de Electronic Arts o Warner Bros. está subido aquí ni se incluye en ninguna publicación.
+**Este repositorio no contiene código del juego, ni datos, ni assets.** Ni un solo byte extraído del juego — ni texturas, ni modelos, ni audio, ni código compilado — está subido aquí ni se incluye en ninguna publicación.
+
+La única excepción es el banner que encabeza esta página: es fan art del logotipo de *Ultimate Mortal Kombat 3*, acreditado [más abajo](#el-logo). Es una marca usada para identificar de qué va el proyecto, no un dato del juego, y no forma parte de ninguna compilación.
 
 Lo que hay es trabajo *nuestro*: herramientas de análisis, documentación de formatos de archivo, C escrito a mano y arneses de pruebas. Todo lo que toca el juego original lo lee de **una copia que aportas tú** y produce su salida en local, donde el `.gitignore` la mantiene fuera del repositorio.
 
@@ -274,6 +278,14 @@ Este repositorio no contiene nada de su código. Contiene nuestra descripción d
 **Este proyecto** lo mantiene [MaryNCRT](https://github.com/MaryNCRT), que marca la dirección, toma las decisiones de alcance y aporta la copia obtenida legalmente del juego contra la que corre todo el análisis.
 
 Las herramientas, el análisis, la decompilación y la documentación se produjeron con **Claude, de Anthropic**, vía Claude Code, bajo esa dirección. Los commits llevan el trailer `Co-Authored-By:` donde corresponde. Ver [AI-DISCLOSURE.md](AI-DISCLOSURE.md) para el relato completo de lo que eso significa y de cómo se estableció la corrección de forma independiente.
+
+### El logo
+
+El logotipo de *Ultimate Mortal Kombat 3* que encabeza esta página lo **rehízo en UHD [u/JuananoLaGarza](https://www.reddit.com/user/JuananoLaGarza/)**, y lo publicó en r/MortalKombat como *[Ultimate Mortal Kombat 3 logo redone in UHD](https://www.reddit.com/r/MortalKombat/comments/mvm4uo/ultimate_mortal_kombat_3_logo_redone_in_uhd/)*. Se usa aquí con crédito; la palabra "RECOMP" de debajo y el fondo oscuro son añadido de este proyecto. Las marcas *Mortal Kombat* y el emblema del dragón pertenecen a Warner Bros. Entertainment — ver [Legal](#legal).
+
+Si eres el autor y prefieres que este proyecto no lo use, abre un issue y se retira.
+
+Es una identidad provisional mientras el proyecto es joven. A la larga le vendría mejor un logo que no se apoye en la marca registrada.
 
 ---
 
