@@ -6,6 +6,49 @@ Current state of the project. Written so that someone can pick it up with no pri
 
 ---
 
+## Overall progress
+
+```
+██████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  14%
+```
+
+**≈14% of the total estimated effort. Nothing is playable yet.**
+
+Weights are our judgement of how much of the total each area represents;
+the completion figures are measured. Two numbers are worth keeping apart:
+
+- **14%** — share of the *whole project*, counting analysis, tooling and formats.
+- **0.5%** — share of the *decompilation itself*: 13 finished functions of 2,572.
+
+Both are true. The first says the foundations are in place; the second says the
+bulk of the work has not started.
+
+| Area | Weight | Done | |
+|---|---:|---:|---|
+| Binary analysis and source-tree mapping | 4% | 100% | `██████████` |
+| Tooling and the verification oracle | 8% | 85% | `████████░░` |
+| Asset format specifications | 8% | 20% | `██░░░░░░░░` |
+| `lime/common` — engine core (109 fn) | 12% | 12% | `█░░░░░░░░░` |
+| `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
+| `gamecode/logic` — fight engine (2,172 fn) | 28% | 0% | `░░░░░░░░░░` |
+| Native PC platform layer (229 fn rewritten) | 17% | 0% | `░░░░░░░░░░` |
+| EA SDK stubs (~1,412 fn) | 5% | 0% | `░░░░░░░░░░` |
+
+### Milestones
+
+| Milestone | Status |
+|---|---|
+| The binary is understood and mapped | ✅ done |
+| A verification method exists and is proven | ✅ done |
+| The game runs somewhere as a behavioural reference | ✅ done (touchHLE) |
+| Model format readable | ✅ done |
+| Animation formats readable | ⬜ not started |
+| Something renders on a PC screen | ⬜ not started |
+| The game boots natively | ⬜ far off |
+| The game is playable natively | ⬜ far off |
+
+---
+
 ## At a glance
 
 | Phase | Status |
