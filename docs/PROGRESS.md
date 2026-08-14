@@ -390,17 +390,16 @@ by observation, which is exactly the method needed for the tables behind
 Reaching a state in the emulator and reading the index it reports is evidence;
 guessing from a name is not.
 
-Indices observed so far, 6 of the 53:
+Indices observed so far, 12 of the 53:
 
-| Index | Task |
-|---:|---|
-| 0 | `FE_Task_Main_Menu` |
-| 5 | `FE_Task_Options` |
-| 6 | `FE_Task_Extras` |
-| 7 | `FE_Task_About` |
-| 9 | `FE_Task_Settings` |
-| 10 | `FE_Task_Button_Config` |
-| 49 | `FE_Task_Select_Leaderboard` |
+| Index | Task | | Index | Task |
+|---:|---|---|---:|---|
+| 0 | `FE_Task_Main_Menu` | | 9 | `FE_Task_Settings` |
+| 1 | `FE_Task_Play` | | 10 | `FE_Task_Button_Config` |
+| 2 | `FE_Task_Single_Player` | | 27 | `FE_Task_Character_Select` |
+| 5 | `FE_Task_Options` | | 28 | `FE_Task_Tower` |
+| 6 | `FE_Task_Extras` | | 29 | `FE_Task_Continue_Screen` |
+| 7 | `FE_Task_About` | | 49 | `FE_Task_Select_Leaderboard` |
 
 Filling the rest is a matter of walking the menus and reading the log.
 
@@ -445,6 +444,93 @@ port has to replace anyway. Worth noting for whoever writes it: **the bundle
 already ships local copies** — `res/defaults/dmg/staticpage/dmg_staticpage_*.html`
 in eight languages. The native version can serve those instead of reaching for
 a URL that will not resolve, and the EULA screen works offline.
+
+---
+
+## Playing the game as an analysis method
+
+Nine emulator sessions, culminating in a full arcade run — the tower, Shao Kahn
+and Motaro, several characters and the unlockables. The largest log is **47,421
+lines with 368 event traces**. Everything below came from playing, not from
+static analysis.
+
+### Gamepad mapping, and a bug in touchHLE's own defaults
+
+touchHLE ships a recommended mapping for this game:
+
+```
+com.ea.umk3.bv: --dpad-to-touch=30,690,280,280 --button-to-touch=A,1020,900
+                --button-to-touch=B,1215,900 --button-to-touch=X,1400,900
+```
+
+Its own `--help` states that in landscape the bottom-right corner is `480,320`.
+**Those coordinates are far outside the screen**, so no press can ever register.
+That is why a gamepad appears to do nothing with the defaults.
+
+The working mapping, read off a screenshot of the running game, is in
+`docs/TOUCHHLE-PATCH.md`. The on-screen layout is a joystick at `15,202` sized
+`115×113`, and six buttons: `S` `P` `R` along the bottom at y≈285 and `K` `B`
+along a second row at y≈235.
+
+Worth noting for its own sake: **one screenshot settled in a single attempt what
+four rounds of guessing had not.**
+
+### Hidden characters need a hold timer, not a tap
+
+Holding a finger on Smoke in the character select reveals Human Smoke. That
+means `FE_Task_Character_Select` (index 27) measures *press duration*, and a
+port that only implements "tap" loses the secret characters silently.
+
+The binary has **`_secret_move_search` at `0x00053754`** — a dedicated system,
+not a special case. Expect Kombat Kodes and other secrets to run through it.
+The symbol name is EA's own, from the STABS table.
+
+`_t_nj_smoke_slam` (`nj` = ninja) confirms robot and human Smoke are separate
+entities in the engine, not a palette swap.
+
+### The babality model sometimes fails to draw — and it is not the game's fault
+
+Reported symptom: the baby model is invisible after a babality, but only
+sometimes. It rendered correctly for Kabal on a different stage.
+
+The logs rule out the obvious explanation. The texture *does* load:
+
+```
+loading scene: BABALITY_KUNGLAO.scene...
+".../Textures/KUNGLAOBABY_LOW.PNG", returning nil      <- the _LOW variant is absent
+*** Loaded KUNGLAOBABY.???, allocating ptr 36 [VRAM 6498k]   <- the .pvr loads fine
+```
+
+All 64 babality `.pvr` textures are present in the bundle, and the fallback from
+the missing `_LOW` variant works.
+
+What does fail is the upload:
+
+```
+Error uploading compressed texture level: 0. glError: 0x0500   (GL_INVALID_ENUM)
+Error uploading compressed texture level: 0. glError: 0x0503   (GL_STACK_OVERFLOW)
+```
+
+Both on **compressed** texture upload, which is what PVRTC is. The model loads,
+the texture is read, the upload to the GPU fails, and the geometry draws with no
+valid texture. That it depends on the stage rather than the character fits: a
+different stage means different textures uploaded beforehand and a different
+VRAM state at the moment the baby is needed.
+
+**This is a touchHLE limitation, not a game bug, and patching the IPA would be
+the wrong fix.** EA's binary is behaving correctly. For the native port the
+problem disappears on its own, because the port decodes PVRTC itself rather
+than relying on a GL extension.
+
+### Runtime blockers, in order of how much they matter
+
+| Symptom | Cause | Patchable? |
+|---|---|---|
+| Emulator dies on any confirmation dialog | `-[modalAlertDelegate initWithRunLoop:]` (`0x000b53bc`) spins a nested run loop; touchHLE has no `_CFRunLoopRun` | **Yes** — neutralise `+[modalAlert confirm:]` (`0x000b54a0`) and `ask:` (`0x000b54e4`) |
+| Leaderboard, achievements | same modal path, reached through EA's online layer | same patch |
+| EULA screen blank | `UIWebView loadRequest` unimplemented; the bundle ships local HTML | port-side |
+| Babality model invisible | PVRTC upload failing | no — emulator side |
+| 47× `Failed to create OpenAL source` | source limit exhausted | no |
 
 ---
 
