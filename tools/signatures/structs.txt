@@ -39,3 +39,18 @@ struct MESHSETINFO 0x4c
   0x40  int        texturesLoaded
   0x44  int        numMeshes
   0x48  MESHINFO** meshes
+
+# ---- RenderSkinned.cpp ----
+# SKININFO: limeMalloc(tag, 0x30) in LIME_LoadSkin. Offsets from the
+# disassembly of LIME_LoadSkin1; see docs/SKIN-FORMAT.md.
+# 0x0c, 0x10 and 0x2c are never written by the loader.
+struct SKININFO 0x30
+  0x00  SKININFO*  next
+  0x04  int        numMatrices
+  0x08  int        numVerts
+  0x14  float*     matricesA
+  0x18  byte*      vertExtra
+  0x1c  byte*      vertData
+  0x20  int*       indexes
+  0x24  float*     weights
+  0x28  float*     matricesB

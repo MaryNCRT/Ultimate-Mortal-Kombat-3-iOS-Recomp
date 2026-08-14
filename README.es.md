@@ -119,7 +119,7 @@ Ese número es una estimación, así que aquí está la aritmética que hay detr
 |---|---:|---:|---|
 | Análisis del binario y mapeo del árbol de fuentes | 4% | 100% | `██████████` |
 | Herramientas y oráculo de verificación | 8% | 90% | `█████████░` |
-| Especificaciones de formatos de assets | 8% | 20% | `██░░░░░░░░` |
+| Especificaciones de formatos de assets | 8% | 35% | `████░░░░░░` |
 | `lime/common` — núcleo del motor (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — lógica de juego (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — motor de combate (2.172 fn) | 28% | 0% | `░░░░░░░░░░` |
@@ -138,7 +138,7 @@ Ese número es una estimación, así que aquí está la aritmética que hay detr
 | Existe un método de verificación y está probado | ✅ hecho |
 | El juego corre en algún sitio como referencia de comportamiento | ✅ hecho (touchHLE) |
 | Formato de modelos legible | ✅ hecho |
-| Formatos de animación legibles | ⬜ sin empezar |
+| Formatos de animación legibles | 🔄 `.skin` hecho; faltan `.bones`/`.skinanim` |
 | Algo se dibuja en una pantalla de PC | ⬜ sin empezar |
 | El juego arranca de forma nativa | ⬜ lejos |
 | El juego es jugable de forma nativa | ⬜ lejos |

@@ -1,0 +1,140 @@
+# The `.skin` format
+
+Skinning data: what binds a character's vertices to its skeleton. Together with
+`.bones` and `.skinanim` this is what makes the fighters move, so it is the
+format that stood between a static model viewer and an actual game.
+
+Derived from the disassembly of `LIME_LoadSkin` (`0x00060650`) and
+`LIME_LoadSkin1` (`0x000604c0`) in the armv7 slice, and validated against every
+`.skin` file the game ships.
+
+> **Validation: 29 of 29 files parse with the walk landing exactly on the last
+> byte.** 28,315 skinning matrices, 54,413 vertices. There is no length field
+> anywhere in the file, so an exact landing on every file is strong evidence
+> that the layout is right rather than merely plausible.
+>
+> Reproduce with `python tools/skin.py validate <res dir>`.
+
+---
+
+## 1. Overall structure
+
+```
+int32   blockCount          // 1 or 2
+BLOCK   blocks[blockCount]
+```
+
+`LIME_LoadSkin` reads the count, calls `LIME_LoadSkin1` once per block, and
+chains the results through `SKININFO+0x00`. The code only ever tests for
+`== 2`, so two is the practical maximum — a character with a second skin, such
+as a detachable part.
+
+### The two odd files
+
+`ROBO1_STANDARD.skin` and `ROBO2_STANDARD.skin` have **no leading count**:
+their first `int32` is already the matrix count, and the file is a single bare
+block.
+
+These are the same two files that use the unindexed variant of `.meshset`, so
+they clearly came out of a different export path. A reader should try the
+counted layout first and fall back to a bare single block if the walk does not
+land exactly — which is what `tools/skin.py` does.
+
+---
+
+## 2. A block
+
+```
+int32   numMatrices         // N — skinning matrix entries
+int32   numVerts            // M — vertices
+
+uint32  indexes[N]                  // copied verbatim
+uint16  weights[N * 4]              // each scaled by 1/65536 on load
+struct { MATRIX43 a; MATRIX43 b; }  entries[N]   // 96 bytes each
+byte    vertData[M * 24]            // copied verbatim
+byte    vertExtra[M * 6]            // copied verbatim
+```
+
+Total size of a block: `8 + N*108 + M*30`.
+
+`MATRIX43` is 12 floats — 48 bytes. The name comes from the binary itself: the
+mangled symbol `__Z6Xform2P11limeVECTOR3S0_S0_S0_P12SKINMATRIX43f` decodes to
+`Xform2(limeVECTOR3*, …, SKINMATRIX43*, float)`.
+
+### Weights are 16-bit fixed point
+
+The loader converts each `uint16` to float and multiplies by the constant at
+`0x00060634`, which is `0x37800000` — exactly `1/65536`.
+
+That the encoding is right is easy to confirm by looking at the values: the
+first entries of `SCORPION_STANDARD.skin` decode to `0.99998, 0, 0, 0`, which
+is one bone at full influence and three unused slots. Four weights per matrix
+entry is the usual skinning arrangement.
+
+### The buffers name themselves
+
+`limeMalloc`'s first argument is a debug tag, and the strings survive in the
+binary. They are the best evidence available for what each buffer is:
+
+| Destination | Size | Tag in the binary |
+|---|---|---|
+| `SKININFO+0x20` | `N × 4` | `skin_indexes` |
+| `SKININFO+0x24` | `N × 16` | `skin_mweights` |
+| `SKININFO+0x14` | `N × 48` | (matrix array) |
+| `SKININFO+0x28` | `N × 48` | `skin_normals` |
+| `SKININFO+0x1C` | `M × 24` | `skin_uvs` |
+| `SKININFO+0x18` | `M × 6` | (per-vertex, 6 bytes) |
+
+Two caveats worth stating plainly:
+
+- The `skin_uvs` tag sits on a **24 bytes per vertex** buffer, which is far more
+  than a UV pair needs. Either the tag is stale — copied from another buffer
+  when the code was written — or the buffer holds more than UVs. **Not yet
+  resolved.** Do not treat those 24 bytes as two floats.
+- `indexes` decode as large unsigned values (`0xFFFFFF2E` and similar), so they
+  are almost certainly **signed**, and negative. Probably offsets rather than
+  plain indices. **Not yet resolved either.**
+
+---
+
+## 3. `SKININFO` in memory
+
+48 bytes — `limeMalloc(tag, 0x30)` in `LIME_LoadSkin`.
+
+| Offset | Field | Notes |
+|---|---|---|
+| `0x00` | `SKININFO *next` | second block, or `NULL`; set to 0 before loading |
+| `0x04` | `int numMatrices` | N |
+| `0x08` | `int numVerts` | M |
+| `0x14` | `MATRIX43 *matricesA` | first matrix of each entry |
+| `0x18` | `void *vertExtra` | `M × 6` bytes |
+| `0x1C` | `void *vertData` | `M × 24` bytes |
+| `0x20` | `int32 *indexes` | N entries |
+| `0x24` | `float *weights` | `N × 4` floats |
+| `0x28` | `MATRIX43 *matricesB` | second matrix of each entry |
+
+Offsets `0x0C`, `0x10` and `0x2C` are not written by the loader.
+
+Note the ordering trap: within each 96-byte entry the **first** matrix goes to
+`+0x14` and the **second** to `+0x28`, but the loader allocates `+0x14` first
+and `+0x28` second. Reading the allocation order as the storage order gets the
+two arrays backwards.
+
+---
+
+## 4. What is still open
+
+- What the 24 bytes per vertex actually contain.
+- What the 6 bytes per vertex actually contain.
+- What `indexes` indexes into, and why the values are negative.
+- The relationship between the two matrix arrays. `matricesB[0]` of Scorpion
+  reads `(0.008, 0.114, 0.994, 0…)`, which is unit length — so at least the
+  first row is a normalised direction. `matricesA[0]` reads
+  `(13.543, -5.923, 1.970, 0…)`, which looks like a position.
+- `.bones` and `.skinanim`, neither of which has been touched yet. The
+  functions to read next are in `RenderSkinned.cpp`: `GetMFromQuat2`,
+  `GetSlerpedQ` and `DrawSkinnedMesh2`, whose mangled names already give away
+  that `BONEANIMFRAME` holds quaternions.
+
+The remaining unknowns are all about *interpretation*. The **layout** is settled:
+every file in the game walks to its exact last byte.
