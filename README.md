@@ -324,7 +324,7 @@ banner is quite literally made of the thing this project studies.
 The "RECOMP" word, the iOS badge and the composition are by
 [MaryNCRT](https://github.com/MaryNCRT).
 
-**Yes, it looks like a 2011 App Store icon. That is the joke.**
+**Yes, It looks like a cheap, ugly 2011 design for a pirate app..**
 
 It was put together quickly and on purpose in the visual language of the thing
 it is about: a mobile port from the era when every game's key art was a
