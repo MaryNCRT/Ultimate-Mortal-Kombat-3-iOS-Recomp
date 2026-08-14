@@ -27,7 +27,7 @@ bulk of the work has not started.
 |---|---:|---:|---|
 | Binary analysis and source-tree mapping | 4% | 100% | `██████████` |
 | Tooling and the verification oracle | 8% | 90% | `█████████░` |
-| Asset format specifications | 8% | 35% | `████░░░░░░` |
+| Asset format specifications | 8% | 50% | `█████░░░░░` |
 | `lime/common` — engine core (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | 0% | `░░░░░░░░░░` |
@@ -42,7 +42,7 @@ bulk of the work has not started.
 | A verification method exists and is proven | ✅ done |
 | The game runs somewhere as a behavioural reference | ✅ done (touchHLE) |
 | Model format readable | ✅ done |
-| Animation formats readable | 🔄 `.skin` done; `.bones`/`.skinanim` open |
+| Animation formats readable | 🔄 `.skin` and `.bones` done; `.skinanim` open |
 | Something renders on a PC screen | ⬜ not started |
 | The game boots natively | ⬜ far off |
 | The game is playable natively | ⬜ far off |
@@ -54,7 +54,7 @@ bulk of the work has not started.
 | Phase | Status |
 |---|---|
 | 0 — Binary analysis and source-tree mapping | ✅ complete |
-| 1 — Asset formats | 🔄 `.meshset` and `.skin` solved; `.bones`/`.skinanim` open |
+| 1 — Asset formats | 🔄 `.meshset`, `.skin` and `.bones` solved; `.skinanim` open |
 | 2 — Verification oracle | ✅ complete and proven |
 | 3 — Ghidra automation | ✅ headless pipeline working |
 | 4 — Decompile `lime/common` | 🔄 109/109 drafted, 2.5 modules finished |
