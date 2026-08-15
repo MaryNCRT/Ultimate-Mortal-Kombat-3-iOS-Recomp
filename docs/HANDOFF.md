@@ -83,18 +83,24 @@ against a public UMK3 move list, each of the 0–22 values gets a name.
 
 Do not decompile anything to get this. The game is already telling you.
 
-### 2. Finish `.events` — [issue #3](../../issues/3)
+### 2. ~~Finish `.events`~~ — done ([issue #3](../../issues/3))
 
-It is the other remaining format with a free oracle, and the
-resume point is exact: `0x000a47fc`, right after the `limeMalloc(tag, N*216)`
-that allocates the track array.
+Solved. 544 of 545 files walk to their exact last byte; see
+[EVENTS-FORMAT.md](EVENTS-FORMAT.md). Two things from it are worth carrying
+into the next format:
 
-Established: `int32 numTracks`, then variable-length tracks. 390 of the 545
-files are exactly 4 bytes — a lone `count = 0`, which confirms the header.
-`SCENEEVENTS` is 8 bytes, `SCENEEVENTTRACK` is 216 in memory.
+- **Derive strides from the loader, not from the walk.** Both the 268-byte
+  header and the 56-byte entry come out of the loader's own pointer
+  arithmetic, and the header is then accounted for byte by byte by its load
+  sequence. That is what makes the layout credible.
+- **Check a claimed constant against the whole corpus before believing it.**
+  This format was audited as circular evidence because `numEntries` looked
+  constant across 212 tracks. Across all 1,547 it takes ten distinct values
+  and 103 tracks are not 1 — so the walk was real evidence after all. A
+  subset is not a corpus.
 
-Counter-examples that must divide before you believe any layout: Jax (14964
-bytes, 46 tracks), Kung Lao (12216/37), Lair (15728/29), Sektor (14976/45).
+Still open: `CUTUP_BY_REPTILE_STRYKER.events` does not parse and probably is
+not an events file at all.
 
 ### 3. A mesh viewer
 
