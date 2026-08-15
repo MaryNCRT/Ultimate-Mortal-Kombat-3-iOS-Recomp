@@ -281,32 +281,68 @@ a `.bones` root translation is not what gets used at runtime.
 
 ---
 
-## 7. What is still open
+## 7. The skinning algorithm, in full
+
+From `DrawSkinnedMesh2` (armv6 `0x00083d10`, 2,152 bytes). One iteration per
+vertex, four bone influences each.
+
+### `indexes` is four packed bytes, not an integer
+
+The loop reads `idx[0]`…`idx[3]` with `ldrb` and advances by 4 per vertex. Each
+byte is a bone index; **`0xFF` means the slot is unused**.
+
+This retires the "why are the values negative" question above: they never were
+negative. An unused fourth influence puts `0xFF` in the top byte, which sets the
+sign bit of the word. Reading them as `int32` was the mistake.
+
+### `matricesA` is positions, `matricesB` is normals
+
+Each is **four `vec3`s, one per influence** — 12 floats, 48 bytes, which is why
+they looked like 4×3 matrices. A feeds the position path, B feeds `Xform2` and
+the result goes straight to `Normalise`.
+
+The earlier guess from the data — B unit-length, A looking like a coordinate —
+was right, and is now confirmed from the code rather than inferred.
+
+### The vectors are pre-multiplied by their weight
+
+Which is the piece that makes everything else make sense. The rotation needs no
+weight because it is already baked into A and B; only the translation term
+carries an explicit `w`. It is also why `Xform2` ignores its weight beyond the
+zero test — applying it there would double it.
+
+### The maths
+
+```
+pos = Σᵢ ( A[i]·M₃ₓ₃ + w[i]·T )        translation included
+nrm = Σᵢ ( B[i]·M₃ₓ₃ )                 rotation only, then Normalise
+col = LightVert(nrm) → one grey byte, R=G=B, alpha 0xFF
+```
+
+`M₃ₓ₃` is the palette entry for that influence's bone, at **48-byte stride**.
+
+**Vertex colour is the lit skinned normal.** That is where these characters'
+shading comes from; there is no per-pixel lighting anywhere.
+
+### `num_matrices` is a vertex count
+
+The loop terminates on `SKININFO+4` and advances one entry per iteration:
+`indexes` by 4, `weights` by 16, `matricesA` by 48. So Kano's "844 matrices" are
+844 skinned vertices.
+
+---
+
+## 8. What is still open
 
 - What the 24 bytes per vertex actually contain.
 - What the 6 bytes per vertex actually contain.
-- What `indexes` indexes into, and why the values are negative.
-- The relationship between the two matrix arrays. `matricesB[0]` of Scorpion
-  reads `(0.008, 0.114, 0.994, 0…)`, which is unit length — so at least the
-  first row is a normalised direction. `matricesA[0]` reads
-  `(13.543, -5.923, 1.970, 0…)`, which looks like a position. Now that
-  `SKINMATRIX43` is known to be 9+3, these are worth re-reading under that
-  layout.
-- The fifth word of `BONEANIMFRAME`, copied with the quaternion but not yet
-  consumed by anything decompiled.
-- **`DrawSkinnedMesh2`** — the remaining piece. Its mangled name gives the
-  signature outright:
+- The fifth word of `BONEANIMFRAME`, copied with the quaternion but not
+  consumed by anything decompiled so far.
+- The output strides at the loop tail — 24, 48 and 6 bytes per vertex on three
+  separate cursors. The 24-byte one carries position and colour; the other two
+  are unaccounted for, and the 6-byte one is the likely home of the UVs the
+  signature promises.
 
-  ```c
-  DrawSkinnedMesh2(SKININFO*, unsigned, unsigned, long,
-                   limeVECTOR3 *outPos, limeVECTOR2 *outUV,
-                   unsigned char*, long, long)
-  ```
-
-  It writes positions and UVs into caller-supplied arrays, which is exactly the
-  shape [the mesh viewer](MESH-VIEWER.md) needs in order to pose a character.
-  It is 1,876 bytes and is the last thing standing between the parsers and a
-  picture of Kano on his feet.
-
-The remaining unknowns are all about *interpretation*. The **layout** is settled:
-every file in the game walks to its exact last byte.
+The **layout** was already settled — every file in the game walks to its exact
+last byte — and now the **interpretation** is settled too, for everything the
+[mesh viewer](MESH-VIEWER.md) needs in order to pose a character.
