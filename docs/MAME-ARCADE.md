@@ -1,8 +1,9 @@
-# The arcade original under MAME — scope, and a blocker
+# The arcade original under MAME
 
 *Ultimate Mortal Kombat 3* (Midway, 1995) runs on **Midway Wolf Unit**, and MAME
-emulates it well. This records what observing it could contribute to this
-project, what it cannot, and why the exploration has not started.
+emulates it well. **It runs, and a scripted session reaches a real match.** This
+records what observing it can contribute, what it cannot, and how far the
+exploration got.
 
 ---
 
@@ -37,10 +38,9 @@ Matching every file by SHA1 against `-listxml` showed all 26 ROMs were correct
 and only mis-named. After renaming: **`romset umk3 is good`**. The one genuinely
 absent file was the security PIC.
 
-## The one file that actually blocks it
+## The security PIC
 
-**MAME will not start.** Both `umk3` and the `umk3r11` clone fail on the same
-single file:
+The one file that genuinely had to be sourced:
 
 ```
 463_mk3_ultimate.u64   4,105 bytes
@@ -49,21 +49,11 @@ SHA1   7f26045ed2c9ca94fadcb673ce10f28208aa720e
 region: serial_security:pic
 ```
 
-That is the **PIC16C57 security chip** dump. The driver needs it to emulate
-Midway's protection, and its absence is fatal rather than a warning:
-
-```
-Fatal error: Required files are missing, the machine cannot be run.
-```
-
-`umk3r11` is a *clone* of `umk3` and inherits the parent's ROMs, so it hits the
-same wall — MAME reports `NOT FOUND (umk3)`, naming the parent set it searched.
-Neither archive contains any file under 70 KB, so the dump is simply absent from
-both.
-
-The hashes are recorded so a candidate file can be verified rather than assumed.
-`umk3r11` is a clone and inherits the parent's ROMs, so it needs the same file —
-MAME reports `NOT FOUND (umk3)`, naming the set it searched.
+The **PIC16C57 security chip** dump. The driver needs it to emulate Midway's
+protection and refuses to start without it — fatal, not a warning. `umk3r11` is
+a clone and inherits the parent's ROMs, so it needs the same file; MAME reports
+`NOT FOUND (umk3)`, naming the set it searched. The hashes are recorded so a
+candidate can be verified rather than assumed.
 
 **The ROM is not in this repository and never will be.** It is Warner Bros.
 property. `LABORATORIO MAME/` is excluded in full — emulator, ROMs, symbols,
@@ -138,10 +128,11 @@ citing.
 
 ## Priority
 
-Low, and the exploration is time-boxed by design. The mesh viewer and the
-animation formats remain the priority, and MAME contributes to neither. If a
-bounded look produces nothing usable for `frames.x` / `moves_data.x` or the
-scheduler, it should be dropped without further cost.
+Low, and time-boxed by design. The mesh viewer and the animation formats remain
+the priority, and MAME contributes to neither. The environment is now built and
+the resume point is one specific problem — but if the next bounded look produces
+nothing usable for `frames.x` / `moves_data.x` or the scheduler, it should be
+dropped without further cost.
 
 ---
 
