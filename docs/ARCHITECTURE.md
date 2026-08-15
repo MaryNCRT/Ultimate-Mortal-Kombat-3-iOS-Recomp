@@ -148,7 +148,7 @@ There is also a hardcoded internal development IP: `10.253.13.208`.
 | `.meshset` | ✅ **solved and verified** | static geometry, three variants — see [MESHSET-FORMAT.md](MESHSET-FORMAT.md) |
 | `.lighting` | ✅ documented | per-vertex lighting byte |
 | `.skin` | ✅ **solved and verified** | skinning weights, 29/29 files — see [SKIN-FORMAT.md](SKIN-FORMAT.md) |
-| `.bones` | ✅ **solved** | skeleton hierarchy, 27/29 (ROBO1/ROBO2 use a 24-byte bone) |
+| `.bones` | ✅ **solved and verified** | skeleton hierarchy, **29/29** — two variants, 25 and 24 bytes per bone |
 | `.skinanim` | ✅ **solved** | skeletal animation, 28/29 (SINDEL open, [issue #2](../../issues/2)) |
 | `.scene` | ✅ **solved and verified** | 545/547 files; scene graph nodes + per-object tracks — see [SCENE-FORMAT.md](SCENE-FORMAT.md) |
 | `.events` | ✅ **solved and verified** | effect tracks: 268-byte header + N*56 entries — see [EVENTS-FORMAT.md](EVENTS-FORMAT.md) |

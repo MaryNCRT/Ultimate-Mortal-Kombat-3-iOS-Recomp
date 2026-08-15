@@ -42,7 +42,7 @@ bulk of the work has not started.
 |---|---:|---:|---|
 | Binary analysis and source-tree mapping | 4% | 100% | `██████████` |
 | Tooling and the verification oracle | 8% | 100% | `██████████` |
-| Asset format specifications | 8% | 95% | `█████████░` |
+| Asset format specifications | 8% | 97% | `██████████` |
 | `lime/common` — engine core (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | 4% | `░░░░░░░░░░` |
@@ -917,6 +917,40 @@ Windows-only, so it ships with nothing, the same way Ghidra does. The decoder
 in the repository has to be ours.
 
 Asset formats 80% → 85%.
+
+---
+
+## ROBO1 and ROBO2: one export variant, not four parser bugs
+
+Two files had been failing in four different formats, and each had been filed as
+its own oddity. They are the same thing.
+
+| Format | ROBO1 / ROBO2 | Everyone else |
+|---|---|---|
+| `.bones` | **24 bytes per bone** | 25 bytes per bone |
+| `.skin` | **no leading block count** | `int32 blockCount` first |
+| `.scene` | stub — 8 bytes, or a header that does not describe the file | full scene graph |
+| `.events`, `.lighting` | **absent** | present |
+
+Both bone strides divide **exactly**, with no remainder, across the whole
+corpus: 27 files at 25 bytes, 2 at 24, 29 of 29 explained. That is the signature
+of a **second format variant**, not of a parser that nearly works — the same
+conclusion `.meshset` reached with its three variants.
+
+The `.skin` evidence is stronger still. `ROBO2_STANDARD.skin` is 126,638 bytes
+against `SEKTOR_STANDARD.skin`'s 126,642 — **exactly four bytes**, the missing
+count — and its header reads `(765, 1467, -227, -227, -58339, -227)`, which is
+`SEKTOR`'s header verbatim once its `blockCount` is removed. The first **1,276
+bytes are byte-identical**; they diverge after that, so the two share a rig and
+topology while carrying different data.
+
+`python tools/skin.py validate-bones <res dir>` → **29 of 29 files, 1,407
+bones, 0 failures**, up from 27 of 29.
+
+**What this closes:** four separate "known exceptions" collapse into one
+statement — those two characters were exported by a different or older pipeline.
+It also means a reader must accept both variants rather than treating 27 of 29
+as good enough.
 
 ---
 
