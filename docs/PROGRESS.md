@@ -2,11 +2,14 @@
 
 Current state of the project. Written so that someone can pick it up with no prior context.
 
-**Last updated:** 2026-08-14 — see [HANDOFF.md](HANDOFF.md) for the revised route
+**Last updated:** 2026-08-15 — see [HANDOFF.md](HANDOFF.md) for the route, and
+[SESSION-2026-08-15.es.md](SESSION-2026-08-15.es.md) for that day's report.
 
-> Latest: the game now runs in touchHLE **with no known crash** (5 bytes,
-> three patches); the verification oracle is finished; the **armv6 slice**
-> decompiles cleanly where armv7's NEON defeats Ghidra.
+> Latest: the verification oracle is **finished**; the game runs in touchHLE
+> with **no known crash** (5 bytes, three patches); the **armv6 slice**
+> decompiles cleanly where armv7's NEON defeats Ghidra; `.events` solved;
+> `.pvr` measured and its block geometry verified 1,400/1,400; a PVRTC decoder
+> exists and is **wrong at 5.5%**, with the reference that proves it.
 
 ---
 
