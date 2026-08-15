@@ -125,6 +125,8 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 
 **En torno al 25% del esfuerzo total estimado. Todavía no hay nada jugable.**
 
+Resolver los formatos de personaje y renderizar a Kano no movió esta barra, y sería deshonesto empujarla porque la semana haya cundido. `lime/common` pasó del 15% al 19% —21 funciones de 109— y ese es todo el cambio. La fila de formatos ya estaba al 100%; lo que ha ocurrido es que ahora está *demostrada* en vez de afirmada, que vale muchísimo y no vale ni un punto porcentual.
+
 Ese número es una estimación, así que aquí está la aritmética que hay detrás en vez de una cifra que haya que creerse. Los pesos son nuestro criterio sobre cuánto representa cada área del total; discrepa del reparto si quieres, pero las cifras de avance están medidas.
 
 | Área | Peso | Hecho | |
@@ -132,7 +134,7 @@ Ese número es una estimación, así que aquí está la aritmética que hay detr
 | Análisis del binario y mapeo del árbol de fuentes | 4% | 100% | `██████████` |
 | Herramientas y oráculo de verificación | 8% | 100% | `██████████` |
 | Especificaciones de formatos de assets | 8% | 100% | `██████████` |
-| `lime/common` — núcleo del motor (109 fn) | 12% | 15% | `██░░░░░░░░` |
+| `lime/common` — núcleo del motor (109 fn) | 12% | 19% | `██░░░░░░░░` |
 | `gamecode` — lógica de juego (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — motor de combate (2.172 fn) | 28% | 4% | `░░░░░░░░░░` |
 | Capa de plataforma nativa de PC (161 fn por reescribir) | 17% | 10% | `█░░░░░░░░░` |

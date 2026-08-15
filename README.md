@@ -123,6 +123,12 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 
 **Roughly 25% of the total estimated effort. Nothing is playable yet.**
 
+Solving the character formats and rendering Kano did not move this bar, and it
+would be dishonest to nudge it because the week felt productive. `lime/common`
+went from 15% to 19% — 21 of 109 functions — and that is the whole change. The
+formats row was already at 100%; what happened is that it is now *demonstrated*
+rather than asserted, which is worth a great deal and worth no percentage points.
+
 That number is an estimate, so here is the arithmetic behind it rather than a
 figure you have to take on faith. Weights are our judgement of how much of the
 total work each area represents; disagree with the weighting if you like, but
@@ -133,7 +139,7 @@ the completion figures are measured.
 | Binary analysis and source-tree mapping | 4% | 100% | `██████████` |
 | Tooling and the verification oracle | 8% | 100% | `██████████` |
 | Asset format specifications | 8% | 100% | `██████████` |
-| `lime/common` — engine core (109 fn) | 12% | 15% | `██░░░░░░░░` |
+| `lime/common` — engine core (109 fn) | 12% | 19% | `██░░░░░░░░` |
 | `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | 4% | `░░░░░░░░░░` |
 | Native PC platform layer (161 fn to rewrite) | 17% | 10% | `█░░░░░░░░░` |
