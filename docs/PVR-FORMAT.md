@@ -120,3 +120,56 @@ whether the layout is the bug.**
 `tools/pvr.py` deliberately stops here. It reads headers and establishes
 geometry; it does not decode pixels, because decoding is the part that needs an
 independent reference and there is nothing yet to check against.
+
+---
+
+## The oracle was in the bundle
+
+The plan was to convert with Noesis and diff against that. It turned out not to
+be needed: **the game ships 38 textures twice**, as `NAME.PNG` *and*
+`NAME.pvr`. The PNG is the uncompressed source the PVR was built from — a
+reference implementation that costs nothing, needs no download, and is EA's own
+data rather than a third party's reading of it.
+
+`tools/pvrtc_diff.py` compares the decoder's output against those PNGs channel
+by channel. PVRTC is lossy, so a correct decoder will not score zero, but it
+should land within a few units out of 255.
+
+## Current decoder status: **wrong**
+
+`tools/pvrtc.py` decodes all 1,400 textures without error, to the right
+dimensions, producing plausible-looking images. Against the reference it scores:
+
+```
+compared:                 13 of 38 pairs
+mean difference:          48.42 / 255   (19.0%)
+worst maximum:            255
+```
+
+**19% average error is not compression loss, it is a bug.** The decoder is
+committed anyway, clearly marked, because the block geometry and container
+handling in it are verified and worth keeping — but it must not be used to
+produce anything until the pixel path is fixed.
+
+This is the project's method doing exactly what it is for. The decoder compiled,
+ran over the whole corpus, and produced images that look like textures. Judged
+by eye it would have passed. The reference says otherwise.
+
+### Where the bug most likely is
+
+In rough order of suspicion:
+
+1. **Modulation bit ordering.** The 2 bits per pixel at 4bpp are indexed as
+   `(y*4 + x)*2` in this implementation; if the real order is column-major or
+   the pixel origin differs, every block scrambles internally while still
+   producing plausible colours.
+2. **The bilinear endpoint interpolation.** Each pixel's endpoints come from
+   the four surrounding blocks with a half-block offset. The wrap-around at
+   texture edges and the exact offset convention are both easy to get subtly
+   wrong, and both would smear rather than obviously break.
+3. **Endpoint colour unpacking.** The 5-5-4 / 3-4-4-3 bit layouts and their
+   expansion to 8 bits per channel.
+
+The 25 `*_VERSUS` pairs could not be compared at all: the PNG is 512×512 and
+the PVR 256×256, so those are different assets rather than the same one
+compressed, and the diff correctly refuses to compare them.
