@@ -796,6 +796,41 @@ recompile with zero unsupported instructions.
 
 ---
 
+## `.scene` — started, not solved
+
+547 files, from `LIME_LoadScene` (`0x0005f0ac`). Full notes in
+[SCENE-FORMAT.md](SCENE-FORMAT.md). **Asset formats stays at 80%**: this is
+progress, not a solved format, and the difference matters.
+
+Established: the header is `int32 numObjects; int32 count2;`. The in-memory
+`SCENE` is reference-counted at `+0x40` and cached by filename, so loading the
+same scene twice does not reparse it. Objects live at `+0x4c` as
+`numObjects × 64`, with two `numObjects × 4` pointer arrays at `+0x88` and
+`+0x8c`. The per-object copy is a straight 64-byte `memcpy`, with none of the
+field-by-field scatter `.events` had.
+
+**A scene is the root of a file group.** The loader strips the last 6
+characters of the filename — exactly `.scene` — builds variants, calls
+`limeLoadFile` three more times and `LIME_LoadEvents` once. That explains
+something that had gone unremarked: the `.events` corpus is the same size as
+the scene corpus because **every scene owns one**.
+
+**Where it stops.** The on-disk record is not 64 bytes, so the walk does not
+close — `8 + numObjects*64` matches 1 file of 547. For the 92 single-object
+files, `8 + 108 + 12*count2` matches **71**, which looks like a 108-byte record
+plus `count2` items of 12. But 21 miss, and badly: `GYMIST1.scene` is 104,128
+bytes against a predicted 24,128. Something of variable length is in there that
+`count2` does not describe.
+
+**71 of 92 is exactly the kind of near-miss that looks like a solution.** By
+the rule this project already learned twice, the stride has to come from the
+loader's arithmetic, not from a formula fitted to most of the corpus. The
+resume point is precise: the cursor advance for the *next* object, immediately
+after the `memcpy` at `0x0005f27a`. That one instruction is what settled
+`.events`, and it will settle this.
+
+---
+
 ## A name we had no business using
 
 Checking the LIME reference against the binary turned up an error in our own
