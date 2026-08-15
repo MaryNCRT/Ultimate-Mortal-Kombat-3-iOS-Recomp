@@ -223,6 +223,8 @@ tools/
   skin.py                .skin, .bones and .skinanim reader and validator
   events.py              .events reader and validator
   pvr.py                 .pvr header reader and block-geometry validator
+  pvrtc.py               PVRTC decoder to RGBA (WRONG - see docs/PVR-FORMAT.md)
+  pvrtc_diff.py          diffs the decoder against EA's own shipped PNGs
   slices.py              extracts armv6/armv7 and finds NEON-affected functions
   xref.py                finds calls to an imported symbol; recovers assert() arguments
   ghidra/                headless decompilation scripts
