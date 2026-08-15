@@ -33,6 +33,7 @@ e.g. `python pose.py KANO_STANDARD kano.png 0`. Files are looked up in the
 res/ directory of an extracted IPA; set UMK3_RES or edit RES below.
 """
 
+import math
 import os
 import struct
 import sys
@@ -153,6 +154,53 @@ def skin_vertices(path, palette, num):
     return np.array(pts)
 
 
+class PosedMesh(object):
+    """Duck-types meshview's mesh so the existing rasteriser can draw it."""
+    __slots__ = ("name", "verts", "faces", "num_faces", "texture")
+
+
+def build_mesh(path, pts, texture):
+    """Assemble a renderable mesh from the skinned positions and the .skin's
+    own topology.
+
+    The two per-vertex blocks that sat unidentified for the whole project turn
+    out to be indexed by **triangle**, not by vertex -- `num_verts` in the
+    header is a triangle count, and it matches the `.meshset`'s face count for
+    the character exactly (Kano: 1,602 both).
+
+        vert_extra  6 bytes   three uint16 indices into the skinned positions
+        vert_data  24 bytes   three UV pairs, one per triangle corner
+
+    Verified across all 30 skin blocks in the game: every index lands inside
+    `num_matrices`, the maximum is always exactly `num_matrices - 1` so no
+    vertex goes unused, and **no file contains a single degenerate triangle**.
+
+    UVs are stored per corner but are consistent for a shared index -- Kano's
+    triangles 0 and 1 both give index 4 the UV (0.513, 0.142) -- so they
+    collapse to per-vertex without splitting anything.
+    """
+    blocks, _end = skin.parse(open(path, "rb").read())
+    faces, uvs, base = [], {}, 0
+    for s in blocks:
+        tri = struct.unpack("<%dH" % (s.num_verts * 3), s.vert_extra)
+        for t in range(s.num_verts):
+            a, b, c = tri[t*3], tri[t*3+1], tri[t*3+2]
+            uv = struct.unpack_from("<6f", s.vert_data, t * 24)
+            for j, v in enumerate((a, b, c)):
+                uvs.setdefault(base + v, (uv[j*2], uv[j*2+1]))
+            faces.append((base + a, base + b, base + c))
+        base += s.num_matrices
+
+    m = PosedMesh()
+    m.name = "posed"
+    m.faces = faces
+    m.num_faces = len(faces)
+    m.texture = texture
+    m.verts = [(p[0], p[1], p[2]) + uvs.get(i, (0.0, 0.0))
+               for i, p in enumerate(pts)]
+    return m
+
+
 def plot(pts, bone_pts, out, size=480):
     """Two orthographic views: front (X/Y) and side (Z/Y), bones in red."""
     img = np.full((size, size * 2, 3), 20, np.uint8)
@@ -200,6 +248,22 @@ def main(argv):
     print("  x %7.1f..%7.1f   y %7.1f..%7.1f   z %7.1f..%7.1f"
           % (pts[:, 0].min(), pts[:, 0].max(), pts[:, 1].min(),
              pts[:, 1].max(), pts[:, 2].min(), pts[:, 2].max()))
+
+    if "--render" in argv:
+        import meshview
+        texture = "%s_DIFFUSE.pvr" % name.split("_")[0]
+        mesh = build_mesh(os.path.join(RES, name + ".skin"), pts, texture)
+        print("  %d triangles, texture %s" % (mesh.num_faces, texture))
+        yaw = 0.0
+        for i, a in enumerate(argv):
+            if a == "--angle" and i + 1 < len(argv):
+                yaw = math.radians(float(argv[i + 1]))
+        img, stats = meshview.render([mesh], RES, size=560, yaw=yaw,
+                                     pitch=0.0, fit=0.62)
+        Image.fromarray(img).save(out)
+        print("  -> %s   %d triangles drawn" % (out, stats["triangles"]))
+        return 0
+
     plot(pts, bone_pts, out)
     print("  -> %s   left: front X/Y   right: side Z/Y   (red = bones)" % out)
     return 0

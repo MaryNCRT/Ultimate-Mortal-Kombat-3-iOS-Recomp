@@ -126,9 +126,37 @@ Full derivation in [SKIN-FORMAT.md](SKIN-FORMAT.md); the maths comes from
 UMK3_RES=/path/to/res python tools/pose.py KANO_STANDARD kano.png 0
 ```
 
-### What is still missing
+### Textured
 
-`pose.py` produces a **point cloud**, not a rendered character. Joining it to
-the textured rasteriser needs one more thing: the mapping between the 844
-skinned vertices and the `.meshset`'s own vertex arrays, which are a different
-count. That mapping is the last gap between these two tools.
+![Kano posed and textured](img/pose-kano-textured.png)
+
+```bash
+UMK3_RES=/path/to/res python tools/pose.py KANO_STANDARD kano.png 0 --render --angle 20
+```
+
+Everything this project has built, in one image: the bone tree from `.bones`,
+the pose from `.skinanim`'s quaternions, the influences and weights from
+`.skin`, its triangle indices and UVs, the texture through our own PVRTC
+decoder, and `CreatePerspectiveMatrix` from the verified decompilation — with
+the maths from `GetMFromQuat2`, `MatrixMul2` and `DrawSkinnedMesh2`.
+
+### The mapping that closed the gap
+
+The two per-vertex blocks in `.skin` had gone unidentified for the whole
+project. They are indexed by **triangle**, not by vertex — `num_verts` in the
+header is a triangle count, and it equals the `.meshset`'s face count for that
+character exactly (Kano: 1,602 both, against 844 actual vertices).
+
+```
+vert_extra   6 bytes    three uint16 indices into the skinned positions
+vert_data   24 bytes    three UV pairs, one per triangle corner
+```
+
+That also explains why the loader tags the 24-byte block `skin_uvs` when 24
+bytes is far more than a UV pair needs: it is three of them.
+
+Checked across all 30 skin blocks in the game — every index inside
+`num_matrices`, the maximum always exactly `num_matrices - 1` so no vertex is
+unused, and **not one degenerate triangle anywhere**. The UVs settle it: they
+are stored per corner, yet triangles 0 and 1 of Kano both give index 4 the UV
+`(0.513, 0.142)`. A wrong layout does not produce agreement like that.
