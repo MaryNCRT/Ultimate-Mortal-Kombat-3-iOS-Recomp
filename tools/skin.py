@@ -159,6 +159,7 @@ def cmd_dump(path):
 # ------------------------------------------------------------------ .skinanim
 
 ANIM_HEADER = 12          # float scale, int32 numFrames, int32 frameSize
+ANIM_HEADER_ALT = 16      # SINDEL only: an extra leading float
 BONEANIMFRAME_SIZE = 20   # 5 floats per bone per frame
 FRAME_FIXED = 16          # int32 tag + limeVECTOR3 root, before the bone array
 
@@ -172,14 +173,42 @@ def parse_anim(data):
     whose animations carry a different bone count than their skeletons.
     Read frameSize from the header; never compute it.
 
-    Returns (scale, numFrames, frameSize, numBones, end_offset).
+    **Two header layouts exist.** 28 of 29 files use 12 bytes:
+
+        float scale; int32 numFrames; int32 frameSize;
+
+    `SINDEL_STANDARD.skinanim` uses 16, with an extra leading float:
+
+        float scale; float scale2; int32 numFrames; int32 frameSize;
+
+    and it holds **twice** the frames its count field claims -- 844 against 422,
+    with `16 + 844*1256` landing exactly on the file's last byte. Its two halves
+    differ in **47 bytes out of 530,032**, so they are two near-identical takes
+    rather than a duplicated buffer. Whether the doubling is deliberate or a
+    build accident is not established; the reader trusts the file size over the
+    field, and `validate-anim` reports the discrepancy rather than hiding it.
+
+    Returns (scale, numFrames, frameSize, numBones, end_offset, header_size).
     """
     scale, num_frames, frame_size = struct.unpack_from("<f2i", data, 0)
+    if num_frames >= 0 and frame_size >= FRAME_FIXED:
+        end = ANIM_HEADER + num_frames * frame_size
+        if end == len(data):
+            num_bones = (frame_size - FRAME_FIXED) // BONEANIMFRAME_SIZE
+            return scale, num_frames, frame_size, num_bones, end, ANIM_HEADER
+
+    # 16-byte variant: an extra float before the counts.
+    scale, _scale2, num_frames, frame_size = struct.unpack_from("<2f2i", data, 0)
     if num_frames < 0 or frame_size < FRAME_FIXED:
         raise ValueError("implausible header: frames=%d frameSize=%d"
                          % (num_frames, frame_size))
+    body = len(data) - ANIM_HEADER_ALT
+    if body % frame_size:
+        raise ValueError("16-byte header leaves %d bytes, not a multiple of "
+                         "frameSize %d" % (body, frame_size))
+    actual = body // frame_size
     num_bones = (frame_size - FRAME_FIXED) // BONEANIMFRAME_SIZE
-    return scale, num_frames, frame_size, num_bones, ANIM_HEADER + num_frames * frame_size
+    return scale, actual, frame_size, num_bones, len(data), ANIM_HEADER_ALT
 
 
 def frame_at(data, frame_size, index):
@@ -211,10 +240,11 @@ def cmd_validate_anim(resdir):
 
     ok = bad = 0
     total_frames = 0
+    alt_header = []
     for p in files:
         data = open(p, "rb").read()
         try:
-            _s, nf, fs, nb, end = parse_anim(data)
+            _s, nf, fs, nb, end, hdr = parse_anim(data)
         except Exception as e:                                  # noqa: BLE001
             print("  %-30s ERROR: %s" % (os.path.basename(p), e))
             bad += 1
@@ -222,6 +252,9 @@ def cmd_validate_anim(resdir):
         if end == len(data):
             ok += 1
             total_frames += nf
+            if hdr != ANIM_HEADER:
+                claimed = struct.unpack_from("<i", data, 8)[0]
+                alt_header.append((os.path.basename(p), hdr, nf, claimed))
         else:
             bad += 1
             print("  %-30s ends at %d, file is %d (frames=%d frameSize=%d bones=%d)"
@@ -232,6 +265,9 @@ def cmd_validate_anim(resdir):
     print("  exact:          %d" % ok)
     print("  mismatched:     %d" % bad)
     print("animation frames: %d" % total_frames)
+    for name, hdr, actual, claimed in alt_header:
+        print("  %s uses the %d-byte header and holds %d frames, "
+              "though its count field reads %d" % (name, hdr, actual, claimed))
     return bad
 
 
