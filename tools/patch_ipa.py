@@ -25,8 +25,11 @@ import sys
 import zipfile
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-SRC_IPA = os.path.join(ROOT, "TouchHLE", "touchHLE_apps",
-                       "UltimateMortalKombat3v1259.ipa")
+# El IPA original vive en IPA\ y es SOLO LECTURA: se extrae a WORK\stage y se
+# parchea la copia. Sobrescribible con UMK3_IPA para quien lo tenga en otro sitio.
+SRC_IPA = os.environ.get(
+    "UMK3_IPA",
+    os.path.join(ROOT, "IPA", "UltimateMortalKombat3v1259.ipa"))
 WORK = os.path.join(ROOT, "WORK")
 APPS = os.path.join(ROOT, "TouchHLE", "touchHLE_apps")
 
@@ -94,8 +97,14 @@ PATCHES["assert_stub"] = [
 # soportado. Cuatro bytes en el prologo de la funcion:
 #     movs r0, #0    (0x2000)
 #     bx   lr        (0x4770)
+# OJO con el orden de los bytes: "bx lr" es el halfword 0x4770, que en
+# little-endian son los bytes 70 47, o sea bytes.fromhex("7047"). Escribir
+# "4770" mete los bytes 47 70 = halfword 0x7047 = "strb r7,[r0,#1]", que no
+# retorna: la ejecucion sigue de largo hacia el cuerpo original de la funcion.
+# Este parche lo tuvo mal hasta que se comprobo desensamblando el binario ya
+# parcheado. Verifica siempre el resultado, no la intencion.
 PATCHES["locale_index"] = [
-    (0x0009e794, bytes.fromhex("00204770"),
+    (0x0009e794, bytes.fromhex("00207047"),
      "getLocaleIndex -> return 0 (movs r0,#0; bx lr)"),
 ]
 
@@ -108,6 +117,56 @@ PATCHES["locale_index"] = [
 #   bx lr  (0x4770, Thumb)
 PATCHES["setlocale_nop"] = [
     (0x0009e8c0, bytes.fromhex("7047"), "LocaleManager::setLocale -> bx lr"),
+]
+
+# --- 4: los dialogos modales no bloquean ------------------------------------
+#
+# Cualquier cuadro de confirmacion cierra touchHLE. La causa no esta en
+# confirm: ni en ask:, sino dos niveles mas abajo: modalAlert.m tiene once
+# metodos, y TODOS los que muestran un cuadro desembocan en uno de estos dos:
+#
+#   +[modalAlert infoWith:button1:]            0x000b5528   (un boton)
+#   +[modalAlert queryWith:button1:button2:]   0x000b55f0   (dos botones)
+#
+# Los dos hacen lo mismo: crean un UIAlertView, llaman a CFRunLoopGetCurrent
+# (stub 0x000dd164) y luego a CFRunLoopRun (stub 0x000dd170) para BLOQUEAR
+# hasta que el usuario pulse. El delegado guarda el indice del boton y llama a
+# CFRunLoopStop para desbloquear.
+#
+# touchHLE no implementa _CFRunLoopRun, asi que ahi se muere. Parchear los dos
+# embudos cubre de golpe las seis entradas publicas (confirm:, ask:,
+# askFull:textOK:textCANCEL:, inform:confirmation:, infoFull:textOK: y
+# queryWith:).
+#
+# QUE DEVOLVER. Ambas funciones devuelven el INDICE DEL BOTON pulsado. Los
+# wrappers booleanos comparten esta cola:
+#     rsbs.w r0, r0, #1
+#     it     lo
+#     movlo  r0, #0
+# o sea, indice 0 -> true, indice >=1 -> false. Y el orden lo fija la firma de
+# askFull:textOK:textCANCEL:, que pasa textOK como button1: el boton 0 es OK y
+# el 1 es CANCEL.
+#
+# Por eso NO se devuelve lo mismo en las dos:
+#
+#   queryWith (dos botones) -> 1  = CANCEL. Los wrappers dan false, o sea
+#       "el usuario dijo que no". Asi un "¿Borrar el progreso de arcade?" se
+#       declina solo en vez de ejecutarse. Devolver 0 aqui seria pulsar que SI
+#       a cada dialogo destructivo.
+#   infoWith (un boton)     -> 0  = el unico indice valido; equivale a
+#       aceptar un aviso informativo, que es lo correcto.
+#
+# Efecto secundario deseable: como no se llega a crear el UIAlertView, el
+# puntero global de "alerta actual" se queda a 0 y +[modalAlert isModalActive]
+# sigue devolviendo falso, que es coherente con que no haya ningun modal.
+#
+# No se toca gamecode ni lime: modalAlert.m es capa iOS, de las 229 funciones
+# que el port reescribe nativas de todas formas.
+PATCHES["modal_nonblocking"] = [
+    (0x000b5528, bytes.fromhex("00207047"),
+     "+[modalAlert infoWith:button1:] -> return 0 (boton unico)"),
+    (0x000b55f0, bytes.fromhex("01207047"),
+     "+[modalAlert queryWith:button1:button2:] -> return 1 (CANCEL)"),
 ]
 
 PATCHES["getProperty_asserts"] = [
