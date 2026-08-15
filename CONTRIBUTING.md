@@ -142,7 +142,7 @@ We are explicit about this — see [AI-DISCLOSURE.md](AI-DISCLOSURE.md). Being u
 
 Not every useful contribution is a patch. All of these are valuable and welcome as issues:
 
-- A file format you have worked out (`.skin`, `.bones`, `.skinanim` are all still unsolved)
+- A file format you have worked out (`.scene` and the `frames.x` / `moves_data.x` tables are the ones still open)
 - A correction to something in `docs/` — including things that are simply wrong
 - A function where the decompiler output is misleading, so others don't lose time to it
 - Behavioural observations from running the game

@@ -175,16 +175,18 @@ That is the strongest form of verification available here: not two of our own re
 
 ---
 
-## 9. Still unsolved
+## 9. The companion formats
 
-These accompany `.meshset` and are needed before characters can animate:
+These accompany `.meshset`. All but one are now solved:
 
 | Extension | Purpose | Status |
 |---|---|---|
-| `.skin` | skinning weights | unsolved |
-| `.bones` | skeleton hierarchy | unsolved |
-| `.skinanim` | skeletal animation | unsolved |
-| `.scene` | scene graph | unsolved |
-| `.events` | event track | unsolved |
+| `.skin` | skinning weights | ✅ 29/29 — [SKIN-FORMAT.md](SKIN-FORMAT.md) |
+| `.bones` | skeleton hierarchy | ✅ 27/29 (ROBO1/ROBO2 use a 24-byte bone) |
+| `.skinanim` | skeletal animation | ✅ 28/29 ([issue #2](../../issues/2) for SINDEL) |
+| `.events` | effect tracks | ✅ 544/545 — [EVENTS-FORMAT.md](EVENTS-FORMAT.md) |
+| `.scene` | scene graph | ⬜ unsolved |
 
-`RenderSkinned.cpp` is decompiled and is the best available source for deriving the first three. They are the highest-value unsolved problem in the project — the difference between a model viewer and a game.
+Geometry, skinning, skeleton and animation are all readable against the shipped
+data, so there is enough here to draw an animated character. `.scene` — how a
+stage is assembled from its pieces — is the last one standing.
