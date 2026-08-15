@@ -1412,6 +1412,71 @@ half: `out[j] = Σᵢ vin[i]·m[i*4+j]`, no translation. That is where to start.
 **When a character stands up in this viewer, four specifications are confirmed
 at once in a way no differential test can manage.**
 
+### And then a character stood up
+
+The viewer's stated purpose was to validate four format specifications by
+looking at one picture. It did, and the route there is worth recording because
+**two attempts failed visibly before the third worked** — which is what makes it
+evidence rather than a demo.
+
+| Attempt | Result | What it proved |
+|---|---|---|
+| sum `matricesA`, no palette | diffuse cloud | each `A[i]` is in its own bone's local space |
+| palette, identity rotations | 146 units long, flat in Y | bone axes run along local X; **the rest pose is not in `.bones`** |
+| palette from `.skinanim` quaternions | a standing human, y 0…179 | — |
+| + `.skin` topology and UVs | **Kano, textured, in his stance** | — |
+
+![Kano posed and textured](img/pose-kano-textured.png)
+
+Tools: [`tools/pose.py`](../tools/pose.py). Full derivation in
+[SKIN-FORMAT.md](SKIN-FORMAT.md), maths in
+[`decomp/lime/RenderSkinned.c`](../decomp/lime/RenderSkinned.c).
+
+#### What got settled on the way
+
+Recovered from the **armv6 slice** — the first serious use of that route, and it
+worked exactly as documented: the same source that is packed NEON in armv7 comes
+out as plain scalar VFP and reads straight off the disassembly.
+
+- **`SKINMATRIX43` is 9 + 3**, rotation at stride *3*, not 4×3 as the name says.
+- **Quaternions are `(x, y, z, w)`**, w last — from matching `GetMFromQuat2`'s
+  nine outputs against the standard conversion.
+- **`Xform2` accumulates**, applies rotation only, and tests its weight against
+  zero without ever multiplying by it. The vectors arrive pre-weighted.
+- **`indexes` is four packed bytes**, `0xFF` for an empty slot. The values were
+  never negative — an unused fourth influence sets the word's sign bit.
+- **`matricesA` is positions, `matricesB` normals**, four `vec3`s each.
+- **`num_matrices` is a vertex count**; Kano's "844 matrices" are 844 vertices.
+- **`.bones` is `int32 word0; float x,y,z; int8 child[9]`** — a bone has up to
+  *nine* children, which is what makes the in-memory record 56 bytes. Verified
+  across all 29 files: one root, every index in range, no bone claimed twice.
+  It reads as anatomy, with one bone carrying five children for a hand.
+- **`num_verts` in `.skin` is a triangle count**, matching the `.meshset`'s face
+  count exactly. The two long-unidentified per-vertex blocks are per *triangle*:
+  6 bytes of `uint16` indices, 24 bytes of three UV pairs. Verified across all
+  30 blocks — every index in range, maximum always exactly `num_matrices - 1`,
+  and **not one degenerate triangle in the game**.
+- **Vertex colour is the lit skinned normal.** There is no per-pixel lighting in
+  this engine anywhere.
+
+Still open: what `word0` of a bone counts, and the fifth word of an animation
+frame entry. Neither is needed for anything.
+
+### The tool gap that was blocking the renderer
+
+`disasm.py` never resolved import stubs, so every call to GL or libc printed as
+a bare address — `macho.py` had `stub_map()` all along and it was simply not
+wired in. `LIME_RenderMeshSingleIndexed` went from **0 named calls to 39**.
+
+That was blocking exactly the wrong thing: the renderer must be read from armv6,
+and the renderer is almost entirely calls out to GL.
+
+**And it hands us the platform layer's target, read off the binary rather than
+guessed:** GL ES 1.1 fixed function — `glShadeModel`, `glActiveTexture`,
+`glClientActiveTexture`, `glEnable`/`glDisableClientState`, `glScalef`,
+`glBindTexture`, `glVertexPointer`, `glColor4f`, `glTexEnvf`, `glDrawElements` —
+with three consecutive activate/bind/texenv blocks, so **three texture units**.
+
 ### Where the zero-assets line falls
 
 Two 480-pixel renders live in `docs/img/`. The rule exists so that cloning this
@@ -1425,11 +1490,10 @@ See [MESH-VIEWER.md](MESH-VIEWER.md) for the reasoning in full.
 
 ## Next up
 
-1. **Skinning in the viewer** — decompile `DrawSkinnedMesh2` from the armv6
-   slice, then pose a character. Highest value per unit of work left on the
-   board: it validates `.skin`, `.bones`, `.skinanim` and `.meshset` together,
-   and it is the difference between a format spec that parses and one that is
-   demonstrably right.
+1. **`LIME_RenderMeshSingleIndexed`, in full** — now readable thanks to the stub
+   fix above. It defines the vertex format and GL state the engine actually
+   uses, which is the bridge between finishing `lime/common` and starting the
+   platform layer. Not blocked on anything.
 2. **`moves_data.x` / `frames.x` extraction** ([issue #11](../../issues/11)) —
    the tables are plain text and already understood; what is missing is the tool
    that turns them into data the port can consume, and the semantics of the
