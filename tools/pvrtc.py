@@ -58,10 +58,10 @@ def _colour_a(packed):
     if packed & 0x8000:                     # opaque: 5-5-4, blue replicated
         r = (packed >> 10) & 0x1F
         g = (packed >> 5) & 0x1F
-        b = (packed >> 1) & 0x0F
+        b = packed & 0x1F
         r = (r << 3) | (r >> 2)
         g = (g << 3) | (g >> 2)
-        b = (b << 4) | b                    # 4 bits -> 8
+        b = (b << 3) | (b >> 2)
         return r, g, b, 255
     a = (packed >> 12) & 0x07               # translucent: 3-4-4-3
     r = (packed >> 8) & 0x0F
