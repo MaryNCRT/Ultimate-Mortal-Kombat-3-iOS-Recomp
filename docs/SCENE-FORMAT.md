@@ -72,46 +72,85 @@ No field-by-field scatter, unlike `.events`. 64 bytes straight across.
 
 ---
 
-## Where it stops
+## The on-disk object is 64 bytes **[verified]**
 
-**The on-disk record is not 64 bytes**, so the file walk does not close.
-`8 + numObjects*64` matches exactly **1 of 547** files.
-
-For the 92 files with `numObjects == 1`, a clean pattern does appear:
+Read straight off the loader, at `0x0005f28e`, immediately after the `memcpy`:
 
 ```
-size == 8 + 108 + 12 * count2      ->  71 of 92 exact
+blx      memcpy          ; 64 bytes from the cursor into objects[i]
+add.w    fp, fp, #0x40   ; the cursor advances 64
 ```
 
-which reads as a 108-byte object record followed by `count2` items of 12 bytes.
-But **21 of those 92 do not fit**, and they miss by a lot rather than a little:
+So the object is the same 64 bytes on disk as in memory, copied verbatim. It
+begins with a **name string** — `"Text001"`, `"Helix001"` in the files
+inspected.
 
-| File | Actual | Predicted |
-|---|---:|---:|
-| `BOMB1.scene` | 3,300 | 860 |
-| `JAXGROWFINB.scene` | 4,968 | 1,328 |
-| `GYMIST1.scene` | 104,128 | 24,128 |
+## A second array: 12-byte records, `numObjects × count2` of them
 
-So the object record carries something of variable length that `count2` does
-not describe. `numObjects` runs from 0 to at least 11 across the corpus, and
-the multi-object files do not divide cleanly either.
+The inner loop walks a pointer `sl` in steps of `0xc` and reads a float at
+`[sl, #0x40]`:
 
----
+```
+vldr     s12, [sl, #0x40]
+...
+add.w    sl, sl, #0xc
+```
 
-## Where to resume
+`sl` starts at the object data and — the detail that matters — **persists
+across objects** rather than resetting, so the array holds `numObjects × count2`
+records, not `count2`. Dumping `ADDIT.scene` confirms it: from the byte after
+the objects the file repeats `1.0f, 0.0f, 0.0f` on a 12-byte period, and
+`sl + 0x40` lands exactly on the first of them.
 
-1. **Trace the per-object loop past the `memcpy`.** The copy at `0x0005f27a`
-   moves 64 bytes, but the cursor advance for the *next* object is what defines
-   the on-disk record, and it has not been read. That single instruction is the
-   answer — the same way `0x000a49be` settled `.events`.
-2. **Watch for a second nested loop.** The `lsls r2, r0, #1` at `0x0005f268`
-   computes `count2 * 2` and stashes it, which suggests a per-object inner
-   sequence sized from `count2`.
-3. **Two files have `numObjects == 0`** and are 8 and 12 bytes. The 8-byte one
-   is the header alone and confirms it; the 12-byte one has four trailing bytes
-   that nothing yet accounts for.
+That gives a formula which matches **118 of 547 files exactly**:
 
-The rule that applies here, from [METHODOLOGY.md](METHODOLOGY.md): the strides
-have to come from the loader's own arithmetic, not from guessing a formula that
-fits most files. 71 of 92 is exactly the kind of near-miss that looks like a
-solution and is not one.
+```
+8 + numObjects*64 + numObjects*count2*12 + 44
+```
+
+up from 71 with the previous guess, and now derived rather than fitted.
+
+## A third array: 40-byte records
+
+For the 429 files that do not match, **every single difference is a multiple of
+40** — 40, 200, 240, 2440, 4200, 5240, 5840, 14080. So a further
+variable-length array of 40-byte records exists, and 544 of 547 files give a
+whole number of them.
+
+**Where its count lives is not yet known.** No field of the 64-byte object,
+read as int32 or uint16 at any offset, sums across objects to the required
+count.
+
+## Where it stops, and the shape of what is missing
+
+`AXEFIRE.scene` shows the layout is **not a flat array of objects**. Its
+"object 1", read at `+8 + 64`, decodes as `'fff?'` — those are float bytes
+(`3f 66 66 66` = 0.9f), not a name. And immediately after, the file holds
+`(int32, float)` pairs with the index rising and the float falling:
+
+```
+5  0.7209
+6  0.6903
+7  0.6606
+8  0.6309
+```
+
+Keyframes. So **each object is followed by its own variable-length animation
+data** before the next object begins, which is why a flat `numObjects × 64`
+array only works for the files where that data happens to be absent.
+
+That also explains the 40-byte records: they are per-object, and their count is
+stored per-object — most likely inside the 64-byte header, in a field whose
+meaning has not been pinned down, or immediately after it.
+
+### Resume point
+
+Trace the loader's **outer** loop rather than the inner one. The inner loop at
+`0x0005f2a0` is understood; what is not is how the cursor reaches the *next*
+object once an object's keyframe data has been consumed. The `add.w fp, fp,
+#0x40` at `0x0005f28e` cannot be the whole story, because that would make
+objects fixed-size — and `AXEFIRE` proves they are not.
+
+Look for a second cursor advance later in the object loop, between `0x0005f2cc`
+and the loop back-edge at `0x0005f3c0`.
+
