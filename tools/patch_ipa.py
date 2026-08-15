@@ -169,6 +169,34 @@ PATCHES["modal_nonblocking"] = [
      "+[modalAlert queryWith:button1:button2:] -> return 1 (CANCEL)"),
 ]
 
+# --- 5: el multijugador no arranca ------------------------------------------
+#
+# El multijugador es GameKit peer-to-peer: la unica clase de GameKit que usa el
+# binario es GKSession (Bluetooth / WiFi local; no hay Game Center ni
+# matchmaking). touchHLE NO implementa GKSession -- ni una sola aparicion de esa
+# cadena en su ejecutable -- asi que en cuanto el juego intenta crear la sesion
+# se acaba la partida.
+#
+# El embudo es _startMP (0x000afe20), que mantiene el singleton de sesion:
+#
+#     ldr r4, [r3]        ; r4 = &g_mpSession
+#     ldr r3, [r4]
+#     cbz r3, crear       ; si es NULL, [[limeMPSession alloc] init]
+#     pop {r4,r7,pc}      ; si ya existe, no hacer nada
+#
+# Anulando _startMP el singleton se queda a NULL para siempre. Eso NO revienta:
+# en Objective-C mensajear a nil devuelve nil/0 sin fallar, asi que todas las
+# consultas posteriores (mpIsWorking, mpGetConnectionState, isMPConnected...)
+# contestan 0 y el juego toma su propia ruta de "no conectado" -- que ya existe,
+# porque la clase tiene un noWifiAlertView para justamente ese caso.
+#
+# Se parchea la entrada y no la creacion porque la entrada es de 2 bytes y no
+# hay nada apilado todavia: "bx lr" es un retorno limpio.
+PATCHES["mp_disable"] = [
+    (0x000afe20, bytes.fromhex("7047"),
+     "_startMP -> bx lr (la sesion de GameKit nunca se crea)"),
+]
+
 PATCHES["getProperty_asserts"] = [
     (0x0009d5c8, NOP16 * 2, "beq.w -> assert 'key != null' (linea 95)"),
     (0x0009d606, NOP16 * 2, "beq.w -> assert 'mainBundle != null' (linea 139)"),
