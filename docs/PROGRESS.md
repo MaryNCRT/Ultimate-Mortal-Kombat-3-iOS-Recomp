@@ -1353,20 +1353,95 @@ Full write-up: [TOUCHHLE-PATCH.md](TOUCHHLE-PATCH.md).
 
 ---
 
+## The mesh viewer — the first picture
+
+`tools/meshview.py` renders a `.meshset` to a PNG. Full write-up in
+[MESH-VIEWER.md](MESH-VIEWER.md).
+
+It is a software rasteriser on purpose. A window would look better; a window
+also cannot be read from a script, and this project's own rule is that
+[visual evidence is what ends a hunt](METHODOLOGY.md). So it writes a file.
+
+**It works.** `BALCONY_LEVEL.meshset` renders as a clean textured platform with
+correct depth ordering and a checkerboard that shrinks toward the back.
+`GRAVEYARD_LEVEL.meshset`, 3,618 triangles, renders as the recognisable
+Graveyard stage — moon, cloud band, mountain silhouette, gravestones, railing.
+
+That single image is simultaneous confirmation of three things that until now
+had only been checked numerically:
+
+- the `.meshset` layout, including UVs
+- the PVRTC decoder, end to end, on real shipped textures
+- `CreatePerspectiveMatrix` and `RotMatrixY` from the verified decompilation,
+  **including the `aspect`-divides-X-only convention that is the widescreen
+  hook** — first time it has run outside a differential test
+
+### What looking at it taught us
+
+**A `.meshset` contains no placement.** The Graveyard's sky and floor render far
+apart because each piece sits at its own local origin. Stages get their layout
+from the [`.scene`](SCENE-FORMAT.md); characters get theirs from
+[`.skin`/`.bones`](SKIN-FORMAT.md). This is the explanation for something that
+looked alarming an hour earlier — `KANO_STANDARD.meshset`, 79 meshes and 19,533
+triangles, rendering as scattered disconnected chunks. The chunks are correct.
+Nothing has posed them.
+
+Not a deep result, but it cost nothing and no amount of reading the loader had
+made it obvious.
+
+**And it caught a stale claim of our own.** The README still described
+`pvrtc.py` as wrong. That note predated the finding that the error was in three
+reference images, not in the decoder, which measures 1.5% mean error against
+EA's own PNGs. Corrected.
+
+### What it cannot do yet
+
+Assemble a character. That needs `DrawSkinnedMesh2`, which is NEON-heavy and
+sits behind the same [armv6-slice route](LIME-ENGINE.md) as the rest of
+`RenderSkinned.cpp`. The parsers are ready — `.skin` gives Kano 844 matrices and
+1,602 vertices, `.bones` walks 29 of 29 files exactly — what is missing is the
+convention for combining them.
+
+`limeMatrix3x4RotateSkin` is decompiled and verified and supplies the rotation
+half: `out[j] = Σᵢ vin[i]·m[i*4+j]`, no translation. That is where to start.
+
+**When a character stands up in this viewer, four specifications are confirmed
+at once in a way no differential test can manage.**
+
+### The images are not in the repo
+
+A render of EA's geometry and textures is EA's artwork. The zero-assets rule
+does not get an exception because screenshots feel harmless — the tool ships and
+anyone with their own copy makes the pictures in a second, which is the same
+build-time model as everything else here.
+
+---
+
 ## Next up
 
-1. **Extend the oracle to the rest of `RenderMesh.cpp`** — the loader is verified; the rendering functions are not.
-2. **Add `RenderScene.cpp` and `RenderSkinned.cpp` to `signatures/lime.txt`.** Struct names are already known from the mangled symbols: `SKININFO`, `BONEANIMFRAME`, `SKINMATRIX43`, `limeVECTOR3`, `limeVECTOR2`. Declaring them should give another readability jump, as `MESHINFO` did.
-3. **Recursive descent in `recomp.py`** — unblocks the 852 functions with literal pools.
-4. **`.skin` / `.bones` / `.skinanim`** — the formats that make characters animate. `RenderSkinned.cpp`, now decompiled, is the best source. The running game in touchHLE can validate any hypothesis.
-5. **Start the native platform layer** — 229 functions of new code, no reverse engineering, and it can proceed in parallel with everything above.
+1. **Skinning in the viewer** — decompile `DrawSkinnedMesh2` from the armv6
+   slice, then pose a character. Highest value per unit of work left on the
+   board: it validates `.skin`, `.bones`, `.skinanim` and `.meshset` together,
+   and it is the difference between a format spec that parses and one that is
+   demonstrably right.
+2. **`moves_data.x` / `frames.x` extraction** ([issue #11](../../issues/11)) —
+   the tables are plain text and already understood; what is missing is the tool
+   that turns them into data the port can consume, and the semantics of the
+   numeric fields.
+3. **The native platform layer** — 229 functions of new code, no reverse
+   engineering required, and it can proceed in parallel with everything above.
+4. **`RenderScene.cpp` structs** into `signatures/lime.txt`. `SKININFO`,
+   `BONEANIMFRAME`, `SKINMATRIX43`, `limeVECTOR3` are known from the mangled
+   symbols; declaring them gave a readability jump last time.
+5. **`_DoSwitchJump`** ([issue #1](../../issues/1)) — now much better armed, with
+   92 named `t_` handlers recovered from `moves_data.x`.
 
 ### Known technical debt
 
 - `_RotVector` and `_limeMatrix3x4RotateSkin`: signatures assumed, not confirmed.
 - Import shims: 9 written of 689 resolved stubs. Only the ones each verified module needs have to exist.
-- `recomp.py` has no recursive descent, so large functions with embedded literal pools truncate. Does not affect `lime/common` (0 undecodable bytes in the verified modules).
 - The missing `*_LOW.PNG` textures seen in the touchHLE log are unexplained, and matter for the port's asset pipeline.
+- `ROBO1_STANDARD` and `ROBO2_STANDARD` are a different export variant across four formats. Understood, handled, but their `.scene` files remain stubs.
 
 ---
 
