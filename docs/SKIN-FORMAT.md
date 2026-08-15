@@ -398,12 +398,36 @@ a line 146 units long instead of standing up. The pose comes from a frame.
 
 ---
 
-## 10. What is still open
+## 10. The two per-vertex blocks: they are per **triangle**
+
+This is what `num_verts` in the header actually counts. It is **not** a vertex
+count — it is a triangle count, and it matches the `.meshset` face count for the
+same character exactly. Kano: 1,602 in both, against 844 real vertices.
+
+```
+vert_extra   6 bytes    three uint16 indices into the skinned positions
+vert_data   24 bytes    three UV pairs, one per triangle corner
+```
+
+Which also explains the loader's `skin_uvs` tag on a 24-byte block — a UV pair
+needs 8 bytes, and this is three of them.
+
+Verified across all 30 skin blocks: every index lands inside `num_matrices`, the
+maximum is always exactly `num_matrices - 1` so no vertex goes unused, and
+**there is not one degenerate triangle in the entire game**.
+
+The UVs are the clincher. They are stored per corner, so a shared vertex appears
+in several triangles — and it gets the same UV each time. Kano's triangles 0 and
+1 both give index 4 the UV `(0.513, 0.142)` and index 6 `(0.521, 0.163)`. A
+wrong layout does not produce that agreement.
+
+With this, a character is fully specified: skinned positions from §7, topology
+and UVs from here. [`tools/pose.py`](../tools/pose.py) renders one.
+
+## 11. What is still open
 
 - What `word0` of a bone record counts.
 - The fifth word of each animation frame entry.
-- What the 24 bytes per vertex actually contain.
-- What the 6 bytes per vertex actually contain.
 - The fifth word of `BONEANIMFRAME`, copied with the quaternion but not
   consumed by anything decompiled so far.
 - The output strides at the loop tail — 24, 48 and 6 bytes per vertex on three
