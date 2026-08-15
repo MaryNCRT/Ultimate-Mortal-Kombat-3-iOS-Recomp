@@ -38,6 +38,18 @@ def load(path):
         # N_ARM_THUMB_DEF (0x0008) de n_desc.
         thumb = bool(n_value & 1) or bool(n_desc & N_ARM_THUMB_DEF)
         byname[name] = (addr, thumb)
+
+    # Calls to imported functions land on a stub, not on a symbol, so without
+    # this every `bl` to OpenGL or libc reads as a bare address. That matters
+    # most in the armv6 slice, which is where the renderer has to be read
+    # because armv7 is packed NEON -- and the renderer is almost entirely
+    # calls out to GL.
+    try:
+        for stub_addr, stub_name in m.stub_map().items():
+            syms.setdefault(stub_addr, stub_name)
+    except Exception:                                   # noqa: BLE001
+        pass                                            # no stub section
+
     return m, syms, byname
 
 
