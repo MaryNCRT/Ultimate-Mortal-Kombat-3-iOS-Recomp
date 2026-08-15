@@ -4,9 +4,9 @@ Current state of the project. Written so that someone can pick it up with no pri
 
 **Last updated:** 2026-08-14 — see [HANDOFF.md](HANDOFF.md) for the revised route
 
-> Latest: the **armv6 slice** decompiles cleanly where armv7's NEON defeats
-> Ghidra (107 functions); `Finch/` identified as MIT third-party code;
-> `.events` solved.
+> Latest: the game now runs in touchHLE **with no known crash** (5 bytes,
+> three patches); the verification oracle is finished; the **armv6 slice**
+> decompiles cleanly where armv7's NEON defeats Ghidra.
 
 ---
 
@@ -60,7 +60,7 @@ any of the port is written.
 |---|---|
 | The binary is understood and mapped | ✅ done |
 | A verification method exists and is proven | ✅ done |
-| The game runs somewhere as a behavioural reference | ✅ done (touchHLE) |
+| The game runs somewhere as a behavioural reference | ✅ done (touchHLE, no known crash) |
 | Model format readable | ✅ done |
 | Animation formats readable | ✅ `.skin`, `.bones`, `.skinanim` and `.events` done |
 | Every format needed to draw an animated character | ✅ done — only `.scene` remains |

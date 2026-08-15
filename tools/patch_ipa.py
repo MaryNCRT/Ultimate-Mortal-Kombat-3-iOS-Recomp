@@ -197,6 +197,30 @@ PATCHES["mp_disable"] = [
      "_startMP -> bx lr (la sesion de GameKit nunca se crea)"),
 ]
 
+# --- 6: la pantalla de licencia se puede cerrar -----------------------------
+#
+# _FE_Task_About_Eula (0x0000ecc8) son 28 bytes y NO crea ningun web view:
+#
+#     bl   BasicMenu
+#     cmp  r0, #1
+#     beq  salir          <- solo sale si BasicMenu devuelve exactamente 1
+#     pop  {r7, pc}
+#   salir:
+#     bl   PopFETaskDeferred
+#     b    pop
+#
+# Si BasicMenu devuelve cualquier otra cosa la tarea no se saca de la pila y la
+# interfaz se queda encallada -- que es justo lo que se observa al entrar en
+# "licencia de usuario" bajo touchHLE.
+#
+# Un solo byte: 0xD0 (beq) -> 0xE0 (b). La salida pasa a ser incondicional, asi
+# que la pantalla siempre se puede cerrar. Se conserva el cmp para no mover
+# nada de sitio; queda muerto y no molesta.
+PATCHES["eula_exit"] = [
+    (0x0000ecd7, bytes.fromhex("e0"),
+     "_FE_Task_About_Eula: beq -> b (la salida deja de ser condicional)"),
+]
+
 PATCHES["getProperty_asserts"] = [
     (0x0009d5c8, NOP16 * 2, "beq.w -> assert 'key != null' (linea 95)"),
     (0x0009d606, NOP16 * 2, "beq.w -> assert 'mainBundle != null' (linea 139)"),

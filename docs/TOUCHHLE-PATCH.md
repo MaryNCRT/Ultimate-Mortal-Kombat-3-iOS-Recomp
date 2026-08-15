@@ -288,3 +288,47 @@ itself cannot load, a failed texture draws as nothing rather than as an obvious
 sometimes not appearing at all. **Unconfirmed**: the exact string arithmetic has
 not been traced, and the connection to the babality case is inference, not
 evidence.
+
+---
+
+## The EULA screen: `eula_exit`
+
+Selecting "User Licence" left the interface stuck. `_FE_Task_About_Eula`
+(`0x0000ecc8`) is 28 bytes and — despite the class list making it look like a
+`UIWebView` screen — **creates no web view at all**:
+
+```
+bl   BasicMenu
+cmp  r0, #1
+beq  exit          <- only leaves if BasicMenu returns exactly 1
+pop  {r7, pc}
+exit:
+bl   PopFETaskDeferred
+b    pop
+```
+
+If `BasicMenu` returns anything else the task is never popped and the front-end
+sits on a screen it will not leave. **One byte**: `0xD0` (`beq`) becomes `0xE0`
+(`b`), so the exit is unconditional. The `cmp` is left in place so nothing
+moves; it is dead and harmless.
+
+---
+
+## Result
+
+**`setlocale_nop` + `mp_disable` + `eula_exit`** — 5 bytes across three sites.
+Confirmed by play: the game boots, the multiplayer menu opens without ending
+the session, the licence screen closes, and **no crash has been found
+anywhere** in testing since.
+
+```bash
+python tools/patch_ipa.py --apply setlocale_nop --apply mp_disable --apply eula_exit --out UMK3_patched.ipa
+```
+
+Multiplayer opens but cannot connect, and never will under touchHLE: `GKSession`
+is peer-to-peer over Bluetooth or local WiFi, and touchHLE does not implement it
+at all. Two emulator instances were tried side by side and, as expected, neither
+sees the other. This is a graceful stop, not a fix — the game reaches its own
+"not connected" state instead of dying. Networking belongs to the native port,
+where those 126 multiplayer functions are marked for stubbing rather than
+decompilation precisely because the port will not reimplement GKSession.
