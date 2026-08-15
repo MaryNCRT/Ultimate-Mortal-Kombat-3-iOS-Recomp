@@ -196,3 +196,113 @@ void CreateMatrixPaletteRecurse2(BONE *bone, SKINMATRIX43 *parent)
 
     /* the sibling walk continues past the excerpt disassembled so far */
 }
+
+
+/* ------------------------------------------------------- DrawSkinnedMesh2
+ *
+ * armv6 0x00083d10, 2152 bytes.
+ * __Z16DrawSkinnedMesh2P8SKININFOjjlP11limeVECTOR3P11limeVECTOR2Phll
+ *
+ * The whole skinning loop: one iteration per vertex, four bone influences each,
+ * producing a position, a normal and a lit vertex colour.
+ *
+ * This function is what settles the .skin format's remaining unknowns, so the
+ * findings are worth stating before the code.
+ *
+ *  - **`indexes` is four packed bytes, not an integer.** The loop does
+ *    `ldrb r3,[r6]`, `ldrb r3,[r6,#1]`, `[r6,#2]`, `[r6,#3]` and advances r6 by
+ *    4 per vertex. Each byte is a bone index and **0xFF means "slot unused"**.
+ *    The docs recorded these values as mysteriously negative; they were never
+ *    signed -- an unused fourth slot puts 0xFF in the top byte, which sets the
+ *    sign bit of the word.
+ *
+ *  - **`matricesA` is positions and `matricesB` is normals.** A is read at
+ *    +0,+4,+8 then +0xc,+0x10,+0x14 and so on -- four vec3s, one per influence
+ *    -- and feeds the position path. B feeds Xform2 and the result is passed
+ *    straight to Normalise. An earlier note guessed this from B[0] being unit
+ *    length and A[0] looking like a coordinate; the code confirms it.
+ *
+ *  - **The vectors are pre-multiplied by their weight.** That is why the
+ *    rotation needs no weight (it is already in A and B) while the translation
+ *    term is explicitly `w * m[9..11]`. It also explains Xform2 ignoring its
+ *    weight argument beyond the zero test.
+ *
+ *  - **`num_matrices` is a vertex count.** The loop terminates on SKININFO+4
+ *    and advances one entry per iteration: indexes +4, weights +0x10,
+ *    matricesA +0x30.
+ *
+ * The position path is inlined rather than calling Xform2, because unlike the
+ * normal it needs the translation row:
+ *
+ *      out.x = SUM over i of ( A[i].x*m[0] + A[i].y*m[3] + A[i].z*m[6]
+ *                              + w[i]*m[9]  )
+ *
+ * and likewise y with m[1],m[4],m[7],m[10] and z with m[2],m[5],m[8],m[11].
+ *
+ * The normal path is the same rotation with no translation, via Xform2, then
+ * Normalise, then LightVert -- whose result is scaled, clamped, narrowed to a
+ * byte and written as R=G=B with alpha 0xFF. So **vertex colour is the lit
+ * skinned normal**, which is what gives these characters their shading with no
+ * per-pixel lighting anywhere.
+ *
+ * Output strides, from the cursor arithmetic at the loop tail: 24 bytes per
+ * vertex on one cursor, 48 on another, 6 on the third.
+ */
+void DrawSkinnedMesh2(SKININFO *skin, unsigned a, unsigned b, long flags,
+                      limeVECTOR3 *outPos, limeVECTOR2 *outUV,
+                      unsigned char *outCol, long e, long f)
+{
+    const unsigned char *idx  = skin->indexes;      /* SKININFO+0x20 */
+    const float         *wgt  = skin->weights;      /* SKININFO+0x24 */
+    const limeVECTOR3   *A    = skin->matricesA;    /* SKININFO+0x14 */
+    const limeVECTOR3   *B    = skin->matricesB;    /* SKININFO+0x28 */
+    long i, k;
+
+    for (i = 0; i < skin->numVerts; i++) {
+        limeVECTOR3 pos = { 0.0f, 0.0f, 0.0f };
+        limeVECTOR3 nrm = { 0.0f, 0.0f, 0.0f };
+        limeVECTOR3 lit;
+
+        for (k = 0; k < 4; k++) {
+            unsigned bone = idx[k];
+            const SKINMATRIX43 *m;
+
+            if (bone == 0xFF)               /* empty influence slot */
+                continue;
+
+            m = &g_matrixPalette[bone];     /* 48-byte stride */
+
+            /* position: rotation from the pre-weighted vector, translation
+             * scaled by the weight itself */
+            pos.x += A[k].x*m->m[0] + A[k].y*m->m[3] + A[k].z*m->m[6]
+                     + wgt[k]*m->t[0];
+            pos.y += A[k].x*m->m[1] + A[k].y*m->m[4] + A[k].z*m->m[7]
+                     + wgt[k]*m->t[1];
+            pos.z += A[k].x*m->m[2] + A[k].y*m->m[5] + A[k].z*m->m[8]
+                     + wgt[k]*m->t[2];
+
+            /* normal: same rotation, no translation */
+            Xform2(&A[k], &B[k], NULL, &nrm, m, wgt[k]);
+        }
+
+        Normalise(&nrm);
+        LightVert(&nrm, &lit);
+
+        /* lit value -> one grey byte, alpha forced opaque */
+        {
+            float s = lit.x * LIGHT_SCALE;
+            unsigned char c = (s < 0.0f) ? 0 : (unsigned char)s;
+            outCol[0] = c;
+            outCol[1] = c;
+            outCol[2] = c;
+            outCol[3] = 0xFF;
+        }
+
+        *outPos++ = pos;
+        outCol += 4;
+        idx += 4;                           /* four packed bone indices */
+        wgt += 4;                           /* four floats */
+        A   += 4;                           /* four vec3s = 48 bytes */
+        B   += 4;
+    }
+}
