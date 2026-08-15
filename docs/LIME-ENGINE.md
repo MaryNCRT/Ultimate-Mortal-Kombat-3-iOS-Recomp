@@ -143,11 +143,15 @@ Those 107 are readable in armv6 and not in armv7. By file:
 | `Matrix.cpp` | 4 | | `limeVector.cpp` | 2 |
 | `limeFont.cpp` | 4 | | `RenderMesh.cpp` | 2 |
 
-**This is wider than the engine.** `FrontEnd.cpp` and `GameCode.cpp` together
-account for 61 of the 107 — more than half the problem is in game code, not in
-`lime/common`. The often-quoted "27% of `lime/common`" figure measures 25 of
-109 (23%) by this method, and understates the problem overall by looking only
-at the engine.
+**Two different numbers, often confused.** **32 of the 109** engine functions
+(29%) use packed NEON; **25** of those (23%) are the ones armv6 fixes, the
+other 7 using it in both slices. The long-quoted "29 of 109, 27%" was
+essentially right about the affected set — a correction here that reported 23%
+had measured the fixable subset instead.
+
+**And the engine is not where most of it is.** `FrontEnd.cpp` and
+`GameCode.cpp` together account for 61 of the 107 fixable cases — more than
+half the problem is in game code, not in `lime/common`.
 
 ### Two traps when reading the armv6 slice
 
@@ -345,11 +349,17 @@ Worth not confusing:
 
 - **LIME is ordinary C++.** Normal calls, normal stack. The differential oracle
   works here — it is what validated `Matrix.cpp` and `limeVector.cpp`.
-- **`gamecode/logic` is not.** It is cooperative multitasking with a process
-  dispatcher, per-process stacks, stack jumping and `process_sleep`, inherited
-  from the arcade original's TMS34010. The `t_` / `q_` / `c_` prefixes belong
-  to that task system. **The oracle cannot follow it, by design rather than for
-  want of work** — see [METHODOLOGY.md](METHODOLOGY.md).
+- **`gamecode/logic` is not.** It is cooperative multitasking with per-process
+  stacks and stack jumping, inherited from the arcade original's TMS34010.
+  **The oracle cannot follow it, by design rather than for want of work** — see
+  [METHODOLOGY.md](METHODOLOGY.md).
+
+  This is established from our own binary, not from anyone's reading of the
+  arcade source: **1,172 `t_` functions, 139 `q_`, 105 `c_`**, plus
+  `_reset_proc_stack`, `_UnstackSwitches`, `_stack_switch_bits`, `_DoSwitchJump`
+  and `_SwitchQueue`. Names circulating in third-party notes — `process_sleep`,
+  `proc_switch_counter` — **do not appear in this binary's symbol table** and
+  are not used here.
 
 ---
 

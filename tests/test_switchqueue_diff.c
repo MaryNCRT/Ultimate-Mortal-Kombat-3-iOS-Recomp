@@ -32,12 +32,16 @@ typedef struct SWITCHQUEUE {
     uint32_t  slots[SLOTS];
 } SWITCHQUEUE;
 
-static uint16_t g_counter;
+/*
+ * The clean implementation reads a uint16 at +0xa8 of the global state
+ * struct `G`. The test supplies a stand-in so the field can be varied.
+ */
+typedef struct GAMESTATE { unsigned char pad[0xa8]; uint16_t counter; } GAMESTATE;
 
-uint16_t proc_switch_counter(void)
-{
-    return g_counter;
-}
+static GAMESTATE g_state;
+GAMESTATE *G = &g_state;
+
+#define g_counter (g_state.counter)
 
 void SwitchQueue(uint16_t value, SWITCHQUEUE *q);
 

@@ -41,15 +41,39 @@ typedef struct SWITCHQUEUE {
     uint32_t  slots[SWITCH_QUEUE_SLOTS];   /* +0x04 .. +0x53 */
 } SWITCHQUEUE;
 
-/* The current PROC. Its counter at +0xa8 is stamped into every queued entry.
- * Supplied by the game state; declared here so this file stands alone. */
-extern uint16_t proc_switch_counter(void);
+/*
+ * The global game-state pointer.
+ *
+ * The original is NOT a function call. It loads a pointer from
+ * `__DATA,__nl_symbol_ptr` at 0x000f357c, dereferences it, and reads a
+ * uint16 at +0xa8:
+ *
+ *     ldr    r2, [pc, #0x20]     ; literal -> 0x0009d6a0
+ *     add    r2, pc              ; -> 0x000f357c
+ *     ldr    r2, [r2]            ; -> _G  (0x0038c1fc)
+ *     ldrh.w r2, [r2, #0xa8]
+ *
+ * The symbol at the end of that chain is `_G`, the game's global state
+ * struct. An earlier version of this file declared
+ * `extern uint16_t proc_switch_counter(void)` and called it, which is
+ * behaviourally equivalent under the differential test but structurally
+ * wrong: there is no such function in the binary and no such name in its
+ * symbol table. The name came from notes derived from a source we do not
+ * use. What the binary does is read a field, so that is what this says.
+ *
+ * The field's purpose — a scheduling generation counter — is inferred from
+ * how the value is used, and stays inferred until something confirms it.
+ */
+typedef struct GAMESTATE GAMESTATE;
+extern GAMESTATE *G;                       /* 0x0038c1fc */
+
+#define G_SWITCH_COUNTER(g)  (*(const uint16_t *)((const char *)(g) + 0xa8))
 
 /*
  * Push a value onto a process's switch queue.
  *
  * Each entry packs two 16-bit halves:
- *   low  16 bits — the current PROC's counter, read from PROC+0xa8
+ *   low  16 bits — a counter read from the global state struct at +0xa8
  *   high 16 bits — the caller's value
  *
  * so a consumer can tell which scheduling generation an entry belongs to.
@@ -59,7 +83,7 @@ extern uint16_t proc_switch_counter(void);
  */
 void SwitchQueue(uint16_t value, SWITCHQUEUE *q)
 {
-    uint32_t packed = (uint32_t)proc_switch_counter()
+    uint32_t packed = (uint32_t)G_SWITCH_COUNTER(G)
                     | ((uint32_t)value << 16);
 
     *q->head = packed;

@@ -736,6 +736,62 @@ instructions (`adr`, `uxtb`, `sxtb`, `smull`, `vmrs`, `vcmp`) still raise
 
 ---
 
+## A name we had no business using
+
+Checking the LIME reference against the binary turned up an error in our own
+committed code.
+
+`decomp/gamecode/logic/other.c` declared `extern uint16_t
+proc_switch_counter(void)` and called it. **There is no such function in the
+binary, and no such name in its symbol table.** What `_SwitchQueue`
+(`0x00055ed4`) actually does is read a field:
+
+```
+ldr    r2, [pc, #0x20]     ; literal -> 0x0009d6a0
+add    r2, pc              ; -> 0x000f357c in __DATA,__nl_symbol_ptr
+ldr    r2, [r2]            ; -> _G, the global state struct at 0x0038c1fc
+ldrh.w r2, [r2, #0xa8]     ; a uint16 field
+```
+
+No call. A global pointer, dereferenced, and a `uint16` read at `+0xa8`. The
+symbol at the end of that chain is **`_G`**.
+
+The differential test passed anyway — 500 pushes, zero divergences — because
+the test supplied the same value through the invented function. **Behaviourally
+equivalent, structurally wrong**, and the differential test cannot tell those
+apart: it compares outputs, not shapes. That is a real limit of the method and
+worth stating alongside its successes.
+
+The name came from third-party notes derived from a source this project does
+not use. `other.c` and its test now describe what the binary does, and
+[LIME-ENGINE.md](LIME-ENGINE.md) records that `process_sleep` and
+`proc_switch_counter` are absent from this binary.
+
+The architecture those notes describe **is** correct, and is independently
+established from our own symbols: 1,172 `t_` functions, 139 `q_`, 105 `c_`,
+plus `_reset_proc_stack`, `_UnstackSwitches`, `_stack_switch_bits`,
+`_DoSwitchJump` and `_SwitchQueue`. The conclusion stands on its own evidence;
+only the borrowed names had to go.
+
+---
+
+## Two NEON figures, and the difference between them
+
+- **32 of 109** `lime/common` functions (29%) use packed `.f32` NEON — the set
+  where Ghidra's output cannot be trusted.
+- **25 of 109** (23%) are the ones the armv6 slice fixes; the other 7 use
+  packed SIMD in both slices.
+
+An earlier entry here reported 23% as the affected figure and called the
+long-standing "29 of 109, 27%" an overstatement. That was wrong: 27% was
+essentially right, and 23% is the fixable subset. Both numbers are useful, but
+they answer different questions.
+
+Per-file counts for `lime/common` were checked against the binary at the same
+time and **all nine match exactly** — 109 functions total.
+
+---
+
 ## The armv6 slice is a second opinion on every NEON function
 
 The fat binary carries **armv6 and armv7**. The project has always worked on
