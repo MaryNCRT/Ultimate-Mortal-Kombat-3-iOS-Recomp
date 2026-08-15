@@ -224,7 +224,64 @@ the disassembly has not been read far enough to say which. **Unresolved.**
 
 ---
 
-## 6. What is still open
+## 6. How the runtime consumes all this
+
+Recovered from the **armv6 slice** of `RenderSkinned.cpp`, where the same source
+compiles to plain scalar VFP instead of the packed NEON that makes the armv7
+build unreadable. Decompiled C: [`decomp/lime/RenderSkinned.c`](../decomp/lime/RenderSkinned.c).
+
+### `SKINMATRIX43` is 9 + 3, and the rotation stride is 3
+
+```c
+float m[9];     /* rotation, row-major, m[row*3 + col] */
+float t[3];     /* translation */
+```
+
+Despite the name, the rotation rows are packed tight at stride 3, not 4.
+`Xform2` reads byte offsets `0x00`–`0x20` and never past; the same struct's
+`0x24`/`0x28`/`0x2c` receive the bone's position.
+
+### The quaternion is `(x, y, z, w)` — w last
+
+`GetMFromQuat2` (armv6 `0x00083188`) is the ordinary conversion, and matching
+its nine outputs against the standard formula pins the component order. This is
+the single fact a `.bones` reader most has to get right, and it is now settled
+rather than guessed.
+
+### A vertex accumulates, and the weight is not a blend factor
+
+`Xform2` (armv6 `0x00082f48`) does:
+
+```c
+vout->x += x*m[0] + y*m[3] + z*m[6];   /* and likewise y, z */
+```
+
+Three consequences, each of which would be easy to get wrong from the signature:
+
+- **It accumulates.** A vertex driven by three bones is transformed three times
+  into the same destination; the sum is the skinned position.
+- **Only the rotation applies.** `m[9..11]` is never read here. Bone translation
+  enters earlier, when `MatrixMul2` composes a bone with its parent.
+- **The weight is only tested against zero**, then discarded. The caller passes
+  a matrix already scaled by the weight. Treating `w` as a blend factor at this
+  point would double-apply it.
+
+### The palette is built depth-first, 48 bytes per bone
+
+`CreateMatrixPaletteRecurse2` (armv6 `0x00083240`) walks the tree on three
+global cursors: an animation-frame cursor stepping **20 bytes per bone**, a
+second cursor in lockstep, and a palette write cursor stepping **48 bytes**. So
+`BONEANIMFRAME` is 20 bytes — a 16-byte quaternion plus one more word — and the
+frames are stored in the same depth-first order as the bones.
+
+**The root bone's translation comes from a global, not from the file.** A
+counter gates it so this fires exactly once, on the first bone visited. That
+global is where the character's world position enters the skeleton, and it means
+a `.bones` root translation is not what gets used at runtime.
+
+---
+
+## 7. What is still open
 
 - What the 24 bytes per vertex actually contain.
 - What the 6 bytes per vertex actually contain.
@@ -232,11 +289,24 @@ the disassembly has not been read far enough to say which. **Unresolved.**
 - The relationship between the two matrix arrays. `matricesB[0]` of Scorpion
   reads `(0.008, 0.114, 0.994, 0…)`, which is unit length — so at least the
   first row is a normalised direction. `matricesA[0]` reads
-  `(13.543, -5.923, 1.970, 0…)`, which looks like a position.
-- `.bones` and `.skinanim`, neither of which has been touched yet. The
-  functions to read next are in `RenderSkinned.cpp`: `GetMFromQuat2`,
-  `GetSlerpedQ` and `DrawSkinnedMesh2`, whose mangled names already give away
-  that `BONEANIMFRAME` holds quaternions.
+  `(13.543, -5.923, 1.970, 0…)`, which looks like a position. Now that
+  `SKINMATRIX43` is known to be 9+3, these are worth re-reading under that
+  layout.
+- The fifth word of `BONEANIMFRAME`, copied with the quaternion but not yet
+  consumed by anything decompiled.
+- **`DrawSkinnedMesh2`** — the remaining piece. Its mangled name gives the
+  signature outright:
+
+  ```c
+  DrawSkinnedMesh2(SKININFO*, unsigned, unsigned, long,
+                   limeVECTOR3 *outPos, limeVECTOR2 *outUV,
+                   unsigned char*, long, long)
+  ```
+
+  It writes positions and UVs into caller-supplied arrays, which is exactly the
+  shape [the mesh viewer](MESH-VIEWER.md) needs in order to pose a character.
+  It is 1,876 bytes and is the last thing standing between the parsers and a
+  picture of Kano on his feet.
 
 The remaining unknowns are all about *interpretation*. The **layout** is settled:
 every file in the game walks to its exact last byte.
