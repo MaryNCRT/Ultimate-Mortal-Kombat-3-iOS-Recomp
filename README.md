@@ -124,7 +124,7 @@ the completion figures are measured.
 |---|---:|---:|---|
 | Binary analysis and source-tree mapping | 4% | 100% | `██████████` |
 | Tooling and the verification oracle | 8% | 95% | `██████████` |
-| Asset format specifications | 8% | 65% | `██████░░░░` |
+| Asset format specifications | 8% | 80% | `████████░░` |
 | `lime/common` — engine core (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | 4% | `░░░░░░░░░░` |
@@ -324,7 +324,7 @@ banner is quite literally made of the thing this project studies.
 The "RECOMP" word, the iOS badge and the composition are by
 [MaryNCRT](https://github.com/MaryNCRT).
 
-**Yes, It looks like a cheap, ugly 2011 design for a pirate app..**
+**Yes, It looks like a cheap, ugly 2011 design for a pirate app.**
 
 It was put together quickly and on purpose in the visual language of the thing
 it is about: a mobile port from the era when every game's key art was a
