@@ -125,6 +125,8 @@ class Emitter(object):
         self.problems = []      # (funcion, addr, texto) no traducibles
         self.literals = 0       # cargas del pool de literales resueltas
         self.overridden = set()  # funciones internas sustituidas por shims
+        self.auto_shims = {}     # shim autogenerado -> simbolo importado
+        self.tables = {}         # addr de tbb/tbh -> (indice, [destinos])
 
     # -- utilidades --
 
@@ -394,6 +396,62 @@ class Emitter(object):
             test = "== 0" if m == "cbz" else "!= 0"
             return ["if ((%s) %s) goto L_%08x;" % (reg, test, target)]
 
+        # ---------- tabla de saltos ----------
+        # `tbb`/`tbh` saltan a traves de una tabla que ya se resolvio durante el
+        # descenso recursivo, asi que aqui se emite como un switch explicito.
+        # Sin la tabla resuelta no se puede traducir y se dice.
+        if m in ("tbb", "tbh"):
+            tbl = self.tables.get(ins.address)
+            if not tbl:
+                raise Unsupported("%s con tabla sin resolver" % m)
+            reg, targets = tbl
+            lines = ["switch (ctx->r[%d]) {" % reg]
+            for i, t in enumerate(targets):
+                lines.append("    case %d: goto L_%08x;" % (i, t))
+            lines.append('    default: arm_unimplemented("%s", 0x%08xu, "indice fuera de tabla"); break;'
+                         % (fname, ins.address))
+            lines.append("}")
+            return lines
+
+        # ---------- accesos exclusivos ----------
+        # El invitado es de un solo hilo y no hay contencion, asi que ldrex se
+        # comporta como un load normal y strex siempre concede (devuelve 0).
+        # Fiel para este uso; no lo seria en un recompilador multihilo.
+        if m in ("ldrex", "ldrexb", "ldrexh"):
+            w = {"ldrex": 32, "ldrexb": 8, "ldrexh": 16}[m]
+            return ["ctx->r[%d] = mem_read%d(%s);"
+                    % (self.ireg(ins, ops[0].reg), w, self.mem_addr(ins, ops[1]))]
+        if m in ("strex", "strexb", "strexh"):
+            w = {"strex": 32, "strexb": 8, "strexh": 16}[m]
+            return ["mem_write%d(%s, %s);"
+                    % (w, self.mem_addr(ins, ops[2]), R(ops[1])),
+                    "ctx->r[%d] = 0u;   /* exclusivo concedido */"
+                    % self.ireg(ins, ops[0].reg)]
+
+        # ---------- multiplicacion con acumulacion ----------
+        if m in ("mla", "mls") and len(ops) == 4:
+            d = self.ireg(ins, ops[0].reg)
+            op = "+" if m == "mla" else "-"
+            return ["ctx->r[%d] = (uint32_t)(%s %s (uint32_t)(%s * %s));"
+                    % (d, R(ops[3]), op, R(ops[1]), R(ops[2]))]
+        if m == "smulbb" and len(ops) == 3:
+            return ["ctx->r[%d] = (uint32_t)((int32_t)(int16_t)%s * (int32_t)(int16_t)%s);"
+                    % (self.ireg(ins, ops[0].reg), R(ops[1]), R(ops[2]))]
+
+        # ---------- addw/subw: inmediato de 12 bits, no altera flags ----------
+        if m in ("addw", "subw") and len(ops) == 3:
+            op = "+" if m == "addw" else "-"
+            return ["ctx->r[%d] = (uint32_t)(%s %s %s);"
+                    % (self.ireg(ins, ops[0].reg), R(ops[1]), op, R(ops[2]))]
+
+        # ---------- extension con acumulacion / byte-reverse ----------
+        if m == "sxtah" and len(ops) == 3:
+            return ["ctx->r[%d] = (uint32_t)(%s + (int32_t)(int16_t)(uint16_t)%s);"
+                    % (self.ireg(ins, ops[0].reg), R(ops[1]), R(ops[2]))]
+        if m == "rev" and len(ops) == 2:
+            return ["ctx->r[%d] = arm_rev32(%s);"
+                    % (self.ireg(ins, ops[0].reg), R(ops[1]))]
+
         # ---------- VFP ----------
         if m.startswith("v"):
             return self.vfp(ins, m, ops, fname)
@@ -545,7 +603,19 @@ class Emitter(object):
             if stub:
                 shim = STUBS.get(stub)
                 if not shim:
-                    raise Unsupported("stub sin shim: %s" % stub)
+                    # Importada sin shim escrito a mano. Antes esto abortaba la
+                    # GENERACION, que es lo contrario del principio de diseno:
+                    # una importada que nunca se ejecuta no deberia impedir
+                    # recompilar la funcion que la menciona.
+                    #
+                    # Ahora se emite una llamada a un shim autogenerado cuya
+                    # implementacion por defecto llama a arm_unimplemented(). Si
+                    # el codigo llega a ejecutarla, aborta y dice cual es; si no
+                    # la ejecuta, no molesta. Fallar ruidosamente en EJECUCION,
+                    # no en generacion.
+                    shim = "stub_auto_" + "".join(
+                        c if c.isalnum() else "_" for c in stub.lstrip("_"))
+                    self.auto_shims[shim] = stub
                 return ["ctx->r[LR] = 0x%08xu;" % (ins.address + ins.size),
                         "%s(ctx);" % shim]
             if target in self.funcs:
@@ -605,6 +675,26 @@ class Emitter(object):
         mn = ins.mnemonic
         is64 = mn.endswith(".f64")
         base = m
+
+        # vmla / vmls / vnmls / vnmul: multiplicacion con acumulacion.
+        # Solo la forma ESCALAR (registros S). Con registros D es NEON
+        # empaquetado de 2 carriles y hay que tratarlo carril a carril, asi que
+        # se deja fallar en vez de emitir algo que parezca correcto.
+        if base in ("vmla", "vmls", "vnmls", "vnmul") and len(ops) == 3:
+            ka, na = self.vreg(ins, ops[0].reg)
+            kb, nb = self.vreg(ins, ops[1].reg)
+            kc, nc = self.vreg(ins, ops[2].reg)
+            if ka != "s" or kb != "s" or kc != "s":
+                raise Unsupported("%s empaquetado (registros D)" % base)
+            d = "ctx->v.s[%d]" % na
+            prod = "F32MUL(ctx->v.s[%d], ctx->v.s[%d])" % (nb, nc)
+            if base == "vmla":
+                return ["%s = F32ADD(%s, %s);" % (d, d, prod)]
+            if base == "vmls":
+                return ["%s = F32SUB(%s, %s);" % (d, d, prod)]
+            if base == "vnmls":
+                return ["%s = F32SUB(%s, F32NEG(%s));" % (d, prod, d)]
+            return ["%s = F32NEG(%s);" % (d, prod)]
 
         if base == "vmov":
             # inmediato en coma flotante: vmov.f64 d6, #1.0
@@ -814,6 +904,10 @@ class Emitter(object):
                 tbl, tsize = self._jump_table(ins, found, code, addr, lo, hi)
                 targets.extend(tbl)
                 table_bytes[pc + ins.size] = tsize
+                if tbl and ins.operands:
+                    idx = ins.operands[0].mem.index
+                    if idx:
+                        self.tables[pc] = (self.ireg(ins, idx), tbl)
 
             work.extend(targets)
             if fall:
@@ -1044,9 +1138,40 @@ def main():
              ""]
     for a in targets:
         decls.append("void %s(arm_ctx *ctx);" % em.cname(a))
+    if em.auto_shims:
+        decls += ["",
+                  "/* Importadas del binario sin shim escrito a mano. La",
+                  " * definicion por defecto vive en <nombre>_shims.c y aborta",
+                  " * con arm_unimplemented(). Escribe la tuya y el enlazador",
+                  " * usara la tuya. */"]
+        for shim in sorted(em.auto_shims):
+            decls.append("void %s(arm_ctx *ctx);   /* %s */"
+                         % (shim, em.auto_shims[shim]))
     decls += ["", "#endif"]
     with open(hpath, "w", encoding="utf-8") as fh:
         fh.write("\n".join(decls) + "\n")
+
+    spath = None
+    if em.auto_shims:
+        # Definiciones por defecto en su propio .c: sustituir una es borrar su
+        # cuerpo y escribir la implementacion real.
+        spath = os.path.join(args.out, args.name + "_shims.c")
+        sh = ["/* GENERADO POR tools/armrecomp/recomp.py -- NO EDITAR A MANO */",
+              "/*",
+              " * Importadas sin implementacion en el anfitrion. Llamar a",
+              " * cualquiera aborta y dice cual: fallar ruidosamente en",
+              " * EJECUCION en vez de impedir la generacion. Solo hacen falta",
+              " * las que el codigo bajo prueba ejecute de verdad.",
+              " */",
+              '#include "%s.h"' % args.name,
+              ""]
+        for shim in sorted(em.auto_shims):
+            sh += ["void %s(arm_ctx *ctx)" % shim, "{",
+                   '    arm_unimplemented("%s", 0u, "importada sin implementar: %s");'
+                   % (shim, em.auto_shims[shim]),
+                   "    (void)ctx;", "}", ""]
+        with open(spath, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(sh) + "\n")
 
     print("funciones recompiladas: %d" % len(targets))
     print("instrucciones traducidas: %d" % total_ins)
@@ -1059,6 +1184,8 @@ def main():
         print("   %-32s 0x%08x  %s" % (name, a, txt))
     print("\nescrito %s" % cpath)
     print("escrito %s" % hpath)
+    if spath:
+        print("escrito %s" % spath)
     return 1 if em.problems else 0
 
 
