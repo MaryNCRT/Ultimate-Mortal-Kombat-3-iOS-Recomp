@@ -1,0 +1,270 @@
+# The LIME engine
+
+EA Mobile's in-house 3D engine, as used by the 2011 iOS build of UMK3. This is
+the consolidated reference; each claim says how it is known.
+
+- **verified** — passed a mechanical test (differential run, corpus walk, or
+  disassembly of the shipped binary)
+- **derived** — read off the disassembly, not independently tested
+- **unconfirmed** — hypothesis
+
+---
+
+## Identity
+
+The engine splits into `lime/common` (portable, 109 functions) and
+`lime/iphone` (platform, 229 functions) — the natural seam for a port. The
+build path survives in the binary **[verified]**:
+
+```
+/BuildServerX/reactive/mortalkombat_iphone/xcode/umk3_iphone_en/../../src/lime/
+```
+
+What "LIME" stands for, and whether other EA Mobile titles used it, is
+**unconfirmed**. So is what the `DS_` / `LIMEDS_` prefix means.
+
+### Naming conventions **[verified]**
+
+`LIME_*` is the public API (`LIME_LoadMeshSet`, `LIME_LoadEvents`,
+`LIME_LoadScene`, `LIME_LoadSkin`, `LIME_FindMeshByName`, …). `lime*` are
+helpers (`limeMalloc`, `limeLoadFile`, `limeMatrixMult`, …).
+
+**`limeMalloc(const char *tag, size_t size)` tags every allocation with a
+readable string**, and those strings survive in the binary. `skin_indexes`,
+`skin_mweights`, `meshset_meshes` and friends name the buffers for you. Reading
+the tag at each call site is the cheapest way to name an unknown struct, and it
+is how `.skin` was solved quickly.
+
+---
+
+## The two slices are two different compilers' worth of information
+
+The fat binary carries **armv6** (2,653,792 bytes, at offset `0x1000`) and
+**armv7** (2,348,400 bytes, at `0x289000`). The project works on armv7, and
+that turns out to have been costing us.
+
+ARMv7 has NEON, and EA's compiler used **2-lane packed NEON to do scalar float
+maths**. Ghidra models those as opaque vector intrinsics and loses the
+arithmetic entirely — its `_Len` returns an uninitialised variable and still
+compiles. See [METHODOLOGY.md](METHODOLOGY.md).
+
+**ARMv6 has no NEON.** The armv6 slice is a second, independent compilation of
+the same source in plain scalar VFP:
+
+```
+armv7 (NEON — Ghidra loses this)   armv6 (scalar VFP — decompiles correctly)
+  vldr      s12, [r0]                vldr      s15, [r0, #4]
+  vldr      s14, [r0, #4]            vldr      s13, [r0]
+  vmul.f32  d6, d6, d6               vldr      s14, [r0, #8]
+  vmul.f32  d7, d7, d7               vmul.f32  s15, s15, s15   ; y*y
+  vldr      s10, [r0, #8]            vmla.f32  s15, s13, s13   ; += x*x
+  vadd.f32  d6, d6, d7               vmla.f32  s15, s14, s14   ; += z*z
+  vmul.f32  d7, d5, d5               vsqrt.f32 s15, s15
+  vadd.f32  d7, d6, d7               vmov      r0, s15
+  vsqrt.f32 s14, s14                 bx        lr
+  vmov      r0, s14
+  bx        lr
+```
+
+The armv6 column is `sqrtf(x*x + y*y + z*z)` written plainly. **[verified]**
+
+`python tools/slices.py neon <armv7> <armv6> <func-to-file.txt>` measures the
+reach:
+
+| | functions using packed `.f32` on D/Q |
+|---|---:|
+| armv7 | 153 |
+| armv6 | 58 |
+| **armv7 only** | **107** |
+
+Those 107 are readable in armv6 and not in armv7. By file:
+
+| File | Functions | | File | Functions |
+|---|---:|---|---|---:|
+| `FrontEnd.cpp` | 39 | | `LIMEDS_Misc.cpp` | 3 |
+| `GameCode.cpp` | 22 | | `Players.cpp` | 3 |
+| `RenderSkinned.cpp` | 7 | | `mkzap.c` | 3 |
+| `lime.m` | 6 | | `Events.cpp` | 2 |
+| `Matrix.cpp` | 4 | | `limeVector.cpp` | 2 |
+| `limeFont.cpp` | 4 | | `RenderMesh.cpp` | 2 |
+
+**This is wider than the engine.** `FrontEnd.cpp` and `GameCode.cpp` together
+account for 61 of the 107 — more than half the problem is in game code, not in
+`lime/common`. The often-quoted "27% of `lime/common`" figure measures 25 of
+109 (23%) by this method, and understates the problem overall by looking only
+at the engine.
+
+### Two traps when reading the armv6 slice
+
+1. **Much of armv6 is ARM, not Thumb.** `_Len` is Thumb in armv7 and ARM in
+   armv6.
+2. **The Thumb flag is `N_ARM_THUMB_DEF` (`0x0008`) in `n_desc`**, not bit 0 of
+   the symbol value — and in this binary it is set on the STABS entry (type 30)
+   and *not* on the plain one (type 36). Reading only one of them disassembles
+   Thumb as ARM and produces confident garbage. `tools/slices.py` ORs the flag
+   across every entry for an address.
+
+---
+
+## Maths conventions — all **[verified]**
+
+Through the differential oracle: 40,006 cases on `Matrix.cpp`, 20,013 on
+`limeVector.cpp`, zero divergences.
+
+- 4×4 float matrices, **row-major**
+- `limeMatrixCopy(src, dst)` — source first
+- `limeMatrixMult(a, b, out)` — output third (`r2`)
+- `limeScaleMatrixXYZ` scales **columns**, not rows
+- `limeMatrix3x4RotateSkin(m, vin, vout)`: `out[j] = Σᵢ vin[i]·m[i*4+j]`, no
+  translation; `RotVector` is a tail-call alias
+- `RotMatrixX`: `m[5]=cos, m[6]=sin, m[9]=-sin, m[10]=cos`
+- `RotMatrixY`: `m[0]=cos, m[2]=-sin, m[8]=sin, m[10]=cos`
+- `RotMatrixZ`: `m[0]=cos, m[1]=sin, m[4]=-sin, m[5]=cos`
+- `CreatePerspectiveMatrix(m, fov, aspect, zNear, zFar)` (`0x0005e0a0`) — fifth
+  argument on the stack. `f = sin(fov)/(1−cos(fov)) = cot(fov/2)`, computed in
+  **double** and narrowed at the end. `fov` is the full **vertical** field of
+  view. **`aspect` divides the X term only — the single widescreen hook.**
+
+**AAPCS soft-float**: floats travel in integer registers (float in `r0`, double
+in `r0:r1`). Ghidra does not know this and emits
+`/* WARNING: Unknown calling convention */`.
+
+---
+
+## In-memory structures
+
+| Struct | Size | Known fields | |
+|---|---:|---|---|
+| `MESHSETINFO` | 76 | `char name[64]`, `texturesLoaded`@0x40, `numMeshes`@0x44, `MESHINFO **meshes`@0x48 | verified |
+| `MESHINFO` | 88 | `numVerts`@0x00, `numFaces`@0x04, `boundsRadius`@0x10, `verts`@0x18, `indices`, `vertLight` | verified |
+| `LIMEVERTEX` | 16 | `int16 x,y,z` + 2 undefined bytes + `float u,v`; 26 on disk | verified |
+| `SKININFO` | 48 | `next`@0 — linked list of at most two | verified |
+| `BONESINFO` | 8 | `bones*`, `numBones` | verified |
+| `BONE` | 56 | 25 on disk | verified |
+| `SCENEEVENTS` | 8 | count@0, tracks@4 | verified |
+| `SCENEEVENTTRACK` | 216 | `numEntries`@0x00, flag@0x04, entries ptr@0xd4 | verified |
+
+`SKINMATRIX43`, `BONEANIMFRAME`, `MATRIX43`, `limeVECTOR3` and `limeVECTOR2`
+show up in the mangled names but are not declared yet. Adding them to
+`signatures/structs.txt` should pay off the way `MESHINFO` did.
+
+---
+
+## Asset formats
+
+Every format needed to draw an animated character is solved. See
+[MESHSET-FORMAT.md](MESHSET-FORMAT.md), [SKIN-FORMAT.md](SKIN-FORMAT.md) and
+[EVENTS-FORMAT.md](EVENTS-FORMAT.md).
+
+| Format | Status | |
+|---|---|---|
+| `.meshset` | ✅ 3 variants, 7,327 meshes byte-for-byte | verified |
+| `.lighting` | ✅ path is `STATICLIGHTING/<name>.lighting` | verified |
+| `.skin` | ✅ 29/29 exact | verified |
+| `.bones` | ✅ 27/29 (`4 + N*25`) | verified |
+| `.skinanim` | ✅ 28/29 | verified |
+| `.events` | ✅ 544/545, `268 + N*56` | verified |
+| `.scene` | ⬜ `LIME_LoadScene` (`0x0005f0ac`) | — |
+| `frames.x`, `moves_data.x` | ⬜ game data, not LIME | — |
+
+Two semantic questions remain open even where the layout is settled: what the
+24 and 6 bytes per vertex in `.skin` contain, and why its `indexes` decode
+negative.
+
+---
+
+## Render
+
+Double renderer: `ES1Renderer.m` (GL ES 1.1) and `ES2Renderer.m` (GL ES 2.0),
+using Apple's standard template that tries ES2 and falls back to ES1. Textures
+are PVRTC.
+
+**Per-vertex lighting is precomputed** in the `.lighting` files, which is why
+the mesh loader discards vertex normals — the last 12 bytes of each 26-byte
+on-disk vertex.
+
+For the native port, **start from `ES2Renderer`**: ES 2.0 is already
+programmable and maps almost 1:1 to OpenGL 3.3 core, whereas ES 1.1's fixed
+pipeline would have to be emulated wholesale. touchHLE only implements ES 1.1
+and returns `nil` for `kEAGLRenderingAPIOpenGLES2`, which is why the game falls
+back to ES1 *there* — that is an emulator limitation and must not dictate the
+port's architecture.
+
+---
+
+## Audio is not EA's code
+
+**`lime/iphone/Finch/` is a vendored copy of
+[zoul/Finch](https://github.com/zoul/Finch), an open-source OpenAL sound engine
+under the MIT licence. [verified]**
+
+All seven source files appear in the binary's STABS paths, and all seven
+classes are present with the pre-refactor names:
+
+| Class | Methods | | Class | Methods |
+|---|---:|---|---|---:|
+| `Finch` | 11 | | `Reporter` | 5 |
+| `Sound` | 15 | | `Decoder` | 2 |
+| `Sample` | 14 | | `PCMDecoder` | 2 |
+| `RevolverSound` | 6 | | | |
+
+55 Objective-C methods plus the `_FinchEngine` symbol — 56, matching the count
+attributed to `Finch/` in the source tree. The upstream project today uses `FI`
+prefixes (`FISound`, `FISoundEngine`), a later refactor, so the version
+vendored here is from roughly 2010.
+
+**Consequence: 56 of the 229 platform-layer functions (24%) do not need
+reverse engineering.** The upstream source is readable, documented and legally
+reusable. Match the class names against the repository history to find the
+contemporary commit and use it as the port's audio backend.
+
+Provenance is clean: public repository, MIT licence, unrelated to any leaked
+source.
+
+### `GBMusicTrack.m` — **unconfirmed**, and do not assume it is reusable
+
+11 Objective-C methods in the binary (`initWithPath:`, `play`, `pause`,
+`setGain:`, `setRepeat:`, `readPacketsIntoBuffer:`,
+`playBackIsRunningStateChanged`, `callbackForBuffer:`,
+`postTrackFinishedPlayingNotification:`, `close`, `dealloc`).
+
+The name and method set match a compressed-music player built on
+AudioToolbox/AudioQueue that circulated widely on iOS game-development forums
+around 2009–2010. **But no canonical repository or licence could be found**,
+which puts it in a different category from Finch: it is probably third-party
+code, and that is a reason to *understand* it quickly, not a licence to copy
+it. Treat the 13 functions attributed to this file as still needing a native
+reimplementation until someone identifies the source and its terms.
+
+### The general technique
+
+Before decompiling any platform-layer module, **check whether the class name
+belongs to a known third-party library of the period**. `Reachability.m`,
+`SBJSON.m` and the whole `FB*` Facebook Connect family are already visible in
+the source tree and are all well-known public code.
+
+---
+
+## Two execution models in one binary
+
+Worth not confusing:
+
+- **LIME is ordinary C++.** Normal calls, normal stack. The differential oracle
+  works here — it is what validated `Matrix.cpp` and `limeVector.cpp`.
+- **`gamecode/logic` is not.** It is cooperative multitasking with a process
+  dispatcher, per-process stacks, stack jumping and `process_sleep`, inherited
+  from the arcade original's TMS34010. The `t_` / `q_` / `c_` prefixes belong
+  to that task system. **The oracle cannot follow it, by design rather than for
+  want of work** — see [METHODOLOGY.md](METHODOLOGY.md).
+
+---
+
+## Still unknown
+
+- What "LIME" stands for; whether other EA Mobile titles used it
+- What the `DS_` / `LIMEDS_` subsystem is
+- The scene graph (`.scene`)
+- What the 24 and 6 bytes per vertex in `.skin` hold
+- Whether `.events` really is a bone/slot-anchored effect system — the
+  `UNASSIGNED` slot names and RGBA colours suggest it, but nothing confirms it
+- The provenance and licence of `GBMusicTrack.m`

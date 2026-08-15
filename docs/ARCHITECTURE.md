@@ -77,7 +77,7 @@ Platform-independent. This is what gets decompiled first, because it is the smal
 | `ES1Renderer.m` (GL ES 1.1, fixed pipeline) | OpenGL 3.3 core with shaders emulating fixed function |
 | `ES2Renderer.m` (GL ES 2.0) | **the better starting point** — already programmable, maps almost 1:1 |
 | `Texture2D.m`, `PVRTexture.m` | decode PVRTC → RGBA offline, as a build step |
-| `Finch/` (OpenAL) | OpenAL-soft — nearly identical API, the cheapest part of the port |
+| `Finch/` (OpenAL, 56 fn) | **Not ours to rewrite.** This is a vendored copy of [zoul/Finch](https://github.com/zoul/Finch), MIT-licensed — use upstream instead of reverse engineering it. See [LIME-ENGINE.md](LIME-ENGINE.md) |
 | `GBMusicTrack.m` (AudioToolbox) | dr_mp3 / stb_vorbis / miniaudio |
 | touch input (`joy.c`) | keyboard and gamepad mapped to the same button mask |
 | `limeLoadFile` | standard file I/O |

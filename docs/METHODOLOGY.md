@@ -30,7 +30,7 @@ This compiles without error. Under a quick review it looks like a slightly ugly 
 
 **Why it happened:** EA's compiler emitted *scalar* arithmetic using **2-lane NEON instructions** on D registers (`vmul.f32 d6, d6, d7`). Ghidra models those as opaque vector primitives and loses the aliasing between `d6` and the `s12`/`s13` pair. On top of that, Ghidra does not know the binary uses AAPCS soft-float — that a returned `float` arrives in `r0` — and emits `/* WARNING: Unknown calling convention */`.
 
-**How widespread:** 29 of the 109 functions in the engine core — **27%**. Concentrated exactly where it hurts most:
+**How widespread:** measured with `tools/slices.py neon`, **153 functions across the binary** use packed `.f32` SIMD on D/Q registers. Within the engine core that is 25 of 109 — **23%** — concentrated exactly where it hurts most:
 
 | File | Functions | NEON-affected |
 |---|---|---|
@@ -45,6 +45,8 @@ This compiles without error. Under a quick review it looks like a slightly ugly 
 | `DS_DebugWin.c` | 7 | 0% |
 
 The maths-heavy modules are the infected ones. That is not a coincidence — that is precisely where a compiler reaches for SIMD.
+
+**But the engine is not where most of it is.** `FrontEnd.cpp` (39 functions) and `GameCode.cpp` (22) together hold 61 of the 107 worst cases — more than the whole of `lime/common`. Quoting the figure as a `lime/common` percentage, as this document did until it was measured properly, looks in the wrong place.
 
 Had this gone unnoticed, the symptom a year later would have been "character models look slightly wrong," with no path back to the cause.
 
@@ -166,6 +168,43 @@ Concrete cases where verification found something review would not have:
 **A wrong path in the format specification.** The lighting file lookup is `STATICLIGHTING/<name>.lighting`, not `<name>.lighting`. Found by running the real loader.
 
 **A conditional `memset` that the spec had as unconditional.** `vertLight` is only filled with `0xFF` when lighting was requested *and* the file is missing. With `useLighting == 0` the branch skips the `memset` entirely and the buffer stays uninitialized.
+
+---
+
+## The other slice is a second opinion
+
+The fat binary ships **armv6 and armv7**. The project works on armv7 — and for
+the NEON problem above, that was the wrong choice.
+
+**ARMv6 has no NEON.** The armv6 slice is a second, independent compilation of
+the same source in plain scalar VFP, which Ghidra decompiles correctly:
+
+```
+armv7 (Ghidra loses this)          armv6 (readable)
+  vmul.f32  d6, d6, d6               vmul.f32  s15, s15, s15   ; y*y
+  vmul.f32  d7, d7, d7               vmla.f32  s15, s13, s13   ; += x*x
+  vadd.f32  d6, d6, d7               vmla.f32  s15, s14, s14   ; += z*z
+  vmul.f32  d7, d5, d5               vsqrt.f32 s15, s15
+  vadd.f32  d7, d6, d7
+  vsqrt.f32 s14, s14
+```
+
+`tools/slices.py neon` measures the reach: **153 functions use packed `.f32`
+SIMD in armv7, 58 in armv6, and 107 are affected in armv7 only.** Those 107 are
+readable in the other slice for free.
+
+More than half of them are not in the engine at all — `FrontEnd.cpp` (39) and
+`GameCode.cpp` (22) account for 61. The "27% of `lime/common`" figure measures
+23% by this method and, more importantly, looks in the wrong place.
+
+Two traps: much of armv6 is built as ARM rather than Thumb, and the Thumb flag
+lives in `n_desc` bit 3 on the *STABS* symbol entry, not on the plain one.
+Reading one entry and not the other disassembles Thumb as ARM and yields
+confident garbage.
+
+This does not replace the oracle — the armv6 code is still machine code, and a
+readable decompilation still has to be proven equivalent. It removes the case
+where the decompiler's output is *silently wrong* rather than merely ugly.
 
 ---
 
