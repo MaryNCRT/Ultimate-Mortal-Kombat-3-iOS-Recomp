@@ -38,7 +38,7 @@ bulk of the work has not started.
 |---|---:|---:|---|
 | Binary analysis and source-tree mapping | 4% | 100% | `██████████` |
 | Tooling and the verification oracle | 8% | 100% | `██████████` |
-| Asset format specifications | 8% | 80% | `████████░░` |
+| Asset format specifications | 8% | 85% | `████████░░` |
 | `lime/common` — engine core (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | 4% | `░░░░░░░░░░` |
@@ -793,6 +793,42 @@ written down as a limit rather than a to-do**:
 No regression: `_Len`, `_Normalise`, `_RotMatrixZ`, `_limeMatrixMult`,
 `_SwitchQueue`, `_LIME_LoadMeshSet` and `_LIME_LoadEvents --with-deps` all
 recompile with zero unsupported instructions.
+
+---
+
+## `.pvr` — measured, and narrower than expected
+
+1,400 texture files, surveyed rather than assumed. Full note in
+[PVR-FORMAT.md](PVR-FORMAT.md).
+
+| | |
+|---|---:|
+| PVRTC **2bpp** | 725 (51.8%) |
+| PVRTC **4bpp** | 675 (48.2%) |
+| Any other pixel format | **none** |
+| Mipmap levels | **0 in every file** |
+| Non-power-of-two | **none** |
+
+The container is **legacy PVR v2** — 52-byte header, `PVR!` tag — not the v3
+format modern tooling defaults to.
+
+**This turns "support PVR" into a small, closed job**: PVRTC1 at two bit
+depths, square, power-of-two, one surface, no mipmaps. Anything else can be
+rejected loudly instead of guessed at.
+
+It also has to be a **CPU** decoder. PVRTC is a PowerVR hardware format and
+desktop GPUs lack the extension — which is precisely what fails inside touchHLE
+(`glError 0x0500`/`0x0503` on compressed upload, the cause of the babality
+model sometimes not drawing). Decode on the CPU, upload plain RGBA, problem
+gone.
+
+**Noesis** is the tool for looking at these, recommended by ermaccer's write-up
+alongside the mesh converter. It is closed-source Windows-only freeware with no
+stated licence, so it is useful for inspection and **cannot be used in the
+port** — the same distinction already drawn for `GBMusicTrack`. The PVRTC
+format is publicly documented; the decoder is ours to write.
+
+Asset formats 80% → 85%.
 
 ---
 

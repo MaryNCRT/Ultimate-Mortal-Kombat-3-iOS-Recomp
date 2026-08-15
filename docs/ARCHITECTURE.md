@@ -153,7 +153,7 @@ There is also a hardcoded internal development IP: `10.253.13.208`.
 | `.scene` | 🔄 partial | header and in-memory struct known; on-disk record open — see [SCENE-FORMAT.md](SCENE-FORMAT.md) |
 | `.events` | ✅ **solved and verified** | effect tracks: 268-byte header + N*56 entries — see [EVENTS-FORMAT.md](EVENTS-FORMAT.md) |
 | `frames.x`, `moves_data.x` | ⬜ unsolved | animation and move tables |
-| `.pvr` | standard | PVRTC textures, decodable with known tools |
+| `.pvr` | ✅ **measured** | 1,400 files, only PVRTC 2bpp and 4bpp, no mipmaps — see [PVR-FORMAT.md](PVR-FORMAT.md) |
 
 **Every format needed to draw an animated character is now solved.** Geometry, skinning weights, skeleton and animation all read correctly against the shipped data. What is left is `.scene` (how a stage is assembled) and the two `.x` tables (`frames.x`, `moves_data.x`), which hold animation and move data — and [issue #5](../../issues/5) offers a way to recover the move tables without decompiling anything at all.
 
