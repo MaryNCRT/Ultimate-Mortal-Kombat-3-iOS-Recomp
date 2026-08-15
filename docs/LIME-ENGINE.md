@@ -37,6 +37,61 @@ is how `.skin` was solved quickly.
 
 ---
 
+## What compiled this, and why the code looks the way it does
+
+From the shipped `Info.plist` **[verified]**:
+
+| Key | Value | |
+|---|---|---|
+| `DTCompiler` | **4.2** | GCC 4.2 generation — **not clang** |
+| `DTXcode` / `DTXcodeBuild` | 0400 / 4A1006 | Xcode 4.0 |
+| `DTSDKName` | iphoneos4.3 | |
+| `BuildMachineOSBuild` | 10J567 | Mac OS X 10.6 Snow Leopard |
+| `MinimumOSVersion` | 3.0 | back to the original iPhone |
+
+GCC 4.2 rather than clang matters when reading generated code: its ARM backend
+has its own idioms, and that is the compiler to compare against when a sequence
+looks strange.
+
+### Why there is NEON in scalar maths
+
+This is the explanation behind the project's biggest technical obstacle, and it
+is not a quirk of EA's code.
+
+On the **Cortex-A8** — the chip in the iPhone 3GS and iPhone 4 — the VFP unit
+is *not pipelined*, while NEON is. Scalar float instructions therefore issue
+one after another with no overlap, and **doing scalar maths with 2-lane NEON
+was measurably faster even though one lane went to waste**. It was standard
+practice at the time.
+
+So `vmul.f32 d6, d6, d7` in `Matrix.cpp` and `limeVector.cpp` is the *normal*
+output for this hardware, and Ghidra's failure to model it is a failure against
+ordinary period code rather than against something exotic.
+
+It also explains why the armv6 slice is clean: NEON arrived with Cortex-A8 and
+armv7. The ARM11 chips that armv6 targets have VFPv2 and **no NEON at all**, so
+the compiler had no choice but to emit scalar VFP there.
+
+*(Source: Texas Instruments' wiki on using NEON and VFPv3 on Cortex-A8.)*
+
+### Other period details that explain the binary
+
+- **Soft-float ABI** — floats in integer registers. Already verified here, and
+  the reason Ghidra emits `Unknown calling convention`: it expects hard-float
+  with arguments in `s0`–`s15`.
+- **Thumb by default** — Apple compiled for Thumb for code density, matching
+  this binary being 100% Thumb but for two functions.
+- **PVRTC** — the PowerVR compressed texture format every iPhone of the era
+  used, hence `PVRTexture.m` and the `.pvr` assets.
+- **Precomputed lighting** — per-vertex lighting was expensive on Cortex-A8 and
+  PowerVR SGX, which is why LIME bakes it into `.lighting` files and the mesh
+  loader discards vertex normals.
+- **armv6 + armv7 in one binary** — standard practice to cover the original
+  iPhone through the iPhone 4 from a single `.ipa`.
+
+
+---
+
 ## The two slices are two different compilers' worth of information
 
 The fat binary carries **armv6** (2,653,792 bytes, at offset `0x1000`) and
@@ -221,6 +276,26 @@ contemporary commit and use it as the port's audio backend.
 Provenance is clean: public repository, MIT licence, unrelated to any leaked
 source.
 
+### The renderers are Apple's sample code
+
+`ES1Renderer.m` and `ES2Renderer.m` are Apple's `GLES2Sample` template,
+essentially unmodified. The method sets match exactly **[verified]**:
+
+| Class | Methods in the binary |
+|---|---|
+| `ES1Renderer` (4) | `init`, `render`, `resizeFromLayer:`, `dealloc` |
+| `ES2Renderer` (8) | those four plus `compileShader:type:file:`, `linkProgram:`, `loadShaders`, `validateProgram:` |
+
+That is another **12 functions that need no reverse engineering** — Apple
+publishes the source.
+
+It also resolves a loose end in the import table. Both spellings of the
+framebuffer calls are imported — `glGenFramebuffers` *and*
+`glGenFramebuffersOES`, five such pairs. Not a curiosity: Apple's ES 1.1
+template uses the `OES` extension names and the ES 2.0 path uses the core
+names, so each renderer brings its own set.
+
+
 ### `GBMusicTrack.m` — **unconfirmed**, and do not assume it is reusable
 
 11 Objective-C methods in the binary (`initWithPath:`, `play`, `pause`,
@@ -236,12 +311,31 @@ code, and that is a reason to *understand* it quickly, not a licence to copy
 it. Treat the 13 functions attributed to this file as still needing a native
 reimplementation until someone identifies the source and its terms.
 
-### The general technique
+### How much of the platform layer is actually ours to write
 
-Before decompiling any platform-layer module, **check whether the class name
-belongs to a known third-party library of the period**. `Reachability.m`,
-`SBJSON.m` and the whole `FB*` Facebook Connect family are already visible in
-the source tree and are all well-known public code.
+`lime/iphone` is **229 functions [verified]**, and two blocks of it are not
+EA's code:
+
+| Module | Functions | |
+|---|---:|---|
+| `Finch/` | 56 | zoul/Finch, MIT — confirmed |
+| `ES1Renderer.m` + `ES2Renderer.m` | 12 | Apple `GLES2Sample` — confirmed |
+| **Left to write** | **161** | |
+| `GBMusicTrack.m` | 13 | unconfirmed; counted in the 161 for now |
+
+**68 of 229 — 30%.** A wider claim has been made for this, counting
+`Reachability.m` and the `SBJson*` family and arriving at "over 60%". Those are
+real third-party libraries, but **they are not in the platform layer**:
+`Reachability.m` (12 fn) lives in `EA_SDK/support` and `SBJSON.m`,
+`SBJsonParser.mm` and `SBJsonWriter.mm` (43 fn) live in `JSON/`. Both belong to
+the EA SDK tree, which this port deletes or stubs wholesale — recognising them
+as third-party changes nothing, because none of it was going to be written
+anyway.
+
+The operational rule survives the correction intact, and it is the cheapest
+scope reduction available: **before decompiling any platform module, search the
+class name together with "iOS 2010". If a known library or Apple sample turns
+up, there is nothing to reverse — find the period version and read it.**
 
 ---
 
