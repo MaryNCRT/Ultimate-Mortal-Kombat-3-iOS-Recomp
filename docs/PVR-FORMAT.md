@@ -210,6 +210,43 @@ That is Morton order, endpoint colour unpacking, the bilinear offset
 convention, the modulation weight table and the modulation bit ordering — all
 **confirmed correct as written**, by being worse every other way.
 
+### Where the error sits inside a block: nowhere in particular
+
+Averaging the absolute error by position *within* the 4×4 block:
+
+```
+FE_METAL_BG          FE_MAINLOGO_EN        VORTEX1 (2bpp, 8×4)
+ 74.8 74.8 74.8 74.8   6.3 6.1 5.6 5.9      2.3 1.5 1.8 1.7 2.1 1.8 1.8 1.5
+ 75.2 75.2 75.3 75.3   5.9 5.9 5.3 5.6      1.8 1.5 2.0 1.7 2.0 1.7 1.8 1.5
+ 75.4 75.5 75.5 75.5   5.4 5.3 4.8 5.0      1.9 1.7 2.0 2.0 2.4 2.1 2.0 1.7
+ 75.1 75.1 75.2 75.2   6.3 6.2 5.6 6.0      1.8 1.5 2.0 1.7 2.1 1.7 1.8 1.5
+```
+
+**Flat.** A bug in the modulation bit ordering would scramble positions within
+the block and show as a lumpy grid; a bug in the interpolation would show edges
+differing from centres. Neither appears. That is independent confirmation of the
+two eliminations above, arrived at by a different route.
+
+### The pipeline can be exact
+
+`FE_MAINLOGO_EN` returns deltas of **(0, 0, 0)** on many pixels — pixel-perfect,
+not merely close. Those are the areas where a block's two endpoints are equal
+(both `0xFFF` white), so no interpolation or modulation is needed to reach the
+answer.
+
+`FE_METAL_BG`'s deltas, by contrast, run in **both directions** — −34, +42, −29,
++22 — which is not a systematic bias in colour expansion. A wrong bit width
+would push every pixel the same way.
+
+**So the container, block layout, Morton order and endpoint unpacking deliver
+exact pixels when nothing has to be blended.** The failure is specifically in
+combining two *differing* endpoints — the interpolation, the modulation weight,
+or which blocks the endpoints are gathered from.
+
+One marginal gain kept from this round: endpoint A's blue read as 5 bits
+(0–4) rather than 4 bits (1–4) scores 14.00 against 14.06. Real but tiny, and
+not the bug.
+
 ### What is actually left
 
 The endpoint, Morton and interpolation code is **shared** between 2bpp and
