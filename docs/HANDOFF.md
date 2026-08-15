@@ -7,7 +7,7 @@ working agreement and it has not changed.
 
 ## Where the project stands
 
-**24% overall. 0.7% of the decompilation itself — 17 functions of 2,572.**
+**25% overall. 0.7% of the decompilation itself — 17 functions of 2,572.**
 Nothing is playable natively yet.
 
 The second number did not move at all, and that is the honest headline: no new
@@ -28,7 +28,8 @@ and a mesh viewer.
 | Game runs in touchHLE, no known crash | 5 bytes, `docs/TOUCHHLE-PATCH.md` |
 | `.pvr` block geometry | 1,400 of 1,400 exact |
 | PVRTC decoder | 1.5% mean error, residual proven to be compression |
-| `.scene` | 545 of 547 files exact — every LIME format now solved |
+| `.scene` | 545 of 547 files exact |
+| **All asset formats** | **complete** — every format read and validated against the shipped data |
 
 ---
 
@@ -78,9 +79,30 @@ That is the third time this project has paid for not looking at the picture.
 per bit depth. The 25 `*_VERSUS` pairs become usable if the 512×512 PNG is
 downscaled to the PVR's 256×256.
 
+### 0.5 Extract the move tables from `moves_data.x` — [issue #11](../../issues/11)
+
+**Do this before anything else in the fight engine.** It is a parsing exercise
+on a text file, and it feeds three open issues.
+
+`moves_data.x` ships as **plain text** in the app bundle — it was on the
+unsolved-formats list for the whole project and turned out to be C array
+declarations. It holds **144 secret-move tables** across 25 characters, and
+references **90 `q_` predicates and 92 `t_` handlers by name**.
+
+Those are functions this project already has addresses for. For `gamecode/logic`
+— the part the oracle can never reach, because it dispatches through function
+pointers — that is a hand-written map from move semantics to function names
+covering 182 of them, and it arrives without a single decompilation.
+
+See [X-TABLES.md](X-TABLES.md), including how the port must treat source-form
+data that ships inside the IPA.
+
 ### 1. Capture the move input tables — [issue #5](../../issues/5)
 
-**Do this first, because it costs an evening and no skill.**
+**Still worth doing, and now with a partial key.** `moves_data.x` uses a
+**ten-symbol** input alphabet; the in-game list prints **0–22**. Different
+tables — but cross-referencing a move whose inputs are known against the same
+move on screen pins several of the 0–22 values to names at once.
 
 The in-game moves list **prints the displayed move's input sequence every
 frame**, one integer per line, values 0–22. The period of the repetition is the
