@@ -208,6 +208,68 @@ where the decompiler's output is *silently wrong* rather than merely ugly.
 
 ---
 
+## Recursive descent, and why less coverage is better coverage
+
+The recompiler used to disassemble each function by walking it linearly from
+start to end. That fails on this binary, and it fails *quietly*.
+
+Thumb-2's `ldr rX,[pc,#N]` only reaches ±4 KB, so GCC drops constant pools
+**in the middle of functions**. A linear sweep decodes those constants as
+instructions, desynchronises, and produces plausible-looking garbage for
+everything after — a `bvs` that is really half of a float, branching to a label
+that will never exist. **852 of 4,342 functions (19.6%)** contained bytes the
+sweep could not decode, and an unknown number more were silently misread.
+
+The recompiler now does **recursive descent**: start at the entry point, follow
+branches, and decode only what is reachable as code. Whatever is never reached
+is data, and saying so is the whole point.
+
+The headline number goes *down* — 87.6% of bytes decoded becomes 80.0% — and
+that is the improvement. The bytes it no longer decodes were never code.
+
+| | linear sweep | recursive descent |
+|---|---|---|
+| desynchronises | 852 functions (19.6%) | — |
+| fully accounted for | — | 3,520 functions (81.1%) |
+| >25% unreached | — | 822 functions (18.9%) |
+
+"Fully accounted for" means every byte is classified: instructions, alignment
+padding, or literal pool. The trade is **852 functions silently wrong** for
+**822 functions honestly incomplete**, and the second is worth far more.
+
+### Jump tables are followed
+
+Recursive descent stops dead at an indirect branch, and a dense `switch`
+compiles to one. GCC's idiom is fixed, so it can be resolved:
+
+```
+cmp   rN, #limit
+bhi   <default>
+tbh   [pc, rN, lsl #1]
+<table: limit+1 halfwords, each an offset from pc in 2-byte units>
+```
+
+`_seq_lookup` is the case that made this necessary: bounded by `cmp r4, #0x16`,
+it dispatches 23 ways. Without table following, recursive descent covered **38
+bytes of 7,608**. With it, 906 bytes across 315 instructions. **28 functions**
+carry such tables.
+
+### The limit that will not be fixed
+
+`blx <reg>`, `bx <reg>` and computed branches cannot be resolved statically.
+Where a function dispatches through a pointer, recursive descent stops and says
+so.
+
+This is not a backlog item. `gamecode/logic` is cooperative multitasking with a
+process dispatcher, per-process stacks and `process_sleep`, inherited from the
+arcade original's TMS34010 — dispatch through function pointers is its
+architecture. **The oracle will never cover the fight engine, by structure
+rather than for want of work.** That is why the emulator matters there, and why
+issues [#5](../../issues/5) and [#6](../../issues/6) attack it by observing the
+running game instead.
+
+---
+
 ## Where the oracle stops working
 
 Two limitations are structural rather than incidental. Both are documented in [PROGRESS.md](PROGRESS.md) with their intended fixes.

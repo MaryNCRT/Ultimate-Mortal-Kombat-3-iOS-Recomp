@@ -37,7 +37,7 @@ bulk of the work has not started.
 | Area | Weight | Done | |
 |---|---:|---:|---|
 | Binary analysis and source-tree mapping | 4% | 100% | `██████████` |
-| Tooling and the verification oracle | 8% | 95% | `██████████` |
+| Tooling and the verification oracle | 8% | 98% | `██████████` |
 | Asset format specifications | 8% | 80% | `████████░░` |
 | `lime/common` — engine core (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
@@ -683,6 +683,56 @@ It needs no tooling, no decompilation and no Ghidra — only patience with a
 controller — and it would produce the input table for all 24 characters.
 
 The 184 lines of 32 numbers remain unidentified.
+
+---
+
+## Recursive descent: 852 silently wrong becomes 822 honestly incomplete
+
+The recompiler walked each function linearly. Thumb-2 literal pools sit **in
+the middle of functions** (the `ldr rX,[pc,#N]` reach is only ±4 KB), so the
+sweep decoded constants as instructions and desynchronised — **852 of 4,342
+functions (19.6%)** had bytes it could not decode, and an unknown number more
+were misread without complaint.
+
+It now follows control flow from the entry point and decodes only what is
+reachable. Anything unreached is data.
+
+| | linear | recursive |
+|---|---|---|
+| desynchronises | 852 fn (19.6%) | — |
+| every byte accounted for | — | 3,520 fn (81.1%) |
+| >25% unreached (indirect branch) | — | 822 fn (18.9%) |
+| bytes decoded | 87.6% | 80.0% |
+
+**The headline number dropping is the improvement.** The bytes no longer
+decoded were never code.
+
+**Jump tables are followed.** A dense `switch` compiles to `tbb`/`tbh`, which
+stops recursive descent dead — but GCC's idiom is fixed (`cmp rN,#limit` /
+`bhi` / `tbh [pc,rN,lsl #1]` / table of halfword offsets) and can be resolved.
+`_seq_lookup` went from **38 bytes of 7,608** to 906 bytes across 315
+instructions. 28 functions carry such tables.
+
+Incidentally this confirms a reading from the play logs: `_seq_lookup` is
+bounded by `cmp r4, #0x16`, so its first argument dispatches 23 ways — and the
+366 logged calls used values 1 to 18, inside that range.
+
+### The oracle's limit, stated as a limit
+
+`blx <reg>`, `bx <reg>` and computed branches cannot be resolved statically.
+`gamecode/logic` is cooperative multitasking with a process dispatcher and
+per-process stacks inherited from the arcade TMS34010; dispatching through
+function pointers *is* its architecture. **The oracle will never cover the
+fight engine, structurally rather than for want of work.** That is not a
+backlog item, and it is why [#5](../../issues/5) and [#6](../../issues/6)
+attack that code by observing the running game instead.
+
+### What the oracle still owes
+
+Import shims: 12 written of 689 resolved stubs. Not all 689 are needed — write
+them as the modules that need verifying come up. A handful of trivial
+instructions (`adr`, `uxtb`, `sxtb`, `smull`, `vmrs`, `vcmp`) still raise
+`Unsupported` and are mechanical to add.
 
 ---
 

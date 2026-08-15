@@ -737,6 +737,141 @@ class Emitter(object):
             return True
         return False
 
+    # -- descenso recursivo --
+
+    #: Mnemonicos que terminan un camino de ejecucion sin caer al siguiente.
+    _RETURNS = ("bx", "pop", "b", "tbb", "tbh")
+
+    @staticmethod
+    def _is_cond(ins):
+        return ins.cc not in (ARM_CC_AL, ARM_CC_INVALID, 0)
+
+    def _successors(self, ins, lo, hi):
+        """(fall_through, [destinos]) de una instruccion, acotado a [lo, hi)."""
+        base = ins.mnemonic.split(".")[0]
+        targets = []
+        for op in ins.operands:
+            if op.type == ARM_OP_IMM and lo <= op.imm < hi:
+                if base.startswith("b") and base not in (
+                        "bic", "bics", "bfi", "bfc", "bl", "blx"):
+                    targets.append(op.imm)
+                elif base in ("cbz", "cbnz"):
+                    targets.append(op.imm)
+
+        if base in ("bx", "pop") and not self._is_cond(ins):
+            # bx lr / pop {..,pc} incondicional: no cae
+            if base == "bx" and ins.op_str.strip() != "lr":
+                return False, targets           # bx a registro: indirecto
+            if base == "pop" and "pc" not in ins.op_str:
+                return True, targets
+            return False, targets
+        if base == "b" and not self._is_cond(ins):
+            return False, targets               # salto incondicional
+        if base in ("tbb", "tbh"):
+            return False, targets               # tabla indirecta: no seguible
+        return True, targets
+
+    def decode_reachable(self, addr, size, thumb):
+        """
+        Descenso recursivo desde el punto de entrada.
+
+        El barrido lineal falla en este binario porque los pools de literales
+        estan INTERCALADOS en el codigo: Thumb-2 solo alcanza +-4 KB con
+        `ldr rX,[pc,#N]`, asi que el compilador deja constantes a mitad de
+        funcion. Capstone las decodifica como instrucciones, se desincroniza,
+        y el resto de la funcion sale a basura plausible.
+
+        Siguiendo los saltos solo se decodifica lo que de verdad es alcanzable
+        como codigo. Lo que no se alcanza es dato, no codigo -- y esa es la
+        distincion que el barrido lineal no puede hacer.
+
+        Devuelve (dict {direccion: insn}, bytes_no_alcanzados).
+        """
+        off = self.text.offset + (addr - self.text.addr)
+        code = self.m.data[off:off + size]
+        md = Cs(CS_ARCH_ARM,
+                (CS_MODE_THUMB if thumb else CS_MODE_ARM) | CS_MODE_LITTLE_ENDIAN)
+        md.detail = True
+
+        found = {}
+        table_bytes = {}        # inicio -> tamano de cada tabla de saltos
+        work = [addr]
+        lo, hi = addr, addr + size
+        while work:
+            pc = work.pop()
+            if pc in found or not (lo <= pc < hi):
+                continue
+            chunk = code[pc - addr:pc - addr + 8]
+            got = list(md.disasm(chunk, pc, count=1))
+            if not got:
+                continue                        # byte indecodificable: es dato
+            ins = got[0]
+            found[pc] = ins
+            fall, targets = self._successors(ins, lo, hi)
+
+            base = ins.mnemonic.split(".")[0]
+            if base in ("tbb", "tbh"):
+                tbl, tsize = self._jump_table(ins, found, code, addr, lo, hi)
+                targets.extend(tbl)
+                table_bytes[pc + ins.size] = tsize
+
+            work.extend(targets)
+            if fall:
+                work.append(pc + ins.size)
+
+        covered = sum(i.size for i in found.values())
+        return found, size - covered
+
+    def _jump_table(self, ins, found, code, base_addr, lo, hi):
+        """
+        Resuelve una tabla de saltos `tbb`/`tbh` y devuelve (destinos, bytes).
+
+        GCC emite siempre el mismo idioma para un switch denso:
+
+            cmp   rN, #limite
+            bhi   <default>
+            tbh   [pc, rN, lsl #1]
+            <tabla: limite+1 halfwords>
+
+        La tabla arranca justo despues del `tbh` y cada entrada es el
+        desplazamiento a su destino en unidades de 2 bytes desde `pc`, que
+        para Thumb es la direccion del `tbh` mas 4.
+
+        Sin esto el descenso recursivo se rinde en la primera tabla y da por
+        dato el resto de la funcion: en `_seq_lookup` cubria 38 bytes de 7608.
+        El motor de combate despacha por tablas, asi que resolverlas es lo que
+        hace utilizable el descenso recursivo ahi.
+        """
+        half = ins.mnemonic.split(".")[0] == "tbh"
+
+        # el limite lo pone el `cmp rN, #imm` que precede al salto de guarda
+        limit = None
+        for a in sorted((x for x in found if x < ins.address), reverse=True)[:6]:
+            prev = found[a]
+            if prev.mnemonic.split(".")[0] in ("cmp", "cmn"):
+                for op in prev.operands:
+                    if op.type == ARM_OP_IMM:
+                        limit = op.imm
+                break
+        if limit is None or not (0 <= limit < 4096):
+            return [], 0
+
+        n = limit + 1
+        tbase = ins.address + ins.size
+        pcv = ins.address + 4
+        step = 2 if half else 1
+        targets = []
+        for i in range(n):
+            off = tbase - base_addr + i * step
+            raw = code[off:off + step]
+            if len(raw) < step:
+                return targets, i * step
+            val = int.from_bytes(raw, "little")
+            t = pcv + 2 * val
+            if lo <= t < hi:
+                targets.append(t)
+        return targets, n * step
+
     def callees(self, addr, size):
         """Direcciones de funciones internas a las que llama esta funcion."""
         thumb = self.funcs[addr][1]
@@ -761,10 +896,11 @@ class Emitter(object):
         off = self.text.offset + (addr - self.text.addr)
         code = self.m.data[off:off + size]
 
-        md = Cs(CS_ARCH_ARM,
-                (CS_MODE_THUMB if thumb else CS_MODE_ARM) | CS_MODE_LITTLE_ENDIAN)
-        md.detail = True
-        insns = list(md.disasm(code, addr))
+        # Descenso recursivo: solo lo alcanzable como codigo. Sustituye al
+        # barrido lineal, que se desincronizaba en los pools de literales
+        # intercalados y emitia basura para el resto de la funcion.
+        reachable, data_bytes = self.decode_reachable(addr, size, thumb)
+        insns = [reachable[a] for a in sorted(reachable)]
 
         # destinos de salto internos -> etiquetas
         labels = set()
@@ -776,23 +912,15 @@ class Emitter(object):
                     if op.type == ARM_OP_IMM and addr <= op.imm < addr + size:
                         labels.add(op.imm)
 
-        prev_ins = None
         cn = self.cname(addr)
-        out.append("/* %s @ 0x%08x  (%s, %d bytes, %d instrucciones) */"
-                   % (name, addr, "Thumb" if thumb else "ARM", size, len(insns)))
+        out.append("/* %s @ 0x%08x  (%s, %d bytes, %d instrucciones, %d bytes de datos) */"
+                   % (name, addr, "Thumb" if thumb else "ARM", size,
+                      len(insns), data_bytes))
         out.append("void %s(arm_ctx *ctx)" % cn)
         out.append("{")
 
         decoded_bytes = 0
         for ins in insns:
-            # Stop at a terminal instruction when nothing further is a branch
-            # target. What follows is the literal pool, and decoding it as
-            # code produces plausible-looking garbage -- a "bvs" that is really
-            # a constant, jumping to a label that will never be emitted.
-            if decoded_bytes and self.is_terminal(prev_ins) \
-                    and not any(l >= ins.address for l in labels):
-                break
-            prev_ins = ins
             decoded_bytes += ins.size
             if ins.address in labels:
                 out.append("L_%08x:" % ins.address)
@@ -807,7 +935,7 @@ class Emitter(object):
                               (ins.mnemonic + " " + ins.op_str).replace('"', "'")))
         out.append("}")
         out.append("")
-        return len(insns), size - decoded_bytes
+        return len(insns), data_bytes
 
 
 # ---------------------------------------------------------------- main
