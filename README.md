@@ -6,7 +6,7 @@
 
 **A work-in-progress decompilation of the 2011 iOS release of Ultimate Mortal Kombat 3, aiming at a native PC port for Windows and Linux.**
 
-[Getting started](docs/GETTING-STARTED.md) · [Methodology](docs/METHODOLOGY.md) · [LIME engine](docs/LIME-ENGINE.md) · [Asset formats](docs/X-TABLES.md) · [Architecture](docs/ARCHITECTURE.md) · [Progress](docs/PROGRESS.md) · [Handoff](docs/HANDOFF.md) · [AI disclosure](AI-DISCLOSURE.md) · [Español](README.es.md)
+[Getting started](docs/GETTING-STARTED.md) · [Methodology](docs/METHODOLOGY.md) · [LIME engine](docs/LIME-ENGINE.md) · [Asset formats](docs/X-TABLES.md) · [Mesh viewer](docs/MESH-VIEWER.md) · [Architecture](docs/ARCHITECTURE.md) · [Progress](docs/PROGRESS.md) · [Handoff](docs/HANDOFF.md) · [AI disclosure](AI-DISCLOSURE.md) · [Español](README.es.md)
 
 </div>
 
@@ -235,10 +235,11 @@ tools/
   skin.py                .skin, .bones and .skinanim reader and validator
   events.py              .events reader and validator
   pvr.py                 .pvr header reader and block-geometry validator
-  pvrtc.py               PVRTC decoder to RGBA (WRONG - see docs/PVR-FORMAT.md)
+  pvrtc.py               PVRTC decoder to RGBA (1.5% mean error vs EA's PNGs)
   pvrtc_diff.py          diffs the decoder against EA's own shipped PNGs
   slices.py              extracts armv6/armv7 and finds NEON-affected functions
   scene.py               .scene reader and validator
+  meshview.py            renders a .meshset to a PNG -- software rasteriser
   xref.py                finds calls to an imported symbol; recovers assert() arguments
   ghidra/                headless decompilation scripts
   signatures/            function signatures and struct layouts fed to Ghidra
