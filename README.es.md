@@ -112,10 +112,10 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ## Progreso general
 
 ```
-█████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  24%
+██████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  25%
 ```
 
-**En torno al 24% del esfuerzo total estimado. Todavía no hay nada jugable.**
+**En torno al 25% del esfuerzo total estimado. Todavía no hay nada jugable.**
 
 Ese número es una estimación, así que aquí está la aritmética que hay detrás en vez de una cifra que haya que creerse. Los pesos son nuestro criterio sobre cuánto representa cada área del total; discrepa del reparto si quieres, pero las cifras de avance están medidas.
 
@@ -123,7 +123,7 @@ Ese número es una estimación, así que aquí está la aritmética que hay detr
 |---|---:|---:|---|
 | Análisis del binario y mapeo del árbol de fuentes | 4% | 100% | `██████████` |
 | Herramientas y oráculo de verificación | 8% | 100% | `██████████` |
-| Especificaciones de formatos de assets | 8% | 99% | `██████████` |
+| Especificaciones de formatos de assets | 8% | 100% | `██████████` |
 | `lime/common` — núcleo del motor (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — lógica de juego (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — motor de combate (2.172 fn) | 28% | 4% | `░░░░░░░░░░` |

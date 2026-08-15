@@ -63,7 +63,7 @@ def _cstr(buf, off, length=NAME_LEN):
 
 
 class Events(object):
-    __slots__ = ("num_tracks", "tracks")
+    __slots__ = ("num_tracks", "tracks", "bare_entries")
 
     class Track(object):
         __slots__ = ("header", "num_entries", "entries",
@@ -86,7 +86,28 @@ class Events(object):
     def __init__(self, data):
         self.num_tracks = struct.unpack_from("<i", data, 0)[0]
         self.tracks = []
+        self.bare_entries = None
         pos = 4
+
+        # Second variant: a bare entry array with no track headers at all.
+        # `CUTUP_BY_REPTILE_STRYKER.events` is the only file that uses it —
+        # `int32 flag; int32 numEntries;` then entries of the same 56 bytes,
+        # and 8 + 111*56 lands exactly on its last byte. Its entries carry the
+        # same sequential first int32 the normal ones do (11, 12, 13...), which
+        # is what identifies them as entries rather than something else.
+        #
+        # It is tried only when the normal walk cannot work, so a well-formed
+        # file is never reinterpreted.
+        if len(data) >= 8:
+            flag, count = struct.unpack_from("<2i", data, 0)
+            normal_ok = (self.num_tracks >= 0
+                         and 4 + self.num_tracks * TRACK_HEADER <= len(data))
+            if not normal_ok or (flag == 1 and 8 + count * ENTRY_SIZE == len(data)
+                                 and 0 < count < 100000):
+                if 8 + count * ENTRY_SIZE == len(data) and 0 < count < 100000:
+                    self.bare_entries = data[8:]
+                    self.num_tracks = 0
+                    return
         for _ in range(self.num_tracks):
             header = data[pos:pos + TRACK_HEADER]
             if len(header) < TRACK_HEADER:
@@ -106,6 +127,17 @@ class Events(object):
             raise ValueError("landed at %d, file is %d bytes" % (pos, len(data)))
 
 
+    def num_bare(self):
+        """How many bare entries this file holds, 0 for the normal variant."""
+        return 0 if self.bare_entries is None else len(self.bare_entries) // ENTRY_SIZE
+
+    def bare_entry(self, i):
+        """(int32, int32, 48-byte blob) for a bare-variant entry."""
+        off = i * ENTRY_SIZE
+        a, b = struct.unpack_from("<ii", self.bare_entries, off)
+        return a, b, self.bare_entries[off + 8:off + ENTRY_SIZE]
+
+
 def load(path):
     with open(path, "rb") as f:
         return Events(f.read())
@@ -119,6 +151,7 @@ def validate(res_dir):
     total_tracks = 0
     varying = []            # tracks whose numEntries is not 1
     empty_files = 0
+    bare = []
     slots = {}
     for fn in files:
         try:
@@ -128,7 +161,9 @@ def validate(res_dir):
             continue
         ok += 1
         total_tracks += ev.num_tracks
-        if ev.num_tracks == 0:
+        if ev.num_bare():
+            bare.append((os.path.basename(fn), ev.num_bare()))
+        elif ev.num_tracks == 0:
             empty_files += 1
         for i, t in enumerate(ev.tracks):
             if t.num_entries != 1:
@@ -138,6 +173,8 @@ def validate(res_dir):
     print("files parsed:        %5d" % ok)
     print("files total:         %5d" % len(files))
     print("  of which empty:    %5d  (numTracks == 0, 4 bytes)" % empty_files)
+    for name, n in bare:
+        print("  bare-entry variant:      %s, %d entries, no track headers" % (name, n))
     print("tracks walked:       %5d" % total_tracks)
     print("exceptions:          %5d" % len(exceptions))
     for name, why in exceptions:
