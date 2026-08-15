@@ -1,4 +1,4 @@
-# Handoff — 2026-08-14
+# Handoff — 2026-08-15
 
 For whoever picks this up next. Read [AGENTS.md](../AGENTS.md) first; it is the
 working agreement and it has not changed.
@@ -7,12 +7,14 @@ working agreement and it has not changed.
 
 ## Where the project stands
 
-**18% overall. 0.7% of the decompilation itself — 17 functions of 2,572.**
+**23% overall. 0.7% of the decompilation itself — 17 functions of 2,572.**
 Nothing is playable natively yet.
 
-Those two numbers barely moved this session, and that is honest: no new module
-was finished. What changed is the *method*. The session ends with a task at the
-top of the route that needs no decompilation at all — see item 1.
+The second number did not move at all, and that is the honest headline: no new
+function was finished. What moved is everything underneath it. The verification
+oracle is done. The game runs in touchHLE with **no known crash**. And the
+armv6 slice turned out to answer the question that has blocked the maths-heavy
+code since the start.
 
 | Done | Where |
 |---|---|
@@ -21,7 +23,8 @@ top of the route that needs no decompilation at all — see item 1.
 | `RenderMesh.cpp` loader — 3 fn | 7,327 meshes, 0 divergences |
 | `other.c` `SwitchQueue` — 1 fn | 500 pushes, 0 divergences |
 | `.meshset`, `.skin`, `.bones`, `.skinanim`, `.events` | all validated against every file |
-| Game runs in touchHLE with a 2-byte patch | `docs/TOUCHHLE-PATCH.md` |
+| Verification oracle | 4,342 functions, 0.02% untranslatable |
+| Game runs in touchHLE, no known crash | 5 bytes, `docs/TOUCHHLE-PATCH.md` |
 
 ---
 
@@ -113,7 +116,16 @@ Start from `.meshset` + `.skin` + `.bones` + `.skinanim`, GLFW and OpenGL 3.3.
 PVRTC has to be decoded on the CPU — do not rely on a GL extension, which is
 exactly what fails inside touchHLE.
 
-### 4. Patch the modal dialogs — a small, well-defined win
+### 4. ~~Patch the modal dialogs~~ — done, and the premise was wrong ([issue #4](../../issues/4))
+
+The dialogs were never the problem. `_CFRunLoopRun` has two callers in the
+whole binary; patching both made things **worse**, because those dialogs were a
+barrier holding the game back from the GameKit path. The real crashes were
+`GKSession` (unimplemented in touchHLE) and a licence screen whose exit branch
+is conditional on a return value it does not always get. Three patches, five
+bytes, no known crash. Superseded text below kept for the reasoning:
+
+<details><summary>original</summary>
 
 ```
 -[modalAlertDelegate initWithRunLoop:]   0x000b53bc   <- the cause
@@ -128,6 +140,8 @@ progress, the leaderboard and achievements in one go — and make longer play
 sessions possible, which feeds everything above.
 
 Use `tools/patch_ipa.py`. Work on a copy.
+
+</details>
 
 ### 5. `_DoSwitchJump` — [issue #1](../../issues/1)
 
@@ -163,8 +177,8 @@ It also cross-checks item 1: the sequences the moves list prints and the ones
 - **A working gamepad mapping** is in `docs/touchHLE_options.example.txt`.
   touchHLE's own defaults for this app put the touch targets off-screen, so a
   controller appears dead until you replace them.
-- **Avoid any confirmation dialog** until item 4 is done — it closes the
-  emulator.
+- **Confirmation dialogs are fine now.** The old warning was based on a theory
+  that did not survive testing — see [issue #4](../../issues/4).
 - The log's own output is worth grepping for `triggered event`, `FE_Task_`,
   `loading scene:` and `glError`.
 
