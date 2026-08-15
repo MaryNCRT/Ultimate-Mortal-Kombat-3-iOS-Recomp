@@ -123,7 +123,7 @@ the completion figures are measured.
 | Area | Weight | Done | |
 |---|---:|---:|---|
 | Binary analysis and source-tree mapping | 4% | 100% | `██████████` |
-| Tooling and the verification oracle | 8% | 98% | `██████████` |
+| Tooling and the verification oracle | 8% | 100% | `██████████` |
 | Asset format specifications | 8% | 80% | `████████░░` |
 | `lime/common` — engine core (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |

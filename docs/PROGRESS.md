@@ -37,7 +37,7 @@ bulk of the work has not started.
 | Area | Weight | Done | |
 |---|---:|---:|---|
 | Binary analysis and source-tree mapping | 4% | 100% | `██████████` |
-| Tooling and the verification oracle | 8% | 98% | `██████████` |
+| Tooling and the verification oracle | 8% | 100% | `██████████` |
 | Asset format specifications | 8% | 80% | `████████░░` |
 | `lime/common` — engine core (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
@@ -727,12 +727,72 @@ fight engine, structurally rather than for want of work.** That is not a
 backlog item, and it is why [#5](../../issues/5) and [#6](../../issues/6)
 attack that code by observing the running game instead.
 
-### What the oracle still owes
+### Coverage, measured rather than estimated
 
-Import shims: 12 written of 689 resolved stubs. Not all 689 are needed — write
-them as the modules that need verifying come up. A handful of trivial
-instructions (`adr`, `uxtb`, `sxtb`, `smull`, `vmrs`, `vcmp`) still raise
-`Unsupported` and are mechanical to add.
+`recomp.py --all` now runs over the **whole binary**:
+
+| | |
+|---|---:|
+| functions recompiled | **4,342** (all of them) |
+| instructions translated | **274,240** |
+| untranslatable | **49 — 0.02%** |
+| functions affected | **24 — 0.6%** |
+| literal-pool loads resolved | 25,331 |
+
+Measuring first is what made this cheap. The owed work was listed as "import
+shims, and six missing instructions: `adr`, `uxtb`, `sxtb`, `smull`, `vmrs`,
+`vcmp`". **None of those six even appear in the failure list** — they were
+already handled, and the list was stale. What actually failed:
+
+| | before | |
+|---|---:|---|
+| `blx` | **9,001** | 93% of all failures |
+| `ldrex` / `strex` | 478 | |
+| everything else | 163 | |
+
+**`blx` was the whole problem, and it was a policy error rather than a missing
+instruction.** Any import without a hand-written shim aborted *generation* —
+which contradicts the recompiler's own stated principle of failing loudly at
+*runtime* and never blocking on code that may never execute. It now emits a
+call to an auto-named shim and writes `<name>_shims.c` with default bodies that
+call `arm_unimplemented()`. Generation succeeds; anything actually executed
+aborts and names itself; you write only the shims your tests reach. That single
+change took untranslatable instructions from 3.52% to 0.23%.
+
+`ldrex`/`strex` follow next: the guest is single-threaded and uncontended, so
+the pair is a plain load/store with the exclusive always granted. Then `mla`,
+`mls`, `addw`, `subw`, `smulbb`, `sxtah`, `rev`, scalar `vmla`/`vmls`/`vnmls`/
+`vnmul`, and `tbb`/`tbh` — which can now be emitted as an explicit `switch`
+because recursive descent has already resolved the table.
+
+### The 49 that remain, and why 38 of them should
+
+**38 are packed `vmla`/`vnmls` on D registers** — 2-lane NEON. A scalar
+translation would look right and be wrong, so it is refused. This is the same
+rule that made the project distrust Ghidra in the first place; the oracle does
+not get an exemption. Where those matter, the **armv6 slice** carries the same
+functions in scalar VFP.
+
+The other 11 are genuine oddities: `vcvt` (2), `andeq`, `adc`, `svc`, `vld1`,
+`smmla`, `cdp2`, `bxns`. Several look like literal-pool bytes in the handful of
+functions where recursive descent still mis-steps.
+
+### What "100%" means here
+
+Not that the oracle covers all 4,342 functions in a way that could verify the
+whole game. It means **it does everything it can do, and what it cannot do is
+written down as a limit rather than a to-do**:
+
+- Indirect branches (`blx reg`, `bx reg`) cannot be resolved statically, and
+  `gamecode/logic` dispatches through function pointers by architecture. The
+  oracle will never verify the fight engine.
+- Packed 2-lane NEON is refused rather than approximated. Use armv6.
+- Import shims are generated as loud stubs, not implemented. Implement the ones
+  your test executes.
+
+No regression: `_Len`, `_Normalise`, `_RotMatrixZ`, `_limeMatrixMult`,
+`_SwitchQueue`, `_LIME_LoadMeshSet` and `_LIME_LoadEvents --with-deps` all
+recompile with zero unsupported instructions.
 
 ---
 

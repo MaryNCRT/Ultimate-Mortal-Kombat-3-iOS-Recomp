@@ -122,7 +122,7 @@ Ese número es una estimación, así que aquí está la aritmética que hay detr
 | Área | Peso | Hecho | |
 |---|---:|---:|---|
 | Análisis del binario y mapeo del árbol de fuentes | 4% | 100% | `██████████` |
-| Herramientas y oráculo de verificación | 8% | 98% | `██████████` |
+| Herramientas y oráculo de verificación | 8% | 100% | `██████████` |
 | Especificaciones de formatos de assets | 8% | 80% | `████████░░` |
 | `lime/common` — núcleo del motor (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — lógica de juego (291 fn) | 18% | 0% | `░░░░░░░░░░` |
