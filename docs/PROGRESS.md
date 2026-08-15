@@ -1362,7 +1362,11 @@ It is a software rasteriser on purpose. A window would look better; a window
 also cannot be read from a script, and this project's own rule is that
 [visual evidence is what ends a hunt](METHODOLOGY.md). So it writes a file.
 
-**It works.** `BALCONY_LEVEL.meshset` renders as a clean textured platform with
+**It works.**
+
+![The Graveyard stage rendered from GRAVEYARD_LEVEL.meshset](img/viewer-graveyard.png)
+
+`BALCONY_LEVEL.meshset` renders as a clean textured platform with
 correct depth ordering and a checkerboard that shrinks toward the back.
 `GRAVEYARD_LEVEL.meshset`, 3,618 triangles, renders as the recognisable
 Graveyard stage — moon, cloud band, mountain silhouette, gravestones, railing.
@@ -1408,12 +1412,14 @@ half: `out[j] = Σᵢ vin[i]·m[i*4+j]`, no translation. That is where to start.
 **When a character stands up in this viewer, four specifications are confirmed
 at once in a way no differential test can manage.**
 
-### The images are not in the repo
+### Where the zero-assets line falls
 
-A render of EA's geometry and textures is EA's artwork. The zero-assets rule
-does not get an exception because screenshots feel harmless — the tool ships and
-anyone with their own copy makes the pictures in a second, which is the same
-build-time model as everything else here.
+Two 480-pixel renders live in `docs/img/`. The rule exists so that cloning this
+repository does not hand anyone a playable copy of the game, and a documentation
+screenshot does not do that. The asset *files* stay out, extracted at build time
+from each user's own copy as before.
+
+See [MESH-VIEWER.md](MESH-VIEWER.md) for the reasoning in full.
 
 ---
 
