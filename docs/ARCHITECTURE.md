@@ -147,15 +147,15 @@ There is also a hardcoded internal development IP: `10.253.13.208`.
 |---|---|---|
 | `.meshset` | ✅ **solved and verified** | static geometry, three variants — see [MESHSET-FORMAT.md](MESHSET-FORMAT.md) |
 | `.lighting` | ✅ documented | per-vertex lighting byte |
-| `.skin` | ⬜ unsolved | skinning weights |
-| `.bones` | ⬜ unsolved | skeleton hierarchy |
-| `.skinanim` | ⬜ unsolved | skeletal animation |
-| `.scene` | ⬜ unsolved | scene graph |
+| `.skin` | ✅ **solved and verified** | skinning weights, 29/29 files — see [SKIN-FORMAT.md](SKIN-FORMAT.md) |
+| `.bones` | ✅ **solved** | skeleton hierarchy, 27/29 (ROBO1/ROBO2 use a 24-byte bone) |
+| `.skinanim` | ✅ **solved** | skeletal animation, 28/29 (SINDEL open, [issue #2](../../issues/2)) |
+| `.scene` | ⬜ unsolved | scene graph — the last big one |
 | `.events` | ✅ **solved and verified** | effect tracks: 268-byte header + N*56 entries — see [EVENTS-FORMAT.md](EVENTS-FORMAT.md) |
 | `frames.x`, `moves_data.x` | ⬜ unsolved | animation and move tables |
 | `.pvr` | standard | PVRTC textures, decodable with known tools |
 
-**`.skin`, `.bones` and `.skinanim` are the priority.** Without them, characters do not animate — they are the difference between a model viewer and a game. `RenderSkinned.cpp`, now decompiled, is the best source for deriving them.
+**Every format needed to draw an animated character is now solved.** Geometry, skinning weights, skeleton and animation all read correctly against the shipped data. What is left is `.scene` (how a stage is assembled) and the two `.x` tables (`frames.x`, `moves_data.x`), which hold animation and move data — and [issue #5](../../issues/5) offers a way to recover the move tables without decompiling anything at all.
 
 ---
 

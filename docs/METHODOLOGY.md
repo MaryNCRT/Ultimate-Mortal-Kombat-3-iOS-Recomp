@@ -123,6 +123,34 @@ Agreement was byte-for-byte on mesh counts, names, vertex counts, face counts, b
 
 This is not two of our own readers agreeing with each other. It is **our understanding checked against EA's code running on EA's data**. Two errors in the specification were found and corrected this way — see [MESHSET-FORMAT.md](MESHSET-FORMAT.md).
 
+### When walking a file proves nothing
+
+A parser that reaches the exact last byte of a file feels like proof. It is only
+proof **if the walk depended on values that varied**.
+
+If every record is the same size, any split of that size lands exactly. A
+324-byte record can be read as 268+56, or 324+0, or 200+2×62, and all three walk
+the file perfectly. The landing distinguishes none of them.
+
+So before treating an exact walk as evidence, ask what varied. In `.meshset`,
+`numVerts` and `numFaces` varied across 7,326 meshes. In `.skin`, N and M
+varied. Those walks are real evidence. A walk over fixed-size records is not.
+
+### But check "it never varies" against the whole corpus
+
+The `.events` format was audited as failing exactly that test: `numEntries`
+appeared to be 1 in 211 of 212 tracks, which would make every track 324 bytes
+and the walk circular.
+
+**It was measured on a subset.** Across all 1,547 tracks the field takes ten
+distinct values and 103 tracks are not 1. The walk was real evidence after all,
+and brute force confirmed the split is the only one that survives the corpus.
+
+Both halves of this are worth keeping. A constant makes a walk worthless — and
+a constant observed on part of the data may not be a constant. Measure the
+whole corpus before concluding either way, and derive the layout from the
+loader's own arithmetic so the answer does not depend on the walk at all.
+
 ---
 
 ## Bugs this method has caught

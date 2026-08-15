@@ -4,6 +4,9 @@ Current state of the project. Written so that someone can pick it up with no pri
 
 **Last updated:** 2026-08-14 — see [HANDOFF.md](HANDOFF.md) for the revised route
 
+> Latest: `.events` solved (544/545 files) and an audit finding corrected; the
+> in-game moves list found to print the move input tables.
+
 ---
 
 ## Overall progress
@@ -42,7 +45,8 @@ bulk of the work has not started.
 | A verification method exists and is proven | ✅ done |
 | The game runs somewhere as a behavioural reference | ✅ done (touchHLE) |
 | Model format readable | ✅ done |
-| Animation formats readable | ✅ `.skin`, `.bones` and `.skinanim` done |
+| Animation formats readable | ✅ `.skin`, `.bones`, `.skinanim` and `.events` done |
+| Every format needed to draw an animated character | ✅ done — only `.scene` remains |
 | Something renders on a PC screen | ⬜ not started |
 | The game boots natively | ⬜ far off |
 | The game is playable natively | ⬜ far off |

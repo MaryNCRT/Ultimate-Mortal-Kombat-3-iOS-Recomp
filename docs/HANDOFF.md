@@ -20,7 +20,7 @@ top of the route that needs no decompilation at all — see item 1.
 | `limeVector.cpp` — 2 fn | 20,013 cases, 0 divergences |
 | `RenderMesh.cpp` loader — 3 fn | 7,327 meshes, 0 divergences |
 | `other.c` `SwitchQueue` — 1 fn | 500 pushes, 0 divergences |
-| `.meshset`, `.skin`, `.bones`, `.skinanim` | all validated against every file |
+| `.meshset`, `.skin`, `.bones`, `.skinanim`, `.events` | all validated against every file |
 | Game runs in touchHLE with a 2-byte patch | `docs/TOUCHHLE-PATCH.md` |
 
 ---

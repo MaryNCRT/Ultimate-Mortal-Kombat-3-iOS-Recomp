@@ -181,6 +181,12 @@ Detailed status, decisions and known technical debt: [docs/PROGRESS.md](docs/PRO
 
 ## Things discovered along the way
 
+**Every asset format needed to draw an animated character is solved.** `.meshset` (geometry), `.skin` (skinning weights), `.bones` (skeleton), `.skinanim` (animation) and `.events` (effect tracks) all read correctly against the shipped data. `.scene` is the last one open. See [MESHSET-FORMAT.md](docs/MESHSET-FORMAT.md), [SKIN-FORMAT.md](docs/SKIN-FORMAT.md) and [EVENTS-FORMAT.md](docs/EVENTS-FORMAT.md).
+
+**Landing on a file's last byte can prove nothing at all.** If every record is the same size, *any* split of that size walks the file perfectly — 324 bytes reads equally well as 268+56 or 324+0. `.events` was audited as resting on exactly that circularity, because `numEntries` looked constant at 1. Across the full corpus of 1,547 tracks it takes ten distinct values and 103 tracks are not 1, so the walk was real evidence after all. A constant makes a walk worthless; a constant seen on part of the data may not be a constant. Both halves matter, and the layout is now derived from the loader's own pointer arithmetic so it does not depend on the walk either way.
+
+**The game prints its own move input tables.** The in-game moves list reprints the displayed move's input sequence every frame, one integer per line. The period of the repetition is the number of inputs in the move. That makes the move tables — the fight-engine data static analysis handles worst — recoverable by scrolling through the list with a log running, no decompilation involved. [Issue #5](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/issues/5).
+
 **The `.meshset` model format is solved and verified.** Not by guessing — by running EA's own `LIME_LoadMeshSet`, recompiled, against the game's real data and comparing what it leaves in memory to our specification: **590 files, 7,327 meshes, 2.9M vertices, byte-for-byte agreement** on indices, vertices, bounds and per-vertex lighting. See [docs/MESHSET-FORMAT.md](docs/MESHSET-FORMAT.md).
 
 **We found a bug in a shipped asset.** One file, `KANO_STANDARD.lighting`, is exactly one byte shorter than its mesh set needs — 42,867 bytes for 42,868 vertices. The retail game reads one byte past the end of that buffer every time it loads Kano. Every other lighting file in the game matches its vertex count exactly. It took running EA's loader and our own side by side to tell "we misread the format" apart from "the data is wrong."
@@ -206,6 +212,8 @@ tools/
   archstats.py           ARM/Thumb ratio and mnemonic inventory
   rank.py                scores functions by difficulty
   meshset.py             .meshset reader (all three variants)
+  skin.py                .skin, .bones and .skinanim reader and validator
+  events.py              .events reader and validator
   xref.py                finds calls to an imported symbol; recovers assert() arguments
   ghidra/                headless decompilation scripts
   signatures/            function signatures and struct layouts fed to Ghidra
