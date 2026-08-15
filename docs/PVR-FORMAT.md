@@ -54,18 +54,42 @@ generate them at load time and will look better in motion for it — but that is
 a change from the original, and worth being explicit about rather than silently
 doing.
 
-## Tooling
+## Tooling: Noesis
 
 **[Noesis](https://richwhitehouse.com/index.php?content=inc_projects.php&showproject=91)**
-by Rich Whitehouse previews and converts these, and is what
-[ermaccer's mesh tool write-up](https://ermaccer.github.io/posts/umk3iosmeshsettool/)
-recommends for the textures alongside its `.meshset` converter.
+by Rich Whitehouse converts these to ordinary image formats, and is what
+[ermaccer's write-up](https://ermaccer.github.io/posts/umk3iosmeshsettool/)
+recommends alongside its `.meshset` converter — drag the mesh onto the tool,
+convert the textures with Noesis.
 
-Useful for looking at the data. **Not usable in the port**: it is closed-source
-Windows-only freeware with no stated licence, so it cannot be redistributed,
-embedded, or ported. Treat it the way this project treats
-[GBMusicTrack](LIME-ENGINE.md) — a reason to understand the data quickly, not a
-licence to ship someone else's work.
+Use it. It is the fastest way to see what the game's texture data actually is,
+and it batch-converts, so the whole 1,400-file set can be turned into PNGs in
+one pass.
 
-The PVRTC format itself is documented publicly by Imagination Technologies, and
-the decoder is ours to write.
+### And it is the oracle for our own decoder
+
+This is the more valuable use, and it is the method this project already runs
+on everywhere else: **two independent paths from the same data, accepted only
+when they agree.**
+
+1. Convert a `.pvr` with Noesis → reference PNG.
+2. Decode the same `.pvr` with our own PVRTC decoder → our RGBA.
+3. Compare pixel by pixel.
+
+PVRTC is a lossy block format with non-obvious interpolation between block
+corners, so "it looks about right" is exactly the kind of judgement that hides
+a bug for a year. A per-pixel diff against an independent implementation turns
+that into a number. 1,400 files, two bit depths, 320 of them with alpha — that
+is a real corpus, not a smoke test.
+
+Noesis also scripts in Python, so the reference pass can be automated rather
+than done by hand.
+
+### One limit worth stating
+
+Noesis is closed-source, Windows-only freeware with no stated licence, so it is
+a **development tool, not a dependency**: it cannot be redistributed with the
+port or embedded in a build. The PVRTC format is publicly documented by
+Imagination Technologies and the decoder we ship has to be ours. That is a
+statement about what goes in the repository, not a reason to avoid the tool —
+the same way Ghidra is essential here and ships with nothing.
