@@ -151,8 +151,14 @@ Scenes are also **cached and reference-counted**. `LIME_GetSceneFromFilename`
 `ROBO1_STANDARD.scene` (8 bytes — the header alone, with no `count3`) and
 `ROBO2_STANDARD.scene` (13,904 bytes; the walk overshoots to 153,908).
 
-**This is the same pair that breaks every other format.** `.bones` reads a
-24-byte bone for them rather than 25, and their `.meshset` uses the unindexed
-variant. Whatever is different about Cyrax and Sektor's assets is consistent
-across four formats, which makes it one question rather than four — and a more
-interesting one than a parser bug.
+**This is the same pair that differs in every other format**, and it is now
+understood: they are a **different export variant**. `.bones` uses a 24-byte
+bone rather than 25 — both divide exactly, 29 of 29 across the corpus — `.skin`
+omits the leading block count, and neither ships `.events` or `.lighting`.
+`ROBO2_STANDARD.skin` is exactly four bytes shorter than
+`SEKTOR_STANDARD.skin`, and its first 1,276 bytes are byte-identical once that
+count is removed.
+
+So the `.scene` failure is not a parser bug either. Their scene files are
+stubs — ROBO1's is the 8-byte header alone. See
+[PROGRESS.md](PROGRESS.md#robo1-and-robo2-one-export-variant-not-four-parser-bugs).

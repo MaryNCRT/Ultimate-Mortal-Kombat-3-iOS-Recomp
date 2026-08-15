@@ -235,12 +235,85 @@ def cmd_validate_anim(resdir):
     return bad
 
 
+
+# ---------------------------------------------------------------- .bones
+
+BONE_SIZE = 25            # bytes per bone on disk, standard variant
+BONE_SIZE_ALT = 24        # ROBO1 and ROBO2
+
+
+def parse_bones(data):
+    """
+    Parse a .bones file: `int32 numBones` then one record per bone.
+
+    **There are two variants.** Most files use a 25-byte bone; ROBO1_STANDARD
+    and ROBO2_STANDARD use 24. Both divide exactly with no remainder across the
+    whole corpus, so this is a second format variant rather than a parser bug --
+    the same conclusion `.meshset` reached with its three variants.
+
+    Those same two files also omit the leading block count in their `.skin`,
+    ship a stub `.scene`, and have no `.events` or `.lighting`. One export
+    variant, visible in four formats.
+
+    Returns (numBones, boneSize, bones) with each bone as its raw record.
+    """
+    if len(data) < 4:
+        raise ValueError("shorter than the 4-byte header")
+    num = struct.unpack_from("<i", data, 0)[0]
+    if num <= 0:
+        raise ValueError("implausible numBones %d" % num)
+    rest = len(data) - 4
+    for size in (BONE_SIZE, BONE_SIZE_ALT):
+        if rest == num * size:
+            return num, size, [data[4 + i * size:4 + (i + 1) * size]
+                               for i in range(num)]
+    raise ValueError("numBones %d leaves %d bytes, neither %d nor %d per bone"
+                     % (num, rest, BONE_SIZE, BONE_SIZE_ALT))
+
+
+def cmd_validate_bones(resdir):
+    files = []
+    for base, _d, names in os.walk(resdir):
+        for n in names:
+            if n.lower().endswith(".bones"):
+                files.append(os.path.join(base, n))
+    files.sort()
+
+    ok = 0
+    total = 0
+    variants = {}
+    failures = []
+    for path in files:
+        data = open(path, "rb").read()
+        try:
+            num, size, _bones = parse_bones(data)
+        except ValueError as e:
+            failures.append((os.path.basename(path), str(e)))
+            continue
+        ok += 1
+        total += num
+        variants.setdefault(size, []).append(os.path.basename(path))
+
+    print("files parsed:    %5d of %d" % (ok, len(files)))
+    print("bones walked:    %5d" % total)
+    for size in sorted(variants):
+        names = variants[size]
+        extra = "" if len(names) > 4 else "  -> %s" % ", ".join(names)
+        print("  %d bytes per bone: %d files%s" % (size, len(names), extra))
+    print("failures:        %5d" % len(failures))
+    for name, why in failures:
+        print("   %-32s %s" % (name, why))
+    return len(failures)      # the file's convention: non-zero means failure
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 3:
         print(__doc__)
         raise SystemExit(1)
     if sys.argv[1] == "validate":
         raise SystemExit(1 if cmd_validate(sys.argv[2]) else 0)
+    elif sys.argv[1] == "validate-bones":
+        raise SystemExit(1 if cmd_validate_bones(sys.argv[2]) else 0)
     elif sys.argv[1] == "validate-anim":
         raise SystemExit(1 if cmd_validate_anim(sys.argv[2]) else 0)
     elif sys.argv[1] == "dump":
