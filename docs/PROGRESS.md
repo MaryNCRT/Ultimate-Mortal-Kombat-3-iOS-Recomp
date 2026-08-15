@@ -822,11 +822,20 @@ desktop GPUs lack the extension — which is precisely what fails inside touchHL
 model sometimes not drawing). Decode on the CPU, upload plain RGBA, problem
 gone.
 
-**Noesis** is the tool for looking at these, recommended by ermaccer's write-up
-alongside the mesh converter. It is closed-source Windows-only freeware with no
-stated licence, so it is useful for inspection and **cannot be used in the
-port** — the same distinction already drawn for `GBMusicTrack`. The PVRTC
-format is publicly documented; the decoder is ours to write.
+**Noesis converts these**, which ermaccer's write-up recommends alongside the
+mesh converter, and it batch-converts so the whole 1,400-file set becomes PNGs
+in one pass.
+
+**It is also the oracle for our own decoder** — the same method this project
+runs on everywhere else. Convert with Noesis, decode with ours, diff per pixel.
+PVRTC is a lossy block format with non-obvious corner interpolation, so "looks
+about right" is exactly the judgement that hides a bug for a year; 1,400 files
+across two bit depths, 320 with alpha, is a real corpus to hold a decoder to.
+Noesis scripts in Python, so the reference pass can be automated.
+
+It is a development tool rather than a dependency — closed-source and
+Windows-only, so it ships with nothing, the same way Ghidra does. The decoder
+in the repository has to be ours.
 
 Asset formats 80% → 85%.
 
