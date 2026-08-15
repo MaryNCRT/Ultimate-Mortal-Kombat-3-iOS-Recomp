@@ -7,14 +7,15 @@ working agreement and it has not changed.
 
 ## Where the project stands
 
-**23% overall. 0.7% of the decompilation itself — 17 functions of 2,572.**
+**24% overall. 0.7% of the decompilation itself — 17 functions of 2,572.**
 Nothing is playable natively yet.
 
 The second number did not move at all, and that is the honest headline: no new
 function was finished. What moved is everything underneath it. The verification
-oracle is done. The game runs in touchHLE with **no known crash**. And the
-armv6 slice turned out to answer the question that has blocked the maths-heavy
-code since the start.
+oracle is done. The game runs in touchHLE with **no known crash**. The armv6
+slice answers the question that has blocked the maths-heavy code since the
+start. And **PVRTC decodes**, which was the last thing standing between here
+and a mesh viewer.
 
 | Done | Where |
 |---|---|
@@ -26,6 +27,7 @@ code since the start.
 | Verification oracle | 4,342 functions, 0.02% untranslatable |
 | Game runs in touchHLE, no known crash | 5 bytes, `docs/TOUCHHLE-PATCH.md` |
 | `.pvr` block geometry | 1,400 of 1,400 exact |
+| PVRTC decoder | 1.5% mean error, residual proven to be compression |
 
 ---
 
