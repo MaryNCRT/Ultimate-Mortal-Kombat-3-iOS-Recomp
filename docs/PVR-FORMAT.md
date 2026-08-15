@@ -161,22 +161,66 @@ This is the project's method doing exactly what it is for. The decoder compiled,
 ran over the whole corpus, and produced images that look like textures. Judged
 by eye it would have passed. The reference says otherwise.
 
-### What is left
+### The error is not spread evenly — it is all in 4bpp
 
-With Morton order and modulation indexing eliminated, the remaining suspects
-are, in order:
+Breaking the diff down per texture is what turned guessing into a bounded
+problem:
 
-1. **The bilinear endpoint interpolation.** Each pixel's endpoints come from
-   the four surrounding blocks at a half-block offset. The exact offset
-   convention and the wrap-around at texture edges are both easy to get subtly
-   wrong, and both smear rather than obviously break — which is exactly what a
-   5.5% residual looks like.
-2. **Endpoint colour bit layouts.** The 5-5-4 and 3-4-4-3 expansions to 8 bits.
-   Small per-channel biases would show up as a uniform low-level error.
-3. **Punch-through mode.** Testing the documented `(0, 4/8, 4/8, 1)` weights
-   changed nothing measurable (31.20 against 31.18 at the time), which is
-   itself suspicious — it suggests the mode flag is not being read correctly,
-   or that these particular textures do not use it.
+| | pairs | mean error | range |
+|---|---:|---:|---|
+| **PVRTC 2bpp** | 2 | **1.78** | 1.72 – 1.84 |
+| **PVRTC 4bpp** | 11 | **16.30** | 5.69 – 75.17 |
+
+**1.78 is compression loss.** The 2bpp path is, on this evidence, essentially
+correct. Everything wrong is in 4bpp — and the worst case by far, `FE_METAL_BG`
+at 75.17, is the only 4bpp texture *without* alpha.
+
+The seven `FE_MAINLOGO_*` variants all score exactly 5.69, which is consistent:
+same artwork, different lettering.
+
+**Caveat that matters.** Only two of the thirteen comparable pairs are 2bpp, and
+both are `VORTEX1`/`VORTEX2` — smooth swirling gradients, which are exactly the
+kind of image that hides interpolation error. "2bpp is correct" is a hypothesis
+resting on two forgiving samples, not a result.
+
+### Eliminated by measurement — do not re-try these
+
+Every one of these was tested against the corpus and scored *worse* than the
+current code:
+
+| Hypothesis | Score | vs 14.06 baseline |
+|---|---:|---|
+| Morton order with x in the low bit | 68.78 | far worse |
+| Endpoint extraction swapped (instead of the blend) | 31.26 | worse |
+| Column-major modulation indexing | 17.37 | worse |
+| Bilinear with no half-block offset | 17.80 | worse |
+| Bilinear offset `+bw/2` | 23.95 | worse |
+| Bilinear offset `-bw/2 + 0.5px` | 14.58 | worse |
+| Endpoint A blue as bits 0-3 | 15.54 | worse |
+| A blue 0-3 and translucent blue 0-2 | 15.81 | worse |
+| Modulation weights reversed | 36.43 | far worse |
+| `3/8` and `5/8` swapped | 17.02 | worse |
+| No special punch-through mode | 16.33 | neutral |
+| Modulation rows reversed | 20.33 | worse |
+| Modulation columns reversed | 20.21 | worse |
+| Both reversed / full reverse | 22.62 | worse |
+| 2bpp alternate bit index | 14.09 | neutral |
+
+That is Morton order, endpoint colour unpacking, the bilinear offset
+convention, the modulation weight table and the modulation bit ordering — all
+**confirmed correct as written**, by being worse every other way.
+
+### What is actually left
+
+The endpoint, Morton and interpolation code is **shared** between 2bpp and
+4bpp, and 2bpp scores 1.78 with it. So either that shared code is right and
+something 4bpp-specific is wrong, or the two 2bpp samples are too smooth to
+expose a shared error.
+
+Distinguishing those two is the next step, and it is cheap: **find more 2bpp
+pairs**, or synthesise a test — encode a known sharp image and round-trip it.
+Until that is settled, further blind variation is wasted effort. Five rounds of
+it produced nothing but a well-mapped set of dead ends.
 
 The 25 `*_VERSUS` pairs could not be compared at all: the PNG is 512×512 and
 the PVR 256×256, so those are different assets rather than the same one
