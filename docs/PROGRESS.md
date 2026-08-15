@@ -42,7 +42,7 @@ bulk of the work has not started.
 |---|---:|---:|---|
 | Binary analysis and source-tree mapping | 4% | 100% | `██████████` |
 | Tooling and the verification oracle | 8% | 100% | `██████████` |
-| Asset format specifications | 8% | 97% | `██████████` |
+| Asset format specifications | 8% | 99% | `██████████` |
 | `lime/common` — engine core (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | 4% | `░░░░░░░░░░` |
@@ -917,6 +917,39 @@ Windows-only, so it ships with nothing, the same way Ghidra does. The decoder
 in the repository has to be ours.
 
 Asset formats 80% → 85%.
+
+---
+
+## `SINDEL_STANDARD.skinanim` — a second header layout
+
+The last `.skinanim` holdout, and it was not corrupt. `python tools/skin.py
+validate-anim` → **29 of 29 files, 10,434 frames, 0 mismatches**, up from 28.
+
+Its count field read `1065353216`, which is `0x3F800000` — **1.0f**. The file
+was being parsed four bytes out of step, because it uses a **16-byte header**
+where every other file uses 12:
+
+```
+28 files:  float scale; int32 numFrames; int32 frameSize;
+SINDEL:    float scale; float scale2; int32 numFrames; int32 frameSize;
+```
+
+Reading it correctly gives `(1.0, 1.0, 422, 1256)` — and 1,256 bytes per frame
+works out to exactly **62 bones**, which is a plausible skeleton.
+
+### And it holds twice the frames it claims
+
+`16 + 844 × 1256` lands exactly on the file's last byte. The count field says
+**422**; the file holds **844**.
+
+The two halves are not a duplicated buffer: they differ in **47 bytes out of
+530,032**, 0.01%, first diverging at offset 71,608. Two near-identical takes of
+the same animation, one very slightly edited.
+
+Whether that doubling is deliberate or a build accident is **not established**.
+The reader trusts the file size over the field and `validate-anim` prints the
+discrepancy rather than hiding it — the same treatment `KANO_STANDARD.lighting`
+got when it turned out to be one byte short.
 
 ---
 

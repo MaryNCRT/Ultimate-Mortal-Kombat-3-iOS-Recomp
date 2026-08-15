@@ -124,7 +124,7 @@ the completion figures are measured.
 |---|---:|---:|---|
 | Binary analysis and source-tree mapping | 4% | 100% | `██████████` |
 | Tooling and the verification oracle | 8% | 100% | `██████████` |
-| Asset format specifications | 8% | 97% | `██████████` |
+| Asset format specifications | 8% | 99% | `██████████` |
 | `lime/common` — engine core (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | 4% | `░░░░░░░░░░` |
@@ -180,6 +180,10 @@ Detailed status, decisions and known technical debt: [docs/PROGRESS.md](docs/PRO
 ---
 
 ## Things discovered along the way
+
+**A file that will not parse is usually a variant, not corruption.** Three formats turned out to have more than one layout, and in each case the giveaway was the same: the alternative reading divides *exactly* rather than nearly. `.meshset` has three variants; `.bones` has two, at 24 and 25 bytes per bone; and `SINDEL_STANDARD.skinanim` uses a 16-byte header where the other 28 files use 12 — its count field read `1065353216`, which is `0x3F800000`, the float 1.0 being mistaken for an integer. `.bones` and `.skinanim` both now walk **29 of 29** files.
+
+The same reasoning collapsed four separate "known exceptions" into one. `ROBO1` and `ROBO2` were failing in `.bones`, `.skin`, `.scene` and by having no `.events` — they are simply **a different export**. `ROBO2_STANDARD.skin` is exactly four bytes shorter than `SEKTOR_STANDARD.skin`, the missing block count, and their first 1,276 bytes are byte-identical.
 
 **Every LIME asset format is now solved.** `.scene` was the last, and it is the one that shows why the project refuses near-misses: an earlier attempt fitted a formula matching **71 of 92** single-object files and was rejected rather than published. It was wrong — each object carries its own animation tracks, and a third array follows them all. Reading the loader instead gives all three strides directly, and the piece that had been missing was hiding in an addressing mode: `ldr r3, [r1, #0x28]!`, a pre-indexed load *with writeback*, which advances the cursor 40 bytes as a side effect of reading. **545 of 547 files** now walk to their exact last byte, and the walk depends on three counts that vary independently across 63, 74 and 175 distinct values.
 
