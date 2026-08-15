@@ -341,24 +341,67 @@ conversion is where the hierarchy comes from.
 The on-disk record is 25 (or 24 — see the variant note in §4), so the two are
 not the same shape and a `.bones` reader cannot simply cast.
 
-What is established of the conversion:
+**A bone has up to nine children**, which is what makes the memory record that
+size. The conversion loop runs nine times (`cmp r0, #9`), reading a signed byte
+per iteration and writing a pointer, so memory is `0x14 + 9*4 = 0x38 = 56`.
+
+```
+int32   word0                   /* not a child count -- see below */
+float   x, y, z
+int8    child[9]                /* -1 = empty slot */
+```
+
+`16 + 9 = 25`, which is the record size, and the loop advances the disk cursor
+by exactly `0x19`. The 24-byte ROBO variant is the same record with **eight**
+slots.
 
 | Disk | Memory | Meaning |
 |---|---|---|
 | `+0x00`…`+0x0f` | `+0x00`…`+0x0f` | four words, copied verbatim |
-| `+0x04`, `+0x08`, `+0x0c` | same | x, y, z — read as the bone's translation by `CreateMatrixPaletteRecurse2` |
-| `+0x10` | `+0x14` | **signed byte**: a bone index, `-1` for none, converted to `base + index*56` |
+| `+0x04`, `+0x08`, `+0x0c` | same | x, y, z — the bone's offset from its parent |
+| `+0x10`…`+0x18` | `+0x14`…`+0x34` | nine signed child indices → nine pointers, `base + index*56` |
 
-The signed byte is the link that makes the tree. `-1` writes a null and
-terminates the recursion; anything else becomes a pointer into the bone array.
+### The tree is verified, not assumed
 
-The remainder of the record — 8 or 9 bytes past `+0x10` — is not yet decoded,
-and it is where the sibling link must live, since the palette walk visits more
-than one child per parent.
+Across all 29 files: **exactly one root, every index in range, no bone claimed
+by two parents**. Kano's 51 bones yield exactly 50 filled slots — every bone but
+the root is somebody's child, once. Tree depth runs 10 to 17.
 
-## 9. What is still open
+And it reads as anatomy. Kano's bone 1 sits at the origin with children
+`[2, 45, 48]` — hips branching to spine and two legs. Bone 6 has `[7, 9, 23]` —
+neck and two arms. **Bone 12 has five children**, `[13, 15, 17, 19, 21]`: a hand
+and its fingers.
 
-- The rest of the `.bones` record past `+0x10`, and therefore the sibling link.
+### `word0` is not the child count
+
+The obvious reading fails immediately and consistently: bone 0 has `word0 = 2`
+with one child, and across Kano the totals are 64 against 50. Whatever it
+counts, it is not children — and the tree does not need it, since the index
+bytes carry the structure on their own. Its meaning is still open.
+
+## 9. The animation frame
+
+`.skinanim` frames are `float; float root[3];` then **20 bytes per bone**, of
+which the first 16 are a unit quaternion as plain `float32`. Not packed, despite
+`UnpackAnimFrame`'s name: `|q|` measures 1.0000 for every bone tested. The
+remaining 4 bytes are unidentified.
+
+Two independent cross-checks land exactly:
+
+- Kano's frame-0 root position is `(-12.4313, 84.8384, ~0)`, which is **bone 0's
+  offset in the `.bones` file** to the decimal. Two different files agreeing.
+- `51 bones × 20 + 16 = 1036`, which is the header's own `frameSize`.
+
+**The rest pose does not live in `.bones`.** Bone axes point along local X — a
+Character Studio convention — so with identity rotations a skeleton unrolls into
+a line 146 units long instead of standing up. The pose comes from a frame.
+
+---
+
+## 10. What is still open
+
+- What `word0` of a bone record counts.
+- The fifth word of each animation frame entry.
 - What the 24 bytes per vertex actually contain.
 - What the 6 bytes per vertex actually contain.
 - The fifth word of `BONEANIMFRAME`, copied with the quaternion but not

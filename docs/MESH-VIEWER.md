@@ -96,23 +96,39 @@ in the same place.
 It is a small result but a real one, and it was free: it fell out of looking at
 a picture, having not been obvious from any amount of reading the loader.
 
-## What is missing: skinning
+## Skinning: solved, in `tools/pose.py`
 
-To assemble a character the viewer needs to apply `.skin` and `.bones`, and that
-needs `DrawSkinnedMesh2` decompiled. That function is one of the NEON-heavy ones
-in `RenderSkinned.cpp`, so it is blocked behind the same
-[armv6-slice route](LIME-ENGINE.md) as the rest of that file — the armv6 build
-of the same function uses plain VFP and is readable.
+![Kano posed from .bones, .skinanim and .skin](img/pose-kano.png)
 
-The parsers are already there and validate cleanly: `.skin` gives 844 matrices
-and 1,602 vertices for Kano, `.bones` walks 29 of 29 files exactly. What is
-missing is not the data but the convention for combining it — which vertex range
-each matrix pair drives, and how `matrices_a` and `matrices_b` compose.
+**Kano stands up.** Front and side, vertices in green and bones in red — head,
+torso, both arms with the finger bones clustered at each hand, both legs, feet
+on the ground. `y` spans `-0.4 … 179.2`.
 
-`limeMatrix3x4RotateSkin` is already decompiled and verified, and gives the
-rotation half of that convention: `out[j] = Σᵢ vin[i]·m[i*4+j]`, no translation
-term. That is the piece to build on.
+This is the payoff the viewer existed for. Four format specifications and three
+decompiled functions all have to be right *simultaneously* or the output is a
+blob, and there is no partial credit.
 
-**When a character stands up in this viewer, four format specifications are
-confirmed at once in a way no differential test can manage.** That is the next
-milestone worth having.
+That the test has teeth is not a claim — two earlier attempts failed visibly:
+
+| Attempt | Result | Why |
+|---|---|---|
+| sum `matricesA`, no palette | diffuse cloud | each `A[i]` is in its own bone's local space |
+| palette with identity rotations | 146 units long, flat in Y | bone axes run along local X, so nothing bends |
+| palette from `.skinanim` quaternions | **a standing human** | — |
+
+The second failure is the informative one: it proves the rest pose is *not* in
+`.bones`, and sent us to the animation frames for the rotations.
+
+Full derivation in [SKIN-FORMAT.md](SKIN-FORMAT.md); the maths comes from
+[`decomp/lime/RenderSkinned.c`](../decomp/lime/RenderSkinned.c).
+
+```bash
+UMK3_RES=/path/to/res python tools/pose.py KANO_STANDARD kano.png 0
+```
+
+### What is still missing
+
+`pose.py` produces a **point cloud**, not a rendered character. Joining it to
+the textured rasteriser needs one more thing: the mapping between the 844
+skinned vertices and the `.meshset`'s own vertex arrays, which are a different
+count. That mapping is the last gap between these two tools.
