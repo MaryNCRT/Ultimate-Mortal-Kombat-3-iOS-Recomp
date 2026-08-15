@@ -1,156 +1,158 @@
-# The `.scene` format — partially solved
+# The `.scene` format
 
-**Status: not solved.** This records what is established so far and where to
-resume, so the next attempt does not start from zero.
+The scene graph: which objects make up a stage or an effect, their animation
+tracks, and a trailing table. 547 files ship with the game.
 
-547 files. From `LIME_LoadScene` (`0x0005f0ac`) in the armv7 slice.
+Derived from `LIME_LoadScene` (`0x0005f0ac`) in the armv7 slice.
+Parser and validator: [`tools/scene.py`](../tools/scene.py).
+
+**Status: solved.** `python tools/scene.py validate <res dir>` walks **545 of
+547 files** to their exact last byte — 7,254 objects, 1,664,493 track records,
+152,306 tail records. The two exceptions are discussed at the end.
+
+```
+int32   numObjects
+int32   count2
+per object, numObjects times:
+    byte  object[64]            // begins with a name string
+    byte  track[count2][12]     // three floats each
+int32   count3
+byte    tail[count3][40]
+```
 
 ---
 
-## What is established
+## Every stride comes from the loader
 
-### The file header is two int32 **[verified]**
+Not from a formula fitted to file sizes. That distinction is the whole point,
+and an earlier attempt at this format produced a formula matching 71 of 92
+single-object files — a near-miss that looked like a solution and was not.
 
-At `0x0005f204`:
-
-```
-ldr r0, [r6], #4        ; numObjects, cursor advances 4
-str r0, [r4, #0x48]     ; -> SCENE.numObjects
-ldr r1, [r1, #4]        ; the second int32
-str r1, [r4, #0x44]     ; -> SCENE +0x44
-add.w fp, r6, #4        ; cursor now at +8: object data starts here
-```
-
-So: `int32 numObjects; int32 count2;` then the objects.
-
-`count2` is a per-object quantity rather than a file-wide one — at
-`0x0005f25c` the loader does `mla r3, numObjects, count2, r3`, accumulating
-`numObjects × count2` into a global. That is the shape of "objects × frames".
-
-### The in-memory `SCENE` struct **[verified]**
-
-| Offset | Contents | Source |
-|---|---|---|
-| `+0x40` | reference count | incremented at `0x0005f0c6` when the scene is already loaded |
-| `+0x44` | `count2` | |
-| `+0x48` | `numObjects` | |
-| `+0x4c` | objects array, `numObjects × 64` | `lsls r1, r2, #6` at `0x0005f21c` |
-| `+0x54`…`+0x70` | seven pointers, from three extra `limeLoadFile` calls | |
-| `+0x80` | | |
-| `+0x84` | the scene's `.events`, via `LIME_LoadEvents` | `0x0005f1f6` |
-| `+0x88` | pointer array, `numObjects × 4` | `0x0005f236` |
-| `+0x8c` | pointer array, `numObjects × 4` | `0x0005f248` |
-
-### Scenes are cached and reference-counted **[verified]**
-
-`LIME_LoadScene` first calls `LIME_GetSceneFromFilename` (`0x0005ef6c`) and, on
-a hit, just increments `+0x40` and returns. Loading the same scene twice does
-not reparse it.
-
-### A scene pulls in sibling files **[verified]**
-
-The loader takes the filename, strips the last 6 characters — exactly
-`.scene` — and builds variants, then calls `limeLoadFile` three more times and
-`LIME_LoadEvents` once. So a `.scene` is the root of a small file group, and
-**`.events` is one of its members**. That is why the events corpus is the same
-size as the scene corpus.
-
-### The in-memory object is 64 bytes, copied verbatim **[verified]**
-
-The per-object loop at `0x0005f27a`:
+**The header is two int32** (`0x0005f204`):
 
 ```
-lsls r0, r1, #6         ; index * 64
-ldr  r1, [r4, #0x4c]    ; objects base
-adds r0, r0, r1         ; destination
-mov  r1, fp             ; source = file cursor
-movs r2, #0x40          ; 64 bytes
-blx  memcpy
+ldr   r0, [r6], #4       ; numObjects, cursor advances 4
+str   r0, [r4, #0x48]
+ldr   r1, [r1, #4]       ; count2
+str   r1, [r4, #0x44]
+add.w fp, r6, #4         ; cursor now at +8
 ```
 
-No field-by-field scatter, unlike `.events`. 64 bytes straight across.
+**The object is 64 bytes** (`0x0005f28e`), copied verbatim rather than
+scattered field by field the way `.events` is:
+
+```
+blx   memcpy             ; 64 bytes into objects[i]
+add.w fp, fp, #0x40      ; cursor advances 64
+```
+
+**Each object carries `count2` track records of 12 bytes** (`0x0005f3a0`):
+
+```
+ldr  r0, [sp, #0x1c]     ; count2
+lsls r2, r0, #2          ; count2*4
+lsls r3, r0, #4          ; count2*16
+subs r3, r3, r2          ; count2*12
+add  fp, r3              ; cursor advances past this object's tracks
+```
+
+The inner loop reads a float at `[sl, #0x40]` stepping `sl` by `0xc`, and
+`0x0005f3bc` resets `sl` to the advanced cursor for the next object. So the
+tracks are **per object**, giving `numObjects × count2` records in total.
+
+**Then a third count, read from the file** (`0x0005f3c4`):
+
+```
+ldr.w r6, [fp]           ; count3
+lsls  r1, r6, #5         ; count3 * 32   <- in-memory record is 32 bytes
+bl    limeMalloc
+```
+
+**And the tail records are 40 bytes on disk** (`0x0005f444`) — the giveaway is
+the pre-indexed load with writeback at the end of the copy sequence:
+
+```
+ldr r3, [r1, #0x28]!     ; read, then advance r1 by 0x28
+```
+
+The first tail field is read at `+4` rather than `+0`, because `+0` holds the
+`count3` that precedes the array.
 
 ---
 
-## The on-disk object is 64 bytes **[verified]**
+## Why the walk is evidence
 
-Read straight off the loader, at `0x0005f28e`, immediately after the `memcpy`:
+By this project's own rule, a file walk proves nothing unless it depended on
+values that varied. Across the 545 files that parse:
 
-```
-blx      memcpy          ; 64 bytes from the cursor into objects[i]
-add.w    fp, fp, #0x40   ; the cursor advances 64
-```
+| | distinct values | range |
+|---|---:|---|
+| `numObjects` | 63 | 0 – 201 |
+| `count2` | 74 | 2 – 4,802 |
+| `count3` | 175 | 0 – 9,068 |
 
-So the object is the same 64 bytes on disk as in memory, copied verbatim. It
-begins with a **name string** — `"Text001"`, `"Helix001"` in the files
-inspected.
+Three independently varying counts, each governing a different array, and the
+walk still lands on the exact last byte of 545 files. A wrong layout does not
+survive that.
 
-## A second array: 12-byte records, `numObjects × count2` of them
+---
 
-The inner loop walks a pointer `sl` in steps of `0xc` and reads a float at
-`[sl, #0x40]`:
+## What the data is
 
-```
-vldr     s12, [sl, #0x40]
-...
-add.w    sl, sl, #0xc
-```
+The objects are **scene graph nodes exported from a modelling package**. Their
+names give it away — `BALCONY_LEVEL_SCENE.scene` holds `Plane002`, `Box004`,
+`Box03`, which are 3ds Max defaults. Other files use authored names like
+`Text001` and `Helix001`.
 
-`sl` starts at the object data and — the detail that matters — **persists
-across objects** rather than resetting, so the array holds `numObjects × count2`
-records, not `count2`. Dumping `ADDIT.scene` confirms it: from the byte after
-the objects the file repeats `1.0f, 0.0f, 0.0f` on a 12-byte period, and
-`sl + 0x40` lands exactly on the first of them.
+The per-object 12-byte tracks are three floats, overwhelmingly `1.0, 0.0, 0.0`
+in the files inspected — consistent with per-frame scale or visibility that is
+mostly inert. The loader compares the first float against a constant and only
+acts when it exceeds it, then calls `LIME_FindMeshByName` with the object's
+name, which is how a scene node is bound to geometry.
 
-That gives a formula which matches **118 of 547 files exactly**:
+`AXEFIRE.scene` shows non-trivial tracks: `(5, 0.7209), (6, 0.6903),
+(7, 0.6606), (8, 0.6309)` — an index rising while a value falls, which is a
+keyframed fade.
 
-```
-8 + numObjects*64 + numObjects*count2*12 + 44
-```
+The 40-byte tail records hold four floats the loader scales and narrows to
+`int16`, followed by five `int32`s. Their meaning is not yet established.
 
-up from 71 with the previous guess, and now derived rather than fitted.
+---
 
-## A third array: 40-byte records
+## A scene is the root of a file group
 
-For the 429 files that do not match, **every single difference is a multiple of
-40** — 40, 200, 240, 2440, 4200, 5240, 5840, 14080. So a further
-variable-length array of 40-byte records exists, and 544 of 547 files give a
-whole number of them.
+The loader strips the last 6 characters of the filename — exactly `.scene` —
+builds variants, and calls `limeLoadFile` three more times plus
+`LIME_LoadEvents` once. That explains something that had gone unremarked: the
+`.events` corpus is the same size as the scene corpus because **every scene
+owns one**.
 
-**Where its count lives is not yet known.** No field of the 64-byte object,
-read as int32 or uint16 at any offset, sums across objects to the required
-count.
+Scenes are also **cached and reference-counted**. `LIME_GetSceneFromFilename`
+(`0x0005ef6c`) runs first and, on a hit, the loader just increments the count at
+`+0x40` and returns. Loading the same scene twice does not reparse it.
 
-## Where it stops, and the shape of what is missing
+### The in-memory `SCENE`
 
-`AXEFIRE.scene` shows the layout is **not a flat array of objects**. Its
-"object 1", read at `+8 + 64`, decodes as `'fff?'` — those are float bytes
-(`3f 66 66 66` = 0.9f), not a name. And immediately after, the file holds
-`(int32, float)` pairs with the index rising and the float falling:
+| Offset | Contents |
+|---|---|
+| `+0x40` | reference count |
+| `+0x44` | `count2` |
+| `+0x48` | `numObjects` |
+| `+0x4c` | objects array, `numObjects × 64` |
+| `+0x54`…`+0x70` | seven pointers, from the three extra `limeLoadFile` calls |
+| `+0x7c` | tail array, `count3 × 32` |
+| `+0x84` | the scene's `.events` |
+| `+0x88`, `+0x8c` | pointer arrays, `numObjects × 4` each |
 
-```
-5  0.7209
-6  0.6903
-7  0.6606
-8  0.6309
-```
+---
 
-Keyframes. So **each object is followed by its own variable-length animation
-data** before the next object begins, which is why a flat `numObjects × 64`
-array only works for the files where that data happens to be absent.
+## The two files that do not parse
 
-That also explains the 40-byte records: they are per-object, and their count is
-stored per-object — most likely inside the 64-byte header, in a field whose
-meaning has not been pinned down, or immediately after it.
+`ROBO1_STANDARD.scene` (8 bytes — the header alone, with no `count3`) and
+`ROBO2_STANDARD.scene` (13,904 bytes; the walk overshoots to 153,908).
 
-### Resume point
-
-Trace the loader's **outer** loop rather than the inner one. The inner loop at
-`0x0005f2a0` is understood; what is not is how the cursor reaches the *next*
-object once an object's keyframe data has been consumed. The `add.w fp, fp,
-#0x40` at `0x0005f28e` cannot be the whole story, because that would make
-objects fixed-size — and `AXEFIRE` proves they are not.
-
-Look for a second cursor advance later in the object loop, between `0x0005f2cc`
-and the loop back-edge at `0x0005f3c0`.
-
+**This is the same pair that breaks every other format.** `.bones` reads a
+24-byte bone for them rather than 25, and their `.meshset` uses the unindexed
+variant. Whatever is different about Cyrax and Sektor's assets is consistent
+across four formats, which makes it one question rather than four — and a more
+interesting one than a parser bug.

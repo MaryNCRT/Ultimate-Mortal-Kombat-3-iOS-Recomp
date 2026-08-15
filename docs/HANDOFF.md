@@ -28,6 +28,7 @@ and a mesh viewer.
 | Game runs in touchHLE, no known crash | 5 bytes, `docs/TOUCHHLE-PATCH.md` |
 | `.pvr` block geometry | 1,400 of 1,400 exact |
 | PVRTC decoder | 1.5% mean error, residual proven to be compression |
+| `.scene` | 545 of 547 files exact — every LIME format now solved |
 
 ---
 
