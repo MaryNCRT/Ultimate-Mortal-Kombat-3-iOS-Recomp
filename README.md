@@ -222,6 +222,7 @@ tools/
   meshset.py             .meshset reader (all three variants)
   skin.py                .skin, .bones and .skinanim reader and validator
   events.py              .events reader and validator
+  pvr.py                 .pvr header reader and block-geometry validator
   slices.py              extracts armv6/armv7 and finds NEON-affected functions
   xref.py                finds calls to an imported symbol; recovers assert() arguments
   ghidra/                headless decompilation scripts

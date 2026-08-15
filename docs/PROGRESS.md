@@ -812,6 +812,19 @@ recompile with zero unsupported instructions.
 The container is **legacy PVR v2** — 52-byte header, `PVR!` tag — not the v3
 format modern tooling defaults to.
 
+**Block geometry verified**: `python tools/pvr.py validate <app dir>` →
+**1,400 of 1,400 exact, 0 mismatches**. PVRTC1 packs 8-byte blocks covering
+4×4 pixels at 4bpp and 8×4 at 2bpp, so the payload must be
+`ceil(w/bw) * ceil(h/bh) * 8` and the header's `dataLength` has to agree. It
+does for every file at both depths. Same standard `.meshset` and `.skin` were
+held to — exact across the corpus, not approximately right on most of it. A
+decoder can now be built on this layout without wondering whether the layout is
+the bug.
+
+`tools/pvr.py` stops there on purpose: it reads headers and establishes
+geometry, and does **not** decode pixels, because decoding is the part that
+needs an independent reference and there is nothing yet to check against.
+
 **This turns "support PVR" into a small, closed job**: PVRTC1 at two bit
 depths, square, power-of-two, one surface, no mipmaps. Anything else can be
 rejected loudly instead of guessed at.

@@ -93,3 +93,30 @@ port or embedded in a build. The PVRTC format is publicly documented by
 Imagination Technologies and the decoder we ship has to be ours. That is a
 statement about what goes in the repository, not a reason to avoid the tool —
 the same way Ghidra is essential here and ships with nothing.
+
+---
+
+## Block geometry — verified
+
+`python tools/pvr.py validate <app dir>` → **1,400 of 1,400 exact, 0
+mismatches.**
+
+PVRTC1 packs pixels into 8-byte blocks — 4×4 pixels at 4bpp, 8×4 at 2bpp — so
+the compressed payload must be exactly
+
+```
+ceil(width / bw) * ceil(height / bh) * 8
+```
+
+and the header's own `dataLength` has to agree. It does, for every file, at
+both bit depths. The file also carries at least the payload it declares in
+every case.
+
+That is the same standard `.meshset` and `.skin` were held to: the arithmetic
+comes out exact across the whole corpus rather than approximately right on most
+of it. **A decoder can now be built on this block layout without wondering
+whether the layout is the bug.**
+
+`tools/pvr.py` deliberately stops here. It reads headers and establishes
+geometry; it does not decode pixels, because decoding is the part that needs an
+independent reference and there is nothing yet to check against.
