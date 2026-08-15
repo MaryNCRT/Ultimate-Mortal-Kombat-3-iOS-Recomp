@@ -6,7 +6,7 @@
 
 **Decompilación en curso de la versión iOS de 2011 de Ultimate Mortal Kombat 3, con el objetivo de llegar a un port nativo para Windows y Linux.**
 
-[Primeros pasos](docs/GETTING-STARTED.md) · [Metodología](docs/METHODOLOGY.md) · [Arquitectura](docs/ARCHITECTURE.md) · [Progreso](docs/PROGRESS.md) · [Relevo](docs/HANDOFF.md) · [Declaración sobre IA](AI-DISCLOSURE.md) · [English](README.md)
+[Primeros pasos](docs/GETTING-STARTED.md) · [Metodología](docs/METHODOLOGY.md) · [Motor LIME](docs/LIME-ENGINE.md) · [Arquitectura](docs/ARCHITECTURE.md) · [Progreso](docs/PROGRESS.md) · [Relevo](docs/HANDOFF.md) · [Declaración sobre IA](AI-DISCLOSURE.md) · [English](README.md)
 
 </div>
 
@@ -103,7 +103,7 @@ float _Len(float *v)
 
 Compila. Parece plausible. Devuelve una variable sin inicializar, porque el compilador de EA usó **instrucciones NEON de 2 carriles para hacer matemática escalar**, y Ghidra las modela como operaciones vectoriales opacas, perdiendo el `vsqrt` por completo.
 
-**El 27% de las funciones del núcleo del motor están afectadas por ese patrón.** Sin una segunda fuente de verdad, ese fallo —y los que hubiera como él— habría aflorado un año después como «los modelos se ven raros», sin forma de rastrear el origen.
+**Hay 153 funciones afectadas en todo el binario**, un 23% del núcleo del motor — y, medido como es debido, hay más en `FrontEnd.cpp` y `GameCode.cpp` que en el motor. Sin una segunda fuente de verdad, ese fallo —y los que hubiera como él— habría aflorado un año después como «los modelos se ven raros», sin forma de rastrear el origen.
 
 El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 
@@ -112,10 +112,10 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ## Progreso general
 
 ```
-███████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  18%
+████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  22%
 ```
 
-**En torno al 18% del esfuerzo total estimado. Todavía no hay nada jugable.**
+**En torno al 22% del esfuerzo total estimado. Todavía no hay nada jugable.**
 
 Ese número es una estimación, así que aquí está la aritmética que hay detrás en vez de una cifra que haya que creerse. Los pesos son nuestro criterio sobre cuánto representa cada área del total; discrepa del reparto si quieres, pero las cifras de avance están medidas.
 
@@ -127,7 +127,7 @@ Ese número es una estimación, así que aquí está la aritmética que hay detr
 | `lime/common` — núcleo del motor (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — lógica de juego (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — motor de combate (2.172 fn) | 28% | 4% | `░░░░░░░░░░` |
-| Capa de plataforma nativa de PC (229 fn reescritas) | 17% | 0% | `░░░░░░░░░░` |
+| Capa de plataforma nativa de PC (173 fn por reescribir) | 17% | 5% | `█░░░░░░░░░` |
 | Stubs del SDK de EA (~1.412 fn) | 5% | 0% | `░░░░░░░░░░` |
 
 **Por qué las áreas de base cuentan.** Las dos primeras filas están terminadas o casi, y son las que hacen abordable todo lo demás: el árbol de fuentes está recuperado, y ahora toda función tiene un camino automatizado desde el código máquina hasta un test diferencial. Eso es progreso real aunque no dibuje ni un píxel.
@@ -171,6 +171,10 @@ Estado detallado, decisiones y deuda técnica conocida: [docs/PROGRESS.md](docs/
 ---
 
 ## Cosas descubiertas por el camino
+
+**La otra slice del binario decompila limpia donde la nuestra no.** El binario fat trae armv6 y armv7; el proyecto siempre uso armv7, que es donde el compilador de EA emitio NEON empaquetado de 2 carriles para matematica escalar — el patron que hace que Ghidra pierda el calculo en silencio. ARMv6 no tiene NEON, asi que su slice es una compilacion independiente del mismo codigo en VFP escalar. Ahi `_Len` son nueve instrucciones obvias que calculan `sqrtf(x*x+y*y+z*z)`. **107 funciones estan afectadas en armv7 y no en armv6**, y mas de la mitad estan en `FrontEnd.cpp` y `GameCode.cpp`, no en el motor: el famoso "27% de `lime/common`" exageraba el motor (mide 23%) y ademas miraba donde no era. `tools/slices.py`.
+
+**El motor de audio nunca fue de EA.** `lime/iphone/Finch/` es una copia vendorizada de [zoul/Finch](https://github.com/zoul/Finch), un motor de sonido OpenAL con licencia MIT — las siete clases estan presentes con sus nombres previos al refactor. Son **56 de las 229 funciones de la capa de plataforma, un 24%, que no hay que decompilar**. La leccion general sale mas barata que el hallazgo: antes de decompilar cualquier modulo de plataforma, comprobar si el nombre de clase pertenece a una libreria de terceros conocida de la epoca. `GBMusicTrack.m` se comprobo igual y **no** se pudo confirmar, asi que sigue en la lista.
 
 **Todos los formatos de assets necesarios para dibujar un personaje animado están resueltos.** `.meshset` (geometría), `.skin` (pesos de skinning), `.bones` (esqueleto), `.skinanim` (animación) y `.events` (pistas de efectos) se leen correctamente contra los datos publicados. `.scene` es el último que queda. Ver [MESHSET-FORMAT.md](docs/MESHSET-FORMAT.md), [SKIN-FORMAT.md](docs/SKIN-FORMAT.md) y [EVENTS-FORMAT.md](docs/EVENTS-FORMAT.md).
 

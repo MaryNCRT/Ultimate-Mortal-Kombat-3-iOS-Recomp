@@ -4,27 +4,35 @@ Current state of the project. Written so that someone can pick it up with no pri
 
 **Last updated:** 2026-08-14 — see [HANDOFF.md](HANDOFF.md) for the revised route
 
-> Latest: `.events` solved (544/545 files) and an audit finding corrected; the
-> in-game moves list found to print the move input tables.
+> Latest: the **armv6 slice** decompiles cleanly where armv7's NEON defeats
+> Ghidra (107 functions); `Finch/` identified as MIT third-party code;
+> `.events` solved.
 
 ---
 
 ## Overall progress
 
 ```
-███████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  18%
+████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  22%
 ```
 
-**≈18% of the total estimated effort. Nothing is playable yet.**
+**≈22% of the total estimated effort. Nothing is playable yet.**
 
 Weights are our judgement of how much of the total each area represents;
 the completion figures are measured. Two numbers are worth keeping apart:
 
-- **18%** — share of the *whole project*, counting analysis, tooling and formats.
+- **22%** — share of the *whole project*, counting analysis, tooling and formats.
 - **0.7%** — share of the *decompilation itself*: 17 finished functions of 2,572.
 
 Both are true. The first says the foundations are in place; the second says the
 bulk of the work has not started.
+
+> **Part of the jump from 18% is an arithmetic correction, not new progress.**
+> The table below has always been the stated basis for the headline figure, but
+> nobody had actually summed it: with the previous completion values it came to
+> 19%, not 18%. It is computed now. Of the real movement, most is the asset
+> formats reaching 80% and the platform layer starting from a smaller base —
+> see the Finch note below.
 
 | Area | Weight | Done | |
 |---|---:|---:|---|
@@ -34,8 +42,14 @@ bulk of the work has not started.
 | `lime/common` — engine core (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | 4% | `░░░░░░░░░░` |
-| Native PC platform layer (229 fn rewritten) | 17% | 0% | `░░░░░░░░░░` |
+| Native PC platform layer (173 fn to rewrite) | 17% | 5% | `█░░░░░░░░░` |
 | EA SDK stubs (~1,412 fn) | 5% | 0% | `░░░░░░░░░░` |
+
+**The platform layer shrank.** It used to read "229 fn rewritten". 56 of those
+are `Finch/`, which turns out to be a vendored copy of MIT-licensed
+[zoul/Finch](https://github.com/zoul/Finch) — usable upstream rather than
+reverse engineered. The real figure is 173, and the 5% reflects that the audio
+backend now has a known source, not that any of it is written.
 
 ### Milestones
 
@@ -666,6 +680,80 @@ It needs no tooling, no decompilation and no Ghidra — only patience with a
 controller — and it would produce the input table for all 24 characters.
 
 The 184 lines of 32 numbers remain unidentified.
+
+---
+
+## The armv6 slice is a second opinion on every NEON function
+
+The fat binary carries **armv6 and armv7**. The project has always worked on
+armv7 — and for the NEON problem that has been costing us.
+
+ARMv6 has no NEON, so the armv6 slice is an independent compilation of the same
+source in plain scalar VFP, which Ghidra decompiles correctly. `_Len`, the
+function that started the whole "never trust a decompiler" rule, reads as nine
+plain instructions there:
+
+```
+vldr      s15, [r0, #4]        vmul.f32  s15, s15, s15   ; y*y
+vldr      s13, [r0]            vmla.f32  s15, s13, s13   ; += x*x
+vldr      s14, [r0, #8]        vmla.f32  s15, s14, s14   ; += z*z
+                               vsqrt.f32 s15, s15
+```
+
+`python tools/slices.py neon <armv7> <armv6> <func-to-file.txt>`:
+
+| | functions with packed `.f32` on D/Q |
+|---|---:|
+| armv7 | 153 |
+| armv6 | 58 |
+| **armv7 only** | **107** |
+
+**The problem is mostly not in the engine.** `FrontEnd.cpp` (39) and
+`GameCode.cpp` (22) hold 61 of the 107 between them — more than all of
+`lime/common`, which measures 25 of 109 (23%) rather than the 27% quoted until
+now.
+
+This does not replace the oracle: armv6 is still machine code, and a readable
+decompilation still has to be proven equivalent. What it removes is the case
+where the decompiler is *silently wrong* rather than merely ugly.
+
+Two traps, both already cost time once. Much of armv6 is built as **ARM, not
+Thumb**. And the Thumb flag (`N_ARM_THUMB_DEF`, `n_desc` bit 3) is set on the
+**STABS** symbol entry and not on the plain one — reading only one of them
+disassembles Thumb as ARM and produces confident garbage. `tools/slices.py` ORs
+the flag across every entry for an address.
+
+---
+
+## The audio engine is not EA's code
+
+**`lime/iphone/Finch/` is a vendored copy of
+[zoul/Finch](https://github.com/zoul/Finch), MIT-licensed.** All seven source
+files appear in the STABS paths and all seven classes are in the binary with
+their pre-refactor names — `Finch` (11 methods), `Sound` (15), `Sample` (14),
+`RevolverSound` (6), `Reporter` (5), `Decoder` (2), `PCMDecoder` (2), plus the
+`_FinchEngine` symbol. That is 56, matching the count attributed to `Finch/`.
+Upstream now uses `FI` prefixes, so this is roughly the 2010 version.
+
+**56 of the 229 platform-layer functions — 24% — do not need reverse
+engineering.** The upstream source is readable, documented and legally
+reusable. Provenance is clean: public repository, MIT, unrelated to any leaked
+source.
+
+`GBMusicTrack.m` was checked the same way and **could not be confirmed**. The
+class name and its 11 methods match a compressed-music AudioQueue player that
+circulated on iOS game-development forums around 2009-2010, but no canonical
+repository or licence turned up. That puts it in a different category from
+Finch: probably third-party, which is a reason to understand it quickly, not a
+licence to copy it. Those functions still need a native reimplementation.
+
+**The general technique**, and the reason this is worth writing down: before
+decompiling any platform-layer module, check whether the class name belongs to
+a known third-party library of the period. `Reachability.m`, `SBJSON.m` and the
+whole `FB*` Facebook Connect family are already visible in the source tree and
+are all well-known public code.
+
+Full reference: [LIME-ENGINE.md](LIME-ENGINE.md).
 
 ---
 

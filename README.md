@@ -6,7 +6,7 @@
 
 **A work-in-progress decompilation of the 2011 iOS release of Ultimate Mortal Kombat 3, aiming at a native PC port for Windows and Linux.**
 
-[Getting started](docs/GETTING-STARTED.md) · [Methodology](docs/METHODOLOGY.md) · [Architecture](docs/ARCHITECTURE.md) · [Progress](docs/PROGRESS.md) · [Handoff](docs/HANDOFF.md) · [AI disclosure](AI-DISCLOSURE.md) · [Español](README.es.md)
+[Getting started](docs/GETTING-STARTED.md) · [Methodology](docs/METHODOLOGY.md) · [LIME engine](docs/LIME-ENGINE.md) · [Architecture](docs/ARCHITECTURE.md) · [Progress](docs/PROGRESS.md) · [Handoff](docs/HANDOFF.md) · [AI disclosure](AI-DISCLOSURE.md) · [Español](README.es.md)
 
 </div>
 
@@ -101,7 +101,7 @@ float _Len(float *v)
 
 It compiles. It looks plausible. It returns an uninitialized variable, because EA's compiler used **2-lane NEON instructions to do scalar math**, and Ghidra models those as opaque vector operations, losing the `vsqrt` entirely.
 
-**27% of the functions in the engine core are affected by this pattern.** Without a second source of truth, that bug — and however many like it — would have surfaced a year later as "the models look wrong," with no way to trace it back.
+**153 functions across the binary are affected**, 23% of the engine core — and, measured properly, more of them are in `FrontEnd.cpp` and `GameCode.cpp` than in the engine at all. Without a second source of truth, that bug — and however many like it — would have surfaced a year later as "the models look wrong," with no way to trace it back.
 
 The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 
@@ -110,10 +110,10 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ## Overall progress
 
 ```
-███████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  18%
+████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  22%
 ```
 
-**Roughly 18% of the total estimated effort. Nothing is playable yet.**
+**Roughly 22% of the total estimated effort. Nothing is playable yet.**
 
 That number is an estimate, so here is the arithmetic behind it rather than a
 figure you have to take on faith. Weights are our judgement of how much of the
@@ -128,7 +128,7 @@ the completion figures are measured.
 | `lime/common` — engine core (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | 4% | `░░░░░░░░░░` |
-| Native PC platform layer (229 fn rewritten) | 17% | 0% | `░░░░░░░░░░` |
+| Native PC platform layer (173 fn to rewrite) | 17% | 5% | `█░░░░░░░░░` |
 | EA SDK stubs (~1,412 fn) | 5% | 0% | `░░░░░░░░░░` |
 
 **Why the foundational areas count for something.** The first two rows are
@@ -181,6 +181,10 @@ Detailed status, decisions and known technical debt: [docs/PROGRESS.md](docs/PRO
 
 ## Things discovered along the way
 
+**The other slice of the binary decompiles cleanly where ours does not.** The fat binary ships armv6 and armv7; the project always used armv7, which is where EA's compiler emitted 2-lane packed NEON for scalar float maths — the pattern that makes Ghidra silently drop the arithmetic. ARMv6 has no NEON, so the armv6 slice is an independent compilation of the same source in plain scalar VFP. `_Len` reads there as nine obvious instructions computing `sqrtf(x*x+y*y+z*z)`. **107 functions are affected in armv7 and not in armv6**, and more than half of them are in `FrontEnd.cpp` and `GameCode.cpp` rather than the engine — so the long-quoted "27% of `lime/common`" both overstated the engine (it measures 23%) and looked in the wrong place. `tools/slices.py`.
+
+**The audio engine was never EA's to begin with.** `lime/iphone/Finch/` is a vendored copy of [zoul/Finch](https://github.com/zoul/Finch), an OpenAL sound engine under the MIT licence — all seven classes present with their pre-refactor names. That is **56 of the 229 platform-layer functions, 24%, that need no reverse engineering at all**. The general lesson is cheaper than the finding: before decompiling any platform module, check whether the class name belongs to a known third-party library of the era. `GBMusicTrack.m` was checked the same way and could *not* be confirmed, so it stays on the list.
+
 **Every asset format needed to draw an animated character is solved.** `.meshset` (geometry), `.skin` (skinning weights), `.bones` (skeleton), `.skinanim` (animation) and `.events` (effect tracks) all read correctly against the shipped data. `.scene` is the last one open. See [MESHSET-FORMAT.md](docs/MESHSET-FORMAT.md), [SKIN-FORMAT.md](docs/SKIN-FORMAT.md) and [EVENTS-FORMAT.md](docs/EVENTS-FORMAT.md).
 
 **Landing on a file's last byte can prove nothing at all.** If every record is the same size, *any* split of that size walks the file perfectly — 324 bytes reads equally well as 268+56 or 324+0. `.events` was audited as resting on exactly that circularity, because `numEntries` looked constant at 1. Across the full corpus of 1,547 tracks it takes ten distinct values and 103 tracks are not 1, so the walk was real evidence after all. A constant makes a walk worthless; a constant seen on part of the data may not be a constant. Both halves matter, and the layout is now derived from the loader's own pointer arithmetic so it does not depend on the walk either way.
@@ -214,6 +218,7 @@ tools/
   meshset.py             .meshset reader (all three variants)
   skin.py                .skin, .bones and .skinanim reader and validator
   events.py              .events reader and validator
+  slices.py              extracts armv6/armv7 and finds NEON-affected functions
   xref.py                finds calls to an imported symbol; recovers assert() arguments
   ghidra/                headless decompilation scripts
   signatures/            function signatures and struct layouts fed to Ghidra
