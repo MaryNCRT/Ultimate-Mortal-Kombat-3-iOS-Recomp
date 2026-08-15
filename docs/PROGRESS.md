@@ -796,6 +796,47 @@ recompile with zero unsupported instructions.
 
 ---
 
+## A PVRTC decoder, and the reference that proved it wrong
+
+The plan was to convert the textures with Noesis and diff against that. **It
+was not needed.** The game ships **38 textures twice** — as `NAME.PNG` *and*
+`NAME.pvr`. The PNG is the uncompressed source the PVR was built from: a
+reference implementation that costs nothing, needs no download, and is EA's own
+data rather than a third party's reading of it. It was in the bundle all along.
+
+`tools/pvrtc.py` decodes all 1,400 textures without error, to the right
+dimensions, producing plausible-looking images. `tools/pvrtc_diff.py` compares
+them against the PNGs:
+
+```
+compared:                13 of 38 pairs
+mean difference:         48.42 / 255   (19.0%)
+worst maximum:           255
+```
+
+**19% average error is not compression loss, it is a bug.** The decoder is
+committed and clearly marked wrong — its container handling and block geometry
+are verified and worth keeping — but it produces nothing usable until the pixel
+path is fixed.
+
+This is the fourth time in this project that something looked right and was
+not: Ghidra's `_Len`, the 71-of-92 `.scene` formula, the invented
+`proc_switch_counter`, and now this. The decoder compiled, ran over the whole
+corpus, and made images that look like textures. **Judged by eye it would have
+passed.**
+
+Suspicion order for whoever picks it up: modulation bit ordering first (the
+2 bits per pixel at 4bpp are indexed `(y*4+x)*2` here, and a column-major or
+different-origin convention would scramble each block internally while still
+producing plausible colour), then the bilinear endpoint interpolation and its
+edge wrap, then the endpoint colour bit layouts.
+
+The 25 `*_VERSUS` pairs cannot be compared: the PNG is 512×512 against a
+256×256 PVR, so they are different assets rather than the same one compressed.
+The diff correctly refuses them.
+
+---
+
 ## `.pvr` — measured, and narrower than expected
 
 1,400 texture files, surveyed rather than assumed. Full note in
