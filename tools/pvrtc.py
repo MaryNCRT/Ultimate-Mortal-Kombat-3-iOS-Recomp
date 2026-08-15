@@ -10,12 +10,14 @@ The block geometry it stands on is verified — `tools/pvr.py validate` walks al
 1,400 shipped textures and the arithmetic comes out exact on every one. See
 docs/PVR-FORMAT.md.
 
-**Verification status: structurally validated, not pixel-verified.** Every
-shipped texture decodes without error and to the right dimensions, and the
-sanity checks below hold. What has NOT happened is a per-pixel diff against an
-independent implementation — see docs/PVR-FORMAT.md for why that is the next
-step and what it needs. Do not treat this as settled the way `Matrix.cpp` is
-settled.
+**Verification status: 5.5% mean error against EA's own PNGs. Not correct.**
+
+`tools/pvrtc_diff.py` scores it against the 38 textures the game ships twice.
+Three rounds of fixes took it from 19.0% to 5.5%, which is close enough to look
+right and far enough to be wrong — PVRTC is lossy but a correct decoder should
+land lower. Do NOT treat this as settled the way `Matrix.cpp` is settled, and
+do not fix it by eye: this decoder has passed the eye test since its first
+version.
 
 ---
 
@@ -144,7 +146,11 @@ def decode(tex):
             k = j * bx + i
             mods[k] = m
             mode[k] = c & 1
-            cb[k] = _colour_b((c >> 1) & 0xFFFF)
+            # Colour B is the LOW 16 bits, not shifted. The modulation flag
+            # occupies bit 0 and the format lets it share that bit with the
+            # least significant bit of blue -- it does not displace the field.
+            # Shifting here corrupts every channel of B by one bit position.
+            cb[k] = _colour_b(c & 0xFFFF)
             ca[k] = _colour_a((c >> 16) & 0xFFFF)
 
     out = bytearray(tex.width * tex.height * 4)
@@ -201,16 +207,16 @@ def decode(tex):
                 sel = (mods[mk] >> bit) & 3
                 punch = False
                 if mode[mk]:
-                    w = (0.0, 3.0 / 8.0, 5.0 / 8.0, 1.0)[sel]
+                    w = (0.0, 0.5, 0.5, 1.0)[sel]
                     punch = (sel == 2)
                 else:
                     w = (0.0, 3.0 / 8.0, 5.0 / 8.0, 1.0)[sel]
 
             o = (py * tex.width + px) * 4
             for ch in range(3):
-                val = A[ch] * (1.0 - w) + B[ch] * w
+                val = B[ch] * (1.0 - w) + A[ch] * w
                 out[o + ch] = max(0, min(255, int(val + 0.5)))
-            alpha = A[3] * (1.0 - w) + B[3] * w
+            alpha = B[3] * (1.0 - w) + A[3] * w
             out[o + 3] = 0 if punch else max(0, min(255, int(alpha + 0.5)))
 
     return tex.width, tex.height, out

@@ -135,40 +135,48 @@ data rather than a third party's reading of it.
 by channel. PVRTC is lossy, so a correct decoder will not score zero, but it
 should land within a few units out of 255.
 
-## Current decoder status: **wrong**
+## Current decoder status: **5.5% error — better, still wrong**
 
 `tools/pvrtc.py` decodes all 1,400 textures without error, to the right
 dimensions, producing plausible-looking images. Against the reference it scores:
 
-```
-compared:                 13 of 38 pairs
-mean difference:          48.42 / 255   (19.0%)
-worst maximum:            255
-```
+| round | mean error | what changed |
+|---|---:|---|
+| first version | 48.42 / 255 (19.0%) | — |
+| colour B extraction | 31.18 (12.2%) | B is the **low 16 bits, unshifted** — the modulation flag shares bit 0 with blue's LSB rather than displacing the field |
+| blend direction | **14.06 (5.5%)** | the modulation weight runs the other way: `w=0` selects one endpoint, not the other |
 
-**19% average error is not compression loss, it is a bug.** The decoder is
-committed anyway, clearly marked, because the block geometry and container
-handling in it are verified and worth keeping — but it must not be used to
-produce anything until the pixel path is fixed.
+Ruled out by measurement rather than reasoning: **Morton order is correct**
+(the alternative bit interleave scores 68.78, twice as bad), column-major
+modulation indexing is worse (17.37), an alternate 2bpp index is neutral
+(14.09), and swapping the endpoint *extraction* instead of the blend is much
+worse (31.26).
+
+**5.5% is close enough to look right and far enough to be wrong.** PVRTC is
+lossy, but a correct decoder should land lower. The decoder stays committed and
+clearly marked, because its container handling and block geometry are verified
+and worth keeping — but it produces nothing usable yet.
 
 This is the project's method doing exactly what it is for. The decoder compiled,
 ran over the whole corpus, and produced images that look like textures. Judged
 by eye it would have passed. The reference says otherwise.
 
-### Where the bug most likely is
+### What is left
 
-In rough order of suspicion:
+With Morton order and modulation indexing eliminated, the remaining suspects
+are, in order:
 
-1. **Modulation bit ordering.** The 2 bits per pixel at 4bpp are indexed as
-   `(y*4 + x)*2` in this implementation; if the real order is column-major or
-   the pixel origin differs, every block scrambles internally while still
-   producing plausible colours.
-2. **The bilinear endpoint interpolation.** Each pixel's endpoints come from
-   the four surrounding blocks with a half-block offset. The wrap-around at
-   texture edges and the exact offset convention are both easy to get subtly
-   wrong, and both would smear rather than obviously break.
-3. **Endpoint colour unpacking.** The 5-5-4 / 3-4-4-3 bit layouts and their
-   expansion to 8 bits per channel.
+1. **The bilinear endpoint interpolation.** Each pixel's endpoints come from
+   the four surrounding blocks at a half-block offset. The exact offset
+   convention and the wrap-around at texture edges are both easy to get subtly
+   wrong, and both smear rather than obviously break — which is exactly what a
+   5.5% residual looks like.
+2. **Endpoint colour bit layouts.** The 5-5-4 and 3-4-4-3 expansions to 8 bits.
+   Small per-channel biases would show up as a uniform low-level error.
+3. **Punch-through mode.** Testing the documented `(0, 4/8, 4/8, 1)` weights
+   changed nothing measurable (31.20 against 31.18 at the time), which is
+   itself suspicious — it suggests the mode flag is not being read correctly,
+   or that these particular textures do not use it.
 
 The 25 `*_VERSUS` pairs could not be compared at all: the PNG is 512×512 and
 the PVR 256×256, so those are different assets rather than the same one
