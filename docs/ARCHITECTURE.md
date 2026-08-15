@@ -151,7 +151,7 @@ There is also a hardcoded internal development IP: `10.253.13.208`.
 | `.bones` | ⬜ unsolved | skeleton hierarchy |
 | `.skinanim` | ⬜ unsolved | skeletal animation |
 | `.scene` | ⬜ unsolved | scene graph |
-| `.events` | ⬜ unsolved | |
+| `.events` | ✅ **solved and verified** | effect tracks: 268-byte header + N*56 entries — see [EVENTS-FORMAT.md](EVENTS-FORMAT.md) |
 | `frames.x`, `moves_data.x` | ⬜ unsolved | animation and move tables |
 | `.pvr` | standard | PVRTC textures, decodable with known tools |
 

@@ -123,7 +123,7 @@ Ese número es una estimación, así que aquí está la aritmética que hay detr
 |---|---:|---:|---|
 | Análisis del binario y mapeo del árbol de fuentes | 4% | 100% | `██████████` |
 | Herramientas y oráculo de verificación | 8% | 95% | `██████████` |
-| Especificaciones de formatos de assets | 8% | 65% | `██████░░░░` |
+| Especificaciones de formatos de assets | 8% | 80% | `████████░░` |
 | `lime/common` — núcleo del motor (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — lógica de juego (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — motor de combate (2.172 fn) | 28% | 4% | `░░░░░░░░░░` |
@@ -287,7 +287,7 @@ La figura de Sub-Zero y el escenario del fondo son **renders de [ermaccer](https
 
 La palabra "RECOMP", la insignia de iOS y la composición son de [MaryNCRT](https://github.com/MaryNCRT).
 
-**Sí, parece el banner de una aplicacion pirata del 2011, es la idea..**
+**Sí, parece el banner de una aplicacion pirata del 2011, es la idea.**
 
 Está hecho rápido y a propósito en el lenguaje visual de aquello de lo que trata: un port móvil de la época en que el arte promocional de cada juego era un personaje plantado delante de un escenario, el logo encima y la insignia de la plataforma en una esquina. Algo más pulido habría parecido de otro juego. Esto parece de **este** — una conversión para iPhone de 2011 de un arcade de 1995, que es exactamente lo que se está desmontando aquí.
 

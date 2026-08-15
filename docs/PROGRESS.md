@@ -27,7 +27,7 @@ bulk of the work has not started.
 |---|---:|---:|---|
 | Binary analysis and source-tree mapping | 4% | 100% | `██████████` |
 | Tooling and the verification oracle | 8% | 95% | `██████████` |
-| Asset format specifications | 8% | 65% | `██████░░░░` |
+| Asset format specifications | 8% | 80% | `████████░░` |
 | `lime/common` — engine core (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | 4% | `░░░░░░░░░░` |
@@ -54,7 +54,7 @@ bulk of the work has not started.
 | Phase | Status |
 |---|---|
 | 0 — Binary analysis and source-tree mapping | ✅ complete |
-| 1 — Asset formats | 🔄 `.meshset`, `.skin`, `.bones`, `.skinanim` solved; `.scene`/`.events` open |
+| 1 — Asset formats | 🔄 `.meshset`, `.skin`, `.bones`, `.skinanim`, `.events` solved; `.scene` open |
 | 2 — Verification oracle | ✅ complete and proven |
 | 3 — Ghidra automation | ✅ headless pipeline working |
 | 4 — Decompile `lime/common` | 🔄 109/109 drafted, 2.5 modules finished |
@@ -335,33 +335,71 @@ them, the rest being touchHLE's. Two other things visible in it:
 
 ---
 
-## `.events` — started, not finished
+## `.events` — format solved
 
-From `LIME_LoadEvents` (`0x000a477c`). Established so far:
+`python tools/events.py validate <res dir>` → **544 of 545 files**, 1,547
+tracks, walked to their exact last byte. From `LIME_LoadEvents` (`0x000a477c`).
+Full specification in [EVENTS-FORMAT.md](EVENTS-FORMAT.md).
 
 ```
-int32  numTracks
-TRACK  tracks[numTracks]      // VARIABLE length on disk
+int32   numTracks
+TRACK   tracks[numTracks]           // variable length
+  268 bytes header, numEntries at +0x108
+  numEntries * 56 bytes of entries
 ```
 
-- **390 of the 545 `.events` files are exactly 4 bytes** — a lone `count = 0`.
-  That is strong confirmation of the header: an empty file is the header alone.
-- `SCENEEVENTS` is **8 bytes** — `limeMalloc(tag, 8)`, with the count at offset 0.
-- `SCENEEVENTTRACK` is **216 bytes** in memory. The allocation is
-  `N*24 + (N*24)*8`, which is `N*216`.
+Both strides come from the loader's arithmetic, not from the walk: the entry
+base is built as `(cursor+0x5c)+0xb0 = cursor+0x10c` at `0x000a4934`, and the
+cursor advances by `numEntries*64 - numEntries*8 = numEntries*56` at
+`0x000a49be`. The 268-byte header is then accounted for **byte by byte,
+contiguously**, by the load sequence at `0x000a4876`–`0x000a490a` — a 64-byte
+name, twelve int32s, a second 64-byte name, six int32s, a 64-byte slot name,
+and `numEntries`.
 
-**The tracks are not fixed-size on disk.** Dividing (file size − 4) by the count
-gives 324 bytes for 125 files and 436 for 24, and does not divide at all for the
-rest. So a track carries a header plus a variable number of entries, and the
-parse loop in `LIME_LoadEvents` has to be followed to find out what governs it.
-That is where to pick this up.
+The earlier note here said tracks divided as 324 for 125 files and 436 for 24
+and "did not divide at all for the rest". That now resolves cleanly:
+`324 = 268 + 1*56` and `436 = 268 + 3*56`, and the rest are files whose tracks
+carry different entry counts.
 
-### Why this one is worth finishing next
+### The 268-vs-216 gap is not discarded data
 
-`.events` is the only remaining format with a **free oracle**. The running game
-prints every event it triggers, with source scene, frame number and parameters
-(see above). A parser can be checked by predicting which events fire on which
-frames and diffing against the log — no differential harness needed.
+An on-disk header of 268 against a 216-byte in-memory struct looks like the
+loader throws 52 bytes away. It does not. The 64-byte name at `+0x000` is
+**used but never stored** — copied to the stack, uppercased in place, given a
+7-byte suffix. That leaves 204 bytes reaching the struct, and the struct's
+other 12 bytes are its own: a flag at `+0x04`, padding at `+0xc0`, and the
+entries pointer at `+0xd4`. `204 + 12 = 216`, exact.
+
+### An audit finding that turned out to be wrong
+
+This format was audited as resting on **circular evidence**: `numEntries` was
+reported as 1 in 211 of 212 tracks, which would make every track exactly 324
+bytes and every file `4 + numTracks*324` — and against a fixed record size, any
+split of 324 lands exactly, so the walk would prove nothing.
+
+That was measured on a subset. Over the full corpus of 1,547 tracks,
+`numEntries` takes **ten distinct values** and **103 tracks (6.7%) are not 1**:
+
+| `numEntries` | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 16 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| tracks | 46 | 1,444 | 5 | 29 | 6 | 8 | 4 | 2 | 2 | 1 |
+
+The `4 + numTracks*324` formula fails exactly where it should — the
+`CUTUP_BY_LAO_*` family comes out 112 bytes larger, which is the two extra
+entries. And brute-forcing every header size from 268 to 516 against every
+entry size from 0 to 196 leaves **exactly one pair** that walks all 544 files:
+`(268, 56)`.
+
+So the walk is not circular, and the layout has two independent legs. The audit
+was still right about the underlying principle, and about the `+0x108`
+derivation being wrong as written — the old one indexed the wrong live range of
+`r5` and produced `0x1b0`. `tools/events.py` now prints the `numEntries != 1`
+count on every run so the distinction stays visible instead of being trusted.
+
+**Still open:** `CUTUP_BY_REPTILE_STRYKER.events` (6,224 bytes, walk stops at
+272). Its name field holds a single junk byte and its slot is empty, unlike
+every other file, so it is probably not an events file at all. The earlier
+"embedded SCENE" hypothesis is unproven either way.
 
 Other names visible in this subsystem, not yet investigated:
 `SCENEINFO`, `LIME_LoadMasterEventOffsets`, `FindIdInMasterOffsets`, and the
