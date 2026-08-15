@@ -13,15 +13,15 @@ Current state of the project. Written so that someone can pick it up with no pri
 ## Overall progress
 
 ```
-████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  22%
+█████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  23%
 ```
 
-**≈22% of the total estimated effort. Nothing is playable yet.**
+**≈23% of the total estimated effort. Nothing is playable yet.**
 
 Weights are our judgement of how much of the total each area represents;
 the completion figures are measured. Two numbers are worth keeping apart:
 
-- **22%** — share of the *whole project*, counting analysis, tooling and formats.
+- **23%** — share of the *whole project*, counting analysis, tooling and formats.
 - **0.7%** — share of the *decompilation itself*: 17 finished functions of 2,572.
 
 Both are true. The first says the foundations are in place; the second says the
@@ -42,14 +42,17 @@ bulk of the work has not started.
 | `lime/common` — engine core (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | 4% | `░░░░░░░░░░` |
-| Native PC platform layer (173 fn to rewrite) | 17% | 5% | `█░░░░░░░░░` |
+| Native PC platform layer (161 fn to rewrite) | 17% | 10% | `█░░░░░░░░░` |
 | EA SDK stubs (~1,412 fn) | 5% | 0% | `░░░░░░░░░░` |
 
-**The platform layer shrank.** It used to read "229 fn rewritten". 56 of those
-are `Finch/`, which turns out to be a vendored copy of MIT-licensed
-[zoul/Finch](https://github.com/zoul/Finch) — usable upstream rather than
-reverse engineered. The real figure is 173, and the 5% reflects that the audio
-backend now has a known source, not that any of it is written.
+**The platform layer shrank twice.** It used to read "229 fn rewritten".
+**56** of those are `Finch/`, a vendored copy of MIT-licensed
+[zoul/Finch](https://github.com/zoul/Finch); another **12** are
+`ES1Renderer.m` and `ES2Renderer.m`, which are Apple's `GLES2Sample` template
+with the method sets matching exactly. Both have published, readable, legally
+reusable sources. **68 of 229 — 30% — need no reverse engineering**, leaving
+161. The 10% reflects that those modules have known upstream sources, not that
+any of the port is written.
 
 ### Milestones
 

@@ -110,10 +110,10 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ## Overall progress
 
 ```
-████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  22%
+█████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  23%
 ```
 
-**Roughly 22% of the total estimated effort. Nothing is playable yet.**
+**Roughly 23% of the total estimated effort. Nothing is playable yet.**
 
 That number is an estimate, so here is the arithmetic behind it rather than a
 figure you have to take on faith. Weights are our judgement of how much of the
@@ -128,7 +128,7 @@ the completion figures are measured.
 | `lime/common` — engine core (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | 4% | `░░░░░░░░░░` |
-| Native PC platform layer (173 fn to rewrite) | 17% | 5% | `█░░░░░░░░░` |
+| Native PC platform layer (161 fn to rewrite) | 17% | 10% | `█░░░░░░░░░` |
 | EA SDK stubs (~1,412 fn) | 5% | 0% | `░░░░░░░░░░` |
 
 **Why the foundational areas count for something.** The first two rows are
@@ -180,6 +180,10 @@ Detailed status, decisions and known technical debt: [docs/PROGRESS.md](docs/PRO
 ---
 
 ## Things discovered along the way
+
+**The renderers are Apple's sample code, and so is a third of the platform layer.** `ES1Renderer.m` has exactly the four methods of Apple's `GLES2Sample` template — `init`, `render`, `resizeFromLayer:`, `dealloc` — and `ES2Renderer.m` adds exactly the four shader ones. Together with `Finch/`, **68 of the 229 platform-layer functions (30%) need no reverse engineering at all**. It also explains why the binary imports both `glGenFramebuffers` *and* `glGenFramebuffersOES`: the ES 1.1 template uses the extension names and the ES 2.0 path uses the core ones, one set per renderer.
+
+**The NEON problem is period-normal, not an EA quirk.** On the Cortex-A8 that shipped in the iPhone 3GS and 4, the scalar VFP unit is not pipelined and NEON is — so doing scalar float maths with 2-lane NEON was *faster*, even wasting a lane. That was standard practice in 2010. It also explains why the armv6 slice is clean: NEON arrived with armv7, and the ARM11 chips armv6 targets have none. `Info.plist` pins the toolchain exactly: GCC 4.2 (not clang), Xcode 4.0, SDK 4.3, built on Snow Leopard.
 
 **The other slice of the binary decompiles cleanly where ours does not.** The fat binary ships armv6 and armv7; the project always used armv7, which is where EA's compiler emitted 2-lane packed NEON for scalar float maths — the pattern that makes Ghidra silently drop the arithmetic. ARMv6 has no NEON, so the armv6 slice is an independent compilation of the same source in plain scalar VFP. `_Len` reads there as nine obvious instructions computing `sqrtf(x*x+y*y+z*z)`. **107 functions are affected in armv7 and not in armv6**, and more than half of them are in `FrontEnd.cpp` and `GameCode.cpp` rather than the engine — so the long-quoted "27% of `lime/common`" both overstated the engine (it measures 23%) and looked in the wrong place. `tools/slices.py`.
 
