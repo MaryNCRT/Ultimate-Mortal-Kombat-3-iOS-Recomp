@@ -16,7 +16,7 @@
 
 **This repository ships no game files.** No textures, no models, no audio, no compiled code — nothing you could extract from here and use. Every release is built against **a copy you supply yourself**.
 
-The banner at the top of this page is the one piece of imagery here, and it is worth being precise about. It combines fan art of the *Ultimate Mortal Kombat 3* wordmark with **renders of the game's models made by ermaccer**, licensed CC BY 4.0 — both credited [below](#the-banner). A render depicts the game's geometry; it is not an asset file, it cannot be unpacked back into one, and it is not part of any build. The *Mortal Kombat* marks and the characters depicted belong to Warner Bros. Entertainment.
+The imagery here is worth being precise about. The banner combines fan art of the *Ultimate Mortal Kombat 3* wordmark with **renders of the game's models made by ermaccer**, licensed CC BY 4.0 — both credited [below](#the-banner). The screenshots in [the mesh viewer's documentation](docs/MESH-VIEWER.md) are our own, produced by our own tools. In both cases the same thing is true: a render depicts the game's geometry; it is not an asset file, it cannot be unpacked back into one, and it is not part of any build. The *Mortal Kombat* marks and the characters depicted belong to Warner Bros. Entertainment.
 
 What lives here is *our own* work: analysis tools, documentation of file formats, hand-written C, and test harnesses. Everything that touches the original game reads it from **a copy you supply yourself** and produces its output locally, where `.gitignore` keeps it out of the repository.
 
@@ -29,6 +29,14 @@ You need a legally obtained copy of *Ultimate Mortal Kombat 3* for iOS (version 
 In 2011, EA Mobile released *Ultimate Mortal Kombat 3* for iPhone. It was built on an in-house 3D engine called **LIME**, and — like most iOS games of that era — it has been effectively unplayable for years: it requires an iPhone running iOS 3–6, and it was pulled from the App Store long ago.
 
 This project is an attempt to bring it back properly, as **native PC software** rather than emulation: source code you can read, modify, and compile for Windows and Linux.
+
+<div align="center">
+
+<img src="docs/img/viewer-graveyard.png" alt="The Graveyard stage rendered by tools/meshview.py" width="420">
+
+<sub>The Graveyard stage, drawn by [`tools/meshview.py`](tools/meshview.py) — our `.meshset` parser, our PVRTC decoder, our rasteriser, and the projection matrix recovered from the binary. No emulator and no engine code involved. [How it works](docs/MESH-VIEWER.md).</sub>
+
+</div>
 
 The long-term goals, in order:
 

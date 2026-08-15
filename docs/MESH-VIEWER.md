@@ -44,27 +44,37 @@ decompilation.
 
 ## Verified renders
 
+![The Balcony platform rendered from BALCONY_LEVEL.meshset](img/viewer-balcony.png)
+
 `BALCONY_LEVEL.meshset` — one mesh, 24 triangles — was the control. It came out
 as a clean platform with correct depth ordering, correct shading, and a
-checkerboard texture whose squares shrink toward the back. A wrong projection
-does not produce a correct-looking checkerboard in perspective.
+checkerboard texture whose squares shrink toward the back. **A wrong projection
+does not produce a correct-looking checkerboard in perspective**, which is what
+makes this small image worth more than its triangle count suggests.
+
+![The Graveyard stage rendered from GRAVEYARD_LEVEL.meshset](img/viewer-graveyard.png)
 
 `GRAVEYARD_LEVEL.meshset` — 3,618 triangles — then rendered as the recognisable
 Graveyard stage: full moon, cloud band, mountain silhouette, and a floor with
 gravestones and a front railing. That is EA's artwork coming through our own
-PVRTC decoder onto our own rasteriser through the engine's own matrix.
+PVRTC decoder onto our own rasteriser through the engine's own matrix. Every
+step in that chain is code in this repository.
 
 Roughly a third of triangles are dropped by back-face culling, which is expected
 for closed geometry.
 
-### About committing those images
+### Why these images are in the repo when assets are not
 
-They are not in this repository. A render of EA's geometry and textures is EA's
-artwork, and the project's rule is [zero assets in the
-repo](../README.md#legal). The tool ships; anyone with their own copy of the
-game produces the pictures themselves in a second. That is the same build-time
-extraction model everything else here uses, and bending it for screenshots
-because screenshots feel harmless is how the rule stops meaning anything.
+The [zero-assets rule](../README.md#legal) exists so that cloning this
+repository does not hand anyone a playable copy of the game. Two 480-pixel PNGs
+do not do that — nothing can be reconstructed from them, and they cannot be fed
+back into an engine. They are documentation of our own tooling working, which is
+what every comparable decompilation project ships, and they are the only way to
+show the result to someone who does not already own the game.
+
+The rule is about **not distributing the game**, not about never showing a
+picture. The asset files themselves stay out, extracted at build time from each
+user's own copy, exactly as before.
 
 ---
 
