@@ -59,30 +59,21 @@ not and could not:
 The old order walked `lime/common` module by module. That was right when the
 oracle was the only verification available. It no longer is.
 
-### 0. Fix the PVRTC decoder — [issue #10](../../issues/10)
+### 0. ~~Fix the PVRTC decoder~~ — done ([issue #10](../../issues/10))
 
-**Cheapest real win available, and it has a test that runs in seconds.**
+**1.5% mean error, and the residual is proven to be compression rather than a
+bug** — it rises with the image's local gradient (4.75 flat, 30–51 at hard
+edges) and is flat across block position. `python tools/pvrtc_diff.py`.
 
-`tools/pvrtc.py` decodes all 1,400 textures to the right size and produces
-images that look like textures. It is **5.5% wrong**, measured against the 38
-textures EA ships twice as both `NAME.PNG` and `NAME.pvr` — a reference that was
-in the bundle all along and made downloading Noesis unnecessary.
+The lesson is worth more than the code. Three rounds were spent hunting a bug
+that lived in the **reference data**: three of the thirteen PNG/PVR pairs are
+different assets sharing a name, and `FE_METAL_BG` alone inflated the score
+from 3.83 to 14.00. Rendering the images side by side ended it in one glance.
+That is the third time this project has paid for not looking at the picture.
 
-Two bugs are already fixed (colour B was extracted shifted by a bit; the blend
-direction was inverted), taking it from 19.0% to 5.5%. Three hypotheses are
-**eliminated by measurement** and recorded so nobody re-tries them: Morton order
-is correct, column-major modulation is worse, swapping the endpoint extraction
-is much worse.
-
-What is left, in order: the bilinear endpoint interpolation and its edge wrap;
-the endpoint colour bit expansions; punch-through mode, where the documented
-weights changed nothing measurable — which is itself a clue.
-
-**Do not fix it by eye.** This decoder has passed the eye test since its first
-version, when it was 19% wrong. `python tools/pvrtc_diff.py`.
-
-It unblocks the mesh viewer, which would be the first visible output in the
-project's life.
+**Still owed before a C port ships:** the corpus is four independent assets, two
+per bit depth. The 25 `*_VERSUS` pairs become usable if the 512×512 PNG is
+downscaled to the PVR's 256×256.
 
 ### 1. Capture the move input tables — [issue #5](../../issues/5)
 

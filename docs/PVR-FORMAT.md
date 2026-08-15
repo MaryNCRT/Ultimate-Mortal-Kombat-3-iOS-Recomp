@@ -135,130 +135,121 @@ data rather than a third party's reading of it.
 by channel. PVRTC is lossy, so a correct decoder will not score zero, but it
 should land within a few units out of 255.
 
-## Current decoder status: **5.5% error — better, still wrong**
+## The decoder works
 
-`tools/pvrtc.py` decodes all 1,400 textures without error, to the right
-dimensions, producing plausible-looking images. Against the reference it scores:
+`tools/pvrtc_diff.py` — **1.5% mean error over valid references.**
 
-| round | mean error | what changed |
-|---|---:|---|
-| first version | 48.42 / 255 (19.0%) | — |
-| colour B extraction | 31.18 (12.2%) | B is the **low 16 bits, unshifted** — the modulation flag shares bit 0 with blue's LSB rather than displacing the field |
-| blend direction | **14.06 (5.5%)** | the modulation weight runs the other way: `w=0` selects one endpoint, not the other |
-
-Ruled out by measurement rather than reasoning: **Morton order is correct**
-(the alternative bit interleave scores 68.78, twice as bad), column-major
-modulation indexing is worse (17.37), an alternate 2bpp index is neutral
-(14.09), and swapping the endpoint *extraction* instead of the blend is much
-worse (31.26).
-
-**5.5% is close enough to look right and far enough to be wrong.** PVRTC is
-lossy, but a correct decoder should land lower. The decoder stays committed and
-clearly marked, because its container handling and block geometry are verified
-and worth keeping — but it produces nothing usable yet.
-
-This is the project's method doing exactly what it is for. The decoder compiled,
-ran over the whole corpus, and produced images that look like textures. Judged
-by eye it would have passed. The reference says otherwise.
-
-### The error is not spread evenly — it is all in 4bpp
-
-Breaking the diff down per texture is what turned guessing into a bounded
-problem:
-
-| | pairs | mean error | range |
+| | independent assets | mean error | |
 |---|---:|---:|---|
-| **PVRTC 2bpp** | 2 | **1.78** | 1.72 – 1.84 |
-| **PVRTC 4bpp** | 11 | **16.30** | 5.69 – 75.17 |
+| PVRTC **2bpp** | 2 | **1.59 / 255** | 0.6% |
+| PVRTC **4bpp** | 2 | **6.07 / 255** | 2.4% |
+| **overall** | 4 | **3.83 / 255** | **1.5%** |
 
-**1.78 is compression loss.** The 2bpp path is, on this evidence, essentially
-correct. Everything wrong is in 4bpp — and the worst case by far, `FE_METAL_BG`
-at 75.17, is the only 4bpp texture *without* alpha.
+PVRTC is lossy, so zero is impossible. What matters is whether the residual is
+compression or a bug — and there is a test that answers that.
 
-The seven `FE_MAINLOGO_*` variants all score exactly 5.69, which is consistent:
-same artwork, different lettering.
+### The residual tracks the image, not the blocks
 
-**Caveat that matters.** Only two of the thirteen comparable pairs are 2bpp, and
-both are `VORTEX1`/`VORTEX2` — smooth swirling gradients, which are exactly the
-kind of image that hides interpolation error. "2bpp is correct" is a hypothesis
-resting on two forgiving samples, not a result.
+Binning error by the reference image's local gradient:
 
-### Eliminated by measurement — do not re-try these
+| gradient | `FE_MAINLOGO_EN` | `LIGHTNING` | `VORTEX1` (2bpp) |
+|---|---:|---:|---:|
+| 0–31 (flat) | 4.75 | 4.79 | **1.63** |
+| 96–127 | 8.05 | — | — |
+| 128–159 | 9.26 | — | — |
+| 224–255 (hard edge) | **30.33** | **50.89** | — |
 
-Every one of these was tested against the corpus and scored *worse* than the
-current code:
+**That is the signature of block compression.** A 4×4 block holding two endpoint
+colours physically cannot represent an edge inside itself, so error must rise
+with detail. Smooth content decodes almost exactly; hard edges do not.
 
-| Hypothesis | Score | vs 14.06 baseline |
+A *decode* bug would behave the opposite way: it would track **block position**
+rather than image content. That was measured separately and comes out flat —
+74.8 to 75.5 across all sixteen positions of a 4×4 block. Two independent
+measurements, pointing the same way.
+
+`python tools/pvrtc_diff.py --gradient` reproduces this.
+
+---
+
+## The bug was in the references, not the decoder
+
+This is the part worth remembering.
+
+The decoder was scored at **19.0%**, then 12.2%, then 5.5% after two genuine
+fixes. Five further rounds of hypothesis-and-measure found nothing — fourteen
+variations all scored worse. The dead-end map is below and is still useful.
+
+Then the reference images were rendered side by side and looked at. **Three of
+the thirteen pairs are not pairs**:
+
+| Pair | Scored | What it actually is |
 |---|---:|---|
-| Morton order with x in the low bit | 68.78 | far worse |
-| Endpoint extraction swapped (instead of the blend) | 31.26 | worse |
-| Column-major modulation indexing | 17.37 | worse |
-| Bilinear with no half-block offset | 17.80 | worse |
-| Bilinear offset `+bw/2` | 23.95 | worse |
-| Bilinear offset `-bw/2 + 0.5px` | 14.58 | worse |
-| Endpoint A blue as bits 0-3 | 15.54 | worse |
-| A blue 0-3 and translucent blue 0-2 | 15.81 | worse |
-| Modulation weights reversed | 36.43 | far worse |
-| `3/8` and `5/8` swapped | 17.02 | worse |
-| No special punch-through mode | 16.33 | neutral |
-| Modulation rows reversed | 20.33 | worse |
-| Modulation columns reversed | 20.21 | worse |
-| Both reversed / full reverse | 22.62 | worse |
-| 2bpp alternate bit index | 14.09 | neutral |
+| `FE_METAL_BG` | 74.98 | The PNG frames the art differently — content in the top ~60% of the square, PVR fills it entirely |
+| `MYBLOOD1` | 34.89 | The PNG is the unprocessed source with a **magenta chroma key**; ours is grey, same shape exactly |
+| `MYBLOOD2` | 22.89 | Same |
 
-That is Morton order, endpoint colour unpacking, the bilinear offset
-convention, the modulation weight table and the modulation bit ordering — all
-**confirmed correct as written**, by being worse every other way.
+`FE_METAL_BG` alone dragged the 4bpp mean from 6.07 to 16.30, and the overall
+figure from 3.83 to 14.00. **The decoder had been essentially correct since the
+second fix**, and three rounds were spent hunting a bug that lived in the test
+data.
 
-### Where the error sits inside a block: nowhere in particular
+The lesson is the one this project keeps relearning, and it has now cost time
+in three separate places — the touchHLE gamepad coordinates, MAME's door
+interlock, and here: **look at the picture.** Each time, the numbers supported
+an indefinite hunt and one glance ended it.
 
-Averaging the absolute error by position *within* the 4×4 block:
+`tools/pvrtc_diff.py` now carries the invalid pairs in an `INVALID` table with
+the reason for each, so nobody re-includes them.
 
-```
-FE_METAL_BG          FE_MAINLOGO_EN        VORTEX1 (2bpp, 8×4)
- 74.8 74.8 74.8 74.8   6.3 6.1 5.6 5.9      2.3 1.5 1.8 1.7 2.1 1.8 1.8 1.5
- 75.2 75.2 75.3 75.3   5.9 5.9 5.3 5.6      1.8 1.5 2.0 1.7 2.0 1.7 1.8 1.5
- 75.4 75.5 75.5 75.5   5.4 5.3 4.8 5.0      1.9 1.7 2.0 2.0 2.4 2.1 2.0 1.7
- 75.1 75.1 75.2 75.2   6.3 6.2 5.6 6.0      1.8 1.5 2.0 1.7 2.1 1.7 1.8 1.5
-```
+### Eliminated by measurement — still worth keeping
 
-**Flat.** A bug in the modulation bit ordering would scramble positions within
-the block and show as a lumpy grid; a bug in the interpolation would show edges
-differing from centres. Neither appears. That is independent confirmation of the
-two eliminations above, arrived at by a different route.
+Fourteen hypotheses, every one scoring worse than the code as written, against
+the then-baseline of 14.06:
 
-### The pipeline can be exact
+| Hypothesis | Score |
+|---|---:|
+| Morton order with x in the low bit | 68.78 |
+| Endpoint extraction swapped instead of the blend | 31.26 |
+| Column-major modulation indexing | 17.37 |
+| Bilinear with no half-block offset | 17.80 |
+| Bilinear offset `+bw/2` | 23.95 |
+| Bilinear offset `-bw/2 + 0.5px` | 14.58 |
+| Endpoint A blue as bits 0-3 | 15.54 |
+| A blue 0-3 and translucent blue 0-2 | 15.81 |
+| Modulation weights reversed | 36.43 |
+| `3/8` and `5/8` swapped | 17.02 |
+| No punch-through mode | 16.33 |
+| Modulation rows reversed | 20.33 |
+| Modulation columns reversed | 20.21 |
+| Both reversed / full reverse | 22.62 |
 
-`FE_MAINLOGO_EN` returns deltas of **(0, 0, 0)** on many pixels — pixel-perfect,
-not merely close. Those are the areas where a block's two endpoints are equal
-(both `0xFFF` white), so no interpolation or modulation is needed to reach the
-answer.
+Morton order, endpoint colour unpacking, the bilinear offset convention, the
+weight table and the modulation bit ordering are all **confirmed correct** — by
+being worse every other way. That was real work even though the remaining error
+turned out not to be theirs.
 
-`FE_METAL_BG`'s deltas, by contrast, run in **both directions** — −34, +42, −29,
-+22 — which is not a systematic bias in colour expansion. A wrong bit width
-would push every pixel the same way.
+### The two fixes that mattered
 
-**So the container, block layout, Morton order and endpoint unpacking deliver
-exact pixels when nothing has to be blended.** The failure is specifically in
-combining two *differing* endpoints — the interpolation, the modulation weight,
-or which blocks the endpoints are gathered from.
+1. **Colour B is the low 16 bits, unshifted.** The modulation flag occupies bit
+   0 and *shares* it with blue's least significant bit rather than displacing
+   the field. Shifting corrupted every channel of B. 19.0% → 12.2%.
+2. **The blend direction was inverted** — the modulation weight selects the
+   opposite endpoint from the one assumed. 12.2% → 5.5%.
 
-One marginal gain kept from this round: endpoint A's blue read as 5 bits
-(0–4) rather than 4 bits (1–4) scores 14.00 against 14.06. Real but tiny, and
-not the bug.
+A third, marginal: endpoint A's blue reads as 5 bits (0–4) rather than 4 (1–4).
 
-### What is actually left
+---
 
-The endpoint, Morton and interpolation code is **shared** between 2bpp and
-4bpp, and 2bpp scores 1.78 with it. So either that shared code is right and
-something 4bpp-specific is wrong, or the two 2bpp samples are too smooth to
-expose a shared error.
+## Remaining caveat, stated plainly
 
-Distinguishing those two is the next step, and it is cheap: **find more 2bpp
-pairs**, or synthesise a test — encode a known sharp image and round-trip it.
-Until that is settled, further blind variation is wasted effort. Five rounds of
-it produced nothing but a well-mapped set of dead ends.
+Four independent assets is a thin corpus — two per bit depth. The evidence that
+the decoder is correct is strong (gradient correlation, block-position
+flatness, pixel-exact output wherever a block's endpoints are equal) but it is
+not the 1,400-file exhaustive check the container and block geometry got.
 
-The 25 `*_VERSUS` pairs could not be compared at all: the PNG is 512×512 and
-the PVR 256×256, so those are different assets rather than the same one
-compressed, and the diff correctly refuses to compare them.
+**Before shipping a C port of this, widen the reference set.** The `*_VERSUS`
+family gives 25 more pairs at 512×512 PNG against 256×256 PVR — downscaling the
+PNG would make them comparable, with resampling error folded in but still
+useful as a cross-check.
+

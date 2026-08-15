@@ -272,6 +272,41 @@ running game instead.
 
 ---
 
+## Look at the picture
+
+Three times this project has spent real effort on a problem that one glance
+would have ended. It is now a rule.
+
+**touchHLE's gamepad.** Four rounds of guessing coordinates from the emulator's
+own documentation. One screenshot from the user settled it — and revealed that
+touchHLE's shipped defaults for this app place the touch targets *off-screen*.
+
+**MAME's coin slot.** The scripted session inserted coins and pressed start, and
+the machine sat on the attract screen. The inputs were being accepted and
+ignored, because on this Midway board the coin mechanism is gated by a cabinet
+**door interlock** switch that MAME models. A screenshot showed the attract loop
+and named the problem; memory sampling would have gone on indefinitely.
+
+**The PVRTC decoder.** Scored at 5.5% error, it survived **fourteen** careful
+hypotheses that all made it worse. Rendering the reference images beside our own
+output showed, immediately, that three of the thirteen reference pairs were
+**different assets sharing a filename** — one framed differently, two being
+unprocessed sources with a magenta chroma key. One of them alone inflated the
+score from 3.83 to 14.00. The decoder had been essentially correct for three
+rounds.
+
+The pattern is the same each time. **Numerical evidence sustains an open-ended
+hunt; visual evidence terminates it.** When something measures wrong and every
+hypothesis fails, the next step is not a better hypothesis — it is to look at
+the thing, and at what it is being compared against.
+
+The corollary matters as much: **question the reference, not only the code.** A
+differential test is only as good as the reference it diffs against, and a
+reference that is confidently wrong is worse than none, because it produces a
+number that invites explanation.
+
+---
+
 ## Where the oracle stops working
 
 Two limitations are structural rather than incidental. Both are documented in [PROGRESS.md](PROGRESS.md) with their intended fixes.

@@ -8,23 +8,24 @@ Current state of the project. Written so that someone can pick it up with no pri
 > Latest: the verification oracle is **finished**; the game runs in touchHLE
 > with **no known crash** (5 bytes, three patches); the **armv6 slice**
 > decompiles cleanly where armv7's NEON defeats Ghidra; `.events` solved;
-> `.pvr` measured and its block geometry verified 1,400/1,400; a PVRTC decoder
-> exists and is **wrong at 5.5%**, with the reference that proves it.
+> `.pvr` measured and its block geometry verified 1,400/1,400; and the **PVRTC
+> decoder works** at 1.5% mean error — the residual proven to be compression
+> rather than a bug.
 
 ---
 
 ## Overall progress
 
 ```
-█████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  23%
+█████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  24%
 ```
 
-**≈23% of the total estimated effort. Nothing is playable yet.**
+**≈24% of the total estimated effort. Nothing is playable yet.**
 
 Weights are our judgement of how much of the total each area represents;
 the completion figures are measured. Two numbers are worth keeping apart:
 
-- **23%** — share of the *whole project*, counting analysis, tooling and formats.
+- **24%** — share of the *whole project*, counting analysis, tooling and formats.
 - **0.7%** — share of the *decompilation itself*: 17 finished functions of 2,572.
 
 Both are true. The first says the foundations are in place; the second says the
@@ -41,7 +42,7 @@ bulk of the work has not started.
 |---|---:|---:|---|
 | Binary analysis and source-tree mapping | 4% | 100% | `██████████` |
 | Tooling and the verification oracle | 8% | 100% | `██████████` |
-| Asset format specifications | 8% | 85% | `████████░░` |
+| Asset format specifications | 8% | 90% | `█████████░` |
 | `lime/common` — engine core (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | 4% | `░░░░░░░░░░` |
@@ -799,47 +800,64 @@ recompile with zero unsupported instructions.
 
 ---
 
-## A PVRTC decoder, and the reference that proved it wrong
+## A PVRTC decoder that works — and a bug that was in the test data
 
-The plan was to convert the textures with Noesis and diff against that. **It
-was not needed.** The game ships **38 textures twice** — as `NAME.PNG` *and*
-`NAME.pvr`. The PNG is the uncompressed source the PVR was built from: a
-reference implementation that costs nothing, needs no download, and is EA's own
-data rather than a third party's reading of it. It was in the bundle all along.
+`tools/pvrtc.py` decodes all 1,400 shipped textures. Against the textures EA
+ships twice (`NAME.PNG` *and* `NAME.pvr` — a free reference that made
+downloading Noesis unnecessary):
 
-`tools/pvrtc.py` decodes all 1,400 textures without error, to the right
-dimensions, producing plausible-looking images. `tools/pvrtc_diff.py` compares
-them against the PNGs:
+| | independent assets | mean error | |
+|---|---:|---:|---|
+| PVRTC **2bpp** | 2 | **1.59 / 255** | 0.6% |
+| PVRTC **4bpp** | 2 | **6.07 / 255** | 2.4% |
+| **overall** | 4 | **3.83 / 255** | **1.5%** |
 
-| round | mean error | what changed |
+**The residual is compression, and there is a test that proves it.** Binning
+error by the reference image's local gradient: flat areas score 4.75–4.79 and
+hard edges 30.33–50.89. A 4×4 block blending two colours cannot hold an edge
+inside itself, so that is exactly how block compression fails. A *decode* bug
+would track block **position** instead — measured separately, and flat at
+74.8–75.5 across all sixteen positions. Two independent measurements agreeing.
+
+### Three rounds were spent hunting a bug in the references
+
+The decoder scored 19.0%, then 12.2%, then 5.5% after two real fixes. Five
+further rounds of hypothesis-and-measure found nothing: **fourteen variations,
+every one worse.** Then the reference images were rendered side by side and
+looked at, and **three of the thirteen pairs turned out not to be pairs**:
+
+| Pair | Scored | What it is |
 |---|---:|---|
-| first version | 48.42 / 255 (19.0%) | — |
-| colour B extraction | 31.18 (12.2%) | B is the low 16 bits **unshifted**; the modulation flag shares bit 0 with blue's LSB |
-| blend direction | **14.06 (5.5%)** | the modulation weight runs the other way |
+| `FE_METAL_BG` | 74.98 | PNG frames the art differently — content in the top ~60%, PVR fills the square |
+| `MYBLOOD1` | 34.89 | PNG is the unprocessed source with a **magenta chroma key** |
+| `MYBLOOD2` | 22.89 | same |
 
-Eliminated by measurement rather than argument: Morton order is right (the
-alternative scores 68.78), column-major modulation is worse (17.37), and
-swapping the endpoint extraction instead of the blend is much worse (31.26).
+`FE_METAL_BG` alone pulled the overall figure from 3.83 to 14.00. **The decoder
+had been essentially correct since the second fix.**
 
-**5.5% is close enough to look right and far enough to be wrong.** The decoder
-stays committed and clearly marked — its container handling and block geometry
-are verified — but it produces nothing usable yet.
+This is the third time this project has paid for not looking at the picture —
+after touchHLE's gamepad coordinates and MAME's door interlock. Each time the
+numbers sustained an open-ended hunt and one glance ended it. `pvrtc_diff.py`
+now carries the invalid pairs in an `INVALID` table with reasons.
 
-This is the fourth time in this project that something looked right and was
-not: Ghidra's `_Len`, the 71-of-92 `.scene` formula, the invented
-`proc_switch_counter`, and now this. The decoder compiled, ran over the whole
-corpus, and made images that look like textures. **Judged by eye it would have
-passed.**
+### What the fourteen eliminations bought
 
-Suspicion order for whoever picks it up: modulation bit ordering first (the
-2 bits per pixel at 4bpp are indexed `(y*4+x)*2` here, and a column-major or
-different-origin convention would scramble each block internally while still
-producing plausible colour), then the bilinear endpoint interpolation and its
-edge wrap, then the endpoint colour bit layouts.
+They are kept in [PVR-FORMAT.md](PVR-FORMAT.md) and still worth having: Morton
+order, endpoint colour unpacking, the bilinear offset convention, the weight
+table and the modulation bit ordering are all **confirmed correct** by being
+worse every other way. That is real knowledge even though the residual error
+was not theirs.
 
-The 25 `*_VERSUS` pairs cannot be compared: the PNG is 512×512 against a
-256×256 PVR, so they are different assets rather than the same one compressed.
-The diff correctly refuses them.
+The two fixes that did matter: **colour B is the low 16 bits unshifted** (the
+modulation flag shares bit 0 with blue's LSB rather than displacing the field),
+and **the blend direction was inverted**.
+
+### Caveat
+
+Four independent assets — two per bit depth — is thin next to the 1,400-file
+exhaustive check the container and block geometry got. Widen the corpus before
+shipping a C port: the 25 `*_VERSUS` pairs are 512×512 PNG against 256×256 PVR
+and become usable if the PNG is downscaled.
 
 ---
 

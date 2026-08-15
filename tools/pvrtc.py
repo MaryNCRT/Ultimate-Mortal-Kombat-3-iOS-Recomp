@@ -10,14 +10,16 @@ The block geometry it stands on is verified — `tools/pvr.py validate` walks al
 1,400 shipped textures and the arithmetic comes out exact on every one. See
 docs/PVR-FORMAT.md.
 
-**Verification status: 5.5% mean error against EA's own PNGs. Not correct.**
+**Verification status: 1.5% mean error against EA's own PNGs — working.**
 
-`tools/pvrtc_diff.py` scores it against the 38 textures the game ships twice.
-Three rounds of fixes took it from 19.0% to 5.5%, which is close enough to look
-right and far enough to be wrong — PVRTC is lossy but a correct decoder should
-land lower. Do NOT treat this as settled the way `Matrix.cpp` is settled, and
-do not fix it by eye: this decoder has passed the eye test since its first
-version.
+`tools/pvrtc_diff.py` scores it against the textures the game ships twice:
+**0.6% on 2bpp, 2.4% on 4bpp, 1.5% overall.** PVRTC is lossy, so what matters
+is that the residual **rises with the image's local gradient** (4.75 in flat
+areas, 30-51 at hard edges) rather than with block position (flat at 74.8-75.5
+across all sixteen positions). That is compression loss, not a decode bug.
+
+It is not settled the way `Matrix.cpp` is settled: four independent assets is a
+thin corpus. Widen it before shipping a C port — see docs/PVR-FORMAT.md.
 
 ---
 
