@@ -8,9 +8,9 @@ Current state of the project. Written so that someone can pick it up with no pri
 > Latest: the verification oracle is **finished**; the game runs in touchHLE
 > with **no known crash** (5 bytes, three patches); the **armv6 slice**
 > decompiles cleanly where armv7's NEON defeats Ghidra; `.events` solved;
-> `.pvr` measured and its block geometry verified 1,400/1,400; and the **PVRTC
-> decoder works** at 1.5% mean error — the residual proven to be compression
-> rather than a bug.
+> `.pvr` measured and its block geometry verified 1,400/1,400; the **PVRTC
+> decoder works** at 1.5% mean error; and **`.scene` is solved** — 545 of 547
+> files, which was the last LIME asset format standing.
 
 ---
 
@@ -42,7 +42,7 @@ bulk of the work has not started.
 |---|---:|---:|---|
 | Binary analysis and source-tree mapping | 4% | 100% | `██████████` |
 | Tooling and the verification oracle | 8% | 100% | `██████████` |
-| Asset format specifications | 8% | 90% | `█████████░` |
+| Asset format specifications | 8% | 95% | `█████████░` |
 | `lime/common` — engine core (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | 4% | `░░░░░░░░░░` |
@@ -67,7 +67,8 @@ any of the port is written.
 | The game runs somewhere as a behavioural reference | ✅ done (touchHLE, no known crash) |
 | Model format readable | ✅ done |
 | Animation formats readable | ✅ `.skin`, `.bones`, `.skinanim` and `.events` done |
-| Every format needed to draw an animated character | ✅ done — only `.scene` remains |
+| Every format needed to draw an animated character | ✅ done |
+| Every LIME asset format | ✅ done — `.scene` was the last |
 | Something renders on a PC screen | ⬜ not started |
 | The game boots natively | ⬜ far off |
 | The game is playable natively | ⬜ far off |
@@ -79,7 +80,7 @@ any of the port is written.
 | Phase | Status |
 |---|---|
 | 0 — Binary analysis and source-tree mapping | ✅ complete |
-| 1 — Asset formats | 🔄 `.meshset`, `.skin`, `.bones`, `.skinanim`, `.events` solved; `.scene` open |
+| 1 — Asset formats | ✅ every LIME format solved; only the game's `frames.x` / `moves_data.x` remain |
 | 2 — Verification oracle | ✅ complete and proven |
 | 3 — Ghidra automation | ✅ headless pipeline working |
 | 4 — Decompile `lime/common` | 🔄 109/109 drafted, 2.5 modules finished |
@@ -919,40 +920,77 @@ Asset formats 80% → 85%.
 
 ---
 
-## `.scene` — started, not solved
+## `.scene` — solved
 
-547 files, from `LIME_LoadScene` (`0x0005f0ac`). Full notes in
-[SCENE-FORMAT.md](SCENE-FORMAT.md). **Asset formats stays at 80%**: this is
-progress, not a solved format, and the difference matters.
+`python tools/scene.py validate <res dir>` → **545 of 547 files** walked to
+their exact last byte. 7,254 objects, 1,664,493 track records, 152,306 tail
+records. Full specification in [SCENE-FORMAT.md](SCENE-FORMAT.md).
 
-Established: the header is `int32 numObjects; int32 count2;`. The in-memory
-`SCENE` is reference-counted at `+0x40` and cached by filename, so loading the
-same scene twice does not reparse it. Objects live at `+0x4c` as
-`numObjects × 64`, with two `numObjects × 4` pointer arrays at `+0x88` and
-`+0x8c`. The per-object copy is a straight 64-byte `memcpy`, with none of the
-field-by-field scatter `.events` had.
+```
+int32   numObjects
+int32   count2
+per object, numObjects times:
+    byte  object[64]            // begins with a name string
+    byte  track[count2][12]     // three floats each
+int32   count3
+byte    tail[count3][40]
+```
 
-**A scene is the root of a file group.** The loader strips the last 6
-characters of the filename — exactly `.scene` — builds variants, calls
-`limeLoadFile` three more times and `LIME_LoadEvents` once. That explains
-something that had gone unremarked: the `.events` corpus is the same size as
-the scene corpus because **every scene owns one**.
+**Every stride comes from the loader**, which is what makes it credible:
 
-**Where it stops.** The on-disk record is not 64 bytes, so the walk does not
-close — `8 + numObjects*64` matches 1 file of 547. For the 92 single-object
-files, `8 + 108 + 12*count2` matches **71**, which looks like a 108-byte record
-plus `count2` items of 12. But 21 miss, and badly: `GYMIST1.scene` is 104,128
-bytes against a predicted 24,128. Something of variable length is in there that
-`count2` does not describe.
+| Stride | Instruction |
+|---|---|
+| object = 64 | `add.w fp, fp, #0x40` at `0x0005f28e` |
+| tracks = `count2*12` | `c*16 - c*4` at `0x0005f3a0` |
+| tail record = 40 | `ldr r3, [r1, #0x28]!` at `0x0005f444` — pre-indexed, with writeback |
 
-**71 of 92 is exactly the kind of near-miss that looks like a solution.** By
-the rule this project already learned twice, the stride has to come from the
-loader's arithmetic, not from a formula fitted to most of the corpus. The
-resume point is precise: the cursor advance for the *next* object, immediately
-after the `memcpy` at `0x0005f27a`. That one instruction is what settled
-`.events`, and it will settle this.
+That last one was the piece that had been missing. A pre-indexed load with
+writeback advances the cursor as a side effect of reading, so the stride is in
+the addressing mode rather than in an obvious `add`.
+
+**And the walk is real evidence**, by this project's own rule. Three
+independently varying counts govern three different arrays:
+
+| | distinct values | range |
+|---|---:|---|
+| `numObjects` | 63 | 0 – 201 |
+| `count2` | 74 | 2 – 4,802 |
+| `count3` | 175 | 0 – 9,068 |
+
+### What it turned out to be
+
+Scene graph nodes exported from a modelling package. `BALCONY_LEVEL_SCENE`
+holds `Plane002`, `Box004`, `Box03` — 3ds Max defaults — and others carry
+authored names like `Text001` and `Helix001`. The loader passes each name to
+`LIME_FindMeshByName`, which is how a node binds to geometry.
+
+The 12-byte tracks are three floats, mostly `1.0, 0.0, 0.0`. `AXEFIRE.scene`
+shows a live one: `(5, 0.7209), (6, 0.6903), (7, 0.6606), (8, 0.6309)` — an
+index rising as a value falls, a keyframed fade.
+
+### The earlier near-miss, and why it was rejected
+
+A formula fitted to file sizes matched **71 of 92** single-object files and was
+*not* published as a solution. It was wrong: it assumed objects were followed by
+a single shared array, when in fact each object carries its own tracks and a
+third array follows them all.
+
+That instinct — refusing a 77% fit — is the same one that has now paid off four
+times. The right move was to keep reading the loader until the arithmetic fell
+out of it.
+
+### The two that do not parse
+
+`ROBO1_STANDARD.scene` (8 bytes, header only) and `ROBO2_STANDARD.scene`.
+
+**This is the same pair that breaks every other format.** `.bones` reads a
+24-byte bone for them rather than 25; their `.meshset` uses the unindexed
+variant. Four formats, one anomaly, consistently — which makes it a single
+question about Cyrax and Sektor's assets rather than four parser bugs.
 
 ---
+
+
 
 ## A name we had no business using
 
