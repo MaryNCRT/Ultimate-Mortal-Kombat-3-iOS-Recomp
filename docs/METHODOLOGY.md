@@ -30,7 +30,7 @@ This compiles without error. Under a quick review it looks like a slightly ugly 
 
 **Why it happened:** EA's compiler emitted *scalar* arithmetic using **2-lane NEON instructions** on D registers (`vmul.f32 d6, d6, d7`). Ghidra models those as opaque vector primitives and loses the aliasing between `d6` and the `s12`/`s13` pair. On top of that, Ghidra does not know the binary uses AAPCS soft-float — that a returned `float` arrives in `r0` — and emits `/* WARNING: Unknown calling convention */`.
 
-**How widespread:** measured with `tools/slices.py neon`, **153 functions across the binary** use packed `.f32` SIMD on D/Q registers. Within the engine core that is 25 of 109 — **23%** — concentrated exactly where it hurts most:
+**How widespread:** measured with `tools/slices.py neon`, **153 functions across the binary** use packed `.f32` SIMD on D/Q registers. Within the engine core that is **32 of 109 — 29%** — concentrated exactly where it hurts most:
 
 | File | Functions | NEON-affected |
 |---|---|---|
@@ -46,7 +46,9 @@ This compiles without error. Under a quick review it looks like a slightly ugly 
 
 The maths-heavy modules are the infected ones. That is not a coincidence — that is precisely where a compiler reaches for SIMD.
 
-**But the engine is not where most of it is.** `FrontEnd.cpp` (39 functions) and `GameCode.cpp` (22) together hold 61 of the 107 worst cases — more than the whole of `lime/common`. Quoting the figure as a `lime/common` percentage, as this document did until it was measured properly, looks in the wrong place.
+**Two numbers, and they are not the same number.** 32 of 109 engine functions (29%) *use* packed NEON. 25 of them (23%) are *fixed by reading armv6* — the other 7 use it in both slices. An earlier edit here reported 23% as the affected figure, which was wrong: it is the fixable subset.
+
+**And the engine is not where most of it is.** `FrontEnd.cpp` (39 functions) and `GameCode.cpp` (22) together hold 61 of the 107 armv6-fixable cases — more than the whole of `lime/common`.
 
 Had this gone unnoticed, the symptom a year later would have been "character models look slightly wrong," with no path back to the cause.
 
@@ -261,7 +263,7 @@ Where a function dispatches through a pointer, recursive descent stops and says
 so.
 
 This is not a backlog item. `gamecode/logic` is cooperative multitasking with a
-process dispatcher, per-process stacks and `process_sleep`, inherited from the
+process dispatcher, per-process stacks and stack jumping, inherited from the
 arcade original's TMS34010 — dispatch through function pointers is its
 architecture. **The oracle will never cover the fight engine, by structure
 rather than for want of work.** That is why the emulator matters there, and why
