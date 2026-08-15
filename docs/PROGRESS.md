@@ -808,16 +808,19 @@ data rather than a third party's reading of it. It was in the bundle all along.
 dimensions, producing plausible-looking images. `tools/pvrtc_diff.py` compares
 them against the PNGs:
 
-```
-compared:                13 of 38 pairs
-mean difference:         48.42 / 255   (19.0%)
-worst maximum:           255
-```
+| round | mean error | what changed |
+|---|---:|---|
+| first version | 48.42 / 255 (19.0%) | — |
+| colour B extraction | 31.18 (12.2%) | B is the low 16 bits **unshifted**; the modulation flag shares bit 0 with blue's LSB |
+| blend direction | **14.06 (5.5%)** | the modulation weight runs the other way |
 
-**19% average error is not compression loss, it is a bug.** The decoder is
-committed and clearly marked wrong — its container handling and block geometry
-are verified and worth keeping — but it produces nothing usable until the pixel
-path is fixed.
+Eliminated by measurement rather than argument: Morton order is right (the
+alternative scores 68.78), column-major modulation is worse (17.37), and
+swapping the endpoint extraction instead of the blend is much worse (31.26).
+
+**5.5% is close enough to look right and far enough to be wrong.** The decoder
+stays committed and clearly marked — its container handling and block geometry
+are verified — but it produces nothing usable yet.
 
 This is the fourth time in this project that something looked right and was
 not: Ghidra's `_Len`, the 71-of-92 `.scene` formula, the invented
