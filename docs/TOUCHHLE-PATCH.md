@@ -215,3 +215,76 @@ Beyond convenience: a running copy of the game is a **behavioural reference**.
 The static recompiler that verifies our decompiled code cannot follow indirect jumps (`blx reg`, `bx reg`, `tbb`/`tbh`). The fight logic — `mkdrone.c`, `moves.c`, `other.c`, roughly 1,300 functions — is a state machine built on function-pointer tables. **The oracle will not cover it.**
 
 For those functions, a running game is the only reference available. touchHLE also ships a GDB stub, which makes it possible to set breakpoints and inspect guest memory — turning "the game runs" into "we can compare state against our reimplementation."
+
+---
+
+## Multiplayer: `mp_disable`
+
+Multiplayer is **GameKit peer-to-peer**. `GKSession` is the only GameKit class
+the binary references — no Game Center, no matchmaking — and **touchHLE does
+not implement it**: the string does not appear once in its executable. Entering
+multiplayer therefore ends the session.
+
+The funnel is `_startMP` (`0x000afe20`), which owns the session singleton:
+
+```
+ldr r4, [r3]        ; r4 = &g_mpSession
+ldr r3, [r4]
+cbz r3, create      ; if NULL -> [[limeMPSession alloc] init]
+pop {r4, r7, pc}    ; otherwise nothing to do
+```
+
+Neutralising it leaves the singleton NULL forever. **That is safe rather than
+fatal**: messaging `nil` in Objective-C returns `nil`/0 without faulting, so
+`mpIsWorking`, `mpGetConnectionState` and `isMPConnected` all answer 0 and the
+game takes its own "not connected" path — which exists, since the class carries
+a `noWifiAlertView` for exactly that case.
+
+```python
+PATCHES["mp_disable"] = [
+    (0x000afe20, bytes.fromhex("7047"), "_startMP -> bx lr"),
+]
+```
+
+Two bytes, at the entry rather than at the allocation, because nothing is
+pushed yet and `bx lr` is a clean return.
+
+### What did not work, and why
+
+An earlier build added `modal_nonblocking`, neutralising
+`+[modalAlert infoWith:button1:]` and `+[modalAlert queryWith:button1:button2:]`
+so confirmation dialogs would stop blocking on `CFRunLoopRun`. That build was
+**worse**, and the reason is instructive: those dialogs were acting as a
+barrier. With them returning immediately the game walked further into the
+GameKit path and failed harder. The patch is kept in `patch_ipa.py` and
+deliberately **not applied** — the modal path is only worth neutralising once
+whatever sits behind it is safe.
+
+Also worth recording: `_CFRunLoopRun` has exactly **two callers in the whole
+binary**, both patched by `modal_nonblocking`. So the long-standing theory that
+"every confirmation dialog kills the emulator because of the nested run loop"
+does not survive contact with the evidence. Something else closes it.
+
+---
+
+## A texture fallback that builds a malformed name
+
+Not a patch, an observation from the same log, and it looks like a genuine
+defect in the shipped game.
+
+The game asks for low-resolution texture variants that were never shipped —
+`FIRE_PARTICLE_LOW.PNG`, `MYBLOOD1_LOW.PNG` and so on, 30 distinct names over
+527 attempts. Its own fallback then loads the full-resolution file, so those
+warnings are benign by design.
+
+One is not. `NOTEXTURE_LOW.PNG` fails **70 times**, and the log contains
+`NOTEXTPNG` **exactly 70 times** — the same count. The fallback that strips
+`_LOW.PNG` eats three characters too many *and* the dot, producing a filename
+that cannot exist.
+
+`NOTEXTURE` is the placeholder a texture load falls back to. If the placeholder
+itself cannot load, a failed texture draws as nothing rather than as an obvious
+"missing texture" marker — which is consistent with the babality model
+sometimes not appearing at all. **Unconfirmed**: the exact string arithmetic has
+not been traced, and the connection to the babality case is inference, not
+evidence.
