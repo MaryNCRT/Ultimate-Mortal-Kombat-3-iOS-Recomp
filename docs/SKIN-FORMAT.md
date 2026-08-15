@@ -332,8 +332,33 @@ The loop terminates on `SKININFO+4` and advances one entry per iteration:
 
 ---
 
-## 8. What is still open
+## 8. `.bones` on disk versus in memory
 
+`LIME_LoadBones` (armv6 `0x000836f8`) converts one to the other, and the
+conversion is where the hierarchy comes from.
+
+**The in-memory bone is 56 bytes**, allocated as `numBones*64 - numBones*8`.
+The on-disk record is 25 (or 24 — see the variant note in §4), so the two are
+not the same shape and a `.bones` reader cannot simply cast.
+
+What is established of the conversion:
+
+| Disk | Memory | Meaning |
+|---|---|---|
+| `+0x00`…`+0x0f` | `+0x00`…`+0x0f` | four words, copied verbatim |
+| `+0x04`, `+0x08`, `+0x0c` | same | x, y, z — read as the bone's translation by `CreateMatrixPaletteRecurse2` |
+| `+0x10` | `+0x14` | **signed byte**: a bone index, `-1` for none, converted to `base + index*56` |
+
+The signed byte is the link that makes the tree. `-1` writes a null and
+terminates the recursion; anything else becomes a pointer into the bone array.
+
+The remainder of the record — 8 or 9 bytes past `+0x10` — is not yet decoded,
+and it is where the sibling link must live, since the palette walk visits more
+than one child per parent.
+
+## 9. What is still open
+
+- The rest of the `.bones` record past `+0x10`, and therefore the sibling link.
 - What the 24 bytes per vertex actually contain.
 - What the 6 bytes per vertex actually contain.
 - The fifth word of `BONEANIMFRAME`, copied with the quaternion but not
@@ -342,6 +367,19 @@ The loop terminates on `SKININFO+4` and advances one entry per iteration:
   separate cursors. The 24-byte one carries position and colour; the other two
   are unaccounted for, and the 6-byte one is the likely home of the UVs the
   signature promises.
+
+### One shortcut, tried and ruled out
+
+Since `matricesA` holds the vertex once per influence and the weights are
+already baked in, it is tempting to think `Σᵢ A[i]` might approximate the bind
+pose without needing the palette at all. It does not: plotted as a point cloud
+for Kano's 844 vertices it is a diffuse blob with no silhouette, because each
+`A[i]` lives in **its own bone's local space** and summing across different
+spaces is meaningless.
+
+Cheap test, clear answer, and worth recording so nobody tries it twice. Posing a
+character genuinely requires the matrix palette, which requires the bone tree
+above plus rotations from a `.skinanim` frame.
 
 The **layout** was already settled — every file in the game walks to its exact
 last byte — and now the **interpretation** is settled too, for everything the
