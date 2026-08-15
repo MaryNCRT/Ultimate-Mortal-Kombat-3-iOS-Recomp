@@ -110,10 +110,10 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ## Overall progress
 
 ```
-█████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  23%
+█████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  24%
 ```
 
-**Roughly 23% of the total estimated effort. Nothing is playable yet.**
+**Roughly 24% of the total estimated effort. Nothing is playable yet.**
 
 That number is an estimate, so here is the arithmetic behind it rather than a
 figure you have to take on faith. Weights are our judgement of how much of the
@@ -124,7 +124,7 @@ the completion figures are measured.
 |---|---:|---:|---|
 | Binary analysis and source-tree mapping | 4% | 100% | `██████████` |
 | Tooling and the verification oracle | 8% | 100% | `██████████` |
-| Asset format specifications | 8% | 85% | `████████░░` |
+| Asset format specifications | 8% | 90% | `█████████░` |
 | `lime/common` — engine core (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | 4% | `░░░░░░░░░░` |
@@ -180,6 +180,10 @@ Detailed status, decisions and known technical debt: [docs/PROGRESS.md](docs/PRO
 ---
 
 ## Things discovered along the way
+
+**The PVRTC decoder works — and the bug was in the test data.** The game ships 38 textures twice, as `NAME.PNG` *and* `NAME.pvr`, which is a free reference implementation that made downloading a third-party converter unnecessary. Against it the decoder scores **1.5% mean error** — 0.6% on 2bpp, 2.4% on 4bpp — and the residual is *proven* to be compression rather than a bug: it rises with the image's local gradient (4.75 in flat areas, 30–51 at hard edges) and is flat across block position. A 4×4 block blending two colours cannot hold an edge inside itself; that is exactly how block compression fails.
+
+Getting there cost three wasted rounds. The decoder scored 5.5% and fourteen careful hypotheses all made it worse — because **three of the thirteen PNG/PVR pairs are different assets sharing a name**. `FE_METAL_BG`'s PNG frames the art differently; `MYBLOOD`'s is the unprocessed source with a magenta chroma key. That one file inflated the score from 3.83 to 14.00. Rendering the images side by side ended it in a single glance, and it is the third time this project has paid for not looking at the picture.
 
 **The renderers are Apple's sample code, and so is a third of the platform layer.** `ES1Renderer.m` has exactly the four methods of Apple's `GLES2Sample` template — `init`, `render`, `resizeFromLayer:`, `dealloc` — and `ES2Renderer.m` adds exactly the four shader ones. Together with `Finch/`, **68 of the 229 platform-layer functions (30%) need no reverse engineering at all**. It also explains why the binary imports both `glGenFramebuffers` *and* `glGenFramebuffersOES`: the ES 1.1 template uses the extension names and the ES 2.0 path uses the core ones, one set per renderer.
 

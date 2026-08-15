@@ -112,10 +112,10 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ## Progreso general
 
 ```
-█████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  23%
+█████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  24%
 ```
 
-**En torno al 23% del esfuerzo total estimado. Todavía no hay nada jugable.**
+**En torno al 24% del esfuerzo total estimado. Todavía no hay nada jugable.**
 
 Ese número es una estimación, así que aquí está la aritmética que hay detrás en vez de una cifra que haya que creerse. Los pesos son nuestro criterio sobre cuánto representa cada área del total; discrepa del reparto si quieres, pero las cifras de avance están medidas.
 
@@ -123,7 +123,7 @@ Ese número es una estimación, así que aquí está la aritmética que hay detr
 |---|---:|---:|---|
 | Análisis del binario y mapeo del árbol de fuentes | 4% | 100% | `██████████` |
 | Herramientas y oráculo de verificación | 8% | 100% | `██████████` |
-| Especificaciones de formatos de assets | 8% | 85% | `████████░░` |
+| Especificaciones de formatos de assets | 8% | 90% | `█████████░` |
 | `lime/common` — núcleo del motor (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — lógica de juego (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — motor de combate (2.172 fn) | 28% | 4% | `░░░░░░░░░░` |
@@ -171,6 +171,10 @@ Estado detallado, decisiones y deuda técnica conocida: [docs/PROGRESS.md](docs/
 ---
 
 ## Cosas descubiertas por el camino
+
+**El decodificador PVRTC funciona — y el fallo estaba en los datos de prueba.** El juego publica 38 texturas dos veces, como `NAME.PNG` *y* `NAME.pvr`, lo que es una implementacion de referencia gratis que hizo innecesario descargar ningun conversor. Contra ella el decodificador saca **1,5% de error medio** —0,6% en 2bpp, 2,4% en 4bpp— y el residuo esta *demostrado* que es compresion y no un bug: sube con el gradiente local de la imagen (4,75 en zonas planas, 30–51 en bordes duros) y es plano segun la posicion del bloque. Un bloque de 4×4 que mezcla dos colores no puede contener un borde dentro de si mismo; asi es exactamente como falla la compresion por bloques.
+
+Llegar ahi costo tres rondas perdidas. El decodificador marcaba 5,5% y catorce hipotesis cuidadosas lo empeoraban todas — porque **tres de los trece pares PNG/PVR son assets distintos que comparten nombre**. El PNG de `FE_METAL_BG` enmarca el arte de otra forma; el de `MYBLOOD` es la fuente sin procesar con clave cromatica magenta. Ese solo archivo inflaba la nota de 3,83 a 14,00. Poner las imagenes lado a lado lo resolvio de una mirada, y es la tercera vez que este proyecto paga por no mirar la imagen.
 
 **Los renderizadores son codigo de ejemplo de Apple, y con ellos un tercio de la capa de plataforma.** `ES1Renderer.m` tiene exactamente los cuatro metodos de la plantilla `GLES2Sample` de Apple — `init`, `render`, `resizeFromLayer:`, `dealloc` — y `ES2Renderer.m` anade exactamente los cuatro de shaders. Junto con `Finch/`, **68 de las 229 funciones de la capa de plataforma (30%) no hay que decompilar**. Ademas explica por que el binario importa `glGenFramebuffers` *y* `glGenFramebuffersOES`: la plantilla de ES 1.1 usa los nombres de extension y la de ES 2.0 los core, un juego por renderizador.
 
