@@ -6,7 +6,7 @@
 
 **A work-in-progress decompilation of the 2011 iOS release of Ultimate Mortal Kombat 3, aiming at a native PC port for Windows and Linux.**
 
-[Getting started](docs/GETTING-STARTED.md) · [Methodology](docs/METHODOLOGY.md) · [LIME engine](docs/LIME-ENGINE.md) · [Architecture](docs/ARCHITECTURE.md) · [Progress](docs/PROGRESS.md) · [Handoff](docs/HANDOFF.md) · [AI disclosure](AI-DISCLOSURE.md) · [Español](README.es.md)
+[Getting started](docs/GETTING-STARTED.md) · [Methodology](docs/METHODOLOGY.md) · [LIME engine](docs/LIME-ENGINE.md) · [Asset formats](docs/X-TABLES.md) · [Architecture](docs/ARCHITECTURE.md) · [Progress](docs/PROGRESS.md) · [Handoff](docs/HANDOFF.md) · [AI disclosure](AI-DISCLOSURE.md) · [Español](README.es.md)
 
 </div>
 
@@ -110,10 +110,10 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ## Overall progress
 
 ```
-█████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  24%
+██████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  25%
 ```
 
-**Roughly 24% of the total estimated effort. Nothing is playable yet.**
+**Roughly 25% of the total estimated effort. Nothing is playable yet.**
 
 That number is an estimate, so here is the arithmetic behind it rather than a
 figure you have to take on faith. Weights are our judgement of how much of the
@@ -124,7 +124,7 @@ the completion figures are measured.
 |---|---:|---:|---|
 | Binary analysis and source-tree mapping | 4% | 100% | `██████████` |
 | Tooling and the verification oracle | 8% | 100% | `██████████` |
-| Asset format specifications | 8% | 99% | `██████████` |
+| Asset format specifications | 8% | 100% | `██████████` |
 | `lime/common` — engine core (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | 4% | `░░░░░░░░░░` |

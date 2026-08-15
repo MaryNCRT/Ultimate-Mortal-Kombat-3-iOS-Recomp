@@ -151,8 +151,8 @@ There is also a hardcoded internal development IP: `10.253.13.208`.
 | `.bones` | ✅ **solved and verified** | skeleton hierarchy, **29/29** — two variants, 25 and 24 bytes per bone |
 | `.skinanim` | ✅ **solved and verified** | skeletal animation, **29/29** — two header layouts, 12 and 16 bytes |
 | `.scene` | ✅ **solved and verified** | 545/547 files; scene graph nodes + per-object tracks — see [SCENE-FORMAT.md](SCENE-FORMAT.md) |
-| `.events` | ✅ **solved and verified** | effect tracks: 268-byte header + N*56 entries — see [EVENTS-FORMAT.md](EVENTS-FORMAT.md) |
-| `frames.x`, `moves_data.x` | ⬜ unsolved | animation and move tables |
+| `.events` | ✅ **solved and verified** | effect tracks, **545/545** — two variants — see [EVENTS-FORMAT.md](EVENTS-FORMAT.md) |
+| `frames.x`, `moves_data.x` | ✅ **plain text** | 6,831 frame names; 144 secret-move tables as C — see [X-TABLES.md](X-TABLES.md) |
 | `.pvr` | ✅ **measured** | 1,400 files, only PVRTC 2bpp and 4bpp, no mipmaps — see [PVR-FORMAT.md](PVR-FORMAT.md) |
 
 **Every LIME asset format is now solved.** Geometry, skinning weights, skeleton, animation, effect tracks, textures and the scene graph all read correctly against the shipped data. What remains is `frames.x` and `moves_data.x` — and those are *game* data rather than engine data, with [issue #5](../../issues/5) offering a way to recover the move tables without decompiling anything at all.

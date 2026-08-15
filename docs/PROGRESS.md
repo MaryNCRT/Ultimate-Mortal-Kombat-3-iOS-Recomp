@@ -17,15 +17,15 @@ Current state of the project. Written so that someone can pick it up with no pri
 ## Overall progress
 
 ```
-█████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  24%
+██████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  25%
 ```
 
-**≈24% of the total estimated effort. Nothing is playable yet.**
+**≈25% of the total estimated effort. Nothing is playable yet.**
 
 Weights are our judgement of how much of the total each area represents;
 the completion figures are measured. Two numbers are worth keeping apart:
 
-- **24%** — share of the *whole project*, counting analysis, tooling and formats.
+- **25%** — share of the *whole project*, counting analysis, tooling and formats.
 - **0.7%** — share of the *decompilation itself*: 17 finished functions of 2,572.
 
 Both are true. The first says the foundations are in place; the second says the
@@ -42,7 +42,7 @@ bulk of the work has not started.
 |---|---:|---:|---|
 | Binary analysis and source-tree mapping | 4% | 100% | `██████████` |
 | Tooling and the verification oracle | 8% | 100% | `██████████` |
-| Asset format specifications | 8% | 99% | `██████████` |
+| Asset format specifications | 8% | 100% | `██████████` |
 | `lime/common` — engine core (109 fn) | 12% | 15% | `██░░░░░░░░` |
 | `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | 4% | `░░░░░░░░░░` |
@@ -80,7 +80,7 @@ any of the port is written.
 | Phase | Status |
 |---|---|
 | 0 — Binary analysis and source-tree mapping | ✅ complete |
-| 1 — Asset formats | ✅ every LIME format solved; only the game's `frames.x` / `moves_data.x` remain |
+| 1 — Asset formats | ✅ **complete** — every format read and validated against the shipped data |
 | 2 — Verification oracle | ✅ complete and proven |
 | 3 — Ghidra automation | ✅ headless pipeline working |
 | 4 — Decompile `lime/common` | 🔄 109/109 drafted, 2.5 modules finished |
@@ -917,6 +917,62 @@ Windows-only, so it ships with nothing, the same way Ghidra does. The decoder
 in the repository has to be ours.
 
 Asset formats 80% → 85%.
+
+---
+
+## Asset formats: complete
+
+Every format the game ships is now read and validated against the shipped data.
+
+| Format | Result |
+|---|---|
+| `.meshset` | 590 files, 7,327 meshes, 0 divergences — three variants |
+| `.lighting` | documented |
+| `.skin` | 29/29 — two variants |
+| `.bones` | **29/29** — two variants, 24 and 25 bytes per bone |
+| `.skinanim` | **29/29**, 10,434 frames — two header layouts, 12 and 16 bytes |
+| `.events` | **545/545**, 1,547 tracks — two variants |
+| `.scene` | 545/547, 7,254 objects — the two exceptions are the ROBO export variant |
+| `.pvr` | 1,400/1,400 block geometry; decoder at 1.5% mean error |
+| `frames.x`, `moves_data.x` | **plain text** — nothing to reverse |
+
+### `frames.x` and `moves_data.x` were never binary
+
+Both sat on the unsolved list for the entire project. They are **text**, shipped
+readable in the app bundle. `frames.x` is 6,831 quoted animation frame names.
+`moves_data.x` is **144 secret-move tables written as C array declarations** —
+25 characters, eight move classes, and a ten-symbol input alphabet
+(`sw_down`, `sw_run`, `sw_block`…).
+
+**And it names the binary's functions.** It references **90 distinct `q_`
+predicates and 92 `t_` move handlers by name** — `q_ermac_fatal`,
+`t_do_fatality_1`, `t_do_animality`. Those are functions this project already
+has addresses for; `t_do_fatality_1` is one of the six verified in the dispatch
+table at `0xf3150`. For `gamecode/logic`, which the oracle can never reach
+because it dispatches through function pointers, that is a hand-written map from
+move semantics to function names covering 182 of them.
+
+Full note in [X-TABLES.md](X-TABLES.md), including how the port should treat
+source-form data that ships inside the IPA: the **values** are extracted at
+build time from the user's own copy like every other asset, and the **C text**
+stays out of this repository.
+
+### The pattern that closed the last four
+
+Four of the remaining holdouts were the same mistake, made four times:
+treating a **variant** as corruption.
+
+| File | Looked like | Was |
+|---|---|---|
+| `ROBO1`/`ROBO2` in four formats | four separate bugs | one export variant |
+| `SINDEL_STANDARD.skinanim` | a corrupt header | a 16-byte header layout |
+| `CUTUP_BY_REPTILE_STRYKER.events` | not an events file | a bare-entry variant |
+
+The tell is always the same, and it is worth stating plainly: **the alternative
+reading divides exactly rather than nearly.** `.bones` at 24 bytes leaves no
+remainder across two files while 25 leaves none across twenty-seven. `SINDEL` at
+`16 + 844×1256` lands on the last byte. `CUTUP` at `8 + 111×56` lands on the
+last byte. None of those is a fit — they are identities.
 
 ---
 
