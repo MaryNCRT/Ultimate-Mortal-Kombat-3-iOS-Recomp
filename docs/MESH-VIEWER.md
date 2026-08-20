@@ -9,7 +9,8 @@ python tools/meshview.py res/GRAVEYARD_LEVEL.meshset out.png --size 560 --pitch 
 ```
 
 **Status: working.** Geometry, UVs, textures, depth and perspective all render
-correctly. Skinned characters do not yet assemble — see the end.
+correctly, with perspective-correct texturing. Skinned characters assemble and
+pose too — see [`tools/pose.py`](../tools/pose.py) below.
 
 ---
 
