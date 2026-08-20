@@ -17,6 +17,7 @@
 #include "lime/meshset.h"
 #include "lime/limemath.h"
 #include "lime/pvr.h"
+#include "lime/light.h"
 
 #include <windows.h>
 #include <GL/gl.h>
@@ -54,6 +55,73 @@ static void frame_bounds(const LimeMeshSet *ms, int only,
  * GPU can sample it. 0 means the mesh draws untextured. */
 static GLuint *g_tex;
 
+/* Per-vertex colour, from the engine's own lighting model.
+ *
+ * The engine lights per vertex on the CPU and hands GL a colour -- it never
+ * enables GL lighting, because ES 1.1 fixed function is all it has. We do the
+ * same thing, which is why this is a colour array and not a light setup.
+ *
+ * A .meshset stores no normals, so they are averaged from the faces here. The
+ * real engine gets them from .skin for characters and from .lighting for the
+ * prelit ones; neither applies to a static mesh viewer. */
+static unsigned char **g_col;
+
+static void build_lighting(const LimeMeshSet *ms)
+{
+    lime_light_init();
+    g_col = (unsigned char **)calloc((size_t)ms->num_meshes, sizeof(void *));
+    if (!g_col) return;
+
+    for (int32_t i = 0; i < ms->num_meshes; i++) {
+        const LimeMesh *m = &ms->meshes[i];
+        int32_t n = m->vert_count;
+        if (n <= 0) continue;
+
+        float *nrm = (float *)calloc((size_t)n * 3, sizeof(float));
+        unsigned char *col = (unsigned char *)malloc((size_t)n * 3);
+        if (!nrm || !col) { free(nrm); free(col); continue; }
+
+        int32_t ntri = m->indices ? m->num_faces : n / 3;
+        for (int32_t t = 0; t < ntri; t++) {
+            int32_t a, b, c;
+            if (m->indices) {
+                a = m->indices[t*3]; b = m->indices[t*3+1]; c = m->indices[t*3+2];
+            } else {
+                a = t*3; b = t*3+1; c = t*3+2;
+            }
+            if (a >= n || b >= n || c >= n) continue;
+            float e1[3] = { m->verts[b].x - m->verts[a].x,
+                            m->verts[b].y - m->verts[a].y,
+                            m->verts[b].z - m->verts[a].z };
+            float e2[3] = { m->verts[c].x - m->verts[a].x,
+                            m->verts[c].y - m->verts[a].y,
+                            m->verts[c].z - m->verts[a].z };
+            float fn[3] = { e1[1]*e2[2] - e1[2]*e2[1],
+                            e1[2]*e2[0] - e1[0]*e2[2],
+                            e1[0]*e2[1] - e1[1]*e2[0] };
+            const int32_t idx[3] = { a, b, c };
+            for (int k = 0; k < 3; k++)
+                for (int ax = 0; ax < 3; ax++)
+                    nrm[idx[k]*3 + ax] += fn[ax];
+        }
+
+        for (int32_t v = 0; v < n; v++) {
+            float x = nrm[v*3], y = nrm[v*3+1], z = nrm[v*3+2];
+            float len = sqrtf(x*x + y*y + z*z);
+            float l;
+            if (len < 1e-12f) {
+                l = 0.5f;                      /* degenerate -- no normal */
+            } else {
+                l = lime_light_vert(x/len, y/len, z/len);
+            }
+            unsigned char g = (unsigned char)(l * 255.0f + 0.5f);
+            col[v*3] = col[v*3+1] = col[v*3+2] = g;   /* monochrome, as the engine */
+        }
+        free(nrm);
+        g_col[i] = col;
+    }
+}
+
 static void upload_textures(const LimeMeshSet *ms, const char *res_dir)
 {
     g_tex = (GLuint *)calloc((size_t)ms->num_meshes, sizeof(GLuint));
@@ -63,6 +131,26 @@ static void upload_textures(const LimeMeshSet *ms, const char *res_dir)
     for (int32_t i = 0; i < ms->num_meshes; i++) {
         LimeImage img;
         if (!lime_texture_load(res_dir, ms->meshes[i].texture, &img)) continue;
+
+        /* Image row 0 is the TOP of a PVR, but GL's V=0 is the BOTTOM of a
+         * texture. Uploading the rows as they come samples the image upside
+         * down. tools/pvrtc.py never hits this because it indexes rows
+         * directly; anything handing the data to GL does. */
+        {
+            const size_t stride = (size_t)img.width * 4;
+            unsigned char *tmp = (unsigned char *)malloc(stride);
+            if (tmp) {
+                for (int y = 0; y < img.height / 2; y++) {
+                    unsigned char *a = img.rgba + (size_t)y * stride;
+                    unsigned char *b = img.rgba +
+                                       (size_t)(img.height - 1 - y) * stride;
+                    memcpy(tmp, a, stride);
+                    memcpy(a, b, stride);
+                    memcpy(b, tmp, stride);
+                }
+                free(tmp);
+            }
+        }
 
         glGenTextures(1, &g_tex[i]);
         glBindTexture(GL_TEXTURE_2D, g_tex[i]);
@@ -78,13 +166,18 @@ static void upload_textures(const LimeMeshSet *ms, const char *res_dir)
     printf("  textures: %d of %d meshes decoded\n", ok, ms->num_meshes);
 }
 
-static void draw_mesh(const LimeMesh *m)
+static void draw_mesh(const LimeMesh *m, const unsigned char *col)
 {
     glEnableClientState(GL_VERTEX_ARRAY);
     glEnableClientState(GL_TEXTURE_COORD_ARRAY);
 
     glVertexPointer(3, GL_FLOAT, sizeof(LimeVertex), &m->verts[0].x);
     glTexCoordPointer(2, GL_FLOAT, sizeof(LimeVertex), &m->verts[0].u);
+
+    if (col) {
+        glEnableClientState(GL_COLOR_ARRAY);
+        glColorPointer(3, GL_UNSIGNED_BYTE, 0, col);
+    }
 
     if (m->indices) {
         glDrawElements(GL_TRIANGLES, m->num_faces * 3,
@@ -93,6 +186,7 @@ static void draw_mesh(const LimeMesh *m)
         glDrawArrays(GL_TRIANGLES, 0, m->vert_count);
     }
 
+    if (col) glDisableClientState(GL_COLOR_ARRAY);
     glDisableClientState(GL_TEXTURE_COORD_ARRAY);
     glDisableClientState(GL_VERTEX_ARRAY);
 }
@@ -182,10 +276,12 @@ int main(int argc, char **argv)
     const float dist = radius * 3.2f;
 
     upload_textures(&ms, res_dir);
+    build_lighting(&ms);
 
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
     glCullFace(GL_BACK);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
     glClearColor(0.09f, 0.09f, 0.11f, 1.0f);
 
     printf("  window open -- Esc to quit\n");
@@ -219,17 +315,19 @@ int main(int argc, char **argv)
 
         for (int32_t i = 0; i < ms.num_meshes; i++) {
             if (only >= 0 && i != only) continue;
-            if (g_tex && g_tex[i]) {
+            /* NOTEXTURE is the engine's own placeholder, not a failure: these
+             * are effect meshes -- sparks, booms -- that the game draws with a
+             * material rather than a map. Tinting them by index made them look
+             * broken; plain grey is honest. */
+            bool textured = (g_tex && g_tex[i]);
+            if (textured) {
                 glEnable(GL_TEXTURE_2D);
                 glBindTexture(GL_TEXTURE_2D, g_tex[i]);
-                glColor3f(1.0f, 1.0f, 1.0f);
             } else {
                 glDisable(GL_TEXTURE_2D);
-                float t = ms.num_meshes > 1
-                        ? (float)i / (float)ms.num_meshes : 0.0f;
-                glColor3f(0.55f + 0.45f * t, 0.62f, 0.95f - 0.45f * t);
             }
-            draw_mesh(&ms.meshes[i]);
+            glColor3f(1.0f, 1.0f, 1.0f);
+            draw_mesh(&ms.meshes[i], g_col ? g_col[i] : NULL);
         }
 
         plat_swap();
@@ -237,6 +335,8 @@ int main(int argc, char **argv)
 
     plat_close();
     free(g_tex);
+    if (g_col) { for (int32_t i = 0; i < ms.num_meshes; i++) free(g_col[i]); }
+    free(g_col);
     lime_meshset_free(&ms);
     return 0;
 }
