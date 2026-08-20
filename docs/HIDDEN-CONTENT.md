@@ -116,6 +116,63 @@ is reachable. The honest summary:
 Calling them "unused" would overstate it. "Present, and not yet shown to be
 reachable" is what the evidence supports.
 
+## Rain: one string, and nothing else
+
+Rain is the other famous UMK3 rumour -- he appears in the arcade attract mode
+and was not playable until Trilogy. Checked the same way Noob Saibot was, the
+answer is the exact opposite.
+
+The binary carries **two roster tables**, and they disagree:
+
+| Table | Entries |
+|---|---:|
+| Character names, at `0x14ee34` | **26** |
+| Win messages, at `0x173a80` | **29** |
+
+They are otherwise in identical order. The three that appear only in the win
+messages are:
+
+```
+RAIN WINS          between SCORPION and REPTILE -- his arcade roster slot
+TOBIAS WINS        John Tobias, one of Mortal Kombat's creators
+OON WINS
+```
+
+Alongside them sit `JOHNNY CAGE LOSES BIG TIME !!` and
+`JOHHNY CAGE TRANSFORMATION ACTIVATED` -- the typo is the binary's -- which are
+arcade-era developer jokes for a character who is not in UMK3 at all.
+
+So the win-message array was carried over from the arcade **verbatim**, jokes
+included, while the actual roster was trimmed to 26.
+
+### There is nothing else of him
+
+Every asset category searched, excluding the Subway `TRAIN` and training-mode
+matches that share the substring:
+
+| Looked for | Found |
+|---|---:|
+| `*RAIN*.pvr` / `.PNG` | 0 |
+| `*RAIN*.meshset` / `.skin` | 0 |
+| `*RAIN*frames.txt` | 0 |
+| `*RAIN*PORTRAIT*` | 0 |
+
+**No model, no animation, no texture, no portrait, no frame list, no scene.**
+
+### Why this is the useful comparison
+
+| | Noob Saibot | Rain |
+|---|---|---|
+| Assets | 2.47 MB, complete | none |
+| In the name table | yes | **no** |
+| Win message | yes | yes |
+| Select portrait | a real drawn face | none |
+| Verdict | present, reachability unknown | **absent** |
+
+Noob Saibot looked cut and is complete; Rain looks present and is a leftover
+string. Either one alone would mislead. Checking both is what makes the method
+worth anything.
+
 ## Genuinely unused: build leftovers
 
 - **`res/framelists/subzeroframes.txt.tmp`** — a temp file that shipped. The
