@@ -68,3 +68,40 @@ void LIMEDS_SetObjectOrientation(const float *matrix, const limeVECTOR3 *pos)
     glTranslatef(pos->x, pos->y, pos->z);
     glMultMatrixf(matrix);
 }
+
+
+/* ------------------------------------------------- ConvertDSMatrixtoPCMatrix
+ *
+ * armv6 0x0007fb30, 240 bytes.
+ *
+ * Converts a matrix from the engine's older fixed-point form into the float
+ * 4x4 the renderer uses.
+ *
+ * **The "DS" in this file is Nintendo DS.** The source is `int32` and every
+ * element is multiplied by the literal at 0x0007fc40, which is `0x39800000` --
+ * exactly **1/4096**, the DS's 1.3.12 fixed-point scale. That fits what the
+ * project already knew about this codebase's ancestry: `EA_SDK/microedition/`
+ * carries Java ME classes, so the lineage runs handheld to phone to iOS, and
+ * this function is the seam where the old numeric format is still being paid
+ * for at runtime.
+ *
+ * It also settles a layout question. The source is packed three floats at a
+ * time while the destination gets **an explicit zero written at +0x0c and
+ * +0x1c** -- the fourth column of each row. So the PC matrix is **row-major
+ * 4x4 with w = 0 per row**, which is the same convention
+ * CreatePerspectiveMatrix uses and the opposite of what glLoadMatrixf expects.
+ *
+ * (Note this is *not* the convention LIMEDS_SetObjectOrientation's argument
+ * follows -- see the comment there. The engine genuinely mixes them.)
+ */
+void ConvertDSMatrixtoPCMatrix(const int32_t *src, float *dst)
+{
+    const float k = 1.0f / 4096.0f;     /* literal 0x39800000 */
+    int row, col;
+
+    for (row = 0; row < 4; row++) {
+        for (col = 0; col < 3; col++)
+            dst[row * 4 + col] = (float)src[row * 3 + col] * k;
+        dst[row * 4 + 3] = 0.0f;        /* the written zero */
+    }
+}
