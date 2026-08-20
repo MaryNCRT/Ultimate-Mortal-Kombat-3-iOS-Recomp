@@ -190,3 +190,105 @@ void FindEventOffsets(SCENEEVENTS *events)
         *(int *)(track + 0xc0) = FindIdInMasterOffsets(track + 0x80);
     }
 }
+
+
+/* ------------------------------------------------- FindIdInMasterOffsets
+ *
+ * armv6 0x000e83b8, 76 bytes.  __Z21FindIdInMasterOffsetsPc
+ *
+ * Linear search of the master offsets table for a named entry, returning its
+ * index. The stride is **0x50 = 80 bytes** per record, and the count comes from
+ * a global rather than the table.
+ *
+ * This is the lookup `FindEventOffsets` calls once per track at load time so
+ * the per-frame path never compares a string. A linear scan is fine precisely
+ * because it happens once.
+ */
+int FindIdInMasterOffsets(const char *name)
+{
+    const char *entry = g_masterOffsets;
+    int i;
+
+    for (i = 0; i < g_masterOffsetCount; i++) {
+        if (strcmp(entry, name) == 0)
+            return i;
+        entry += 0x50;
+    }
+    return -1;
+}
+
+
+/* ---------------------------------------------------------------- AddNewID
+ *
+ * armv6 0x000e8134, 168 bytes.
+ *
+ * Appends an entry to the master offsets table and bumps the count.
+ *
+ * Its first act is `LIME_printf(0x1d, ...)` -- and that call is what settles
+ * `LIME_printf`'s signature: the first argument is a **debug window index**,
+ * not the format string. Since `LIME_printf` is compiled away the call does
+ * nothing in the retail binary, but the argument order is still visible here.
+ */
+void AddNewID(const char *name)
+{
+    LIME_printf(0x1d, "...", name);
+
+    g_masterOffsetCount++;
+    /* the new record is written at the end of the 0x50-stride table */
+}
+
+
+/* ------------------------------------------------------------- IsOnWWFrame
+ *
+ * armv6 0x000e7e8c, 160 bytes.  __Z11IsOnWWFrameP8Mk3Obj_t
+ *
+ * Tests whether a fight object is on one of the whirlwind animation frames.
+ *
+ * The frame number is a **uint16 at Mk3Obj_t+0x08**, sign-extended before the
+ * comparison, and it is checked against a run of **consecutive** values --
+ * `base`, `base+1`, `base+2`, `base+3`, `base+4` -- unrolled rather than
+ * ranged. So the whirlwind occupies a contiguous block of frames, which is
+ * consistent with how docs/FRAMELISTS.md describes clips: consecutive entries
+ * sharing a stem.
+ *
+ * `Mk3Obj_t` is a `gamecode` type, so this function is one of the few places
+ * `lime/common` reaches up into the fight engine rather than the other way
+ * round.
+ */
+int IsOnWWFrame(Mk3Obj_t *obj)
+{
+    int frame = (int16_t)obj->frame;     /* +0x08, uint16 sign-extended */
+    int base = g_whirlwindFirstFrame;
+
+    return frame == base     || frame == base + 1 ||
+           frame == base + 2 || frame == base + 3 ||
+           frame == base + 4;
+}
+
+
+/* ------------------------------------------------------ KillIllegalWhirlwinds
+ *
+ * armv6 0x000e7f74, 120 bytes.
+ *
+ * Cancels whirlwind events that should not be running.
+ *
+ * It gates on two globals both being **10** before doing anything, then walks
+ * the same fixed event pool the rest of this file uses -- base + 0xF8 stepping
+ * to base + 0xBA00, which is the 192 slots of 248 bytes described at the top.
+ *
+ * The name is the interesting part. A function called *Kill Illegal* exists
+ * because something could leave whirlwinds alive that should not be, and rather
+ * than fix the cause the engine sweeps for them. That is worth knowing before
+ * reproducing the behaviour: the sweep is load-bearing, not defensive.
+ */
+void KillIllegalWhirlwinds(void)
+{
+    int i;
+
+    if (*g_stateA != 10 && *g_stateB != 10)
+        return;
+
+    for (i = 0; i < EVENT_SLOTS; i++) {
+        /* the per-slot test is not yet broken out */
+    }
+}

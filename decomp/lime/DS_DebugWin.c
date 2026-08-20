@@ -44,9 +44,20 @@
  *
  * That is a finding rather than a gap: nothing in the retail binary prints
  * through this, so any log output seen from the game comes from somewhere else.
+ *
+ * **The first argument is a window index, not the format string.** An earlier
+ * version of this file typed it `(const char *fmt, ...)`, which was wrong.
+ * `AddNewID` in Events.cpp calls it with `r0 = 0x1d` and the format in `r1`,
+ * and that fits everything else here: the windows are an array addressed by a
+ * small integer, so printing means naming which one to print into.
+ *
+ * The body being empty is why the mistake was invisible -- there is no code
+ * left that touches the arguments to contradict a wrong signature. It took a
+ * call site to settle it.
  */
-void LIME_printf(const char *fmt, ...)
+void LIME_printf(int window, const char *fmt, ...)
 {
+    (void)window;
     (void)fmt;
 }
 
