@@ -95,9 +95,18 @@ what "height from ground" as the only tunable implies.
 
 ## `.lighting`: baked per-vertex light, still encoded
 
-Thirteen `.lighting` files ship, one per character and covering only 13 of the
-29 -- consistent with the palette-swap characters sharing a rig and therefore a
-bake.
+**341 `.lighting` files ship, not thirteen.** An earlier version of this page
+said thirteen because it only listed the top of `res/`; the other 328 live in
+**`res/STATICLIGHTING/`**, a directory nobody had opened, alongside 455 `.lights`
+files -- 796 entries and 20.7 MB in total.
+
+The thirteen at the top level are the per-character animation bakes analysed
+below. The `STATICLIGHTING/` entries are per-object: of 499 distinct stems,
+**463 match a `.meshset` and a `.scene` by name**, so they are baked lighting for
+individual scene objects rather than for animated characters.
+
+The thirteen character bakes cover 13 of the 29 fighters, consistent with the
+palette-swap characters sharing a rig and therefore a bake.
 
 Their sizes scale with **vertices x animation frames**, at roughly 1.3 to 2.0
 bytes each:
