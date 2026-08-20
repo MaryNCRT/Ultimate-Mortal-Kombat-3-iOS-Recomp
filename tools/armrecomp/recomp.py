@@ -80,6 +80,14 @@ COND_EXPR = {
     "gt": "(!ctx->zf && ctx->nf == ctx->vf)", "le": "(ctx->zf || ctx->nf != ctx->vf)",
 }
 
+# Inverse predicates used by Thumb IT blocks.  The architecture permits the
+# aliases hs/cs and lo/cc; keep the spelling that COND_EXPR already accepts.
+INVERSE_COND = {
+    "eq": "ne", "ne": "eq", "cs": "cc", "hs": "lo", "cc": "cs", "lo": "hs",
+    "mi": "pl", "pl": "mi", "vs": "vc", "vc": "vs", "hi": "ls", "ls": "hi",
+    "ge": "lt", "lt": "ge", "gt": "le", "le": "gt",
+}
+
 
 class Unsupported(Exception):
     pass
@@ -214,7 +222,7 @@ class Emitter(object):
 
     # -- traduccion de una instruccion --
 
-    def translate(self, ins, fname, out):
+    def translate(self, ins, fname, out, it_cond=None):
         base = ins.mnemonic.split(".")[0]
         ops = ins.operands
         conditional = ins.cc not in (ARM_CC_AL, ARM_CC_INVALID, 0)
@@ -224,10 +232,17 @@ class Emitter(object):
         # no reconoceriamos la operacion base. Solo se hace cuando capstone
         # confirma que la instruccion es condicional: asi "movs" (mov + flags)
         # no se confunde con "mov" + condicion "vs", ni "lsls" con "lsl" + "ls".
-        cond_name = None
+        # Capstone 5 does not propagate the predicate represented by a Thumb
+        # IT instruction into `ins.cc`; it emits plain `vdiv`, `str`, etc.
+        # `emit_function` carries that predicate explicitly as it_cond.
+        # Older Capstone versions do propagate it, so retain suffix stripping
+        # and require both sources to agree when both are present.
+        cond_name = it_cond
         if conditional and not base.startswith("b"):
             for c in sorted(COND_EXPR, key=len, reverse=True):
                 if base.endswith(c) and len(base) > len(c):
+                    if cond_name is not None and cond_name != c:
+                        raise Unsupported("IT %s contradice sufijo %s" % (cond_name, c))
                     cond_name = c
                     base = base[:-len(c)]
                     break
@@ -239,6 +254,24 @@ class Emitter(object):
 
         for line in body:
             out.append("    " + line)
+
+    @staticmethod
+    def it_predicates(ins):
+        """Return the predicates for the instructions following a Thumb IT.
+
+        `itt ne` means [ne, ne]; `ite eq` means [eq, ne].  The first slot is
+        implicit in the condition operand and each trailing T/E selects the
+        same or inverse predicate.  This must be tracked by the emitter: it
+        is architectural control flow, not a no-op annotation.
+        """
+        mn = ins.mnemonic.split(".")[0].lower()
+        if not (mn == "it" or (mn.startswith("it") and set(mn[2:]) <= set("te"))):
+            return None
+        cond = ins.op_str.strip().split(",")[0].lower()
+        if cond not in COND_EXPR:
+            raise Unsupported("condicion IT desconocida: %s" % cond)
+        return [cond] + [cond if ch == "t" else INVERSE_COND[cond]
+                         for ch in mn[2:]]
 
     def translate_body(self, ins, base, ops, fname):
         m = base
@@ -1014,13 +1047,22 @@ class Emitter(object):
         out.append("{")
 
         decoded_bytes = 0
+        pending_it = []
         for ins in insns:
             decoded_bytes += ins.size
             if ins.address in labels:
                 out.append("L_%08x:" % ins.address)
             out.append("    /* %08x  %s %s */" % (ins.address, ins.mnemonic, ins.op_str))
             try:
-                self.translate(ins, cn, out)
+                predicates = self.it_predicates(ins)
+                if predicates is not None:
+                    if pending_it:
+                        raise Unsupported("bloque IT anidado")
+                    pending_it = predicates
+                    self.translate(ins, cn, out)
+                else:
+                    it_cond = pending_it.pop(0) if pending_it else None
+                    self.translate(ins, cn, out, it_cond)
             except Unsupported as e:
                 self.problems.append((name, ins.address,
                                       "%s %s -- %s" % (ins.mnemonic, ins.op_str, e)))
