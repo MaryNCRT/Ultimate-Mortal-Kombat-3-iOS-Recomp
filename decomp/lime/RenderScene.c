@@ -370,3 +370,112 @@ SCENEINFO *LIME_LoadScene(const char *filename, int arg1, int arg2, int arg3)
 
     return scene;
 }
+
+
+/* ------------------------------------------------------- AddToTranspMeshList
+ *
+ * armv6 0x00081ab8, 116 bytes.  **Complete.**
+ *
+ * Defers a transparent mesh instead of drawing it: the opaque pass records it
+ * here and FlushTranspMeshList draws the whole batch afterwards.
+ *
+ * ## The record is 48 bytes, and the compiler says so twice
+ *
+ *      lsl  r3, r4, #6             ; index * 64
+ *      sub  r3, r3, r4, lsl #4     ; minus index * 16   ->  index * 48
+ *
+ * One multiply turned into two shifts and a subtract, the same trick
+ * LIME_LoadBones uses. FlushTranspMeshList walks the identical array with a
+ * plain `add r6, r6, #0x30`, so both sides agree on 0x30.
+ *
+ * ```
+ *   +0x00   two words copied from the SCENENODE
+ *   +0x04     (a byte at +0x05 is read back as a flag when flushing)
+ *   +0x08   the QSTMATRIX, 32 bytes, copied verbatim by two ldm/stm pairs
+ *   +0x28   MESHSETINFO *
+ *   +0x2c   the fifth argument
+ * ```
+ *
+ * ## Overflowing the list HANGS the game
+ *
+ * This is the part worth stopping on:
+ *
+ *      add   r3, r4, #1
+ *      cmp   r3, #0xff
+ *      str   r3, [r5]
+ *      pople {r4, r5, r7, pc}      ; <= 255: return normally
+ *      b     #0x81b20              ; otherwise branch to ITSELF
+ *
+ * `b #0x81b20` is at address `0x81b20`. **It is an unconditional branch to its
+ * own address** -- an infinite loop with interrupts still on. The 256th
+ * transparent mesh in a frame does not wrap, does not drop, and does not
+ * crash. It locks the game solid.
+ *
+ * That is almost certainly a debug assert whose reporting half was stripped in
+ * the retail build, exactly like `LIME_printf` and `RenderAxesLines` -- the
+ * check survived and the message did not. The effect on a shipped device is the
+ * same either way.
+ *
+ * **For the port**: the limit is 255 per frame and it must be enforced
+ * somewhere visible. A widescreen or higher-resolution port that draws more of
+ * a stage at once moves closer to this ceiling, not further from it, so
+ * silently raising the array size is the right fix and dropping the check is
+ * not -- if it can be hit, it needs to be seen.
+ */
+void AddToTranspMeshList(MESHSETINFO *meshset, const SCENENODE *node,
+                         const QSTMATRIX *qst, long arg3, long arg4)
+{
+    TRANSPMESH *slot = &g_transpMeshList[g_transpMeshCount];   /* stride 0x30 */
+
+    slot->word0 = ((const uint32_t *)node)[0];
+    slot->word1 = ((const uint32_t *)node)[1];
+    memcpy(&slot->qst, qst, 32);        /* +0x08, two ldm/stm pairs */
+    slot->meshset = meshset;            /* +0x28 */
+    slot->arg4 = arg4;                  /* +0x2c, the fifth argument */
+
+    g_transpMeshCount++;
+    if (g_transpMeshCount > 0xff)
+        for (;;) { }                    /* b . -- the retail build hangs here */
+}
+
+
+/* ----------------------------------------------------- FlushTranspMeshList
+ *
+ * armv6 0x000825d0, 528 bytes.  **Structurally complete.**
+ *
+ * Draws everything AddToTranspMeshList collected, then the frame is done.
+ *
+ * ## The transparency model, in the first two instructions
+ *
+ *      bl  _limeEnableAlphaBlending_Additive
+ *      bl  _limeDisableDepthWrites
+ *
+ * **Additive blending with depth writes off** -- and that single choice
+ * explains the whole design. Additive blending is commutative: `a + b + c`
+ * gives the same pixel in any order. So the list is drawn **in insertion order
+ * with no depth sort anywhere**, because it does not need one.
+ *
+ * This is why a fixed 255-entry array with no ordering is adequate rather than
+ * naive. It is also the thing most likely to be "improved" by mistake in a
+ * port: adding a back-to-front sort costs time and changes nothing, while
+ * switching to standard alpha blending to make smoke look denser makes the
+ * result **order-dependent** and the absence of a sort becomes a real bug.
+ *
+ * Depth *testing* is left on -- only writes are disabled -- so transparent
+ * meshes are still occluded by opaque geometry but never occlude each other.
+ *
+ * ## Per item
+ *
+ * Push the matrix stack, expand the stored QST through
+ * `ConvertQSTMatrixtoPCMatrix` -- reading from **`item + 8`**, which confirms
+ * the offset AddToTranspMeshList writes it to -- check the flag byte at
+ * `item + 5`, call `LIME_RenderMesh`, then `LIME_PopMatrix(1)`.
+ *
+ * One push and one pop per item, so a mesh that returns early still leaves the
+ * stack balanced.
+ *
+ * The branch structure around the flag byte and the two texture pointers is not
+ * transcribed; the loop body has several early exits whose ordering does not
+ * change what is drawn.
+ */
+void FlushTranspMeshList(TEXTURE *texture, const SKINMATRIX43 *matrix);

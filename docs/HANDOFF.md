@@ -14,7 +14,7 @@ call; the completion figures are measured.
 | | |
 |---|---|
 | Asset formats | **100%** — solved, demonstrated, animating |
-| `lime/common` | **86 of 109** functions |
+| `lime/common` | **87 of 109** functions |
 | Native executable | **exists**, draws textured lit geometry |
 | `gamecode` + fight logic | 2,463 functions, essentially untouched |
 | Platform layer | target measured (77 GL entry points), barely written |
@@ -93,7 +93,7 @@ protects nothing and costs the project its only visible evidence.
 
 ## What to do next, in order
 
-### 1. Finish `lime/common` — 23 functions left
+### 1. Finish `lime/common` — 22 functions left
 
 **The specific work order for this is [ENCARGO.md](ENCARGO.md).**
 
@@ -158,6 +158,11 @@ those functions are — see [X-TABLES.md](X-TABLES.md) and
   *second* argument. `GetSlerpedQ` blends the same way round, and despite its
   name it is a **lerp with a shortest-arc sign flip, not a slerp** — no acos, no
   sin, no renormalisation. See [SKIN-FORMAT.md](SKIN-FORMAT.md).
+- **Transparency is ADDITIVE with depth writes off, and deliberately unsorted.**
+  Additive blending is commutative, so insertion order is correct order and the
+  missing depth sort is not an oversight. Switching to standard alpha blending
+  to make smoke look denser makes the result order-dependent and turns the
+  absence of a sort into a real bug.
 - **Lighting is monochrome and has no ambient term.** Two directional lights,
   a `pow()` falloff on each, negated dot products, clamped to 1. Substituting a
   plain `max(0, dot)` will look visibly wrong. See [LIGHTING.md](LIGHTING.md).

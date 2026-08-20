@@ -128,7 +128,7 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 **Roughly 32% of the total estimated effort. Nothing is playable yet.**
 
 The bar moved for the first time in a while, and only because `lime/common`
-did: 86 of 109 functions against 21 a short time ago. The asset work that came
+did: 87 of 109 functions against 21 a short time ago. The asset work that came
 before it — solving the character formats, rendering and animating them — was
 worth a great deal and worth **no percentage points at all**, because that row
 was already at 100%. What changed there is that it is now *demonstrated* rather
@@ -144,7 +144,7 @@ the completion figures are measured.
 | Binary analysis and source-tree mapping | 4% | 100% | `██████████` |
 | Tooling and the verification oracle | 8% | 100% | `██████████` |
 | Asset format specifications | 8% | 100% | `██████████` |
-| `lime/common` — engine core (109 fn) | 12% | 79% | `████████░░` |
+| `lime/common` — engine core (109 fn) | 12% | 80% | `████████░░` |
 | `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | 4% | `░░░░░░░░░░` |
 | Native PC platform layer (161 fn to rewrite) | 17% | 10% | `█░░░░░░░░░` |

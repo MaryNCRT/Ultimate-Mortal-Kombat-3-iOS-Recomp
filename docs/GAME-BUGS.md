@@ -85,3 +85,45 @@ texture failures stand out as real rather than as a parser artefact.
 
 Reproduce with the checks in [`tools/`](../tools); the texture scan is a short
 walk over every `.meshset`'s texture field against the file listing.
+
+
+---
+
+## The 256th transparent mesh locks the game
+
+`AddToTranspMeshList` (armv6 `0x00081ab8`) collects transparent meshes into a
+fixed 255-entry array. The bounds check is real, and this is what it does when
+it fails:
+
+```
+add   r3, r4, #1
+cmp   r3, #0xff
+str   r3, [r5]
+pople {r4, r5, r7, pc}      ; <= 255: return normally
+b     #0x81b20              ; otherwise branch to ITSELF
+```
+
+The instruction at `0x81b20` **is** `b #0x81b20`. It branches to its own
+address, with interrupts still enabled. So the 256th transparent mesh in a
+single frame does not wrap the index, does not drop the mesh, and does not
+crash — the game **hangs**, responsive to nothing, with the last frame still on
+screen.
+
+This is almost certainly a debug assert whose reporting half was stripped for
+release, the same way `LIME_printf` and `RenderAxesLines` lost their bodies
+while keeping their scaffolding. The check survived; the message that would have
+told you why did not.
+
+### Can it be reached on a real device?
+
+Not established. Counting the transparent meshes a busy stage actually emits per
+frame needs the render path traced end to end, which is not finished. What *is*
+established is that the ceiling is 255, that the failure mode is a hard lock,
+and that nothing between here and there reports anything.
+
+### What the port should do
+
+Raise the array and keep the check. A widescreen or higher-resolution port draws
+**more** of a stage at once, so it moves toward this ceiling rather than away
+from it. Deleting the check to be safe is the wrong instinct: if the limit can
+be reached, the one thing worse than hitting it is hitting it silently.
