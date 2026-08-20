@@ -65,6 +65,43 @@ arcade did with its palette-swap ninjas — his 347 frames over 48 bones match
 Liu Kang's and Old Smoke's precisely. The naming convention hides him from a
 text search; nothing is missing.
 
+## The select-screen portraits give the tier away
+
+![Character-select portraits: the hidden tier against the normal roster](img/hidden-portraits.png)
+
+Every one of the **24 normal selectable characters has a 128x128 portrait**.
+Exactly five files are **64x64**, and they are precisely the hidden tier plus
+the two non-combatants:
+
+```
+DUMMYPORTRAIT · ENDURANCEPORTRAIT · NOOBSAIBOTPORTRAIT ·
+OLDSMOKEPORTRAIT · OLDSUBZEROPORTRAIT
+```
+
+Half the resolution of everybody else, with no exceptions in either direction.
+That is not a coincidence of art budgets; it is a category.
+
+### Human Smoke never got a portrait at all
+
+Noob Saibot and Classic Sub-Zero have **real, drawn portraits** — a masked
+ninja face on green and a blue-masked one on purple. `OLDSMOKEPORTRAIT.PNG`
+is the **red question mark**: the same placeholder art as `HIDDENPORTRAIT.PNG`,
+downscaled to 64x64 and shipped as his actual portrait.
+
+Measured against `HIDDENPORTRAIT` resampled to 64x64:
+
+| File | Mean pixel difference |
+|---|---:|
+| `OLDSMOKEPORTRAIT.PNG` | **3.65** — the same image |
+| `NOOBSAIBOTPORTRAIT.PNG` | 53.05 — a different, real portrait |
+| `OLDSUBZEROPORTRAIT.PNG` | 48.99 — a different, real portrait |
+
+A factor of fourteen. So the character-select art for Human Smoke is
+**unfinished**, and the placeholder went out in the retail build.
+
+This is the one place so far where the evidence supports the word *unfinished*
+rather than merely *hidden*. Noob Saibot, by contrast, has everything.
+
 ## What is genuinely unknown
 
 **Whether the character select screen exposes any of this.** That logic lives in
