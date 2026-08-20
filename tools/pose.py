@@ -27,9 +27,11 @@ What it exercises:
     GetMFromQuat2, MatrixMul2, DrawSkinnedMesh2  decomp/lime/RenderSkinned.c
 
 Usage:
-  python pose.py <CHARACTER> <out.png> [frame]
+  python pose.py <CHARACTER> <out.png> [frame|idle]  [--render] [--angle N]
 
-e.g. `python pose.py KANO_STANDARD kano.png 0`. Files are looked up in the
+e.g. `python pose.py KANO_STANDARD kano.png idle --render`.
+The frame defaults to `idle`, which searches for the standing stance --
+**frame 0 is not one**, see find_idle_frame. Files are looked up in the
 res/ directory of an extracted IPA; set UMK3_RES or edit RES below.
 """
 
@@ -81,6 +83,52 @@ def load_bones(path):
     return num, offsets, children, roots[0]
 
 
+def frame_count(path):
+    data = open(path, "rb").read()
+    _scale, nframes, _fsize, _nb, _end, _hdr = skin.parse_anim(data)
+    return nframes
+
+
+def find_idle_frame(anim_path, num, offsets, children, root, skin_path=None,
+                    step=1):
+    """Pick the character's resting stance out of the animation stream.
+
+    **Frame 0 is not it.** A `.skinanim` is one long stream holding every
+    animation the character has -- 33 to 844 frames -- so frame 0 is just
+    whatever comes first. Rendering it gives Sub-Zero mid-knockdown and Scorpion
+    in a flying kick, which look like skinning bugs and are not.
+
+    Scoring by "most upright" does not work either: it picks whatever frame has
+    the arms stretched highest overhead.
+
+    What does work is that **every animation departs from the stance and returns
+    to it**, so stance-like frames are heavily over-represented in the stream.
+    Taking the medoid -- the frame whose bone positions sit closest to the mean
+    of all frames -- lands on the pose the character spends most of its time in,
+    with no knowledge of where any individual animation begins or ends.
+    """
+    data = open(anim_path, "rb").read()
+    _sc, nframes, fsize, nbones, _end, hdr = skin.parse_anim(data)
+
+    feats, frames = [], []
+    for f in range(0, nframes, step):
+        base = hdr + f * fsize
+        root_pos = np.array(struct.unpack_from("<3f", data, base + 4))
+        quats = [struct.unpack_from("<4f", data, base + 16 + i * 20)
+                 for i in range(nbones)]
+        palette = build_palette(num, offsets, children, root, root_pos, quats)
+        p = np.array([palette[i][1] for i in range(num)])
+        # relative to the root, so the character walking around does not count
+        # as a different pose
+        feats.append((p - p[root]).ravel())
+        frames.append(f)
+
+    feats = np.array(feats)
+    mean = feats.mean(0)
+    dist = np.linalg.norm(feats - mean, axis=1)
+    return frames[int(dist.argmin())]
+
+
 def load_frame(path, index):
     """One animation frame: root position and one quaternion per bone.
 
@@ -117,6 +165,10 @@ def build_palette(num, offsets, children, root, root_pos, quats):
     def walk(i, parent_r, parent_t):
         n = order[0]
         order[0] += 1
+        # ROBO1 and ROBO2 ship fewer animated bones than skeleton bones
+        # (20 of 25, 44 of 56). Those tail bones genuinely have no rotation
+        # track, so identity is the right fallback -- but it is worth knowing
+        # rather than discovering as a bent limb.
         r = quat_matrix(quats[n]) if n < len(quats) else np.eye(3)
         t = root_pos if n == 0 else offsets[i]
         palette[i] = (r @ parent_r, t @ parent_r + parent_t)
@@ -234,11 +286,20 @@ def main(argv):
         print(__doc__)
         return 1
     name, out = argv[1], argv[2]
-    frame = int(argv[3]) if len(argv) > 3 else 0
+    want = argv[3] if len(argv) > 3 else "idle"
 
     num, offsets, children, root = load_bones(os.path.join(RES, name + ".bones"))
-    root_pos, quats, nframes = load_frame(os.path.join(RES, name + ".skinanim"),
-                                          frame)
+    anim = os.path.join(RES, name + ".skinanim")
+
+    if want == "idle":
+        # Frame 0 is arbitrary -- see find_idle_frame. Default to the stance.
+        frame = find_idle_frame(anim, num, offsets, children, root,
+                                os.path.join(RES, name + ".skin"))
+        print("  idle stance found at frame %d" % frame)
+    else:
+        frame = int(want)
+
+    root_pos, quats, nframes = load_frame(anim, frame)
     palette = build_palette(num, offsets, children, root, root_pos, quats)
     pts = skin_vertices(os.path.join(RES, name + ".skin"), palette, num)
     bone_pts = np.array([palette[i][1] for i in range(num)])
@@ -254,12 +315,17 @@ def main(argv):
         texture = "%s_DIFFUSE.pvr" % name.split("_")[0]
         mesh = build_mesh(os.path.join(RES, name + ".skin"), pts, texture)
         print("  %d triangles, texture %s" % (mesh.num_faces, texture))
-        yaw = 0.0
+        yaw, fit = 0.0, 0.78
         for i, a in enumerate(argv):
             if a == "--angle" and i + 1 < len(argv):
                 yaw = math.radians(float(argv[i + 1]))
+            elif a == "--fit" and i + 1 < len(argv):
+                fit = float(argv[i + 1])
+        # a posed character is much taller than it is wide, and the framing has
+        # to clear the head -- 0.62 was tuned on frame 0, where several
+        # characters happen to be horizontal
         img, stats = meshview.render([mesh], RES, size=560, yaw=yaw,
-                                     pitch=0.0, fit=0.62)
+                                     pitch=0.0, fit=fit)
         Image.fromarray(img).save(out)
         print("  -> %s   %d triangles drawn" % (out, stats["triangles"]))
         return 0
