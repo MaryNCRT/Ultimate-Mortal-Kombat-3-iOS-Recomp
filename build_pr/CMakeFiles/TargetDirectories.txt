@@ -1,0 +1,3 @@
+E:/umk3repo/build_pr/CMakeFiles/umk3.dir
+E:/umk3repo/build_pr/CMakeFiles/edit_cache.dir
+E:/umk3repo/build_pr/CMakeFiles/rebuild_cache.dir

@@ -1,0 +1,10 @@
+# ninja log v7
+70	344	8089567409383701	CMakeFiles/umk3.dir/runtime/lime/light.c.obj	edfacc5f40035846
+53	360	8089567409217749	CMakeFiles/umk3.dir/runtime/lime/limemath.c.obj	b2650691d0313741
+62	646	8089567409298006	CMakeFiles/umk3.dir/runtime/lime/pvr.c.obj	c47e4cd1201ba4b2
+39	656	8089567409076912	CMakeFiles/umk3.dir/runtime/lime/meshset.c.obj	37de3a950d45dc43
+46	819	8089567409147093	CMakeFiles/umk3.dir/runtime/lime/skin.c.obj	52bb2c2a27ce0f30
+79	3793	8089567409478952	CMakeFiles/umk3.dir/runtime/platform/win32_gl.c.obj	46e16bc9a5a2f926
+32	3923	8089567409011849	CMakeFiles/umk3.dir/runtime/character.c.obj	560c60ef111b121c
+25	3923	8089567408931620	CMakeFiles/umk3.dir/runtime/main.c.obj	355ac2a5fa8d3d42
+3923	4183	8089567447928980	umk3.exe	2b74481b92f29add
