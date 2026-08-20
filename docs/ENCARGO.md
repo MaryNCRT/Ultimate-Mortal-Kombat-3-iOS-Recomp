@@ -6,6 +6,45 @@ project overview.
 
 ---
 
+## First: extend the oracle past the calibration pair
+
+**Phase 0 is green.** `python tools/decomp_loop.py --calibrate` passes 2/2,
+60,019 cases, 0 divergences. It needs `UMK3_WORK` to hold `symbols.txt`,
+`func-to-file.txt` and `UMK3.armv7`.
+
+**Only 13 of the 88 written functions have ever been run.** That is the gap
+worth closing before writing more, because the first run found three real
+defects in an afternoon — including the recompiler emitting undefined behaviour
+for `ASR #32`, which means the oracle itself was capable of certifying wrong
+code.
+
+`RenderMesh.cpp` is the next module and `tests/test_rendermesh_diff.c` already
+exists. It currently fails to compile with **20 errors**, all bounded and all of
+one kind — the file was written to be read, not built:
+
+```
+8   undeclared globals      g_fadeTableBuilt, g_fadeTable, FADE_LEVELS,
+                            FullBrightLoaded, TheFullBrightInfo,
+                            g_debugEnabled, g_debugCubeScene, DEBUG_CUBE_SCENE
+6   missing declarations    LIME_RenderMeshSingle, limeDeleteTexture,
+                            LIME_FreeSingleMesh, limeFree, limeFileSize,
+                            LIME_LoadScene
+5   missing struct fields   MESHINFO.texture, MESHINFO.visible, MESHINFO.data
+1   signature mismatch      limeLoadFile
+```
+
+**The signature one is a design decision, not a typo.** `lime.h` declares
+`limeLoadFile(path, size_t *out)` — the shape the PC runtime wants — while the
+binary has `limeLoadFile(path)` with a separate `limeFileSize(path)`. The
+decompiled code is a description of the original and should carry the original
+signature; the runtime should adapt. Decide that deliberately and write it down,
+because both call shapes are already in the tree.
+
+Do not add a struct field to `lime.h` without an offset you can point at.
+Guessing one here corrupts every function that touches the struct.
+
+---
+
 ## The job: finish `lime/common`
 
 **88 of 109 have a body (81%).** The remaining 21 are **not all equal work**,

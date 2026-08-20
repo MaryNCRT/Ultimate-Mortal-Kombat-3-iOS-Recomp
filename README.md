@@ -127,6 +127,31 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 
 **Roughly 32% of the total estimated effort. Nothing is playable yet.**
 
+### What "decompiled" means here, exactly
+
+The percentages above count functions that have been **read, understood and
+written out as readable C**. That is not the same as verified, and the
+difference is now measured rather than assumed:
+
+| | count | what backs it |
+|---|---:|---|
+| Behaviourally verified | **13** | compiled, run against a recompiled oracle, 60,019 cases, 0 divergences |
+| Written and documented | 75 | structural gate only — no invented callees |
+| Documented, body pending | 11 | analysed, findings recorded, transcription deliberately not written |
+
+Only `Matrix.cpp` and `limeVector.cpp` have been through the differential
+oracle. Everything else has passed `symcheck`, which proves a function does not
+call anything the binary never contained — a real gate, and a purely structural
+one. It says nothing about behaviour.
+
+The first oracle run found three defects in a single afternoon: the recompiler
+was miscompiling `ASR #32` into undefined behaviour, `RenderMesh.c` held a
+syntax error that had never been compiled, and a symbol this project had
+described as a configurable path turned out to be a function. Extending that
+coverage is the highest-value work left in the engine, and it is tracked in
+[ENCARGO.md](docs/ENCARGO.md).
+
+
 The bar moved for the first time in a while, and only because `lime/common`
 did: 88 of 109 functions against 21 a short time ago. The asset work that came
 before it — solving the character formats, rendering and animating them — was
