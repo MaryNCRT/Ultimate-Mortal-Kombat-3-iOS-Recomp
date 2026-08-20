@@ -273,3 +273,26 @@ frame 356 with genuinely different rotations, which is what placing five puffs
 of smoke around one event looks like.
 
 So an entry reads: **at frame N, spawn this named thing with this transform.**
+
+---
+
+## The slot catalogue
+
+A track's `slot` string names what the event *is*. Across the 545 `.events`
+files there are **98 distinct assigned slots** (plus `UNASSIGNED`), and they
+sort themselves:
+
+| Kind | Slots | Examples |
+|---|---:|---|
+| Fatality / death | 58 | `DECAPITATION` (×50), `ICETHUD_DEATH_ANIMATION` (×25), `SLICEANDDICE_JAX` (×24), `BACKBREAKER_BLOOD`, `FATALITY2 MUSHROOM` |
+| Babality | 9 | `BABALITY`, `SCORPION_BABALITY`, `ROBOT_BABALITY`, `SUBZERO_BABALITY` |
+| Effects and victory | 31 | `FREEZE_MIST`, `MUZZLEFLASH`, `IN_VICTORY_AXEFIRE`, `RINGTOSS COLLISION FX` |
+
+Combined with the frame index above, this makes the game's finisher catalogue
+**machine-readable**: what fires, on which character, and at which frame of
+their animation. Extracting it needs no further reverse engineering.
+
+Animalities do not appear as slots. They are
+[morph sequences in the `.meshset`](SKIN-FORMAT.md) instead — `SmokeBull`,
+`JadeCat` — which is consistent with them being whole-body transformations the
+skeleton cannot express.
