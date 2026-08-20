@@ -119,11 +119,23 @@ void         LIME_FreeMeshSet(MESHSETINFO *set);
  * are easy to get wrong and both are verified. */
 int          LIME_FindMeshByName(const MESHSETINFO *set, const char *name);
 
-void         LIME_LoadMeshSetTextures(MESHSETINFO *set);
+/* The second argument is real: RenderDebugCube passes 0 for it, and when it is
+ * non-null the function composes three candidate texture names from it. The
+ * single-argument form here was stale and only surfaced when the file was
+ * first compiled. */
+void         LIME_LoadMeshSetTextures(MESHSETINFO *set, const char *suffix);
 void         LIME_FreeMeshSetTextures(MESHSETINFO *set);
 
 /* Non-zero if the texture should be drawn without lighting. The original
  * decides by looking the name up in a data file. */
+/* Opaque to the decompiled engine code: nothing in lime/common reaches inside
+ * a TEXTURE, it only passes the pointer to GL and to the loader. */
+typedef struct TEXTURE TEXTURE;
+
+/* The full-bright opt-out list. A literal in the binary, not a variable --
+ * see the note on _IsTextureFullBrightPath in RenderMesh.c. */
+#define NOLIGHT_FILE "nolight.txt"
+
 int          IsTextureFullBright(const char *textureName);
 
 /* ------------------------------------------------------------------ */

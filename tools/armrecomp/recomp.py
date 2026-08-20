@@ -499,12 +499,26 @@ class Emitter(object):
             # Capstone's order is ASR, LSL, LSR, ROR, RRX -- NOT the intuitive
             # LSL, LSR, ASR. Getting this wrong turns "lsl #16" into ">> 16",
             # which compiles, runs, and is silently wrong.
+            n = op.shift.value
+            # ARM encodes "shift by 32" for LSR and ASR as shift_imm == 0, and
+            # capstone reports it back as 32.  Emitting ">> 32" on a 32-bit type
+            # is UNDEFINED BEHAVIOUR in C: gcc masks the count to 5 bits, so it
+            # compiles to ">> 0" and leaves the value untouched -- the opposite
+            # of what the instruction does.  The first differential run of
+            # RenderMesh.cpp caught this as three -Wshift-count-overflow
+            # warnings inside limeLoadTexture.
             if st == ARM_SFT_LSL:
-                return "((%s) << %d)" % (val, op.shift.value)
+                return "((%s) << %d)" % (val, n)
             if st == ARM_SFT_LSR:
-                return "((%s) >> %d)" % (val, op.shift.value)
+                # every bit is shifted out
+                if n >= 32:
+                    return "((uint32_t)0)"
+                return "((%s) >> %d)" % (val, n)
             if st == ARM_SFT_ASR:
-                return "((uint32_t)((int32_t)(%s) >> %d))" % (val, op.shift.value)
+                # the result is the sign bit replicated, which >> 31 already is
+                if n >= 32:
+                    n = 31
+                return "((uint32_t)((int32_t)(%s) >> %d))" % (val, n)
             if st == ARM_SFT_ROR:
                 n = op.shift.value & 31
                 return "(((%s) >> %d) | ((%s) << %d))" % (val, n, val, (32 - n) & 31)

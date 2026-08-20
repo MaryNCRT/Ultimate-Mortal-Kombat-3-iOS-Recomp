@@ -408,7 +408,7 @@ int IsTextureFullBrightPath(const char *path)
 
     for (i = n; i > 0; i--) {
         char c = path[i - 1];
-        if (c == '/' || c == '\') {
+        if (c == '/' || c == '\\') {
             name = path + i;
             break;
         }
@@ -507,10 +507,16 @@ void CreateFadedLookupTable(void)
  *  - lookup is a linear `strstr` down the table -- a **substring** test, not an
  *    equality test. Forty entries per texture, not worth indexing at this size.
  *
- * The three globals `_FullBrightLoaded`, `_TheFullBrightInfo` and
- * `_IsTextureFullBrightPath` are all in the symbol table under those names, so
- * the caching, the table and the configurable path are the original design and
- * not an inference.
+ * `_FullBrightLoaded` (`__DATA,__data`) and `_TheFullBrightInfo`
+ * (`__DATA,__common`) are both in the symbol table under those names, so the
+ * caching and the table are the original design and not an inference.
+ *
+ * **`_IsTextureFullBrightPath` is not a third global.** An earlier pass here
+ * listed it as one and described the file path as configurable. It is not: the
+ * symbol lives in `__TEXT,__text`, so it is a **function** -- the wrapper below
+ * that strips a directory prefix and calls this. The path itself is a literal.
+ * Checking the section a symbol lives in takes one grep and would have caught
+ * that before it was written down.
  *
  * ## The `.???` convention, settled
  *
@@ -541,7 +547,7 @@ int IsTextureFullBright(const char *name)
     int i;
 
     if (!FullBrightLoaded) {
-        char *data = limeLoadFile(IsTextureFullBrightPath);
+        char *data = limeLoadFile(NOLIGHT_FILE);
         char *p, *end;
         char line[0x40];
 
@@ -549,7 +555,7 @@ int IsTextureFullBright(const char *name)
             return 0;
 
         FullBrightLoaded = 1;
-        end = data + limeFileSize(IsTextureFullBrightPath);
+        end = data + limeFileSize(NOLIGHT_FILE);
 
         for (p = data; end > p; ) {
             p = GetNextLine(p, line);
