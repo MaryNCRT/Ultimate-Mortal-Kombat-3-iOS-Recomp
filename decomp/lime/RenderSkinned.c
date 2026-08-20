@@ -609,3 +609,29 @@ SKININFO *LIME_LoadSkin(const char *filename)
     LIME_LoadSkin1(data, skin);
     return skin;
 }
+
+
+/* -------------------------------------------------------------- GetSlerpedQ
+ *
+ * armv6 0x00083408, 180 bytes.
+ * __Z11GetSlerpedQP13BONEANIMFRAMES0_fS0_
+ *
+ * **Not fully decompiled.** Blends two animation frames' quaternions by `t`.
+ *
+ * What is established: it loads all four components of both quaternions,
+ * computes their **dot product** (`vmul` then chained `vmla` over the four
+ * pairs), loads a literal and forms **`1 - t`**, and writes a blended
+ * quaternion out.
+ *
+ * The dot product before the blend is the tell for **hemisphere correction** --
+ * two unit quaternions can represent the same rotation with opposite signs, and
+ * without checking you get the long way round. Any port that interpolates
+ * animation frames has to do the same test or limbs will occasionally swing
+ * through 300 degrees to reach a pose next to where they started.
+ *
+ * Whether the blend is a true slerp or a normalised lerp is not established
+ * from this pass, and the name is not evidence: `UnpackAnimFrame` in this same
+ * file unpacks nothing.
+ */
+float GetSlerpedQ(const BONEANIMFRAME *a, const BONEANIMFRAME *b,
+                  float t, BONEANIMFRAME *out);      /* body not recovered */

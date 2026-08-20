@@ -8,7 +8,7 @@ project overview.
 
 ## The job: finish `lime/common`
 
-**53 of 109 done (49%).** Fifty-six functions left. This is the row that moves
+**69 of 109 done (63%).** Forty left. This is the row that moves
 the overall bar, and it is the bottleneck for everything downstream — there is
 no engine for the platform layer to drive until it is finished.
 
@@ -16,10 +16,10 @@ no engine for the platform layer to drive until it is finished.
 |---|---|---:|
 | `Matrix.cpp` | 11/11 | — |
 | `limeVector.cpp` | 2/2 | — |
-| `RenderSkinned.cpp` | 10/20 | 10 |
-| `RenderMesh.cpp` | 8/19 | 11 |
-| `Events.cpp` | 7/22 | **15** |
-| `RenderScene.cpp` | 5/14 | 9 |
+| `RenderSkinned.cpp` | 15/20 | 5 |
+| `RenderMesh.cpp` | 12/19 | 7 |
+| `Events.cpp` | 11/22 | **11** |
+| `RenderScene.cpp` | 8/14 | 6 |
 | `DS_DebugWin.c` | 5/7 | 2 |
 | `LIMEDS_Misc.cpp` | 4/8 | 4 |
 | `limeFont.cpp` | 1/6 | 5 |
@@ -66,6 +66,15 @@ real or invented; **do not add it to `ALLOW`**. An earlier session silenced
 **Do not state a constant you could not resolve.** `DS_DebugWin.c` documents the
 window layout but deliberately omits the record size, because those literal
 pools disassemble as `0xe12fff1e` — `bx lr` read as data. Say so in the comment.
+
+### And one about the counter itself
+
+The script that tallies progress matches a mangled symbol by trimming its
+argument encoding, and it **has been wrong at least once**: it failed on `Pc`
+and `PcS_` suffixes, so seven finished functions did not count and three
+published percentages were too low. If the number jumps without you having done
+the work, suspect the matcher and **check the newly-matched names by hand**
+before publishing the higher figure.
 
 ---
 
