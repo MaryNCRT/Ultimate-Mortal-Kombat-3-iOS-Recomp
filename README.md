@@ -260,6 +260,7 @@ tools/
   pose.py                poses a character from .bones/.skinanim/.skin
   glsurface.py           inventories every GL entry point the engine calls
   finishers.py           extracts the fatality/babality catalogue with frame indices
+  animate.py             names the clips in an animation stream and plays them
   thumb_scan.py          finds ARM/Thumb boundaries
   umk3paths.py           locates an extracted IPA's res/ directory
   xref.py                finds calls to an imported symbol; recovers assert() arguments

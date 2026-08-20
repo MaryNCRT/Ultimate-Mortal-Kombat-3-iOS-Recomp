@@ -126,3 +126,30 @@ not yet decoded and is the obvious next thing to read here.
 never references a `.tmp` — there are zero occurrences of the string — so it is
 dead weight, not a dependency. Filed with the other
 [shipped-game defects](GAME-BUGS.md).
+
+---
+
+## Playing it back: `tools/animate.py`
+
+The framelists turn the stream into named clips, and clips are what an animation
+player needs. Consecutive frames whose names share a stem and count up are one
+clip — `KNHIPUNCH1` … `KNHIPUNCH7` — while padding entries (`x`, `x2`, `xxx`)
+are skipped.
+
+```bash
+UMK3_RES=/path/to/res python tools/animate.py KANO --list
+UMK3_RES=/path/to/res python tools/animate.py KANO out.gif --clip KNHIPUNCH
+```
+
+Kano's 362 frames resolve into **54 named clips**: `KNDUCK`, `KNDUCKHIKICK`,
+`KNFLIP`, `KNGETUP`, `KNHIKICK`, `KNHIPUNCH`, `KNJUMPFLIP`, `KNKNOCKDOWN`,
+`KNLASER` — the character's complete move breakdown, read out of the data.
+
+![Kano's high punch, frames 58-64](img/anim-punch-strip.png)
+
+<sub>`KNHIPUNCH1`…`KNHIPUNCH7`, rendered frame by frame: guard, wind-up, full
+extension, retraction, recovery, guard. ([animated](img/anim-kano-punch.gif))</sub>
+
+**This is the first moving output in the project's life**, and it is the proof
+the segmentation is real rather than inferred. A wrong clip boundary produces a
+sequence that jumps; this one reads as a punch.
