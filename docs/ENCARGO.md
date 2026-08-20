@@ -8,7 +8,7 @@ project overview.
 
 ## The job: finish `lime/common`
 
-**84 of 109 done (77%).** Twenty-five left. This is the row that moves
+**85 of 109 done (78%).** Twenty-four left. This is the row that moves
 the overall bar, and it is the bottleneck for everything downstream — there is
 no engine for the platform layer to drive until it is finished.
 
@@ -19,7 +19,7 @@ no engine for the platform layer to drive until it is finished.
 | `RenderSkinned.cpp` | 17/20 | 3 |
 | `RenderMesh.cpp` | 15/19 | 4 |
 | `Events.cpp` | 15/22 | **7** |
-| `RenderScene.cpp` | 9/14 | 5 |
+| `RenderScene.cpp` | 10/14 | 4 |
 | `DS_DebugWin.c` | 6/7 | 1 |
 | `LIMEDS_Misc.cpp` | 7/8 | 1 |
 | `limeFont.cpp` | 2/6 | 4 |
@@ -101,6 +101,20 @@ functions nobody expected anything from:
 
 Write that line in every comment. It is what makes the file worth reading.
 
+### The standard a field identification has to meet
+
+Two independent functions, same offset, same meaning -- or a prediction from the
+disassembly that the shipped data then confirms without being consulted first.
+
+Both happened this session. `RenderDebugCube` reads `scene->[0x80]` and hands it
+to LIME_LoadMeshSetTextures; `LIME_LoadScene` contains the store that puts the
+meshset there. Separately, `LIME_LoadScene` implied one unconditional sibling
+load and one guarded one, and counting `res/` afterwards gave 545 `.events`
+against 547 `.scene`, and only 74 `.offsets`. The prediction was written down
+before the count was taken.
+
+One function asserting an offset is a hypothesis. Do not write it as a fact.
+
 ---
 
 ## Traps already paid for
@@ -145,4 +159,4 @@ of this task.
   `limeVector.cpp` — its Phase 0 — is unfinished and worth doing before
   trusting it.
 - Both READMEs, `PROGRESS.md` and `HANDOFF.md` are current as of `lime/common`
-  at 84/109 and overall at 32%.
+  at 85/109 and overall at 32%.

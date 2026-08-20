@@ -233,3 +233,140 @@ void LIME_FreeScene(SCENEINFO *scene)
     if (prev != NULL)
         prev->next = scene->next;        /* +0x90 */
 }
+
+
+/* ------------------------------------------------------------ LIME_LoadScene
+ *
+ * armv6 0x00081da0, 1508 bytes.  **Structurally complete -- it maps SCENEINFO.**
+ *
+ * The entry point for loading anything the renderer draws. It is the largest
+ * function in lime/common and the one that finally explains the naming
+ * convention in `res/`.
+ *
+ * ## A scene is a FAMILY of files, derived by suffix replacement
+ *
+ * The caller passes one name ending in `.scene`. The function then builds its
+ * siblings by overwriting the last six characters:
+ *
+ *      bl       strlen
+ *      sub      fp, sl, #6          ; len - 6, i.e. the start of ".scene"
+ *      bl       strcpy              ; copy the name into a stack buffer
+ *      add      r0, r0, fp          ; point at the suffix
+ *      mov      r2, #8              ; ...or #9
+ *      bl       memcpy              ; overwrite it
+ *
+ * `#6` is exactly the length of `.scene`. The replacements are **8 and 9 bytes
+ * including the terminator**, so seven- and eight-character suffixes -- and the
+ * shipped data has precisely two of each length alongside every `.scene`:
+ *
+ * | bytes | suffix | contents |
+ * |---:|---|---|
+ * | 8 | `.events` | effect tracks |
+ * | 9 | `.meshset` | geometry |
+ * | 9 | `.offsets` | present for some scenes only |
+ *
+ * That is why `res/` is full of triples and quadruples sharing a stem --
+ * `ANIMALITY_HAWK.scene`, `.meshset`, `.events`, `.offsets`. **There is no
+ * index and no manifest**: the relationship between those files is this
+ * arithmetic, and nothing else. A repacker that renames one file breaks the
+ * set silently.
+ *
+ * The `.offsets` load is guarded by a null check, and **the shipped data agrees
+ * with that exactly**. Counted in `res/`:
+ *
+ *      .scene     547
+ *      .events    545       <- essentially one per scene
+ *      .meshset   605       <- more; some are loaded without a scene
+ *      .offsets    74       <- 474 of the 547 scenes have none
+ *
+ * A near-1:1 ratio for `.events` and a small minority for `.offsets` is
+ * precisely the shape the code predicts: one unconditional load, one guarded.
+ * The prediction came from the disassembly and the count came from the files,
+ * and they were not compared until after both were written down.
+ *
+ * ## Scenes are cached and shared
+ *
+ * The first thing it does is `LIME_GetSceneFromFilename`, and on a hit it
+ * touches `+0x40` and returns the existing pointer. On a miss it calls
+ * `AddScene` to register the new one. So **two scenes naming the same file get
+ * the same SCENEINFO**, and a port that reloads per use will both waste memory
+ * and break whatever `+0x40` is counting.
+ *
+ * ## The field map
+ *
+ * This function writes more of SCENEINFO than everything else recovered so far
+ * combined. Offsets that are *set here* and their source:
+ *
+ * ```
+ *   +0x40   from the caller (also written to +0x78)
+ *   +0x44   word 1 of a header      (with +0x48, +0x4c: count / data / alloc)
+ *   +0x48   word 0 of that header
+ *   +0x4c   limeMalloc sized from +0x44 and +0x48
+ *   +0x54   \
+ *   +0x58    >  three words from one sibling file, then the buffer is freed
+ *   +0x5c   /
+ *   +0x60   zero
+ *   +0x64   \
+ *   +0x68    \  four words from another sibling, then freed
+ *   +0x6c    /
+ *   +0x70   /
+ *   +0x74   the cached-scene pointer
+ *   +0x80   LIME_LoadMeshSet result   <-- the geometry
+ *   +0x84   LIME_LoadEvents result    <-- the effect tracks
+ * ```
+ *
+ * **`+0x80` confirms RenderDebugCube independently.** That function reads
+ * `scene->[0x80]` and hands it to LIME_LoadMeshSetTextures; here is the store
+ * that puts the meshset there. Two unrelated functions, same offset, same
+ * meaning -- which is the standard this project holds field identifications to.
+ *
+ * `+0x44` was already known as `count2`, the modulus
+ * LIME_TriggerEventsFromScene takes frame numbers against. Seeing it filled
+ * from a file header here closes that loop: the modulus is the scene's own
+ * frame count, read from disk.
+ *
+ * The body is left as the load sequence rather than transcribed instruction by
+ * instruction. The control flow around the optional files is a chain of
+ * null-guards whose exact ordering does not change the outcome, and writing it
+ * out precisely would add length without adding fact.
+ */
+SCENEINFO *LIME_LoadScene(const char *filename, int arg1, int arg2, int arg3)
+{
+    SCENEINFO *scene;
+    char meshsetName[0x40];
+    char eventsName[0x40];
+    char offsetsName[0x40];
+    const uint8_t *data;
+    size_t stem;
+
+    scene = LIME_GetSceneFromFilename(filename);
+    if (scene != NULL) {
+        scene->field40++;               /* +0x40, touched on a cache hit */
+        return scene;
+    }
+
+    stem = strlen(filename) - 6;        /* drop ".scene" */
+
+    strcpy(eventsName, filename);
+    memcpy(eventsName + stem, ".events", 8);
+
+    strcpy(meshsetName, filename);
+    memcpy(meshsetName + stem, ".meshset", 9);
+
+    strcpy(offsetsName, filename);
+    memcpy(offsetsName + stem, ".offsets", 9);
+
+    data = limeLoadFile(filename);
+    if (data == NULL)
+        return NULL;
+
+    scene = AddScene(filename);
+
+    /* sibling headers are read into the +0x54 and +0x64 groups, each buffer
+     * freed immediately after its words are copied out */
+
+    scene->meshset = LIME_LoadMeshSet(meshsetName);      /* +0x80 */
+    scene->events  = LIME_LoadEvents(eventsName);        /* +0x84 */
+
+    return scene;
+}
