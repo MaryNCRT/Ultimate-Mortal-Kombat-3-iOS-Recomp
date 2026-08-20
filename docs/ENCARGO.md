@@ -48,6 +48,19 @@ Then, without exception:
 python tools/symcheck.py decomp/ OUTPUT/symbols.txt      # must report 0
 ```
 
+And **before reading any function that calls libc or GL**, resolve its imports:
+
+```bash
+python tools/stubs.py OUTPUT/armv6/UMK3.armv6 0x127e24
+```
+
+733 stubs resolve. Skipping this is not just a missing name, it is an invitation
+to guess: `IsTextureFullBright` was recorded as using `strcmp` when it actually
+uses **`strstr`**, and that one wrong word made the `.???` wildcard in
+`res/nolight.txt` look like an open mystery for several sessions. It was not —
+591 of the 605 shipped `.meshset` files contain `.???` in their texture names,
+and a substring test matches them exactly as intended.
+
 ---
 
 ## Three rules that this session actually needed

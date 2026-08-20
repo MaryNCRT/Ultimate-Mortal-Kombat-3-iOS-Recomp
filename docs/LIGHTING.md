@@ -188,7 +188,7 @@ capability is lost in translation.
 | Cache | `FullBrightLoaded` guards a one-time parse; the buffer is freed after |
 | Parse | `GetNextLine` per line; first byte `#` **or** `\0` means skip |
 | Table | stride `0x40`, name at `+4`, count at the base -- 60 bytes per name |
-| Lookup | linear string compare; 40 entries is not worth indexing |
+| Lookup | linear `strstr` — a **substring** test, not equality; 40 entries is not worth indexing |
 | Globals | `_FullBrightLoaded`, `_TheFullBrightInfo`, `_IsTextureFullBrightPath` |
 
 The three global names are in the symbol table verbatim, so the caching, the
@@ -196,12 +196,23 @@ table and the fact that the *path itself* is a variable are all original
 design rather than inference. A mod could point `IsTextureFullBrightPath`
 somewhere else entirely.
 
-### One open question
+### The `.???` convention, settled
 
-The comparison takes two arguments -- no length -- but the file stores
-extensions as the literal `.???`. An exact compare can only succeed if the
-caller presents names in that same normalised form. Whether the engine
-rewrites the extension before calling, or internal texture names already carry
-`.???`, is not settled by this function alone. **Do not "fix" it into a prefix
-compare without checking the call sites**; the wildcard is in the data, and
-guessing which side normalises is how a texture list silently matches nothing.
+This was left as an open question when the function was first read, on the
+assumption the call was a `strcmp`. Resolving the import stubs corrected it: the
+call is **`strstr`**, a substring test.
+
+`GetNextLine` stores each line verbatim — it copies until NUL, CR or LF — so
+`.???` really is in the table. For `strstr(name, entry)` to match, the texture
+names passed in must contain `.???` literally, and they do: **591 of the 605
+shipped `.meshset` files contain that string**. Texture names are stored inside
+the geometry with the wildcard extension already in place, which is why the
+header of `nolight.txt` instructs artists to write them the same way. Nothing
+normalises anything at runtime — the convention is baked into the data on both
+sides.
+
+One consequence for modders: because it is `strstr`, **an entry matches any
+texture name containing it**. Putting `ICE` in the file would unlight every
+texture with `ICE` anywhere in its name. The shipped file always writes complete
+names so the behaviour never surfaces, but it is the difference between a list
+of names and a list of patterns.

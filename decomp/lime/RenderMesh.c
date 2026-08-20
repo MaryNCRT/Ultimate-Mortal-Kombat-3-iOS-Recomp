@@ -423,7 +423,8 @@ int IsTextureFullBrightPath(const char *path)
  *
  * Copies one line out of a text buffer and returns the cursor past it.
  *
- * The terminator set is worth noting: it stops on ` ` **and** on ``
+ * The terminator set is worth noting: it stops on ` ` **and** on `
+`
  * (0x0d), and treats `
 ` (0x0a) as the line break. So it handles CRLF by
  * ending the line at the CR and stepping over the LF -- again, the shape of
@@ -503,21 +504,37 @@ void CreateFadedLookupTable(void)
  *    the name at **+4**, the count living at the table base. The copy is four
  *    unrolled `ldm`/`stm` pairs -- 64 bytes, fixed -- so a name has 60 bytes of
  *    room. The longest shipped entry is 26 characters.
- *  - lookup is a linear compare down the table; forty entries per texture, not
- *    worth indexing at this size.
+ *  - lookup is a linear `strstr` down the table -- a **substring** test, not an
+ *    equality test. Forty entries per texture, not worth indexing at this size.
  *
  * The three globals `_FullBrightLoaded`, `_TheFullBrightInfo` and
  * `_IsTextureFullBrightPath` are all in the symbol table under those names, so
  * the caching, the table and the configurable path are the original design and
  * not an inference.
  *
- * **One thing to check when wiring this up.** The comparison is a two-argument
- * string compare -- no length is passed -- but the file stores extensions as
- * the literal `.???`. An exact compare against `.???` can only match if the
- * caller presents the name in the same normalised form. Whether the engine
- * rewrites the extension before calling, or the internal texture names already
- * carry `.???`, is not settled from this function alone; the call sites decide
- * it. Do not "fix" it by switching to a prefix compare without checking.
+ * ## The `.???` convention, settled
+ *
+ * An earlier pass through this function called the comparison a `strcmp` and
+ * left the wildcard as an open question. Resolving the import stubs corrected
+ * both halves.
+ *
+ * The call is **`strstr`**, and `GetNextLine` stores each line verbatim -- it
+ * copies until NUL, CR or LF and terminates, so the `.???` really is in the
+ * table. For `strstr(name, entry)` to ever match, **the texture names the
+ * engine passes in must contain `.???` literally**.
+ *
+ * They do. **591 of the 605 shipped `.meshset` files contain the string
+ * `.???`**: texture names are stored inside the geometry with that extension
+ * already in place, which is why the header of `nolight.txt` tells artists to
+ * write them the same way. Nothing normalises anything at runtime -- the
+ * convention is baked into the data on both sides.
+ *
+ * That it is `strstr` rather than an equality test has a consequence for
+ * modders worth stating: **an entry matches any texture name containing it**.
+ * Putting `ICE` in `nolight.txt` would unlight every texture with `ICE`
+ * anywhere in its name. The shipped file always writes complete names, so the
+ * behaviour never shows, but it is the difference between a list of names and
+ * a list of patterns.
  */
 int IsTextureFullBright(const char *name)
 {
@@ -548,7 +565,7 @@ int IsTextureFullBright(const char *name)
     }
 
     for (i = 0; i < TheFullBrightInfo.count; i++)
-        if (strcmp(name, TheFullBrightInfo.names[i]) == 0)
+        if (strstr(name, TheFullBrightInfo.names[i]) != NULL)
             return 1;
 
     return 0;
