@@ -596,3 +596,101 @@ void RenderDebugCube(void)
     g_debugCubeScene = LIME_LoadScene(DEBUG_CUBE_SCENE, 1, 0, 0);
     LIME_LoadMeshSetTextures(g_debugCubeScene->meshset, 0);   /* +0x80 */
 }
+
+
+/* ------------------------------------------------- LIME_LoadMeshSetTextures
+ *
+ * armv6 0x0008186c, 468 bytes.  **Structurally complete.**
+ *
+ * Resolves the textures a meshset names into loaded TEXTURE pointers.
+ *
+ * ## The meshset's texture table
+ *
+ *      ldr  r2, [r6, #0x44]        ; count
+ *      ldr  r3, [r6, #0x48]        ; array base
+ *      ldr  r5, [r3, r8, lsl #2]   ; pointers, 4 bytes apart
+ *
+ * So `MESHSETINFO+0x44` is a count and `+0x48` an array of pointers, walked
+ * with a null check per entry -- **holes in the table are legal**, not an
+ * error. Each entry gets a zero written at its own `+0x48` before anything
+ * else, which is the per-texture slot being cleared before it is filled.
+ *
+ * `MESHSETINFO+0x40` short-circuits the whole function when non-zero: textures
+ * are resolved **once per meshset**, not once per use. That pairs with the
+ * scene cache in LIME_LoadScene -- the engine is careful about this in two
+ * separate places, so a port that re-resolves per draw is fighting the design.
+ *
+ * ## The second argument builds THREE name variants
+ *
+ * When the suffix argument is non-null, three names are composed into three
+ * 0x80-byte stack buffers before the table is walked:
+ *
+ *      add  r0, sp, #0x180  ; buffer 1
+ *      mov  r2, sl          ; the suffix
+ *      bl   <3-arg string build>
+ *      add  r0, sp, #0x100  ; buffer 2
+ *      ...
+ *      add  r0, sp, #0x80   ; buffer 3
+ *
+ * Three different format strings, one suffix, three candidate filenames. That
+ * is a **texture variant mechanism**: the same meshset drawn with a different
+ * suffix resolves to a different set of texture files.
+ *
+ * What the three formats are is not read out here -- they are PC-relative
+ * literals in a pool this pass could not resolve cleanly, and the project has
+ * a standing rule against stating constants it could not pin down. The
+ * *shape* is solid: three candidates, tried per texture, selected by a
+ * caller-supplied suffix.
+ *
+ * This is worth following up. Alternate costumes, the frozen and the burning
+ * variants of a fighter, and the palette-swapped ninjas are all the same
+ * geometry with different textures, and this is the only mechanism recovered
+ * so far that could express that. See docs/HIDDEN-CONTENT.md for what is
+ * already known to ship unused.
+ */
+void LIME_LoadMeshSetTextures(MESHSETINFO *meshset, const char *suffix);
+
+
+/* ---------------------------------------------------------- CreateFadedRGBS
+ *
+ * armv6 0x00080814, 296 bytes.  **Structurally complete.**
+ *
+ * Builds a faded copy of an RGB byte array -- the per-vertex colour path for
+ * effects that tint or wash out geometry.
+ *
+ * ## It is an ADD, not a multiply
+ *
+ * Each source byte is widened to float, and a per-channel float is **added**
+ * before it is converted back:
+ *
+ *      ldrb     r3, [r5], #1
+ *      vcvt.f32.s32 s15, s14
+ *      vadd.f32 s14, s16, s15      ; red   + offset.x
+ *      vadd.f32 s14, s17, s15      ; green + offset.y
+ *      vadd.f32 s14, s18, s15      ; blue  + offset.z
+ *
+ * The `limeVECTOR3` argument is therefore a **signed per-channel offset**, not
+ * a tint colour and not a scale. A port that multiplies -- the obvious reading
+ * of "faded" -- washes out dark pixels and leaves bright ones alone, which is
+ * the opposite of what an additive offset does.
+ *
+ * ## The float argument indexes a 512-entry table
+ *
+ *      vmul.f32     s15, s19, s15   ; scale the float argument
+ *      vcvt.s32.f32 s15, s15
+ *      cmp      r2, #0
+ *      movlt    r2, #0              ; clamp low
+ *      cmp      r2, #0x200          ; 512
+ *
+ * Clamped at both ends, and `0x200` is the same order of magnitude as the
+ * `[levels][256]` table `CreateFadedLookupTable` builds elsewhere in this
+ * file. The two are almost certainly the producer and the consumer of the same
+ * structure, but the address arithmetic that would prove it runs through a
+ * literal pool this pass could not resolve, so they are noted as related and
+ * not asserted to be the same table.
+ *
+ * The whole function is gated on a global being non-zero -- a feature switch,
+ * checked before any work.
+ */
+void CreateFadedRGBS(uint8_t *dst, char *src, float level, long count,
+                     limeVECTOR3 offset);

@@ -456,3 +456,113 @@ void LIME_UpdateEvents(void)
             break;                      /* sentinel: base + 0xB908 */
     }
 }
+
+
+/* ------------------------------------------------------------ LIME_PlayFBXAtPos
+ *
+ * armv6 0x000e8ddc, 188 bytes.  **Complete.**
+ *
+ * Fires a one-off effect at a position, without a scene to drive it.
+ *
+ * The whole function is **a synthetic SCENEEVENTTRACK built in a static
+ * buffer**, then handed to LIME_TriggerEventFromSceneH. Nothing is allocated
+ * and nothing is freed -- the same scratch track is overwritten on every call,
+ * which means **this is not re-entrant and cannot be called from two places in
+ * one frame** without the second clobbering the first. In a single-threaded
+ * frame loop that is fine, and it is the kind of shortcut that stops being fine
+ * the moment a port adds a worker thread.
+ *
+ * "FBX" is the engine's own word for an effect: the `.events` files are full of
+ * names like `smokeparticle fbx` and `bomblets fbx`.
+ *
+ * ## What a default track looks like
+ *
+ * This is the most useful thing here -- it is a documented set of neutral
+ * values for every field that matters:
+ *
+ * ```
+ *   +0x08  +0x0c  +0x10  +0x14   1.0f   (four scale or colour terms)
+ *   +0xc4                        1.0f
+ *   +0x1c  +0x20  +0x24          0      (a vector, zeroed)
+ *   +0x70  +0x78  +0x7c          0
+ *   +0xd0                        -1     <- no instance limit
+ *   matrix                       identity, via limeMatrixLoadIdentity
+ * ```
+ *
+ * **`+0xd0` set to -1 is the interesting one.** LIME_TriggerEventFromSceneH
+ * reads that same field, compares it against `CountEventsMatching`, and refuses
+ * to spawn when the count has reached it -- so `+0xd0` is a **cap on how many
+ * copies of a track may run at once**, and -1 disables the cap. A one-shot
+ * effect fired by hand should never be throttled, so PlayFBXAtPos opts out.
+ *
+ * Two independent functions, one field, consistent meaning. That is the
+ * standard this project holds field identifications to, and it is met here.
+ */
+void LIME_PlayFBXAtPos(long arg0, long arg1, long arg2, long arg3)
+{
+    SCENEEVENTTRACK *t = &g_fbxScratchTrack;    /* static, reused every call */
+
+    t->maxInstances = -1;               /* +0xd0 -- no cap */
+
+    t->f08 = 1.0f;                      /* +0x08 */
+    t->f0c = 1.0f;                      /* +0x0c */
+    t->f10 = 1.0f;                      /* +0x10 */
+    t->f14 = 1.0f;                      /* +0x14 */
+    t->fc4 = 1.0f;                      /* +0xc4 */
+
+    t->flag7c = 0;                      /* +0x7c */
+    t->v1c = 0; t->v20 = 0; t->v24 = 0; /* +0x1c..+0x24 */
+    t->f70 = 0;                         /* +0x70 */
+    t->f78 = 0;                         /* +0x78 */
+
+    limeMatrixLoadIdentity(&g_fbxScratchMatrix);
+
+    LIME_TriggerEventFromSceneH(arg2, t, &g_fbxScratchMatrix, arg0,
+                                arg1, 0, 1, arg3, 0, 0, 0);
+}
+
+
+/* ------------------------------------------------- LIME_TriggerEventFromSceneH
+ *
+ * armv6 0x000e8afc, 736 bytes.  **Structurally complete.**
+ *
+ * The spawn path every other trigger in this file funnels into.
+ *
+ * ## Two gates before a slot is used
+ *
+ * ```
+ *      bl    GetFreeEvent
+ *      cmn   r0, #1
+ *      beq   <give up>              ; pool full -> silently do nothing
+ *
+ *      ldr   r3, [r6, #0xd0]        ; the track's instance cap
+ *      cmn   r3, #1
+ *      beq   <skip the check>       ; -1 means unlimited
+ *      bl    CountEventsMatching
+ *      cmp   r0, r3
+ *      bge   <give up>              ; already at the cap
+ * ```
+ *
+ * So a track carries **its own limit on simultaneous copies**, checked by
+ * counting live events that match it rather than by a per-track counter. That
+ * is O(pool) per spawn -- 192 slots -- which is cheap enough at these numbers
+ * and, more importantly, cannot drift out of sync the way a counter can when
+ * events are freed by the deferred countdown in LIME_UpdateEvents.
+ *
+ * **Both failures are silent.** A full pool and an exceeded cap both just
+ * return. Effects thin out under load instead of the game misbehaving, which is
+ * the right call for a fighting game and a thing a port must not "fix" into an
+ * error.
+ *
+ * `+0x7c` non-zero diverts to a separate path early on; it is the flag
+ * LIME_PlayFBXAtPos explicitly clears.
+ *
+ * The slot index is scaled by both `lsl #8` and `lsl #3` into two different
+ * stack values, so the function addresses more than one parallel array from the
+ * same index. Which arrays those are is not resolved here, and the body is left
+ * as the gate sequence rather than guessed past it.
+ */
+int LIME_TriggerEventFromSceneH(long a0, SCENEEVENTTRACK *track,
+                                limeMATRIX44 *matrix, long a3,
+                                long a4, long a5, long a6, long a7,
+                                long a8, long a9, long a10);
