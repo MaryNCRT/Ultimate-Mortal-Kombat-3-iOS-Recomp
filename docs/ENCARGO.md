@@ -140,4 +140,4 @@ of this task.
   `limeVector.cpp` — its Phase 0 — is unfinished and worth doing before
   trusting it.
 - Both READMEs, `PROGRESS.md` and `HANDOFF.md` are current as of `lime/common`
-  at 53/109 and overall at 29%.
+  at 69/109 and overall at 30%.
