@@ -306,3 +306,77 @@ void DrawSkinnedMesh2(SKININFO *skin, unsigned a, unsigned b, long flags,
         B   += 4;
     }
 }
+
+
+/* ---------------------------------------------------------- NormaliseLDirs
+ *
+ * armv6 0x00083c38, 216 bytes.  __Z14NormaliseLDirsv
+ *
+ * Normalises the engine's **two** directional lights in place. There are
+ * exactly two, held as six global floats, and this runs once to make them unit
+ * length. The reciprocal square root is computed in **double** and narrowed --
+ * the same accuracy habit as CreatePerspectiveMatrix.
+ */
+void NormaliseLDirs(void)
+{
+    double k;
+
+    k = 1.0 / sqrt((double)(g_lightDir0[0]*g_lightDir0[0] +
+                            g_lightDir0[1]*g_lightDir0[1] +
+                            g_lightDir0[2]*g_lightDir0[2]));
+    g_lightDir0[0] *= (float)k;
+    g_lightDir0[1] *= (float)k;
+    g_lightDir0[2] *= (float)k;
+
+    k = 1.0 / sqrt((double)(g_lightDir1[0]*g_lightDir1[0] +
+                            g_lightDir1[1]*g_lightDir1[1] +
+                            g_lightDir1[2]*g_lightDir1[2]));
+    g_lightDir1[0] *= (float)k;
+    g_lightDir1[1] *= (float)k;
+    g_lightDir1[2] *= (float)k;
+}
+
+
+/* --------------------------------------------------------------- LightVert
+ *
+ * armv6 0x00083ab8, 384 bytes.  __Z9LightVertP11limeVECTOR3S0_
+ *
+ * **The entire lighting model of the game.** Two directional lights, a power
+ * falloff on each, summed, clamped to 1, written as a single scalar.
+ *
+ * Three things are worth stating because they are unusual:
+ *
+ *  - **There is no ambient term.** The accumulator starts at literal 0.0f
+ *    (verified at 0x83c00), so a surface facing away from both lights is
+ *    fully black.
+ *  - **The dot product is negated.** -dot(N, L) means the stored light vectors
+ *    point *from* the surface *toward* the light, the opposite of the usual
+ *    convention. Getting this backwards lights the model inside out.
+ *  - **Each light is raised to a power**, via a real pow() call -- two of them,
+ *    per vertex. On a 2011 iPhone that is an expensive choice, and it is what
+ *    gives these characters their hard, almost rim-lit falloff instead of a
+ *    soft Lambert ramp.
+ *
+ * The result is **monochrome**: one float, which DrawSkinnedMesh2 writes as
+ * R = G = B with alpha 0xFF. Lighting is a grey multiplier over the texture,
+ * never a coloured light.
+ */
+void LightVert(const limeVECTOR3 *n, float *out)
+{
+    float l = 0.0f;                      /* no ambient -- literal 0.0f */
+    float d;
+
+    d = -(n->x * g_lightDir0[0] + n->y * g_lightDir0[1] + n->z * g_lightDir0[2]);
+    if (d < 0.0f)
+        d = 0.0f;
+    l += g_lightPower0 * (float)pow((double)d, (double)g_lightExp0);
+
+    d = -(n->x * g_lightDir1[0] + n->y * g_lightDir1[1] + n->z * g_lightDir1[2]);
+    if (d < 0.0f)
+        d = 0.0f;
+    l += g_lightPower1 * (float)pow((double)d, (double)g_lightExp1);
+
+    if (l > 1.0f)                        /* ceiling, verified at 0x83c04 */
+        l = 1.0f;
+    *out = l;
+}
