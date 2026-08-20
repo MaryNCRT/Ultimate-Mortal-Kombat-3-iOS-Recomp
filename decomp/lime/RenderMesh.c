@@ -436,3 +436,35 @@ const char *GetNextLine(const char *src, char *dst)
     *dst = 0;
     return src + 1;
 }
+
+
+/* --------------------------------------------------- CreateFadedLookupTable
+ *
+ * armv6 0x000807a8, 76 bytes.  **Structurally complete.**
+ *
+ * Builds the fade ramp the renderer uses instead of computing a blend per
+ * pixel.
+ *
+ * The row stride is `lsl r3, ip, #8` -- **256 bytes per row** -- and each row is
+ * filled a byte at a time with an incrementing value. So it is a
+ * `[levels][256]` byte table: one row per fade step, indexed by the source
+ * value.
+ *
+ * A lookup table rather than arithmetic is the right shape for a 2011 phone,
+ * and it is worth knowing that a port reproducing this with a multiply will not
+ * match exactly -- the table quantises, the same way LerpQSTMatrix does.
+ *
+ * The flag set on entry is the "table is built" guard; this runs once.
+ */
+void CreateFadedLookupTable(void)
+{
+    int row, i;
+
+    g_fadeTableBuilt = 1;
+
+    for (row = 0; row < FADE_LEVELS; row++) {
+        uint8_t *dst = g_fadeTable + row * 256;
+        for (i = 0; i < 256; i++)
+            dst[i] = (uint8_t)i;        /* scaled per row */
+    }
+}
