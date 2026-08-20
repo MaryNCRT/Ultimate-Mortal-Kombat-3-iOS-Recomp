@@ -7,14 +7,14 @@ Read this, then [METHODOLOGY.md](METHODOLOGY.md). Everything else is reference.
 
 ## Where the project actually stands
 
-**28% of the total estimated effort. Nothing is playable.** The arithmetic is in
+**29% of the total estimated effort. Nothing is playable.** The arithmetic is in
 the [README](../README.md#overall-progress) and the weights are a judgement
 call; the completion figures are measured.
 
 | | |
 |---|---|
 | Asset formats | **100%** — solved, demonstrated, animating |
-| `lime/common` | **46 of 109** functions |
+| `lime/common` | **53 of 109** functions |
 | Native executable | **exists**, draws textured lit geometry |
 | `gamecode` + fight logic | 2,463 functions, essentially untouched |
 | Platform layer | target measured (77 GL entry points), barely written |
@@ -93,7 +93,9 @@ protects nothing and costs the project its only visible evidence.
 
 ## What to do next, in order
 
-### 1. Finish `lime/common` — 63 functions left
+### 1. Finish `lime/common` — 56 functions left
+
+**The specific work order for this is [ENCARGO.md](ENCARGO.md).**
 
 **This is the bottleneck for everything downstream.** No engine means nothing
 for the platform layer to drive; no platform layer means no playable build.
