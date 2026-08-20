@@ -34,7 +34,9 @@ Este proyecto intenta recuperarlo como es debido, en forma de **software nativo 
 
 <div align="center">
 
-<img src="docs/img/pose-kano-textured.png" alt="Kano, posado y texturizado por tools/pose.py" width="330"> <img src="docs/img/viewer-graveyard.png" alt="El escenario Graveyard dibujado por tools/meshview.py" width="330">
+<img src="docs/img/pose-cast.png" alt="Seis personajes de UMK3 posados por tools/pose.py" width="860">
+
+<img src="docs/img/viewer-graveyard.png" alt="El escenario Graveyard dibujado por tools/meshview.py" width="300">
 
 <sub>Kano en guardia de combate y el escenario Graveyard, dibujados por [`tools/pose.py`](tools/pose.py) y [`tools/meshview.py`](tools/meshview.py). El árbol de huesos, la pose, los pesos de skinning, la topología, las UVs, la decodificación PVRTC y la matriz de proyección salen todos de los parsers y el código decompilado de este proyecto. Sin emulador y sin binario del motor. [Cómo funciona](docs/MESH-VIEWER.md).</sub>
 
