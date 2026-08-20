@@ -353,3 +353,86 @@ void LIME_FreeNonVisibleMeshes(MESHSETINFO *set)
             LIME_FreeSingleMesh(mesh);
     }
 }
+
+
+/* ------------------------------------------------------- LIME_FreeSingleMesh
+ *
+ * armv6 0x0008112c, 120 bytes.
+ *
+ * Frees one mesh's vertex data, by index into the set.
+ *
+ * **It calls `printf` on the way**, unconditionally, with the mesh pointer and
+ * the block at MESHINFO+0x3c. So unlike `LIME_printf` and `RenderAxesLines` --
+ * both compiled away -- this one really does write to stdout in the retail
+ * binary, which is worth knowing when reading a capture from the emulator.
+ *
+ * The freed pointer is **MESHINFO+0x3c**, reached through the set's mesh array
+ * at MESHSETINFO+0x48 rather than passed in.
+ */
+void LIME_FreeSingleMesh(MESHSETINFO *set, int index)
+{
+    MESHINFO *mesh;
+
+    if (set == NULL)
+        return;
+    mesh = set->meshes[index];           /* +0x48 */
+    if (mesh == NULL)
+        return;
+
+    printf("...", mesh->data, set);      /* +0x3c */
+    limeFree(mesh->data);
+}
+
+
+/* --------------------------------------------------- IsTextureFullBrightPath
+ *
+ * armv6 0x00081740, 128 bytes.
+ *
+ * Takes a path and tests the **filename**, not the path: it walks backwards
+ * from the end looking for `/` (0x2f) or `\` (0x5c) and starts from whichever
+ * it finds.
+ *
+ * That it checks both separators is the interesting part -- this is iOS code,
+ * where `\` never appears in a path. It is a leftover from the Windows-hosted
+ * toolchain the assets came through, and it is harmless but tells you where the
+ * function was written.
+ *
+ * Full-bright textures bypass the lighting model entirely; see
+ * docs/LIGHTING.md.
+ */
+int IsTextureFullBrightPath(const char *path)
+{
+    const char *name = path;
+    size_t n = strlen(path);
+    size_t i;
+
+    for (i = n; i > 0; i--) {
+        char c = path[i - 1];
+        if (c == '/' || c == '\') {
+            name = path + i;
+            break;
+        }
+    }
+    return IsTextureFullBright(name);
+}
+
+
+/* ------------------------------------------------------------- GetNextLine
+ *
+ * armv6 0x00080a04, 92 bytes.
+ *
+ * Copies one line out of a text buffer and returns the cursor past it.
+ *
+ * The terminator set is worth noting: it stops on ` ` **and** on ``
+ * (0x0d), and treats `
+` (0x0a) as the line break. So it handles CRLF by
+ * ending the line at the CR and stepping over the LF -- again, the shape of
+ * code written against Windows-authored text files.
+ */
+const char *GetNextLine(const char *src, char *dst)
+{
+    while (*src != 0 && *src != 0x0d && *src != 0x0a)
+        *dst++ = *src++;
+    *dst = 0;
+    return src + 1;
+}

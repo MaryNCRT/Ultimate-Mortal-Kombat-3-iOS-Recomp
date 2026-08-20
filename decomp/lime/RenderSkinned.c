@@ -493,3 +493,119 @@ void LerpVector3(const limeVECTOR3 *a, const limeVECTOR3 *b, float t,
     out->y = a->y * t + b->y * u;
     out->z = a->z * t + b->z * u;
 }
+
+
+/* -------------------------------------------------------- LoadSomeTextures
+ *
+ * armv6 0x000845c4, 36 bytes.  __Z16LoadSomeTexturesP13TEXTURETOLOAD
+ *
+ * Walks a **NULL-terminated array of 8-byte entries**, loading each texture and
+ * writing the handle back through the entry's own pointer:
+ *
+ *      typedef struct {
+ *          const char *name;       // +0x00, NULL ends the list
+ *          TEXTURE   **dest;       // +0x04, where the handle goes
+ *      } TEXTURETOLOAD;
+ *
+ * The stride is visible as a pre-indexed load with writeback --
+ * `ldr r0, [r4, #8]!` -- which is the same idiom the `.scene` loader uses for
+ * its tail records.
+ *
+ * A declarative texture manifest, in other words: a module lists what it needs
+ * and where to put it, and one call fills them all in.
+ */
+void LoadSomeTextures(TEXTURETOLOAD *list)
+{
+    for (; list->name != NULL; list++)
+        *list->dest = limeLoadTexture(list->name, 0, 1);
+}
+
+
+/* -------------------------------------------------------- FreeSomeTextures
+ *
+ * armv6 0x00084578, 40 bytes.
+ *
+ * The mirror image, walking the same manifest. Note it **NULLs each slot after
+ * freeing**, so the list is safe to free twice -- which matters because the
+ * same manifest is shared between load and unload paths.
+ */
+void FreeSomeTextures(TEXTURETOLOAD *list)
+{
+    for (; list->name != NULL; list++) {
+        if (*list->dest != NULL) {
+            limeDeleteTexture(*list->dest);
+            *list->dest = NULL;
+        }
+    }
+}
+
+
+/* --------------------------------------------------------- UnpackAnimFrame
+ *
+ * armv6 0x000833a4, 64 bytes.
+ * __Z15UnpackAnimFramePhP13BONEANIMFRAMEP11limeVECTOR3l
+ *
+ * Splits one `.skinanim` frame into its root position and its per-bone
+ * quaternions.
+ *
+ * **This confirms the frame layout independently.** It reads three words at
+ * **+0x04** into the root vector -- so the `int32` at +0x00 really is skipped,
+ * exactly as docs/SKIN-FORMAT.md says -- and then copies **20 bytes per bone**
+ * starting at **+0x10**.
+ *
+ * Despite the name it unpacks nothing: the quaternions are already plain
+ * `float32`, which is what the |q| = 1.0000 measurement showed. The name is a
+ * leftover from a compressed format that is not what shipped.
+ */
+void UnpackAnimFrame(const uint8_t *src, BONEANIMFRAME *bones,
+                     limeVECTOR3 *root, long count)
+{
+    long i;
+
+    root->x = *(const float *)(src + 0x04);
+    root->y = *(const float *)(src + 0x08);
+    root->z = *(const float *)(src + 0x0c);
+
+    if (count == 0)
+        return;
+
+    for (i = 0; i < count; i++)
+        memcpy(&bones[i], src + 0x10 + i * 20, 20);
+}
+
+
+/* ------------------------------------------------------------ LIME_LoadSkin
+ *
+ * armv6 0x00083a24, 100 bytes.
+ *
+ * Loads a `.skin` and builds the SKININFO chain.
+ *
+ * **SKININFO is 0x30 = 48 bytes**, which is the literal handed to `limeMalloc`
+ * and exactly what docs/SKIN-FORMAT.md derived from the field offsets. The
+ * first thing written is a **zero at +0x00** -- the `next` pointer -- before
+ * anything is parsed, so a single-block file leaves a correctly terminated
+ * chain without the parser having to know how many blocks there were.
+ *
+ * The block count is read with `ldr r4, [r0], #4`: post-indexed, so the cursor
+ * advances past it in the same instruction. That is the leading `int32` the
+ * format doc describes, and the reason ROBO1 and ROBO2 -- which do not have one
+ * -- need the fallback path.
+ */
+SKININFO *LIME_LoadSkin(const char *filename)
+{
+    const uint8_t *data = limeLoadFile(filename);
+    SKININFO *skin;
+    int32_t count;
+
+    if (data == NULL)
+        return NULL;
+
+    skin = (SKININFO *)limeMalloc("skin", 0x30);
+    skin->next = NULL;                   /* +0x00, before parsing anything */
+
+    count = *(const int32_t *)data;
+    data += 4;
+
+    LIME_LoadSkin1(data, skin);
+    return skin;
+}
