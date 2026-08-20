@@ -6,7 +6,7 @@
 
 **A work-in-progress decompilation of the 2011 iOS release of Ultimate Mortal Kombat 3, aiming at a native PC port for Windows and Linux.**
 
-[Getting started](docs/GETTING-STARTED.md) · [Methodology](docs/METHODOLOGY.md) · [LIME engine](docs/LIME-ENGINE.md) · [Asset formats](docs/X-TABLES.md) · [Mesh viewer](docs/MESH-VIEWER.md) · [Game bugs](docs/GAME-BUGS.md) · [Architecture](docs/ARCHITECTURE.md) · [Progress](docs/PROGRESS.md) · [Handoff](docs/HANDOFF.md) · [AI disclosure](AI-DISCLOSURE.md) · [Español](README.es.md)
+[Getting started](docs/GETTING-STARTED.md) · [Methodology](docs/METHODOLOGY.md) · [LIME engine](docs/LIME-ENGINE.md) · [Asset formats](docs/X-TABLES.md) · [Mesh viewer](docs/MESH-VIEWER.md) · [Game bugs](docs/GAME-BUGS.md) · [Hidden content](docs/HIDDEN-CONTENT.md) · [Architecture](docs/ARCHITECTURE.md) · [Progress](docs/PROGRESS.md) · [Handoff](docs/HANDOFF.md) · [AI disclosure](AI-DISCLOSURE.md) · [Español](README.es.md)
 
 </div>
 
@@ -48,6 +48,7 @@ The long-term goals, in order:
 | Recover readable C source, function by function | 🔄 in progress |
 | Replace the iOS platform layer with a native PC one | ⬜ not started |
 | Widescreen, gamepad support, modding | ⬜ planned |
+| Restore hidden and unreachable content | ⬜ after a playable build |
 | 60 fps, modern netcode | ⬜ long term |
 
 **This is a long project.** Realistically it is a year or more of work. Nothing here is playable yet. What *is* here is a working method, a large amount of verified knowledge, and tooling that makes the remaining work tractable.

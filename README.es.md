@@ -6,7 +6,7 @@
 
 **Decompilación en curso de la versión iOS de 2011 de Ultimate Mortal Kombat 3, con el objetivo de llegar a un port nativo para Windows y Linux.**
 
-[Primeros pasos](docs/GETTING-STARTED.md) · [Metodología](docs/METHODOLOGY.md) · [Motor LIME](docs/LIME-ENGINE.md) · [Formatos de assets](docs/X-TABLES.md) · [Visor de mallas](docs/MESH-VIEWER.md) · [Bugs del juego](docs/GAME-BUGS.md) · [Arquitectura](docs/ARCHITECTURE.md) · [Progreso](docs/PROGRESS.md) · [Relevo](docs/HANDOFF.md) · [Declaración sobre IA](AI-DISCLOSURE.md) · [English](README.md)
+[Primeros pasos](docs/GETTING-STARTED.md) · [Metodología](docs/METHODOLOGY.md) · [Motor LIME](docs/LIME-ENGINE.md) · [Formatos de assets](docs/X-TABLES.md) · [Visor de mallas](docs/MESH-VIEWER.md) · [Bugs del juego](docs/GAME-BUGS.md) · [Contenido oculto](docs/HIDDEN-CONTENT.md) · [Arquitectura](docs/ARCHITECTURE.md) · [Progreso](docs/PROGRESS.md) · [Relevo](docs/HANDOFF.md) · [Declaración sobre IA](AI-DISCLOSURE.md) · [English](README.md)
 
 </div>
 
@@ -50,6 +50,7 @@ Los objetivos a largo plazo, en orden:
 | Recuperar C legible, función a función | 🔄 en curso |
 | Sustituir la capa de plataforma iOS por una nativa de PC | ⬜ sin empezar |
 | Widescreen, soporte de mando, mods | ⬜ planeado |
+| Restaurar contenido oculto e inalcanzable | ⬜ tras tener build jugable |
 | 60 fps, netcode moderno | ⬜ a largo plazo |
 
 **Este es un proyecto largo.** De forma realista, es un año o más de trabajo. Aquí todavía no hay nada jugable. Lo que sí hay es un método que funciona, una cantidad considerable de conocimiento verificado, y herramientas que hacen abordable el trabajo que queda.
