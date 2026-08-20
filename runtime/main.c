@@ -12,8 +12,14 @@
  * glMatrixMode, glLoadMatrixf.
  *
  *   umk3 <file.meshset> [mesh-index]
+ *   umk3 <NAME>.skin [--frame N | --idle]
+ *
+ * The second form is the character path and lives in character.c: a fighter
+ * skinned from .bones + .skinanim + .skin, which is a different pipeline from
+ * a static mesh and shares only the window and the lighting.
  */
 #include "platform/platform.h"
+#include "character.h"
 #include "platform/gl.h"
 #include "lime/meshset.h"
 #include "lime/limemath.h"
@@ -177,9 +183,15 @@ static void draw_mesh(const LimeMesh *m, const unsigned char *col)
 int main(int argc, char **argv)
 {
     if (argc < 2) {
-        printf("usage: %s <file.meshset> [mesh-index]\n", argv[0]);
+        printf("usage: %s <file.meshset> [mesh-index]\n"
+               "       %s <NAME>.skin [--frame N | --idle]\n", argv[0], argv[0]);
         return 1;
     }
+
+    char stem[448];
+    if (character_stem(argv[1], stem, sizeof(stem)))
+        return character_main(stem, argc, argv);
+
     int only = (argc > 2) ? atoi(argv[2]) : -1;
 
     /* Headless: parse and report, open nothing. This is what cross-checks the

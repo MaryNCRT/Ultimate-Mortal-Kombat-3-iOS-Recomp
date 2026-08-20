@@ -1638,6 +1638,29 @@ window, the context and the event loop, not the geometry. The loader reported
 the same counts the file was built with, the window opened with the mesh lit and
 rotating, and Esc closed it cleanly.
 
+### And it skins characters now
+
+```bash
+./build/umk3 <NAME>.skin [--frame N | --idle]
+```
+
+`runtime/lime/skin.c` parses `.bones`, `.skinanim` and `.skin` — the ROBO
+24-byte bone record, ROBO's bare block with no leading count and SINDEL's
+16-byte animation header included — builds the matrix palette depth-first and
+poses the vertices; `runtime/character.c` draws the result with the engine's
+lighting. It is the C form of `tools/pose.py`, following
+[SKIN-FORMAT.md](SKIN-FORMAT.md) and `decomp/lime/RenderSkinned.c`.
+
+Checked the only way available without the game data: a synthetic skinned tube
+built to the documented spec — 9 chained bones, 90 vertices, 160 triangles, 60
+frames, two-bone influences — posed by both implementations and diffed vertex
+by vertex. **Worst divergence across every frame sampled: 0.00006**, which is
+the print width rather than the arithmetic. Rewriting the same data into the
+ROBO and SINDEL shapes gave identical numbers through the fallback paths.
+
+That is agreement between our own two implementations, not verification against
+the game. The first shipped `.skin` is the real test.
+
 Why this before finishing the decompilation: everything up to now was validated
 in Python with no executable anywhere. From here each newly decompiled function
 can be tested *in situ*, drawing, instead of in a harness.
@@ -1724,9 +1747,12 @@ by a bare address** — and the small functions go in minutes.
 
 Then, in order:
 
-1. **Grow the vertical slice** alongside it. The SDL2 backend is written; what
-   remains there is `tools/pose.py`'s skinning moved into C so characters
-   animate natively.
+1. **Grow the vertical slice** alongside it. The SDL2 backend is written and
+   the skinning is now in C (`runtime/lime/skin.c`, `runtime/character.c`),
+   matching `tools/pose.py` on synthetic data — see
+   [SESSION-2026-08-20.md](SESSION-2026-08-20.md). What remains there is
+   morph/shape-key playback, and running the skinning against a real character
+   rather than a generated one.
 2. **The platform layer.** 229 functions, of which 56 are a vendored MIT copy of
    zoul/Finch needing no reverse engineering. The GL target is measured:
    [77 entry points](LIME-ENGINE.md), ES 1.1 fixed function, no shaders.
