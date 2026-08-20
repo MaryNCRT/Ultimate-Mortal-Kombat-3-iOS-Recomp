@@ -65,3 +65,15 @@ com.ea.umk3.bv: --fullscreen --scale-hack=4 --ignore-gl-errors --stabilize-virtu
 # Cualquier UIAlertView cierra el emulador (_CFRunLoopRun sin implementar),
 # incluidos los cuadros de confirmacion normales del juego. Evita Leaderboard,
 # Logros, licencia de usuario y cualquier opcion que pida confirmar.
+
+# --- iPad build 1.2.56 -------------------------------------------------
+# Same assets as the iPhone build, byte for byte (see docs/IPAD-BUILD.md),
+# but its Play menu has a fifth entry the iPhone build does not have:
+# _Touch_Play2P, a local two-player mode. That is the only reason to run it.
+#
+# The screen is 1024x768 rather than 480x320, so scale-hack is 2 rather than
+# 4, and the iPhone entry's button-to-touch coordinates are deliberately NOT
+# copied here -- they were measured against a 480x320 layout and would land in
+# the wrong places. Touch input works; gamepad mapping needs measuring against
+# the iPad layout.
+com.ea.umk3.ipad.bv: --fullscreen --scale-hack=4 --ignore-gl-errors --stabilize-virtual-cursor=0.1,8 --deadzone=0.15 --dpad-to-touch=39,530,212,213 --stick-to-touch=39,530,212,213 --button-to-touch=X,712,686 --button-to-touch=A,834,686 --button-to-touch=B,953,686 --button-to-touch=LeftShoulder,822,562 --button-to-touch=Y,951,562 --button-to-touch=Start,990,21
