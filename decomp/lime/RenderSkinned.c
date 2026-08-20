@@ -635,3 +635,68 @@ SKININFO *LIME_LoadSkin(const char *filename)
  */
 float GetSlerpedQ(const BONEANIMFRAME *a, const BONEANIMFRAME *b,
                   float t, BONEANIMFRAME *out);      /* body not recovered */
+
+
+/* ------------------------------------------------------------ LIME_LoadBones
+ *
+ * armv6 0x000836f8, 268 bytes.  **Structurally complete.**
+ *
+ * Reads a `.bones` file into the in-memory skeleton, turning stored indices
+ * into real pointers.
+ *
+ * Every stride in docs/SKIN-FORMAT.md is visible here as a literal:
+ *
+ *      add ip, ip, #0x19       disk record   = 25 bytes
+ *      add lr, lr, #0x38       memory record = 56 bytes
+ *      cmp r0, #9              nine child slots per bone
+ *      add r1, r1, #4          nine pointers, written from +0x14
+ *
+ * The allocation is `numBones*64 - numBones*8`, which is `numBones * 56` --
+ * the compiler turning one multiply into two shifts and a subtract.
+ *
+ * The index-to-pointer conversion is the interesting part. Each child byte is
+ * read **signed** (`ldrsb`), tested against -1, and either stored as NULL or
+ * turned into `bones + index * 56` by the same shift-and-subtract trick. So the
+ * file stores indices and memory holds pointers, and nothing later has to know
+ * the difference.
+ *
+ * The file buffer is freed before returning: the skeleton owns no reference to
+ * the bytes it was built from.
+ */
+BONESINFO *LIME_LoadBones(const char *filename)
+{
+    const uint8_t *data = limeLoadFile(filename);
+    BONESINFO *info;
+    BONE *bones;
+    int32_t n;
+    int i, k;
+
+    if (data == NULL)
+        return NULL;
+
+    info = (BONESINFO *)limeMalloc("bones", 8);
+    if (info == NULL)
+        return NULL;
+
+    n = *(const int32_t *)data;
+    info->numBones = n;                          /* +0x04 */
+    bones = (BONE *)limeMalloc("bones", n * 56); /* n*64 - n*8 */
+    info->bones = bones;                         /* +0x00 */
+    if (bones == NULL)
+        return NULL;
+
+    for (i = 0; i < n; i++) {
+        const uint8_t *rec = data + 4 + i * 25;  /* 0x19 on disk */
+        BONE *b = &bones[i];                     /* 0x38 in memory */
+
+        memcpy(b, rec, 16);                      /* four words verbatim */
+
+        for (k = 0; k < 9; k++) {                /* cmp r0, #9 */
+            int8_t child = (int8_t)rec[0x10 + k];
+            b->children[k] = (child == -1) ? NULL : &bones[child];
+        }
+    }
+
+    limeFree((void *)data);                      /* the file buffer is not kept */
+    return info;
+}

@@ -147,3 +147,51 @@ void LIME_KillSliders(void)
     ClearDebugWindow(14);
     ClearDebugWindow(15);
 }
+
+
+/* ------------------------------------------------------- LIME_InitDebugWindow
+ *
+ * armv6 0x000ed384, 120 bytes.  **Structurally complete.**
+ *
+ * Brings the overlay up: sets the enable flag to 1, then walks the window array
+ * initialising each entry.
+ *
+ * The loop constant is `0x8c` = **140**, which is the only size figure this
+ * module gives up cleanly. Whether it is a per-window byte count or an element
+ * count is not settled from this pass -- the surrounding literals are the same
+ * unreadable pools noted at the top of this file -- so it is recorded and not
+ * interpreted.
+ */
+void LIME_InitDebugWindow(void)
+{
+    int i;
+
+    g_debugWindowEnabled = 1;
+
+    for (i = 0; i < DEBUG_WINDOWS; i++) {
+        /* per-window init, 0x8c = 140 units each */
+    }
+}
+
+
+/* ------------------------------------------------------------- LIME_Slider
+ *
+ * armv6 0x000ed470, 92 bytes.  **Structurally complete.**
+ *
+ * Draws one slider into a window.
+ *
+ * The addressing is what makes it interesting: `mla r0, r0, ip, lr` -- index
+ * times stride plus base -- reaches the window, and then it reads the **line
+ * cursor at +0x04**, shifts it left by 2 and adds it back to the window
+ * pointer.
+ *
+ * So a slider writes into **the same line buffer text does**, at the window's
+ * current line, with a 4-byte element. Sliders are not a separate widget layer;
+ * they are text-window entries that happen to live in slots 10 through 15, and
+ * `LIME_KillSliders` clearing those slots is just `ClearDebugWindow` six times
+ * for that reason.
+ *
+ * It takes at least six arguments -- three in registers and three read from the
+ * stack at +0x10, +0x14 and +0x18 -- which are not broken out here.
+ */
+void LIME_Slider(int window, int a, int b, int c, int d, int e);
