@@ -129,6 +129,31 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 
 **En torno al 32% del esfuerzo total estimado. Todavía no hay nada jugable.**
 
+### Qué significa aquí "decompilado", con precisión
+
+Los porcentajes de arriba cuentan funciones **leídas, entendidas y escritas como
+C legible**. Eso no es lo mismo que verificado, y la diferencia ya está medida
+en lugar de supuesta:
+
+| | nº | qué lo respalda |
+|---|---:|---|
+| Verificado por comportamiento | **13** | compilado y ejecutado contra un oráculo recompilado, 60.019 casos, 0 divergencias |
+| Escrito y documentado | 75 | solo verja estructural — sin llamadas inventadas |
+| Documentado, cuerpo pendiente | 11 | analizado, hallazgos registrados, transcripción deliberadamente no escrita |
+
+Solo `Matrix.cpp` y `limeVector.cpp` han pasado por el oráculo diferencial. Todo
+lo demás ha pasado `symcheck`, que demuestra que una función no llama a nada que
+el binario nunca contuvo — una verja real, y puramente estructural. No dice nada
+sobre el comportamiento.
+
+La primera ejecución del oráculo encontró tres defectos en una sola tarde: el
+recompilador traducía `ASR #32` a comportamiento indefinido, `RenderMesh.c`
+contenía un error de sintaxis que nunca se había compilado, y un símbolo que
+este proyecto describía como una ruta configurable resultó ser una función.
+Ampliar esa cobertura es el trabajo de mayor valor que queda en el motor, y está
+anotado en [ENCARGO.md](docs/ENCARGO.md).
+
+
 La barra se mueve por primera vez en un buen rato, y solo porque `lime/common` se movió: 88 funciones de 109 frente a 21 hace poco. El trabajo de formatos que vino antes —resolverlos, renderizarlos y animarlos— valió muchísimo y **no vale ni un punto porcentual**, porque esa fila ya estaba al 100%. Lo que cambió ahí es que ahora está *demostrada* en vez de afirmada.
 
 Ese número es una estimación, así que aquí está la aritmética que hay detrás en vez de una cifra que haya que creerse. Los pesos son nuestro criterio sobre cuánto representa cada área del total; discrepa del reparto si quieres, pero las cifras de avance están medidas.
