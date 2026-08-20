@@ -31,7 +31,9 @@ SRC_IPA = os.environ.get(
     "UMK3_IPA",
     os.path.join(ROOT, "IPA", "UltimateMortalKombat3v1259.ipa"))
 WORK = os.path.join(ROOT, "WORK")
-APPS = os.path.join(ROOT, "TouchHLE", "touchHLE_apps")
+# Where the patched IPA is written. touchHLE usually lives outside the repo.
+APPS = os.environ.get("UMK3_APPS_DIR",
+                      os.path.join(ROOT, "TouchHLE", "touchHLE_apps"))
 
 ARMV7_FAT_OFFSET = 0x289000
 TEXT_VMBASE = 0x1000
@@ -39,8 +41,83 @@ TEXT_VMBASE = 0x1000
 NOP16 = b"\x00\xbf"          # nop  (Thumb, 2 bytes)
 
 
-def vm_to_file(vmaddr):
-    return ARMV7_FAT_OFFSET + (vmaddr - TEXT_VMBASE)
+# ---------------------------------------------------------------- builds
+#
+# Two retail builds exist and they are NOT interchangeable -- see
+# docs/IPAD-BUILD.md. Their assets are byte-identical, but the iPhone binary is
+# fat (armv6 + armv7) while the iPad one is thin armv7, so the armv7 slice sits
+# at a different file offset in each.
+#
+# The iPhone build stays the default: it is newer (1.2.59 against 1.2.56) and it
+# is the only one carrying the armv6 slice the project depends on for anything
+# NEON-heavy.
+BUILDS = {
+    "iphone": {
+        "ipa": "UltimateMortalKombat3v1259.ipa",
+        "fat": True,
+        "slice_offset": ARMV7_FAT_OFFSET,
+        "out": "UMK3_1259_patched.ipa",
+    },
+    "ipad": {
+        "ipa": "Ultimate_Mortal_Kombat__3_for_iPad_1.2.56_ios_3.2.ipa",
+        "fat": False,
+        "slice_offset": 0,
+        "out": "UMK3_1256_ipad_patched.ipa",
+    },
+}
+
+
+def vm_to_file(vmaddr, slice_offset=ARMV7_FAT_OFFSET):
+    return slice_offset + (vmaddr - TEXT_VMBASE)
+
+
+# --------------------------------------------------- symbol-relative patches
+#
+# The hardcoded addresses further down are iPhone 1.2.59. Applying the same
+# fixes to another build means finding the same INSTRUCTION, not the same
+# address -- every function in the iPad binary is relocated.
+#
+# So the patches that need to travel are expressed as (symbol, byte offset into
+# the function, replacement, comment) and resolved against whichever binary is
+# being patched. The offsets hold because both builds compile the same source:
+# FE_Task_About_Eula has its `beq` at +0x0e in each.
+SYMBOL_PATCHES = {
+    "setlocale_nop": [
+        ("__ZN13LocaleManager9setLocaleEPN4midp6StringE", 0,
+         bytes.fromhex("7047"), "LocaleManager::setLocale -> bx lr"),
+    ],
+    "mp_disable": [
+        ("_startMP", 0, bytes.fromhex("7047"), "startMP -> bx lr"),
+    ],
+    "eula_exit": [
+        # cmp r0,#1 / beq -- forcing the branch skips the EULA gate. The high
+        # byte of a 16-bit Thumb B<cond> carries the condition (0xD0 | cond);
+        # 0xE0 makes it unconditional.
+        ("_FE_Task_About_Eula", 0x0f, bytes.fromhex("e0"),
+         "beq -> b (skip the EULA gate)"),
+    ],
+}
+
+
+def resolve_symbol_patches(binpath, names, slice_offset, fat):
+    """Turn SYMBOL_PATCHES entries into concrete (vmaddr, bytes, comment)."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from macho import MachO, read_file, N_STAB
+
+    m = MachO(read_file(binpath), slice_offset if fat else 0)
+    addr = {}
+    for nm, t, _sec, _desc, val in m.symbols():
+        if nm and not (t & N_STAB) and val:
+            addr.setdefault(nm, val & ~1)
+
+    out = []
+    for name in names:
+        for sym, delta, newbytes, comment in SYMBOL_PATCHES[name]:
+            if sym not in addr:
+                raise SystemExit("symbol not present in this build: %s" % sym)
+            out.append((addr[sym] + delta, newbytes,
+                        "%s  [%s+0x%x]" % (comment, sym, delta)))
+    return out
 
 
 # ---------------------------------------------------------------- parches
@@ -228,15 +305,15 @@ PATCHES["getProperty_asserts"] = [
 ]
 
 
-def read_orig(data, vmaddr, n):
-    off = vm_to_file(vmaddr)
+def read_orig(data, vmaddr, n, slice_offset=ARMV7_FAT_OFFSET):
+    off = vm_to_file(vmaddr, slice_offset)
     return data[off:off + n]
 
 
-def apply_patches(data, patches):
+def apply_patches(data, patches, slice_offset=ARMV7_FAT_OFFSET):
     buf = bytearray(data)
     for vmaddr, newbytes, comment in patches:
-        off = vm_to_file(vmaddr)
+        off = vm_to_file(vmaddr, slice_offset)
         old = bytes(buf[off:off + len(newbytes)])
         buf[off:off + len(newbytes)] = newbytes
         print("  0x%08x (fat 0x%08x): %s -> %s   %s"
@@ -276,8 +353,19 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--apply", action="append", default=[])
-    ap.add_argument("--out", default="UMK3_1259_patched.ipa")
+    ap.add_argument("--build", default="iphone", choices=sorted(BUILDS))
+    ap.add_argument("--out", default=None)
     args = ap.parse_args()
+
+    build = BUILDS[args.build]
+    src_ipa = os.environ.get("UMK3_IPA") if args.build == "iphone" else None
+    # The IPAs are read-only sources and usually live outside the repo.
+    # UMK3_IPA names one file (iPhone only, historical); UMK3_IPA_DIR names
+    # the directory both builds sit in.
+    ipa_dir = os.environ.get("UMK3_IPA_DIR", os.path.join(ROOT, "IPA"))
+    src_ipa = src_ipa or os.path.join(ipa_dir, build["ipa"])
+    out_name = args.out or build["out"]
+    stage_dir = "stage" if args.build == "iphone" else "stage_" + args.build
 
     if args.list:
         for name, plist in PATCHES.items():
@@ -290,9 +378,10 @@ def main():
         raise SystemExit("indica --apply <nombre> o --list")
 
     os.makedirs(WORK, exist_ok=True)
-    stage = os.path.join(WORK, "stage")
-    print("extrayendo %s ..." % os.path.basename(SRC_IPA))
-    extract(SRC_IPA, stage)
+    stage = os.path.join(WORK, stage_dir)
+    print("build: %s   (%s)" % (args.build, build["ipa"]))
+    print("extrayendo %s ..." % os.path.basename(src_ipa))
+    extract(src_ipa, stage)
 
     binpath = find_binary(stage)
     with open(binpath, "rb") as fh:
@@ -301,21 +390,34 @@ def main():
 
     # comprobacion de cordura: el fat header debe estar donde esperamos
     magic = struct.unpack_from(">I", data, 0)[0]
-    if magic != 0xCAFEBABE:
-        raise SystemExit("no es un binario fat, magic=0x%08x" % magic)
+    if build["fat"] and magic != 0xCAFEBABE:
+        raise SystemExit("expected a fat binary, magic=0x%08x" % magic)
+    if not build["fat"] and magic == 0xCAFEBABE:
+        raise SystemExit("expected a thin binary but found a fat one")
+    off = build["slice_offset"]
 
     todo = []
     for name in args.apply:
-        if name not in PATCHES:
+        if name in SYMBOL_PATCHES:
+            # symbol-relative: resolves against whichever build is loaded
+            plist = resolve_symbol_patches(binpath, [name], off, build["fat"])
+        elif name in PATCHES:
+            if args.build != "iphone":
+                raise SystemExit(
+                    "%s is defined by hardcoded iPhone addresses and has no "
+                    "symbol-relative form; it would patch the wrong bytes "
+                    "in the %s build." % (name, args.build))
+            plist = PATCHES[name]
+        else:
             raise SystemExit("parche desconocido: %s" % name)
         print("\naplicando '%s':" % name)
-        todo.extend(PATCHES[name])
-        data = apply_patches(data, PATCHES[name])
+        data = apply_patches(data, plist, off)
 
     with open(binpath, "wb") as fh:
         fh.write(data)
 
-    out = os.path.join(APPS, args.out)
+    os.makedirs(APPS, exist_ok=True)
+    out = os.path.join(APPS, out_name)
     print("\nreempaquetando -> %s" % out)
     repack(stage, out)
     print("listo: %.1f MB" % (os.path.getsize(out) / 1048576.0))

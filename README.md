@@ -48,6 +48,7 @@ The long-term goals, in order:
 | Recover readable C source, function by function | 🔄 in progress |
 | Replace the iOS platform layer with a native PC one | ⬜ not started |
 | Widescreen, gamepad support, modding | ⬜ planned |
+| **Local two-player on one machine** | ⬜ planned — [the iPad build has it](docs/IPAD-BUILD.md) |
 | Restore hidden and unreachable content | ⬜ after a playable build |
 | 60 fps, modern netcode | ⬜ long term |
 
