@@ -36,7 +36,7 @@ This project is an attempt to bring it back properly, as **native PC software** 
 
 <img src="docs/img/viewer-graveyard.png" alt="The Graveyard stage rendered by tools/meshview.py" width="300">
 
-<sub>Kano in his fighting stance, and the Graveyard stage — drawn by [`tools/pose.py`](tools/pose.py) and [`tools/meshview.py`](tools/meshview.py). Bone tree, pose, skin weights, topology, UVs, PVRTC texture decoding and the projection matrix all come from this project's own parsers and decompiled code. No emulator, no engine binary. [How it works](docs/MESH-VIEWER.md).</sub>
+<sub>Six of the roster in their fighting stances, and the Graveyard stage — drawn by [`tools/pose.py`](tools/pose.py) and [`tools/meshview.py`](tools/meshview.py). Bone tree, pose, skin weights, topology, UVs, PVRTC texture decoding and the projection matrix all come from this project's own parsers and decompiled code. No emulator, no engine binary. [How it works](docs/MESH-VIEWER.md).</sub>
 
 </div>
 
