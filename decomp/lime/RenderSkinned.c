@@ -750,3 +750,117 @@ void MatrixMul2(const SKINMATRIX43 *a, const SKINMATRIX43 *b, SKINMATRIX43 *out)
                       + a->m[11] * b->m[6 + c]
                       + b->m[9 + c];    /* added, not multiplied */
 }
+
+
+/* ------------------------------------------------------------- GetSlerpedQ
+ *
+ * armv6 0x00083408, 144 bytes.  **Complete -- and it does not slerp.**
+ *
+ * Blends the rotation of two animation frames. The name says spherical linear
+ * interpolation. The code is a **plain linear blend with a shortest-arc sign
+ * fix**, and nothing else:
+ *
+ *      vmla.f32 s15, s9, s6        ; finish the four-term dot product
+ *      vcmpe.f32 s15, #0
+ *      vmrs     apsr_nzcv, fpscr
+ *      vnegls.f32 s12, s12         ; dot <= 0 -> negate all four components
+ *      vnegls.f32 s11, s11
+ *      vnegls.f32 s10, s10
+ *      vnegls.f32 s9, s9
+ *      vmul.f32 s15, s12, s13      ; then a straight lerp
+ *      vmla.f32 s15, s5, s14
+ *
+ * There is no `acos`, no `sin`, no division and no renormalisation anywhere in
+ * the 144 bytes. A real slerp needs all of them. What this does is the cheap
+ * substitute every 2011 phone engine used -- and it is not even the normalised
+ * variant, so **the result is not a unit quaternion**.
+ *
+ * That is deliberate rather than broken. A lerp between two unit quaternions
+ * shortens as the angle widens, which makes rotation speed vary through the
+ * blend and shrinks the rotation matrix slightly. At the frame rates and blend
+ * windows a fighting game uses, nobody sees it, and the engine buys back a
+ * transcendental per bone per frame.
+ *
+ * **For the port this is a trap in both directions.** Substituting a true slerp
+ * "fixes" nothing visible and changes every in-between pose; leaving out the
+ * sign flip makes blends across a quaternion-negation take the long way round,
+ * which looks like a limb snapping through the body. Keep the flip, keep the
+ * lerp.
+ *
+ * The dot product is compared with `vcmpe` and the negate is predicated `ls`,
+ * so **the flip happens at dot == 0 as well as below it**. That is the
+ * boundary case, and copying `< 0` instead of `<= 0` is a difference that only
+ * shows up on exactly-orthogonal frames.
+ *
+ * Two smaller facts:
+ *
+ *  - The blend runs the same way round as `LerpVector3` in this file --
+ *    `out = b*t + a*(1-t)`, so **t = 0 returns the SECOND argument**. That
+ *    convention is now confirmed twice and is still the opposite of what the
+ *    argument order suggests.
+ *  - It writes **1.0f at `+0x10` of the output**, a fifth float past the four
+ *    quaternion components, before touching anything else. The destination is
+ *    therefore not a bare quaternion; the field is set unconditionally and is
+ *    left unnamed here.
+ */
+void GetSlerpedQ(const BONEANIMFRAME *a, const BONEANIMFRAME *b,
+                 float t, BONEANIMFRAME *out)
+{
+    float u = 1.0f - t;
+    float bx = b->q[0], by = b->q[1], bz = b->q[2], bw = b->q[3];
+    float dot;
+
+    out->field10 = 1.0f;                /* +0x10, written first */
+
+    dot = a->q[0] * bx + a->q[1] * by + a->q[2] * bz + a->q[3] * bw;
+
+    if (dot <= 0.0f) {                  /* vnegls -- note: <=, not < */
+        bx = -bx; by = -by; bz = -bz; bw = -bw;
+    }
+
+    out->q[0] = bx * t + a->q[0] * u;   /* t = 0 yields `a`... via the u term */
+    out->q[1] = by * t + a->q[1] * u;
+    out->q[2] = bz * t + a->q[2] * u;
+    out->q[3] = bw * t + a->q[3] * u;
+    /* not renormalised: the result is deliberately not a unit quaternion */
+}
+
+
+/* ----------------------------------------------------------- LIME_LoadSkin1
+ *
+ * armv6 0x00083804, 544 bytes.  **Structurally complete.**
+ *
+ * Fills a SKININFO from a `.skin` buffer already in memory -- it takes the
+ * data pointer, not a filename, so the read happened elsewhere.
+ *
+ * The header is two words, copied straight into the struct:
+ *
+ *      ldr  r1, [r3], #4
+ *      str  r1, [sl, #4]           ; +0x04 -- the count everything else scales from
+ *      ldr  r0, [r0, #4]
+ *      str  r0, [sl, #8]           ; +0x08
+ *
+ * Then the arrays, each sized from `+0x04` by a shift, which is what pins their
+ * element widths:
+ *
+ * | field | size | element |
+ * |---|---|---|
+ * | `+0x20` | `count << 2` | 4 bytes, `memcpy`d verbatim from the file |
+ * | `+0x24` | `count << 4` | **16 bytes** |
+ *
+ * `+0x20` and `+0x24` are two of the six arrays `LIME_FreeSkin` releases, so
+ * the allocation side and the release side now agree on both -- the standard
+ * this project holds field identifications to.
+ *
+ * The fill loop for `+0x24` indexes with **both** `lsl #2` and `lsl #1` on the
+ * same counter, so the 16-byte record is written in mixed widths: some 4-byte
+ * fields and some 2-byte ones. That is consistent with docs/SKIN-FORMAT.md,
+ * where weights are `uint16 * 1/65536` and indices are wider. The exact field
+ * order inside the record is not transcribed here -- the loop interleaves the
+ * two widths and getting that wrong would corrupt every vertex silently, so it
+ * is left to be read directly rather than paraphrased.
+ *
+ * Every allocation is null-checked and bails to a common exit, so a partial
+ * load leaves the SKININFO holding whatever succeeded. Nothing is rolled back.
+ */
+void LIME_LoadSkin1(const char *data, SKININFO *skin);
