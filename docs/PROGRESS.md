@@ -1659,7 +1659,7 @@ That last one cost a wrong fix first: the symptom was misdiagnosed as a texture
 flip, which broke textures that were correct. The bounding-box extents answered
 it in one line and were available the whole time. **Measure before changing.**
 
-## `lime/common`: 21 -> 53 of 109
+## `lime/common`: 21 -> 69 of 109
 
 The decompilation is the product, and this is the row that moves the overall
 bar. It went 21 -> 33 -> 40 -> 46 -> 47 -> 53 in six batches, all from the
@@ -1713,7 +1713,7 @@ a fatality cancel its own particle swarm by group without tracking slots.
 
 ## Next up
 
-**Finish `lime/common`.** 53 of 109, and the bottleneck for everything: no
+**Finish `lime/common`.** 69 of 109, and the bottleneck for everything: no
 engine means nothing for the platform layer to drive, and no platform layer
 means no playable build. `limeFont.cpp` (0/6) and `DS_DebugWin.c` (0/7) are
 untouched; `Events.cpp` has 15 left including `LIME_LoadEvents` and
