@@ -6,7 +6,9 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 
 add_executable(umk3
     runtime/main.c
+    runtime/character.c
     runtime/lime/meshset.c
+    runtime/lime/skin.c
     runtime/lime/limemath.c
     runtime/lime/pvr.c
     runtime/lime/light.c

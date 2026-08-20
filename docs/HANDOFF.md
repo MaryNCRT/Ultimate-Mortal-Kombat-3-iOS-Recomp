@@ -127,8 +127,16 @@ that is not Windows, so the slice builds and runs on Linux — verified there
 against a generated `.meshset`, since the game data is not in the repository.
 `-DUMK3_BACKEND=sdl2` selects it on Windows too.
 
-The next step there is wiring `tools/pose.py`'s skinning into the C side so
-characters animate natively.
+`tools/pose.py`'s skinning is now on the C side too — `runtime/lime/skin.c`
+parses `.bones`, `.skinanim` and `.skin` (ROBO and SINDEL variants included)
+and `runtime/character.c` poses and draws them: `umk3 NAME.skin [--frame N |
+--idle]`. It agrees with `pose.py` to the print width on synthetic data built
+to the documented spec, which is as far as verification goes without the game
+files — **run it against a real character first thing when you have them**.
+
+What is left in the slice: morph/shape-key playback, character texture naming
+against real assets, and eventually a renderer that is not fixed function. The
+full session note is [SESSION-2026-08-20.md](SESSION-2026-08-20.md).
 
 ### 3. Then the platform layer
 

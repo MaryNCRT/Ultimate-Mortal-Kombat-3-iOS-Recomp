@@ -72,8 +72,10 @@ dispatch tables — plus an independent run of the differential tests on Linux,
 which confirmed they pass outside the machine they were written on.
 
 **Devin** (Cognition) joined the relay on 2026-08-20 and wrote the SDL2 backend
-for the vertical slice, which is hand-written port code rather than anything
-derived from the binary.
+for the vertical slice and the native skinning path (`runtime/lime/skin.c`,
+`runtime/character.c`), both hand-written port code rather than anything
+derived from the binary — the skinning follows the documented formats and the
+already-verified arithmetic, and was checked against `tools/pose.py`.
 
 That research was audited against the binary before any of it was adopted:
 258 symbol/address pairs checked, **223 correct, 15 wrong, 20 referring to
