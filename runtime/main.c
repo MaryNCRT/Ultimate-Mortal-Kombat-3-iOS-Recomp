@@ -14,13 +14,12 @@
  *   umk3 <file.meshset> [mesh-index]
  */
 #include "platform/platform.h"
+#include "platform/gl.h"
 #include "lime/meshset.h"
 #include "lime/limemath.h"
 #include "lime/pvr.h"
 #include "lime/light.h"
 
-#include <windows.h>
-#include <GL/gl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

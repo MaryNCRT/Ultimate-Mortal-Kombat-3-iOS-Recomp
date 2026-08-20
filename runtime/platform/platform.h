@@ -8,8 +8,9 @@
  * Backends:
  *   win32_gl.c   Win32 + WGL. No dependencies, builds with the toolchain that
  *                is already here. This is what the vertical slice uses.
- *   sdl_gl.c     not written yet -- the portable path, and the reason the
- *                interface is shaped this way rather than exposing HWND.
+ *   sdl_gl.c     SDL2. The portable path, and the reason the interface is
+ *                shaped this way rather than exposing HWND. Default off
+ *                Windows; -DUMK3_BACKEND=sdl2 selects it on Windows too.
  */
 #ifndef LIME_PLATFORM_H
 #define LIME_PLATFORM_H
