@@ -116,3 +116,187 @@ float limeGetStringWidth(FONT *font, const char *s);      /* body not recovered 
  * not of the string: text assembled at runtime has no reason to carry one.
  */
 float limeGetStringWidthUCNoHeader(FONT *font, const char *s);
+
+
+/* ------------------------------------------------------------ limeCreateFONT
+ *
+ * armv6 0x000af83c, 756 bytes.  **Complete, and it decodes the font format.**
+ *
+ * Builds a FONT from up to two texture atlases and one metrics file. This is
+ * the function that unblocks this whole file: every other routine here indexes
+ * tables that only this one fills in.
+ *
+ * ## The metrics file
+ *
+ * A three-byte header, then planar arrays. No magic number, no version.
+ *
+ * ```
+ *   byte 0   glyph count, low 8 bits
+ *   byte 1   bit 0      -- the SIMPLE flag, stored INVERTED at FONT+0x04
+ *            bits 1..7  -- glyph count, high bits, read SIGNED then >> 1
+ *   byte 2   -> FONT+0x08
+ *   byte 3.. numGlyphs character codes, one byte each
+ * ```
+ *
+ * The count is reassembled as `byte0 + ((int8_t)byte1 >> 1) << 8`, so the low
+ * bit of byte 1 is stolen for the flag and the rest is the high byte of a
+ * signed 15-bit count. Reading byte 1 unsigned gives a count that is wrong
+ * only for fonts past 128 glyphs, which is the kind of bug that survives
+ * testing on a Latin character set and breaks on Korean.
+ *
+ * ## Two shapes after the header
+ *
+ * The character codes are always read, into `FONT+0x48` as bytes and widened
+ * into `FONT+0x4c` as `{code, 0}` pairs -- that is, **the same codes as
+ * 16-bit values**, which is what the UTF-16 path in limeGetStringWidth
+ * searches. One table, two widths, built once at load.
+ *
+ * Then the flag decides:
+ *
+ *  - **simple** -- one more byte, a single fallback advance, into `FONT+0x2c`.
+ *    Every glyph is that wide.
+ *  - **not simple** -- three more planar arrays of `numGlyphs` entries each,
+ *    read in order into `FONT+0x1c`, `FONT+0x20` and `FONT+0x24`, and always
+ *    stored as `int16` regardless of how they were read.
+ *
+ * ## The `wide` argument
+ *
+ * The metric arrays are read as **signed bytes or as halfwords** depending on
+ * an argument, with the file cursor advancing by 1 or 2 to match:
+ *
+ *      ldrsbeq  r3, [r5, r6]       ; narrow: signed byte
+ *      ldrhne   r1, [r5, r6]       ; wide:   halfword
+ *      addeq    r6, r6, #1
+ *      addne    r6, r6, #2
+ *
+ * So **the file does not say how wide its own metrics are** -- the caller
+ * does. Load a font with the wrong flag and it parses without error and
+ * produces garbage. Any tool reading these files needs the flag from the call
+ * site, not from the data.
+ *
+ * ## What the third array is
+ *
+ * `FONT+0x24` is the **advance width**: it is the only one of the three that
+ * limeGetStringWidth accumulates. The other two are recorded by offset and not
+ * named here -- for a texture-atlas font they are most likely the glyph
+ * position and size, but this function does not use them and naming them on a
+ * guess would be worse than leaving them numbered.
+ *
+ * `FONT+0x10` is set to the constant **8** before anything is read, and
+ * limeGetStringWidth falls back to it when the glyph count is zero. So a font
+ * that fails to load still measures text, at 8 units per character, instead of
+ * returning zero and collapsing every layout to a point.
+ *
+ * The file buffer is freed before returning.
+ */
+void limeCreateFONT(const char *tex0, const char *tex1, const char *metrics,
+                    FONT *font, int arg4, int height, int width,
+                    int wide, int arg8)
+{
+    const uint8_t *data;
+    int i, n, cursor;
+
+    font->field14 = arg8;               /* +0x14, the scale applied at the end */
+    font->field0c = arg4;               /* +0x0c */
+    font->fallbackAdvance = 8;          /* +0x10, used when nothing loaded */
+    font->simple = 0;                   /* +0x04 */
+    font->height = (float)height;       /* +0x34, int -> float */
+    font->width  = (float)width;        /* +0x38, int -> float */
+
+    font->texture0 = limeLoadTexture(tex0, 0, 2);       /* +0x50 */
+    if (tex1 != NULL)
+        font->texture1 = limeLoadTexture(tex1, 0, 2);   /* +0x54 */
+
+    data = limeLoadFile(metrics);
+    if (data == NULL)
+        return;
+
+    n = data[0] + (((int8_t)data[1] >> 1) << 8);        /* 15-bit, packed */
+    font->simple = ((data[1] & 1) != 0) ? 0 : 1;        /* stored inverted */
+    font->numGlyphs = (int16_t)n;                       /* +0x18 */
+    font->field08 = data[2];                            /* +0x08 */
+
+    font->codes  = limeMalloc("font", n);               /* +0x48, bytes */
+    font->codesW = limeMalloc("font", n * 2);           /* +0x4c, int16 */
+
+    cursor = 3;
+    for (i = 0; i < n; i++) {
+        font->codes[i] = data[cursor++];
+        font->codesW[i] = font->codes[i];               /* {code, 0} */
+    }
+
+    if (font->simple) {
+        font->defaultAdvance = (int8_t)data[cursor];    /* +0x2c */
+        limeFree((void *)data);
+        return;
+    }
+
+    font->metricA = limeMalloc("font", n * 2);          /* +0x24 */
+    font->metricB = limeMalloc("font", n * 2);          /* +0x1c */
+    font->advance = limeMalloc("font", n * 2);          /* +0x20 */
+
+    /* three planar passes, in this order: +0x1c, +0x20, +0x24 */
+    for (i = 0; i < n; i++) {
+        font->metricB[i] = wide ? (int16_t)*(const uint16_t *)(data + cursor)
+                                : (int16_t)(int8_t)data[cursor];
+        cursor += wide ? 2 : 1;
+    }
+    for (i = 0; i < n; i++) {
+        font->advance[i] = wide ? (int16_t)*(const uint16_t *)(data + cursor)
+                                : (int16_t)(int8_t)data[cursor];
+        cursor += wide ? 2 : 1;
+    }
+    for (i = 0; i < n; i++) {
+        font->metricA[i] = wide ? (int16_t)*(const uint16_t *)(data + cursor)
+                                : (int16_t)(int8_t)data[cursor];
+        cursor += wide ? 2 : 1;
+    }
+
+    limeFree((void *)data);
+}
+
+
+/* -------------------------------------------------------- limeGetStringWidth
+ *
+ * armv6 0x000aeae4, 600 bytes.  **Partially decompiled -- see below.**
+ *
+ * Measures a string in the font.
+ *
+ * Three things are established and worth having even without the body.
+ *
+ * **It detects UTF-16 from a byte-order mark.** The first two bytes are read
+ * signed and compared against -1 and -2, which is `0xFF 0xFE` -- a little-
+ * endian BOM. When it matches, the cursor skips two bytes and a flag switches
+ * the whole loop to 16-bit characters:
+ *
+ *      ldrsb    r3, [sl]
+ *      cmn      r3, #1              ; == 0xFF ?
+ *      ldrsbeq  r3, [sl, #1]
+ *      cmneq    r3, #2              ; == 0xFE ?
+ *
+ * This is the same runtime detection the project already documented for game
+ * text, now confirmed inside the font code itself. Both encodings travel as
+ * `const char *`, so a port cannot decide the encoding from the type.
+ *
+ * **`FONT+0x24` is the advance width.** Of the three metric arrays
+ * limeCreateFONT fills, this is the only one this function reads, and it is
+ * what accumulates. That is what names the field.
+ *
+ * **The total is scaled, not summed.** The accumulated integer is converted to
+ * float and multiplied by `FONT+0x14`, the value passed to limeCreateFONT:
+ *
+ *      vcvt.f32.s32 s14, s15
+ *      vldr         s15, [r4, #0x14]
+ *      vmul.f32     s15, s14, s15
+ *
+ * So metrics are stored in whatever units the font was authored in and scaled
+ * at measure time. A port must apply the same scale or every layout drifts.
+ *
+ * The glyph lookup itself -- the search through `FONT+0x48` / `FONT+0x4c` that
+ * turns a character code into an index -- is **not** written out. The search
+ * has narrow and wide variants and a fallback path through `FONT+0x2c` and
+ * `FONT+0x10`, and the version here would be a guess at the ordering. It is
+ * left as a declaration rather than invented; see the note in ENCARGO.md about
+ * why an empty body is a better answer than a plausible one.
+ */
+float limeGetStringWidth(const FONT *font, const char *text);
