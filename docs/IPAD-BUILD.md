@@ -159,7 +159,23 @@ The older hardcoded-address patches are **refused** for any build but the iPhone
 one; they would silently hit the wrong bytes.
 
 touchHLE runs the result and reports `Device family: iPad`. Its options file
-needs its own entry for `com.ea.umk3.ipad.bv`: the screen is 1024x768 rather
-than 480x320, so `--scale-hack=2` rather than 4, and the iPhone entry's
-`--button-to-touch` coordinates must **not** be copied -- they were measured
-against the smaller layout.
+needs its own entry for `com.ea.umk3.ipad.bv`, and the controls have to be
+**re-measured rather than copied** -- the iPhone entry's coordinates were taken
+against 480x320 and would land in the wrong places on a 1024x768 layout:
+
+```
+com.ea.umk3.ipad.bv: --fullscreen --scale-hack=4 --ignore-gl-errors
+  --stabilize-virtual-cursor=0.1,8 --deadzone=0.15
+  --dpad-to-touch=39,530,212,213  --stick-to-touch=39,530,212,213
+  --button-to-touch=X,712,686            (S)
+  --button-to-touch=A,834,686            (P)
+  --button-to-touch=B,953,686            (K)
+  --button-to-touch=LeftShoulder,822,562 (R)
+  --button-to-touch=Y,951,562            (B)
+  --button-to-touch=Start,990,21         (pause)
+```
+
+The on-screen layout matches the iPhone one in *shape* -- three buttons on the
+lower row, two above, pause top right, stick bottom left -- so the mapping is
+the same idea at 1024x768 coordinates. `--scale-hack=4` renders internally at
+4096x3072.
