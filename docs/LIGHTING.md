@@ -154,3 +154,54 @@ kept on the CPU exactly as it is.
 The trap is the two unusual choices above -- the negated dot and the `pow()`
 falloff. Both are the kind of thing a reimplementation tidies away by accident,
 and both change how every character in the game looks.
+
+---
+
+## The opt-out list is a text file the artists edited
+
+Some surfaces must not be lit at all, and the engine decides which ones by
+**reading a plain text file at runtime**. `IsTextureFullBright`
+(armv6 `0x0008125c`) loads `res/nolight.txt`, and the file explains its own
+format in its header:
+
+```
+# List of files that we want to be fullbright below
+# comment out files using the # character as the first char in a line
+# Always use .??? as the file extension, no directories
+```
+
+Forty entries ship in the retail build. Almost all of them are
+`<CHARACTER>_DIFFUSE_ICE` -- the frozen variant of every fighter on the
+roster -- and the rest are blood splats, vomit, the acid of Reptile, and the
+snowman. Which is exactly the right list: a frozen body glows from inside, and
+blood should not pick up a directional highlight.
+
+**This is the most moddable thing found in the engine so far.** Adding a line
+to a text file changes how a texture is lit, with no rebuild and no tooling.
+Our port must read this file rather than bake the list into code, or that
+capability is lost in translation.
+
+### How the lookup works
+
+| | |
+|---|---|
+| Cache | `FullBrightLoaded` guards a one-time parse; the buffer is freed after |
+| Parse | `GetNextLine` per line; first byte `#` **or** `\0` means skip |
+| Table | stride `0x40`, name at `+4`, count at the base -- 60 bytes per name |
+| Lookup | linear string compare; 40 entries is not worth indexing |
+| Globals | `_FullBrightLoaded`, `_TheFullBrightInfo`, `_IsTextureFullBrightPath` |
+
+The three global names are in the symbol table verbatim, so the caching, the
+table and the fact that the *path itself* is a variable are all original
+design rather than inference. A mod could point `IsTextureFullBrightPath`
+somewhere else entirely.
+
+### One open question
+
+The comparison takes two arguments -- no length -- but the file stores
+extensions as the literal `.???`. An exact compare can only succeed if the
+caller presents names in that same normalised form. Whether the engine
+rewrites the extension before calling, or internal texture names already carry
+`.???`, is not settled by this function alone. **Do not "fix" it into a prefix
+compare without checking the call sites**; the wildcard is in the data, and
+guessing which side normalises is how a texture list silently matches nothing.
