@@ -6,7 +6,7 @@
 
 **A work-in-progress decompilation of the 2011 iOS release of Ultimate Mortal Kombat 3, aiming at a native PC port for Windows and Linux.**
 
-[Getting started](docs/GETTING-STARTED.md) · [Methodology](docs/METHODOLOGY.md) · [LIME engine](docs/LIME-ENGINE.md) · [Asset formats](docs/X-TABLES.md) · [Mesh viewer](docs/MESH-VIEWER.md) · [Game bugs](docs/GAME-BUGS.md) · [Hidden content](docs/HIDDEN-CONTENT.md) · [Stages](docs/STAGES.md) · [Lighting](docs/LIGHTING.md) · [Architecture](docs/ARCHITECTURE.md) · [Progress](docs/PROGRESS.md) · [Handoff](docs/HANDOFF.md) · [AI disclosure](AI-DISCLOSURE.md) · [Español](README.es.md)
+[Getting started](docs/GETTING-STARTED.md) · [Methodology](docs/METHODOLOGY.md) · [LIME engine](docs/LIME-ENGINE.md) · [Asset formats](docs/X-TABLES.md) · [Mesh viewer](docs/MESH-VIEWER.md) · [Game bugs](docs/GAME-BUGS.md) · [Hidden content](docs/HIDDEN-CONTENT.md) · [Stages](docs/STAGES.md) · [Lighting](docs/LIGHTING.md) · [iPad build](docs/IPAD-BUILD.md) · [Architecture](docs/ARCHITECTURE.md) · [Progress](docs/PROGRESS.md) · [Handoff](docs/HANDOFF.md) · [AI disclosure](AI-DISCLOSURE.md) · [Español](README.es.md)
 
 </div>
 
