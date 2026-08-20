@@ -8,7 +8,61 @@ project overview.
 
 ## The job: finish `lime/common`
 
-**88 of 109 done (81%).** Twenty-one left. This is the row that moves
+**88 of 109 have a body (81%).** The remaining 21 are **not all equal work**,
+and the split matters more than the number:
+
+| | count | what it means |
+|---|---:|---|
+| Body written | 88 | decompiled and verified against the gate |
+| **Documented, body pending** | **11** | read, analysed, findings recorded — only the transcription is missing |
+| Not yet read | 10 | nobody has opened these |
+
+A documented declaration is deliberate, not a gap to be tidied. Each one carries
+what was established plus an explicit note on what was *not*, because writing a
+plausible body over an unconfirmed layout is the failure mode this project
+guards against hardest. Filling one in is a short job for whoever confirms the
+missing piece; inventing one silently costs a session to undo.
+
+### Documented, body pending — the cheap wins
+
+```
+DS_DebugWin.c      LIME_Slider
+Events.cpp         LIME_LoadEvents
+Events.cpp         LIME_TriggerEventFromSceneH
+LIMEDS_Misc.cpp    ConvertQSTMatrixtoPCMatrix
+RenderMesh.cpp     LIME_LoadMeshSetTextures
+RenderMesh.cpp     LIME_RenderMeshSingleIndexed
+RenderMesh.cpp     CreateFadedRGBS
+RenderScene.cpp    FlushTranspMeshList
+RenderSkinned.cpp  LIME_LoadSkin1
+limeFont.cpp       limeGetStringWidth
+limeFont.cpp       limeGetStringWidthUCNoHeader
+```
+
+### Not yet read
+
+```
+Events.cpp         LIME_LoadMasterEventOffsets
+Events.cpp         LIME_RenderEvents
+Events.cpp         LIME_TriggerEvent
+Events.cpp         LIME_TriggerEventsFromSceneOffsetIfFollowing
+RenderMesh.cpp     LIME_RenderMeshSingle
+RenderScene.cpp    LIME_RenderScene
+RenderScene.cpp    LIME_RenderSceneOverrideTextures
+RenderSkinned.cpp  CreateMatrixPaletteForGeneratingMesh
+limeFont.cpp       limeDrawFONT
+limeFont.cpp       limeDrawFONTAtAngle
+```
+
+`limeDrawFONT` is the highest-value one left: it is the only function that reads
+the two font metric arrays [FONT-FORMAT.md](FONT-FORMAT.md) could not name.
+
+**A caveat on that classification script.** It matches mangled names by trimming
+the argument encoding, and it misfiles anything whose suffix it cannot strip —
+`CreateFadedRGBS` and `CreateMatrixPaletteForGeneratingMesh` both report as
+unread when the first is in fact documented. Regenerate the lists by reading
+`decomp/lime/*.c`, not by trusting the matcher. This is the same class of bug
+that once made three published percentages too low. This is the row that moves
 the overall bar, and it is the bottleneck for everything downstream — there is
 no engine for the platform layer to drive until it is finished.
 
