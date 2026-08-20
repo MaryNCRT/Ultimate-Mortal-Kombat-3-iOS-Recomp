@@ -142,7 +142,7 @@ the completion figures are measured.
 | Binary analysis and source-tree mapping | 4% | 100% | `██████████` |
 | Tooling and the verification oracle | 8% | 100% | `██████████` |
 | Asset format specifications | 8% | 100% | `██████████` |
-| `lime/common` — engine core (109 fn) | 12% | 19% | `██░░░░░░░░` |
+| `lime/common` — engine core (109 fn) | 12% | 21% | `██░░░░░░░░` |
 | `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | 4% | `░░░░░░░░░░` |
 | Native PC platform layer (161 fn to rewrite) | 17% | 10% | `█░░░░░░░░░` |

@@ -137,7 +137,7 @@ Ese número es una estimación, así que aquí está la aritmética que hay detr
 | Análisis del binario y mapeo del árbol de fuentes | 4% | 100% | `██████████` |
 | Herramientas y oráculo de verificación | 8% | 100% | `██████████` |
 | Especificaciones de formatos de assets | 8% | 100% | `██████████` |
-| `lime/common` — núcleo del motor (109 fn) | 12% | 19% | `██░░░░░░░░` |
+| `lime/common` — núcleo del motor (109 fn) | 12% | 21% | `██░░░░░░░░` |
 | `gamecode` — lógica de juego (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — motor de combate (2.172 fn) | 28% | 4% | `░░░░░░░░░░` |
 | Capa de plataforma nativa de PC (161 fn por reescribir) | 17% | 10% | `█░░░░░░░░░` |
