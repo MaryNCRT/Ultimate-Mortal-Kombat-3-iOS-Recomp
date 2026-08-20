@@ -12,9 +12,8 @@
  * docs/LIME-ENGINE.md for the full 77-entry-point surface.
  */
 #include "platform.h"
+#include "gl.h"
 
-#include <windows.h>
-#include <GL/gl.h>
 #include <stdio.h>
 
 static HWND      g_wnd;
