@@ -508,3 +508,51 @@ above plus rotations from a `.skinanim` frame.
 The **layout** was already settled — every file in the game walks to its exact
 last byte — and now the **interpretation** is settled too, for everything the
 [mesh viewer](MESH-VIEWER.md) needs in order to pose a character.
+
+
+---
+
+## The rotation blend is not a slerp
+
+`GetSlerpedQ` (armv6 `0x00083408`) is 144 bytes and its name is a lie. There is
+**no `acos`, no `sin`, no division and no renormalisation** anywhere in it. What
+it does is a dot product, a conditional sign flip, and a straight linear blend:
+
+```
+vcmpe.f32  s15, #0
+vnegls.f32 s12, s12       ; dot <= 0 -> negate all four components
+vnegls.f32 s11, s11
+vnegls.f32 s10, s10
+vnegls.f32 s9,  s9
+vmul.f32   s15, s12, s13  ; then a plain lerp
+vmla.f32   s15, s5,  s14
+```
+
+This is the cheap substitute every 2011 phone engine used, and it is not even
+the normalised variant — **the result is not a unit quaternion**. A lerp between
+two unit quaternions shortens as the angle widens, so rotation speed varies
+through the blend and the resulting matrix shrinks slightly. At fighting-game
+frame rates and blend windows nobody sees it, and the engine saves a
+transcendental per bone per frame.
+
+### Both directions are traps for a port
+
+| Change | What happens |
+|---|---|
+| Substituting a real slerp | "Fixes" nothing visible, changes every in-between pose |
+| Dropping the sign flip | Blends across a quaternion negation take the long way round — a limb snaps through the body |
+
+Keep the flip, keep the lerp.
+
+The comparison is `vcmpe` with the negate predicated `ls`, so **the flip fires at
+`dot == 0` as well as below it**. Writing `< 0` instead of `<= 0` differs only on
+exactly-orthogonal frames, which is precisely the kind of difference that is
+never noticed and never reproducible.
+
+### The blend direction, confirmed twice
+
+`out = b*t + a*(1-t)` — the same reversed convention `LerpVector3` uses, so
+**`t = 0` returns the second argument**. Two independent functions now agree on
+it, and it is still the opposite of what the argument order suggests. This has
+already cost the project once; it is written down here so it does not cost it
+again.

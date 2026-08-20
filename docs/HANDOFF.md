@@ -14,7 +14,7 @@ call; the completion figures are measured.
 | | |
 |---|---|
 | Asset formats | **100%** — solved, demonstrated, animating |
-| `lime/common` | **85 of 109** functions |
+| `lime/common` | **86 of 109** functions |
 | Native executable | **exists**, draws textured lit geometry |
 | `gamecode` + fight logic | 2,463 functions, essentially untouched |
 | Platform layer | target measured (77 GL entry points), barely written |
@@ -93,7 +93,7 @@ protects nothing and costs the project its only visible evidence.
 
 ## What to do next, in order
 
-### 1. Finish `lime/common` — 24 functions left
+### 1. Finish `lime/common` — 23 functions left
 
 **The specific work order for this is [ENCARGO.md](ENCARGO.md).**
 
@@ -155,7 +155,9 @@ those functions are — see [X-TABLES.md](X-TABLES.md) and
   does not. Do not apply a blanket rule.
 - **Geometry is Z-up.** GL is Y-up.
 - **`LerpVector3` runs backwards** from its argument order: `t = 0` gives the
-  *second* argument.
+  *second* argument. `GetSlerpedQ` blends the same way round, and despite its
+  name it is a **lerp with a shortest-arc sign flip, not a slerp** — no acos, no
+  sin, no renormalisation. See [SKIN-FORMAT.md](SKIN-FORMAT.md).
 - **Lighting is monochrome and has no ambient term.** Two directional lights,
   a `pow()` falloff on each, negated dot products, clamped to 1. Substituting a
   plain `max(0, dot)` will look visibly wrong. See [LIGHTING.md](LIGHTING.md).
