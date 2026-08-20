@@ -1,7 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"E:/umk3repo/build_pr/cmake_install.cmake"
-	],
-	"Parallel" : false
-}
