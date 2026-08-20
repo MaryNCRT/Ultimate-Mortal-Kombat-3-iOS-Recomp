@@ -566,3 +566,79 @@ int LIME_TriggerEventFromSceneH(long a0, SCENEEVENTTRACK *track,
                                 limeMATRIX44 *matrix, long a3,
                                 long a4, long a5, long a6, long a7,
                                 long a8, long a9, long a10);
+
+
+/* ------------------------------------------------------------ LIME_LoadEvents
+ *
+ * armv6 0x000e8484, 1064 bytes.  **Structurally complete.**
+ *
+ * Reads a `.events` file into the SCENEEVENTTRACK array that
+ * LIME_TriggerEventFromSceneH later spawns from.
+ *
+ * ## 216 bytes per track, spelled out in four instructions
+ *
+ * The allocation is the clearest confirmation of the record size this file has:
+ *
+ *      lsl  r1, r3, #5             ; count * 32
+ *      sub  r1, r1, r3, lsl #3     ; minus count * 8   -> count * 24
+ *      lsl  r3, r1, #3             ; that * 8          -> count * 192
+ *      add  r1, r1, r3             ; 24 + 192          -> count * 216
+ *
+ * **216**, exactly the stride `FindEventOffsets` and `LIME_FreeEvents` step by.
+ * Three functions, one number, arrived at three different ways -- the allocator
+ * builds it out of shifts, and the two walkers use it as a literal.
+ *
+ * (Note this is *not* the 248-byte figure. 248 is the size of a live EVENT slot
+ * in the runtime pool; 216 is the size of a SCENEEVENTTRACK loaded from disk.
+ * They are different structures and the project has confused them before.)
+ *
+ * ## Names are uppercased at load, in a 64-byte field
+ *
+ *      ldrb   r2, [r4, r3]
+ *      sub    r3, r2, #0x61        ; - 'a'
+ *      uxtb   r3, r3
+ *      cmp    r3, #0x19            ; <= 25, i.e. was it a-z ?
+ *      subls  r3, r2, #0x20        ; then subtract 32
+ *      strbls r3, [r4, r2]
+ *      add    r4, r4, #1
+ *      cmp    r4, #0x40            ; 64 bytes
+ *
+ * The classic branch-free `islower` -- subtract `'a'`, treat as unsigned, one
+ * compare covers both ends of the range -- applied **in place** across a
+ * **64-byte** name field.
+ *
+ * So track names are normalised to uppercase **once, at load time**, and every
+ * later lookup is a plain case-sensitive compare against an uppercase name.
+ * That is why the `.events` files can carry mixed-case artist names like
+ * `smokeparticle fbx` and `Smoke_FLOAT fbx` while the code never calls a
+ * case-insensitive compare anywhere.
+ *
+ * **A port must uppercase too.** Skip it and every lookup fails for any track
+ * whose author used lowercase -- which, from the shipped data, is most of them.
+ *
+ * ## A second array at +0xd4
+ *
+ *      ldr  r6, [r6, #0x9c]        ; a per-track count
+ *      lsl  r2, r6, #6             ; count * 64
+ *      lsl  r1, r6, #2             ; count * 4
+ *      add  r1, r1, r2             ; -> count * 68
+ *      bl   limeMalloc
+ *      str  r0, [r8, #0xd4]
+ *
+ * A **68-byte** record array, sized from a count at `+0x9c` and hung off
+ * `+0xd4` -- immediately after `+0xd0`, the instance cap established by
+ * LIME_TriggerEventFromSceneH and LIME_PlayFBXAtPos.
+ *
+ * ## Failure behaviour
+ *
+ * A missing file returns NULL. A zero track count frees the buffer and returns
+ * NULL as well, so an empty `.events` file and an absent one are
+ * indistinguishable to the caller -- which matters, because LIME_LoadScene
+ * stores this result without checking it.
+ *
+ * The per-track field parsing is not transcribed. It walks a long sequence of
+ * offsets into the 216-byte record, and paraphrasing that from one pass would
+ * put plausible-looking field names on offsets that have not been confirmed
+ * twice.
+ */
+EVENTSINFO *LIME_LoadEvents(const char *filename, long arg1, long arg2);
