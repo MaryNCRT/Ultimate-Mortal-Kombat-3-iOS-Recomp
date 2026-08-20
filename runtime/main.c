@@ -132,26 +132,10 @@ static void upload_textures(const LimeMeshSet *ms, const char *res_dir)
         LimeImage img;
         if (!lime_texture_load(res_dir, ms->meshes[i].texture, &img)) continue;
 
-        /* Image row 0 is the TOP of a PVR, but GL's V=0 is the BOTTOM of a
-         * texture. Uploading the rows as they come samples the image upside
-         * down. tools/pvrtc.py never hits this because it indexes rows
-         * directly; anything handing the data to GL does. */
-        {
-            const size_t stride = (size_t)img.width * 4;
-            unsigned char *tmp = (unsigned char *)malloc(stride);
-            if (tmp) {
-                for (int y = 0; y < img.height / 2; y++) {
-                    unsigned char *a = img.rgba + (size_t)y * stride;
-                    unsigned char *b = img.rgba +
-                                       (size_t)(img.height - 1 - y) * stride;
-                    memcpy(tmp, a, stride);
-                    memcpy(a, b, stride);
-                    memcpy(b, tmp, stride);
-                }
-                free(tmp);
-            }
-        }
-
+        /* The rows go up exactly as decoded. An earlier version flipped them
+         * here on the theory that PVR row 0 is the top while GL's V=0 is the
+         * bottom -- but the game's UVs are authored for this data as it
+         * stands, and flipping broke textures that were already correct. */
         glGenTextures(1, &g_tex[i]);
         glBindTexture(GL_TEXTURE_2D, g_tex[i]);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -311,6 +295,17 @@ int main(int argc, char **argv)
         glLoadIdentity();
         glTranslatef(0.0f, 0.0f, -dist);
         glMultMatrixf(gl);
+
+        /* The geometry is Z-up: a character body measures roughly 0.75 wide,
+         * 0.20 deep and 1.00 tall along X, Y and Z respectively. That is the
+         * 3ds Max convention the art was authored in, and it survived export.
+         * GL is Y-up, so without this the fighters lie on their backs.
+         *
+         * Stages are a separate question -- GRAVEYARD_LEVEL is widest in X and
+         * is a backdrop plane, not a body -- so this is applied to everything
+         * and judged by eye rather than assumed per file. */
+        glRotatef(-90.0f, 1.0f, 0.0f, 0.0f);
+
         glTranslatef(-centre[0], -centre[1], -centre[2]);
 
         for (int32_t i = 0; i < ms.num_meshes; i++) {
