@@ -1462,6 +1462,39 @@ out as plain scalar VFP and reads straight off the disassembly.
 Still open: what `word0` of a bone counts, and the fifth word of an animation
 frame entry. Neither is needed for anything.
 
+### Every character has its own animation stream, and frame 0 is not a pose
+
+All 29 characters ship their own `.skinanim`. Each is **one long stream holding
+every animation that character has**, so frame 0 is simply whatever comes first
+— a knockdown for Sub-Zero, a flying kick for Scorpion and Sonya. Rendering it
+looks like a skinning bug and is not one.
+
+`pose.py` now defaults to finding the stance. The heuristic that works is the
+**medoid**: every animation departs from the stance and returns to it, so
+stance-like frames are heavily over-represented and the frame nearest the mean
+lands inside that mass. Scoring by "most upright" fails — it picks whichever
+frame has the arms highest overhead.
+
+Verified on humans, on four-armed Sheeva, and on Motaro, who is a centaur.
+
+#### The animation budget confirms the arcade roster
+
+| Group | Characters | Frames |
+|---|---:|---|
+| Playable | 24 | 341 – 844, mean 409 |
+| **Bosses** — Motaro, Shao Kahn | 2 | **167 and 122** |
+| Non-combatants — Dummy, ROBO1 | 2 | 33 each |
+
+The playable roster has a hard floor at **341 frames** and both bosses sit well
+below it, carrying **35% of the mean playable budget**. That is exactly what
+AI-only opponents look like: no fatalities of their own, no friendships, no
+babalities, a short move list. The data reproduces the 1995 roster distinction
+without being told about it.
+
+Skeletons are shared by archetype the same way — Cyrax, Sektor and Smoke all run
+501 frames over 58 bones; Liu Kang, Noob Saibot and Old Smoke all run 347 over
+48. The palette-swap ninjas are palette swaps down to the rig.
+
 ### The tool gap that was blocking the renderer
 
 `disasm.py` never resolved import stubs, so every call to GL or libc printed as
