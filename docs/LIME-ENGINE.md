@@ -372,3 +372,47 @@ Worth not confusing:
 - Whether `.events` really is a bone/slot-anchored effect system — the
   `UNASSIGNED` slot names and RGBA colours suggest it, but nothing confirms it
 - The provenance and licence of `GBMusicTrack.m`
+
+---
+
+## The GL surface the port has to implement
+
+Measured, not guessed: [`tools/glsurface.py`](../tools/glsurface.py) walks every
+named function in the armv6 slice and counts calls that land on a GL import
+stub. **77 distinct entry points**, all OpenGL ES 1.1 fixed function plus the
+`OES` framebuffer extensions.
+
+This is the concrete specification for the native platform layer. Anything not
+on this list does not need writing.
+
+| Source file | Calls | Distinct | What it drives |
+|---|---:|---:|---|
+| `lime.m` | 95 | 23 | the iOS platform layer — context, clears, viewport, 2D |
+| `GameCode.cpp` | 78 | 12 | scene transforms: cull, scale, translate, rotate, matrix stack |
+| `RenderMesh.cpp` | 71 | 18 | mesh drawing: pointers, texture units, `glDrawElements` |
+| `LIMEDS_Misc.cpp` | 15 | 6 | matrix stack helpers |
+| `FrontEnd.cpp` | 14 | 6 | menus |
+| `Players.cpp` | 11 | 6 | per-player transforms |
+| `RenderScene.cpp` | 11 | 6 | scene-graph placement |
+| `Events.cpp` | 8 | 4 | event-driven transforms |
+| `HudAnim.cpp` | 4 | 4 | HUD |
+
+The heaviest single calls across the binary are `glScalef` (24 sites),
+`glDisable` (23), `glEnableClientState` (22), `glEnable` (21) and `glTranslatef`
+(20) — a fixed-function pipeline driven almost entirely through the matrix stack
+and client-state toggles, with **three texture units** in `RenderMesh.cpp`.
+
+There is no shader anywhere. Mapping this to modern OpenGL means writing a small
+fixed-function emulation — a matrix stack, a texture-env combiner, and vertex
+array bindings — rather than porting shader code, which is why
+[the ES2 renderer path is the better starting point](#) for the port even though
+the engine itself is ES1.
+
+### The bug that made this tool worth writing twice
+
+The first version reported **one** GL call in the entire binary. It passed bare
+`0x...` addresses to `disasm`, which assumes Thumb for a numeric target — and
+the armv6 slice is ARM throughout, so it disassembled garbage and found nothing.
+Garbage that produces a plausible-looking empty result rather than an error is
+the failure mode this project keeps meeting. Disassembling by *name*, which
+carries the correct instruction-set flag, gives 77.

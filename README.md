@@ -256,6 +256,10 @@ tools/
   slices.py              extracts armv6/armv7 and finds NEON-affected functions
   scene.py               .scene reader and validator
   meshview.py            renders a .meshset to a PNG -- software rasteriser
+  pose.py                poses a character from .bones/.skinanim/.skin
+  glsurface.py           inventories every GL entry point the engine calls
+  thumb_scan.py          finds ARM/Thumb boundaries
+  umk3paths.py           locates an extracted IPA's res/ directory
   xref.py                finds calls to an imported symbol; recovers assert() arguments
   ghidra/                headless decompilation scripts
   signatures/            function signatures and struct layouts fed to Ghidra
