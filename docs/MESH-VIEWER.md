@@ -124,7 +124,7 @@ Full derivation in [SKIN-FORMAT.md](SKIN-FORMAT.md); the maths comes from
 [`decomp/lime/RenderSkinned.c`](../decomp/lime/RenderSkinned.c).
 
 ```bash
-UMK3_RES=/path/to/res python tools/pose.py KANO_STANDARD kano.png 0
+UMK3_RES=/path/to/res python tools/pose.py KANO_STANDARD kano.png idle
 ```
 
 ### Textured
@@ -132,7 +132,7 @@ UMK3_RES=/path/to/res python tools/pose.py KANO_STANDARD kano.png 0
 ![Kano posed and textured](img/pose-kano-textured.png)
 
 ```bash
-UMK3_RES=/path/to/res python tools/pose.py KANO_STANDARD kano.png 0 --render --angle 20
+UMK3_RES=/path/to/res python tools/pose.py KANO_STANDARD kano.png idle --render --angle 20
 ```
 
 Everything this project has built, in one image: the bone tree from `.bones`,
