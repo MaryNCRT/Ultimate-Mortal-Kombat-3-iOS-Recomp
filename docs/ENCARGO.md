@@ -8,7 +8,7 @@ project overview.
 
 ## The job: finish `lime/common`
 
-**81 of 109 done (74%).** Twenty-eight left. This is the row that moves
+**82 of 109 done (75%).** Twenty-seven left. This is the row that moves
 the overall bar, and it is the bottleneck for everything downstream — there is
 no engine for the platform layer to drive until it is finished.
 
@@ -22,7 +22,7 @@ no engine for the platform layer to drive until it is finished.
 | `RenderScene.cpp` | 9/14 | 5 |
 | `DS_DebugWin.c` | 6/7 | 1 |
 | `LIMEDS_Misc.cpp` | 7/8 | 1 |
-| `limeFont.cpp` | 1/6 | 5 |
+| `limeFont.cpp` | 2/6 | 4 |
 
 ### The method, which is routine now
 
@@ -52,10 +52,15 @@ python tools/symcheck.py decomp/ OUTPUT/symbols.txt      # must report 0
 
 ## Three rules that this session actually needed
 
-**Write what you established, not what would look complete.** Two of
-`limeFont.cpp`'s functions are in the repo as documented declarations with **no
-body**, because the glyph-table layout is not decoded and writing a body would
-have meant inventing one. That is the correct outcome, not a gap to be tidied.
+**Write what you established, not what would look complete.** Some functions
+are in the repo as documented declarations with **no body** — `limeGetStringWidth`
+is the current example, where the glyph *search* is not pinned down even though
+the format around it now is. That is the correct outcome, not a gap to be tidied.
+
+The patience pays off: the glyph table was undecoded for several sessions, and
+`limeCreateFONT` then gave up the whole format at once — see
+[FONT-FORMAT.md](FONT-FORMAT.md). Guessing a body earlier would have buried a
+plausible wrong layout under a correct-looking function.
 
 **`symcheck` is not a formality.** It caught a live invention this session — a
 `limeFontAdvance()` helper written to paper over exactly that undecoded part.
@@ -140,4 +145,4 @@ of this task.
   `limeVector.cpp` — its Phase 0 — is unfinished and worth doing before
   trusting it.
 - Both READMEs, `PROGRESS.md` and `HANDOFF.md` are current as of `lime/common`
-  at 81/109 and overall at 32%.
+  at 82/109 and overall at 32%.
