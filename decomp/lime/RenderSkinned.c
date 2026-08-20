@@ -380,3 +380,58 @@ void LightVert(const limeVECTOR3 *n, float *out)
         l = 1.0f;
     *out = l;
 }
+
+
+/* -------------------------------------------------------- MatrixIdentity2
+ *
+ * armv6 0x0008314c, 32 bytes.  __Z15MatrixIdentity2P12SKINMATRIX43
+ *
+ * Writes 1.0f at byte offsets 0x00, 0x10 and 0x20 and zero everywhere else --
+ * that is, at m[0], m[4] and m[8].
+ *
+ * Which is a third independent confirmation of the SKINMATRIX43 layout: the
+ * diagonal of a 3x3 identity lands at 0, 4 and 8 only if the rotation is nine
+ * floats at **stride 3**. A genuine 4x3 would put it at 0, 5 and 10.
+ */
+void MatrixIdentity2(SKINMATRIX43 *m)
+{
+    int i;
+    for (i = 0; i < 12; i++)
+        m->m[i] = 0.0f;
+    m->m[0] = m->m[4] = m->m[8] = 1.0f;
+}
+
+
+/* --------------------------------------------------------- LIME_FreeBones
+ *
+ * armv6 0x00083644, 24 bytes.
+ *
+ * Frees the bone array and then the BONESINFO itself. A NULL argument returns
+ * immediately.
+ *
+ * Confirms BONESINFO is exactly what SKIN-FORMAT.md says: a pointer to the
+ * bones at +0x00 and a count at +0x04, with nothing else owning memory.
+ */
+void LIME_FreeBones(BONESINFO *info)
+{
+    if (info == NULL)
+        return;
+    limeFree(info->bones);
+    limeFree(info);
+}
+
+
+/* ------------------------------------------------------- GenerateMatrices
+ *
+ * armv6 0x00083634, 28 bytes.
+ *
+ * Swaps two arguments and tail-calls
+ * CreateMatrixPaletteForGeneratingMesh. Nothing else. The two functions differ
+ * only in the order they take their parameters, which usually means one of
+ * them is the older signature kept for callers that were never updated.
+ */
+void GenerateMatrices(char *dst, BONESINFO *bones, long a, long b,
+                      float t, long flags)
+{
+    CreateMatrixPaletteForGeneratingMesh(dst, a, b, flags, t, bones);
+}
