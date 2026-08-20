@@ -59,7 +59,7 @@ We are following the example of the [Super Smash Bros. 64 AI-assisted port](http
 
 We agree with both halves of that sentence.
 
-## Two agents, in relay
+## Agents, in relay
 
 Since 2026-08-14 the project has been worked by **Anthropic's Claude** (via
 Claude Code) and **DeepSeek**, handing over to each other as context runs out.
@@ -70,6 +70,10 @@ cooperative process scheduler in `gamecode/logic/other.c` — `StartThreadAt`,
 `QueueAndJump`, `DoSwitchJump`, the circular queues and the function-pointer
 dispatch tables — plus an independent run of the differential tests on Linux,
 which confirmed they pass outside the machine they were written on.
+
+**Devin** (Cognition) joined the relay on 2026-08-20 and wrote the SDL2 backend
+for the vertical slice, which is hand-written port code rather than anything
+derived from the binary.
 
 That research was audited against the binary before any of it was adopted:
 258 symbol/address pairs checked, **223 correct, 15 wrong, 20 referring to
