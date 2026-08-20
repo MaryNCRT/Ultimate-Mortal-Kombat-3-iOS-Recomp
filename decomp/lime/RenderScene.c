@@ -108,3 +108,30 @@ SCENEINFO *LIME_LoadSceneWithTextures(const char *filename)
 
     return scene;
 }
+
+
+/* ------------------------------------------------- LIME_GetSceneFromFilename
+ *
+ * armv6 0x00081bb4, 44 bytes.
+ *
+ * Looks a scene up by name, walking the same +0x90 list as LIME_SceneExists.
+ *
+ * It calls `strcmp(scene, name)` with the SCENEINFO pointer **as the string**,
+ * which is the second function to give this away -- IsWhirlwindScene does the
+ * same with strstr. **The scene name is the first field of SCENEINFO**, at
+ * offset 0, needing no dereference.
+ *
+ * This is what makes scenes reference-counted rather than reloaded: the loader
+ * calls this first and, on a hit, only bumps the count at +0x40.
+ */
+SCENEINFO *LIME_GetSceneFromFilename(const char *filename)
+{
+    SCENEINFO *s = g_sceneList;
+
+    while (s != NULL) {
+        if (strcmp((const char *)s, filename) == 0)
+            return s;
+        s = s->next;                                 /* +0x90 */
+    }
+    return NULL;
+}
