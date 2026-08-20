@@ -120,6 +120,61 @@ one more menu item:
 
 One more button drawn, one more label, one more width query.
 
+### The second player exists in **both** builds
+
+This is the part that matters for the port, and it is better news than "the iPad
+has a feature we lack".
+
+Running the mode and reading the game's own telemetry gives it a name:
+
+```
+LOGGING (50013): MAIN MENU, PLAY
+LOGGING (30038): 2 Players on 1 iPad, 0      <- mode selected
+LOGGING (30041): 2 Players on 1 iPad
+LOGGING (30042): 2 Players on 1 iPad, 0      <- match
+LOGGING (20002): 1, 0                        <- result
+```
+
+**"2 Players on 1 iPad."** The engine's own words, and the string sits in the
+front-end label table alongside `ROUND 1`…`ROUND 4` and the pause-menu entries.
+
+And the machinery behind it is in the **iPhone binary too**, byte for byte the
+same size:
+
+| Symbol | Bytes | In iPhone | In iPad |
+|---|---:|---|---|
+| `_ButtonStatesP2` | 28 | yes | yes |
+| `_LastButtonStatesP2` | 28 | yes | yes |
+| `_ButtonsPosP2` | 120 | yes | yes |
+| `_ButtonsPosP2_1` / `_2` | 120 each | yes | yes |
+| `_ButtonsPos6P2_1` / `_2` | 120 each | yes | yes |
+| `_JoystickStateP2` + X/Y | 4 each | yes | yes |
+| `_P2Controls` | 4 | yes | yes |
+| `_Player2NumButtons` | 4 | yes | yes |
+| `_PLAYER2MODEL` | 4 | yes | yes |
+| `_Player2Pos` | 12 | yes | yes |
+| `_isp2` | **48 (code)** | yes | yes |
+| `_gup2` | **368 (code)** | yes | yes |
+
+Seven button states, **five separate button layouts** including two six-button
+variants, a joystick with its own position, a controls block, a player model and
+two functions. That is a complete second-player input path, and the iPhone build
+carries all of it.
+
+**Only `_Touch_Play2P` is missing from the iPhone build.** The mode is fully
+implemented there and simply unreachable — no menu entry leads to it.
+
+#### What this means for the port
+
+**Local two-player does not have to be written.** It is already in the code being
+decompiled, with a second control layout and a second player model, and it works
+— a full match was played through it. The work is exposing it, not building it.
+
+It also means the feature is **not** a reason to prefer the iPad build as a
+decompilation source. The iPad binary is the reference for *what the menu should
+offer*; the iPhone build, which still has the armv6 slice, remains the source
+the code is read from, and it contains the same second-player code.
+
 ### Why the search missed it
 
 The first pass searched the binary's own string table for a two-player
