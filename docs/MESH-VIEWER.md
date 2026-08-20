@@ -141,6 +141,53 @@ the pose from `.skinanim`'s quaternions, the influences and weights from
 decoder, and `CreatePerspectiveMatrix` from the verified decompilation — with
 the maths from `GetMFromQuat2`, `MatrixMul2` and `DrawSkinnedMesh2`.
 
+### Frame 0 is not a pose, and every character has its own
+
+![Six characters in their fighting stances](img/pose-cast.png)
+
+<sub>Kano, Sheeva, Motaro, Shao Kahn, Sektor, Jax — each in the stance found
+automatically in its own animation stream.</sub>
+
+All 29 characters ship their own `.skinanim`, and the streams are not
+interchangeable: 33 to 844 frames each, with the bone count matching the
+skeleton in every case except ROBO1 (20 of 25) and ROBO2 (44 of 56), the pair
+that differs in every other format too.
+
+The archetypes share skeletons exactly as the arcade original's palette-swap
+roster would suggest:
+
+| Characters | Frames | Bones |
+|---|---:|---:|
+| Cyrax, Sektor, Smoke | 501 | 58 |
+| Liu Kang, Noob Saibot, Old Smoke | 347 | 48 |
+| Jade, Mileena | 434 | 44 |
+| Ermac, Kitana | 356 | 48 / 44 |
+
+**A `.skinanim` is one long stream holding every animation the character has**,
+so frame 0 is simply whatever comes first — for Sub-Zero a knockdown, for
+Scorpion and Sonya a flying kick. Rendering it looks like a skinning bug and is
+not one. This is worth stating plainly because the project spent a round
+chasing exactly that.
+
+#### Finding the stance without knowing where animations begin
+
+Two heuristics, one of which fails instructively:
+
+- **Most upright** — picks whichever frame has the arms stretched highest
+  overhead. Kano came out 241 units tall in a victory pose.
+- **Medoid** — the frame whose bone positions sit closest to the mean of all
+  frames. Every animation departs from the stance and returns to it, so
+  stance-like frames are heavily over-represented, and the mean lands in the
+  middle of that mass.
+
+The medoid works, on humans, on a four-armed Sheeva and on a centaur, with no
+knowledge of where any individual animation starts or stops. `pose.py` defaults
+to it; pass a number to override.
+
+```bash
+UMK3_RES=/path/to/res python tools/pose.py SHEEVA_STANDARD out.png idle --render
+```
+
 ### The skirt clips through the leg, and that is the model
 
 Kano's hip cloth passes through his raised thigh in the fighting stance. It
