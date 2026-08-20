@@ -1521,23 +1521,103 @@ See [MESH-VIEWER.md](MESH-VIEWER.md) for the reasoning in full.
 
 ---
 
+## The asset work is finished
+
+Everything the game's data holds is now readable, demonstrated visually, and
+moving. What follows is the closing summary; the details are in the linked docs.
+
+### `res/framelists/` — the animation stream is named frame by frame
+
+A directory nobody had opened. 28 per-character frame name lists, and **the line
+number is the frame index** — frame `N` is line `N+1`. See
+[FRAMELISTS.md](FRAMELISTS.md).
+
+Proved against the `.events` frame indices found separately: Kano's babality
+fires at frame 311 and line 312 reads `BABKANO//doFatal`; frame 340 → line 341
+`CUTUP_BY_REPTILE_KANO`, a literal string match with the event track name. The
+event `nailscared_X` lands on the frame named `NAILSCARED` for **twelve
+characters at twelve different indices**.
+
+Frames carry `//doFatal` annotations, so the stream is not merely ordered with
+finishers at the end — it is **labelled**.
+
+### `.events` entries are frame indices
+
+The first `int32` of an entry indexes that character's own `.skinanim`. **26 of
+26 characters in range, correlation r = 0.9993** between frame count and highest
+index. See [EVENTS-FORMAT.md](EVENTS-FORMAT.md).
+
+This also resolved SINDEL, open since the `.skinanim` work: her file holds 844
+frames against a declared 422, and her highest event index of 416 is 98.6% of
+422 but only 49.3% of 844. The header is right; **the second half is never
+read** — 265 KB of dead weight.
+
+### The catalogue, and the stages
+
+[`tools/finishers.py`](../tools/finishers.py) extracts **313 events** — 217
+fatality/death, 24 babality, 56 effect, 16 victory — with the frame each fires
+on. Stage fatalities turned out to be per-victim scene pairs rather than stage
+events: `LAIR_KANO` + `LAIR_KANO2`, 96 scenes across two stages. Animated stage
+elements are stage `.events` tracks: `Pit_Blades`, `newspaper1` ×20,
+`lavapulse` ×29. See [STAGES.md](STAGES.md).
+
+### Two animation systems, not one
+
+Characters have a **rig** and **shape keys**. 115 numbered mesh sequences across
+25 characters, 80 with byte-identical topology — `SmokeBull`, `JadeCat`,
+`SharkCyrax`. A skeleton cannot turn a man into a bull, so anything the rig
+cannot express is done by swapping whole meshes frame by frame.
+
+### And it moves
+
+![Kano's high punch](img/anim-punch-strip.png)
+
+[`tools/animate.py`](../tools/animate.py) resolves Kano's 362 frames into **54
+named clips** and plays them. `KNHIPUNCH` reads as a punch — guard, wind-up,
+full extension, retraction, recovery. **A wrong clip boundary produces a
+sequence that jumps**, so this is the segmentation proving itself.
+
+### Along the way: bugs in the shipped game
+
+Nine texture names are referenced and do not exist — art-pipeline typos like
+`SINDEL_DIFF`, `KITANA_DIFUSE`, and `SONIA DIFF`, which misspells the
+character's name *and* truncates "DIFFUSE". The correct texture ships in every
+case. Sindel's morph targets are her hair-whip fatality, so **in the original
+her body loses its texture partway through her own finisher**. See
+[GAME-BUGS.md](GAME-BUGS.md).
+
+Confidence comes from the contrast: the same cross-check on `.events` track
+names returned **1,547 references, all resolving**.
+
+### And a hidden tier
+
+Noob Saibot, Human Smoke and Classic Sub-Zero sit in the roster table with
+half-resolution select portraits — 64×64 against everyone else's 128×128, with
+no exceptions either way. **Human Smoke's portrait is the question-mark
+placeholder itself.** Noob Saibot is complete, not vestigial: 2.47 MB of assets,
+within 1 KB of Scorpion's. See [HIDDEN-CONTENT.md](HIDDEN-CONTENT.md).
+
+---
+
 ## Next up
 
-1. **`LIME_RenderMeshSingleIndexed`, in full** — now readable thanks to the stub
-   fix above. It defines the vertex format and GL state the engine actually
-   uses, which is the bridge between finishing `lime/common` and starting the
-   platform layer. Not blocked on anything.
-2. **`moves_data.x` / `frames.x` extraction** ([issue #11](../../issues/11)) —
-   the tables are plain text and already understood; what is missing is the tool
-   that turns them into data the port can consume, and the semantics of the
-   numeric fields.
-3. **The native platform layer** — 229 functions of new code, no reverse
-   engineering required, and it can proceed in parallel with everything above.
-4. **`RenderScene.cpp` structs** into `signatures/lime.txt`. `SKININFO`,
-   `BONEANIMFRAME`, `SKINMATRIX43`, `limeVECTOR3` are known from the mangled
-   symbols; declaring them gave a readability jump last time.
-5. **`_DoSwitchJump`** ([issue #1](../../issues/1)) — now much better armed, with
-   92 named `t_` handlers recovered from `moves_data.x`.
+**The phase has changed.** The asset work is finished — every format solved,
+demonstrated visually, and now animating. What remains is the product itself:
+readable C.
+
+1. **`lime/common`, via the armv6 slice.** 21 of 109 functions, and the
+   bottleneck for everything downstream: no engine means nothing for the
+   platform layer to drive, and no platform layer means no playable build.
+   `RenderMesh.cpp` first — 4 of 19 done, it is the drawing path, and the
+   [stub-resolution fix](#the-tool-gap-that-was-blocking-the-renderer) turned
+   `LIME_RenderMeshSingleIndexed` from unreadable into 39 named GL calls.
+2. **The native platform layer.** Its target is now measured rather than
+   guessed: [77 GL entry points](LIME-ENGINE.md), all ES 1.1 fixed function,
+   three texture units, no shaders anywhere.
+3. **`moves_data.x` / `frames.x` extraction** ([issue #11](../../issues/11)).
+4. **`_DoSwitchJump`** ([issue #1](../../issues/1)) — better armed now, with 92
+   named `t_` handlers recovered from `moves_data.x`.
+5. **Restoring hidden content** — explicitly after a playable build, not before.
 
 ### Known technical debt
 
