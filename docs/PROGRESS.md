@@ -1606,16 +1606,37 @@ cmake -S . -B build -G Ninja && cmake --build build
 ./build/umk3 <file.meshset>
 ```
 
+On Windows that configures the Win32/WGL backend; anywhere else it configures
+the SDL2 one. `-DUMK3_BACKEND=sdl2` selects SDL2 on Windows too.
+
 Opens a window and draws UMK3 geometry, textured and lit, through the engine's
 own decompiled maths. **The first native executable in the project.**
 
 | Piece | State |
 |---|---|
-| Window + GL context | Win32/WGL, no dependencies |
+| Window + GL context | Win32/WGL (no dependencies) or SDL2 (portable) |
 | `.meshset` loader in C | counts match `tools/meshset.py` exactly |
 | PVRTC decoder in C | **bit-identical** to `tools/pvrtc.py` |
 | Matrices | from the verified decompilation |
 | Lighting | the engine's real model, monochrome, MODULATE |
+
+### The slice is no longer Windows-only
+
+`runtime/platform/sdl_gl.c` implements the same six-function interface over
+SDL2, and CMake selects it everywhere that is not Windows. The GL headers moved
+behind `runtime/platform/gl.h` because `main.c` was including `windows.h`
+directly, which was the only other thing tying the executable to one OS.
+
+The context is asked for as **compatibility**, deliberately: the engine is ES
+1.1 fixed function end to end, so the slice draws with `glMatrixMode` and
+`glVertexPointer`, which a core profile does not have. That is a property of the
+slice, not of the eventual renderer.
+
+Verified on Linux against a generated `.meshset` rather than a shipped one —
+the game data is not in the repository, and the point of the test was the
+window, the context and the event loop, not the geometry. The loader reported
+the same counts the file was built with, the window opened with the mesh lit and
+rotating, and Esc closed it cleanly.
 
 Why this before finishing the decompilation: everything up to now was validated
 in Python with no executable anywhere. From here each newly decompiled function
@@ -1703,8 +1724,8 @@ by a bare address** — and the small functions go in minutes.
 
 Then, in order:
 
-1. **Grow the vertical slice** alongside it. A portable SDL2 backend beside
-   `win32_gl.c`, and `tools/pose.py`'s skinning moved into C so characters
+1. **Grow the vertical slice** alongside it. The SDL2 backend is written; what
+   remains there is `tools/pose.py`'s skinning moved into C so characters
    animate natively.
 2. **The platform layer.** 229 functions, of which 56 are a vendored MIT copy of
    zoul/Finch needing no reverse engineering. The GL target is measured:

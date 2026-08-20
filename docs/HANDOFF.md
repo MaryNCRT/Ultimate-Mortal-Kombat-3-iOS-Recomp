@@ -122,9 +122,13 @@ has consistently been.
 drawing rather than in a harness — which is the entire reason it was built
 before the decompilation was finished.
 
-The obvious next steps there: a portable SDL2 backend beside `win32_gl.c` (the
-interface in `platform.h` is shaped for it), and wiring `tools/pose.py`'s
-skinning into the C side so characters animate natively.
+The SDL2 backend now sits beside `win32_gl.c` and is what CMake picks anywhere
+that is not Windows, so the slice builds and runs on Linux — verified there
+against a generated `.meshset`, since the game data is not in the repository.
+`-DUMK3_BACKEND=sdl2` selects it on Windows too.
+
+The next step there is wiring `tools/pose.py`'s skinning into the C side so
+characters animate natively.
 
 ### 3. Then the platform layer
 
