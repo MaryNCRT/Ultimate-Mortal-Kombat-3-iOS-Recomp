@@ -216,3 +216,25 @@ texture name containing it**. Putting `ICE` in the file would unlight every
 texture with `ICE` anywhere in its name. The shipped file always writes complete
 names so the behaviour never surfaces, but it is the difference between a list
 of names and a list of patterns.
+
+
+---
+
+## …and then GL is told not to interpolate it
+
+`LIME_RenderMeshSingleIndexed` opens with `glShadeModel` and the constant it
+loads is `0x1d01` — **`GL_FLAT`**.
+
+So the model above is computed **per vertex on the CPU** and then displayed
+**per face**: each triangle takes the colour of its provoking vertex and GL
+interpolates nothing. That is why the shading in this game reads as faceted
+rather than soft, and it is not a limitation of the lighting maths — it is a
+deliberate second decision on top of it.
+
+A port that leaves the GL default (`GL_SMOOTH`) in place gets rounder, softer
+shading than the original on every surface. It looks better in a screenshot and
+it is wrong.
+
+The vertex colours themselves come from `CreateFadedRGBS`, which feeds
+`glColorPointer` in the same function — so the signed per-channel offset that
+routine applies lands on **vertex colours, not texels**.

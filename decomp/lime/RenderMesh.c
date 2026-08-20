@@ -711,3 +711,73 @@ void LIME_LoadMeshSetTextures(MESHSETINFO *meshset, const char *suffix);
  */
 void CreateFadedRGBS(uint8_t *dst, char *src, float level, long count,
                      limeVECTOR3 offset);
+
+
+/* ------------------------------------------------- LIME_RenderMeshSingleIndexed
+ *
+ * armv6 0x00080a7c, 808 bytes.  **Structurally complete.**
+ *
+ * The indexed draw path -- the function that actually puts triangles on screen.
+ * Readable only after `tools/stubs.py`; before the imports were resolved this
+ * was 808 bytes of `bl #0x127xxx`.
+ *
+ * ## Shading is FLAT
+ *
+ * The first GL call in the function is `glShadeModel`, and the constant loaded
+ * for it is `0x1d01` -- **`GL_FLAT`**, not `GL_SMOOTH`.
+ *
+ * That is worth stopping on, because it interacts with everything in
+ * docs/LIGHTING.md. Lighting is computed per vertex on the CPU and handed to GL
+ * as vertex colour, and then GL is told **not to interpolate it**: each triangle
+ * takes the colour of its provoking vertex. So the lighting is per-vertex in
+ * how it is computed and per-face in how it appears.
+ *
+ * A port that leaves the default `GL_SMOOTH` in place gets softer, rounder
+ * shading than the original everywhere -- which looks better in a screenshot and
+ * is wrong.
+ *
+ * ## Three texture units, reconfigured per draw
+ *
+ * `glClientActiveTexture` and `glActiveTexture` appear in **three separate
+ * groups**, each followed by its own `glBindTexture`, `glTexEnvf`, and
+ * enable/disable pair. This is the multi-texture path the engine is documented
+ * to use, here in full.
+ *
+ * Every unit is torn down and rebuilt inside this one function -- there is no
+ * state cache. On the original hardware that is a lot of redundant GL traffic;
+ * on a desktop driver it is worse, because each redundant `glBindTexture` still
+ * costs a validation. **This is the single most obvious optimisation target in
+ * the render path**, and also the most dangerous one to take early, because the
+ * teardown order is what leaves the units in a known state for the next draw.
+ *
+ * ## Client array state
+ *
+ * The vertex, normal, colour and texture-coordinate arrays are enabled and
+ * disabled explicitly around the draw, with `glVertexPointer`,
+ * `glTexCoordPointer` and `glColorPointer` supplying them, and a
+ * `glDrawElements` in the middle.
+ *
+ * ## CreateFadedRGBS feeds glColorPointer
+ *
+ * This connects two functions that looked unrelated:
+ *
+ *      bl   __Z15CreateFadedRGBSPhPcfl11limeVECTOR3
+ *      ...
+ *      bl   _glColorPointer
+ *
+ * So the faded-RGB routine documented above is **the per-vertex colour path**:
+ * it builds the colour array that this draw then hands to GL. Its signed
+ * per-channel offset is applied to vertex colours, not to texels -- which
+ * settles what "faded" means and confirms, from the consumer side, that adding
+ * rather than multiplying is correct.
+ *
+ * The body is not transcribed instruction by instruction. The three texture-unit
+ * groups differ in which constants they load and which branches they take, and a
+ * paraphrase would either lose that or invent it; the sequence above is what is
+ * established. The exact GL enum for each call is deliberately not listed --
+ * several are loaded from literal pools that resolve to addresses rather than
+ * values in this pass, and the project does not state constants it could not
+ * pin down.
+ */
+void LIME_RenderMeshSingleIndexed(MESHINFO *mesh, TEXTURE *tex0, TEXTURE *tex1,
+                                  float alpha, long flags);
