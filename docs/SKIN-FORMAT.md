@@ -85,15 +85,17 @@ binary. They are the best evidence available for what each buffer is:
 | `SKININFO+0x1C` | `M × 24` | `skin_uvs` |
 | `SKININFO+0x18` | `M × 6` | (per-vertex, 6 bytes) |
 
-Two caveats worth stating plainly:
+Two things about that table were long misread, and both are settled in
+[§7](#7-the-skinning-algorithm-in-full) and
+[§10](#10-the-two-per-vertex-blocks-they-are-per-triangle):
 
-- The `skin_uvs` tag sits on a **24 bytes per vertex** buffer, which is far more
-  than a UV pair needs. Either the tag is stale — copied from another buffer
-  when the code was written — or the buffer holds more than UVs. **Not yet
-  resolved.** Do not treat those 24 bytes as two floats.
-- `indexes` decode as large unsigned values (`0xFFFFFF2E` and similar), so they
-  are almost certainly **signed**, and negative. Probably offsets rather than
-  plain indices. **Not yet resolved either.**
+- The `skin_uvs` tag sits on a **24 bytes per vertex** buffer, which is three
+  times what a UV pair needs — because it is **three UV pairs, one per triangle
+  corner**. The tag was accurate all along; `M` counts triangles, not vertices.
+- `indexes` decode as large unsigned values like `0xFFFFFF2E`, which looked like
+  negative numbers. They are not signed at all: each word is **four packed bone
+  indices, one byte each**, and `0xFF` marks an unused influence slot. An unused
+  fourth slot puts `0xFF` in the top byte and sets the sign bit.
 
 ---
 
@@ -131,7 +133,8 @@ int32  numBones (N)
 BONE   bones[N]        // 25 bytes each
 ```
 
-Total: `4 + N*25`. **Validated on 27 of the 29 files.**
+Total: `4 + N*25`. **All 29 files parse, and all 29 yield a well-formed
+tree** — see [§8](#8-bones-on-disk-versus-in-memory).
 
 `ROBO1_STANDARD.bones` and `ROBO2_STANDARD.bones` use **24 bytes** per bone
 instead of 25 — the same two files that are the odd ones out in both
@@ -146,20 +149,30 @@ come out of a different exporter entirely.
 | `0x04` | `float` | offset X |
 | `0x08` | `float` | offset Y |
 | `0x0C` | `float` | offset Z |
-| `0x10` | `byte[9]` | link array: parent first, then children; `0xFF` = unused |
+| `0x10` | `int8[9]` | **nine child indices**; `-1` (`0xFF`) = unused slot |
 
-The link encoding is what the data itself shows. In `SCORPION_STANDARD.bones`:
+An earlier version of this document read the first byte as a parent link and
+`0x00` as a child count. **Both readings are wrong**, and the tree test in
+[§8](#8-bones-on-disk-versus-in-memory) is what disproves them: treating all
+nine slots as children yields exactly one root, every index in range and no bone
+claimed by two parents, across all 29 files. A parent stored in slot 0 would
+double-count immediately.
+
+From `SCORPION_STANDARD.bones`:
 
 ```
-bone 0:  count=2   offset=(0.043, 106.068, -0.005)   links = FF 01 FF FF FF FF FF FF FF
-bone 1:  count=2   offset=(0, 0, 0)                  links = 02 2D FF FF FF FF FF FF FF
-bone 2:  count=3   offset=(10.740, 4.117, 0)         links = 03 25 29 FF FF FF FF FF FF
+bone 0:  word0=2   offset=(0.043, 106.068, -0.005)   links = FF 01 FF FF FF FF FF FF FF
+bone 1:  word0=2   offset=(0, 0, 0)                  links = 02 2D FF FF FF FF FF FF FF
+bone 2:  word0=3   offset=(10.740, 4.117, 0)         links = 03 25 29 FF FF FF FF FF FF
 ```
 
-Bone 0 has `0xFF` as its first link and one child — a root. Bone 2 has parent
-`0x03` and children `0x25`, `0x29`, which is three used entries, matching its
-count of 3. The offsets are plausible skeleton dimensions: ~106 units up for
-the root, ~10 units for a limb.
+Bone 0 is the root and has one child, bone 1. Bone 1's children are 2 and `0x2D`
+(45); bone 2's are 3, `0x25` (37) and `0x29` (41) — spine and two limbs
+branching, which is what a skeleton looks like. Note bone 0 leaves slot 0 empty
+and fills slot 1, so the slots are **not** packed from the front.
+
+`word0` is **not** the child count: bone 0 has one child and reads 2. Its
+meaning is still open, and nothing needs it.
 
 ### In memory
 
