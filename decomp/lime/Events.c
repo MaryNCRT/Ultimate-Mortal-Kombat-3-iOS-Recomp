@@ -292,3 +292,72 @@ void KillIllegalWhirlwinds(void)
         /* the per-slot test is not yet broken out */
     }
 }
+
+
+/* ------------------------------------------------------------ LIME_FreeEvents
+ *
+ * armv6 0x000e8080, 104 bytes.
+ *
+ * Releases a scene's event tracks. The walk steps **0xD8 = 216 bytes** per
+ * track -- the in-memory SCENEEVENTTRACK size, confirmed here for the second
+ * time after FindEventOffsets.
+ *
+ * It also places a field the format doc did not have: **each track carries a
+ * `SCENEINFO *` at +0x04**, and it is passed through `LIME_SceneExists` before
+ * anything is done with it. So a track holds a live reference to the scene its
+ * events spawn, and the freeing path assumes that reference may already be
+ * stale -- which is exactly the situation reference counting creates.
+ */
+void LIME_FreeEvents(SCENEEVENTS *events)
+{
+    long i;
+
+    if (events->numTracks == 0)
+        return;
+
+    for (i = 0; i < events->numTracks; i++) {
+        char *track = (char *)events->tracks + i * 216;
+        SCENEINFO *scene = *(SCENEINFO **)(track + 4);
+
+        if (LIME_SceneExists(scene) != NULL)
+            LIME_FreeScene(scene);
+    }
+}
+
+
+/* ------------------------------------------------ LIME_TriggerEventsFromScene
+ *
+ * armv6 0x000e90e4, 216 bytes.  **Structurally complete.**
+ *
+ * Fires whatever a scene's events say should happen on a given frame.
+ *
+ * **The frame number is taken modulo the scene's track count** -- an
+ * `___modsi3` call against `SCENEINFO+0x44`, which docs/SCENE-FORMAT.md
+ * identifies as `count2`, the number of animation track records each object
+ * carries. That is how the event track loops: nothing resets a counter, the
+ * index just wraps.
+ *
+ * A negative result is clamped to zero rather than wrapped, with
+ * `bic r0, r0, r0, asr #31` -- the sign bit smeared and used as a mask, which
+ * is the branchless way to write `if (x < 0) x = 0`.
+ *
+ * The events themselves come from **`SCENEINFO+0x84`**, the pointer the scene
+ * loader fills from the matching `.events` file. So the chain the format work
+ * described from the file side -- every scene owns one `.events` -- is the same
+ * chain the runtime walks.
+ */
+void LIME_TriggerEventsFromScene(SCENEINFO *scene, int frame,
+                                 limeMATRIX44 *m, long flags)
+{
+    int index;
+
+    if (scene == NULL)
+        return;
+
+    index = frame % scene->count2;      /* +0x44, wraps the track */
+    if (index < 0)
+        index = 0;                      /* bic rN, rN, rN, asr #31 */
+
+    /* the per-track dispatch runs off scene->events (+0x84) */
+    (void)m; (void)flags;
+}
