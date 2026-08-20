@@ -416,3 +416,57 @@ the armv6 slice is ARM throughout, so it disassembled garbage and found nothing.
 Garbage that produces a plausible-looking empty result rather than an error is
 the failure mode this project keeps meeting. Disassembling by *name*, which
 carries the correct instruction-set flag, gives 77.
+
+
+---
+
+## There is no shader path. The ES2 renderer is dead template code.
+
+The binary imports **twelve GL ES 2.0 shader entry points** — `glCreateShader`,
+`glCompileShader`, `glLinkProgram`, `glUseProgram`, `glVertexAttribPointer` and
+friends — and it contains an `ES2Renderer` class with a
+`compileShader:type:file:` method. Taken at face value that looks like a second,
+programmable render path worth investigating.
+
+It is not. **Nothing ever runs it**, and four independent checks say so:
+
+| Check | Result |
+|---|---|
+| Shader source strings in the binary | **none** — no `gl_FragColor`, `gl_Position`, `attribute`, `uniform`, `varying`, `precision` |
+| `.vsh` / `.fsh` / `.glsl` files in the app bundle | **none shipped** |
+| What `compileShader:type:file:` reads from | a **file** — which does not exist |
+| Fixed-function calls, by contrast | `glBindTexture` ×19, `glVertexPointer` ×14, live throughout `lime/common` |
+
+`ES1Renderer` and `ES2Renderer` are both present because that is exactly what
+Apple's "OpenGL ES Application" Xcode template shipped in 2010–2011: two
+renderer classes and a runtime pick between them. EA kept the template, wrote
+the game against fixed function, and left the ES2 half unused. The shader
+imports are in the symbol table because the app links the whole OpenGLES
+framework, not because anything calls them.
+
+**So: do not decompile `ES2Renderer` hoping to find the real renderer.** It is
+boilerplate. The engine is GL ES 1.1 fixed function, and that claim is now
+proven rather than assumed.
+
+This does not change the recommendation for *our* port, which is a separate
+question — targeting a programmable pipeline is still the right call for
+desktop GL, because emulating the fixed-function pipeline by hand is the larger
+job. The point here is only that the original binary offers no shader code to
+start from.
+
+### How to check calls like this yourself
+
+`tools/stubs.py` resolves the 733 import stubs to names, which is what turned a
+wall of `bl #0x127xxx` into readable calls:
+
+```bash
+python tools/stubs.py OUTPUT/armv6/UMK3.armv6 --grep gl
+```
+
+**Always scan with a control group.** The first version of the call-site scan
+reported zero shader callers — and also zero `glBindTexture` callers, which were
+sitting in a disassembly already read by eye. The scanner was mixing file
+offsets with virtual addresses; the control group caught it, and the "no shader
+callers" result would otherwise have been published for the right conclusion
+via broken arithmetic. A negative result that cannot detect a known positive is
+not evidence of anything.
