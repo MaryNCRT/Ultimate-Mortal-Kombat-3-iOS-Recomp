@@ -424,7 +424,51 @@ wrong layout does not produce that agreement.
 With this, a character is fully specified: skinned positions from §7, topology
 and UVs from here. [`tools/pose.py`](../tools/pose.py) renders one.
 
-## 11. What is still open
+## 11. Characters have a rig **and** shape keys
+
+Two animation systems, not one, and only the first is skeletal.
+
+**The rig** is `.bones` + `.skinanim`, documented above: a real skeleton, 10 to
+17 levels deep, one quaternion per bone per frame.
+
+**The shape keys** live in the `.meshset` as numbered mesh sequences sharing a
+stem — `SmokeBull001`…`SmokeBull014`, `Witch_SKIN001`…`Witch_SKIN040`. Across
+the 29 characters there are **115 such sequences, and 80 of them have
+byte-identical vertex and face counts**, which is what makes them morph targets
+rather than separate models. Vertex deltas run 0.2 to 1.2 units.
+
+| Character | Sequence | Frames | Verts | What it is |
+|---|---|---:|---:|---|
+| Mileena | `Witch_SKIN` | 40 | 1,149 | her transformation |
+| Sindel | `sindel` / `hair` | 29 / 31 | 1,439 / 502 | the hair fatality, hair on its own track |
+| Smoke | `SmokeBull` | 14 | 1,117 | animality |
+| Nightwolf | `Raiden` | 11 | 1,573 | fatality |
+| Cyrax | `NET` | 14 | 282 | the net special |
+| Sub-Zero | `iceshower` | 13 | 91 | freeze effect |
+| Jax | `jax_low` | 12 | 1,523 | body morph |
+| Kano | `laser_` | 12 | 8 | eye laser |
+| Noob Saibot | `ScorpionPenguin` | 12 | — | babality |
+| Jade | `JadeCat` | 11 | — | animality |
+
+The named one-offs follow the same pattern: `_BZZ` and `_BZZFreeze` for
+electrocution and freezing, `_shell` for the shatterable husk, `RipSkel` for the
+skin-rip, `SCMASKOFF` for Scorpion's mask.
+
+**Why this matters for the animation work.** A skeleton cannot turn a man into a
+bull, and it cannot swing hair convincingly. Anything the rig cannot express —
+transformations, dismemberment, secondary motion, projectile effects — is done
+by swapping whole meshes frame by frame. Any playback implementation needs both
+paths.
+
+### The link to `.events`
+
+One sequence is called **`EVENT_bzz_smoke`** (Mileena, 17 frames, identical
+topology). The `EVENT_` prefix ties morph sequences directly to the
+[`.events` format](EVENTS-FORMAT.md), which is already solved to 545 of 545
+files. That is the most promising thread for working out **what triggers a
+sequence and when** — the piece still missing from playback.
+
+## 12. What is still open
 
 - What `word0` of a bone record counts.
 - The fifth word of each animation frame entry.
