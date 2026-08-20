@@ -8,7 +8,7 @@ project overview.
 
 ## The job: finish `lime/common`
 
-**86 of 109 done (79%).** Twenty-three left. This is the row that moves
+**87 of 109 done (80%).** Twenty-two left. This is the row that moves
 the overall bar, and it is the bottleneck for everything downstream — there is
 no engine for the platform layer to drive until it is finished.
 
@@ -19,7 +19,7 @@ no engine for the platform layer to drive until it is finished.
 | `RenderSkinned.cpp` | 18/20 | 2 |
 | `RenderMesh.cpp` | 15/19 | 4 |
 | `Events.cpp` | 15/22 | **7** |
-| `RenderScene.cpp` | 10/14 | 4 |
+| `RenderScene.cpp` | 11/14 | 3 |
 | `DS_DebugWin.c` | 6/7 | 1 |
 | `LIMEDS_Misc.cpp` | 7/8 | 1 |
 | `limeFont.cpp` | 2/6 | 4 |
@@ -159,4 +159,4 @@ of this task.
   `limeVector.cpp` — its Phase 0 — is unfinished and worth doing before
   trusting it.
 - Both READMEs, `PROGRESS.md` and `HANDOFF.md` are current as of `lime/common`
-  at 86/109 and overall at 32%.
+  at 87/109 and overall at 32%.
