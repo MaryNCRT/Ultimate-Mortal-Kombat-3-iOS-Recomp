@@ -223,3 +223,53 @@ junk byte (`'o'`) rather than a name, and the slot field at `+0x0c8` is empty.
 Every other file has a plausible name and slot. The likeliest reading is that
 this file is a different format that kept the `.events` extension, but nobody
 has confirmed it either way, and it is not blocking anything.
+
+
+---
+
+## What an entry's first field is: a frame index
+
+**This is the link between `.events` and the animation stream**, and it is what
+makes the format useful rather than merely parsed.
+
+Each track carries a name, a slot, and entries whose first `int32` is a **frame
+index into the character's own `.skinanim`**. Kano's track `babality_Kano`
+(slot `KANO_BABALITY`) sits at frame 311; `kano_decap` (slot `DECAPITATION`) at
+319 and 320; `explosives` (slot `KANO_EXPLOSIVES VEST`) at 336.
+
+### The evidence
+
+| Test | Result |
+|---|---|
+| Every index inside its character's frame count | **26 of 26 characters, zero out of range** |
+| Correlation between frame count and highest index | **r = 0.9993** (n = 26) |
+| Where the highest index falls in the stream | 96% of the way through, on average |
+
+An arbitrary identifier would not track stream length at 0.999. And the 96%
+figure says something on its own: **the finishers live at the end of the
+stream**. The ordering runs basic moves, then specials, then deaths and
+fatalities — which is the segmentation the animation work needs.
+
+### Sindel confirms it, and gets resolved in passing
+
+`SINDEL_STANDARD.skinanim` holds 844 frames while its header declares 422 — a
+discrepancy this project recorded but could not explain, noting only that the
+two halves differ in 47 bytes out of 530,032.
+
+Her highest event index is 416. Against the file that is 49.3%, the only outlier
+in the corpus. **Against the declared 422 it is 98.6%**, exactly in line with
+everyone else.
+
+So the header is right and the second half is dead weight: **the game only ever
+uses the first 422 frames.** A question that stood open through the whole
+`.skinanim` investigation falls out of an unrelated measurement.
+
+### What the rest of the entry is
+
+The remaining twelve values read as a 3x3 matrix in 1/4096 fixed point followed
+by three translation terms — `4096, 0, 0, 0, 4095, 0, 0, 0, 4095` is identity,
+and it is by far the most common. Kano's five `smokeparticle` tracks all sit at
+frame 356 with genuinely different rotations, which is what placing five puffs
+of smoke around one event looks like.
+
+So an entry reads: **at frame N, spawn this named thing with this transform.**
