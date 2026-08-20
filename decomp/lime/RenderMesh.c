@@ -223,3 +223,58 @@ MESHSETINFO *LIME_LoadMeshSet(const char *filename, int useLighting)
     free(light);
     return set;
 }
+
+
+/* --------------------------------------------------------- LIME_RenderMesh
+ *
+ * armv6 0x0008104c, 20 bytes.
+ *
+ * Picks one mesh out of a set by index and forwards to the single-mesh
+ * renderer with an alpha of 1.0. The mesh pointer array lives at
+ * MESHSETINFO+0x48.
+ *
+ * It is a tail call, so the whole function is four loads and a branch -- the
+ * only thing it really contributes is the constant 1.0f, which is how the
+ * opaque path and the fade path share one renderer.
+ */
+void LIME_RenderMesh(MESHSETINFO *set, int index,
+                     TEXTURE *tex0, TEXTURE *tex1)
+{
+    MESHINFO *mesh = set->meshes[index];       /* MESHSETINFO+0x48 */
+    LIME_RenderMeshSingle(mesh, tex0, tex1, 1.0f, 0);
+}
+
+
+/* ---------------------------------------------------- Read64CharsFromMem
+ *
+ * armv6 0x00081238, 36 bytes.  __Z18Read64CharsFromMemPcS_
+ *
+ * Copies a fixed 64-byte field out of a buffer and returns the advanced
+ * cursor. This is how the mesh-set loader walks the name and texture fields,
+ * and it is why both are exactly 64 bytes in the format.
+ *
+ * Note the copy runs the opposite way from the argument order: `src` is the
+ * first parameter and `dst` the second.
+ */
+char *Read64CharsFromMem(char *src, char *dst)
+{
+    memcpy(dst, src, 64);
+    return src + 64;
+}
+
+
+/* ---------------------------------------------------------- RenderAxesLines
+ *
+ * armv6 0x00080a6c, 12 bytes.
+ *
+ * **Compiled away.** The body writes its three arguments to a stack slot it
+ * immediately discards, then returns -- what is left of a debug helper whose
+ * contents were behind a preprocessor switch that shipped off.
+ *
+ * Kept here because an empty function is a finding: anything expecting axis
+ * gizmos from the retail binary will not get them.
+ */
+void RenderAxesLines(float x, float y, float z)
+{
+    (void)x; (void)y; (void)z;
+}
