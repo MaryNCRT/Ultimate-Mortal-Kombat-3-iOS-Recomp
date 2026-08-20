@@ -189,12 +189,18 @@ capability is lost in translation.
 | Parse | `GetNextLine` per line; first byte `#` **or** `\0` means skip |
 | Table | stride `0x40`, name at `+4`, count at the base -- 60 bytes per name |
 | Lookup | linear `strstr` — a **substring** test, not equality; 40 entries is not worth indexing |
-| Globals | `_FullBrightLoaded`, `_TheFullBrightInfo`, `_IsTextureFullBrightPath` |
+| Globals | `_FullBrightLoaded` (`__DATA,__data`), `_TheFullBrightInfo` (`__DATA,__common`) |
 
-The three global names are in the symbol table verbatim, so the caching, the
-table and the fact that the *path itself* is a variable are all original
-design rather than inference. A mod could point `IsTextureFullBrightPath`
-somewhere else entirely.
+Both global names are in the symbol table verbatim, so the caching and the table
+are original design rather than inference.
+
+**Correction.** An earlier version of this page listed `_IsTextureFullBrightPath`
+as a third global and said the file path was configurable, so a mod could point
+it elsewhere. That was wrong. The symbol lives in `__TEXT,__text` — it is a
+**function**, a thin wrapper that strips a directory prefix before calling
+`IsTextureFullBright`. The filename is a literal and is not configurable.
+Checking which section a symbol lives in takes one grep, and it is the
+difference between a documented fact and an invented feature.
 
 ### The `.???` convention, settled
 

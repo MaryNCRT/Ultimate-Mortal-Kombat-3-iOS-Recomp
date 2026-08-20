@@ -113,6 +113,17 @@ def submit(spec, run_name, retries=0):
     symbols = umk3paths.work_file("symbols.txt")
     if not os.path.isfile(symbols):
         raise RuntimeError("symbols.txt is missing from UMK3_WORK: %s" % symbols)
+
+    # func-to-file.txt is loaded with required=False deep inside recomp.py, so a
+    # missing copy yields an EMPTY map, no targets, and the useless error
+    # "no se selecciono ninguna funcion" three steps later.  That cost a session
+    # to diagnose the first time the loop was ever run.  Fail here instead.
+    fmap = umk3paths.work_file("func-to-file.txt")
+    if not os.path.isfile(fmap):
+        raise RuntimeError(
+            "func-to-file.txt is missing from UMK3_WORK: %s\n"
+            "The oracle selects functions by source file and cannot do so "
+            "without it." % fmap)
     if not os.path.isfile(spec["clean"]) or not os.path.isfile(spec["test"]):
         raise RuntimeError("candidate needs both --clean and --test files")
 
