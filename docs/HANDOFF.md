@@ -1,234 +1,203 @@
-# Handoff — 2026-08-15
+# Handoff
 
-For whoever picks this up next. Read [AGENTS.md](../AGENTS.md) first; it is the
-working agreement and it has not changed.
+Written for whoever picks this up next, human or model, with no prior context.
+Read this, then [METHODOLOGY.md](METHODOLOGY.md). Everything else is reference.
 
 ---
 
-## Where the project stands
+## Where the project actually stands
 
-**25% overall. 0.7% of the decompilation itself — 17 functions of 2,572.**
-Nothing is playable natively yet.
+**28% of the total estimated effort. Nothing is playable.** The arithmetic is in
+the [README](../README.md#overall-progress) and the weights are a judgement
+call; the completion figures are measured.
 
-The second number did not move at all, and that is the honest headline: no new
-function was finished. What moved is everything underneath it. The verification
-oracle is done. The game runs in touchHLE with **no known crash**. The armv6
-slice answers the question that has blocked the maths-heavy code since the
-start. And **PVRTC decodes**, which was the last thing standing between here
-and a mesh viewer.
-
-| Done | Where |
+| | |
 |---|---|
-| `Matrix.cpp` — 11 fn | 40,006 cases, 0 divergences |
-| `limeVector.cpp` — 2 fn | 20,013 cases, 0 divergences |
-| `RenderMesh.cpp` loader — 3 fn | 7,327 meshes, 0 divergences |
-| `other.c` `SwitchQueue` — 1 fn | 500 pushes, 0 divergences |
-| `.meshset`, `.skin`, `.bones`, `.skinanim`, `.events` | all validated against every file |
-| Verification oracle | 4,342 functions, 0.02% untranslatable |
-| Game runs in touchHLE, no known crash | 5 bytes, `docs/TOUCHHLE-PATCH.md` |
-| `.pvr` block geometry | 1,400 of 1,400 exact |
-| PVRTC decoder | 1.5% mean error, residual proven to be compression |
-| `.scene` | 545 of 547 files exact |
-| **All asset formats** | **complete** — every format read and validated against the shipped data |
+| Asset formats | **100%** — solved, demonstrated, animating |
+| `lime/common` | **46 of 109** functions |
+| Native executable | **exists**, draws textured lit geometry |
+| `gamecode` + fight logic | 2,463 functions, essentially untouched |
+| Platform layer | target measured (77 GL entry points), barely written |
+
+The shape of the project is that it has **a great deal of verified knowledge and
+not much code**. Closing that gap is the work.
 
 ---
 
-## The thing that changed today
+## The five rules that produced everything here
 
-**Playing the game is a first-class analysis method, not a sanity check.**
+These are not style preferences. Each came from a specific failure.
 
-Nine sessions and a full arcade run produced findings that static analysis had
-not and could not:
+**1. Never trust a decompiler.** Ghidra silently mis-decompiles the 2-lane NEON
+this compiler emits for scalar float maths — `_Len` returned an uninitialised
+variable and compiled fine. Every accepted function is cross-checked.
 
-- The engine **prints its own dispatch indices**. `FE_Task_Main_Menu(0)`,
-  `FE_Task_Character_Select(27)`, `FE_Task_Select_Leaderboard(49)` — 12 of 53
-  mapped just by walking menus. This is the only way to attack the tables
-  behind `_DoSwitchJump`, which no differential test can reach.
-- The game **prints every event it triggers**, with source scene and frame
-  number. That is a free oracle for `.events`.
-- Holding a finger on Smoke reveals Human Smoke, so character select measures
-  **press duration**. A port implementing only "tap" loses the hidden
-  characters silently. Static analysis would never have suggested trying it.
-- The babality model sometimes fails to draw — and the logs prove it is a
-  PVRTC upload failure in the emulator, **not** a missing asset and **not** a
-  game bug. Without playing, that would have looked like a format error and
-  sent someone hunting for a bug that does not exist.
+**2. Read the armv6 slice, not armv7.** Same source, two code generators. armv7
+is packed NEON and unreadable; armv6 is plain scalar VFP. This is now the
+default route and it has never failed. `tools/slices.py` extracts both.
 
-**Consequence for how to prioritise: prefer work the emulator can verify.**
+**3. Visual evidence terminates a hunt; numerical evidence only sustains one.**
+Four times this project burned hours on something one glance at an image ended
+— touchHLE's off-screen gamepad, MAME's door interlock, a PVRTC "bug" that
+lived in the reference data, and a model that turned out to be Z-up.
+
+**4. Question the reference, not only the code.** Three of thirteen PVRTC
+reference images were different assets. The decoder was right the whole time.
+
+**5. A file that will not parse is usually a variant, not corruption.** The tell
+is that the alternative reading **divides exactly rather than nearly**. This
+closed ROBO1/ROBO2, SINDEL, and CUTUP.
+
+### And one anti-rule, learned the hard way this session
+
+**Measure before changing.** A model lying on its back was confidently
+diagnosed as a texture-orientation problem, on reasoning that sounded airtight
+— PVR row 0 is the top, GL's V=0 is the bottom, therefore flip. The fix broke
+textures that were already correct. The bounding-box extents named the real
+cause in one line and had been available all along.
 
 ---
 
-## Revised route
+## Hard boundary: leaked source
 
-The old order walked `lime/common` module by module. That was right when the
-oracle was the only verification available. It no longer is.
+Leaked UMK3 retail source has been offered to this project three times and
+declined three times. **Continue to decline.** Using it destroys the clean-room
+basis; possessing a copy grants no licence to make derivative works; the
+contamination is irreversible.
 
-### 0. ~~Fix the PVRTC decoder~~ — done ([issue #10](../../issues/10))
+This extends to **third-party write-ups that are themselves readings of leaked
+source** — Ryiron's arcade process analysis is explicitly a "Source Code
+Review". Building on someone else's reading of leaked material is the same
+contamination one step removed.
 
-**1.5% mean error, and the residual is proven to be compression rather than a
-bug** — it rises with the image's local gradient (4.75 flat, 30–51 at hard
-edges) and is flat across block position. `python tools/pvrtc_diff.py`.
+Arcade behaviour comes from **observing the ROM under MAME**, which this project
+has already done, and from **our own binary's symbol table**, which names 4,342
+functions. That rule is why the findings here are reusable at all.
 
-The lesson is worth more than the code. Three rounds were spent hunting a bug
-that lived in the **reference data**: three of the thirteen PNG/PVR pairs are
-different assets sharing a name, and `FE_METAL_BG` alone inflated the score
-from 3.83 to 14.00. Rendering the images side by side ended it in one glance.
-That is the third time this project has paid for not looking at the picture.
+`.gitignore` carries broad patterns to catch renamed folders.
 
-**Still owed before a C port ships:** the corpus is four independent assets, two
-per bit depth. The 25 `*_VERSUS` pairs become usable if the 512×512 PNG is
-downscaled to the PVR's 256×256.
+---
 
-### 0.5 Extract the move tables from `moves_data.x` — [issue #11](../../issues/11)
+## Legal model
 
-**Do this before anything else in the fight engine.** It is a parsing exercise
-on a text file, and it feeds three open issues.
+**Zero game assets in the repository.** Every build extracts what it needs from
+a copy the user supplies. The `LABORATORIO MAME/` folder is fully gitignored and
+the ROM is never committed.
 
-`moves_data.x` ships as **plain text** in the app bundle — it was on the
-unsolved-formats list for the whole project and turned out to be C array
-declarations. It holds **144 secret-move tables** across 25 characters, and
-references **90 `q_` predicates and 92 `t_` handlers by name**.
+Documentation **screenshots are fine** and are in `docs/img/` — a render depicts
+geometry, is not an asset file, cannot be unpacked back into one, and is not
+part of any build. Both READMEs state this. Reading "no assets" as "no pictures"
+protects nothing and costs the project its only visible evidence.
 
-Those are functions this project already has addresses for. For `gamecode/logic`
-— the part the oracle can never reach, because it dispatches through function
-pointers — that is a hand-written map from move semantics to function names
-covering 182 of them, and it arrives without a single decompilation.
+---
 
-See [X-TABLES.md](X-TABLES.md), including how the port must treat source-form
-data that ships inside the IPA.
+## What to do next, in order
 
-### 1. Capture the move input tables — [issue #5](../../issues/5)
+### 1. Finish `lime/common` — 63 functions left
 
-**Still worth doing, and now with a partial key.** `moves_data.x` uses a
-**ten-symbol** input alphabet; the in-game list prints **0–22**. Different
-tables — but cross-referencing a move whose inputs are known against the same
-move on screen pins several of the 0–22 values to names at once.
+**This is the bottleneck for everything downstream.** No engine means nothing
+for the platform layer to drive; no platform layer means no playable build.
 
-The in-game moves list **prints the displayed move's input sequence every
-frame**, one integer per line, values 0–22. The period of the repetition is the
-number of inputs in the move. Evidence and the five sequences already captured
-are in [PROGRESS.md](PROGRESS.md#the-moves-list-dumps-the-move-input-tables).
+Method, which is now routine and fast:
 
-So:
-
-1. Launch with a log: `touchHLE.exe app.ipa *>&1 | Tee-Object -FilePath moves.txt`
-2. Start a fight, open the in-game menu, go to **Moves Info**.
-3. Scroll through **every move**, pausing a second or two on each so the cycle
-   repeats enough times to be unambiguous.
-4. Repeat for as many characters as patience allows. Note in a text file which
-   character and which move order you walked, in the same order — that is what
-   turns the numbers into a table.
-5. Segment the log by periodicity; the code that does it is three lines and is
-   shown in the PROGRESS entry.
-
-The result is the move input table for the whole roster, which is the single
-most valuable dataset in the fight engine and the part static analysis handles
-worst. It also pins down the icon alphabet: with enough moves cross-referenced
-against a public UMK3 move list, each of the 0–22 values gets a name.
-
-Do not decompile anything to get this. The game is already telling you.
-
-### 2. ~~Finish `.events`~~ — done ([issue #3](../../issues/3))
-
-Solved. 544 of 545 files walk to their exact last byte; see
-[EVENTS-FORMAT.md](EVENTS-FORMAT.md). Two things from it are worth carrying
-into the next format:
-
-- **Derive strides from the loader, not from the walk.** Both the 268-byte
-  header and the 56-byte entry come out of the loader's own pointer
-  arithmetic, and the header is then accounted for byte by byte by its load
-  sequence. That is what makes the layout credible.
-- **Check a claimed constant against the whole corpus before believing it.**
-  This format was audited as circular evidence because `numEntries` looked
-  constant across 212 tracks. Across all 1,547 it takes ten distinct values
-  and 103 tracks are not 1 — so the walk was real evidence after all. A
-  subset is not a corpus.
-
-Still open: `CUTUP_BY_REPTILE_STRYKER.events` does not parse and probably is
-not an events file at all.
-
-### 3. A mesh viewer
-
-All four model and animation formats are solved. There is enough to draw an
-animated character on screen, and **the project has produced no visible output
-in its entire life**. That matters for morale and for attracting contributors,
-and it validates four format specifications at once in a way no test can.
-
-Start from `.meshset` + `.skin` + `.bones` + `.skinanim`, GLFW and OpenGL 3.3.
-PVRTC has to be decoded on the CPU — do not rely on a GL extension, which is
-exactly what fails inside touchHLE.
-
-### 4. ~~Patch the modal dialogs~~ — done, and the premise was wrong ([issue #4](../../issues/4))
-
-The dialogs were never the problem. `_CFRunLoopRun` has two callers in the
-whole binary; patching both made things **worse**, because those dialogs were a
-barrier holding the game back from the GameKit path. The real crashes were
-`GKSession` (unimplemented in touchHLE) and a licence screen whose exit branch
-is conditional on a return value it does not always get. Three patches, five
-bytes, no known crash. Superseded text below kept for the reasoning:
-
-<details><summary>original</summary>
-
-```
--[modalAlertDelegate initWithRunLoop:]   0x000b53bc   <- the cause
-+[modalAlert confirm:]                   0x000b54a0
-+[modalAlert ask:]                       0x000b54e4
+```bash
+python tools/disasm.py OUTPUT/armv6/UMK3.armv6 <mangled_symbol>
 ```
 
-Every confirmation dialog kills touchHLE, because the modal spins a nested run
-loop and `_CFRunLoopRun` is unimplemented. Neutralising `confirm:` and `ask:`
-the way `LocaleManager::setLocale` was neutralised would fix resetting arcade
-progress, the leaderboard and achievements in one go — and make longer play
-sessions possible, which feeds everything above.
+Disassemble **by name, never by a bare `0x...` address** — a numeric target
+makes `disasm` assume Thumb, and the armv6 slice is ARM throughout, so it
+silently produces garbage rather than erroring. That bug cost a tool a rewrite.
 
-Use `tools/patch_ipa.py`. Work on a copy.
+Order by size; the small ones are accessors and wrappers and go in minutes.
+`limeFont.cpp` (0/6) and `DS_DebugWin.c` (0/7) are untouched. `Events.cpp` has
+15 left including the big `LIME_LoadEvents` and `LIME_UpdateEvents`.
 
-</details>
+Write each one into `decomp/lime/<File>.c` with the armv6 address, the byte
+size, and **what it confirms or contradicts**. That last part is where the value
+has consistently been.
 
-### 5. `_DoSwitchJump` — [issue #1](../../issues/1)
+### 2. Grow the vertical slice as you go
 
-Still the biggest prize and still the hardest. Now approach it **through the
-emulator**: reach a state, read the index the game prints, map index to
-function. Do not mark anything verified on the strength of a plausible-looking
-decompilation.
+`runtime/` builds and runs. Each newly decompiled function can now be tested by
+drawing rather than in a harness — which is the entire reason it was built
+before the decompilation was finished.
 
-### 6. `playback.c` / `_seq_lookup` — [issue #6](../../issues/6)
+The obvious next steps there: a portable SDL2 backend beside `win32_gl.c` (the
+interface in `platform.h` is shaped for it), and wiring `tools/pose.py`'s
+skinning into the C side so characters animate natively.
 
-The best first target inside `gamecode/logic`: four functions, self-contained,
-about 4 KB of embedded table, and the function **prints its own arguments** —
-366 calls captured. Verification there needs no differential harness, which
-matters because most of the fight engine dispatches through function pointers
-the recompiler cannot follow.
+### 3. Then the platform layer
 
-It also cross-checks item 1: the sequences the moves list prints and the ones
-`seq_lookup` resolves should be the same data seen from two directions.
+229 functions, of which **56 are a vendored MIT copy of zoul/Finch** and need no
+reverse engineering. The GL target is measured, not guessed: **77 entry points**,
+all ES 1.1 fixed function, three texture units, no shaders anywhere. See
+[LIME-ENGINE.md](LIME-ENGINE.md).
 
-### 7. Everything else
+### 4. `gamecode` last
 
-`RenderScene.cpp`, `RenderSkinned.cpp`, signatures and structs for
-`SKININFO` / `BONE` / `BONEANIMFRAME`. Same loop as before:
-`tools/decomp_driver.py`, then a differential test.
-
----
-
-## Practical notes on the emulator
-
-- **Run it with a log** when you want data: `touchHLE.exe app.ipa *>&1 | Tee-Object -FilePath log.txt`.
-  Expect stutter — a long session writes ~47,000 lines. Run without the pipe
-  when you want it smooth.
-- **A working gamepad mapping** is in `docs/touchHLE_options.example.txt`.
-  touchHLE's own defaults for this app put the touch targets off-screen, so a
-  controller appears dead until you replace them.
-- **Confirmation dialogs are fine now.** The old warning was based on a theory
-  that did not survive testing — see [issue #4](../../issues/4).
-- The log's own output is worth grepping for `triggered event`, `FE_Task_`,
-  `loading scene:` and `glError`.
+2,463 functions and the real mountain. `moves_data.x` already names **92 `t_`
+handlers and 90 `q_` predicates**, which is a substantial head start on what
+those functions are — see [X-TABLES.md](X-TABLES.md) and
+[issue #1](../../issues/1).
 
 ---
 
-## What I would tell you if we only had one sentence
+## Things that will bite you
 
-The differential test is what makes a function *correct*; the emulator is what
-tells you *what to look at* — and this session ended with the game handing over
-its own move tables, which is the strongest argument yet that the second
-question was the under-served one.
+- **The engine does not use one matrix convention.**
+  `CreatePerspectiveMatrix` needs transposing for GL; `LIMEDS_SetObjectOrientation`
+  does not. Do not apply a blanket rule.
+- **Geometry is Z-up.** GL is Y-up.
+- **`LerpVector3` runs backwards** from its argument order: `t = 0` gives the
+  *second* argument.
+- **Lighting is monochrome and has no ambient term.** Two directional lights,
+  a `pow()` falloff on each, negated dot products, clamped to 1. Substituting a
+  plain `max(0, dot)` will look visibly wrong. See [LIGHTING.md](LIGHTING.md).
+- **Thumb is marked by `N_ARM_THUMB_DEF` in `n_desc`**, not by bit 0 of the
+  symbol value. `macho.py` handles it; anything new must too.
+- **`IsWhirlwindScene` matches a filename substring.** Repacking assets breaks
+  effects with nothing to warn you.
+
+---
+
+## Tools worth knowing about
+
+| | |
+|---|---|
+| `tools/disasm.py` | disassemble by name; resolves import stubs |
+| `tools/slices.py` | extract armv6/armv7, find NEON-affected functions |
+| `tools/glsurface.py` | inventory every GL entry point the engine calls |
+| `tools/meshview.py` | render a `.meshset` to PNG |
+| `tools/pose.py` | pose a character; `idle` finds the stance |
+| `tools/animate.py` | name the clips in an animation stream and play them |
+| `tools/finishers.py` | the fatality/babality catalogue with frame indices |
+| `tools/armrecomp/recomp.py` | the verification oracle |
+
+---
+
+## Open questions worth someone's time
+
+- **`.lighting` is a prelight bake and is not decoded.** 13 files, sizes scaling
+  with vertices x frames at ~2 bytes each, bytes 62% zero — delta coding or
+  compression. If it is what it appears to be, `LightVert` is the *fallback*
+  path and most characters are lit from the table instead.
+- **Each `*FRAMES.bin` is exactly 14,490 bytes** for every character with no two
+  identical — a fixed-length table, presumably the compiled form of the text
+  frame list. Layout undecoded.
+- **`word0` of a bone record** is not the child count. Meaning unknown, and
+  nothing needs it.
+- **Is the hidden roster reachable?** Noob Saibot, Human Smoke and Classic
+  Sub-Zero ship complete with portraits and a `HIDDENPORTRAIT.PNG` exists, but
+  the select-screen logic is in `FrontEnd.cpp` and is not decompiled. See
+  [HIDDEN-CONTENT.md](HIDDEN-CONTENT.md).
+
+---
+
+## Keep doing this
+
+Update `PROGRESS.md` at the end of each block of work, keep the percentage bars
+honest — **they did not move for several very productive sessions and that was
+correct**, because the row those sessions advanced was already at 100% — close
+issues that are resolved, open issues for what you find, and record the failures
+alongside the results. Half the value in this repository is in the paragraphs
+explaining what did *not* work.

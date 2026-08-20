@@ -1599,25 +1599,123 @@ within 1 KB of Scorpion's. See [HIDDEN-CONTENT.md](HIDDEN-CONTENT.md).
 
 ---
 
+## The vertical slice: a native executable
+
+```bash
+cmake -S . -B build -G Ninja && cmake --build build
+./build/umk3 <file.meshset>
+```
+
+Opens a window and draws UMK3 geometry, textured and lit, through the engine's
+own decompiled maths. **The first native executable in the project.**
+
+| Piece | State |
+|---|---|
+| Window + GL context | Win32/WGL, no dependencies |
+| `.meshset` loader in C | counts match `tools/meshset.py` exactly |
+| PVRTC decoder in C | **bit-identical** to `tools/pvrtc.py` |
+| Matrices | from the verified decompilation |
+| Lighting | the engine's real model, monochrome, MODULATE |
+
+Why this before finishing the decompilation: everything up to now was validated
+in Python with no executable anywhere. From here each newly decompiled function
+can be tested *in situ*, drawing, instead of in a harness.
+
+Three things it pinned down that only building could:
+
+- **The engine stores matrices row-major.** `CreatePerspectiveMatrix` puts the
+  perspective term at `m[11]` and the `-1` at `m[14]`; `glLoadMatrixf` expects
+  those two swapped. Passing an engine matrix straight to GL draws nothing.
+- **But not all of them.** `LIMEDS_SetObjectOrientation` hands its matrix to
+  `glMultMatrixf` with no transpose. So the engine does not use one convention
+  for every 4x4, and a port cannot apply a blanket rule.
+- **The geometry is Z-up.** A character body measures ~0.75 wide, 0.20 deep and
+  1.00 tall along X, Y and Z -- the 3ds Max convention, which survived export.
+  GL is Y-up, so without a -90 degree rotation about X the fighters lie on their
+  backs.
+
+That last one cost a wrong fix first: the symptom was misdiagnosed as a texture
+flip, which broke textures that were correct. The bounding-box extents answered
+it in one line and were available the whole time. **Measure before changing.**
+
+## `lime/common`: 21 -> 46 of 109
+
+The decompilation is the product, and this is the row that moves the overall
+bar. It went 21 -> 33 -> 40 -> 46 in four batches, all from the **armv6 slice**,
+which is now the default route for anything NEON-heavy.
+
+| File | Done |
+|---|---|
+| `Matrix.cpp` | **11/11** |
+| `limeVector.cpp` | **2/2** |
+| `RenderSkinned.cpp` | 10/20 |
+| `RenderMesh.cpp` | 8/19 |
+| `Events.cpp` | 7/22 |
+| `RenderScene.cpp` | 5/14 |
+| `LIMEDS_Misc.cpp` | 3/8 |
+| `limeFont.cpp` | 0/6 |
+| `DS_DebugWin.c` | 0/7 |
+
+### Structures confirmed a second and third time
+
+The pattern worth noticing is that small functions keep re-confirming layouts
+derived from the loaders. That redundancy is most of the value:
+
+- **`SKINMATRIX43` is 9 + 3 at stride 3.** `MatrixIdentity2` writes 1.0f at
+  `m[0]`, `m[4]`, `m[8]` -- the diagonal of a 3x3 identity only lands there at
+  stride 3; a genuine 4x3 would use 0, 5, 10.
+- **`SKININFO` owns exactly six arrays.** `LIME_FreeSkin` frees six and then the
+  struct, and all six offsets match the documented table. A missed field would
+  leak; a phantom one would crash.
+- **`SCENEEVENTTRACK` is 216 bytes in memory.** `FindEventOffsets` steps 0xD8.
+- **The scene tail record is 32 bytes in memory.** `GetMatrixFromPalette`
+  indexes at that stride.
+- **`SCENEINFO` begins with its name string.** Two functions hand the struct
+  pointer straight to `strcmp` and `strstr`.
+
+### The event manager is a fixed pool
+
+192 slots of 248 bytes, 47,616 bytes, walked from a global base. **No allocation
+anywhere on the event path**; `GetFreeEvent` returning -1 is the only failure
+mode. Killing is a state change in place (-2), never a free, which is what lets
+a fatality cancel its own particle swarm by group without tracking slots.
+
+### Two traps for a reimplementation
+
+- **`LerpVector3` runs backwards from its argument order**: `out = a*t + b*(1-t)`,
+  so `t = 0` gives `b`. Reading it as `a + (b-a)*t` inverts every interpolation.
+- **`IsWhirlwindScene` is `strstr(name, "WHIRLWIND.scene")`** -- an effect
+  identified by a filename substring, with nothing in the data declaring it.
+  Repacking assets breaks it silently.
+
+---
+
 ## Next up
 
-**The phase has changed.** The asset work is finished — every format solved,
-demonstrated visually, and now animating. What remains is the product itself:
-readable C.
+**Finish `lime/common`.** 46 of 109, and the bottleneck for everything: no
+engine means nothing for the platform layer to drive, and no platform layer
+means no playable build. `limeFont.cpp` (0/6) and `DS_DebugWin.c` (0/7) are
+untouched; `Events.cpp` has 15 left including `LIME_LoadEvents` and
+`LIME_UpdateEvents`.
 
-1. **`lime/common`, via the armv6 slice.** 21 of 109 functions, and the
-   bottleneck for everything downstream: no engine means nothing for the
-   platform layer to drive, and no platform layer means no playable build.
-   `RenderMesh.cpp` first — 4 of 19 done, it is the drawing path, and the
-   [stub-resolution fix](#the-tool-gap-that-was-blocking-the-renderer) turned
-   `LIME_RenderMeshSingleIndexed` from unreadable into 39 named GL calls.
-2. **The native platform layer.** Its target is now measured rather than
-   guessed: [77 GL entry points](LIME-ENGINE.md), all ES 1.1 fixed function,
-   three texture units, no shaders anywhere.
+The method is routine now — disassemble from the armv6 slice **by name, never
+by a bare address** — and the small functions go in minutes.
+
+Then, in order:
+
+1. **Grow the vertical slice** alongside it. A portable SDL2 backend beside
+   `win32_gl.c`, and `tools/pose.py`'s skinning moved into C so characters
+   animate natively.
+2. **The platform layer.** 229 functions, of which 56 are a vendored MIT copy of
+   zoul/Finch needing no reverse engineering. The GL target is measured:
+   [77 entry points](LIME-ENGINE.md), ES 1.1 fixed function, no shaders.
 3. **`moves_data.x` / `frames.x` extraction** ([issue #11](../../issues/11)).
-4. **`_DoSwitchJump`** ([issue #1](../../issues/1)) — better armed now, with 92
-   named `t_` handlers recovered from `moves_data.x`.
-5. **Restoring hidden content** — explicitly after a playable build, not before.
+4. **`gamecode`** last — 2,463 functions, the real mountain, with 92 named `t_`
+   handlers already recovered as a head start ([issue #1](../../issues/1)).
+5. **Restoring hidden content** — explicitly after a playable build.
+
+Full orientation for anyone picking this up cold is in
+[HANDOFF.md](HANDOFF.md).
 
 ### Known technical debt
 
