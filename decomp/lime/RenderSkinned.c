@@ -435,3 +435,61 @@ void GenerateMatrices(char *dst, BONESINFO *bones, long a, long b,
 {
     CreateMatrixPaletteForGeneratingMesh(dst, a, b, flags, t, bones);
 }
+
+
+/* ----------------------------------------------------------- LIME_FreeSkin
+ *
+ * armv6 0x00083668, 100 bytes.
+ *
+ * Frees the six arrays a SKININFO owns, then the struct. The order it frees
+ * them in is the order they appear here, and every one of the six offsets
+ * matches the table in docs/SKIN-FORMAT.md:
+ *
+ *      +0x18   vertExtra      M * 6 bytes
+ *      +0x1c   vertData       M * 24 bytes
+ *      +0x14   matricesA      N * 48
+ *      +0x24   weights        N * 4 floats
+ *      +0x20   indexes        N * 4
+ *      +0x28   matricesB      N * 48
+ *
+ * Six allocations freed, six documented, none left over -- which is a stronger
+ * statement about the struct than any single reader could make, because a
+ * missed field would leak and a phantom one would crash.
+ */
+void LIME_FreeSkin(SKININFO *skin)
+{
+    if (skin == NULL)
+        return;
+
+    limeFree(skin->vertExtra);      /* +0x18 */
+    limeFree(skin->vertData);       /* +0x1c */
+    limeFree(skin->matricesA);      /* +0x14 */
+    limeFree(skin->weights);        /* +0x24 */
+    limeFree(skin->indexes);        /* +0x20 */
+    limeFree(skin->matricesB);      /* +0x28 */
+    limeFree(skin);
+}
+
+
+/* ------------------------------------------------------------- LerpVector3
+ *
+ * armv6 0x00083498, 88 bytes.
+ *
+ * ```c
+ * out = a * t + b * (1 - t)
+ * ```
+ *
+ * **Note which way round that runs.** At t = 0 the result is `b`, and at t = 1
+ * it is `a` -- the opposite of what the argument order suggests. Reading it as
+ * the usual `a + (b - a) * t` inverts every interpolation the skinning system
+ * does.
+ */
+void LerpVector3(const limeVECTOR3 *a, const limeVECTOR3 *b, float t,
+                 limeVECTOR3 *out)
+{
+    const float u = 1.0f - t;
+
+    out->x = a->x * t + b->x * u;
+    out->y = a->y * t + b->y * u;
+    out->z = a->z * t + b->z * u;
+}

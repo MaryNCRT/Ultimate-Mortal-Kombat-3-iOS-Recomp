@@ -278,3 +278,78 @@ void RenderAxesLines(float x, float y, float z)
 {
     (void)x; (void)y; (void)z;
 }
+
+
+/* ---------------------------------------------------------- StringInString
+ *
+ * armv6 0x0008093c, 60 bytes.
+ *
+ * A hand-rolled substring search -- the engine carries its own rather than
+ * calling strstr, which the C library it links against clearly provides, since
+ * IsWhirlwindScene in Events.cpp uses it. Two implementations of the same idea
+ * in one codebase, which usually means two authors.
+ */
+int StringInString(const char *haystack, const char *needle)
+{
+    int i;
+
+    if (*haystack == 0 || *needle == 0)
+        return 0;
+
+    for (i = 0; needle[i] != 0; i++) {
+        if (haystack[i] == 0 || haystack[i] != needle[i])
+            return 0;
+    }
+    return 1;
+}
+
+
+/* -------------------------------------------------- LIME_FreeMeshSetTextures
+ *
+ * armv6 0x00081808, 48 bytes.
+ *
+ * Releases the texture each mesh in a set holds at MESHINFO+0x44. Guarded
+ * three ways before it touches anything: the set, its flag at +0x40, and its
+ * count at +0x44 must all be non-zero.
+ *
+ * The mesh pointer array is at MESHSETINFO+0x48, the same field
+ * LIME_RenderMesh indexes.
+ */
+void LIME_FreeMeshSetTextures(MESHSETINFO *set)
+{
+    int i;
+
+    if (set == NULL || set->texturesLoaded == 0)     /* +0x40 */
+        return;
+    if (set->numMeshes == 0)                         /* +0x44 */
+        return;
+
+    for (i = 0; i < set->numMeshes; i++) {
+        MESHINFO *mesh = set->meshes[i];             /* +0x48 */
+        if (mesh != NULL && mesh->texture != NULL)   /* +0x44 */
+            LIME_FreeTexture(mesh->texture);
+    }
+}
+
+
+/* ------------------------------------------------- LIME_FreeNonVisibleMeshes
+ *
+ * armv6 0x000811d8, 52 bytes.
+ *
+ * Walks the set and drops every mesh whose flag at **MESHINFO+0x54** is clear.
+ * A memory optimisation with a sharp edge: once a mesh is freed this way it is
+ * gone, so whatever sets that flag has to have run first and be right.
+ */
+void LIME_FreeNonVisibleMeshes(MESHSETINFO *set)
+{
+    int i;
+
+    if (set == NULL || set->numMeshes == 0)
+        return;
+
+    for (i = 0; i < set->numMeshes; i++) {
+        MESHINFO *mesh = set->meshes[i];
+        if (mesh->visible == 0)                      /* +0x54 */
+            LIME_FreeSingleMesh(mesh);
+    }
+}
