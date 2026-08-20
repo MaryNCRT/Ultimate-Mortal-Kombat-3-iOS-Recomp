@@ -48,16 +48,15 @@ def scan(path, func_to_file=None):
     calls = collections.Counter()
     by_module = collections.defaultdict(collections.Counter)
 
-    ordered = sorted((a, n) for a, n in syms.items())
-    for i, (addr, nm) in enumerate(ordered):
+    # Disassemble by NAME, never by address. Given a bare "0x..." target
+    # disasm assumes Thumb, and the armv6 slice is ARM throughout -- the
+    # result is silently garbage rather than an error, which is how the first
+    # version of this tool reported one GL call in the whole binary.
+    for nm, (addr, _thumb) in sorted(byname.items(), key=lambda kv: kv[1][0]):
         if addr in gl_stubs:
             continue
-        end = ordered[i + 1][0] if i + 1 < len(ordered) else addr
-        size = end - addr
-        if not (0 < size < 20000):
-            continue
         try:
-            text = disasm.disassemble(path, "0x%08x" % addr, size)
+            text = disasm.disassemble(path, nm)
         except Exception:                               # noqa: BLE001
             continue
         module = origin.get(nm, "?")
