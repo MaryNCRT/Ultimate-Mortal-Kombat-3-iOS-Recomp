@@ -21,7 +21,9 @@
  *
  * Fields identified so far, as offsets into a slot:
  *
- *      +0x00   int   state -- 0 is free, > 0 is live, -2 is killed
+ *      +0x00   int   state -- 0 is free, > 0 is live, NEGATIVE is dying
+ *                    (a killed event starts at -2 and is counted UP to zero
+ *                     by LIME_UpdateEvents; see that function)
  *      +0x14   SCENEEVENTTRACK *track
  *      +0x3c   long  group id
  *      +0xa4   float (set together with +0xe4 when an event is killed)
@@ -68,8 +70,9 @@ void LIME_KillAllEvents(void)
  *
  * armv6 0x000e804c, 32 bytes.
  *
- * Counts slots whose state is non-zero. Note that includes the killed state
- * (-2), so this is "not free" rather than "running".
+ * Counts slots whose state is non-zero. Note that includes the dying states,
+ * so this is "not free" rather than "running" -- an event killed on the
+ * previous frame is still counted here for two more updates.
  */
 int LIME_CountActiveEvents(void)
 {
@@ -126,8 +129,14 @@ int CountEventsMatching(SCENEEVENTTRACK *track, limeMATRIX44 *unused)
  * symbol's, not a transcription slip.
  *
  * Kills every live event carrying a group id, by setting state to **-2** and
- * writing one constant into two float fields. So killing is a state change in
- * place, never a free -- consistent with the pool being fixed.
+ * writing one constant into two float fields. Killing is a state change in
+ * place; the slot itself is reclaimed later.
+ *
+ * **-2 specifically, not just "negative".** LIME_UpdateEvents counts negative
+ * states up toward zero, one per frame, and zero is what free means. So -2 buys
+ * a **two-frame grace period** before the slot can be handed out again -- long
+ * enough for anything still drawing from it this frame to finish. A port that
+ * frees on kill will reuse a slot mid-frame.
  *
  * Groups are what let a fatality cancel its own particle swarm without knowing
  * which slots it used.
@@ -360,4 +369,90 @@ void LIME_TriggerEventsFromScene(SCENEINFO *scene, int frame,
 
     /* the per-track dispatch runs off scene->events (+0x84) */
     (void)m; (void)flags;
+}
+
+
+/* ----------------------------------------------------------- LIME_UpdateEvents
+ *
+ * armv6 0x000e9238, 452 bytes.  **Complete, and it corrects this file.**
+ *
+ * Ticks every slot in the event pool once per frame.
+ *
+ * ## It re-confirms the pool geometry exactly
+ *
+ * The walk steps `#0xf8` -- 248 bytes, the slot size documented at the top of
+ * this file -- and the loop ends when the cursor reaches a sentinel computed as
+ * `base + 0xb900 + 8`, which is `base + 0xB908`. With a 0xBA00 pool that is
+ * precisely the last slot:
+ *
+ *      0xBA00 - 0xF8 = 0xB908
+ *
+ * So **192 slots of 248 bytes** is confirmed a third time, from the consumer
+ * side rather than from the allocator.
+ *
+ * ## Negative states are a countdown, not a tombstone
+ *
+ * An earlier pass through this file recorded that killing an event sets its
+ * state to -2 and concluded the slot is **never freed**. That was wrong, and
+ * this function is where it shows:
+ *
+ *      ldr      r2, [r4]
+ *      cmp      r2, #0
+ *      beq      #0xe92a4        ; zero  -> slot is free, skip
+ *      addlt    r2, r2, #1      ; NEGATIVE -> count UP toward zero
+ *      strlt    r2, [r4]
+ *      blt      #0xe92a4        ; and skip this frame
+ *
+ * A killed event sits at -2, becomes -1 on the next update and 0 on the one
+ * after, and zero is what "free" means. So the kill is a **deferred free with a
+ * two-frame grace period** -- long enough for anything still holding the slot
+ * this frame to finish with it, without a reference count.
+ *
+ * That is a much better design than the one previously recorded, and it matters
+ * for the port: a runtime that frees on kill will reuse a slot that the current
+ * frame is still drawing from.
+ *
+ * ## The repeat counter
+ *
+ * Field `+0x2c` is a loop count, and **-1 means forever**:
+ *
+ *      cmn      r0, #1          ; == -1 ?
+ *      subne    r3, r0, #1      ; only decrement when it is not -1
+ *      strne    r3, [r4, #0x2c]
+ *
+ * When a track runs out, the event is rewound rather than stopped: `+0x04` is
+ * set to `(float)counter - 1.0f`, and both `+0x08` and `+0x0c` are set to
+ * `scene->count2 - 1` -- read from `SCENEINFO+0x44`, the same field
+ * LIME_TriggerEventsFromScene takes its modulo against. Two frame cursors, both
+ * parked on the last frame.
+ *
+ * The frame counter is converted with `vcvt.f32.s32` and then has 1.0f
+ * subtracted, so `+0x04` is a float cursor over an integer frame count.
+ */
+void LIME_UpdateEvents(void)
+{
+    EVENT *ev;
+
+    for (ev = &g_events[0]; ; ev = (EVENT *)((char *)ev + 0xf8)) {
+        if (ev->state == 0)
+            goto next;                  /* free slot */
+
+        if (ev->state < 0) {
+            ev->state++;                /* deferred free, counting up to zero */
+            goto next;
+        }
+
+        if (ev->repeat != 0) {          /* +0x2c */
+            ev->cursor = (float)ev->repeat - 1.0f;              /* +0x04 */
+            ev->frameA = ev->scene->count2 - 1;                 /* +0x08 */
+            ev->frameB = ev->scene->count2 - 1;                 /* +0x0c */
+
+            if (ev->repeat != -1)       /* -1 loops forever */
+                ev->repeat--;
+        }
+
+    next:
+        if (ev == &g_events[EVENT_SLOTS - 1])
+            break;                      /* sentinel: base + 0xB908 */
+    }
 }

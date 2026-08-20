@@ -553,3 +553,46 @@ int IsTextureFullBright(const char *name)
 
     return 0;
 }
+
+
+/* --------------------------------------------------------- RenderDebugCube
+ *
+ * armv6 0x00081a40, 100 bytes.  **Complete -- and it does not render.**
+ *
+ * The name promises drawing; the body only *loads*. It checks a debug enable
+ * flag, returns immediately when clear, and otherwise loads a named scene once
+ * and caches the pointer in a global. The drawing half went the way of
+ * `RenderAxesLines` and `LIME_printf` -- compiled out of the retail build --
+ * leaving the lazy loader behind.
+ *
+ * That makes three functions in this engine whose bodies are gone but whose
+ * *scaffolding* survives, which is a useful pattern to recognise: a function
+ * that is suspiciously short for its name has usually been half-stripped, not
+ * simplified.
+ *
+ * It is a **tail call**, which is why the last instruction is a branch rather
+ * than a return:
+ *
+ *      ldr  r0, [r0, #0x80]
+ *      pop  {r4, r5, r7, lr}
+ *      b    #0x8186c              ; -> _LIME_LoadMeshSetTextures
+ *
+ * **That `+0x80` is new information about SCENEINFO.** The scene pointer
+ * returned by LIME_LoadScene is dereferenced at offset 0x80 and the result is
+ * handed straight to LIME_LoadMeshSetTextures, so **SCENEINFO+0x80 is the
+ * meshset the scene owns**. Nothing else recovered so far reaches that field.
+ *
+ * The load is guarded twice -- once on the debug flag, once on the cached
+ * pointer being null -- so it costs a compare per call after the first.
+ */
+void RenderDebugCube(void)
+{
+    if (!g_debugEnabled)
+        return;
+
+    if (g_debugCubeScene != NULL)
+        return;                         /* already loaded */
+
+    g_debugCubeScene = LIME_LoadScene(DEBUG_CUBE_SCENE, 1, 0, 0);
+    LIME_LoadMeshSetTextures(g_debugCubeScene->meshset, 0);   /* +0x80 */
+}
