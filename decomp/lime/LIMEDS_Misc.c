@@ -202,3 +202,107 @@ void LIMEDS_Set3dMode(void)
     glLoadIdentity();
     /* projection setup follows, using the 0.6f literal */
 }
+
+
+/* ---------------------------------------------- LIMEDS_SetCameraOrientation
+ *
+ * armv6 0x0007ff84, 376 bytes.  **Complete.**
+ *
+ * This is **gluLookAt**, written out by hand. The engine never links GLU, so
+ * the view matrix is built here and this is the only place the camera basis
+ * exists.
+ *
+ * **It takes nine floats, not three vectors.** The prologue does
+ * `stm sp, {r0, r1, r2}` and then immediately reads them back with `vldr` --
+ * the first three arguments are float bit patterns arriving in core registers
+ * under the soft-float ABI, not pointers. The other six come off the caller
+ * stack at +0x7c through +0x90. So the grouping into eye, target and up below
+ * is a reading of how they are used, not of how they are declared:
+ *
+ *      vsub.f32 s8, s22, s16       arg0 - arg3
+ *      vsub.f32 s7, s23, s17       arg1 - arg4
+ *      vsub.f32 s6, s24, s18       arg2 - arg5
+ *
+ * -- three componentwise subtractions in a row is a vector difference, which
+ * makes 0..2 and 3..5 two points, and 6..8 the remaining direction.
+ *
+ * The rest is unmistakable: sum the squares, `vsqrt.f32`, divide. The divides
+ * are `vdivne`, predicated on the length compare, so **a zero length silently
+ * leaves the vector unnormalised rather than producing NaN**. That is worth
+ * reproducing exactly; a port that divides unconditionally turns a degenerate
+ * camera into a black screen instead of a stuck one.
+ *
+ * Note it does **not** call `Normalise` or `Len` from limeVector.cpp even
+ * though both exist -- the normalisation and the cross product are inlined
+ * here. There is no cross-product symbol anywhere in the binary, so every
+ * cross product in this engine is written out by hand at its use site.
+ *
+ * The eye position is negated up front (`vneg.f32` on all three) and used at
+ * the very end, which gives away the whole structure:
+ *
+ *      glMultMatrixf(basis);
+ *      glTranslatef(-eye.x, -eye.y, -eye.z);
+ *
+ * -- rotate the world into the camera, then move it back. Standard view
+ * matrix construction.
+ *
+ * **The basis is written down columns, not across rows.** The three components
+ * of the first vector go to +0x00, +0x10 and +0x20 of the matrix; the second
+ * to +0x04, +0x14, +0x24. Writing a basis transposed *is* inverting it for a
+ * pure rotation, which is exactly what a view matrix needs -- so the matrix
+ * arrives at glMultMatrixf already in the layout GL wants, and needs no
+ * transpose.
+ *
+ * That resolves the convention question this file raises twice elsewhere.
+ * ConvertDSMatrixtoPCMatrix produces row-major and needs transposing; this one
+ * and LIMEDS_SetObjectOrientation do not. The rule is not per-function
+ * whim -- **matrices built from basis vectors here are stored GL-ready, and
+ * matrices converted from the old fixed-point formats are not.**
+ *
+ * The remaining fields are written as literal zeros (+0x0c, +0x1c, +0x2c for
+ * the fourth column, +0x30, +0x34, +0x38 for the bottom row) with 1.0f at
+ * +0x3c, so the translation genuinely is not in the matrix -- it is the
+ * glTranslatef that follows.
+ *
+ * Only two normalised vectors are stored, at +0x00/+0x10/+0x20 and
+ * +0x04/+0x14/+0x24. The third column of the basis is among the zeroed slots.
+ * That is unusual enough to flag rather than quietly complete: it is recorded
+ * as written, and the third basis vector is left out rather than invented.
+ */
+void LIMEDS_SetCameraOrientation(float eyeX, float eyeY, float eyeZ,
+                                 float atX,  float atY,  float atZ,
+                                 float upX,  float upY,  float upZ)
+{
+    float m[16];
+    float fx, fy, fz, rx, ry, rz, len;
+
+    glMatrixMode(GL_MODELVIEW);         /* 0x1700 */
+    glLoadIdentity();
+
+    fx = eyeX - atX;                    /* note the direction: eye - target */
+    fy = eyeY - atY;
+    fz = eyeZ - atZ;
+
+    len = sqrtf(fx * fx + fy * fy + fz * fz);
+    if (len != 0.0f) {                  /* vdivne -- zero leaves it alone */
+        fx /= len; fy /= len; fz /= len;
+    }
+
+    rx = upY * fz - upZ * fy;           /* cross product, inlined as in the ROM */
+    ry = upZ * fx - upX * fz;
+    rz = upX * fy - upY * fx;
+
+    len = sqrtf(rx * rx + ry * ry + rz * rz);
+    if (len != 0.0f) {
+        rx /= len; ry /= len; rz /= len;
+    }
+
+    /* written down columns: this is the transpose, i.e. the inverse rotation */
+    m[0] = rx;   m[4] = ry;   m[8]  = rz;   m[12] = 0.0f;
+    m[1] = fx;   m[5] = fy;   m[9]  = fz;   m[13] = 0.0f;
+    m[2] = 0.0f; m[6] = 0.0f; m[10] = 0.0f; m[14] = 0.0f;
+    m[3] = 0.0f; m[7] = 0.0f; m[11] = 0.0f; m[15] = 1.0f;
+
+    glMultMatrixf(m);
+    glTranslatef(-eyeX, -eyeY, -eyeZ);
+}

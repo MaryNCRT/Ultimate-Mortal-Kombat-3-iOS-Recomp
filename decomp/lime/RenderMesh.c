@@ -468,3 +468,88 @@ void CreateFadedLookupTable(void)
             dst[i] = (uint8_t)i;        /* scaled per row */
     }
 }
+
+
+/* ------------------------------------------------------- IsTextureFullBright
+ *
+ * armv6 0x0008125c, 356 bytes.  **Complete.**
+ *
+ * Answers "should this texture skip lighting?" -- and the answer comes from a
+ * **plain text file the artists edited**, not from anything compiled in.
+ *
+ * The file is `res/nolight.txt`, and it documents itself:
+ *
+ *     # List of files that we want to be fullbright below
+ *     # comment out files using the # character as the first char in a line
+ *     # Always use .??? as the file extension, no directories
+ *
+ * Forty entries ship in the retail build, and they are almost all
+ * `<CHARACTER>_DIFFUSE_ICE` -- the frozen version of every fighter -- plus
+ * blood splats, vomit, the acid of Reptile and the snowman. Which is exactly
+ * right: a frozen body glows from inside, and blood should not take a
+ * directional highlight.
+ *
+ * **This is the most moddable thing found in the engine so far.** Adding a
+ * texture name to a text file changes the lighting, with no rebuild. Our port
+ * must read this file rather than bake the list in, or that capability is lost.
+ *
+ * How it works:
+ *
+ *  - `FullBrightLoaded` guards a one-time parse; the first call loads the file,
+ *    walks it with `GetNextLine`, and frees the buffer when it reaches the end;
+ *  - a line is skipped if its first byte is `0x23` (a hash) **or zero**, so
+ *    blank lines are comments too;
+ *  - each accepted line is copied into a table with a **stride of 0x40** and
+ *    the name at **+4**, the count living at the table base. The copy is four
+ *    unrolled `ldm`/`stm` pairs -- 64 bytes, fixed -- so a name has 60 bytes of
+ *    room. The longest shipped entry is 26 characters.
+ *  - lookup is a linear compare down the table; forty entries per texture, not
+ *    worth indexing at this size.
+ *
+ * The three globals `_FullBrightLoaded`, `_TheFullBrightInfo` and
+ * `_IsTextureFullBrightPath` are all in the symbol table under those names, so
+ * the caching, the table and the configurable path are the original design and
+ * not an inference.
+ *
+ * **One thing to check when wiring this up.** The comparison is a two-argument
+ * string compare -- no length is passed -- but the file stores extensions as
+ * the literal `.???`. An exact compare against `.???` can only match if the
+ * caller presents the name in the same normalised form. Whether the engine
+ * rewrites the extension before calling, or the internal texture names already
+ * carry `.???`, is not settled from this function alone; the call sites decide
+ * it. Do not "fix" it by switching to a prefix compare without checking.
+ */
+int IsTextureFullBright(const char *name)
+{
+    int i;
+
+    if (!FullBrightLoaded) {
+        char *data = limeLoadFile(IsTextureFullBrightPath);
+        char *p, *end;
+        char line[0x40];
+
+        if (data == NULL)
+            return 0;
+
+        FullBrightLoaded = 1;
+        end = data + limeFileSize(IsTextureFullBrightPath);
+
+        for (p = data; end > p; ) {
+            p = GetNextLine(p, line);
+            if (line[0] == 0x23 || line[0] == 0)
+                continue;               /* comments and blanks alike */
+
+            memcpy(TheFullBrightInfo.names[TheFullBrightInfo.count],
+                   line, 0x40 - 4);
+            TheFullBrightInfo.count++;
+        }
+
+        limeFree(data);
+    }
+
+    for (i = 0; i < TheFullBrightInfo.count; i++)
+        if (strcmp(name, TheFullBrightInfo.names[i]) == 0)
+            return 1;
+
+    return 0;
+}

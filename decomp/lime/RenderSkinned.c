@@ -700,3 +700,53 @@ BONESINFO *LIME_LoadBones(const char *filename)
     limeFree((void *)data);                      /* the file buffer is not kept */
     return info;
 }
+
+
+/* -------------------------------------------------------------- MatrixMul2
+ *
+ * armv6 0x00082fd8, 372 bytes.  **Complete.**
+ *
+ * Composes two SKINMATRIX43s: `out = a * b`.
+ *
+ * This is the fourth independent confirmation of the SKINMATRIX43 layout, and
+ * the cleanest one. Row 0 of the result is built as
+ *
+ *      out[0] = a[0]*b[0] + a[1]*b[3] + a[2]*b[6]
+ *
+ * -- `a` walked at 0, 4, 8 and `b` at 0, 0xc, 0x18. A row of `a` against a
+ * column of `b` only lands on those offsets if **b is row-major with a stride
+ * of three floats**, which is what docs/SKIN-FORMAT.md says and what
+ * MatrixIdentity2 implied by writing 1.0f at m[0], m[4] and m[8].
+ *
+ * The fourth row is the interesting one. Rows 0 to 2 are pure multiply-
+ * accumulate, but row 3 ends with a bare `vadd.f32` against b[9], b[10] and
+ * b[11]:
+ *
+ *      vmla.f32 s15, s13, s14      ; the rotation part
+ *      vldr     s14, [r1, #0x24]   ; b translation
+ *      vadd.f32 s15, s15, s14      ; added, not multiplied
+ *
+ * So the fourth row is a **translation, not a fourth basis vector**, and this
+ * is an affine compose: rotate the translation of `a` by `b`, then add the
+ * translation of `b`. A port that treats the type as a plain 4x3 matrix
+ * multiply gets the rotation right and every bone position wrong.
+ *
+ * Nothing is aliased-checked -- `out` must not be `a` or `b`, because elements
+ * are stored as they are computed.
+ */
+void MatrixMul2(const SKINMATRIX43 *a, const SKINMATRIX43 *b, SKINMATRIX43 *out)
+{
+    int r, c;
+
+    for (r = 0; r < 3; r++)             /* the three rotation rows */
+        for (c = 0; c < 3; c++)
+            out->m[r * 3 + c] = a->m[r * 3 + 0] * b->m[0 + c]
+                              + a->m[r * 3 + 1] * b->m[3 + c]
+                              + a->m[r * 3 + 2] * b->m[6 + c];
+
+    for (c = 0; c < 3; c++)             /* the translation row */
+        out->m[9 + c] = a->m[9]  * b->m[0 + c]
+                      + a->m[10] * b->m[3 + c]
+                      + a->m[11] * b->m[6 + c]
+                      + b->m[9 + c];    /* added, not multiplied */
+}
