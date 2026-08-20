@@ -12,7 +12,7 @@
  * Difference from the original, deliberately: the original allocates through
  * limeMalloc and reads through limeLoadFile, both of which are iOS platform
  * layer. Here allocation is plain malloc and file access goes through
- * lime_load_file(), which the platform layer provides. Behaviour is identical;
+ * limeLoadFile(), which the platform layer provides. Behaviour is identical;
  * only the plumbing changed.
  */
 
@@ -120,11 +120,11 @@ MESHSETINFO *LIME_LoadMeshSet(const char *filename, int useLighting)
         if (n >= 8) {                       /* replace ".meshset" */
             memcpy(lightpath + n - 8, ".lighting", 10);
         }
-        light = (uint8_t *)lime_load_file(lightpath, &light_size);
+        light = (uint8_t *)limeLoadFile(lightpath, &light_size);
     }
 
     size_t data_size = 0;
-    uint8_t *data = (uint8_t *)lime_load_file(filename, &data_size);
+    uint8_t *data = (uint8_t *)limeLoadFile(filename, &data_size);
     if (!data) {
         free(light);
         return NULL;
@@ -327,7 +327,7 @@ void LIME_FreeMeshSetTextures(MESHSETINFO *set)
     for (i = 0; i < set->numMeshes; i++) {
         MESHINFO *mesh = set->meshes[i];             /* +0x48 */
         if (mesh != NULL && mesh->texture != NULL)   /* +0x44 */
-            LIME_FreeTexture(mesh->texture);
+            limeDeleteTexture(mesh->texture);
     }
 }
 

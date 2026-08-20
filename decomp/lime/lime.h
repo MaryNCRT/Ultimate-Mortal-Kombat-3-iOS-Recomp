@@ -133,6 +133,6 @@ int          IsTextureFullBright(const char *textureName);
 /* Reads a file from the game's asset directory. Returns a malloc'd buffer the
  * caller owns, or NULL. On iOS this was limeLoadFile(); on PC the runtime
  * supplies it. */
-void *lime_load_file(const char *path, size_t *out_size);
+void *limeLoadFile(const char *path, size_t *out_size);
 
 #endif /* LIME_H */
