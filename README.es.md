@@ -50,6 +50,7 @@ Los objetivos a largo plazo, en orden:
 | Recuperar C legible, función a función | 🔄 en curso |
 | Sustituir la capa de plataforma iOS por una nativa de PC | ⬜ sin empezar |
 | Widescreen, soporte de mando, mods | ⬜ planeado |
+| **Dos jugadores locales en una máquina** | ⬜ planeado — [la build de iPad lo trae](docs/IPAD-BUILD.md) |
 | Restaurar contenido oculto e inalcanzable | ⬜ tras tener build jugable |
 | 60 fps, netcode moderno | ⬜ a largo plazo |
 

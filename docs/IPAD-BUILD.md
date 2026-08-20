@@ -2,11 +2,11 @@
 
 There is a second retail build: `com.ea.umk3.ipad.bv`, version **1.2.56**,
 `UIDeviceFamily [2]`, minimum iOS 3.2. It is reputed to have better graphics and
-models than the iPhone release.
-
-**It does not.** This page records the comparison, because "the iPad version
-looks better" is the kind of claim that costs a project weeks if nobody checks
-it.
+models than the iPhone release. Both halves of that turn out to need unpacking:
+its **asset files are byte-identical**, so there are no better models -- yet it
+genuinely does look sharper, because it renders the same art to five times as
+many pixels. And it carries one thing the iPhone build simply does not have: a
+**local two-player duel mode**.
 
 ---
 
@@ -23,8 +23,26 @@ All 5,092 files under `res/` were hashed in both builds.
 No file exists in one build and not the other. The two `res/` trees are the same
 397.3 MB down to the byte.
 
-So there are **no higher-poly models and no higher-resolution textures**. The
-same art ships to both devices.
+So there are **no higher-poly models and no higher-resolution texture files**.
+
+### But it does look sharper, and that is not a contradiction
+
+The textures were always 1024x1024. What changes is the screen they land on:
+
+| | pixels |
+|---|---:|
+| iPhone, 480x320 | 153,600 |
+| iPad, 1024x768 | **786,432** |
+
+**Five times as many.** The iPhone was throwing most of every texture away on
+the way to the panel; the iPad shows more of what was already in the file. Same
+art, far more of it visible — which is exactly what "HD" meant in the marketing,
+and why the difference is obvious on screen and invisible to a hash.
+
+Worth being precise about, because the two statements sound contradictory and
+are not: **identical files, better output.** For the port it means the ceiling on
+visual quality is set by the assets, and the assets are already better than the
+iPhone build ever displayed.
 
 ### Where the impression probably comes from
 
@@ -66,43 +84,54 @@ nothing measurable and loses the production route.
 
 ---
 
-## There is no local two-player mode
+## It has a local two-player mode, and that is the reason to keep it
 
-The iPad build has two symbols the iPhone lacks:
+**An earlier version of this page said it did not. That was wrong**, and the
+mistake is worth recording because the reasoning looked sound: every *networked*
+multiplayer function is the same size in both builds, so I concluded there was
+no extra multiplayer code. But a local two-player mode does not need new
+multiplayer functions -- it reuses the fight code with both players on one
+device. The difference was never going to be in `FE_Task_Multiplayer`.
 
-```
-_Touch_Play2P
-_LastTouch_Play2P
-```
+Looking in the right place settles it immediately. The **Play menu** has five
+entries on iPad and four on iPhone:
 
-Both are **4 bytes of data**, not code — touch-state variables, matching the
-existing `_Touch_PlayMultiPlayer` pair. So the iPad menu appears to have one
-extra button.
+| iPhone | iPad |
+|---|---|
+| `_Touch_PlayArcade` | `_Touch_PlayArcade` |
+| — | **`_Touch_Play2P`** |
+| `_Touch_PlayMultiPlayer` | `_Touch_PlayMultiPlayer` |
+| `_Touch_PlaySK` | `_Touch_PlaySK` |
+| `_Touch_PlaySurvival` | `_Touch_PlaySurvival` |
 
-There is nothing behind it. Every multiplayer function was compared:
+`_Touch_Play2P` and `_LastTouch_Play2P` exist **only** in the iPad build, and
+they sit *beside* the networked entry rather than replacing it. In game it is a
+**duel mode** — two players on the one device, no network involved.
 
-| Function | iPhone | iPad |
+The code is there too. `_FE_Task_Play` is **2,188 bytes on iPad against 2,048 on
+iPhone** -- 140 bytes and 60 instructions more -- and the extra work is exactly
+one more menu item:
+
+| Call, from `FE_Task_Play` | iPhone | iPad |
 |---|---:|---:|
-| `FE_Task_Multiplayer` | 2,948 | 2,948 |
-| `FE_Task_Multiplayer_Versus_Screen` | 3,808 | 3,808 |
-| `Task_MultiplayerSync` | 504 | 504 |
-| `FE_Task_Multiplayer_Character_Select` | 1,340 | **1,328** |
-| the whole `limeMPSession` class | identical | identical |
+| `_DrawOptionAsButton` | 4 | **5** |
+| `_GameText` | 3 | **4** |
+| `_FE_W` | 6 | **7** |
 
-Same sizes throughout, and the one that differs is **smaller** on iPad. Same
-sizes with different bytes is relocation, not logic — branch targets and literal
-addresses differ between any two builds.
+One more button drawn, one more label, one more width query.
 
-And the string tables settle it: **no UI text for a local mode exists in either
-build.** Searching the 1,386 iPad-only strings for a two-player vocabulary
-returns the two symbol names themselves and a pile of false positives on
-"Locale".
+### Why the search missed it
 
-Both builds use the same `limeMPSession`, which is **GKSession peer-to-peer** —
-already documented in [issue #8](../../issues/8). `Touch_Play2P` is most likely
-a renamed or abandoned button; there is no local same-device mode to rescue.
+The first pass searched the binary's own string table for a two-player
+vocabulary and found nothing. That was the wrong place twice over: the menu
+labels come through `_GameText` rather than sitting as literals, and the
+`.lproj` bundles contain only a `dummy.txt`. Absence of a string was taken as
+absence of a feature.
 
----
+**This is the port's most valuable inheritance from the iPad build.** Local
+two-player on one machine is far more useful to a PC port than GKSession
+peer-to-peer, which needs two devices and an Apple networking stack that will
+have to be replaced wholesale. It is now [a stated goal](../README.md).
 
 ## What the iPad build *is* good for
 
@@ -111,6 +140,26 @@ a renamed or abandoned button; there is no local same-device mode to rescue.
 
 That makes it usable as a **cross-check**: function boundaries, struct layouts
 and call graphs that agree across two independent builds are more trustworthy
-than ones seen once. It is worth keeping for that, and for nothing else.
+than ones seen once.
 
-It cannot replace the iPhone build, because it has no armv6.
+So it is worth keeping for two reasons -- the two-player menu path above, and
+that cross-check. It cannot *replace* the iPhone build, because it has no armv6.
+
+## Running it
+
+`tools/patch_ipa.py` takes a `--build` flag, and the three patches that make the
+game reach its menus are expressed **relative to symbols** rather than as
+addresses, because every function in the iPad binary is relocated:
+
+```bash
+UMK3_IPA_DIR=/path/to/ipas UMK3_APPS_DIR=/path/to/touchHLE_apps   python tools/patch_ipa.py --build ipad     --apply setlocale_nop --apply mp_disable --apply eula_exit
+```
+
+The older hardcoded-address patches are **refused** for any build but the iPhone
+one; they would silently hit the wrong bytes.
+
+touchHLE runs the result and reports `Device family: iPad`. Its options file
+needs its own entry for `com.ea.umk3.ipad.bv`: the screen is 1024x768 rather
+than 480x320, so `--scale-hack=2` rather than 4, and the iPhone entry's
+`--button-to-touch` coordinates must **not** be copied -- they were measured
+against the smaller layout.
