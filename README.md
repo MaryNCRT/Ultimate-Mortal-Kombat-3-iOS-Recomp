@@ -6,7 +6,7 @@
 
 **A work-in-progress decompilation of the 2011 iOS release of Ultimate Mortal Kombat 3, aiming at a native PC port for Windows and Linux.**
 
-[Getting started](docs/GETTING-STARTED.md) · [Methodology](docs/METHODOLOGY.md) · [LIME engine](docs/LIME-ENGINE.md) · [Asset formats](docs/X-TABLES.md) · [Mesh viewer](docs/MESH-VIEWER.md) · [Architecture](docs/ARCHITECTURE.md) · [Progress](docs/PROGRESS.md) · [Handoff](docs/HANDOFF.md) · [AI disclosure](AI-DISCLOSURE.md) · [Español](README.es.md)
+[Getting started](docs/GETTING-STARTED.md) · [Methodology](docs/METHODOLOGY.md) · [LIME engine](docs/LIME-ENGINE.md) · [Asset formats](docs/X-TABLES.md) · [Mesh viewer](docs/MESH-VIEWER.md) · [Game bugs](docs/GAME-BUGS.md) · [Architecture](docs/ARCHITECTURE.md) · [Progress](docs/PROGRESS.md) · [Handoff](docs/HANDOFF.md) · [AI disclosure](AI-DISCLOSURE.md) · [Español](README.es.md)
 
 </div>
 
@@ -258,6 +258,7 @@ tools/
   meshview.py            renders a .meshset to a PNG -- software rasteriser
   pose.py                poses a character from .bones/.skinanim/.skin
   glsurface.py           inventories every GL entry point the engine calls
+  finishers.py           extracts the fatality/babality catalogue with frame indices
   thumb_scan.py          finds ARM/Thumb boundaries
   umk3paths.py           locates an extracted IPA's res/ directory
   xref.py                finds calls to an imported symbol; recovers assert() arguments
