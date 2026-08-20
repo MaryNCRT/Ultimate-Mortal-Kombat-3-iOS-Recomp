@@ -140,6 +140,46 @@ the pose from `.skinanim`'s quaternions, the influences and weights from
 decoder, and `CreatePerspectiveMatrix` from the verified decompilation — with
 the maths from `GetMFromQuat2`, `MatrixMul2` and `DrawSkinnedMesh2`.
 
+### The skirt clips through the leg, and that is the model
+
+Kano's hip cloth passes through his raised thigh in the fighting stance. It
+looks like a skinning bug. It is not, and establishing that took five
+independent checks — worth listing, because each one is a thing that *could*
+have been wrong:
+
+| Check | Result |
+|---|---|
+| `MatrixMul2`'s composition order (previously **assumed**) | decompiled: `out = a × b` row-major, `t_out = t_a·B₃ₓ₃ + t_b`. Matches. |
+| animation frames indexed by visit order or array order? | depth-first order **equals** array order in every file. Either works. |
+| mesh winding consistency | 98.6% of edges paired, **0 same-direction duplicates** |
+| skin weights | sum to 0.99998 for **100%** of vertices, and **zero weight in any slot flagged `0xFF`** |
+| influence assignment | colouring vertices by dominant bone gives clean anatomical regions — one colour per limb, no speckle |
+
+And the decisive one: **render a frame where the legs are together**. The cloth
+becomes a clean black skirt with a red trim border, hanging correctly, no
+intersection anywhere. Same geometry, same code, different pose.
+
+So the skirt is a rigid piece weighted to the pelvis, with no cloth simulation —
+normal for a 2011 mobile game. Raise the leg and it passes through. The original
+does this too; it just shows a small character at a distance, where nobody sees
+it.
+
+Recording it because "the render looks wrong" is the kind of report that sends
+you hunting through correct code for days.
+
+### Two real rasteriser bugs found while looking
+
+Hunting for a bug that was not there did turn up two that were:
+
+- **The inside-triangle test was hard-coded to one winding.** `w0,w1,w2 <= 0`
+  only holds for negative-area triangles; a triangle wound the other way had
+  every pixel silently rejected. It never showed because the cull happened to
+  discard exactly those triangles — the two bugs were cancelling. Now normalised
+  by the sign of the area.
+- **Texture mapping was affine, not perspective-correct.** UVs interpolated
+  linearly in screen space is the PlayStation 1 defect: the texture swims across
+  large triangles. Barycentrics are now divided by `w` and renormalised.
+
 ### The mapping that closed the gap
 
 The two per-vertex blocks in `.skin` had gone unidentified for the whole

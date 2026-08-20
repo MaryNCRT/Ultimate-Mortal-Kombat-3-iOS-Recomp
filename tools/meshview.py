@@ -26,6 +26,7 @@ Usage:
   python meshview.py <file.meshset> <out.png> --turntable 6
 """
 
+CULL_SIGN = 1.0    # flip to -1.0 to keep the other winding; 0 disables culling
 import math
 import os
 import struct
@@ -170,7 +171,7 @@ def render(meshes, res_dir, size=512, yaw=0.6, pitch=0.15, bg=(24, 24, 28),
                 continue
             x0, y0, x1, y1, x2, y2 = sx[a], sy[a], sx[b], sy[b], sx[c], sy[c]
             area = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0)
-            if area >= 0:                                # back-facing
+            if CULL_SIGN and area * CULL_SIGN >= 0:      # back-facing
                 continue
             tris += 1
 
@@ -191,7 +192,11 @@ def render(meshes, res_dir, size=512, yaw=0.6, pitch=0.15, bg=(24, 24, 28),
             w0 = (x1 - x0) * (py - y0) - (y1 - y0) * (px - x0)
             w1 = (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)
             w2 = (x0 - x2) * (py - y2) - (y0 - y2) * (px - x2)
-            inside = (w0 <= 0) & (w1 <= 0) & (w2 <= 0)
+            # normalise by the signed area so the test works for either
+            # winding -- hard-coding one sign silently rejects every pixel of
+            # a triangle wound the other way
+            sgn = -1.0 if area < 0 else 1.0
+            inside = (w0 * sgn >= 0) & (w1 * sgn >= 0) & (w2 * sgn >= 0)
             if not inside.any():
                 continue
 
@@ -208,8 +213,19 @@ def render(meshes, res_dir, size=512, yaw=0.6, pitch=0.15, bg=(24, 24, 28),
 
             if tex is not None:
                 th, tw = tex.shape[:2]
-                u = l0 * uv[a, 0] + l1 * uv[b, 0] + l2 * uv[c, 0]
-                vv = l0 * uv[a, 1] + l1 * uv[b, 1] + l2 * uv[c, 1]
+                # Perspective-correct interpolation. Interpolating UVs linearly
+                # in screen space is affine mapping -- the PlayStation 1 defect
+                # -- and on a character's large triangles the texture visibly
+                # swims, which reads as clothing sliding through itself.
+                # Barycentrics have to be divided by w and renormalised.
+                ia, ib, ic = 1.0 / w[a], 1.0 / w[b], 1.0 / w[c]
+                den = l0 * ia + l1 * ib + l2 * ic
+                den = np.where(np.abs(den) < 1e-12, 1e-12, den)
+                p0 = (l0 * ia) / den
+                p1 = (l1 * ib) / den
+                p2 = 1.0 - p0 - p1
+                u = p0 * uv[a, 0] + p1 * uv[b, 0] + p2 * uv[c, 0]
+                vv = p0 * uv[a, 1] + p1 * uv[b, 1] + p2 * uv[c, 1]
                 tx = np.clip((u % 1.0) * (tw - 1), 0, tw - 1).astype(np.int32)
                 ty = np.clip((vv % 1.0) * (th - 1), 0, th - 1).astype(np.int32)
                 rgb = tex[ty, tx, :3].astype(np.float64)
