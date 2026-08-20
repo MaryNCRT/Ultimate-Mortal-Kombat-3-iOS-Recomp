@@ -8,6 +8,7 @@ add_executable(umk3
     runtime/main.c
     runtime/lime/meshset.c
     runtime/lime/limemath.c
+    runtime/lime/pvr.c
 )
 
 target_include_directories(umk3 PRIVATE runtime)
