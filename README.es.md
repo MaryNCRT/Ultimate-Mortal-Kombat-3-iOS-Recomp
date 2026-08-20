@@ -129,7 +129,7 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 
 **En torno al 32% del esfuerzo total estimado. Todavía no hay nada jugable.**
 
-La barra se mueve por primera vez en un buen rato, y solo porque `lime/common` se movió: 84 funciones de 109 frente a 21 hace poco. El trabajo de formatos que vino antes —resolverlos, renderizarlos y animarlos— valió muchísimo y **no vale ni un punto porcentual**, porque esa fila ya estaba al 100%. Lo que cambió ahí es que ahora está *demostrada* en vez de afirmada.
+La barra se mueve por primera vez en un buen rato, y solo porque `lime/common` se movió: 85 funciones de 109 frente a 21 hace poco. El trabajo de formatos que vino antes —resolverlos, renderizarlos y animarlos— valió muchísimo y **no vale ni un punto porcentual**, porque esa fila ya estaba al 100%. Lo que cambió ahí es que ahora está *demostrada* en vez de afirmada.
 
 Ese número es una estimación, así que aquí está la aritmética que hay detrás en vez de una cifra que haya que creerse. Los pesos son nuestro criterio sobre cuánto representa cada área del total; discrepa del reparto si quieres, pero las cifras de avance están medidas.
 
@@ -138,7 +138,7 @@ Ese número es una estimación, así que aquí está la aritmética que hay detr
 | Análisis del binario y mapeo del árbol de fuentes | 4% | 100% | `██████████` |
 | Herramientas y oráculo de verificación | 8% | 100% | `██████████` |
 | Especificaciones de formatos de assets | 8% | 100% | `██████████` |
-| `lime/common` — núcleo del motor (109 fn) | 12% | 77% | `████████░░` |
+| `lime/common` — núcleo del motor (109 fn) | 12% | 78% | `████████░░` |
 | `gamecode` — lógica de juego (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — motor de combate (2.172 fn) | 28% | 4% | `░░░░░░░░░░` |
 | Capa de plataforma nativa de PC (161 fn por reescribir) | 17% | 10% | `█░░░░░░░░░` |
@@ -206,7 +206,7 @@ Llegar ahi costo tres rondas perdidas. El decodificador marcaba 5,5% y catorce h
 
 **El motor de audio nunca fue de EA.** `lime/iphone/Finch/` es una copia vendorizada de [zoul/Finch](https://github.com/zoul/Finch), un motor de sonido OpenAL con licencia MIT — las siete clases estan presentes con sus nombres previos al refactor. Son **56 de las 229 funciones de la capa de plataforma, un 24%, que no hay que decompilar**. La leccion general sale mas barata que el hallazgo: antes de decompilar cualquier modulo de plataforma, comprobar si el nombre de clase pertenece a una libreria de terceros conocida de la epoca. `GBMusicTrack.m` se comprobo igual y **no** se pudo confirmar, asi que sigue en la lista.
 
-**Todos los formatos de assets necesarios para dibujar un personaje animado están resueltos.** `.meshset` (geometría), `.skin` (pesos de skinning), `.bones` (esqueleto), `.skinanim` (animación) y `.events` (pistas de efectos) se leen correctamente contra los datos publicados. `.scene` es el último que queda. Ver [MESHSET-FORMAT.md](docs/MESHSET-FORMAT.md), [SKIN-FORMAT.md](docs/SKIN-FORMAT.md) y [EVENTS-FORMAT.md](docs/EVENTS-FORMAT.md).
+**Todos los formatos de assets necesarios para dibujar un personaje animado están resueltos.** `.meshset` (geometría), `.skin` (pesos de skinning), `.bones` (esqueleto), `.skinanim` (animación) y `.events` (pistas de efectos) se leen correctamente contra los datos publicados. `.scene` es el último que queda, aunque `LIME_LoadScene` ya ha soltado su mapa de campos y la regla que ata los ficheros entre sí: **una escena es una familia de hermanos derivada sustituyendo los últimos seis caracteres del nombre**, sin índice ni manifiesto en ninguna parte. Ver [MESHSET-FORMAT.md](docs/MESHSET-FORMAT.md), [SKIN-FORMAT.md](docs/SKIN-FORMAT.md) y [EVENTS-FORMAT.md](docs/EVENTS-FORMAT.md).
 
 **Aterrizar en el último byte de un archivo puede no demostrar nada.** Si todos los registros miden lo mismo, *cualquier* división de ese tamaño recorre el archivo a la perfección: 324 bytes se leen igual de bien como 268+56 que como 324+0. A `.events` se le audito exactamente esa circularidad, porque `numEntries` parecia constante a 1. Sobre el corpus completo de 1.547 pistas toma diez valores distintos y 103 pistas no valen 1, asi que el recorrido si era evidencia real. Una constante deja el recorrido sin valor; y una constante vista sobre parte de los datos puede no ser constante. Importan las dos mitades, y la estructura ahora se deriva de la aritmetica de punteros del propio loader, para no depender del recorrido en ningun caso.
 
