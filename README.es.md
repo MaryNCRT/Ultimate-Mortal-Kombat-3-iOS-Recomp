@@ -137,11 +137,11 @@ en lugar de supuesta:
 
 | | nº | qué lo respalda |
 |---|---:|---|
-| Verificado por comportamiento | **13 + el cargador de mallas** | ejecutado contra un oráculo recompilado: 60.019 casos sintéticos más todos los `.meshset` del juego — 590 ficheros, 7.327 mallas, 0 divergencias |
+| Verificado por comportamiento | **13 + el cargador de mallas + la matemática de skinning** | ejecutado contra un oráculo recompilado: 78.799 casos sintéticos más todos los `.meshset` del juego — 590 ficheros, 7.327 mallas, 0 divergencias |
 | Escrito y documentado | 75 | solo verja estructural — sin llamadas inventadas |
 | Documentado, cuerpo pendiente | 11 | analizado, hallazgos registrados, transcripción deliberadamente no escrita |
 
-`Matrix.cpp`, `limeVector.cpp` y la ruta de carga de `RenderMesh.cpp` han pasado por el oráculo diferencial. Todo
+`Matrix.cpp`, `limeVector.cpp`, la ruta de carga de `RenderMesh.cpp` y la matemática de `RenderSkinned.cpp` han pasado por el oráculo diferencial — esto último es el código que posa a los personajes, así que un error sutil ahí habría dado poses casi correctas que nadie encuentra mirando. Todo
 lo demás ha pasado `symcheck`, que demuestra que una función no llama a nada que
 el binario nunca contuvo — una verja real, y puramente estructural. No dice nada
 sobre el comportamiento.

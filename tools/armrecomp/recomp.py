@@ -762,7 +762,12 @@ class Emitter(object):
                 self.literals += 1
                 return ["ctx->v.%s[%d] = 0x%0*xu%s;   /* literal @0x%08x */"
                         % (kind, n, 16 if kind == "d" else 8, val,
-                           "ULL" if kind == "d" else "", lit)]
+                           # "uLL", not "uULL": the format already appends the
+                           # u, so adding "ULL" made an invalid suffix. It only
+                           # fires on a double literal loaded PC-relative, which
+                           # neither calibration module does -- so calibration
+                           # stayed green while the emitter could not compile.
+                           "LL" if kind == "d" else "", lit)]
             addr = self.mem_addr(ins, ops[1])
             if kind == "d":
                 return (["ctx->v.d[%d] = MEM_LD64(%s);" % (n, addr)] if base == "vldr"
