@@ -1053,6 +1053,19 @@ class Emitter(object):
                     if op.type == ARM_OP_IMM and addr <= op.imm < addr + size:
                         labels.add(op.imm)
 
+            # tbb/tbh: los destinos NO estan en los operandos, salen de la tabla
+            # resuelta durante el descenso recursivo. Sin esto el switch emitia
+            # "goto L_xxxx" hacia etiquetas que nadie declaraba, y la funcion no
+            # compilaba -- con el error a 15.000 lineas de distancia de la causa.
+            # Lo encontro create_fx_param, arrastrada como dependencia por
+            # --with-deps al verificar SwitchQueue.
+            if b in ("tbb", "tbh"):
+                tbl = self.tables.get(ins.address)
+                if tbl:
+                    for t in tbl[1]:
+                        if addr <= t < addr + size:
+                            labels.add(t)
+
         cn = self.cname(addr)
         out.append("/* %s @ 0x%08x  (%s, %d bytes, %d instrucciones, %d bytes de datos) */"
                    % (name, addr, "Thumb" if thumb else "ARM", size,
