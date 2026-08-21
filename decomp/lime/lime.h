@@ -113,10 +113,32 @@ typedef struct SKINMATRIX43 {
  * squares and cross-multiplies them, which is quaternion-to-matrix and nothing
  * else -- so the Q is literal. The full element count is what LerpQSTMatrix
  * iterates. */
-#define QST_ELEMENTS 16
+/* Quaternion, Scale, Translation -- and only the quaternion is fixed point.
+ * ConvertQSTMatrixtoPCMatrix reads all ten fields and settles every one:
+ *
+ *      ldrsh  r3, [r0]          x4, scaled by 1/32767 into double
+ *      vldr   s15, [r0, #0x08]  a FLOAT, multiplying row 0
+ *      vldr   s15, [r0, #0x0c]  row 1
+ *      vldr   s15, [r0, #0x10]  row 2
+ *      ldr    r3, [r0, #0x14]   x3, copied verbatim to m[12..14]
+ *
+ * 32 bytes exactly, which is what AddToTranspMeshList copies per entry.
+ *
+ * **The scale and translation are floats, not int16.** An earlier version of
+ * this header modelled the whole struct as an int16 array, which would have put
+ * every field after the quaternion at the wrong offset. */
 typedef struct QSTMATRIX {
-    int16_t q[QST_ELEMENTS];
+    int16_t q[4];                /* 0x00  x, y, z, w -- w LAST, x 1/32767 */
+    float   scale[3];            /* 0x08  per-axis, multiplying each ROW */
+    float   translation[3];      /* 0x14  copied straight into m[12..14] */
 } QSTMATRIX;
+
+/* LerpQSTMatrix walks this with ldrsh/strh, i.e. as 16-bit elements. Against
+ * the layout above that is only meaningful for the quaternion; re-quantising a
+ * float through int16 would destroy it. Which range that loop actually covers
+ * was not established, so the count stays here as the open question it is
+ * rather than being quietly fixed at 4. */
+#define QST_ELEMENTS 16
 
 /* One key in a bone animation track. GetSlerpedQ reads four floats at
  * +0x00..+0x0c as the rotation and writes 1.0f at +0x10 of its output. */
@@ -602,7 +624,7 @@ void   LIME_PopMatrix(int count);
  * recovered from the binary -- an earlier guess here had four different
  * parameters and only the compiler caught it. */
 void   LIME_RenderMesh(MESHSETINFO *set, int index, TEXTURE *t0, TEXTURE *t1);
-void   ConvertQSTMatrixtoPCMatrix(const int16_t *src, float *dst);
+void   ConvertQSTMatrixtoPCMatrix(const QSTMATRIX *src, float *dst);
 void   limeEnableAlphaBlending_Additive(void);
 void   limeEnableAlphaBlending_Basic(void);
 void   limeDisableAlphaBlending(void);

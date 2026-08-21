@@ -179,10 +179,79 @@ void LerpQSTMatrix(const int16_t *a, const int16_t *b, float t, int16_t *out)
  * accuracy-sensitive code -- `CreatePerspectiveMatrix` and `NormaliseLDirs` do
  * the same and narrow once at the end.
  *
- * The scale and translation halves are not broken out; the body is omitted
- * rather than guessed.
+ * ## The scale and translation, settled
+ *
+ * The rotation is the textbook expansion -- `m[0] = 1 - 2y² - 2z²`,
+ * `m[1] = 2xy + 2wz`, and so on -- computed in double and narrowed once. Then
+ * each **row** is multiplied by a float read from the source:
+ *
+ *      vldr   s15, [r0, #0x08]   ; multiplies m[0], m[1], m[2]
+ *      vldr   s15, [r0, #0x0c]   ; multiplies m[4], m[5], m[6]
+ *      vldr   s15, [r0, #0x10]   ; multiplies m[8], m[9], m[10]
+ *
+ * So the S in QST is a **per-axis scale applied to rows, not a uniform
+ * factor**, and those three fields are `float` rather than the fixed point the
+ * quaternion uses. Scaling rows rather than columns is what makes it a scale in
+ * the object's own frame.
+ *
+ * The translation is copied **verbatim**, as words with no conversion:
+ *
+ *      ldr r3, [r0, #0x14] -> str r3, [r1, #0x30]
+ *      ldr r3, [r0, #0x18] -> str r3, [r1, #0x34]
+ *      ldr r3, [r0, #0x1c] -> str r3, [r1, #0x38]
+ *      mov r3, #0x3f800000 -> str r3, [r1, #0x3c]     ; 1.0f
+ *
+ * ## And that lands it in GL's layout
+ *
+ * `m[12]`, `m[13]`, `m[14]` with `1.0f` at `m[15]` is exactly where
+ * `glMultMatrixf` expects a translation. So this result is **GL-ready and needs
+ * no transpose** -- which is why FlushTranspMeshList and
+ * LIME_RenderSceneOverrideTextures hand it straight to GL.
+ *
+ * Contrast ConvertDSMatrixtoPCMatrix in this same file, which writes explicit
+ * zeros at `+0x0c` and `+0x1c` and produces the row-major form that does need
+ * transposing. Two conversion functions, two conventions, one file. The rule
+ * this project records holds: matrices built from a rotation here arrive
+ * GL-ready, and matrices converted from the older fixed-point formats do not.
  */
-void ConvertQSTMatrixtoPCMatrix(const int16_t *src, float *dst);
+void ConvertQSTMatrixtoPCMatrix(const QSTMATRIX *src, float *dst)
+{
+    const double k = 1.0 / 32767.0;     /* the literal at 0x0007ff40 */
+    double x = (double)src->q[0] * k;
+    double y = (double)src->q[1] * k;
+    double z = (double)src->q[2] * k;
+    double w = (double)src->q[3] * k;
+
+    double xx = x * x, yy = y * y, zz = z * z;
+    double xy = x * y, xz = x * z, yz = y * z;
+    double wx = w * x, wy = w * y, wz = w * z;
+
+    /* the fourth column, written as literal zeros */
+    dst[3] = 0.0f;  dst[7] = 0.0f;  dst[11] = 0.0f;
+
+    dst[0]  = (float)(1.0 - (yy + yy) - (zz + zz));
+    dst[1]  = (float)((xy + xy) + (wz + wz));
+    dst[2]  = (float)((xz + xz) - (wy + wy));
+
+    dst[4]  = (float)((xy + xy) - (wz + wz));
+    dst[5]  = (float)(1.0 - (xx + xx) - (zz + zz));
+    dst[6]  = (float)((yz + yz) + (wx + wx));
+
+    dst[8]  = (float)((xz + xz) + (wy + wy));
+    dst[9]  = (float)((yz + yz) - (wx + wx));
+    dst[10] = (float)(1.0 - (xx + xx) - (yy + yy));
+
+    /* each ROW scaled by its own axis factor */
+    dst[0] *= src->scale[0];  dst[1] *= src->scale[0];  dst[2]  *= src->scale[0];
+    dst[4] *= src->scale[1];  dst[5] *= src->scale[1];  dst[6]  *= src->scale[1];
+    dst[8] *= src->scale[2];  dst[9] *= src->scale[2];  dst[10] *= src->scale[2];
+
+    /* translation straight into GL's bottom row */
+    dst[12] = src->translation[0];
+    dst[13] = src->translation[1];
+    dst[14] = src->translation[2];
+    dst[15] = 1.0f;
+}
 
 
 /* ---------------------------------------------------------- LIMEDS_Set3dMode
