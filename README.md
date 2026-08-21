@@ -135,7 +135,7 @@ difference is now measured rather than assumed:
 
 | | count | what backs it |
 |---|---:|---|
-| Behaviourally verified | **13 + the meshset loader + the skinning maths** | run against a recompiled oracle: 78,799 synthetic cases plus every `.meshset` the game ships — 590 files, 7,327 meshes, 0 divergences |
+| Behaviourally verified | **13 + the meshset loader + the skinning maths + the event pool** | run against a recompiled oracle: 81,023 synthetic cases plus every `.meshset` the game ships — 590 files, 7,327 meshes, 0 divergences |
 | Written and documented | 75 | structural gate only — no invented callees |
 | Documented, body pending | 11 | analysed, findings recorded, transcription deliberately not written |
 

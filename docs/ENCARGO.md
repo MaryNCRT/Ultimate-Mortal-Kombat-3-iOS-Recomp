@@ -43,6 +43,23 @@ that, the modules with no test at all are the real work: a test is a day's
 thought about what could differ, and it is worth more than the function it
 checks.
 
+### The test that found something
+
+`tests/test_events_diff.c` is the first differential test here to catch a real
+error in already-committed code rather than confirm it. `LIME_UpdateEvents` had
+a branch read backwards — the path taken when an event's counters run out is
+where it **kills itself**, and the committed version treated it as "nothing to
+do". Finished effects stayed alive forever.
+
+It was invisible on the page. Both readings produce plausible C, and the
+disassembly line that settles it is a `beq` to an address 300 bytes away. Only
+running both implementations over the same pool showed it.
+
+**So write the test even when the function looks understood** — especially then.
+And assert behaviour, not only agreement: two implementations agreeing on the
+wrong thing is still wrong, which is why that test checks the grace period is
+two frames rather than merely that both sides do the same thing.
+
 ### One rule this pass earned
 
 **Never step an array of host structs by the binary's byte stride.** `EVENT` is
