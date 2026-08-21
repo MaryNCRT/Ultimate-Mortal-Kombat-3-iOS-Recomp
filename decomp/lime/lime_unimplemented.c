@@ -42,12 +42,6 @@ void LIME_RenderMeshSingle(MESHINFO *mesh, TEXTURE *t0, TEXTURE *t1,
     unwritten("LIME_RenderMeshSingle");
 }
 
-void LIME_LoadMeshSetTextures(MESHSETINFO *set, const char *suffix)
-{
-    (void)set; (void)suffix;
-    unwritten("LIME_LoadMeshSetTextures");
-}
-
 void LIME_LoadSkin1(const char *data, SKININFO *skin)
 {
     (void)data; (void)skin;
@@ -77,4 +71,10 @@ void CreateMatrixPaletteForGeneratingMesh(char *a, long b, long c, long d,
 {
     (void)a; (void)b; (void)c; (void)d; (void)e; (void)bones;
     unwritten("CreateMatrixPaletteForGeneratingMesh");
+}
+
+void ConvertQSTMatrixtoPCMatrix(const int16_t *src, float *dst)
+{
+    (void)src; (void)dst;
+    unwritten("ConvertQSTMatrixtoPCMatrix");
 }

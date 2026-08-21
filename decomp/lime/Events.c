@@ -746,5 +746,43 @@ void LIME_RenderEvents(void);
  * author had more information than we do.
  *
  * The file buffer is freed on both the success and the failure path.
+ *
+ * The per-record field reads are left out of the body: the code touches a float
+ * at +0x40, an int at +0x44 and a float at +0x48 of each record, but what it
+ * does with them was not traced, and the table is already usable without it --
+ * FindIdInMasterOffsets only needs the name and the index.
  */
-void LIME_LoadMasterEventOffsets(void);
+void LIME_LoadMasterEventOffsets(void)
+{
+    const uint8_t *data;
+    int32_t count;
+
+    LIME_printf(0x1d, "");              /* compiled away, window 0x1d */
+
+    g_masterOffsetCount = 0;
+
+    data = limeLoadFile(MASTER_OFFSETS_FILE);
+    if (data == NULL)
+        return;
+
+    count = *(const int32_t *)data;
+    g_masterOffsetCount = count;
+    LIME_printf(0x1d, "");
+
+    if (count == 0) {
+        limeFree((void *)data);
+        return;
+    }
+
+    /* count * 16 + count * 64 -- one multiply as two shifts and an add */
+    g_masterOffsets = limeMalloc("events", count * 80);
+    if (g_masterOffsets == NULL) {
+        limeFree((void *)data);
+        return;
+    }
+
+    /* copied wholesale: on-disk and in-memory layouts are identical here */
+    memcpy((void *)g_masterOffsets, data + 4, (size_t)count * 80);
+
+    limeFree((void *)data);
+}

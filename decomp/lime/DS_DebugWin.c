@@ -196,5 +196,28 @@ void LIME_InitDebugWindow(void)
  *
  * It takes at least six arguments -- three in registers and three read from the
  * stack at +0x10, +0x14 and +0x18 -- which are not broken out here.
+ *
+ * The body below is the addressing only. What the six arguments mean, and what
+ * is written into the line slot, are not established: the values pass through a
+ * literal pool this pass could not resolve. Writing the reach and stopping is
+ * the honest half.
  */
-void LIME_Slider(int window, int a, int b, int c, int d, int e);
+void LIME_Slider(int window, int a, int b, int c, int d, int e)
+{
+    DEBUGWINDOW *win;
+
+    (void)a; (void)b; (void)c; (void)d; (void)e;
+
+    if (window == -1)
+        return;                         /* -1 is "no window", as everywhere */
+
+    win = &g_debugWindows[window];      /* mla r0, r0, ip, lr */
+
+    /* The line cursor is shifted left by 2 and added back to the window
+     * pointer, so a slider writes into the SAME line buffer text does, at the
+     * window's current line, with a 4-byte element. Sliders are not a widget
+     * layer -- they are text-window entries in slots 10 to 15. */
+    if (win->line >= 0 && win->line < DEBUG_LINES) {
+        /* win->lines[win->line] receives the slider entry */
+    }
+}

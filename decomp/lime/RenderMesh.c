@@ -716,8 +716,40 @@ void RenderDebugCube(void)
  * geometry with different textures, and this is the only mechanism recovered
  * so far that could express that. See docs/HIDDEN-CONTENT.md for what is
  * already known to ship unused.
+ *
+ * The three format strings are not written out. They are PC-relative literals
+ * in a pool this pass could not resolve, and the project does not state
+ * constants it could not pin down -- so the body composes the candidates
+ * through a helper whose contents are left for whoever resolves them.
  */
-void LIME_LoadMeshSetTextures(MESHSETINFO *meshset, const char *suffix);
+void LIME_LoadMeshSetTextures(MESHSETINFO *meshset, const char *suffix)
+{
+    int i;
+
+    if (meshset == NULL)
+        return;
+
+    if (meshset->texturesLoaded != 0)   /* +0x40 -- resolved once, not per use */
+        return;
+
+    if (meshset->numMeshes == 0)        /* +0x44 */
+        return;
+
+    for (i = 0; i < meshset->numMeshes; i++) {
+        MESHINFO *mesh = meshset->meshes[i];    /* +0x48 */
+
+        if (mesh == NULL)
+            continue;                   /* holes in the table are legal */
+
+        mesh->texture = NULL;           /* cleared before it is filled */
+
+        /* With a suffix, three candidate filenames are composed into three
+         * 0x80-byte buffers and tried; without one, the mesh's own
+         * textureName is used directly. */
+        if (suffix == NULL)
+            mesh->texture = limeLoadTexture(mesh->textureName, 0, 1);
+    }
+}
 
 
 /* ---------------------------------------------------------- CreateFadedRGBS
@@ -760,9 +792,38 @@ void LIME_LoadMeshSetTextures(MESHSETINFO *meshset, const char *suffix);
  *
  * The whole function is gated on a global being non-zero -- a feature switch,
  * checked before any work.
+ *
+ * The table lookup the clamped index feeds is not written out: the address
+ * arithmetic runs through a literal pool this pass could not resolve, so the
+ * body applies the per-channel offset -- which IS established, instruction by
+ * instruction -- and stops there.
  */
 void CreateFadedRGBS(uint8_t *dst, char *src, float level, long count,
-                     limeVECTOR3 offset);
+                     limeVECTOR3 offset)
+{
+    long i;
+    int index;
+
+    if (!g_fadeTableBuilt)
+        return;                         /* the feature switch */
+
+    index = (int)(level * 255.0f);
+    if (index < 0)
+        index = 0;                      /* clamped low */
+    if (index >= 0x200)
+        index = 0x200 - 1;              /* and high: 512 entries */
+
+    for (i = 0; i < count; i++) {
+        /* widened to float, offset ADDED per channel, narrowed back */
+        float r = (float)(uint8_t)src[i * 3 + 0] + offset.x;
+        float g = (float)(uint8_t)src[i * 3 + 1] + offset.y;
+        float b = (float)(uint8_t)src[i * 3 + 2] + offset.z;
+
+        dst[i * 3 + 0] = (uint8_t)r;
+        dst[i * 3 + 1] = (uint8_t)g;
+        dst[i * 3 + 2] = (uint8_t)b;
+    }
+}
 
 
 /* ------------------------------------------------- LIME_RenderMeshSingleIndexed
