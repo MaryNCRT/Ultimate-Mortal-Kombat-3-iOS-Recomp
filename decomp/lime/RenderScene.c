@@ -501,7 +501,7 @@ void FlushTranspMeshList(TEXTURE *texture, const SKINMATRIX43 *matrix)
         LIME_PushMatrix();
 
         /* read back from item + 8, the offset AddToTranspMeshList writes to */
-        ConvertQSTMatrixtoPCMatrix(item->qst.q, m);
+        ConvertQSTMatrixtoPCMatrix(&item->qst, m);
 
         /* The four arguments the disassembly sets up here were not mapped to
          * this signature one by one, so the call is written in the shape

@@ -213,3 +213,42 @@ int lime_platform_depth_writes(void)        { return g_depth_writes; }
 
 void limeEnableDepthWrites(void)            { g_depth_writes = 1; }
 void limeDisableDepthWrites(void)           { g_depth_writes = 0; }
+
+
+/* ------------------------------------------------------------- sprites
+ *
+ * limeDrawSprite is a real symbol in the binary but it lives in the iOS layer,
+ * not in lime/common, so it belongs here rather than in decomp/.
+ *
+ * It records its last call instead of discarding it. A font test has no
+ * renderer to inspect, but it can assert on the UV rectangle and the page a
+ * glyph was drawn from -- which is exactly the part of limeDrawFONT worth
+ * checking, and the part that would otherwise need eyes on a screen.
+ */
+static struct {
+    const TEXTURE *page;
+    float x, y, w, h;
+    float u, v, du, dv;
+    long  count;
+} g_last_sprite;
+
+void limeDrawSprite(TEXTURE *page, float x, float y, float w, float h,
+                    float u, float v, float du, float dv)
+{
+    g_last_sprite.page = page;
+    g_last_sprite.x = x;   g_last_sprite.y = y;
+    g_last_sprite.w = w;   g_last_sprite.h = h;
+    g_last_sprite.u = u;   g_last_sprite.v = v;
+    g_last_sprite.du = du; g_last_sprite.dv = dv;
+    g_last_sprite.count++;
+}
+
+long lime_platform_sprite_count(void) { return g_last_sprite.count; }
+
+void lime_platform_last_sprite(float *out8)
+{
+    out8[0] = g_last_sprite.x;  out8[1] = g_last_sprite.y;
+    out8[2] = g_last_sprite.w;  out8[3] = g_last_sprite.h;
+    out8[4] = g_last_sprite.u;  out8[5] = g_last_sprite.v;
+    out8[6] = g_last_sprite.du; out8[7] = g_last_sprite.dv;
+}

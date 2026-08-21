@@ -67,8 +67,3 @@ int LIME_TriggerEventFromSceneH(long a0, SCENEEVENTTRACK *track,
 }
 
 
-void ConvertQSTMatrixtoPCMatrix(const int16_t *src, float *dst)
-{
-    (void)src; (void)dst;
-    unwritten("ConvertQSTMatrixtoPCMatrix");
-}
