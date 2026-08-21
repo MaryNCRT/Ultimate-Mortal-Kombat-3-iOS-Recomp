@@ -781,10 +781,23 @@ void   LIME_FreeScene(struct SCENEINFO *scene);
 EVENTSINFO *LIME_LoadEvents(const char *filename, long a, long b);
 int    IsWhirlwindScene(struct SCENEINFO *scene);
 int    CountEventsMatching(SCENEEVENTTRACK *track, limeMATRIX44 *matrix);
-int    LIME_TriggerEventFromSceneH(long a0, SCENEEVENTTRACK *track,
-                                   limeMATRIX44 *matrix, long a3, long a4,
-                                   long a5, long a6, long a7, long a8,
-                                   long a9, long a10);
+/* **Pointers typed as pointers, not as `long`.**
+ *
+ * On 32-bit ARM a `long` and a pointer are both four bytes, so the original
+ * passes scene, matrix and texture pointers through slots that disassemble as
+ * plain words and nothing is lost. On a 64-bit host `long` is four bytes under
+ * MinGW and eight under Linux while a pointer is always eight, so writing them
+ * as `long` here TRUNCATES -- silently, and only on the arguments that happen to
+ * be addresses.
+ *
+ * Same family as the EVENT stride: a width that is invisible in the binary
+ * because everything is four bytes there. `long` stays where the mangled name
+ * says the parameter really is one. */
+int    LIME_TriggerEventFromSceneH(struct SCENEINFO *scene,
+                                   SCENEEVENTTRACK *track,
+                                   limeMATRIX44 *m1, limeMATRIX44 *m2,
+                                   long a4, long a5, long a6, long a7,
+                                   TEXTURE *tex0, TEXTURE *tex1, long a10);
 
 /* The two state words KillIllegalWhirlwinds tests are dereferenced (`*g_stateA`),
  * so they are pointers into gamecode state rather than plain ints. */
