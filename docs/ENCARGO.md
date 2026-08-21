@@ -116,14 +116,11 @@ Guessing one here corrupts every function that touches the struct.
 
 ## The job: finish `lime/common`
 
-**105 of 109 have a body (96%).** The remaining 4 are **not all equal work**,
-and the split matters more than the number:
+**All 109 of 109 have a body.** What is left here is not writing, it is verifying:
 
 | | count | what it means |
 |---|---:|---|
-| Body written | 105 | decompiled and verified against the gate |
-| **Documented, body deliberately not written** | **6** | read, analysed, findings recorded — only the transcription is missing |
-| Not yet read | **0** | every function has been examined |
+| Body written | **109** | decompiled and verified against the gate |
 
 A documented declaration is deliberate, not a gap to be tidied. Each one carries
 what was established plus an explicit note on what was *not*, because writing a

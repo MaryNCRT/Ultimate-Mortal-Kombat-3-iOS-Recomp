@@ -798,7 +798,13 @@ void LIME_LoadMeshSetTextures(MESHSETINFO *meshset, const char *suffix)
  * body applies the per-channel offset -- which IS established, instruction by
  * instruction -- and stops there.
  */
-void CreateFadedRGBS(uint8_t *dst, char *src, float level, long count,
+/* **The first argument is the SOURCE.** `mov r5, r0` then `ldrb r3, [r5], #1`
+ * reads through it; the faded result goes to the second. An earlier version of
+ * this file had them the other way round, which the call site settles:
+ * LIME_RenderMeshSingle passes `mesh->vertLight` first and then hands the
+ * SECOND buffer to glColorPointer. Reading and drawing from the same pointer
+ * would have been the giveaway. */
+void CreateFadedRGBS(const uint8_t *src, uint8_t *dst, float level, long count,
                      limeVECTOR3 offset)
 {
     long i;
@@ -815,9 +821,9 @@ void CreateFadedRGBS(uint8_t *dst, char *src, float level, long count,
 
     for (i = 0; i < count; i++) {
         /* widened to float, offset ADDED per channel, narrowed back */
-        float r = (float)(uint8_t)src[i * 3 + 0] + offset.x;
-        float g = (float)(uint8_t)src[i * 3 + 1] + offset.y;
-        float b = (float)(uint8_t)src[i * 3 + 2] + offset.z;
+        float r = (float)src[i * 3 + 0] + offset.x;
+        float g = (float)src[i * 3 + 1] + offset.y;
+        float b = (float)src[i * 3 + 2] + offset.z;
 
         dst[i * 3 + 0] = (uint8_t)r;
         dst[i * 3 + 1] = (uint8_t)g;
@@ -891,9 +897,81 @@ void CreateFadedRGBS(uint8_t *dst, char *src, float level, long count,
  * several are loaded from literal pools that resolve to addresses rather than
  * values in this pass, and the project does not state constants it could not
  * pin down.
+ *
+ * ## The three groups are three passes over two units
+ *
+ * Unit 0 is set up and drawn from, unit 1 is set up and immediately disabled,
+ * and then unit 0 is configured again -- and **that third group is the only one
+ * that ends with `glEnable`**. The two before it end with `glDisable`, and a
+ * `glDisable(0x1702)` -- `GL_TEXTURE` read as a matrix mode -- sits between
+ * them.
+ *
+ * So the function does not leave the pipeline off. It leaves unit 0 bound,
+ * enabled and pointing at the colour array it just computed, which is the state
+ * the next draw expects. Tearing everything down at the end, which is the
+ * obvious thing for a port to do, breaks the draw that follows.
+ *
  */
 void LIME_RenderMeshSingleIndexed(MESHINFO *mesh, TEXTURE *tex0, TEXTURE *tex1,
-                                  float alpha, long flags);
+                                  float alpha, long flags)
+{
+    (void)flags;
+
+    if (mesh == NULL)
+        return;
+
+    glShadeModel(GL_FLAT);              /* 0x1d01 -- per face, not per vertex */
+
+    /* ---- unit 0: the base texture ---- */
+    glClientActiveTexture(GL_TEXTURE0);
+    glActiveTexture(GL_TEXTURE0);
+    glDisableClientState(GL_NORMAL_ARRAY);
+    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+    glScalef(1.0f, 1.0f, 1.0f);
+    if (tex0 != NULL)
+        glBindTexture(GL_TEXTURE_2D, tex0->name);
+    glVertexPointer(3, GL_FLOAT, 0, mesh->verts);
+    glColor4f(1.0f, 1.0f, 1.0f, alpha);
+    glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glDisable(GL_TEXTURE_2D);
+    glDrawElements(GL_TRIANGLES, mesh->numFaces * 3,
+                   GL_UNSIGNED_SHORT, mesh->indices);
+
+    /* ---- unit 1: the second texture, then disabled ---- */
+    glClientActiveTexture(GL_TEXTURE1);
+    glActiveTexture(GL_TEXTURE1);
+    glColor4f(1.0f, 1.0f, 1.0f, alpha);
+    glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+    if (tex1 != NULL)
+        glBindTexture(GL_TEXTURE_2D, tex1->name);
+    glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glDisable(GL_TEXTURE_2D);
+
+    /* ---- back to unit 0, and this is the one left ENABLED ---- */
+    glClientActiveTexture(GL_TEXTURE0);
+    glActiveTexture(GL_TEXTURE0);
+    glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glEnable(GL_TEXTURE_2D);
+    glDisableClientState(GL_NORMAL_ARRAY);
+    glDisableClientState(GL_COLOR_ARRAY);
+
+    /* ---- the vertex colours, computed rather than reused ---- */
+    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+    glTexCoordPointer(2, GL_FLOAT, 0, mesh->verts);
+    if (tex0 != NULL)
+        glBindTexture(GL_TEXTURE_2D, tex0->name);
+    glEnableClientState(GL_COLOR_ARRAY);
+
+    CreateFadedRGBS(mesh->vertLight, g_vertexColourScratch,
+                    alpha, mesh->numVerts, g_fadeOffset);
+    glColorPointer(4, GL_UNSIGNED_BYTE, 0, g_vertexColourScratch);
+
+    glVertexPointer(3, GL_FLOAT, 0, mesh->verts);
+    glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glEnable(GL_TEXTURE_2D);
+}
 
 
 /* ------------------------------------------------------- LIME_RenderMeshSingle
@@ -949,10 +1027,96 @@ void LIME_RenderMeshSingleIndexed(MESHINFO *mesh, TEXTURE *tex0, TEXTURE *tex1,
  * them. The teardown is what leaves the units in a known state for the next
  * draw -- the same discipline FlushTranspMeshList relies on.
  *
- * The body is not transcribed. Which branch each `+0x50` test selects, and how
- * the two texture units divide the work, were not traced; writing the sequence
- * out in order would imply an understanding of the branches that this pass does
- * not have.
+ * ## The `+0x50` tests select the lit path
+ *
+ * `MESHINFO+0x50` is `fullBright` -- the cached `IsTextureFullBright` answer --
+ * and the texture is tested at the same offset. When either says full-bright the
+ * function branches **past the colour work entirely**:
+ *
+ *      ldr r3, [r5, #0x50]      ; the texture's flag
+ *      ...
+ *      ldr r3, [r4, #0x50]      ; the mesh's fullBright
+ *      cmp r3, #0
+ *      bne #0x80f9c             ; -> skip the lighting
+ *
+ * The lit path reads `mesh->vertLight` at `+0x24`, runs it through
+ * `CreateFadedRGBS`, and hands the **result** to `glColorPointer`. So a
+ * full-bright surface does not merely ignore its vertex colours -- it never
+ * computes them, which is the saving the whole `res/nolight.txt` mechanism
+ * exists for.
+ *
+ * That call is also what settles CreateFadedRGBS's argument order: the mesh's
+ * light bytes go in first and the buffer drawn from comes out second.
+ *
+ * ## Teardown is two units, and it is not symmetric with setup
+ *
+ * Setup touches one texture unit. Teardown walks **two**, each with its own
+ * `glClientActiveTexture` / `glActiveTexture` / `glColor4f`, then six
+ * `glDisable` and `glDisableClientState` calls.
+ *
+ * The asymmetry is deliberate: the function leaves both units clean regardless
+ * of how many it used, so the next draw starts from a known state whichever path
+ * this one took. A port that mirrors setup in teardown leaves unit 1 configured
+ * after a single-texture mesh, and the next multi-texture draw inherits it.
+ *
+ * The GL enums are not all named. Several arrive from literal pools that resolve
+ * to addresses rather than values in this pass, and this project does not state
+ * constants it could not pin down; where one is named it is because the call
+ * admits only one.
  */
 void LIME_RenderMeshSingle(MESHINFO *mesh, TEXTURE *t0, TEXTURE *t1,
-                           float alpha, long flags);
+                           float alpha, long flags)
+{
+    (void)flags; (void)t1;
+
+    if (mesh == NULL)
+        return;
+
+    /* full-bright skips the colour work rather than ignoring its result */
+    if (!mesh->fullBright && (t0 == NULL || t0->field50 == 0)) {
+        glEnableClientState(GL_COLOR_ARRAY);
+        CreateFadedRGBS(mesh->vertLight,            /* +0x24, the SOURCE */
+                        g_vertexColourScratch,
+                        alpha, mesh->numVerts, g_fadeOffset);
+        glColorPointer(4, GL_UNSIGNED_BYTE, 0, g_vertexColourScratch);
+    }
+
+    glDisableClientState(GL_NORMAL_ARRAY);
+    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+    glClientActiveTexture(GL_TEXTURE0);
+    glActiveTexture(GL_TEXTURE0);
+    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+    glTexCoordPointer(2, GL_FLOAT, 0, mesh->verts);
+
+    if (t0 != NULL) {
+        glBindTexture(GL_TEXTURE_2D, t0->name);     /* TEXTURE+0x40 */
+        glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+        glEnable(GL_TEXTURE_2D);
+    }
+
+    glVertexPointer(3, GL_FLOAT, 0, mesh->verts);   /* +0x18 */
+
+    /* the mesh's own scale, applied for exactly the duration of its draw --
+     * and through glPushMatrix DIRECTLY, not LIME_PushMatrix */
+    glPushMatrix();
+    glScalef(mesh->boundsRadius, mesh->boundsRadius, mesh->boundsRadius);
+    glDrawElements(GL_TRIANGLES, mesh->numFaces * 3,
+                   GL_UNSIGNED_SHORT, mesh->indices);   /* +0x1c */
+    glPopMatrix();
+
+    glDepthMask(1);                     /* direct, not limeEnableDepthWrites */
+
+    /* both units torn down, however many were used */
+    glClientActiveTexture(GL_TEXTURE0);
+    glActiveTexture(GL_TEXTURE0);
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+    glClientActiveTexture(GL_TEXTURE1);
+    glActiveTexture(GL_TEXTURE1);
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+
+    glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glDisable(GL_TEXTURE_2D);
+    glDisableClientState(GL_COLOR_ARRAY);
+}

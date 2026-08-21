@@ -48,14 +48,21 @@ typedef struct {
 } LIMEVERTEX;
 
 /* Una malla. El original la reserva con limeMalloc(tag, 0x58). */
-/* Almost opaque. Two functions -- LIME_RenderMeshSingle and
- * LIME_RenderMeshSingleIndexed -- read `+0x40` and hand it to glBindTexture, so
- * that field is the GL texture name and nothing else is established.
+/* Two fields, both from two functions. LIME_RenderMeshSingle and
+ * LIME_RenderMeshSingleIndexed each read `+0x40` and hand it to glBindTexture,
+ * and each tests `+0x50` alongside MESHINFO.fullBright to choose between the lit
+ * and unlit paths.
  *
- * The struct stays a forward declaration rather than gaining one named field
- * and sixty-four bytes of invented padding: lime/common only ever passes the
- * pointer around, and a layout nobody can check is worse than none. */
-typedef struct TEXTURE TEXTURE;
+ * `+0x50` is left numbered. It sits at the same offset as MESHINFO's fullBright
+ * and is tested in the same breath, which is suggestive and is not two
+ * independent sightings of a meaning. Everything between and after is unmapped
+ * padding, sized to reach the fields rather than measured. */
+typedef struct TEXTURE {
+    uint8_t  _pad00[0x40];
+    unsigned name;               /* 0x40  the GL texture name */
+    uint8_t  _pad44[0x0c];
+    int      field50;            /* 0x50  gates the lit path, with the mesh's */
+} TEXTURE;
 
 typedef struct MESHINFO {
     int         numVerts;        /* 0x00 */
@@ -226,12 +233,21 @@ typedef struct EVENT {
      * field order on the two hosts for no reason. `long` stays in the SIGNATURE
      * of KillAlleventsWithGroup, where the mangled name (...Groupl) demands it. */
     int32_t          group;      /* 0x3c */
-    int              field40;    /* 0x40  passed to LIME_TriggerEventsFromScene */
+    int              field40;    /* 0x40  passed to LIME_TriggerEventsFromScene,
+                                  *       and gates the scene translate */
+    int              field44;    /* 0x44  gates glCullFace */
+    uint8_t          _pad48[4];
+    int              field48;    /* 0x48  a gate in LIME_RenderEvents */
+    int              field4c;    /* 0x4c  compared against 1: a mode */
+    float            offX;       /* 0x50  the event's own offset, applied */
+    float            offY;       /* 0x54  after the scene's position */
+    float            offZ;       /* 0x58 */
     uint8_t          _pad40[0x64];
     float            fadeA;      /* 0xa4 */
     uint8_t          _pada8[0x3c];
     float            fadeB;      /* 0xe4 */
-    uint8_t          _pade8[0xf0 - 0xe8];
+    long             fieldE8;    /* 0xe8  both handed to LIME_RenderScene */
+    long             fieldEC;    /* 0xec */
     int              isWhirlwind; /* 0xf0  IsWhirlwindScene(scene), decided once
                                    *       at spawn -- KillIllegalWhirlwinds and
                                    *       IsOnWWFrame are the consumers */
@@ -669,6 +685,13 @@ void   LIME_PopMatrix(int count);
 /* Signature taken from the existing definition in RenderMesh.c, which was
  * recovered from the binary -- an earlier guess here had four different
  * parameters and only the compiler caught it. */
+/* The scratch buffer LIME_RenderMeshSingle fills with faded vertex colours and
+ * then draws from. Its symbol was not resolved -- the pointer arrives in r8 from
+ * earlier in the function -- so this name stands in for it, the same way
+ * LIGHT_SCALE stands in for an unresolved literal. */
+extern uint8_t *g_vertexColourScratch;
+extern limeVECTOR3 g_fadeOffset;
+
 void   LIME_RenderMesh(MESHSETINFO *set, int index, TEXTURE *t0, TEXTURE *t1);
 void   ConvertQSTMatrixtoPCMatrix(const QSTMATRIX *src, float *dst);
 void   LerpQSTMatrix(const int16_t *a, const int16_t *b, float t, int16_t *out);
@@ -677,6 +700,13 @@ void   limeEnableAlphaBlending_Basic(void);
 void   limeDisableAlphaBlending(void);
 void   limeEnableDepthWrites(void);
 void   limeDisableDepthWrites(void);
+void   LIME_RenderScene(SCENEINFO *scene, long frame, long flags);
+void   glCullFace(unsigned mode);
+#ifndef GL_BACK
+#define GL_BACK 0x0405
+#endif
+void   RenderDebugCube(void);
+void   ConvertDSMatrixtoPCMatrix(const int32_t *src, float *dst);
 void   LIME_printf(int window, const char *fmt, ...);
 int    GetFreeEvent(void);
 int    LIME_CountActiveEvents(void);
@@ -706,6 +736,44 @@ extern int  g_whirlwindFirstFrame;
 
 /* GL ES 1.1 fixed function. Declared here rather than pulled from a GL header so
  * the decompiled engine builds standalone; runtime/ supplies the real ones. */
+/* The GL ES 1.1 surface the renderers use. Every name here is a real import --
+ * tools/stubs.py resolves all of them in the binary's stub table -- and the
+ * enums are the standard GL values, which is the one place this project takes a
+ * constant from a specification rather than from a literal pool. */
+#ifndef GL_TEXTURE_2D
+#define GL_TEXTURE_2D           0x0DE1
+#define GL_TRIANGLES            0x0004
+#define GL_FLOAT                0x1406
+#define GL_UNSIGNED_BYTE        0x1401
+#define GL_UNSIGNED_SHORT       0x1403
+#define GL_FLAT                 0x1D00
+#define GL_VERTEX_ARRAY         0x8074
+#define GL_NORMAL_ARRAY         0x8075
+#define GL_COLOR_ARRAY          0x8076
+#define GL_TEXTURE_COORD_ARRAY  0x8078
+#define GL_TEXTURE0             0x84C0
+#define GL_TEXTURE1             0x84C1
+#define GL_TEXTURE_ENV          0x2300
+#define GL_TEXTURE_ENV_MODE     0x2200
+#define GL_MODULATE             0x2100
+#endif
+
+void glEnable(unsigned cap);
+void glDisable(unsigned cap);
+void glEnableClientState(unsigned array);
+void glDisableClientState(unsigned array);
+void glClientActiveTexture(unsigned unit);
+void glActiveTexture(unsigned unit);
+void glBindTexture(unsigned target, unsigned name);
+void glTexEnvf(unsigned target, unsigned pname, float param);
+void glVertexPointer(int size, unsigned type, int stride, const void *p);
+void glTexCoordPointer(int size, unsigned type, int stride, const void *p);
+void glColorPointer(int size, unsigned type, int stride, const void *p);
+void glDrawElements(unsigned mode, int count, unsigned type, const void *idx);
+void glColor4f(float r, float g, float b, float a);
+void glDepthMask(int flag);
+void glShadeModel(unsigned mode);
+
 void glPushMatrix(void);
 void glPopMatrix(void);
 void glLoadIdentity(void);

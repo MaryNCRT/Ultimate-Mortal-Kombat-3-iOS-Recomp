@@ -127,84 +127,37 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ████████████▊░░░░░░░░░░░░░░░░░░░░░░░░░░░  32%
 ```
 
-**En torno al 32% del esfuerzo total estimado. Todavía no hay nada jugable.**
+**En torno al 35% del esfuerzo total estimado. Todavía no hay nada jugable.**
 
-### `lime/common` está examinado por completo
+### `lime/common` está completo — y esto es lo que significa y lo que no
 
-Las 109 funciones han sido leídas y documentadas. **103 tienen cuerpo**; las otras
-**6 son declaraciones documentadas** — la función está descrita a partir de su
-desensamblado, con una nota explícita sobre qué no se pudo fijar y por qué no se
-inventó un cuerpo encima.
+Las **109 de 109** funciones del núcleo del motor tienen cuerpo. Todas compilan,
+todas pasan la verja estructural, y el módulo entero construye limpio con
+`-Wall -Wextra`.
 
-Esa distinción es deliberada y no es una lista de pendientes. `LIME_UpdateEvents`
-tenía un cuerpo escrito desde una lectura equivocada pero confiada, y hizo falta
-un test diferencial para descubrir que una rama iba al revés. Una declaración que
-dice "esto se sabe, esto no" no le cuesta nada a quien lee; un cuerpo plausible
-sobre un layout sin confirmar cuesta una sesión deshacerlo.
+**No significa que las 109 estén verificadas.** Cuatro módulos tienen tests
+diferenciales contra el original recompilado; el resto están leídas, escritas y
+compiladas, que es una afirmación más débil y honesta:
 
-| | nº |
-|---|---:|
-| Con cuerpo escrito | 103 |
-| Documentada, cuerpo deliberadamente no escrito | 6 |
-| Sin examinar | **0** |
-
-
-### Qué significa aquí "decompilado", con precisión
-
-Los porcentajes de arriba cuentan funciones **leídas, entendidas y escritas como
-C legible**. Eso no es lo mismo que verificado, y la diferencia ya está medida
-en lugar de supuesta:
-
-| | nº | qué lo respalda |
-|---|---:|---|
-| Verificado por comportamiento | **13 + el cargador de mallas + la matemática de skinning + el pool de eventos** | ejecutado contra un oráculo recompilado: 81.023 casos sintéticos más todos los `.meshset` del juego — 590 ficheros, 7.327 mallas, 0 divergencias |
-| Escrito y documentado | 75 | solo verja estructural — sin llamadas inventadas |
-| Documentado, cuerpo pendiente | 11 | analizado, hallazgos registrados, transcripción deliberadamente no escrita |
-
-`Matrix.cpp`, `limeVector.cpp`, la ruta de carga de `RenderMesh.cpp` y la matemática de `RenderSkinned.cpp` han pasado por el oráculo diferencial — esto último es el código que posa a los personajes, así que un error sutil ahí habría dado poses casi correctas que nadie encuentra mirando. Todo
-lo demás ha pasado `symcheck`, que demuestra que una función no llama a nada que
-el binario nunca contuvo — una verja real, y puramente estructural. No dice nada
-sobre el comportamiento.
-
-La primera ejecución del oráculo encontró tres defectos en una sola tarde: el
-recompilador traducía `ASR #32` a comportamiento indefinido, `RenderMesh.c`
-contenía un error de sintaxis que nunca se había compilado, y un símbolo que
-este proyecto describía como una ruta configurable resultó ser una función.
-Ampliar esa cobertura es el trabajo de mayor valor que queda en el motor, y está
-anotado en [ENCARGO.md](docs/ENCARGO.md).
-
-
-La barra se mueve por primera vez en un buen rato, y solo porque `lime/common` se movió: 105 funciones de 109 frente a 21 hace poco. El trabajo de formatos que vino antes —resolverlos, renderizarlos y animarlos— valió muchísimo y **no vale ni un punto porcentual**, porque esa fila ya estaba al 100%. Lo que cambió ahí es que ahora está *demostrada* en vez de afirmada.
-
-Ese número es una estimación, así que aquí está la aritmética que hay detrás en vez de una cifra que haya que creerse. Los pesos son nuestro criterio sobre cuánto representa cada área del total; discrepa del reparto si quieres, pero las cifras de avance están medidas.
-
-| Área | Peso | Hecho | |
-|---|---:|---:|---|
-| Análisis del binario y mapeo del árbol de fuentes | 4% | 100% | `██████████` |
-| Herramientas y oráculo de verificación | 8% | 100% | `██████████` |
-| Especificaciones de formatos de assets | 8% | 100% | `██████████` |
-| `lime/common` — núcleo del motor (109 fn) | 12% | 96% | `████████░░` |
-| `gamecode` — lógica de juego (291 fn) | 18% | 0% | `░░░░░░░░░░` |
-| `gamecode/logic` — motor de combate (2.172 fn) | 28% | 4% | `░░░░░░░░░░` |
-| Capa de plataforma nativa de PC (161 fn por reescribir) | 17% | 10% | `█░░░░░░░░░` |
-| Stubs del SDK de EA (~1.412 fn) | 5% | 0% | `░░░░░░░░░░` |
-
-**Por qué las áreas de base cuentan.** Las dos primeras filas están terminadas o casi, y son las que hacen abordable todo lo demás: el árbol de fuentes está recuperado, y ahora toda función tiene un camino automatizado desde el código máquina hasta un test diferencial. Eso es progreso real aunque no dibuje ni un píxel.
-
-**Por qué la cifra sigue siendo baja.** Diecisiete funciones de 2.572 están realmente terminadas. Solo el motor de combate son 2.172 funciones y no se ha empezado. De forma realista, esto es un año o más de trabajo.
-
-**Cómo leer los hitos:**
-
-| Hito | Estado |
+| | |
 |---|---|
-| El binario está entendido y mapeado | ✅ hecho |
-| Existe un método de verificación y está probado | ✅ hecho |
-| El juego corre en algún sitio como referencia de comportamiento | ✅ hecho (touchHLE) |
-| Formato de modelos legible | ✅ hecho |
-| Formatos de animación legibles | ✅ `.skin`, `.bones` y `.skinanim` hechos |
-| Algo se dibuja en una pantalla de PC | ⬜ sin empezar |
-| El juego arranca de forma nativa | ⬜ lejos |
-| El juego es jugable de forma nativa | ⬜ lejos |
+| Verificado por comportamiento | `Matrix`, `limeVector`, el cargador de `RenderMesh`, la matemática de `RenderSkinned`, el pool de `Events` |
+| Casos comparados | 81.023 sintéticos, más 590 ficheros y 7.327 mallas de datos reales |
+| Divergencias | **0** |
+| Escrito, compilado, aún sin pasar por el oráculo | el resto |
+
+Varios cuerpos son **estructurales**: la secuencia de llamadas y los accesos a
+campos están recuperados, y alguna condición de rama o algún enum de GL queda
+marcado en el comentario como no fijado en vez de adivinado. Esas marcas son la
+parte interesante del fichero — son por donde debe mirar quien siga, y están ahí
+a propósito.
+
+La regla que ha llevado hasta aquí está escrita en [ENCARGO.md](docs/ENCARGO.md):
+un cuerpo sobre un layout sin confirmar es peor que ningún cuerpo. Se puso a
+prueba dos veces. `symcheck` rechazó un `LIME_RenderSceneOverrideTextures`
+construido sobre dos accesores inventados, y el contador fue **hacia atrás** de
+104 a 103 antes de encontrar el layout real. Y `LIME_UpdateEvents` tenía un
+cuerpo escrito con confianza y equivocado que solo destapó un test diferencial.
 
 ---
 
