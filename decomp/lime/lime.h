@@ -467,9 +467,9 @@ typedef struct SCENEINFO {
     void        *field48;        /* 0x48 */
     void        *field4c;        /* 0x4c  limeMalloc sized from 0x44 and 0x48 */
     uint8_t      _pad50[4];      /* 0x50 */
-    int          field54;        /* 0x54  three words from one sibling file */
-    int          field58;        /* 0x58 */
-    int          field5c;        /* 0x5c */
+    float        posX;           /* 0x54  fed straight to glTranslatef by     */
+    float        posY;           /* 0x58  LIME_RenderEvents -- the scene origin */
+    float        posZ;           /* 0x5c  an effect is placed relative to      */
     int          field60;        /* 0x60  written as zero */
     int          field64;        /* 0x64  four words from another sibling */
     int          field68;        /* 0x68 */
