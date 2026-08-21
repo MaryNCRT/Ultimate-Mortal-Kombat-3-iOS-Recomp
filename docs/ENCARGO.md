@@ -150,6 +150,16 @@ disassembly already read by eye. The scanner was mixing file offsets with
 virtual addresses. A negative result that cannot detect a known positive is not
 evidence of anything.
 
+The same rule caught a phantom in the other direction. A naive `for f in $(find
+. -name '*.c')` sweep reported an error in `runtime/platform/sdl_gl.c` -- a
+missing `SDL.h`. That file is the **Linux** backend and CMake never compiles it
+on Windows, so the sweep was reporting its own misconfiguration as a defect in
+the tree. But the fix is not to exclude the file: a file nobody compiles is a
+file where a typo lives forever, invisible until it reaches somebody else's
+machine. `tools/check.sh` now selects the backend the way `CMakeLists.txt` does
+*and* lints the off-platform one, and it was itself put through four deliberate
+breakages before its zero was believed.
+
 **Suspect the counter when it moves without work.** `tools/progress.py` now
 matches by Itanium length prefix rather than by trimming type codes, because the
 guessing version undercounted by two, an older variant undercounted by seven and
@@ -205,6 +215,17 @@ before the count was taken.
 
 ## Housekeeping that is currently true
 
+- `sh tools/check.sh` syntax-checks the whole tree and exits with the error
+  count. It currently reports **0 errors and 13 warnings**, and every one of the
+  13 is `unused parameter` on a body the binary itself left empty or on a body
+  marked *structural*. Nothing is silenced.
+- The Linux backend is linted on Windows against `tests/sdl2-lint/SDL.h`, which
+  is a **fixture, not SDL2** -- it `#error`s unless the lint defines
+  `UMK3_SDL2_LINT`. A pass there proves our own mistakes are gone (typos, wrong
+  argument counts, bad `SDL_Event` members); it does **not** prove the
+  declarations match real SDL2, because they were written from the documented
+  API rather than read from an installed header. `check.sh` prefers a real SDL2
+  via `pkg-config` whenever one exists and says which of the two it used.
 - `runtime/` builds and runs on Windows (WGL) and Linux (SDL2), draws textured
   lit geometry and poses characters.
 - `runtime/lime_platform.c` is the host side of the engine's platform API, and
