@@ -135,12 +135,14 @@ difference is now measured rather than assumed:
 
 | | count | what backs it |
 |---|---:|---|
-| Behaviourally verified | **13 + the meshset loader** | run against a recompiled oracle: 60,019 synthetic cases plus every `.meshset` the game ships — 590 files, 7,327 meshes, 0 divergences |
+| Behaviourally verified | **13 + the meshset loader + the skinning maths** | run against a recompiled oracle: 78,799 synthetic cases plus every `.meshset` the game ships — 590 files, 7,327 meshes, 0 divergences |
 | Written and documented | 75 | structural gate only — no invented callees |
 | Documented, body pending | 11 | analysed, findings recorded, transcription deliberately not written |
 
-`Matrix.cpp`, `limeVector.cpp` and the `RenderMesh.cpp` loader path have been
-through the differential oracle. Everything else has passed `symcheck`, which proves a function does not
+`Matrix.cpp`, `limeVector.cpp`, the `RenderMesh.cpp` loader path and the
+`RenderSkinned.cpp` maths have been through the differential oracle — the last
+of those is the code that poses characters, so a subtle error there would have
+produced poses that look almost right and that nobody finds by looking. Everything else has passed `symcheck`, which proves a function does not
 call anything the binary never contained — a real gate, and a purely structural
 one. It says nothing about behaviour.
 

@@ -523,6 +523,14 @@ void   limeFree(void *p);
 void  *limeMalloc(const char *tag, size_t bytes);
 TEXTURE *limeLoadTexture(const char *path, int a, int b);
 void   MatrixMul2(const SKINMATRIX43 *a, const SKINMATRIX43 *b, SKINMATRIX43 *out);
+void   MatrixIdentity2(SKINMATRIX43 *m);
+void   GetMFromQuat2(const BONEANIMFRAME *q, SKINMATRIX43 *out);
+void   GetSlerpedQ(const BONEANIMFRAME *a, const BONEANIMFRAME *b,
+                   float t, BONEANIMFRAME *out);
+void   Xform2(const limeVECTOR3 *unused0, const limeVECTOR3 *vin,
+              const limeVECTOR3 *unused2, limeVECTOR3 *vout,
+              const SKINMATRIX43 *m, float w);
+void   NormaliseLDirs(void);
 /* The mangled name is __Z9LightVertP11limeVECTOR3S0_ -- two limeVECTOR3* -- but
  * the recovered body writes through a bare float*. Same three floats either
  * way; the definition's shape is kept. */
