@@ -120,8 +120,14 @@ Metrics are stored in authoring units and scaled at measure time.
 
 - **Byte 2 of the header** is kept at `FONT+0x08` and nothing decompiled so far
   reads it.
-- **Two of the three metric arrays** (`FONT+0x1c` and `FONT+0x24`) are unused by
-  the measurement path. For a texture-atlas font the natural pair is glyph
-  position and glyph size, but neither function recovered so far touches them,
-  so they are recorded by offset and deliberately left unnamed. `limeDrawFONT`
-  is where they will resolve.
+- **Two of the three metric arrays** (`FONT+0x1c` and `FONT+0x20`) are unused by
+  the measurement path. `limeDrawFONT` settles what they are *for*: it reads all
+  three together inside the per-character loop and feeds them, with the cell
+  height at `+0x34` and cell width at `+0x38`, into a single `limeDrawSprite`
+  call. That is an atlas lookup — a glyph is a rectangle in the texture, and
+  three int16 plus a fixed cell size is exactly what locating it takes.
+
+  **Which of the two is the atlas offset and which is the drawn width is still
+  open.** Both are loaded into the same register two instructions apart, and
+  their order into `limeDrawSprite` runs through float conversions that pass did
+  not follow. They stay numbered rather than acquire a coin-flip name.

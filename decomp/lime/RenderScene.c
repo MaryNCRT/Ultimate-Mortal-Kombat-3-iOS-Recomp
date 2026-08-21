@@ -487,3 +487,114 @@ void AddToTranspMeshList(MESHSETINFO *meshset, const SCENENODE *node,
  * change what is drawn.
  */
 void FlushTranspMeshList(TEXTURE *texture, const SKINMATRIX43 *matrix);
+
+
+/* ----------------------------------------------------------- LIME_RenderScene
+ *
+ * armv6 0x000827e0, 1896 bytes.  **Structurally complete.**
+ *
+ * Draws a whole scene for one frame. The largest function in this file.
+ *
+ * ## Effect spawn points are named, not flagged
+ *
+ * The scene walk compares single characters against `0x45`, `0x56` and `0x54`
+ * -- **'E', 'V' and 'T'**. Those are letters of the word `EVENT`, tested
+ * individually rather than through `strncmp`: a cheap prefix filter that skips
+ * the middle letters because matching three of five is enough to separate a
+ * marker from a mesh.
+ *
+ * **The shipped data confirms it.** Node names in the `.scene` files include
+ * `EVENT_splat_00`, `EVENT_blood_001` and `EVENT_hatTrail2`, and `EVENT_` is
+ * one of the most common prefixes across the set.
+ *
+ * So a scene node is an effect spawn point **because of what the artist called
+ * it**. There is no flag, no separate list and no node type -- renaming a node
+ * in the exporter changes what the engine does with it. That is the same
+ * data-driven design `res/nolight.txt` shows in the lighting path, and it is
+ * the second place this engine turns out to be configured by text rather than
+ * by code.
+ *
+ * A port must reproduce the prefix test. A mod adding effects does it by naming
+ * nodes, which is worth knowing before anyone builds a flag system that the
+ * original never had.
+ *
+ * ## Animation is interpolated per node, from the palette
+ *
+ *      bl  GetMatrixFromPalette      ; frame A
+ *      bl  GetMatrixFromPalette      ; frame B
+ *      bl  LerpQSTMatrix
+ *
+ * Two palette lookups and a blend, per node, per frame. `LerpQSTMatrix`
+ * re-quantises to int16 at every element -- see LIMEDS_Misc.c -- so the
+ * quantisation is part of how scene animation looks, not an artefact to smooth
+ * away.
+ *
+ * The frame index reaches the palette through `__modsi3`, twice: the scene
+ * loops on its own length, the same way LIME_TriggerEventsFromScene takes its
+ * modulo against `SCENEINFO+0x44`.
+ *
+ * ## Transparent nodes are deferred, and the state is restored after
+ *
+ * Nodes that need blending go to `AddToTranspMeshList` instead of drawing, and
+ * the function ends with `limeDisableAlphaBlending` followed by
+ * `limeEnableDepthWrites` -- twice, on two exit paths. So the opaque state is
+ * restored explicitly rather than left for the next caller to fix, which is why
+ * FlushTranspMeshList can assume it starts from a known state.
+ *
+ * The body is left as the sequence above. The node walk carries several
+ * independent flags and early exits whose ordering does not change what is
+ * drawn, and transcribing it from one pass would put confident-looking
+ * structure on branches that were not traced.
+ */
+void LIME_RenderScene(SCENEINFO *scene, long frame, long flags);
+
+
+/* ------------------------------------------- LIME_RenderSceneOverrideTextures
+ *
+ * armv6 0x000823bc, 532 bytes.  **Structurally complete.**
+ *
+ * The same walk with the scene's own textures replaced. This is how one scene
+ * asset serves several characters or several palettes.
+ *
+ * It carries the identical `'E'`, `'V'`, `'T'` prefix test, which is a second
+ * independent sighting of the `EVENT_` convention rather than a repeat of the
+ * same code -- the two functions are separate 500- and 1900-byte bodies.
+ *
+ * ## Per node
+ *
+ *      LIME_PushMatrix
+ *      GetMatrixFromPalette
+ *      ConvertQSTMatrixtoPCMatrix
+ *      glMultMatrixf
+ *      LIME_RenderMesh
+ *      LIME_PopMatrix
+ *
+ * One push and one pop each, so an early exit still leaves the stack balanced.
+ * Note the QST matrix goes through `ConvertQSTMatrixtoPCMatrix` and straight
+ * into `glMultMatrixf` **untransposed** -- consistent with
+ * LIMEDS_SetObjectOrientation and with the rule recorded in LIMEDS_Misc.c: the
+ * matrices this engine builds are GL-ready, and only the ones converted from
+ * the old fixed-point formats need transposing.
+ *
+ * ## Basic blending, not additive
+ *
+ *      bl  _limeEnableAlphaBlending_Basic
+ *
+ * Worth contrasting with FlushTranspMeshList, which uses the **additive** mode.
+ * So the engine has at least two blend paths and they are not
+ * interchangeable -- additive is order-independent and basic is not, which is
+ * exactly why the transparent list can go unsorted and this cannot.
+ *
+ * ## Two more SCENEINFO fields
+ *
+ * It reads `scene->[0x88]` and `scene->[0x8c]`, neither of which
+ * LIME_LoadScene was seen to write. They sit between the events pointer at
+ * `+0x84` and the list link at `+0x90`, so the structure is denser there than
+ * the loader alone suggested. Recorded, not named.
+ *
+ * Meshes are located by `LIME_FindMeshByName`, so the override is resolved by
+ * name at draw time rather than by index -- consistent with everything else
+ * here being driven by what things are called.
+ */
+void LIME_RenderSceneOverrideTextures(SCENEINFO *scene, long frame,
+                                      TEXTURE *replacement, long flags);
