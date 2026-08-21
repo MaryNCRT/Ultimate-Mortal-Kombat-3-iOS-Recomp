@@ -36,7 +36,6 @@
 #include "lime.h"
 
 /* EVENT_SLOTS and EVENT_STRIDE now live in lime.h */
-#define EVENT_STRIDE  0xF8      /* 248 bytes */
 
 
 /* --------------------------------------------------- LIME_InitEventsManager
@@ -435,8 +434,21 @@ void LIME_TriggerEventsFromScene(SCENEINFO *scene, int frame,
 void LIME_UpdateEvents(void)
 {
     EVENT *ev;
+    int i;
 
-    for (ev = &g_events[0]; ; ev = (EVENT *)((char *)ev + 0xf8)) {
+    /* **Indexed, not stepped by 0xf8.** The stride in the binary is 248 because
+     * an ARM pointer is 4 bytes. Compiled for a 64-bit host, `sizeof(EVENT)` is
+     * 256, and walking a real C array with the original's byte stride
+     * desynchronises after the first slot and runs off the end -- which is
+     * exactly what it did, with a segfault and no output because stdout was
+     * still buffered.
+     *
+     * The rule this establishes: a hard-coded stride is correct only for memory
+     * the engine treats as bytes -- a loaded file buffer, like the 216-byte
+     * track records elsewhere in this file. For an array of host structs, index
+     * it and let the compiler size the step. */
+    for (i = 0; i < EVENT_SLOTS; i++) {
+        ev = &g_events[i];
         if (ev->state == 0)
             goto next;                  /* free slot */
 
@@ -455,8 +467,7 @@ void LIME_UpdateEvents(void)
         }
 
     next:
-        if (ev == &g_events[EVENT_SLOTS - 1])
-            break;                      /* sentinel: base + 0xB908 */
+        ;   /* the binary's sentinel is base + 0xB908, the last of 192 slots */
     }
 }
 

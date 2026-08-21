@@ -9,9 +9,11 @@
  *
  * Two things are deliberately not compared:
  *
- *  - `fullBright`, because the clean loader gets it from IsTextureFullBright,
- *    which this test implements by delegating to the recompiled one. Comparing
- *    it would be circular. It is exercised, not independently verified.
+ *  - `fullBright` WAS excluded, because this test used to implement
+ *    IsTextureFullBright by delegating to the recompiled one, which made
+ *    comparing it circular. That is no longer true: the clean side has its own
+ *    implementation and this file supplies none, so the field is now compared
+ *    like any other.
  *
  *  - `vertLight` when useLighting == 0, because the original leaves that
  *    buffer uninitialised (the branch at 0x0005ebae skips the memset). There
@@ -22,6 +24,8 @@
 #include "arm_runtime.h"
 #include "rendermesh.h"
 #include "../decomp/lime/lime.h"
+
+void lime_platform_set_asset_root(const char *path);
 
 #include <dirent.h>
 #include <stdio.h>
@@ -81,18 +85,13 @@ void *lime_load_file(const char *path, size_t *out_size)
     return buf;
 }
 
-/* Delegates to the recompiled original — see the note at the top. */
-int IsTextureFullBright(const char *textureName)
-{
-    arm_ctx ctx;
-    memset(&ctx, 0, sizeof(ctx));
-    ctx.r[SP] = STACK_TOP;
-    size_t n = strlen(textureName) + 1;
-    memcpy(g_ram + PATH_BUF, textureName, n);
-    ctx.r[0] = PATH_BUF;
-    func_0005e930_Z19IsTextureFullBrightPc(&ctx);
-    return (int)ctx.r[0];
-}
+/* IsTextureFullBright used to be defined here, delegating to the recompiled
+ * original, because the clean side had no body for it. It has one now -- see
+ * decomp/lime/RenderMesh.c -- so this file no longer supplies one and the two
+ * implementations are genuinely independent.
+ *
+ * They read the same res/nolight.txt: the oracle through guest RAM, the clean
+ * side through runtime/lime_platform.c on the host. Neither calls the other. */
 
 /* ---- oracle side ---- */
 
@@ -272,12 +271,22 @@ int main(int argc, char **argv)
         printf("usage: %s <res dir> [armv7 slice]\n", argv[0]);
         return 2;
     }
+    /* Unbuffered: if this test dies partway, the output up to that point is
+     * what tells you where. Buffered stdout on a segfault gives you nothing at
+     * all, which cost a debugging round the first time it happened. */
+    setvbuf(stdout, NULL, _IONBF, 0);
+
     snprintf(g_root, sizeof(g_root), "%s", argv[1]);
     const char *image = (argc >= 3) ? argv[2]
                                     : "E:/MK3 PROJECT/OUTPUT/armv7/UMK3.armv7";
 
     arm_mem_init(RAM_SIZE);
     arm_set_asset_root(g_root);
+    /* The clean side resolves paths through its own host platform layer, so it
+     * needs the root too -- the two are deliberately separate variables so a
+     * test can point them at different trees and prove neither is reading the
+     * other's files. */
+    lime_platform_set_asset_root(g_root);
     if (arm_load_image(image) != 0) {
         printf("could not map the binary image: %s\n", image);
         return 2;

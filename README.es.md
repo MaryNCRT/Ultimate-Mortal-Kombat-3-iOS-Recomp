@@ -137,11 +137,11 @@ en lugar de supuesta:
 
 | | nº | qué lo respalda |
 |---|---:|---|
-| Verificado por comportamiento | **13** | compilado y ejecutado contra un oráculo recompilado, 60.019 casos, 0 divergencias |
+| Verificado por comportamiento | **13 + el cargador de mallas** | ejecutado contra un oráculo recompilado: 60.019 casos sintéticos más todos los `.meshset` del juego — 590 ficheros, 7.327 mallas, 0 divergencias |
 | Escrito y documentado | 75 | solo verja estructural — sin llamadas inventadas |
 | Documentado, cuerpo pendiente | 11 | analizado, hallazgos registrados, transcripción deliberadamente no escrita |
 
-Solo `Matrix.cpp` y `limeVector.cpp` han pasado por el oráculo diferencial. Todo
+`Matrix.cpp`, `limeVector.cpp` y la ruta de carga de `RenderMesh.cpp` han pasado por el oráculo diferencial. Todo
 lo demás ha pasado `symcheck`, que demuestra que una función no llama a nada que
 el binario nunca contuvo — una verja real, y puramente estructural. No dice nada
 sobre el comportamiento.

@@ -135,12 +135,12 @@ difference is now measured rather than assumed:
 
 | | count | what backs it |
 |---|---:|---|
-| Behaviourally verified | **13** | compiled, run against a recompiled oracle, 60,019 cases, 0 divergences |
+| Behaviourally verified | **13 + the meshset loader** | run against a recompiled oracle: 60,019 synthetic cases plus every `.meshset` the game ships — 590 files, 7,327 meshes, 0 divergences |
 | Written and documented | 75 | structural gate only — no invented callees |
 | Documented, body pending | 11 | analysed, findings recorded, transcription deliberately not written |
 
-Only `Matrix.cpp` and `limeVector.cpp` have been through the differential
-oracle. Everything else has passed `symcheck`, which proves a function does not
+`Matrix.cpp`, `limeVector.cpp` and the `RenderMesh.cpp` loader path have been
+through the differential oracle. Everything else has passed `symcheck`, which proves a function does not
 call anything the binary never contained — a real gate, and a purely structural
 one. It says nothing about behaviour.
 

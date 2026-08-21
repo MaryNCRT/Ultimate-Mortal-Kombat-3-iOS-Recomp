@@ -25,12 +25,32 @@ each falls into one of two groups that are *supposed* to be unresolved:
 
 Nothing else dangles. The engine is internally consistent.
 
-**What is still missing to put RenderMesh through the differential gate** is a
-link-time support layer: `decomp_loop.py` compiles only the test, the clean C,
-the oracle and `runtime/arm_runtime.c`, and `arm_runtime.c` exposes
-`stub_limeLoadFile(arm_ctx *)` rather than a C-callable `limeLoadFile(const
-char *)`. Bridging those twelve platform symbols is the next concrete task, and
-it is a runtime job rather than a decompilation one.
+**That link-time gap is closed.** `runtime/lime_platform.c` supplies the twelve
+platform symbols on the host, `decomp/lime/lime_globals.c` the engine's globals,
+and `decomp/lime/lime_unimplemented.c` resolves the six deliberately-bodyless
+functions with definitions that abort and name themselves if reached. The loop
+links the whole engine minus the file under test.
+
+**RenderMesh.cpp passed** — 590 files, 7,327 meshes, 0 divergences:
+
+```bash
+UMK3_WORK=work UMK3_RES=<the res dir> python tools/decomp_loop.py --candidate   --name rendermesh --source-file RenderMesh.cpp   --clean decomp/lime/RenderMesh.c --test tests/test_rendermesh_diff.c --class B
+```
+
+**The next module is whichever one you write a differential test for.**
+`tests/test_switchqueue_diff.c` already exists and has never been run. After
+that, the modules with no test at all are the real work: a test is a day's
+thought about what could differ, and it is worth more than the function it
+checks.
+
+### One rule this pass earned
+
+**Never step an array of host structs by the binary's byte stride.** `EVENT` is
+248 bytes in the binary because an ARM pointer is 4; `sizeof(EVENT)` here is 256.
+`LIME_UpdateEvents` walked a 192-slot array with `+ 0xf8` and ran off the end.
+A hard-coded stride is correct only for memory the engine treats as raw bytes —
+a loaded file buffer, like the 216-byte track records in `Events.c`. For a C
+array, index it.
 
 Engine globals now live in `decomp/lime/lime_globals.c` — one translation unit,
 because the original spread them across the files that used them and mirroring

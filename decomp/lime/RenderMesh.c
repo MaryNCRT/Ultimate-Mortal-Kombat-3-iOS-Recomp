@@ -581,7 +581,18 @@ int IsTextureFullBright(const char *name)
         const char *data = limeLoadFile(NOLIGHT_FILE);
         const char *p;
         const char *end;
-        char line[0x40];
+
+        /* **128 bytes, not 64.** GetNextLine has no length bound at all -- it
+         * copies until NUL, CR or LF -- so this buffer has to be as large as
+         * the longest line the file can contain. The prologue of the original
+         * does `sub sp, sp, #0x80`, and that is why: res/nolight.txt opens with
+         * comment lines of about seventy characters, and a 64-byte buffer
+         * smashes the stack on the first one.
+         *
+         * The table entries are still 64 bytes; only the scratch line is
+         * bigger. A line longer than 128 would still overflow, in the original
+         * exactly as here. */
+        char line[0x80];
 
         if (data == NULL)
             return 0;
