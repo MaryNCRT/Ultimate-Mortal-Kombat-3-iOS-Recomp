@@ -839,3 +839,90 @@ void LIME_LoadMasterEventOffsets(void)
 
     limeFree((void *)data);
 }
+
+
+/* ---------------------------------------------------------- LIME_TriggerEvent
+ *
+ * armv6 0x000e8e98, 104 bytes.  **Complete.**
+ *
+ * A thin forwarder to LIME_TriggerEventFromSceneH, and its whole job is one
+ * dereference:
+ *
+ *      mov ip, r0              ; the track
+ *      ldr r0, [r0, #4]        ; -> its scene becomes the first argument
+ *      ...
+ *      mov r1, ip              ; and the track follows as the second
+ *
+ * **`SCENEEVENTTRACK+0x04` is a SCENEINFO pointer.** `LIME_FreeEvents` already
+ * read that offset as one when releasing a scene's tracks; this is the second
+ * function to treat it the same way, which is the standard a field
+ * identification has to meet here.
+ *
+ * So the two entry points differ only in what the caller has to hand. A caller
+ * holding a track calls this and the scene is fetched for it; a caller that
+ * already knows the scene calls LIME_TriggerEventFromSceneH directly. Same
+ * spawn, same gates, same silent failures.
+ *
+ * One argument is **not** forwarded: the wrapper writes a literal zero into the
+ * seventh stack slot (`mov r3, #0; str r3, [sp, #8]`) rather than passing
+ * anything through. Whatever that parameter selects, this path always takes its
+ * zero case.
+ */
+int LIME_TriggerEvent(SCENEEVENTTRACK *track, limeMATRIX44 *m1,
+                      limeMATRIX44 *m2, long a3, long a4, long a5,
+                      TEXTURE *tex0, TEXTURE *tex1, long a8)
+{
+    return LIME_TriggerEventFromSceneH((long)track->scene,   /* +0x04 */
+                                       track, m1, (long)m2,
+                                       a3, a4,
+                                       0,                    /* always zero */
+                                       a5, (long)tex0,
+                                       (long)tex1, a8);
+}
+
+
+/* ------------------------- LIME_TriggerEventsFromSceneOffsetIfFollowing
+ *
+ * armv6 0x000e8f00, 484 bytes.  **Structurally complete.**
+ *
+ * Fires a scene's event tracks, offset, and only for tracks that are
+ * "following" -- the name is doing real work here.
+ *
+ * ## What it walks
+ *
+ * The scene's events come from `scene->[0x84]`, and within a track it reads
+ * `+0xd4` -- the 68-byte record array `LIME_LoadEvents` allocates from the
+ * count at `+0x9c`. So this is the only recovered consumer of that array, and
+ * it confirms the loader was allocating something real rather than reserving
+ * space.
+ *
+ * A track is tested with `[r5, #0x24]` against **1** specifically, so `+0x24`
+ * is a mode with at least one distinguished value rather than a boolean.
+ *
+ * ## The DS matrix appears again
+ *
+ *      bl _ConvertDSMatrixtoPCMatrix
+ *
+ * The offset is stored in the **Nintendo DS 1.3.12 fixed-point format** and
+ * converted here at runtime -- see LIMEDS_Misc.c, where that function's `1/4096`
+ * scale is what identified the format. This is the second place the engine pays
+ * for its handheld ancestry at frame rate rather than at build time.
+ *
+ * It produces a row-major matrix that needs transposing for GL, unlike the
+ * basis-built matrices elsewhere. A port that feeds this result straight to
+ * `glMultMatrixf` gets a transposed offset, which places every following effect
+ * in the wrong spot in a way that looks like a bad export rather than a bug.
+ *
+ * ## Diagnostics that DID survive
+ *
+ * Unusually, it calls `printf` and `puts` -- the real ones, not `LIME_printf`.
+ * Everything else in lime/common logs through the compiled-away wrapper, so
+ * these two lines still reach stdout in the retail build. Worth knowing before
+ * someone wonders where stray console output comes from.
+ *
+ * `LIME_TriggerEvent` is called from two places in the body, on different
+ * branches. The condition separating them was not traced and the body is left
+ * out rather than guessed at.
+ */
+void LIME_TriggerEventsFromSceneOffsetIfFollowing(long a0, long a1,
+                                                  SCENEINFO *scene, long a3);
