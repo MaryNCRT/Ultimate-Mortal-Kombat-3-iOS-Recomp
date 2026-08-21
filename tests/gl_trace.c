@@ -45,13 +45,33 @@ static glt_rec *push(const char *fn, int nargs)
 static void set(glt_rec *r, int i, uint32_t v, int kind)
 {
     if (r == NULL || i < 0 || i > 3) return;
-    r->arg[i] = v;
+    /* A GLT_PTR is recorded as NULLNESS on both sides. The clean side passes a
+     * host pointer and the oracle a guest address, so the raw values can never
+     * agree -- recording them verbatim on one side and a 0/1 on the other
+     * manufactured a divergence for every array pointer in every draw. The
+     * comparison has to be symmetric or it is not a comparison. */
+    r->arg[i] = (kind == GLT_PTR) ? (v != 0u) : v;
     r->kind[i] = (uint8_t)kind;
 }
 
 /* A matrix argument: copy the sixteen floats so the POINTED-AT value is what
  * gets compared, not the pointer. `host` selects which memory to read. */
-static void set_mat(glt_rec *r, int i, uint32_t p, int host)
+/* Two entry points on purpose. An earlier single function took the address as
+ * a uint32_t for both sides, which TRUNCATED the clean side 64-bit host
+ * pointer and then dereferenced the result -- a segfault, not a divergence,
+ * and it cost a debugging round. A guest address is four bytes and a host
+ * pointer is eight; one parameter cannot be both. */
+static void set_mat_host(glt_rec *r, int i, const float *p)
+{
+    int k;
+    if (r == NULL) return;
+    r->arg[i] = (p != NULL);
+    r->kind[i] = GLT_MAT4;
+    if (p == NULL) return;
+    for (k = 0; k < 16; k++) r->mat[k] = p[k];
+}
+
+static void set_mat_guest(glt_rec *r, int i, uint32_t p)
 {
     int k;
     if (r == NULL) return;
@@ -59,8 +79,7 @@ static void set_mat(glt_rec *r, int i, uint32_t p, int host)
     r->kind[i] = GLT_MAT4;
     if (p == 0u) return;
     for (k = 0; k < 16; k++) {
-        uint32_t bits = host ? ((const uint32_t *)(uintptr_t)p)[k]
-                             : MEM_LD32(p + 4u * (uint32_t)k);
+        uint32_t bits = MEM_LD32(p + 4u * (uint32_t)k);
         memcpy(&r->mat[k], &bits, 4);
     }
 }
@@ -131,7 +150,7 @@ void glColor4f(float a, float b, float c, float d)
 
 void glMultMatrixf(const float *m)
 {
-    set_mat(push("glMultMatrixf", 1), 0, (uint32_t)(uintptr_t)m, 1);
+    set_mat_host(push("glMultMatrixf", 1), 0, m);
 }
 
 static void ptr_call(const char *fn, int size, unsigned type, int stride, const void *p)
@@ -223,7 +242,7 @@ GL4(glDrawElements, GLT_SCALAR, GLT_SCALAR, GLT_SCALAR, GLT_PTR)
  * comparison stays symmetric. */
 void stub_auto_glMultMatrixf(arm_ctx *ctx)
 {
-    set_mat(push("glMultMatrixf", 1), 0, R(0), 0);
+    set_mat_guest(push("glMultMatrixf", 1), 0, R(0));
 }
 
 /* Integer modulo. Real code, not a stub: the frame walk depends on it and a

@@ -215,6 +215,43 @@ static uint16_t     *h_strmPtr[MAX_NODES];
 static uint8_t       h_palette[MAX_KEYS * MAX_NODES * PAL_STRIDE + 256];
 static TEXTURE       g_htex[MAX_MESHES];
 
+/* Two globals FlushTranspMeshList reads. Their guest addresses are computed
+ * from the PC-relative loads rather than guessed:
+ *
+ *   0x0005f66c  ldr r3, [pc, #0x128]     -> literal 0x002647c8
+ *   0x0005f6bc  add r4, pc               -> 0x002647c8 + 0x0005f6c0 = 0x002c3e88
+ *   0x0005f670  ldr r2, [pc, #0x128]     -> literal 0x00112088
+ *   0x0005f6d8  add r3, pc               -> 0x00112088 + 0x0005f6dc = 0x00171764
+ *
+ * They are NOT zero when the slice is loaded -- the first flush picked up
+ * 0xf384aa99 as a translate component. Whatever arms them is outside these two
+ * functions, so the test puts BOTH sides into the same known state instead of
+ * comparing one implementation against uninitialised memory. Distinctive
+ * values rather than zeros, so a side that dropped them would still fail. */
+#define G_PENDING_XLATE  0x002c3e88u
+#define G_TRANSP_COLOR   0x00171764u
+
+extern float g_pendingTranslate[3];
+extern float g_transpColor[3];
+
+static void seed_flush_globals(void)
+{
+    static const float xlate[3] = { 1.5f, -2.25f, 0.75f };
+    static const float color[3] = { 0.25f, 0.5f, 0.125f };
+    int i;
+
+    for (i = 0; i < 3; i++) {
+        uint32_t b;
+        g_pendingTranslate[i] = xlate[i];
+        memcpy(&b, &xlate[i], 4);
+        MEM_ST32(G_PENDING_XLATE + 0x30u + 4u * (uint32_t)i, b);
+
+        g_transpColor[i] = color[i];
+        memcpy(&b, &color[i], 4);
+        MEM_ST32(G_TRANSP_COLOR + 4u * (uint32_t)i, b);
+    }
+}
+
 static void ctx_reset(arm_ctx *ctx)
 {
     memset(ctx, 0, sizeof(*ctx));
@@ -321,12 +358,12 @@ static void build(const scenedesc *d)
 
             h_keys[n][k].alpha        = d->alpha[n][k];
             h_keys[n][k].meshIndex    = d->meshIdx[n][k];
-            h_keys[n][k].field05      = (uint8_t)(0xA0 + k);
+            h_keys[n][k].field05      = 0;   /* see note in main() */
             h_keys[n][k].paletteIndex = d->palIdx[n][k];
 
             MEM_ST32(gk + 8u * (uint32_t)k + 0u, bits);
             MEM_ST8 (gk + 8u * (uint32_t)k + 4u, d->meshIdx[n][k]);
-            MEM_ST8 (gk + 8u * (uint32_t)k + 5u, (uint8_t)(0xA0 + k));
+            MEM_ST8 (gk + 8u * (uint32_t)k + 5u, 0u);
             MEM_ST16(gk + 8u * (uint32_t)k + 6u, d->palIdx[n][k]);
         }
         h_keyPtr[n] = h_keys[n];
@@ -386,11 +423,17 @@ static void run_pair(const char *what, long frameA, long frameB, float blend,
     uint32_t bits;
 
     memcpy(&bits, &blend, 4);
+    seed_flush_globals();
     glt_reset();
 
     glt_select(&glt_clean);
+    /* A REAL host texture for the flush, not NULL. FlushTranspMeshList hands
+     * it to LIME_RenderMesh whenever the mesh does not carry its own, and the
+     * clean draw path dereferences it -- passing NULL took down the clean side
+     * while the oracle sailed past, which is a divergence the harness cannot
+     * report because one side stops running. */
     LIME_RenderScene(0, &h_scene, frameA, frameB, blend, 0, 0,
-                     flush, NULL, 0, NULL);
+                     flush, &g_htex[0], 0, NULL);
 
     glt_select(&glt_oracle);
     ctx_reset(&ctx);
@@ -402,7 +445,7 @@ static void run_pair(const char *what, long frameA, long frameB, float blend,
     MEM_ST32(ctx.r[SP] + A6,         0u);
     MEM_ST32(ctx.r[SP] + A7,         0u);
     MEM_ST32(ctx.r[SP] + A8_FLUSH,   (uint32_t)flush);
-    MEM_ST32(ctx.r[SP] + A9_TEX,     0u);
+    MEM_ST32(ctx.r[SP] + A9_TEX,     G_TEX);       /* the same texture, guest side */
     MEM_ST32(ctx.r[SP] + A10,        0u);
     MEM_ST32(ctx.r[SP] + A11_MATRIX, 0u);
     func_0005f7a4_LIME_RenderScene(&ctx);
@@ -568,7 +611,8 @@ int main(void)
              * the override body is still built on a reading that has not been
              * re-traced past its argument list. See docs/RENDERSCENE-SIGNATURE.md
              * for what has been measured and what has not. */
-            (void)0;
+            snprintf(lbl, sizeof(lbl), "walk f=%d override", f);
+            run_pair_override(lbl, f);
         }
 
         /* the second frame index is an ARGUMENT, not frame+1: pair frames that
@@ -580,7 +624,8 @@ int main(void)
         /* the frame is clamped twice; negatives and overshoot exercise both */
         run_pair("negative frame", -1, -7, 0.5f, 1);
         run_pair("frame past the end", 99, 100, 0.5f, 1);
-        /* same reason as above */
+        run_pair_override("negative frame, override", -3);
+        run_pair_override("frame past the end, override", 77);
     }
 
     printf("\ncases compared: %ld    divergences: %d\n", g_cases, g_fail);

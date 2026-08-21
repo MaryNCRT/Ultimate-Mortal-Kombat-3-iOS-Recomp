@@ -23,24 +23,25 @@ A short, specific work order for whoever takes this on next. Read
 
 Zero divergences throughout. 103,907 synthetic cases plus real game data.
 
-**RenderScene.cpp is the open front, and it is worse than "untested".**
-Driving the two renderers for the first time showed the bodies were **wrong**,
-starting with their argument lists: the scene is the SECOND argument of
-`LIME_RenderScene`, not the first, so the binary was reading the frame number
-where it expected a pointer. Six measured defects in all, written up in
+**RenderScene.cpp is closed as far as RenderScene goes.** The two renderers
+were not merely untested -- they were **wrong**, starting with their argument
+lists. Ten measured defects, written up in
 [RENDERSCENE-SIGNATURE.md](RENDERSCENE-SIGNATURE.md).
 
-What now exists: `tests/gl_trace.c` records the GL call stream from both sides
-and `tests/test_renderscene_gl_diff.c` compares them call by call.
-**23 cases, 35 divergences — it FAILS, on purpose.** The harness is right and
-the bodies are not yet. One override case is excluded because the clean side
-segfaults where the oracle does not; that is named in the test rather than
-skipped quietly.
+ drives both against the oracle and compares
+the GL call stream: **21 of 29 cases match exactly**. The eight that do not
+diverge **inside LIME_RenderMesh** -- first mismatch at call 5, 11, 28 or 32,
+always a client-state or pointer call that  never makes
+itself. The walk, the gates, the deferral and the flush ordering all agree.
 
-The enum-pairing problem this file used to describe as needing register
-liveness tracking **is solved and did not need it.** recomp.py emits every
-import as `stub_auto_glXxx(arm_ctx *ctx)`, so the register file at the instant
-of each call is simply available. Measure, do not infer.
+**So the next target is .** Its own test compares mesh
+LOADING, not GL, which is why a divergent draw stream sat there unnoticed. The
+instrument already exists -- point  at it.
+
+The enum-pairing problem this file used to describe as needing register liveness
+tracking **is solved and never needed it.** recomp.py emits every import as
+, so the register file at the instant of each
+call is simply available. Measure, do not infer.
 
 ---
 

@@ -255,7 +255,8 @@ static void test_list(int count)
     snprintf(label, sizeof(label), "transp list after %d adds", count);
 
     g_cases++;
-    /* the count, then every entry's meshset pointer and trailing argument */
+    /* the count, then every entry meshset pointer and the mesh index at +0x2c
+     * (named since this test was written -- see docs/RENDERSCENE-SIGNATURE.md) */
     for (i = 0; i < count; i++) {
         uint32_t slot = g_list_base + STRIDE * (uint32_t)i;
         uint32_t o_set  = MEM_LD32(slot + 0x28u);
@@ -264,8 +265,8 @@ static void test_list(int count)
             fail(label, (long)(uintptr_t)g_transpMeshList[i].meshset, (long)o_set);
             return;
         }
-        if ((uint32_t)g_transpMeshList[i].arg4 != o_arg) {
-            fail(label, (long)g_transpMeshList[i].arg4, (long)o_arg);
+        if ((uint32_t)g_transpMeshList[i].meshIndex != o_arg) {
+            fail(label, (long)g_transpMeshList[i].meshIndex, (long)o_arg);
             return;
         }
         /* and the 32-byte QST copied verbatim at +0x08 */
