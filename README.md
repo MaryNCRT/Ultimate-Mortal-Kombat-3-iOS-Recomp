@@ -127,6 +127,26 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 
 **Roughly 32% of the total estimated effort. Nothing is playable yet.**
 
+### `lime/common` is fully examined
+
+Every one of the 109 functions has now been read and written up. **95 have a
+body**; the other **14 are documented declarations** — the function is described
+from its disassembly, with an explicit note on what could not be pinned down and
+why no body was invented over it.
+
+That distinction is deliberate and it is not a backlog. `LIME_UpdateEvents` had
+a body written from a confident misreading, and it took a differential test to
+discover that a branch ran the opposite way. A declaration that says "this is
+what is known, this is what is not" costs a reader nothing; a plausible body
+over an unconfirmed layout costs a session to undo.
+
+| | count |
+|---|---:|
+| Body written | 95 |
+| Documented, body deliberately not written | 14 |
+| Unexamined | **0** |
+
+
 ### What "decompiled" means here, exactly
 
 The percentages above count functions that have been **read, understood and
@@ -155,7 +175,7 @@ coverage is the highest-value work left in the engine, and it is tracked in
 
 
 The bar moved for the first time in a while, and only because `lime/common`
-did: 93 of 109 functions against 21 a short time ago. The asset work that came
+did: 95 of 109 functions against 21 a short time ago. The asset work that came
 before it — solving the character formats, rendering and animating them — was
 worth a great deal and worth **no percentage points at all**, because that row
 was already at 100%. What changed there is that it is now *demonstrated* rather
@@ -171,7 +191,7 @@ the completion figures are measured.
 | Binary analysis and source-tree mapping | 4% | 100% | `██████████` |
 | Tooling and the verification oracle | 8% | 100% | `██████████` |
 | Asset format specifications | 8% | 100% | `██████████` |
-| `lime/common` — engine core (109 fn) | 12% | 85% | `████████░░` |
+| `lime/common` — engine core (109 fn) | 12% | 87% | `████████░░` |
 | `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | 4% | `░░░░░░░░░░` |
 | Native PC platform layer (161 fn to rewrite) | 17% | 10% | `█░░░░░░░░░` |

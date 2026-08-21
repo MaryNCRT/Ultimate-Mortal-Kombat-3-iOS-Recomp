@@ -48,8 +48,13 @@ typedef struct {
 } LIMEVERTEX;
 
 /* Una malla. El original la reserva con limeMalloc(tag, 0x58). */
-/* Opaque to the decompiled engine code: nothing in lime/common reaches inside
- * a TEXTURE, it only passes the pointer to GL and to the loader. */
+/* Almost opaque. Two functions -- LIME_RenderMeshSingle and
+ * LIME_RenderMeshSingleIndexed -- read `+0x40` and hand it to glBindTexture, so
+ * that field is the GL texture name and nothing else is established.
+ *
+ * The struct stays a forward declaration rather than gaining one named field
+ * and sixty-four bytes of invented padding: lime/common only ever passes the
+ * pointer around, and a layout nobody can check is worse than none. */
 typedef struct TEXTURE TEXTURE;
 
 typedef struct MESHINFO {
