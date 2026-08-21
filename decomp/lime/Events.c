@@ -584,8 +584,8 @@ void LIME_PlayFBXAtPos(long arg0, long arg1, long arg2, long arg3)
 
     limeMatrixLoadIdentity(g_fbxScratchMatrix);   /* limeMATRIX44 is float[16] */
 
-    LIME_TriggerEventFromSceneH(arg2, t, &g_fbxScratchMatrix, arg0,
-                                arg1, 0, 1, arg3, 0, 0, 0);
+    LIME_TriggerEventFromSceneH(t->scene, t, &g_fbxScratchMatrix, NULL,
+                                arg0, arg1, 0, arg3, NULL, NULL, 0);
 }
 
 
@@ -658,22 +658,23 @@ void LIME_PlayFBXAtPos(long arg0, long arg1, long arg2, long arg3)
  * function would be naming them from a single sighting, which is not the
  * standard used here.
  */
-int LIME_TriggerEventFromSceneH(long a0, SCENEEVENTTRACK *track,
-                                limeMATRIX44 *matrix, long a3,
+int LIME_TriggerEventFromSceneH(SCENEINFO *scene, SCENEEVENTTRACK *track,
+                                limeMATRIX44 *m1, limeMATRIX44 *m2,
                                 long a4, long a5, long a6, long a7,
-                                long a8, long a9, long a10)
+                                TEXTURE *tex0, TEXTURE *tex1, long a10)
 {
     int slot;
     EVENT *ev;
 
-    (void)a0; (void)matrix; (void)a4; (void)a6; (void)a9;
+    (void)scene; (void)m1; (void)m2; (void)a5; (void)a7;
+    (void)tex0; (void)tex1;
 
     slot = GetFreeEvent();
     if (slot == -1)
         return -1;                      /* pool full: silently nothing */
 
     if (track->maxInstances != -1) {    /* +0xd0, -1 disables the cap */
-        if (CountEventsMatching(track, matrix) >= track->maxInstances)
+        if (CountEventsMatching(track, m1) >= track->maxInstances)
             return -1;                  /* at the cap: silently nothing */
     }
 
@@ -684,15 +685,15 @@ int LIME_TriggerEventFromSceneH(long a0, SCENEEVENTTRACK *track,
 
     ev->scene  = track->scene;          /* +0x10 */
     ev->track  = track;                 /* +0x14 */
-    ev->group  = (int32_t)a3;           /* +0x3c */
-    ev->repeat = (int)a5;               /* +0x2c */
+    ev->group  = (int32_t)a4;           /* +0x3c */
+    ev->repeat = (int)a6;               /* +0x2c */
 
     /* +0xf0 records whether this scene is a whirlwind, decided once at spawn */
     ev->isWhirlwind = IsWhirlwindScene(ev->scene);
 
     /* the remaining writes -- +0x0c, +0x28..+0x38, +0x40..+0x64, +0xe8..+0xf4 --
      * distribute the caller's arguments across the slot; see the map above */
-    (void)a7; (void)a8; (void)a10;
+    (void)a10;
 
     return slot;
 }
@@ -1108,12 +1109,11 @@ int LIME_TriggerEvent(SCENEEVENTTRACK *track, limeMATRIX44 *m1,
                       limeMATRIX44 *m2, long a3, long a4, long a5,
                       TEXTURE *tex0, TEXTURE *tex1, long a8)
 {
-    return LIME_TriggerEventFromSceneH((long)track->scene,   /* +0x04 */
-                                       track, m1, (long)m2,
+    return LIME_TriggerEventFromSceneH(track->scene,          /* +0x04 */
+                                       track, m1, m2,
                                        a3, a4,
                                        0,                    /* always zero */
-                                       a5, (long)tex0,
-                                       (long)tex1, a8);
+                                       a5, tex0, tex1, a8);
 }
 
 
