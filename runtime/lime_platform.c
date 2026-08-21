@@ -187,6 +187,7 @@ void glLoadIdentity(void) { }
 void glMatrixMode(unsigned mode)                  { (void)mode; }
 void glTranslatef(float x, float y, float z)      { (void)x; (void)y; (void)z; }
 void glMultMatrixf(const float *m)                { (void)m; }
+void glScalef(float x, float y, float z)          { (void)x; (void)y; (void)z; }
 
 
 /* ------------------------------------------------------------ blend state
