@@ -14,7 +14,7 @@ call; the completion figures are measured.
 | | |
 |---|---|
 | Asset formats | **100%** — solved, demonstrated, animating |
-| `lime/common` | **99 of 109** with a body, 14 documented, 0 unexamined |
+| `lime/common` | **101 of 109** with a body, 14 documented, 0 unexamined |
 | Native executable | **exists**, draws textured lit geometry |
 | `gamecode` + fight logic | 2,463 functions, essentially untouched |
 | Platform layer | target measured (77 GL entry points), barely written |
@@ -93,7 +93,7 @@ protects nothing and costs the project its only visible evidence.
 
 ## What to do next, in order
 
-### 1. Finish `lime/common` — 10 bodies left, nothing unread
+### 1. Finish `lime/common` — 8 bodies left, nothing unread
 
 **The specific work order for this is [ENCARGO.md](ENCARGO.md).**
 

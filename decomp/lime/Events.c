@@ -703,12 +703,113 @@ int LIME_TriggerEventFromSceneH(long a0, SCENEEVENTTRACK *track,
  * indistinguishable to the caller -- which matters, because LIME_LoadScene
  * stores this result without checking it.
  *
- * The per-track field parsing is not transcribed. It walks a long sequence of
- * offsets into the 216-byte record, and paraphrasing that from one pass would
- * put plausible-looking field names on offsets that have not been confirmed
- * twice.
+ * ## 44 bytes on disk become 216 in memory
+ *
+ * The parse is a field-by-field copy with a **remap**, not a memcpy. The disk
+ * record advances by `0x2c` -- 44 bytes, eleven words -- and its fields land
+ * scattered across the 216-byte runtime record:
+ *
+ * ```
+ *   disk        memory
+ *   +0x00   ->  +0x08
+ *   +0x00   ->  +0x0c        (read again through a second pointer)
+ *   +0x04   ->  +0x10
+ *   +0x08   ->  +0x14
+ *   +0x0c   ->  +0x18
+ *   +0x10   ->  +0x1c
+ *   +0x14   ->  +0x20
+ *   +0x18   ->  +0x6c
+ *   +0x1c   ->  +0xc8
+ *   +0x20   ->  +0xcc
+ *   +0x24   ->  +0x68
+ *   +0x28   ->  +0x24
+ * ```
+ *
+ * Eleven source words, twelve destinations, and the destinations are nowhere
+ * near contiguous -- `+0x18` on disk jumps to `+0x6c`, and the next two go to
+ * `+0xc8` and `+0xcc`, past the middle of the record. **Any external tool that
+ * reads a `.events` file needs this table**; treating the file as the runtime
+ * struct produces a record that looks plausible and is wrong in every field
+ * after the seventh.
+ *
+ * The gaps are where the runtime fields live that the file does not carry --
+ * `+0xd0` is the instance cap, `+0xd4` the array allocated from `+0x9c`, and
+ * the block from `+0x28` up is written by LIME_PlayFBXAtPos when it builds a
+ * track by hand.
+ *
+ * The names are copied ahead of this and uppercased in place, as described
+ * above.
  */
-EVENTSINFO *LIME_LoadEvents(const char *filename, long arg1, long arg2);
+EVENTSINFO *LIME_LoadEvents(const char *filename, long arg1, long arg2)
+{
+    const uint8_t *data;
+    EVENTSINFO *info;
+    char *tracks;
+    int32_t n;
+    int i;
+
+    (void)arg1; (void)arg2;
+
+    LIME_printf(8, "");                 /* compiled away, window 8 */
+
+    data = limeLoadFile(filename);
+    if (data == NULL)
+        return NULL;
+
+    info = limeMalloc("events", 8);
+    if (info == NULL)
+        return NULL;
+
+    n = *(const int32_t *)data;
+    info->count = n;
+    LIME_printf(8, "");
+
+    if (n == 0) {                       /* empty reads the same as absent */
+        limeFree((void *)data);
+        return NULL;
+    }
+
+    /* n*32 - n*8 = n*24, times 8 is n*192, plus the 24 -> n*216 */
+    info->tracks = limeMalloc("events", (size_t)n * SCENEEVENTTRACK_STRIDE);
+    if (info->tracks == NULL)
+        return NULL;
+
+    tracks = (char *)info->tracks;
+
+    for (i = 0; i < n; i++) {
+        char *dst = tracks + (size_t)i * SCENEEVENTTRACK_STRIDE;
+        const uint8_t *rec;             /* the 44-byte disk record */
+        int k;
+
+        /* the name: 64 bytes, then uppercased in place */
+        memcpy(dst + 0x80, data, 64);
+        for (k = 0; k < 64; k++) {
+            uint8_t c = (uint8_t)dst[0x80 + k];
+            if ((uint8_t)(c - 'a') <= 25u)
+                dst[0x80 + k] = (char)(c - 0x20);
+        }
+
+        rec = data;                     /* the record follows */
+
+        *(int32_t *)(dst + 0x08) = *(const int32_t *)(rec + 0x00);
+        *(int32_t *)(dst + 0x0c) = *(const int32_t *)(rec + 0x00);
+        *(int32_t *)(dst + 0x10) = *(const int32_t *)(rec + 0x04);
+        *(int32_t *)(dst + 0x14) = *(const int32_t *)(rec + 0x08);
+        *(int32_t *)(dst + 0x18) = *(const int32_t *)(rec + 0x0c);
+        *(int32_t *)(dst + 0x1c) = *(const int32_t *)(rec + 0x10);
+        *(int32_t *)(dst + 0x20) = *(const int32_t *)(rec + 0x14);
+        *(int32_t *)(dst + 0x6c) = *(const int32_t *)(rec + 0x18);
+        *(int32_t *)(dst + 0xc8) = *(const int32_t *)(rec + 0x1c);
+        *(int32_t *)(dst + 0xcc) = *(const int32_t *)(rec + 0x20);
+        *(int32_t *)(dst + 0x68) = *(const int32_t *)(rec + 0x24);
+        *(int32_t *)(dst + 0x24) = *(const int32_t *)(rec + 0x28);
+
+        data += 0x2c;                   /* 44 bytes per record */
+    }
+
+    limeFree((void *)data);
+    return info;
+}
 
 
 /* ---------------------------------------------------------- LIME_RenderEvents

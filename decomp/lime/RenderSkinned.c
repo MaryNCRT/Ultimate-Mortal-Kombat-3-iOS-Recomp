@@ -877,18 +877,106 @@ void GetSlerpedQ(const BONEANIMFRAME *a, const BONEANIMFRAME *b,
  * the allocation side and the release side now agree on both -- the standard
  * this project holds field identifications to.
  *
- * The fill loop for `+0x24` indexes with **both** `lsl #2` and `lsl #1` on the
- * same counter, so the 16-byte record is written in mixed widths: some 4-byte
- * fields and some 2-byte ones. That is consistent with docs/SKIN-FORMAT.md,
- * where weights are `uint16 * 1/65536` and indices are wider. The exact field
- * order inside the record is not transcribed here -- the loop interleaves the
- * two widths and getting that wrong would corrupt every vertex silently, so it
- * is left to be read directly rather than paraphrased.
+ * ## The weights are four per matrix, not an interleaved record
+ *
+ * An earlier pass saw `lsl #2` and `lsl #1` on the same counter and read it as
+ * one 16-byte record written in mixed widths. It is not interleaved at all:
+ * the two shifts are the two *strides*, one for each side of a conversion.
+ *
+ *      lsls r2, r3, #2         ; the loop runs count * 4 times
+ *      lsl  r3, r2, #2         ; destination: floats, 4 bytes apart
+ *      lsl  r3, r2, #1         ; source:      uint16, 2 bytes apart
+ *      ldrh r3, [r3, r6]
+ *      vcvt.f32.u32 s15, s14   ; UNSIGNED
+ *      vmul.f32 s15, s15, s14  ; x 1/65536
+ *
+ * **Four weights per matrix entry**, each stored on disk as a `uint16` and
+ * expanded to a float by the 1/65536 scale docs/SKIN-FORMAT.md records. That is
+ * why `+0x24` is `N * 16` bytes: four floats, not one sixteen-byte struct.
+ *
+ * The conversion is `vcvt.f32.u32` -- unsigned. A signed read would turn every
+ * weight above 0.5 negative, which is the half of the range that matters most.
+ *
+ * ## Two matrices per entry, 96 bytes apart
+ *
+ *      bl memcpy                       ; 48 bytes -> +0x14
+ *      add r1, r6, #0x30
+ *      bl memcpy                       ; 48 bytes -> +0x28
+ *      add r6, r6, #0x60               ; 96 per entry
+ *
+ * Which settles the ordering warning in SKIN-FORMAT.md from the loader's own
+ * side: the **first** matrix of each pair goes to `+0x14` and the second to
+ * `+0x28`, even though `+0x14` and `+0x28` are allocated in that same order.
+ * Allocation order and storage order agree here; it is the *pair* that could be
+ * read backwards, and it is not.
+ *
+ * ## Every size is a shift pair
+ *
+ * | field | expression in the code | bytes |
+ * |---|---|---|
+ * | `+0x20` | `N << 2` | `N * 4` -- indices, memcpy'd verbatim |
+ * | `+0x24` | `N << 4` | `N * 16` -- four floats per matrix |
+ * | `+0x14` | `N << 6` minus `N << 4` | `N * 48` |
+ * | `+0x28` | same | `N * 48` |
+ * | `+0x1c` | `M << 5` minus `M << 3` | `M * 24` |
+ * | `+0x18` | `M << 3` minus `M << 1` | `M * 6` |
+ *
+ * Six arrays, and they are exactly the six LIME_FreeSkin releases. Allocation
+ * and release agree on all six.
  *
  * Every allocation is null-checked and bails to a common exit, so a partial
  * load leaves the SKININFO holding whatever succeeded. Nothing is rolled back.
  */
-void LIME_LoadSkin1(const char *data, SKININFO *skin);
+void LIME_LoadSkin1(const char *data, SKININFO *skin)
+{
+    const uint8_t *src = (const uint8_t *)data;
+    const float wscale = 1.0f / 65536.0f;
+    int32_t n, m;
+    int i;
+
+    if (skin == NULL)
+        return;
+
+    n = *(const int32_t *)src;          /* +0x04  matrices */
+    skin->numMatrices = n;
+    m = *(const int32_t *)(src + 4);    /* +0x08  vertices */
+    skin->numVerts = m;
+    src += 8;
+
+    skin->indexes = limeMalloc("skin", (size_t)n * 4);          /* +0x20 */
+    if (skin->indexes == NULL)
+        return;
+    memcpy(skin->indexes, src, (size_t)n * 4);
+    src += (size_t)n * 4;
+
+    skin->weights = limeMalloc("skin", (size_t)n * 16);         /* +0x24 */
+    if (skin->weights == NULL)
+        return;
+    for (i = 0; i < n * 4; i++)         /* four per matrix, uint16 -> float */
+        skin->weights[i] = (float)((const uint16_t *)src)[i] * wscale;
+    src += (size_t)n * 8;
+
+    skin->matricesA = limeMalloc("skin", (size_t)n * 48);       /* +0x14 */
+    skin->matricesB = limeMalloc("skin", (size_t)n * 48);       /* +0x28 */
+    if (skin->matricesA == NULL || skin->matricesB == NULL)
+        return;
+    for (i = 0; i < n; i++) {           /* 96 bytes per entry: first, second */
+        memcpy(&skin->matricesA[i], src + (size_t)i * 96,        48);
+        memcpy(&skin->matricesB[i], src + (size_t)i * 96 + 0x30, 48);
+    }
+    src += (size_t)n * 96;
+
+    skin->uvs = limeMalloc("skin", (size_t)m * 24);             /* +0x1c */
+    if (skin->uvs == NULL)
+        return;
+    memcpy(skin->uvs, src, (size_t)m * 24);
+    src += (size_t)m * 24;
+
+    skin->vertExtra = limeMalloc("skin", (size_t)m * 6);        /* +0x18 */
+    if (skin->vertExtra == NULL)
+        return;
+    memcpy(skin->vertExtra, src, (size_t)m * 6);
+}
 
 
 /* ------------------------------------- CreateMatrixPaletteForGeneratingMesh
