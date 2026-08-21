@@ -122,9 +122,8 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ## Overall progress
 
 ```
-████████████▊░░░░░░░░░░░░░░░░░░░░░░░░░░░  32%
+███████████████░░░░░░░░░░░░░░░░░░░░░░░░░  35%
 ```
-
 
 | Area | Weight | Done | |
 |---|---:|---:|---|
@@ -136,10 +135,6 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | 4% | `░░░░░░░░░░` |
 | Native PC platform layer (161 fn to rewrite) | 17% | 10% | `█░░░░░░░░░` |
 | EA SDK stubs (~1,412 fn) | 5% | 0% | `░░░░░░░░░░` |
-
-```
-███████████████░░░░░░░░░░░░░░░░░░░░░░░░░  35%
-```
 
 **Roughly 35% of the total estimated effort. Nothing is playable yet.**
 
