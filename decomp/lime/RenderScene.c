@@ -624,10 +624,10 @@ void LIME_RenderScene(SCENEINFO *scene, long frame, long flags);
  *
  * ## Two more SCENEINFO fields
  *
- * It reads `scene->[0x88]` and `scene->[0x8c]`, neither of which
- * LIME_LoadScene was seen to write. They sit between the events pointer at
- * `+0x84` and the list link at `+0x90`, so the structure is denser there than
- * the loader alone suggested. Recorded, not named.
+ * It reads `scene->[0x88]` and `scene->[0x8c]`, and both are now named: they are
+ * the scene's animation table. See lime.h. An earlier note here said
+ * LIME_LoadScene was never seen to write them -- it does, at 0x82028 and
+ * 0x82040, further into the function than that pass had read.
  *
  * ## What matching EVENT actually does: nothing is drawn
  *
@@ -657,50 +657,92 @@ void LIME_RenderScene(SCENEINFO *scene, long frame, long flags);
  * right to: those accessors were hiding the structure above rather than
  * describing it.
  *
- * ## The node data is parallel arrays, not a struct array
+ * ## The node data is a two-level animation table
  *
- *      add sl, sl, #4               ; the cursor steps FOUR bytes per node
- *      ldr r1, [sl, r3]             ; one array
- *      ldr r3, [sl, r0]             ; another, a different base
- *      ldrh r3, [r2, r3]            ; a uint16 out of a third
- *      lsl r3, r3, #3
- *      add r6, r3, r1               ; -> an 8-byte record
+ * The cursor steps **four bytes** per node over two arrays of pointers, whose
+ * bases are `scene->nodeKeys` (`+0x88`) and `scene->nodeStream` (`+0x8c`):
  *
- * Several arrays indexed by the same node number, with their base offsets held
- * in stack slots the prologue sets up. The 8-byte record reached through the
- * uint16 carries both the mesh index at `+4` and the alpha at `+0` -- `vldr s15,
- * [r6]` reads it as a float straight after.
+ *      ldr  r1, [sl, r3]            ; keys[node]
+ *      ldr  r3, [sl, r0]            ; stream[node]
+ *      ldrh r3, [r2, r3]            ; stream[node][frame], a uint16
+ *      lsl  r3, r3, #3
+ *      add  r6, r3, r1              ; -> keys[node][index], eight bytes
  *
- * That layout is why no body is written here. Reproducing it means resolving
- * five stack slots back to what LIME_LoadScene put in them, and the accessors
- * that would paper over it have already been tried and rejected once.
+ * A node carries a **stream of uint16 indices, one per frame**, into a shared
+ * array of 8-byte keys. Repeated poses cost two bytes instead of eight. It also
+ * means **a port cannot walk keys by frame number** -- the frame indexes the
+ * stream, and the stream indexes the keys.
  *
- * ## The loop, as established
+ * The frame itself is clamped twice before use: `__modsi3` against `count2`,
+ * then `bic r0, r0, r0, asr #31` to floor a negative modulus at zero, then a
+ * compare against `count2` again. The same negative-clamp idiom
+ * LIME_TriggerEventsFromScene uses.
  *
- * ```
- *   frame % scene->count2                 ; __modsi3, the scene loops
- *   glScalef(scene->[0x60])
- *   for each of scene->[0x48] nodes:
- *       skip if the entry is null
- *       skip if the uint16 index equals a sentinel
- *       mesh   = meshset->meshes[record[4]]
- *       if mesh->meshName starts with "EVENT" -> skip to the state restore
- *       LIME_FindMeshByName(set, mesh->meshName)
- *       if record[0] as a float != 0 -> limeEnableAlphaBlending_Basic
- *       LIME_PushMatrix
- *       GetMatrixFromPalette / ConvertQSTMatrixtoPCMatrix / glMultMatrixf
- *       LIME_RenderMesh
- *       LIME_PopMatrix(1)
- *   restore: limeDisableAlphaBlending, limeEnableDepthWrites
- * ```
- *
- * The blend state is restored on **both** exits from the loop body, not once at
- * the end -- the pair appears twice in the disassembly. So a node that takes the
- * early exit still leaves the state clean, which is what lets
- * FlushTranspMeshList assume a known starting point.
- *
- * One branch calls the real `printf`, not `LIME_printf`, so it still reaches
- * stdout in the retail build.
+ * A key gives the alpha as a float at `+0x00` and the mesh as a **byte index**
+ * at `+0x04` into the meshset's own array -- which is how the `EVENT` test above
+ * reaches a mesh name at all.
  */
 void LIME_RenderSceneOverrideTextures(SCENEINFO *scene, long frame,
-                                      TEXTURE *replacement, long flags);
+                                      TEXTURE *replacement, long flags)
+{
+    long node;
+    long f;
+
+    (void)flags;
+
+    if (scene == NULL || scene->count2 == 0)
+        return;
+
+    f = frame % scene->count2;          /* __modsi3 */
+    if (f < 0)
+        f = 0;                          /* bic rN, rN, rN, asr #31 */
+    if (f >= scene->count2)
+        f = scene->count2;
+
+    glScalef(scene->scale, scene->scale, scene->scale);   /* +0x60 */
+
+    if (scene->nodeCount == 0)          /* +0x48 */
+        return;
+
+    for (node = 0; node < scene->nodeCount; node++) {
+        SCENENODEKEY *keys = scene->nodeKeys[node];       /* +0x88 */
+        uint16_t     *strm = scene->nodeStream[node];     /* +0x8c */
+        SCENENODEKEY *key;
+        MESHINFO *mesh;
+        float m[16];
+        int index;
+
+        if (keys == NULL)
+            continue;
+
+        index = strm[f];                /* one uint16 per frame */
+        if (index == SCENE_NODE_HIDDEN)
+            goto restore;               /* the sentinel: nothing this frame */
+
+        key  = &keys[index];            /* index * 8 */
+        mesh = scene->meshset->meshes[key->meshIndex];    /* a BYTE index */
+
+        /* E, V, E, N, T -- on the MESH's name, not a node's */
+        if (mesh->meshName[0] == 'E' && mesh->meshName[1] == 'V' &&
+            mesh->meshName[2] == 'E' && mesh->meshName[3] == 'N' &&
+            mesh->meshName[4] == 'T')
+            goto restore;               /* a marker, not geometry */
+
+        if (LIME_FindMeshByName(scene->meshset, mesh->meshName) < 0)
+            goto restore;
+
+        if (key->alpha != 0.0f)
+            limeEnableAlphaBlending_Basic();
+
+        LIME_PushMatrix();
+        ConvertQSTMatrixtoPCMatrix(GetMatrixFromPalette(f, scene), m);
+        glMultMatrixf(m);               /* untransposed: QST arrives GL-ready */
+        LIME_RenderMesh(scene->meshset, key->meshIndex, replacement, NULL);
+        LIME_PopMatrix(1);
+
+    restore:
+        /* on BOTH exits, so an early one still leaves the state clean */
+        limeDisableAlphaBlending();
+        limeEnableDepthWrites();
+    }
+}
