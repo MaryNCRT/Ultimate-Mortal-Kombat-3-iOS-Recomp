@@ -26,7 +26,7 @@
  * ending at a sentinel of base + 0xb900 + 8, which is exactly 0xBA00 minus one
  * slot. Never grown, never reallocated.
  */
-EVENT            g_events[EVENT_SLOTS];
+EVENT            SceneEvents[EVENT_SLOTS];
 
 /* The scratch track LIME_PlayFBXAtPos overwrites on every call. Static in the
  * original too, which is what makes that function non-reentrant. */

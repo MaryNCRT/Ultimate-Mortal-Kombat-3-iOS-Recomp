@@ -50,7 +50,7 @@ void LIME_InitEventsManager(void)
 {
     int i;
     for (i = 0; i < EVENT_SLOTS; i++)
-        g_events[i].state = 0;
+        SceneEvents[i].state = 0;
 }
 
 
@@ -80,7 +80,7 @@ int LIME_CountActiveEvents(void)
 {
     int i, n = 0;
     for (i = 0; i < EVENT_SLOTS; i++)
-        if (g_events[i].state != 0)
+        if (SceneEvents[i].state != 0)
             n++;
     return n;
 }
@@ -98,7 +98,7 @@ int GetFreeEvent(void)
 {
     int i;
     for (i = 0; i < EVENT_SLOTS; i++)
-        if (g_events[i].state == 0)
+        if (SceneEvents[i].state == 0)
             return i;
     return -1;
 }
@@ -119,7 +119,7 @@ int CountEventsMatching(SCENEEVENTTRACK *track, limeMATRIX44 *unused)
     (void)unused;
 
     for (i = 0; i < EVENT_SLOTS; i++)
-        if (g_events[i].state > 0 && g_events[i].track == track)
+        if (SceneEvents[i].state > 0 && SceneEvents[i].track == track)
             n++;
     return n;
 }
@@ -147,10 +147,10 @@ void KillAlleventsWithGroup(long group)
 {
     int i;
     for (i = 0; i < EVENT_SLOTS; i++) {
-        if (g_events[i].state > 0 && g_events[i].group == group) {
-            g_events[i].state = -2;
-            g_events[i].fadeA = EVENT_KILL_VALUE;    /* +0xa4 */
-            g_events[i].fadeB = EVENT_KILL_VALUE;    /* +0xe4 */
+        if (SceneEvents[i].state > 0 && SceneEvents[i].group == group) {
+            SceneEvents[i].state = -2;
+            SceneEvents[i].fadeA = EVENT_KILL_VALUE;    /* +0xa4 */
+            SceneEvents[i].fadeB = EVENT_KILL_VALUE;    /* +0xe4 */
         }
     }
 }
@@ -376,98 +376,151 @@ void LIME_TriggerEventsFromScene(SCENEINFO *scene, int frame,
 
 /* ----------------------------------------------------------- LIME_UpdateEvents
  *
- * armv6 0x000e9238, 452 bytes.  **Complete, and it corrects this file.**
+ * armv6 0x000e9238, 452 bytes.  **Rewritten -- the first version was wrong.**
  *
  * Ticks every slot in the event pool once per frame.
  *
- * ## It re-confirms the pool geometry exactly
+ * ## What the first version got wrong, and how it was caught
  *
- * The walk steps `#0xf8` -- 248 bytes, the slot size documented at the top of
- * this file -- and the loop ends when the cursor reaches a sentinel computed as
- * `base + 0xb900 + 8`, which is `base + 0xB908`. With a 0xBA00 pool that is
- * precisely the last slot:
+ * An earlier pass read `beq #0xe937c` on the repeat counter as "nothing to do,
+ * go to the next slot". It is the opposite: that branch is where an event whose
+ * counters have run out **kills itself**. The code there is
  *
- *      0xBA00 - 0xF8 = 0xB908
+ *      mvn  r3, #1             ; -2
+ *      str  r3, [r4]           ; state = -2
+ *      str  r3, [r4, #0xa4]    ; the same two float fields
+ *      str  r3, [r4, #0xe4]    ; KillAlleventsWithGroup writes
  *
- * So **192 slots of 248 bytes** is confirmed a third time, from the consumer
- * side rather than from the allocator.
+ * -- the identical kill signature. So the version written first left finished
+ * effects alive forever, and read the whole function inside out.
  *
- * ## Negative states are a countdown, not a tombstone
+ * It was caught by `tests/test_events_diff.c` on its first run: a live event
+ * with no repeats left stayed at state 3 in the clean C while the original took
+ * it to -2. Nothing about that is visible by reading; it took running both.
  *
- * An earlier pass through this file recorded that killing an event sets its
- * state to -2 and concluded the slot is **never freed**. That was wrong, and
- * this function is where it shows:
+ * ## The real shape
  *
- *      ldr      r2, [r4]
- *      cmp      r2, #0
- *      beq      #0xe92a4        ; zero  -> slot is free, skip
- *      addlt    r2, r2, #1      ; NEGATIVE -> count UP toward zero
- *      strlt    r2, [r4]
- *      blt      #0xe92a4        ; and skip this frame
+ * Per slot, in order:
  *
- * A killed event sits at -2, becomes -1 on the next update and 0 on the one
- * after, and zero is what "free" means. So the kill is a **deferred free with a
- * two-frame grace period** -- long enough for anything still holding the slot
- * this frame to finish with it, without a reference count.
+ *  - **state 0** -- free, skip.
+ *  - **state < 0** -- dying. Count UP toward zero and skip. That part of the
+ *    first version was right: -2 buys a two-frame grace period before the slot
+ *    is handed out again.
+ *  - **a delay at +0x38** -- decremented, clamped at zero, and while it is still
+ *    positive the slot is skipped entirely. A start delay.
+ *  - **the frame cursor at +0x04** is truncated to an integer and stored at
+ *    +0x08. If it differs from the previous frame at +0x0c, the scene's event
+ *    tracks fire through `LIME_TriggerEventsFromScene`, which is handed the
+ *    scene at +0x10, the track block at +0x68, and four more fields.
+ *    **Events fire on a frame CHANGE, not once per tick** -- so a slowed or
+ *    paused cursor does not re-trigger, and a port that fires per tick will
+ *    emit duplicates at low speed.
+ *  - **+0x0c is then set to +0x08**, remembering the frame just handled.
  *
- * That is a much better design than the one previously recorded, and it matters
- * for the port: a runtime that frees on kill will reuse a slot that the current
- * frame is still drawing from.
+ * ## Two counters, then death
  *
- * ## The repeat counter
+ * When the frame reaches `scene->count2 - 1` the event has run its length, and
+ * three things can happen:
  *
- * Field `+0x2c` is a loop count, and **-1 means forever**:
+ * | condition | what happens |
+ * |---|---|
+ * | `+0x2c` non-zero | rewind: cursor and both frame fields reset to `count2 - 1`; the counter decrements unless it is **-1**, which loops forever |
+ * | `+0x2c` zero, `+0x30` non-zero | a second pass: cursor steps back by the frame count and `+0x30` decrements while positive |
+ * | both zero | **state = -2** and the two float fields are written -- the event kills itself |
  *
- *      cmn      r0, #1          ; == -1 ?
- *      subne    r3, r0, #1      ; only decrement when it is not -1
- *      strne    r3, [r4, #0x2c]
+ * Two independent counters rather than one is not what the first reading
+ * assumed, and it is the difference between an effect that ends and one that
+ * never does.
  *
- * When a track runs out, the event is rewound rather than stopped: `+0x04` is
- * set to `(float)counter - 1.0f`, and both `+0x08` and `+0x0c` are set to
- * `scene->count2 - 1` -- read from `SCENEINFO+0x44`, the same field
- * LIME_TriggerEventsFromScene takes its modulo against. Two frame cursors, both
- * parked on the last frame.
+ * ## The pool geometry, unchanged
  *
- * The frame counter is converted with `vcvt.f32.s32` and then has 1.0f
- * subtracted, so `+0x04` is a float cursor over an integer frame count.
+ * The walk steps `#0xf8` and ends at a sentinel of `base + 0xb900 + 8`, which
+ * is `0xBA00` minus one slot -- 192 slots of 248 bytes, confirmed a third time
+ * from the consumer side.
+ *
+ * **Indexed, not stepped by 0xf8.** `sizeof(EVENT)` is 256 on a 64-bit host
+ * because an ARM pointer is 4 bytes and ours is 8. Walking a real C array with
+ * the original's byte stride runs off the end -- it did, with a segfault. A
+ * hard-coded stride is correct only for memory the engine treats as raw bytes.
+ *
+ * ## What is still not written out
+ *
+ * The four extra arguments passed to LIME_TriggerEventsFromScene (+0x40, +0x60,
+ * +0x48, +0xe8, +0xec) are named by offset here rather than given meanings, and
+ * the exact float arithmetic on the rewind path -- which mixes a subtraction of
+ * the frame count with an addition of the step at +0x28 -- is described above
+ * rather than transcribed. Both are visible in the disassembly and neither was
+ * traced to a confident conclusion.
  */
 void LIME_UpdateEvents(void)
 {
-    EVENT *ev;
     int i;
 
-    /* **Indexed, not stepped by 0xf8.** The stride in the binary is 248 because
-     * an ARM pointer is 4 bytes. Compiled for a 64-bit host, `sizeof(EVENT)` is
-     * 256, and walking a real C array with the original's byte stride
-     * desynchronises after the first slot and runs off the end -- which is
-     * exactly what it did, with a segfault and no output because stdout was
-     * still buffered.
-     *
-     * The rule this establishes: a hard-coded stride is correct only for memory
-     * the engine treats as bytes -- a loaded file buffer, like the 216-byte
-     * track records elsewhere in this file. For an array of host structs, index
-     * it and let the compiler size the step. */
     for (i = 0; i < EVENT_SLOTS; i++) {
-        ev = &g_events[i];
+        EVENT *ev = &SceneEvents[i];
+        SCENEINFO *scene;
+        int frame;
+
         if (ev->state == 0)
-            goto next;                  /* free slot */
+            continue;                   /* free */
 
         if (ev->state < 0) {
-            ev->state++;                /* deferred free, counting up to zero */
-            goto next;
+            ev->state++;                /* dying: count up toward zero */
+            continue;
         }
 
-        if (ev->repeat != 0) {          /* +0x2c */
-            ev->cursor = (float)ev->repeat - 1.0f;              /* +0x04 */
-            ev->frameA = ev->scene->count2 - 1;                 /* +0x08 */
-            ev->frameB = ev->scene->count2 - 1;                 /* +0x0c */
+        if (ev->delay != 0) {           /* +0x38 */
+            ev->delay--;
+            if (ev->delay < 0)
+                ev->delay = 0;
+            if (ev->delay > 0)
+                continue;               /* still waiting to start */
+        }
 
+        frame = (int)ev->cursor;        /* +0x04 truncated */
+        ev->frameA = frame;             /* +0x08 */
+
+        /* r2 is `add r2, r4, #0x68` -- the event's own matrix, which is what
+         * the existing signature already types the third argument as. Four more
+         * fields go on the stack (+0x60, +0x48, +0xe8, +0xec) and are not
+         * broken out. */
+        if (ev->state != 0 && frame != ev->frameB)      /* +0x0c */
+            LIME_TriggerEventsFromScene(ev->scene, frame,
+                                        (limeMATRIX44 *)((char *)ev + 0x68),
+                                        ev->field40);
+
+        scene = ev->scene;              /* +0x10 */
+        ev->frameB = ev->frameA;
+
+        if (frame < scene->count2 - 1) {
+            ev->cursor += ev->step;     /* +0x28 */
+            continue;
+        }
+
+        /* the event has run its length */
+        if (ev->repeat != 0) {                          /* +0x2c */
+            ev->cursor = (float)scene->count2 - 1.0f;
+            ev->frameA = scene->count2 - 1;
+            ev->frameB = scene->count2 - 1;
             if (ev->repeat != -1)       /* -1 loops forever */
                 ev->repeat--;
+            continue;
         }
 
-    next:
-        ;   /* the binary's sentinel is base + 0xB908, the last of 192 slots */
+        if (ev->repeat2 != 0) {                         /* +0x30 */
+            ev->cursor -= (float)frame;
+            ev->cursor += ev->step;
+            ev->frameA = frame - scene->count2;
+            if (ev->repeat2 > 0)
+                ev->repeat2--;
+            continue;
+        }
+
+        /* both counters spent: the same kill KillAlleventsWithGroup performs */
+        ev->state = -2;
+        ev->fadeA = EVENT_KILL_VALUE;   /* +0xa4 */
+        ev->fadeB = EVENT_KILL_VALUE;   /* +0xe4 */
+        ev->cursor += ev->step;
     }
 }
 

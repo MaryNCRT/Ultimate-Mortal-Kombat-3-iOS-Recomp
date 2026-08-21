@@ -137,7 +137,7 @@ en lugar de supuesta:
 
 | | nº | qué lo respalda |
 |---|---:|---|
-| Verificado por comportamiento | **13 + el cargador de mallas + la matemática de skinning** | ejecutado contra un oráculo recompilado: 78.799 casos sintéticos más todos los `.meshset` del juego — 590 ficheros, 7.327 mallas, 0 divergencias |
+| Verificado por comportamiento | **13 + el cargador de mallas + la matemática de skinning + el pool de eventos** | ejecutado contra un oráculo recompilado: 81.023 casos sintéticos más todos los `.meshset` del juego — 590 ficheros, 7.327 mallas, 0 divergencias |
 | Escrito y documentado | 75 | solo verja estructural — sin llamadas inventadas |
 | Documentado, cuerpo pendiente | 11 | analizado, hallazgos registrados, transcripción deliberadamente no escrita |
 

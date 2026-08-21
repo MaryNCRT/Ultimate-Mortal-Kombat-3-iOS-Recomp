@@ -188,10 +188,18 @@ typedef struct EVENT {
     struct SCENEINFO *scene;     /* 0x10  `ldr ip, [r4, #0x10]` then
                                   *       `ldr r3, [ip, #0x44]` for count2 */
     SCENEEVENTTRACK *track;      /* 0x14 */
-    uint8_t          _pad18[0x14];
+    uint8_t          _pad18[0x0c];
+    float            step;       /* 0x28  added to the cursor each frame */
     int              repeat;     /* 0x2c  -1 loops forever */
-    uint8_t          _pad30[0xc];
-    long             group;      /* 0x3c */
+    int              repeat2;    /* 0x30  a second counter, tried after +0x2c */
+    uint8_t          _pad34[4];
+    int              delay;      /* 0x38  ticks down before the event starts */
+    /* int32_t, not long. The binary's field is 4 bytes; `long` is 4 on MinGW
+     * and 8 on Linux, so writing `long` here would give the struct a different
+     * field order on the two hosts for no reason. `long` stays in the SIGNATURE
+     * of KillAlleventsWithGroup, where the mangled name (...Groupl) demands it. */
+    int32_t          group;      /* 0x3c */
+    int              field40;    /* 0x40  passed to LIME_TriggerEventsFromScene */
     uint8_t          _pad40[0x64];
     float            fadeA;      /* 0xa4 */
     uint8_t          _pada8[0x3c];
@@ -315,7 +323,10 @@ typedef struct FONT {
 /* Engine globals                                                       */
 /* ------------------------------------------------------------------ */
 
-extern EVENT            g_events[EVENT_SLOTS];
+/* The name is the binary's own: _SceneEvents in __DATA, 0x00379cc0, exactly
+ * 47,616 bytes -- 192 * 248. An earlier pass called this g_events, which was an
+ * invention sitting next to a symbol table that had the real name all along. */
+extern EVENT            SceneEvents[EVENT_SLOTS];
 extern SCENEEVENTTRACK  g_fbxScratchTrack;   /* reused every LIME_PlayFBXAtPos */
 extern limeMATRIX44     g_fbxScratchMatrix;
 /* Walked as raw bytes by FindIdInMasterOffsets, which strcmps at a fixed stride.
@@ -556,6 +567,10 @@ void   limeDisableAlphaBlending(void);
 void   limeEnableDepthWrites(void);
 void   limeDisableDepthWrites(void);
 void   LIME_printf(int window, const char *fmt, ...);
+int    GetFreeEvent(void);
+int    LIME_CountActiveEvents(void);
+void   KillAlleventsWithGroup(long group);
+void   LIME_UpdateEvents(void);
 void   LIME_KillSliders(void);
 int    FindIdInMasterOffsets(const char *name);
 struct SCENEINFO *LIME_SceneExists(struct SCENEINFO *scene);
