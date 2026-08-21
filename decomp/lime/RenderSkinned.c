@@ -889,3 +889,84 @@ void GetSlerpedQ(const BONEANIMFRAME *a, const BONEANIMFRAME *b,
  * load leaves the SKININFO holding whatever succeeded. Nothing is rolled back.
  */
 void LIME_LoadSkin1(const char *data, SKININFO *skin);
+
+
+/* ------------------------------------- CreateMatrixPaletteForGeneratingMesh
+ *
+ * armv6 0x000834e8, 332 bytes.  **Complete.**
+ *
+ * The top of the animation pipeline: two keyframes and a blend factor go in, a
+ * posed skeleton comes out. Every function it calls is already recovered, and
+ * four of the five have been verified against the original, which is why this
+ * one can be written out in full rather than described.
+ *
+ * ## The whole pose, in five calls
+ *
+ *      UnpackAnimFrame(data + stride * frameA, ...)
+ *      UnpackAnimFrame(data + stride * frameB, ...)
+ *      LerpVector3(a, b, t, out)          ; the root position
+ *      GetSlerpedQ(...)                   ; per bone, the rotation
+ *      MatrixIdentity2(root)
+ *      CreateMatrixPaletteRecurse2(bones, root)
+ *
+ * The two frame pointers come from `mla r0, r1, r2, r0` -- `data + stride *
+ * index`, a multiply-accumulate in one instruction. So the animation is a flat
+ * array of fixed-size records and a frame is reached by index, with no table
+ * and no seeking.
+ *
+ * ## BONEANIMFRAME is 20 bytes, and the loop says so
+ *
+ *      lsl r2, r4, #4      ; i * 16
+ *      lsl r3, r4, #2      ; i * 4
+ *      add r3, r3, r2      ; i * 20
+ *
+ * The same shift-and-add trick used for 216 and 80 elsewhere, and it confirms
+ * the struct: four quaternion floats plus the field at +0x10 that GetSlerpedQ
+ * writes 1.0f into. Nothing is padded.
+ *
+ * ## The root is special, twice over
+ *
+ * The root position is blended with `LerpVector3` -- which runs backwards from
+ * its argument order, so `t = 0` yields the SECOND frame. Then
+ * `MatrixIdentity2` supplies the root's parent transform, because the root has
+ * no parent. And CreateMatrixPaletteRecurse2 then overrides the root's own
+ * translation with `g_rootPosition` rather than using the one in the file.
+ *
+ * That last part is worth restating because it is counter-intuitive: **a
+ * `.bones` file's root translation is not what gets used at runtime.** The
+ * caller places the character; the file only describes the shape.
+ *
+ * ## Why the rotation loop is per bone but the position is not
+ *
+ * One `LerpVector3` for the whole pose and one `GetSlerpedQ` per bone. The
+ * skeleton carries a single root translation and a rotation at every joint --
+ * which is the standard way to store a skeletal animation, and it is why
+ * `GetSlerpedQ` being a lerp rather than a slerp matters at every joint while
+ * the position blend only matters once.
+ */
+void CreateMatrixPaletteForGeneratingMesh(char *data, long stride,
+                                          long frameA, long frameB,
+                                          float t, BONESINFO *bones)
+{
+    BONEANIMFRAME framesA[MAX_BONES];
+    BONEANIMFRAME framesB[MAX_BONES];
+    limeVECTOR3 posA, posB;
+    SKINMATRIX43 root;
+    int i;
+
+    UnpackAnimFrame((uint8_t *)(data + stride * frameA), framesA, &posA,
+                    bones->numBones);
+    UnpackAnimFrame((uint8_t *)(data + stride * frameB), framesB, &posB,
+                    bones->numBones);
+
+    /* one root position for the whole pose -- and LerpVector3 runs backwards */
+    LerpVector3(&posA, &posB, t, &g_rootPositionV);
+
+    if (bones->numBones != 0) {
+        for (i = 0; i < bones->numBones; i++)   /* stride 20, as i*16 + i*4 */
+            GetSlerpedQ(&framesA[i], &framesB[i], t, &g_animBlended[i]);
+    }
+
+    MatrixIdentity2(&root);                     /* the root has no parent */
+    CreateMatrixPaletteRecurse2(bones->bones, &root);
+}

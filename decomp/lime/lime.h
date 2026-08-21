@@ -214,7 +214,9 @@ typedef struct EVENT {
 #define SCENEEVENTTRACK_STRIDE 216
 
 struct SCENEEVENTTRACK {
-    uint8_t _pad00[8];
+    uint8_t _pad00[4];
+    struct SCENEINFO *scene;     /* 0x04  read as one by LIME_FreeEvents and by
+                                  *       LIME_TriggerEvent -- two functions */
     float   f08, f0c, f10, f14;  /* 0x08  set to 1.0f by LIME_PlayFBXAtPos */
     uint8_t _pad18[4];
     int     v1c, v20, v24;       /* 0x1c  zeroed together */
@@ -365,6 +367,22 @@ extern SKINMATRIX43    *g_paletteCursor;
 extern SKINMATRIX43    *g_matrixPalette;
 extern int              g_boneCounter;
 extern float            g_rootPosition[3];
+
+/* The blended root position and the per-bone blended rotations
+ * CreateMatrixPaletteForGeneratingMesh produces and
+ * CreateMatrixPaletteRecurse2 then consumes. MAX_BONES is not a constant the
+ * binary states -- the arrays are sized from BONESINFO.numBones there -- so it
+ * is a bound for the host build rather than a recovered figure, chosen well
+ * above the largest skeleton in the shipped data. */
+#define MAX_BONES 128
+extern limeVECTOR3      g_rootPositionV;
+extern BONEANIMFRAME    g_animBlended[MAX_BONES];
+
+void   UnpackAnimFrame(const uint8_t *src, BONEANIMFRAME *out,
+                       limeVECTOR3 *pos, long numBones);
+void   LerpVector3(const limeVECTOR3 *a, const limeVECTOR3 *b, float t,
+                   limeVECTOR3 *out);
+void   CreateMatrixPaletteRecurse2(BONE *bone, SKINMATRIX43 *parent);
 extern float            g_lightPower0, g_lightPower1;
 extern float            g_lightExp0, g_lightExp1;
 

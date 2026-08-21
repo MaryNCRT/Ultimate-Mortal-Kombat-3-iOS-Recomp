@@ -128,3 +128,9 @@ uint8_t         *g_fadeTable;
 int             *g_stateA;
 int             *g_stateB;
 int              g_whirlwindFirstFrame;
+
+/* Produced by CreateMatrixPaletteForGeneratingMesh, consumed by
+ * CreateMatrixPaletteRecurse2. Held here rather than passed because the
+ * traversal is stateful, like the cursors above. */
+limeVECTOR3      g_rootPositionV;
+BONEANIMFRAME    g_animBlended[MAX_BONES];

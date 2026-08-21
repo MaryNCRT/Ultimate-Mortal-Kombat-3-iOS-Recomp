@@ -66,12 +66,6 @@ int LIME_TriggerEventFromSceneH(long a0, SCENEEVENTTRACK *track,
     return 0;
 }
 
-void CreateMatrixPaletteForGeneratingMesh(char *a, long b, long c, long d,
-                                          float e, BONESINFO *bones)
-{
-    (void)a; (void)b; (void)c; (void)d; (void)e; (void)bones;
-    unwritten("CreateMatrixPaletteForGeneratingMesh");
-}
 
 void ConvertQSTMatrixtoPCMatrix(const int16_t *src, float *dst)
 {
