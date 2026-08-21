@@ -132,14 +132,23 @@ void ConvertDSMatrixtoPCMatrix(const int32_t *src, float *dst)
  * which is quaternion-to-matrix arithmetic and nothing else. So the Q in QST is
  * literal.
  *
- * The scale is the double at 0x0007ff40: **1/32767**. That is the same constant
- * the `.meshset` variant-A vertex positions use, and it is worth putting beside
- * the others, because this engine has three different fixed-point conventions
- * and they are easy to mix up:
+ * The scale is the double at 0x0007ff40, and it is **not** 1/32767 -- it is
+ * `3.0518509447574615e-05`, whose reciprocal is 32767.000030516647. A
+ * differential test at bit precision is what separated the two; by eye they are
+ * the same number. See the note in ConvertQSTMatrixtoPCMatrix below.
  *
- *      int16  * 1/32767    QST quaternions, .meshset vertex positions
- *      int32  * 1/4096     DS matrices (ConvertDSMatrixtoPCMatrix)
- *      uint16 * 1/65536    .skin weights
+ * The engine has four fixed-point conventions and they are easy to mix up:
+ *
+ *      int16  * 3.0518509447574615e-05   QST quaternions  (measured)
+ *      int16  * 1/32767                  .meshset vertex positions (see below)
+ *      int32  * 1/4096                   DS matrices
+ *      uint16 * 1/65536                  .skin weights
+ *
+ * **The `.meshset` constant is a separate one and has not been re-checked
+ * against its own literal.** It was derived by fitting the shipped data, which
+ * validated against 604 of 605 files -- strong evidence for a value very close
+ * to 1/32767, and not the same thing as reading the eight bytes. Anyone touching
+ * that path should read the literal, now that this one turned out to differ.
  *
  * Getting one wrong produces geometry that is subtly the wrong size rather than
  * obviously broken, which is the worst kind of wrong.
@@ -205,7 +214,8 @@ void LerpQSTMatrix(const QSTMATRIX *a, const QSTMATRIX *b, float t,
  * Expands a QST matrix into the float 4x4 the renderer uses.
  *
  * What is established: it reads four `int16` from +0x00 through +0x06, scales
- * each by **1/32767**, and works in **double** -- `vcvt.f64.s32`, `vmul.f64` --
+ * each by the literal at 0x0007ff40 (**not** 1/32767 -- see below), and works
+ * in **double** -- `vcvt.f64.s32`, `vmul.f64` --
  * before narrowing. The immediate squaring (`vmul.f64 d1, d4, d4`) is the
  * quaternion-to-matrix expansion, the same shape as `GetMFromQuat2` in
  * RenderSkinned.cpp but at higher precision.

@@ -121,9 +121,11 @@ typedef struct SKINMATRIX43 {
  * else -- so the Q is literal. The full element count is what LerpQSTMatrix
  * iterates. */
 /* Quaternion, Scale, Translation -- and only the quaternion is fixed point.
+ * Its scale is the double 3.0518509447574615e-05, NOT 1/32767; see
+ * ConvertQSTMatrixtoPCMatrix.
  * ConvertQSTMatrixtoPCMatrix reads all ten fields and settles every one:
  *
- *      ldrsh  r3, [r0]          x4, scaled by 1/32767 into double
+ *      ldrsh  r3, [r0]          x4, scaled into double by the literal
  *      vldr   s15, [r0, #0x08]  a FLOAT, multiplying row 0
  *      vldr   s15, [r0, #0x0c]  row 1
  *      vldr   s15, [r0, #0x10]  row 2
@@ -135,7 +137,7 @@ typedef struct SKINMATRIX43 {
  * this header modelled the whole struct as an int16 array, which would have put
  * every field after the quaternion at the wrong offset. */
 typedef struct QSTMATRIX {
-    int16_t q[4];                /* 0x00  x, y, z, w -- w LAST, x 1/32767 */
+    int16_t q[4];                /* 0x00  x, y, z, w -- w LAST */
     float   scale[3];            /* 0x08  per-axis, multiplying each ROW */
     float   translation[3];      /* 0x14  copied straight into m[12..14] */
 } QSTMATRIX;

@@ -14,7 +14,7 @@ call; the completion figures are measured.
 | | |
 |---|---|
 | Asset formats | **100%** — solved, demonstrated, animating |
-| `lime/common` | **109 of 109**, five modules verified |
+| `lime/common` | **109 of 109** written, **six of nine files verified** |
 | Native executable | **exists**, draws textured lit geometry |
 | `gamecode` + fight logic | 2,463 functions, essentially untouched |
 | Platform layer | target measured (77 GL entry points), barely written |
