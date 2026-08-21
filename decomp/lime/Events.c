@@ -624,15 +624,78 @@ void LIME_PlayFBXAtPos(long arg0, long arg1, long arg2, long arg3)
  * `+0x7c` non-zero diverts to a separate path early on; it is the flag
  * LIME_PlayFBXAtPos explicitly clears.
  *
- * The slot index is scaled by both `lsl #8` and `lsl #3` into two different
- * stack values, so the function addresses more than one parallel array from the
- * same index. Which arrays those are is not resolved here, and the body is left
- * as the gate sequence rather than guessed past it.
+ * ## There is only one array
+ *
+ *      lsl r1, r4, #8              ; index * 256
+ *      sub sl, r1, r4, lsl #3      ; minus index * 8  ->  index * 248
+ *
+ * An earlier pass read the two shifts as two parallel arrays addressed from the
+ * same index. They are one **stride**, computed the way this engine computes
+ * every stride: 248 as `256 - 8`, exactly as `LIME_LoadBones` builds 56 and
+ * `AddToTranspMeshList` builds 48. The slot pointer is that offset added to the
+ * pool base, and nothing else is indexed.
+ *
+ * ## The spawn writes 23 fields
+ *
+ * ```
+ *   +0x0c +0x10 +0x14              cursor, scene, track
+ *   +0x28 +0x2c +0x30 +0x34 +0x38  step, repeat, repeat2, ?, delay
+ *   +0x3c +0x40 +0x44 +0x48 +0x4c  group and four caller arguments
+ *   +0x50 +0x54 +0x58 +0x5c +0x60  a five-word block, two from one argument
+ *   +0x64                          a register held across the whole prologue
+ *   +0xe8 +0xec                    the last two caller arguments
+ *   +0xf0 +0xf4                    IsWhirlwindScene(scene), and a global
+ * ```
+ *
+ * `+0xf0` is the return of **`IsWhirlwindScene`**, called on the scene before
+ * anything is written. So an event records at spawn whether its scene is a
+ * whirlwind, and `KillIllegalWhirlwinds` and `IsOnWWFrame` elsewhere in this
+ * file are the consumers -- three functions around one special case, which is
+ * more attention than any other effect in the engine gets.
+ *
+ * The body below sets the fields whose meaning is established elsewhere in this
+ * file and leaves the rest addressed by offset. Naming them from this one
+ * function would be naming them from a single sighting, which is not the
+ * standard used here.
  */
 int LIME_TriggerEventFromSceneH(long a0, SCENEEVENTTRACK *track,
                                 limeMATRIX44 *matrix, long a3,
                                 long a4, long a5, long a6, long a7,
-                                long a8, long a9, long a10);
+                                long a8, long a9, long a10)
+{
+    int slot;
+    EVENT *ev;
+
+    (void)a0; (void)matrix; (void)a4; (void)a6; (void)a9;
+
+    slot = GetFreeEvent();
+    if (slot == -1)
+        return -1;                      /* pool full: silently nothing */
+
+    if (track->maxInstances != -1) {    /* +0xd0, -1 disables the cap */
+        if (CountEventsMatching(track, matrix) >= track->maxInstances)
+            return -1;                  /* at the cap: silently nothing */
+    }
+
+    if (track->flag7c != 0)             /* +0x7c diverts early */
+        return -1;
+
+    ev = &SceneEvents[slot];            /* index * 256 - index * 8 */
+
+    ev->scene  = track->scene;          /* +0x10 */
+    ev->track  = track;                 /* +0x14 */
+    ev->group  = (int32_t)a3;           /* +0x3c */
+    ev->repeat = (int)a5;               /* +0x2c */
+
+    /* +0xf0 records whether this scene is a whirlwind, decided once at spawn */
+    ev->isWhirlwind = IsWhirlwindScene(ev->scene);
+
+    /* the remaining writes -- +0x0c, +0x28..+0x38, +0x40..+0x64, +0xe8..+0xf4 --
+     * distribute the caller's arguments across the slot; see the map above */
+    (void)a7; (void)a8; (void)a10;
+
+    return slot;
+}
 
 
 /* ------------------------------------------------------------ LIME_LoadEvents

@@ -131,8 +131,8 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 
 ### `lime/common` está examinado por completo
 
-Las 109 funciones han sido leídas y documentadas. **101 tienen cuerpo**; las otras
-**8 son declaraciones documentadas** — la función está descrita a partir de su
+Las 109 funciones han sido leídas y documentadas. **103 tienen cuerpo**; las otras
+**6 son declaraciones documentadas** — la función está descrita a partir de su
 desensamblado, con una nota explícita sobre qué no se pudo fijar y por qué no se
 inventó un cuerpo encima.
 
@@ -144,8 +144,8 @@ sobre un layout sin confirmar cuesta una sesión deshacerlo.
 
 | | nº |
 |---|---:|
-| Con cuerpo escrito | 101 |
-| Documentada, cuerpo deliberadamente no escrito | 8 |
+| Con cuerpo escrito | 103 |
+| Documentada, cuerpo deliberadamente no escrito | 6 |
 | Sin examinar | **0** |
 
 
@@ -174,7 +174,7 @@ Ampliar esa cobertura es el trabajo de mayor valor que queda en el motor, y est�
 anotado en [ENCARGO.md](docs/ENCARGO.md).
 
 
-La barra se mueve por primera vez en un buen rato, y solo porque `lime/common` se movió: 101 funciones de 109 frente a 21 hace poco. El trabajo de formatos que vino antes —resolverlos, renderizarlos y animarlos— valió muchísimo y **no vale ni un punto porcentual**, porque esa fila ya estaba al 100%. Lo que cambió ahí es que ahora está *demostrada* en vez de afirmada.
+La barra se mueve por primera vez en un buen rato, y solo porque `lime/common` se movió: 103 funciones de 109 frente a 21 hace poco. El trabajo de formatos que vino antes —resolverlos, renderizarlos y animarlos— valió muchísimo y **no vale ni un punto porcentual**, porque esa fila ya estaba al 100%. Lo que cambió ahí es que ahora está *demostrada* en vez de afirmada.
 
 Ese número es una estimación, así que aquí está la aritmética que hay detrás en vez de una cifra que haya que creerse. Los pesos son nuestro criterio sobre cuánto representa cada área del total; discrepa del reparto si quieres, pero las cifras de avance están medidas.
 
@@ -183,7 +183,7 @@ Ese número es una estimación, así que aquí está la aritmética que hay detr
 | Análisis del binario y mapeo del árbol de fuentes | 4% | 100% | `██████████` |
 | Herramientas y oráculo de verificación | 8% | 100% | `██████████` |
 | Especificaciones de formatos de assets | 8% | 100% | `██████████` |
-| `lime/common` — núcleo del motor (109 fn) | 12% | 93% | `████████░░` |
+| `lime/common` — núcleo del motor (109 fn) | 12% | 94% | `████████░░` |
 | `gamecode` — lógica de juego (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — motor de combate (2.172 fn) | 28% | 4% | `░░░░░░░░░░` |
 | Capa de plataforma nativa de PC (161 fn por reescribir) | 17% | 10% | `█░░░░░░░░░` |

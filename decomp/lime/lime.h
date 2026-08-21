@@ -231,7 +231,11 @@ typedef struct EVENT {
     float            fadeA;      /* 0xa4 */
     uint8_t          _pada8[0x3c];
     float            fadeB;      /* 0xe4 */
-    uint8_t          _pade8[EVENT_STRIDE - 0xe8];
+    uint8_t          _pade8[0xf0 - 0xe8];
+    int              isWhirlwind; /* 0xf0  IsWhirlwindScene(scene), decided once
+                                   *       at spawn -- KillIllegalWhirlwinds and
+                                   *       IsOnWWFrame are the consumers */
+    uint8_t          _padf4[EVENT_STRIDE - 0xf4];
 } EVENT;
 
 /* A track loaded from a .events file: 216 bytes, spelled out by LIME_LoadEvents
@@ -638,10 +642,15 @@ void   LIME_UpdateEvents(void);
 void   LIME_KillSliders(void);
 void   limeDrawSprite(TEXTURE *page, float x, float y, float w, float h,
                       float u, float v, float du, float dv);
+void   limeDrawRotSpriteFromTopLeft(TEXTURE *page, float x, float y,
+                                    float w, float h, float u, float v,
+                                    float du, float dv, float angle);
 int    FindIdInMasterOffsets(const char *name);
 struct SCENEINFO *LIME_SceneExists(struct SCENEINFO *scene);
 void   LIME_FreeScene(struct SCENEINFO *scene);
 EVENTSINFO *LIME_LoadEvents(const char *filename, long a, long b);
+int    IsWhirlwindScene(struct SCENEINFO *scene);
+int    CountEventsMatching(SCENEEVENTTRACK *track, limeMATRIX44 *matrix);
 int    LIME_TriggerEventFromSceneH(long a0, SCENEEVENTTRACK *track,
                                    limeMATRIX44 *matrix, long a3, long a4,
                                    long a5, long a6, long a7, long a8,
