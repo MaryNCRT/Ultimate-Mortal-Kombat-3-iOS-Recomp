@@ -17,7 +17,13 @@
 
 cd "$(dirname "$0")/.." || exit 99
 CC=${CC:-gcc}
-FLAGS="-std=c99 -Wall -Wextra -fsyntax-only -I runtime -I decomp/lime"
+# -O2 -c, NOT -fsyntax-only. Parsing cannot see a whole class of defect: it
+# took an optimising build to report "iteration 9 invokes undefined behavior"
+# in MatrixIdentity2, which had been walking off the end of SKINMATRIX43.m
+# into .t for as long as the file has existed. A checker that cannot detect a
+# known positive is not evidence of anything -- so this one compiles.
+FLAGS="-std=c99 -Wall -Wextra -O2 -c -I runtime -I decomp/lime"
+OBJ=${TMPDIR:-/tmp}/umk3-check.o
 
 case "$(uname -s)" in
     MINGW*|MSYS*|CYGWIN*) NATIVE=win32_gl.c ; OTHER=sdl_gl.c   ;;
@@ -28,7 +34,7 @@ errors=0
 warnings=0
 
 check_one() {
-    out=$("$CC" $FLAGS $2 "$1" 2>&1)
+    out=$("$CC" $FLAGS $2 "$1" -o "$OBJ" 2>&1)
     e=$(printf '%s' "$out" | grep -c 'error:')
     w=$(printf '%s' "$out" | grep -c 'warning:')
     errors=$((errors + e))
@@ -79,5 +85,6 @@ if [ -n "$OTHER" ]; then
 fi
 
 echo
+rm -f "$OBJ"
 echo "TOTAL: $errors errors, $warnings warnings"
 exit $errors

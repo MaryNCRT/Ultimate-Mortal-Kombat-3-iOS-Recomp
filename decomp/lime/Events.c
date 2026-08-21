@@ -986,8 +986,23 @@ void LIME_RenderEvents(void)
 
         glMultMatrixf(m);
 
-        LIME_RenderScene(ev->scene, ev->fieldE8, ev->fieldEC);
-        LIME_RenderScene(ev->scene, ev->fieldE8, ev->fieldEC);
+        /* TWICE, and not by accident: the first pass draws the opaque meshes
+         * and the second collects the translucent ones and flushes them. The
+         * only difference is argument 8 -- 0x000a4b3a stores 0 into [sp,#0xc]
+         * and 0x000a4b62 stores 1. An earlier pass here saw two identical-
+         * looking calls and wrote them identically, which lost the entire
+         * two-pass structure.
+         *
+         * arg1 is the literal 26 (movs r0, #0x1a). It reaches LIME_printf,
+         * which is an eight-byte no-op in this build, so what it MEANS is not
+         * established -- but it is a constant, not a pointer.
+         *
+         * Both frame arguments get frameA (mov r3, r2), so this caller does
+         * not blend, and it passes a blend factor of zero to match. */
+        LIME_RenderScene(26, ev->scene, ev->frameA, ev->frameA, 0.0f, 0, 0,
+                         0, ev->flushTexture, ev->fieldEC, NULL);
+        LIME_RenderScene(26, ev->scene, ev->frameA, ev->frameA, 0.0f, 0, 0,
+                         1, ev->flushTexture, ev->fieldEC, NULL);
 
         LIME_PopMatrix(1);
 

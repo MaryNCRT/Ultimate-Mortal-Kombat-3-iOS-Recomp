@@ -250,8 +250,13 @@ typedef struct EVENT {
     float            fadeA;      /* 0xa4 */
     uint8_t          _pada8[0x3c];
     float            fadeB;      /* 0xe4 */
-    long             fieldE8;    /* 0xe8  both handed to LIME_RenderScene */
-    long             fieldEC;    /* 0xec */
+    /* Both handed to LIME_RenderScene, and the call site names them: +0xe8
+     * lands in argument 9, which FlushTranspMeshList takes as its TEXTURE *,
+     * and +0xec lands in argument 10, which nothing reads. Typing +0xe8 as a
+     * pointer rather than long also keeps it from truncating on a 64-bit host,
+     * the same trap Events.c hit once already. */
+    TEXTURE         *flushTexture; /* 0xe8 */
+    long             fieldEC;      /* 0xec  passed on, never read */
     int              isWhirlwind; /* 0xf0  IsWhirlwindScene(scene), decided once
                                    *       at spawn -- KillIllegalWhirlwinds and
                                    *       IsOnWWFrame are the consumers */
@@ -360,10 +365,26 @@ typedef struct SCENENODE     SCENENODE;
  * constant rather than a guessed number. */
 #define SCENE_NODE_HIDDEN 0xFFFFu
 
+/* The cutoff LIME_RenderScene uses to decide a mesh is opaque. Read from the
+ * literal at 0x0005fb14, NOT assumed: an earlier body tested alpha against
+ * zero and deferred anything non-zero to the transparent list. The real rule
+ * is that a mesh at 0.97 or above is drawn in the opaque pass.
+ * LIME_RenderSceneOverrideTextures uses 1.0f instead -- the two do not share
+ * this threshold. */
+#define SCENE_OPAQUE_ALPHA 0.97f
+
 typedef struct SCENENODEKEY {
-    float    alpha;              /* 0x00  vldr s15, [r6] */
+    float    alpha;              /* 0x00  vldr s14, [r6] -- and compared against
+                                  *       0.97f, not against zero. See
+                                  *       docs/RENDERSCENE-SIGNATURE.md */
     uint8_t  meshIndex;          /* 0x04  ldrb, indexes MESHSETINFO.meshes */
-    uint8_t  _pad05;             /* 0x05 */
+    uint8_t  field05;            /* 0x05  READ, not padding: `ldrb r3, [r6, #5]`
+                                  *       and copied into the temporary node
+                                  *       LIME_RenderScene hands to
+                                  *       AddToTranspMeshList. An earlier pass
+                                  *       called this _pad05 on no evidence
+                                  *       beyond it being unaccounted for.
+                                  *       What it MEANS is not established. */
     uint16_t paletteIndex;       /* 0x06  ldrh, -> GetMatrixFromPalette */
 } SCENENODEKEY;
 
@@ -753,7 +774,22 @@ void   limeEnableAlphaBlending_Basic(void);
 void   limeDisableAlphaBlending(void);
 void   limeEnableDepthWrites(void);
 void   limeDisableDepthWrites(void);
-void   LIME_RenderScene(SCENEINFO *scene, long frame, long flags);
+/* **The argument lists here were measured, not read.** Both were previously
+ * declared with the scene first and a `flags` word last; driving them showed
+ * the scene is the SECOND argument of LIME_RenderScene and that neither takes
+ * anything resembling `flags`. Full derivation, including the experiment that
+ * settled it, is in docs/RENDERSCENE-SIGNATURE.md.
+ *
+ * Names are given only where the use is established. `arg1`, `arg6`, `arg7`
+ * and `arg10` are numbered rather than named because nothing yet says what
+ * they are, and arg6/arg7 are never read at all. */
+void   LIME_RenderScene(long arg1, SCENEINFO *scene,
+                        long frameA, long frameB, float blend,
+                        long arg6, long arg7,
+                        long flush, TEXTURE *flushTexture, long arg10,
+                        const SKINMATRIX43 *flushMatrix);
+void   LIME_RenderSceneOverrideTextures(SCENEINFO *scene, TEXTURE **textures,
+                                        long frame);
 void   glCullFace(unsigned mode);
 #ifndef GL_BACK
 #define GL_BACK 0x0405
