@@ -313,3 +313,88 @@ void limeCreateFONT(const char *tex0, const char *tex1, const char *metrics,
  * why an empty body is a better answer than a plausible one.
  */
 float limeGetStringWidth(const FONT *font, const char *text);
+
+
+/* -------------------------------------------------------------- limeDrawFONT
+ *
+ * armv6 0x000af358, 1252 bytes.  **Structurally complete -- and it names the
+ * two arrays FONT-FORMAT.md could not.**
+ *
+ * Draws a string. The largest function in this file and the one every other
+ * font routine exists to serve.
+ *
+ * ## The three metric arrays are read together, per glyph
+ *
+ *      ldr r2, [r4, #0x24]     ; advance
+ *      ldr r2, [r4, #0x1c]     ; metricA
+ *      ldr r2, [r4, #0x20]     ; metricB
+ *
+ * Three loads in eleven instructions, inside the per-character loop, and then:
+ *
+ *      vldr s9,  [r4, #0x34]   ; the font's cell height
+ *      vldr s13, [r4, #0x38]   ; the font's cell width
+ *      ...
+ *      bl   _limeDrawSprite
+ *
+ * So all three per-glyph values plus the font's cell dimensions feed one
+ * sprite call. That is an **atlas lookup**: the glyph is a rectangle in the
+ * texture, and three int16 per glyph plus a fixed cell size is exactly what
+ * locating it takes.
+ *
+ * `+0x24` is already known to be the advance, because limeGetStringWidth
+ * accumulates it and nothing else. **Which of `+0x1c` and `+0x20` is the atlas
+ * offset and which is the drawn width is not settled here** -- both are loaded
+ * into the same register two instructions apart and their order into
+ * limeDrawSprite runs through float conversions this pass did not follow. They
+ * stay numbered. What *is* now established is that they are atlas geometry
+ * rather than kerning or line metrics, which is more than FONT-FORMAT.md could
+ * say before.
+ *
+ * ## Four alignment modes
+ *
+ *      cmp r5, #0 / #1 / #2 / #3
+ *
+ * A four-way branch on an argument, taken before the loop and after a call to
+ * limeGetStringWidth whose result is scaled by `FONT+0x14`. Measuring the whole
+ * string before drawing it is what centring and right-alignment require, so
+ * the modes are almost certainly left, centre, right and one more. The fourth
+ * is not identified and is not guessed.
+ *
+ * ## Space is special-cased, twice
+ *
+ *      cmp r3, #0x20
+ *      cmp ip, #0x20
+ *
+ * Two separate comparisons against `' '` on two paths. A space advances the
+ * cursor without a sprite call -- which matters for a port, because a font
+ * atlas usually has no glyph cell for it and drawing one would emit a stray
+ * quad.
+ *
+ * ## The fallback chain
+ *
+ * When the glyph is not found the code reaches for `FONT+0x2c` (the SIMPLE
+ * font's single advance) and then `FONT+0x10` (the constant 8 written before
+ * the metrics file is even opened). So an unknown character still moves the
+ * cursor, and a font that failed to load still lays text out at 8 units each.
+ * Both fallbacks documented in FONT-FORMAT.md are reached from here.
+ *
+ * The body is not transcribed. The glyph search, the alignment arithmetic and
+ * the sprite-corner computation are interleaved across four float registers
+ * and several early exits, and a paraphrase would either lose that or invent
+ * it.
+ */
+void limeDrawFONT(FONT *font, const char *text, float x, float y,
+                  int alignment, float scale);
+
+
+/* ------------------------------------------------------- limeDrawFONTAtAngle
+ *
+ * armv6 0x000ae8f4.  **Not decompiled.**
+ *
+ * The rotated variant. Recorded here so the file accounts for it rather than
+ * leaving it unmentioned; nothing about it has been established beyond the
+ * name and the address, and the surrounding routines are enough to be going on
+ * with. See docs/ENCARGO.md.
+ */
+void limeDrawFONTAtAngle(FONT *font, const char *text, float x, float y,
+                         float angle, int alignment, float scale);
