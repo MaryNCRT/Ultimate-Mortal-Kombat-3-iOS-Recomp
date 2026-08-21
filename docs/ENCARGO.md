@@ -23,13 +23,24 @@ A short, specific work order for whoever takes this on next. Read
 
 Zero divergences throughout. 103,907 synthetic cases plus real game data.
 
-**The one gap that is not closed.** `RenderScene.cpp`'s test covers the
-transparent list, the palette lookup and the mesh search — not the two scene
-renderers. Those walk the two-level animation table and issue GL calls whose
-enums are not all pinned down; their bodies are marked *structural*, and driving
-them would compare this project's reading against itself precisely where it is
-least certain. Closing that needs a scene built by hand in guest memory and the
-remaining enums resolved.
+**RenderScene.cpp is the open front, and it is worse than "untested".**
+Driving the two renderers for the first time showed the bodies were **wrong**,
+starting with their argument lists: the scene is the SECOND argument of
+`LIME_RenderScene`, not the first, so the binary was reading the frame number
+where it expected a pointer. Six measured defects in all, written up in
+[RENDERSCENE-SIGNATURE.md](RENDERSCENE-SIGNATURE.md).
+
+What now exists: `tests/gl_trace.c` records the GL call stream from both sides
+and `tests/test_renderscene_gl_diff.c` compares them call by call.
+**23 cases, 35 divergences — it FAILS, on purpose.** The harness is right and
+the bodies are not yet. One override case is excluded because the clean side
+segfaults where the oracle does not; that is named in the test rather than
+skipped quietly.
+
+The enum-pairing problem this file used to describe as needing register
+liveness tracking **is solved and did not need it.** recomp.py emits every
+import as `stub_auto_glXxx(arm_ctx *ctx)`, so the register file at the instant
+of each call is simply available. Measure, do not infer.
 
 ---
 

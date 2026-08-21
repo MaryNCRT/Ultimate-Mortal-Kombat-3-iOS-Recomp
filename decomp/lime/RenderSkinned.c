@@ -412,12 +412,28 @@ void LightVert(const limeVECTOR3 *n, float *out)
  * Which is a third independent confirmation of the SKINMATRIX43 layout: the
  * diagonal of a 3x3 identity lands at 0, 4 and 8 only if the rotation is nine
  * floats at **stride 3**. A genuine 4x3 would put it at 0, 5 and 10.
+ *
+ * ## Why this clears the struct rather than looping to twelve
+ *
+ * The original writes forty-eight bytes -- twelve floats -- and an earlier
+ * draft here said so with `for (i = 0; i < 12; i++) m->m[i] = 0.0f;`. But `m`
+ * is `float[9]` and `t` is the `float[3]` after it, so indices 9, 10 and 11
+ * walk off the end of one member into the next. It produced the right bytes
+ * purely because the two are adjacent.
+ *
+ * That is undefined behaviour, not a style point: `gcc -O2` reports
+ * "iteration 9 invokes undefined behavior" and is entitled to assume the loop
+ * never gets there. Clearing the whole struct writes the same forty-eight
+ * bytes and says what it means.
+ *
+ * The same shape as the EVENT stride that walked off its array: correct today
+ * by adjacency, wrong the moment anything moves. And `-fsyntax-only` cannot
+ * see it -- it took building at -O1 to surface, which is why tools/check.sh
+ * now compiles rather than only parses.
  */
 void MatrixIdentity2(SKINMATRIX43 *m)
 {
-    int i;
-    for (i = 0; i < 12; i++)
-        m->m[i] = 0.0f;
+    memset(m, 0, sizeof(*m));           /* the rotation AND the translation */
     m->m[0] = m->m[4] = m->m[8] = 1.0f;
 }
 
