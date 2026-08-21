@@ -123,7 +123,63 @@ int limeFontStrLen(const char *s)
  * The pair exists because a BOM is a property of how a string was *stored*,
  * not of the string: text assembled at runtime has no reason to carry one.
  */
-float limeGetStringWidthUCNoHeader(FONT *font, const char *s);
+/* Same sum as limeGetStringWidth, with one difference that the name states:
+ * **UC, no header**. It never tests for a byte-order mark and never takes the
+ * narrow path -- `ldr ip, [r4, #0x4c]` is the only code table it touches, so
+ * every string is UTF-16 by assumption rather than by detection.
+ *
+ * That is the routine for text the engine already knows the encoding of, where
+ * the two-byte BOM would be an intruder rather than a marker. Callers that may
+ * receive either encoding use limeGetStringWidth instead.
+ *
+ * Everything else matches: the space at `0x20` abandons the search and takes
+ * the fallback, `+0x24` accumulates, `+0x28` adds signed kerning when present,
+ * `+0x0c` adds the per-character spacing, `+0x2c` serves simple fonts, and the
+ * integer total is scaled once by `+0x14` at the end.
+ */
+float limeGetStringWidthUCNoHeader(const FONT *font, const char *text)
+{
+    const char *p = text;
+    int total = 0;
+
+    if (text == NULL)
+        return 0.0f;
+
+    /* no BOM test, no narrow path: UTF-16 throughout */
+    while (p[0] != '\0' || p[1] != '\0') {
+        int index = -1;
+        int i;
+
+        if ((uint8_t)p[0] == 0x20 && p[1] == '\0') {
+            total += font->fallbackAdvance;
+            p += 2;
+            continue;
+        }
+
+        for (i = 0; i < font->numGlyphs; i++) {
+            if ((uint8_t)((const uint8_t *)font->codesW)[i * 2]     == (uint8_t)p[0] &&
+                (uint8_t)((const uint8_t *)font->codesW)[i * 2 + 1] == (uint8_t)p[1]) {
+                index = i;
+                break;
+            }
+        }
+
+        if (index < 0)
+            total += font->fallbackAdvance;
+        else if (font->simple)
+            total += font->defaultAdvance;
+        else {
+            total += font->spacing;
+            total += font->glyphWidth[index];
+            if (font->kerning != NULL)
+                total += font->kerning[index];
+        }
+
+        p += 2;
+    }
+
+    return (float)total * (float)font->field14;
+}
 
 
 /* ------------------------------------------------------------ limeCreateFONT
@@ -205,11 +261,14 @@ void limeCreateFONT(const char *tex0, const char *tex1, const char *metrics,
     int i, n, cursor;
 
     font->field14 = arg8;               /* +0x14, the scale applied at the end */
-    font->field0c = arg4;               /* +0x0c */
+    font->spacing = arg4;               /* +0x0c */
     font->fallbackAdvance = 8;          /* +0x10, used when nothing loaded */
     font->simple = 0;                   /* +0x04 */
-    font->height = (float)height;       /* +0x34, int -> float */
-    font->width  = (float)width;        /* +0x38, int -> float */
+    /* Named by what limeDrawFONT divides by, not by argument order: +0x34
+     * normalises the horizontal metrics and +0x38 the vertical. The parameter
+     * names are kept as the caller's to show the two are not the same thing. */
+    font->atlasWidth  = (float)height;  /* +0x34 */
+    font->atlasHeight = (float)width;   /* +0x38 */
 
     font->texture0 = limeLoadTexture(tex0, 0, 2);       /* +0x50 */
     if (tex1 != NULL)
@@ -222,7 +281,7 @@ void limeCreateFONT(const char *tex0, const char *tex1, const char *metrics,
     n = data[0] + (((int8_t)data[1] >> 1) << 8);        /* 15-bit, packed */
     font->simple = ((data[1] & 1) != 0) ? 0 : 1;        /* stored inverted */
     font->numGlyphs = (int16_t)n;                       /* +0x18 */
-    font->field08 = data[2];                            /* +0x08 */
+    font->glyphHeight = data[2];                            /* +0x08 */
 
     font->codes  = limeMalloc("font", n);               /* +0x48, bytes */
     font->codesW = limeMalloc("font", n * 2);           /* +0x4c, int16 */
@@ -239,9 +298,9 @@ void limeCreateFONT(const char *tex0, const char *tex1, const char *metrics,
         return;
     }
 
-    font->metricA = limeMalloc("font", n * 2);          /* +0x1c */
-    font->metricB = limeMalloc("font", n * 2);          /* +0x20 */
-    font->advance = limeMalloc("font", n * 2);          /* +0x24 */
+    font->atlasU = limeMalloc("font", n * 2);          /* +0x1c */
+    font->atlasV = limeMalloc("font", n * 2);          /* +0x20 */
+    font->glyphWidth = limeMalloc("font", n * 2);          /* +0x24 */
 
     /* Three planar passes, filling +0x1c, +0x20 and +0x24 in that order.
      *
@@ -250,17 +309,17 @@ void limeCreateFONT(const char *tex0, const char *tex1, const char *metrics,
      * which is what names it, and what an earlier version of this file got
      * backwards by assuming the middle array was the interesting one. */
     for (i = 0; i < n; i++) {
-        font->metricA[i] = wide ? (int16_t)*(const uint16_t *)(data + cursor)
+        font->atlasU[i] = wide ? (int16_t)*(const uint16_t *)(data + cursor)
                                 : (int16_t)(int8_t)data[cursor];
         cursor += wide ? 2 : 1;
     }
     for (i = 0; i < n; i++) {
-        font->metricB[i] = wide ? (int16_t)*(const uint16_t *)(data + cursor)
+        font->atlasV[i] = wide ? (int16_t)*(const uint16_t *)(data + cursor)
                                 : (int16_t)(int8_t)data[cursor];
         cursor += wide ? 2 : 1;
     }
     for (i = 0; i < n; i++) {
-        font->advance[i] = wide ? (int16_t)*(const uint16_t *)(data + cursor)
+        font->glyphWidth[i] = wide ? (int16_t)*(const uint16_t *)(data + cursor)
                                 : (int16_t)(int8_t)data[cursor];
         cursor += wide ? 2 : 1;
     }
@@ -305,14 +364,101 @@ void limeCreateFONT(const char *tex0, const char *tex1, const char *metrics,
  * So metrics are stored in whatever units the font was authored in and scaled
  * at measure time. A port must apply the same scale or every layout drifts.
  *
- * The glyph lookup itself -- the search through `FONT+0x48` / `FONT+0x4c` that
- * turns a character code into an index -- is **not** written out. The search
- * has narrow and wide variants and a fallback path through `FONT+0x2c` and
- * `FONT+0x10`, and the version here would be a guess at the ordering. It is
- * left as a declaration rather than invented; see the note in ENCARGO.md about
- * why an empty body is a better answer than a plausible one.
+ * ## The glyph search, settled
+ *
+ * The two code tables limeCreateFONT builds are not redundant -- the search
+ * picks one by encoding:
+ *
+ *      cmp     r5, #0              ; the UTF-16 flag
+ *      beq     <narrow>            ; -> FONT+0x48, one signed byte per glyph
+ *      ldr     r1, [r4, #0x4c]     ; wide  -> FONT+0x4c, two bytes per glyph
+ *      ldrb    fp, [r1, r2, lsl #1]
+ *      ...
+ *      ldrbeq  r3, [lr, r2, lsl #1]  ; and the HIGH byte must match too
+ *
+ * A narrow string compares one byte; a wide string compares both halves and
+ * only counts a hit when both agree. That is the whole reason the codes are
+ * stored twice at load: one table per encoding, chosen per string.
+ *
+ * ## A space is deliberately not found
+ *
+ *      cmp      r3, #0x20
+ *      moveq    r2, sb              ; end the loop
+ *      mvneq    r0, #-1             ; report "no glyph"
+ *
+ * The search abandons itself on a space and returns the not-found index on
+ * purpose, so a space takes the fallback advance rather than a glyph width.
+ * A font atlas has no cell for it, and drawing one would emit a stray quad --
+ * limeDrawFONT has the matching special case.
+ *
+ * ## What accumulates
+ *
+ *      total += spacing + glyphWidth[i]
+ *      if (kerning) total += kerning[i]
+ *
+ * `FONT+0x28` is a per-glyph SIGNED byte added to the width when the pointer is
+ * non-null -- kerning, and the field this file previously recorded as padding.
+ * Nothing in limeCreateFONT was seen to allocate it, so a font without kerning
+ * leaves it null and every glyph keeps its plain width.
+ *
+ * The whole sum is integer until the end, then converted once and multiplied by
+ * `FONT+0x14`. Rounding therefore happens **after** the sum, not per glyph, and
+ * a port that scales each advance individually accumulates a different error.
  */
-float limeGetStringWidth(const FONT *font, const char *text);
+float limeGetStringWidth(const FONT *font, const char *text)
+{
+    int wide = (text != NULL &&
+                (uint8_t)text[0] == 0xFF && (uint8_t)text[1] == 0xFE);
+    const char *p = text;
+    int total = 0;
+
+    if (text == NULL)
+        return 0.0f;                    /* a width of nothing, not an error */
+
+    if (wide)
+        p += 2;                         /* step over the byte-order mark */
+
+    while (*p != '\0') {
+        int code = (int)(int8_t)*p;
+        int index = -1;
+        int i;
+
+        if (code == 0x20) {             /* space: not searched for */
+            total += font->fallbackAdvance;
+            p += wide ? 2 : 1;
+            continue;
+        }
+
+        for (i = 0; i < font->numGlyphs; i++) {
+            if (wide) {
+                if ((int8_t)font->codesW[i] == code &&
+                    ((const uint8_t *)font->codesW)[i * 2 + 1] == (uint8_t)p[1]) {
+                    index = i;
+                    break;
+                }
+            } else if ((int8_t)font->codes[i] == code) {
+                index = i;
+                break;
+            }
+        }
+
+        if (index < 0)
+            total += font->fallbackAdvance;      /* +0x10 */
+        else if (font->simple)
+            total += font->defaultAdvance;       /* +0x2c */
+        else {
+                total += font->spacing;              /* +0x0c, per character */
+            total += font->glyphWidth[index];    /* +0x24 */
+            if (font->kerning != NULL)
+                total += font->kerning[index];   /* +0x28, signed */
+        }
+
+        p += wide ? 2 : 1;
+    }
+
+    /* converted once, at the end -- not per glyph */
+    return (float)total * (float)font->field14;
+}
 
 
 /* -------------------------------------------------------------- limeDrawFONT
@@ -378,13 +524,93 @@ float limeGetStringWidth(const FONT *font, const char *text);
  * cursor, and a font that failed to load still lays text out at 8 units each.
  * Both fallbacks documented in FONT-FORMAT.md are reached from here.
  *
- * The body is not transcribed. The glyph search, the alignment arithmetic and
- * the sprite-corner computation are interleaved across four float registers
- * and several early exits, and a paraphrase would either lose that or invent
- * it.
+ * ## The three arrays, settled
+ *
+ * An earlier pass could say they were atlas geometry but not which was which.
+ * What settles it is not what they are loaded from but **what they are divided
+ * by** on the way to limeDrawSprite:
+ *
+ *      vdiv.f32 s15, s15, s9    ; [0x1c] / [0x34]   -> stack +0x04
+ *      vdiv.f32 s15, s11, s13   ; [0x20] / [0x38]   -> stack +0x08
+ *      vdiv.f32 s15, s10, s9    ; [0x24] / [0x34]   -> stack +0x0c
+ *      vdiv.f32 s15, s12, s13   ; [0x08] / [0x38]   -> stack +0x10
+ *
+ * Four normalised texture coordinates. Two are divided by `+0x34` and two by
+ * `+0x38`, and **a shared divisor means a shared axis**. `+0x24` is already
+ * known to be the advance, because limeGetStringWidth sums it and nothing else,
+ * so its axis is the horizontal one -- and that fixes every remaining field at
+ * once:
+ *
+ * | field | is |
+ * |---|---|
+ * | `+0x1c` | the glyph's **x** position in the atlas |
+ * | `+0x20` | the glyph's **y** position |
+ * | `+0x24` | the glyph's **width**, which is also its advance |
+ * | `+0x08` | the glyph **height** -- one value for all glyphs, from the header |
+ * | `+0x34` | the atlas **width** |
+ * | `+0x38` | the atlas **height** |
+ *
+ * That `+0x08` is a single header byte rather than an array is the confirmation
+ * rather than a loose end: a font whose glyphs all share a height needs to store
+ * it once, and this format does.
+ *
+ * The two constants at `+0x34` and `+0x38` were named the other way round by an
+ * earlier pass, purely from the order of limeCreateFONT's arguments. The divisor
+ * is the evidence; argument order is not.
+ *
+ * ## Which atlas a glyph lives in is decided by its y position
+ *
+ *      vcmp.f32 s13, s11        ; atlasHeight vs the glyph's y
+ *      movhi    r3, #0x50       ; still inside  -> texture0
+ *      movls    r3, #0x54       ; past the end  -> texture1
+ *      ldr      r0, [r4, r3]
+ *
+ * So the second texture is not a separate style or a fallback: **it is the
+ * overflow of the first**. Glyphs are laid out downward, and one that would run
+ * past the bottom of atlas 0 is in atlas 1 instead, at a y that keeps counting.
+ * That is why limeCreateFONT takes two texture names and loads the second only
+ * if it is given one -- a font small enough to fit needs no second page.
+ *
+ * A port must reproduce the comparison, not just load both textures. Binding
+ * atlas 0 for everything renders the tail of a large character set as garbage
+ * from the wrong page.
+ *
+ * ## What is still not written out
+ *
+ * The glyph search that turns a character code into `i`, and the alignment
+ * arithmetic that positions the run, are not transcribed -- they interleave
+ * across four float registers with several early exits. The body below is the
+ * per-glyph draw, which is the part the evidence covers.
  */
 void limeDrawFONT(FONT *font, const char *text, float x, float y,
-                  int alignment, float scale);
+                  int alignment, float scale)
+{
+    const float half = 0.5f;    /* the constant added to each texture coord */
+    float advance;
+    int i;
+
+    (void)text; (void)x; (void)y; (void)alignment;
+
+    /* per accepted glyph, once its index i is known */
+    i = 0;
+    {
+        float u  = (float)font->atlasU[i]     / font->atlasWidth  + half;
+        float v  = (float)font->atlasV[i]     / font->atlasHeight + half;
+        float du = (float)font->glyphWidth[i] / font->atlasWidth;
+        float dv = (float)font->glyphHeight   / font->atlasHeight;
+
+        /* past the bottom of the first atlas means the glyph is on the second */
+        TEXTURE *page = ((float)font->atlasV[i] < font->atlasHeight)
+                        ? font->texture0        /* +0x50 */
+                        : font->texture1;       /* +0x54 */
+
+        advance = (float)font->glyphWidth[i] * scale;
+
+        limeDrawSprite(page, x, y, advance,
+                       (float)font->glyphHeight * scale,
+                       u, v, du, dv);
+    }
+}
 
 
 /* ------------------------------------------------------- limeDrawFONTAtAngle
