@@ -548,13 +548,14 @@ typedef struct SCENEINFO {
                                   *       decremented by LIME_FreeScene */
     int          count2;         /* 0x44  the modulus LIME_TriggerEventsFromScene
                                   *       takes frame numbers against */
-    void        *field48;        /* 0x48 */
+    long         nodeCount;      /* 0x48  the scene's node count, walked by
+                                  *       both renderers */
     void        *field4c;        /* 0x4c  limeMalloc sized from 0x44 and 0x48 */
     uint8_t      _pad50[4];      /* 0x50 */
     float        posX;           /* 0x54  fed straight to glTranslatef by     */
     float        posY;           /* 0x58  LIME_RenderEvents -- the scene origin */
     float        posZ;           /* 0x5c  an effect is placed relative to      */
-    int          field60;        /* 0x60  written as zero */
+    float        scale;          /* 0x60  handed to glScalef before the walk */
     int          field64;        /* 0x64  four words from another sibling */
     int          field68;        /* 0x68 */
     int          field6c;        /* 0x6c */
@@ -575,6 +576,8 @@ typedef struct SCENEINFO {
 extern SCENEINFO *g_debugCubeScene;
 #define DEBUG_CUBE_SCENE "debugcube.scene"
 
+void       *GetMatrixFromPalette(long index, SCENEINFO *scene);
+void        glScalef(float x, float y, float z);
 SCENEINFO *LIME_LoadScene(const char *filename, int a, int b, int c);
 void LIME_RenderMeshSingle(MESHINFO *mesh, TEXTURE *t0, TEXTURE *t1,
                            float alpha, long flags);
