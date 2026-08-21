@@ -263,3 +263,40 @@ void limeDrawRotSpriteFromTopLeft(TEXTURE *page, float x, float y,
     (void)angle;
     limeDrawSprite(page, x, y, w, h, u, v, du, dv);
 }
+
+
+/* ------------------------------------------------ the rest of the GL surface
+ *
+ * The draw calls the mesh renderers use. All no-ops except glDrawElements,
+ * which counts: a test with no renderer can still assert that a mesh was drawn
+ * once rather than never or twice, and that is most of what the render path
+ * gets wrong.
+ */
+static long g_draw_calls;
+static long g_draw_indices;
+
+long lime_platform_draw_calls(void)   { return g_draw_calls; }
+long lime_platform_draw_indices(void) { return g_draw_indices; }
+
+void glDrawElements(unsigned mode, int count, unsigned type, const void *idx)
+{
+    (void)mode; (void)type; (void)idx;
+    g_draw_calls++;
+    g_draw_indices += count;
+}
+
+void glEnable(unsigned cap)                       { (void)cap; }
+void glDisable(unsigned cap)                      { (void)cap; }
+void glEnableClientState(unsigned a)              { (void)a; }
+void glDisableClientState(unsigned a)             { (void)a; }
+void glClientActiveTexture(unsigned u)            { (void)u; }
+void glActiveTexture(unsigned u)                  { (void)u; }
+void glBindTexture(unsigned t, unsigned n)        { (void)t; (void)n; }
+void glTexEnvf(unsigned t, unsigned p, float v)   { (void)t; (void)p; (void)v; }
+void glVertexPointer(int s, unsigned t, int st, const void *p)   { (void)s; (void)t; (void)st; (void)p; }
+void glTexCoordPointer(int s, unsigned t, int st, const void *p) { (void)s; (void)t; (void)st; (void)p; }
+void glColorPointer(int s, unsigned t, int st, const void *p)    { (void)s; (void)t; (void)st; (void)p; }
+void glColor4f(float r, float g, float b, float a){ (void)r; (void)g; (void)b; (void)a; }
+void glDepthMask(int flag)                        { (void)flag; }
+void glShadeModel(unsigned mode)                  { (void)mode; }
+void glCullFace(unsigned mode)                    { (void)mode; }

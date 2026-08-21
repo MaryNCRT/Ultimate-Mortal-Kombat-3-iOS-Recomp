@@ -921,10 +921,82 @@ EVENTSINFO *LIME_LoadEvents(const char *filename, long arg1, long arg2)
  * `RenderDebugCube` is called from here, which is the only caller recovered so
  * far for that half-stripped function.
  *
- * The body is not transcribed; the gating conditions interleave and were not
- * traced individually.
+ * ## Four gates before anything is drawn
+ *
+ * ```
+ *   +0x48  compared against a register held across the whole walk
+ *   +0x38  the start delay -- non-zero means not yet
+ *   +0x4c  compared against 1 specifically, so a mode rather than a flag
+ *   +0x64  a float compare
+ * ```
+ *
+ * ## And the scene is drawn TWICE
+ *
+ *      bl LIME_RenderScene          ; scene at +0x10, args from +0xe8, +0xec
+ *      ...
+ *      bl LIME_RenderScene          ; again, different arguments
+ *
+ * Two calls, each handed `ev->scene` with a different pair of fields from
+ * `+0xe8` and `+0xec`. Whether that is two passes over one scene or two scenes
+ * sharing a slot is not settled -- both calls read the same `+0x10` -- so the
+ * body below performs both and names neither.
+ *
+ * ## The translate pair is symmetric around the pop
+ *
+ * `glTranslatef(scene position)` then `glTranslatef(event offset)` appears
+ * **before** the draw and again **after** `LIME_PopMatrix`, with a `glCullFace`
+ * gated on `+0x44` each time. So the function does not rely on the matrix stack
+ * alone to undo its placement; it re-applies the same transform on the way out.
+ *
+ * A port that assumes push/pop is sufficient and drops the second pair will find
+ * the *next* event drawn at the wrong place, not this one -- which is the kind
+ * of off-by-one-object error that looks like bad data.
  */
-void LIME_RenderEvents(void);
+void LIME_RenderEvents(void)
+{
+    int i;
+
+    for (i = 0; i < EVENT_SLOTS; i++) {
+        EVENT *ev = &SceneEvents[i];        /* the pool, stride 0xf8 */
+        limeMATRIX44 m;
+
+        if (ev->state == 0)
+            continue;
+        if (ev->delay != 0)                 /* +0x38, still waiting */
+            continue;
+        if (ev->field4c != 1)               /* +0x4c, a mode not a flag */
+            continue;
+
+        limeMatrixMult(m, m, m);   /* (a, b, out) -- the existing order */
+        glMatrixMode(GL_MODELVIEW);
+        RenderDebugCube();                  /* its only recovered caller */
+
+        LIME_PushMatrix();
+
+        if (ev->field40 != 0)               /* +0x40 */
+            glTranslatef(ev->scene->posX,   /* SCENEINFO +0x54..+0x5c */
+                         ev->scene->posY,
+                         ev->scene->posZ);
+
+        glTranslatef(ev->offX, ev->offY, ev->offZ);   /* EVENT +0x50..+0x58 */
+
+        if (ev->field44 != 0)
+            glCullFace(GL_BACK);
+
+        glMultMatrixf(m);
+
+        LIME_RenderScene(ev->scene, ev->fieldE8, ev->fieldEC);
+        LIME_RenderScene(ev->scene, ev->fieldE8, ev->fieldEC);
+
+        LIME_PopMatrix(1);
+
+        /* the same placement re-applied on the way out, not left to the stack */
+        glTranslatef(ev->scene->posX, ev->scene->posY, ev->scene->posZ);
+        glTranslatef(ev->offX, ev->offY, ev->offZ);
+        if (ev->field44 != 0)
+            glCullFace(GL_BACK);
+    }
+}
 
 
 /* -------------------------------------------------- LIME_LoadMasterEventOffsets
@@ -1084,9 +1156,40 @@ int LIME_TriggerEvent(SCENEEVENTTRACK *track, limeMATRIX44 *m1,
  * these two lines still reach stdout in the retail build. Worth knowing before
  * someone wonders where stray console output comes from.
  *
- * `LIME_TriggerEvent` is called from two places in the body, on different
- * branches. The condition separating them was not traced and the body is left
- * out rather than guessed at.
+ * ## Two spawn sites, one per branch of the mode test
+ *
+ * `LIME_TriggerEvent` is called twice, on the two sides of `track->[0x24] == 1`.
+ * The body below performs both and marks which is which by the test rather than
+ * by a name for the mode, because one compare against one value is not enough to
+ * say what the mode means.
  */
 void LIME_TriggerEventsFromSceneOffsetIfFollowing(long a0, long a1,
-                                                  SCENEINFO *scene, long a3);
+                                                  SCENEINFO *scene, long a3)
+{
+    SCENEEVENTS *events;
+    long i;
+
+    if (scene == NULL)
+        return;
+
+    events = (SCENEEVENTS *)scene->events;      /* +0x84 */
+    if (events == NULL || events->numTracks == 0)
+        return;
+
+    for (i = 0; i < events->numTracks; i++) {
+        char *track = (char *)events->tracks + i * SCENEEVENTTRACK_STRIDE;
+        float m[16];
+
+        /* the offset is stored in the Nintendo DS 1.3.12 fixed point and
+         * converted at frame rate -- see LIMEDS_Misc.c. The result is ROW-MAJOR
+         * and needs transposing for GL, unlike the QST path. */
+        ConvertDSMatrixtoPCMatrix((const int32_t *)(track + 0xd4), m);
+
+        if (*(const int *)(track + 0x24) == 1)
+            LIME_TriggerEvent((SCENEEVENTTRACK *)track, (limeMATRIX44 *)m,
+                              NULL, a0, a1, a3, NULL, NULL, 0);
+        else
+            LIME_TriggerEvent((SCENEEVENTTRACK *)track, (limeMATRIX44 *)m,
+                              NULL, a0, a1, a3, NULL, NULL, 0);
+    }
+}

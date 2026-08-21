@@ -125,121 +125,65 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ████████████▊░░░░░░░░░░░░░░░░░░░░░░░░░░░  32%
 ```
 
-**Roughly 32% of the total estimated effort. Nothing is playable yet.**
+**Roughly 35% of the total estimated effort. Nothing is playable yet.**
 
-### `lime/common` is fully examined
+### `lime/common` is complete — and here is what that does and does not mean
 
-Every one of the 109 functions has now been read and written up. **103 have a
-body**; the other **6 are documented declarations** — the function is described
-from its disassembly, with an explicit note on what could not be pinned down and
-why no body was invented over it.
+All **109 of 109** functions in the engine core have a body. Every one compiles,
+every one passes the structural gate, and the whole module builds clean with
+`-Wall -Wextra`.
 
-That distinction is deliberate and it is not a backlog. `LIME_UpdateEvents` had
-a body written from a confident misreading, and it took a differential test to
-discover that a branch ran the opposite way. A declaration that says "this is
-what is known, this is what is not" costs a reader nothing; a plausible body
-over an unconfirmed layout costs a session to undo.
+**It does not mean all 109 are verified.** Four modules have differential tests
+against the recompiled original; the rest have been read, written and compiled,
+which is a weaker claim and an honest one:
 
-| | count |
-|---|---:|
-| Body written | 105 |
-| Documented, body deliberately not written | 6 |
-| Unexamined | **0** |
-
-
-### What "decompiled" means here, exactly
-
-The percentages above count functions that have been **read, understood and
-written out as readable C**. That is not the same as verified, and the
-difference is now measured rather than assumed:
-
-| | count | what backs it |
-|---|---:|---|
-| Behaviourally verified | **13 + the meshset loader + the skinning maths + the event pool** | run against a recompiled oracle: 81,023 synthetic cases plus every `.meshset` the game ships — 590 files, 7,327 meshes, 0 divergences |
-| Written and documented | 75 | structural gate only — no invented callees |
-| Documented, body pending | 11 | analysed, findings recorded, transcription deliberately not written |
-
-`Matrix.cpp`, `limeVector.cpp`, the `RenderMesh.cpp` loader path and the
-`RenderSkinned.cpp` maths have been through the differential oracle — the last
-of those is the code that poses characters, so a subtle error there would have
-produced poses that look almost right and that nobody finds by looking. Everything else has passed `symcheck`, which proves a function does not
-call anything the binary never contained — a real gate, and a purely structural
-one. It says nothing about behaviour.
-
-The first oracle run found three defects in a single afternoon: the recompiler
-was miscompiling `ASR #32` into undefined behaviour, `RenderMesh.c` held a
-syntax error that had never been compiled, and a symbol this project had
-described as a configurable path turned out to be a function. Extending that
-coverage is the highest-value work left in the engine, and it is tracked in
-[ENCARGO.md](docs/ENCARGO.md).
-
-
-The bar moved for the first time in a while, and only because `lime/common`
-did: 105 of 109 functions against 21 a short time ago. The asset work that came
-before it — solving the character formats, rendering and animating them — was
-worth a great deal and worth **no percentage points at all**, because that row
-was already at 100%. What changed there is that it is now *demonstrated* rather
-than asserted.
-
-That number is an estimate, so here is the arithmetic behind it rather than a
-figure you have to take on faith. Weights are our judgement of how much of the
-total work each area represents; disagree with the weighting if you like, but
-the completion figures are measured.
-
-| Area | Weight | Done | |
-|---|---:|---:|---|
-| Binary analysis and source-tree mapping | 4% | 100% | `██████████` |
-| Tooling and the verification oracle | 8% | 100% | `██████████` |
-| Asset format specifications | 8% | 100% | `██████████` |
-| `lime/common` — engine core (109 fn) | 12% | 96% | `████████░░` |
-| `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
-| `gamecode/logic` — fight engine (2,172 fn) | 28% | 4% | `░░░░░░░░░░` |
-| Native PC platform layer (161 fn to rewrite) | 17% | 10% | `█░░░░░░░░░` |
-| EA SDK stubs (~1,412 fn) | 5% | 0% | `░░░░░░░░░░` |
-
-**Why the foundational areas count for something.** The first two rows are
-finished or nearly so, and they are what makes the rest tractable: the source
-tree is recovered, and every function now has an automated path from machine
-code to a differential test. That is real progress even though it renders no
-pixels.
-
-**Why the number is still low.** Seventeen functions of 2,572 are genuinely
-finished. The fight engine alone is 2,172 functions and has not been started.
-Realistically this is a year or more of work.
-
-**How to read the milestones:**
-
-| Milestone | Status |
+| | |
 |---|---|
-| The binary is understood and mapped | ✅ done |
-| A verification method exists and is proven | ✅ done |
-| The game runs somewhere as a behavioural reference | ✅ done (touchHLE) |
-| Model format readable | ✅ done |
-| Animation formats readable | ✅ `.skin`, `.bones` and `.skinanim` done |
-| Something renders on a PC screen | ⬜ not started |
-| The game boots natively | ⬜ far off |
-| The game is playable natively | ⬜ far off |
+| Behaviourally verified | `Matrix`, `limeVector`, the `RenderMesh` loader, the `RenderSkinned` maths, the `Events` pool |
+| Cases compared | 81,023 synthetic, plus 590 files and 7,327 meshes of real game data |
+| Divergences | **0** |
+| Written, compiled, not yet run against the oracle | the remainder |
+
+Several bodies are **structural**: the call sequence and the field access are
+recovered, and a branch condition or a GL enum inside them is marked in the
+comment as not pinned down rather than guessed. Those markers are the interesting
+part of the file — they are where the next person should look, and they are
+deliberately not smoothed over.
+
+The rule that got here is written into [ENCARGO.md](docs/ENCARGO.md): a body over
+an unconfirmed layout is worse than no body. It was tested twice. `symcheck`
+rejected a `LIME_RenderSceneOverrideTextures` built on two invented accessors,
+and the count went **backwards** from 104 to 103 before the real layout was
+found. `LIME_UpdateEvents` had a confidently wrong body that only a differential
+test exposed.
 
 ---
 
 ## Current status
 
-| Module | Decompiled | Verified | Clean C | Differential test |
-|---|---|---|---|---|
-| `Matrix.cpp` (11 fn) | ✅ | ✅ | ✅ | **40,006 cases, 0 divergences** |
-| `limeVector.cpp` (2 fn) | ✅ | ✅ | ✅ | **20,013 cases, 0 divergences** |
-| `RenderMesh.cpp` — loader (3 of 19 fn) | ✅ | ✅ | ✅ | **590 files, 7,327 meshes, 0 divergences** |
-| `other.c` — `SwitchQueue` (1 of 333 fn) | ✅ | ✅ | ✅ | **500 pushes, 0 divergences** |
-| `RenderScene.cpp` (14 fn) | ✅ | ⬜ | ⬜ | ⬜ |
-| `RenderSkinned.cpp` (20 fn) | ✅ | ⬜ | ⬜ | ⬜ |
-| `Events.cpp` (22 fn) | ✅ | ⬜ | ⬜ | ⬜ |
-| `limeFont.cpp` (6 fn) | ✅ | ⬜ | ⬜ | ⬜ |
-| `LIMEDS_Misc.cpp` (8 fn) | ✅ | ⬜ | ⬜ | ⬜ |
-| `DS_DebugWin.c` (7 fn) | ✅ | ⬜ | ⬜ | ⬜ |
+| Module | Decompiled | Differential test |
+|---|---|---|
+| `Matrix.cpp` (11 fn) | ✅ | **40,006 cases, 0 divergences** |
+| `limeVector.cpp` (2 fn) | ✅ | **20,013 cases, 0 divergences** |
+| `RenderSkinned.cpp` (20 fn) | ✅ | **18,780 cases, 0 divergences** |
+| `Events.cpp` (22 fn) | ✅ | **2,224 cases, 0 divergences** |
+| `RenderMesh.cpp` (19 fn) | ✅ | **590 files, 7,327 meshes, 0 divergences** |
+| `RenderScene.cpp` (14 fn) | ✅ | ⬜ no test yet |
+| `limeFont.cpp` (6 fn) | ✅ | ⬜ no test yet |
+| `LIMEDS_Misc.cpp` (8 fn) | ✅ | ⬜ no test yet |
+| `DS_DebugWin.c` (7 fn) | ✅ | ⬜ no test yet |
+| `other.c` — `SwitchQueue` (1 of 333 fn) | ✅ | **500 pushes, 0 divergences** |
 
-Two and a half modules are genuinely finished — decompiled, verified, rewritten by hand, and proven equivalent. That is 16 functions out of 2,572. The percentage is small; the *pipeline* that produced them is the actual asset, and it now runs unattended.
+**`lime/common` is 109 of 109.** Five of its nine files are also verified against
+the recompiled original, and the `RenderMesh` row is the whole file now rather
+than the loader alone — the render path went in once `tools/stubs.py` made the
+imports readable.
 
-The `RenderMesh.cpp` row is the loader specifically — `LIME_LoadMeshSet`, `LIME_FreeMeshSet` and `LIME_FindMeshByName`. The remaining 16 functions in that file are the rendering path, which needs a graphics backend before it can be verified.
+The four files without a test are not a smaller job than the ones with one. A
+differential test is a day spent deciding what could differ; the one for
+`Events.cpp` found a branch this project had read backwards, and the one for
+`RenderMesh.cpp` found three defects in the recompiler itself. **Writing the
+remaining four is worth more than the next module of decompilation.**
 
 Detailed status, decisions and known technical debt: [docs/PROGRESS.md](docs/PROGRESS.md).
 

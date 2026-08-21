@@ -134,3 +134,8 @@ int              g_whirlwindFirstFrame;
  * traversal is stateful, like the cursors above. */
 limeVECTOR3      g_rootPositionV;
 BONEANIMFRAME    g_animBlended[MAX_BONES];
+
+/* Filled by CreateFadedRGBS and handed to glColorPointer in the same breath.
+ * The symbol name was not resolved; see the note in lime.h. */
+uint8_t     *g_vertexColourScratch;
+limeVECTOR3  g_fadeOffset;

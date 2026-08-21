@@ -35,13 +35,6 @@ static void unwritten(const char *name)
     abort();
 }
 
-void LIME_RenderMeshSingle(MESHINFO *mesh, TEXTURE *t0, TEXTURE *t1,
-                           float alpha, long flags)
-{
-    (void)mesh; (void)t0; (void)t1; (void)alpha; (void)flags;
-    unwritten("LIME_RenderMeshSingle");
-}
-
 
 
 
