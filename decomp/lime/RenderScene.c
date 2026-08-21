@@ -523,11 +523,22 @@ void FlushTranspMeshList(TEXTURE *texture, const SKINMATRIX43 *matrix)
  *
  * ## Effect spawn points are named, not flagged
  *
- * The scene walk compares single characters against `0x45`, `0x56` and `0x54`
- * -- **'E', 'V' and 'T'**. Those are letters of the word `EVENT`, tested
- * individually rather than through `strncmp`: a cheap prefix filter that skips
- * the middle letters because matching three of five is enough to separate a
- * marker from a mesh.
+ * The scene walk compares single characters against `0x45`, `0x56`, `0x45`,
+ * `0x4e` and `0x54` -- **'E', 'V', 'E', 'N', 'T'**, all five letters of the
+ * word, chained through `cmpeq` so the first mismatch ends the test:
+ *
+ *      cmp    r3, #0x45        ; 'E'
+ *      ...
+ *      cmp    r3, #0x56        ; 'V'
+ *      cmpeq  r3, #0x45        ; 'E'
+ *      cmpeq  r3, #0x4e        ; 'N'
+ *      ...
+ *      cmp    r3, #0x54        ; 'T'
+ *
+ * An earlier pass here saw only three of the five and described it as a partial
+ * filter. It is not partial -- it is a full `strncmp` against `EVENT` written
+ * out as predicated compares, which on ARM costs nothing extra and avoids a
+ * call.
  *
  * **The shipped data confirms it.** Node names in the `.scene` files include
  * `EVENT_splat_00`, `EVENT_blood_001` and `EVENT_hatTrail2`, and `EVENT_` is
@@ -618,9 +629,78 @@ void LIME_RenderScene(SCENEINFO *scene, long frame, long flags);
  * `+0x84` and the list link at `+0x90`, so the structure is denser there than
  * the loader alone suggested. Recorded, not named.
  *
- * Meshes are located by `LIME_FindMeshByName`, so the override is resolved by
- * name at draw time rather than by index -- consistent with everything else
- * here being driven by what things are called.
+ * ## What matching EVENT actually does: nothing is drawn
+ *
+ * A name beginning with `EVENT` branches **past the whole draw** to the
+ * state-restore at the end of the loop body. So these are markers and **not
+ * geometry** -- the renderer walks over them. That is the other half of the
+ * finding: they are spawn points for effects *and* they are skipped by the mesh
+ * path, which is why an exporter can drop them into a scene without anything
+ * appearing.
+ *
+ * ## And the name tested is the MESH's, not a node's
+ *
+ *      ldr   r2, [fp, #0x48]        ; the meshset's mesh array
+ *      ldrb  r3, [r6, #4]           ; a byte index out of the node record
+ *      ldr   r1, [r2, r3, lsl #2]   ; -> the MESHINFO
+ *      ldr   r4, [r1, #0x3c]        ; -> meshName
+ *      ldrsb r3, [r4]
+ *      cmp   r3, #0x45              ; 'E'
+ *
+ * `MESHINFO+0x3c` is `meshName`, already established by LIME_FreeSingleMesh
+ * freeing it. So the `EVENT` convention lives in the **mesh** names inside the
+ * `.meshset`, and a scene node points at one by a single-byte index.
+ *
+ * An earlier draft of this function invented `SceneNodeName()` and
+ * `SceneNodeAlpha()` accessors to make a body look complete. `tools/symcheck.py`
+ * rejected both -- neither appears anywhere in the symbol table -- and it was
+ * right to: those accessors were hiding the structure above rather than
+ * describing it.
+ *
+ * ## The node data is parallel arrays, not a struct array
+ *
+ *      add sl, sl, #4               ; the cursor steps FOUR bytes per node
+ *      ldr r1, [sl, r3]             ; one array
+ *      ldr r3, [sl, r0]             ; another, a different base
+ *      ldrh r3, [r2, r3]            ; a uint16 out of a third
+ *      lsl r3, r3, #3
+ *      add r6, r3, r1               ; -> an 8-byte record
+ *
+ * Several arrays indexed by the same node number, with their base offsets held
+ * in stack slots the prologue sets up. The 8-byte record reached through the
+ * uint16 carries both the mesh index at `+4` and the alpha at `+0` -- `vldr s15,
+ * [r6]` reads it as a float straight after.
+ *
+ * That layout is why no body is written here. Reproducing it means resolving
+ * five stack slots back to what LIME_LoadScene put in them, and the accessors
+ * that would paper over it have already been tried and rejected once.
+ *
+ * ## The loop, as established
+ *
+ * ```
+ *   frame % scene->count2                 ; __modsi3, the scene loops
+ *   glScalef(scene->[0x60])
+ *   for each of scene->[0x48] nodes:
+ *       skip if the entry is null
+ *       skip if the uint16 index equals a sentinel
+ *       mesh   = meshset->meshes[record[4]]
+ *       if mesh->meshName starts with "EVENT" -> skip to the state restore
+ *       LIME_FindMeshByName(set, mesh->meshName)
+ *       if record[0] as a float != 0 -> limeEnableAlphaBlending_Basic
+ *       LIME_PushMatrix
+ *       GetMatrixFromPalette / ConvertQSTMatrixtoPCMatrix / glMultMatrixf
+ *       LIME_RenderMesh
+ *       LIME_PopMatrix(1)
+ *   restore: limeDisableAlphaBlending, limeEnableDepthWrites
+ * ```
+ *
+ * The blend state is restored on **both** exits from the loop body, not once at
+ * the end -- the pair appears twice in the disassembly. So a node that takes the
+ * early exit still leaves the state clean, which is what lets
+ * FlushTranspMeshList assume a known starting point.
+ *
+ * One branch calls the real `printf`, not `LIME_printf`, so it still reaches
+ * stdout in the retail build.
  */
 void LIME_RenderSceneOverrideTextures(SCENEINFO *scene, long frame,
                                       TEXTURE *replacement, long flags);
