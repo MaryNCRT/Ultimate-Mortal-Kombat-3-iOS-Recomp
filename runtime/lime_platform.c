@@ -187,3 +187,29 @@ void glLoadIdentity(void) { }
 void glMatrixMode(unsigned mode)                  { (void)mode; }
 void glTranslatef(float x, float y, float z)      { (void)x; (void)y; (void)z; }
 void glMultMatrixf(const float *m)                { (void)m; }
+
+
+/* ------------------------------------------------------------ blend state
+ *
+ * Real symbols in the binary (_limeEnableAlphaBlending_Additive and friends),
+ * but they are GL state and therefore ours to provide rather than to
+ * decompile -- they live in the iOS layer, not in lime/common.
+ *
+ * The mode is recorded rather than ignored. Which one is active is the
+ * difference between a transparent list that may go unsorted and one that may
+ * not, so a test can assert on it even with no renderer behind it.
+ */
+static int g_blend_mode;    /* 0 none, 1 additive, 2 basic */
+
+int lime_platform_blend_mode(void)          { return g_blend_mode; }
+
+void limeEnableAlphaBlending_Additive(void) { g_blend_mode = 1; }
+void limeEnableAlphaBlending_Basic(void)    { g_blend_mode = 2; }
+void limeDisableAlphaBlending(void)         { g_blend_mode = 0; }
+
+static int g_depth_writes = 1;
+
+int lime_platform_depth_writes(void)        { return g_depth_writes; }
+
+void limeEnableDepthWrites(void)            { g_depth_writes = 1; }
+void limeDisableDepthWrites(void)           { g_depth_writes = 0; }

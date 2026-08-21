@@ -424,6 +424,11 @@ void         LIME_FreeMeshSetTextures(MESHSETINFO *set);
  * see the note on _IsTextureFullBrightPath in RenderMesh.c. */
 #define NOLIGHT_FILE "nolight.txt"
 
+/* The master effect-offset registry LIME_LoadMasterEventOffsets reads and
+ * FindIdInMasterOffsets searches. The literal is in a pool this pass did not
+ * resolve, so the name stands in for it. */
+#define MASTER_OFFSETS_FILE "masteroffsets"
+
 /* _TheFullBrightInfo occupies 4100 bytes in __DATA,__common -- the distance to
  * the next symbol, _NumTranspMeshes. That is exactly 4 + 64 * 64, so the table
  * holds **64 entries of 64 bytes** after a leading count, and `names[i]` lands
@@ -526,6 +531,22 @@ void   DS_ScrollLines(DEBUGWINDOW *win);
 void   CreateMatrixPaletteForGeneratingMesh(char *a, long b, long c, long d,
                                             float e, BONESINFO *bones);
 void   LIME_LoadSkin1(const char *data, SKININFO *skin);
+
+/* The matrix-stack wrappers and the blend-state helpers the renderers call.
+ * All real symbols in the binary; the blend pair is what makes the transparent
+ * list order-independent -- see FlushTranspMeshList. */
+void   LIME_PushMatrix(void);
+void   LIME_PopMatrix(int count);
+/* Signature taken from the existing definition in RenderMesh.c, which was
+ * recovered from the binary -- an earlier guess here had four different
+ * parameters and only the compiler caught it. */
+void   LIME_RenderMesh(MESHSETINFO *set, int index, TEXTURE *t0, TEXTURE *t1);
+void   ConvertQSTMatrixtoPCMatrix(const int16_t *src, float *dst);
+void   limeEnableAlphaBlending_Additive(void);
+void   limeEnableAlphaBlending_Basic(void);
+void   limeDisableAlphaBlending(void);
+void   limeEnableDepthWrites(void);
+void   limeDisableDepthWrites(void);
 void   LIME_printf(int window, const char *fmt, ...);
 void   LIME_KillSliders(void);
 int    FindIdInMasterOffsets(const char *name);

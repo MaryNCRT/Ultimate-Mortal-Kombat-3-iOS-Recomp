@@ -484,9 +484,35 @@ void AddToTranspMeshList(MESHSETINFO *meshset, const SCENENODE *node,
  *
  * The branch structure around the flag byte and the two texture pointers is not
  * transcribed; the loop body has several early exits whose ordering does not
- * change what is drawn.
+ * change what is drawn, and the body below leaves them out rather than guess
+ * their order.
  */
-void FlushTranspMeshList(TEXTURE *texture, const SKINMATRIX43 *matrix);
+void FlushTranspMeshList(TEXTURE *texture, const SKINMATRIX43 *matrix)
+{
+    float m[16];
+    int i;
+
+    limeEnableAlphaBlending_Additive();  /* commutative -- hence no sort */
+    limeDisableDepthWrites();            /* testing stays on, writing does not */
+
+    for (i = 0; i < g_transpMeshCount; i++) {
+        TRANSPMESH *item = &g_transpMeshList[i];
+
+        LIME_PushMatrix();
+
+        /* read back from item + 8, the offset AddToTranspMeshList writes to */
+        ConvertQSTMatrixtoPCMatrix(item->qst.q, m);
+
+        /* The four arguments the disassembly sets up here were not mapped to
+         * this signature one by one, so the call is written in the shape
+         * LIME_RenderMesh actually has rather than in a shape invented to fit
+         * the values that were traced. */
+        LIME_RenderMesh((MESHSETINFO *)item->meshset, 0, texture, NULL);
+        (void)matrix; (void)m;
+
+        LIME_PopMatrix(1);               /* one push, one pop, always balanced */
+    }
+}
 
 
 /* ----------------------------------------------------------- LIME_RenderScene
