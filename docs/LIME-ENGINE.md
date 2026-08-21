@@ -470,3 +470,39 @@ offsets with virtual addresses; the control group caught it, and the "no shader
 callers" result would otherwise have been published for the right conclusion
 via broken arithmetic. A negative result that cannot detect a known positive is
 not evidence of anything.
+
+---
+
+## The DS Ultimate Mortal Kombat is not an ancestor of this build
+
+Worth checking, because the engine invites it: functions are named `LIMEDS_*`,
+`ConvertDSMatrixtoPCMatrix` scales by **1/4096** — the Nintendo DS 1.3.12
+fixed-point format — and `QSTMATRIX` carries the handheld-era packing this
+project keeps running into.
+
+So a copy of **Ultimate Mortal Kombat (Nintendo DS, 2007)** was examined against
+this build. It shares nothing.
+
+| check | result |
+|---|---|
+| `LIME` / `lime` strings | the four "lime" hits are **`limei`** — the character Li Mei |
+| `.meshset`, `.scene`, `.events`, `.bones`, `.skin` | **none present** |
+| `/BuildServerX/` source paths | none |
+| Asset formats | `.sec`, `.fsm`, `.xmb`, `.pbm`, `.pal`, `.vx`, `.sdat` — a different pipeline entirely |
+| iOS animation frame names (`KNDUCK1`, …) | **0 of 355** appear |
+| `moves_data`, `frames.x` | absent |
+
+The roster gives it away on its own: `ending_limei.sec` and `body_kobra_alt.sec`
+are Li Mei and Kobra, who are *Deadly Alliance* and *Deception* characters, not
+the UMK3 arcade roster. The ROM is Midway's own DS engine carrying an arcade
+port plus Puzzle Kombat, published four years before EA Mobile's iOS build.
+
+**`LIMEDS` means EA's LIME engine targeting the DS**, which is a different
+lineage from Midway shipping a DS game. The 1/4096 constant tells us the format
+LIME's earlier target used; it does not point at this cartridge.
+
+So: it cannot resolve the open field layouts, and it is not a second source for
+the arcade data tables in issue #11. The arcade reference remains MAME and our
+own symbol table. Checking cost twenty minutes and is recorded here so it costs
+nobody else the same.
+
