@@ -35,7 +35,7 @@
 #include <stdio.h>
 #include "lime.h"
 
-#define EVENT_SLOTS   0xC0      /* 192 */
+/* EVENT_SLOTS and EVENT_STRIDE now live in lime.h */
 #define EVENT_STRIDE  0xF8      /* 248 bytes */
 
 
@@ -518,7 +518,7 @@ void LIME_PlayFBXAtPos(long arg0, long arg1, long arg2, long arg3)
     t->f70 = 0;                         /* +0x70 */
     t->f78 = 0;                         /* +0x78 */
 
-    limeMatrixLoadIdentity(&g_fbxScratchMatrix);
+    limeMatrixLoadIdentity(g_fbxScratchMatrix);   /* limeMATRIX44 is float[16] */
 
     LIME_TriggerEventFromSceneH(arg2, t, &g_fbxScratchMatrix, arg0,
                                 arg1, 0, 1, arg3, 0, 0, 0);

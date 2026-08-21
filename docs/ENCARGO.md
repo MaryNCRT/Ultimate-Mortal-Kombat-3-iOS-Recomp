@@ -6,6 +6,38 @@ project overview.
 
 ---
 
+## The engine compiles now. What that did and did not settle
+
+```bash
+for f in decomp/lime/*.c; do gcc -std=c99 -Wall -Wextra -fsyntax-only -I runtime -I decomp/lime $f; done
+```
+
+**0 errors, 12 warnings** — and every remaining warning is `unused parameter` on
+a body the binary itself left empty, so they are correct rather than tolerated.
+
+Linking every object together leaves exactly eighteen unresolved symbols, and
+each falls into one of two groups that are *supposed* to be unresolved:
+
+| group | symbols | why |
+|---|---|---|
+| Bodies deliberately not written | `CreateMatrixPaletteForGeneratingMesh`, `LIME_LoadEvents`, `LIME_LoadMeshSetTextures`, `LIME_LoadSkin1`, `LIME_RenderMeshSingle`, `LIME_TriggerEventFromSceneH` | documented declarations — see the table below |
+| The platform boundary | `glPushMatrix`, `glPopMatrix`, `glLoadIdentity`, `glMatrixMode`, `glMultMatrixf`, `glTranslatef`, `limeLoadFile`, `limeFileSize`, `limeFree`, `limeMalloc`, `limeLoadTexture`, `limeDeleteTexture` | `runtime/` supplies these; `decomp/` must not |
+
+Nothing else dangles. The engine is internally consistent.
+
+**What is still missing to put RenderMesh through the differential gate** is a
+link-time support layer: `decomp_loop.py` compiles only the test, the clean C,
+the oracle and `runtime/arm_runtime.c`, and `arm_runtime.c` exposes
+`stub_limeLoadFile(arm_ctx *)` rather than a C-callable `limeLoadFile(const
+char *)`. Bridging those twelve platform symbols is the next concrete task, and
+it is a runtime job rather than a decompilation one.
+
+Engine globals now live in `decomp/lime/lime_globals.c` — one translation unit,
+because the original spread them across the files that used them and mirroring
+that gives every file both a declaration and a definition.
+
+---
+
 ## First: extend the oracle past the calibration pair
 
 **Phase 0 is green.** `python tools/decomp_loop.py --calibrate` passes 2/2,

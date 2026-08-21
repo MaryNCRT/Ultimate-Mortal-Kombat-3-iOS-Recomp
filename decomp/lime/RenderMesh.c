@@ -114,6 +114,7 @@ int LIME_FindMeshByName(const MESHSETINFO *set, const char *name)
 MESHSETINFO *LIME_LoadMeshSet(const char *filename, int useLighting)
 {
     size_t light_size = 0;
+    (void)light_size;   /* the loader sizes from the header, not the file */
     uint8_t *light = NULL;
 
     if (useLighting) {
@@ -128,6 +129,7 @@ MESHSETINFO *LIME_LoadMeshSet(const char *filename, int useLighting)
     }
 
     size_t data_size = limeFileSize(filename);
+    (void)data_size;
     uint8_t *data = (uint8_t *)limeLoadFile(filename);
     if (!data) {
         free(light);
@@ -576,8 +578,9 @@ int IsTextureFullBright(const char *name)
     int i;
 
     if (!FullBrightLoaded) {
-        char *data = limeLoadFile(NOLIGHT_FILE);
-        char *p, *end;
+        const char *data = limeLoadFile(NOLIGHT_FILE);
+        const char *p;
+        const char *end;
         char line[0x40];
 
         if (data == NULL)
@@ -591,12 +594,15 @@ int IsTextureFullBright(const char *name)
             if (line[0] == 0x23 || line[0] == 0)
                 continue;               /* comments and blanks alike */
 
-                memcpy(TheFullBrightInfo.names[TheFullBrightInfo.count],
-                   line, 64);      /* four ldm/stm pairs = 64 bytes */
+            /* No bounds check here, and none in the binary either. The table
+             * holds FULLBRIGHT_MAX entries; past that this writes through the
+             * end of it and into the next symbol. See lime.h. */
+            memcpy(TheFullBrightInfo.names[TheFullBrightInfo.count],
+                   line, 64);           /* four ldm/stm pairs = 64 bytes */
             TheFullBrightInfo.count++;
         }
 
-        limeFree(data);
+        limeFree((void *)data);
     }
 
     for (i = 0; i < TheFullBrightInfo.count; i++)

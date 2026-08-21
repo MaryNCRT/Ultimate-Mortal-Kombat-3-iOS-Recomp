@@ -40,7 +40,12 @@ void *GetMatrixFromPalette(long index, SCENEINFO *scene)
  */
 void ClearTranspMeshList(void)
 {
-    g_transpMeshList = 0;
+    /* The COUNT, not the list. An earlier pass assigned zero to the array
+     * itself, which is not even valid C -- it only survived because this file
+     * had never been compiled. The symbol table names the counter
+     * _NumTranspMeshes, and resetting it is the whole of the operation: the
+     * 255 slots are overwritten in place on the next frame. */
+    g_transpMeshCount = 0;
 }
 
 
@@ -104,7 +109,7 @@ SCENEINFO *GetScenePointingTo(SCENEINFO *scene)
  */
 SCENEINFO *LIME_LoadSceneWithTextures(const char *filename)
 {
-    SCENEINFO *scene = LIME_LoadScene(filename, 0, 0);
+    SCENEINFO *scene = LIME_LoadScene(filename, 0, 0, 0);
 
     if (scene != NULL && scene->meshset != NULL)   /* SCENEINFO+0x80 */
         LIME_LoadMeshSetTextures(scene->meshset, 0);
@@ -190,7 +195,7 @@ void LIME_SetSceneTextures(const char *name, MESHSETINFO *set, TEXTURE **out)
     if (set->numMeshes == 0)
         return;
 
-    index = LIME_FindMeshByName(name, set);
+    index = LIME_FindMeshByName(set, name);   /* (set, name), not (name, set) */
     if (index != -1)
         out[index] = set->meshes[0]->texture;
 }
@@ -344,7 +349,7 @@ SCENEINFO *LIME_LoadScene(const char *filename, int arg1, int arg2, int arg3)
 
     scene = LIME_GetSceneFromFilename(filename);
     if (scene != NULL) {
-        scene->field40++;               /* +0x40, touched on a cache hit */
+        scene->refCount++;              /* +0x40 */
         return scene;
     }
 
@@ -368,8 +373,8 @@ SCENEINFO *LIME_LoadScene(const char *filename, int arg1, int arg2, int arg3)
     /* sibling headers are read into the +0x54 and +0x64 groups, each buffer
      * freed immediately after its words are copied out */
 
-    scene->meshset = LIME_LoadMeshSet(meshsetName);      /* +0x80 */
-    scene->events  = LIME_LoadEvents(eventsName);        /* +0x84 */
+    scene->meshset = LIME_LoadMeshSet(meshsetName, 0);   /* +0x80 */
+    scene->events  = LIME_LoadEvents(eventsName, 0, 0);  /* +0x84 */
 
     return scene;
 }
