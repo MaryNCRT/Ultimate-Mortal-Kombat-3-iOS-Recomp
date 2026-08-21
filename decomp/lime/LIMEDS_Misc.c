@@ -102,11 +102,24 @@ void ConvertDSMatrixtoPCMatrix(const int32_t *src, float *dst)
     const float k = 1.0f / 4096.0f;     /* literal 0x39800000 */
     int row, col;
 
-    for (row = 0; row < 4; row++) {
+    for (row = 0; row < 4; row++)
         for (col = 0; col < 3; col++)
             dst[row * 4 + col] = (float)src[row * 3 + col] * k;
-        dst[row * 4 + 3] = 0.0f;        /* the written zero */
-    }
+
+    /* **Three zeros and a one, not four zeros.**
+     *
+     * The fourth column of the first three rows is zeroed, and m[15] is 1.0f --
+     * the homogeneous coordinate. An earlier version of this function zeroed all
+     * four in one loop, which is the tidier-looking code and is wrong: it
+     * produces a matrix whose last row is all zero, and anything that multiplies
+     * by it loses the translation entirely.
+     *
+     * tests/test_limedsmisc_diff.c caught it on its first run. The function had
+     * been in this repo, read and re-read, since the module was first written. */
+    dst[3] = 0.0f;
+    dst[7] = 0.0f;
+    dst[11] = 0.0f;
+    dst[15] = 1.0f;
 }
 
 
@@ -135,31 +148,53 @@ void ConvertDSMatrixtoPCMatrix(const int32_t *src, float *dst)
 
 /* ------------------------------------------------------------ LerpQSTMatrix
  *
- * armv6 0x0007fc44, 344 bytes.  **Structurally complete.**
+ * armv6 0x0007fc44, 344 bytes.  **Complete.**
  *
- * Interpolates two QST matrices by `t`, element by element.
+ * Blends two QST matrices by `t`, and it is fully unrolled -- no loop, ten
+ * elements written one after another.
  *
- * Every element round-trips: `ldrsh` to load the int16, `vcvt.f32.s32` up to
- * float, the blend, then `vcvt.s32.f32` and `strh` back down. So the result is
- * **re-quantised to int16 at every step**, not kept in float and converted once
- * at the end.
+ * ## It treats the two halves differently
  *
- * That matters for a port. Reproducing this in float throughout gives visibly
- * smoother results than the original, which sounds like an improvement and is
- * actually a behaviour change -- the quantisation is part of how the animation
- * looks.
+ * ```
+ *   ldrsh / strh   0x00 0x02 0x04 0x06        the quaternion, as int16
+ *   vldr  / vstr   0x08 0x0c 0x10 0x14 0x18 0x1c   scale and translation, float
+ * ```
  *
- * The blend weights are `t` and `1 - t`, with the 1.0f literal at 0x0007fd8c.
+ * Four plus six, exactly matching QSTMATRIX. **So the re-quantisation applies
+ * to the quaternion only** -- the scale and translation are blended in float and
+ * stay float. This file used to say "re-quantised to int16 at every element",
+ * which was true of the half it had looked at and wrong about the rest.
+ *
+ * The quaternion round-trip is real and worth reproducing: `ldrsh` up,
+ * `vcvt.f32.s32`, the blend, `vcvt.s32.f32` and `strh` back down, per element.
+ * A port that keeps the whole thing in float produces visibly smoother rotation
+ * than the original, which sounds like an improvement and is a behaviour change.
+ *
+ * ## The blend
+ *
+ *      vsub.f32 s14, s15, s12       ; 1 - t, once, before the elements
+ *      vmul.f32 s15, s12, s15       ; t * b
+ *      vmla.f32 s15, s13, s14       ; + a * (1 - t)
+ *
+ * So `out = b*t + a*(1-t)`, which means **`t = 0` yields `a`** -- the same
+ * direction as LerpVector3 and GetSlerpedQ, and the third function in this
+ * engine to blend that way round.
  */
-void LerpQSTMatrix(const int16_t *a, const int16_t *b, float t, int16_t *out)
+void LerpQSTMatrix(const QSTMATRIX *a, const QSTMATRIX *b, float t,
+                   QSTMATRIX *out)
 {
-    const float u = 1.0f - t;           /* literal 1.0f at 0x0007fd8c */
+    const float u = 1.0f - t;           /* computed once, before the elements */
     int i;
 
-    for (i = 0; i < QST_ELEMENTS; i++) {
-        float blended = (float)b[i] * t + (float)a[i] * u;
-        out[i] = (int16_t)blended;      /* re-quantised every element */
-    }
+    /* the quaternion: up to float, blended, and back DOWN to int16 */
+    for (i = 0; i < 4; i++)
+        out->q[i] = (int16_t)((float)b->q[i] * t + (float)a->q[i] * u);
+
+    /* scale and translation: float throughout, no quantisation */
+    for (i = 0; i < 3; i++)
+        out->scale[i] = b->scale[i] * t + a->scale[i] * u;
+    for (i = 0; i < 3; i++)
+        out->translation[i] = b->translation[i] * t + a->translation[i] * u;
 }
 
 
@@ -216,7 +251,18 @@ void LerpQSTMatrix(const int16_t *a, const int16_t *b, float t, int16_t *out)
  */
 void ConvertQSTMatrixtoPCMatrix(const QSTMATRIX *src, float *dst)
 {
-    const double k = 1.0 / 32767.0;     /* the literal at 0x0007ff40 */
+    /* **Not 1/32767.** The literal at 0x0007ff40 is the double
+     * 3.0518509447574615e-05, whose reciprocal is 32767.000030516647 -- close
+     * enough to 1/32767 that this project has written it that way for a long
+     * time, and different enough to diverge in the last bits of every
+     * quaternion-derived element.
+     *
+     * tests/test_limedsmisc_diff.c is what made the difference visible: about
+     * four ULP, uniform across the whole matrix, which is the signature of a
+     * wrong constant rather than a wrong formula. Reading the eight bytes
+     * settled it in one step after the association had been checked and
+     * cleared. */
+    const double k = 3.0518509447574615e-05;    /* the literal at 0x0007ff40 */
     double x = (double)src->q[0] * k;
     double y = (double)src->q[1] * k;
     double z = (double)src->q[2] * k;
@@ -229,17 +275,34 @@ void ConvertQSTMatrixtoPCMatrix(const QSTMATRIX *src, float *dst)
     /* the fourth column, written as literal zeros */
     dst[3] = 0.0f;  dst[7] = 0.0f;  dst[11] = 0.0f;
 
-    dst[0]  = (float)(1.0 - (yy + yy) - (zz + zz));
-    dst[1]  = (float)((xy + xy) + (wz + wz));
-    dst[2]  = (float)((xz + xz) - (wy + wy));
+    /* **The association matters.** Each product is doubled ONCE into its own
+     * value, and the diagonal subtracts the doubled pair as a single term:
+     *
+     *      vadd.f64 d7, d1, d6      ; 2y^2 + 2z^2
+     *      vsub.f64 d7, d5, d7      ; 1.0 - that, in ONE subtraction
+     *
+     * Written as `1.0 - (yy+yy) - (zz+zz)` -- two subtractions -- the result
+     * differs in the last bits, and tests/test_limedsmisc_diff.c fails on
+     * exactly the diagonal elements. Floating point is not associative, and a
+     * differential test at bit precision is what makes that visible instead of
+     * invisible. */
+    {
+        double xx2 = xx + xx, yy2 = yy + yy, zz2 = zz + zz;
+        double xy2 = xy + xy, xz2 = xz + xz, yz2 = yz + yz;
+        double wx2 = wx + wx, wy2 = wy + wy, wz2 = wz + wz;
 
-    dst[4]  = (float)((xy + xy) - (wz + wz));
-    dst[5]  = (float)(1.0 - (xx + xx) - (zz + zz));
-    dst[6]  = (float)((yz + yz) + (wx + wx));
+        dst[0]  = (float)(1.0 - (yy2 + zz2));
+        dst[1]  = (float)(xy2 + wz2);
+        dst[2]  = (float)(xz2 - wy2);
 
-    dst[8]  = (float)((xz + xz) + (wy + wy));
-    dst[9]  = (float)((yz + yz) - (wx + wx));
-    dst[10] = (float)(1.0 - (xx + xx) - (yy + yy));
+        dst[4]  = (float)(xy2 - wz2);
+        dst[5]  = (float)(1.0 - (xx2 + zz2));
+        dst[6]  = (float)(yz2 + wx2);
+
+        dst[8]  = (float)(xz2 + wy2);
+        dst[9]  = (float)(yz2 - wx2);
+        dst[10] = (float)(1.0 - (xx2 + yy2));
+    }
 
     /* each ROW scaled by its own axis factor */
     dst[0] *= src->scale[0];  dst[1] *= src->scale[0];  dst[2]  *= src->scale[0];

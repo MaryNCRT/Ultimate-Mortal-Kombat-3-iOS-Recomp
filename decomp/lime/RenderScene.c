@@ -613,7 +613,7 @@ void LIME_RenderScene(SCENEINFO *scene, long frame, long flags)
         /* one palette matrix per key, blended -- re-quantised at every element */
         LerpQSTMatrix(GetMatrixFromPalette(ka->paletteIndex, scene),
                       GetMatrixFromPalette(kb->paletteIndex, scene),
-                      0.0f, (int16_t *)&blended);
+                      0.0f, &blended);
 
         if (ka->alpha != 0.0f) {
             /* deferred: additive and unsorted, drawn by FlushTranspMeshList */
