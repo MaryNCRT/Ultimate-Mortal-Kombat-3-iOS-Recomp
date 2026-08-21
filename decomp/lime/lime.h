@@ -313,9 +313,10 @@ typedef struct SCENENODE     SCENENODE;
 #define SCENE_NODE_HIDDEN 0xFFFFu
 
 typedef struct SCENENODEKEY {
-    float   alpha;               /* 0x00 */
-    uint8_t meshIndex;           /* 0x04  indexes MESHSETINFO.meshes */
-    uint8_t _pad05[3];
+    float    alpha;              /* 0x00  vldr s15, [r6] */
+    uint8_t  meshIndex;          /* 0x04  ldrb, indexes MESHSETINFO.meshes */
+    uint8_t  _pad05;             /* 0x05 */
+    uint16_t paletteIndex;       /* 0x06  ldrh, -> GetMatrixFromPalette */
 } SCENENODEKEY;
 
 /* The .events block as its consumers name it. Same pair EVENTSINFO holds; the
@@ -670,6 +671,7 @@ void   LIME_PopMatrix(int count);
  * parameters and only the compiler caught it. */
 void   LIME_RenderMesh(MESHSETINFO *set, int index, TEXTURE *t0, TEXTURE *t1);
 void   ConvertQSTMatrixtoPCMatrix(const QSTMATRIX *src, float *dst);
+void   LerpQSTMatrix(const int16_t *a, const int16_t *b, float t, int16_t *out);
 void   limeEnableAlphaBlending_Additive(void);
 void   limeEnableAlphaBlending_Basic(void);
 void   limeDisableAlphaBlending(void);

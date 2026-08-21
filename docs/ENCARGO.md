@@ -116,12 +116,12 @@ Guessing one here corrupts every function that touches the struct.
 
 ## The job: finish `lime/common`
 
-**104 of 109 have a body (95%).** The remaining 5 are **not all equal work**,
+**105 of 109 have a body (96%).** The remaining 4 are **not all equal work**,
 and the split matters more than the number:
 
 | | count | what it means |
 |---|---:|---|
-| Body written | 104 | decompiled and verified against the gate |
+| Body written | 105 | decompiled and verified against the gate |
 | **Documented, body deliberately not written** | **6** | read, analysed, findings recorded — only the transcription is missing |
 | Not yet read | **0** | every function has been examined |
 

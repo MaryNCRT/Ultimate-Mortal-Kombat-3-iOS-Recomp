@@ -519,71 +519,118 @@ void FlushTranspMeshList(TEXTURE *texture, const SKINMATRIX43 *matrix)
  *
  * armv6 0x000827e0, 1896 bytes.  **Structurally complete.**
  *
- * Draws a whole scene for one frame. The largest function in this file.
+ * Draws a whole scene for one frame. The largest function in this file, and it
+ * differs from LIME_RenderSceneOverrideTextures in one substantial way: **it
+ * interpolates between two keys, and the override version does not.**
  *
- * ## Effect spawn points are named, not flagged
+ * ## Two frames, two palette matrices, one blend
  *
- * The scene walk compares single characters against `0x45`, `0x56`, `0x45`,
- * `0x4e` and `0x54` -- **'E', 'V', 'E', 'N', 'T'**, all five letters of the
- * word, chained through `cmpeq` so the first mismatch ends the test:
+ *      ldrh r0, [r6, #6]            ; key A's palette index
+ *      bl   GetMatrixFromPalette
+ *      ldrh r0, [r1, #6]            ; key B's
+ *      bl   GetMatrixFromPalette
+ *      bl   LerpQSTMatrix
  *
- *      cmp    r3, #0x45        ; 'E'
- *      ...
- *      cmp    r3, #0x56        ; 'V'
- *      cmpeq  r3, #0x45        ; 'E'
- *      cmpeq  r3, #0x4e        ; 'N'
- *      ...
- *      cmp    r3, #0x54        ; 'T'
+ * `__modsi3` is called **twice** in the prologue -- once per frame -- and the
+ * stream is read at two offsets (`ldrh r3, [r3, r2]` and `ldrh r3, [ip, r2]`).
+ * So the scene walks to the key for this frame and the key for the next, pulls
+ * a QST matrix for each out of the palette, and blends them.
  *
- * An earlier pass here saw only three of the five and described it as a partial
- * filter. It is not partial -- it is a full `strncmp` against `EVENT` written
- * out as predicated compares, which on ARM costs nothing extra and avoids a
- * call.
+ * That names a field the override path never touches: **`SCENENODEKEY+0x06` is
+ * a palette index**, a `uint16` handed straight to GetMatrixFromPalette. The
+ * 8-byte key is therefore alpha, mesh index, and palette index -- everything a
+ * node needs for one keyframe, in eight bytes.
  *
- * **The shipped data confirms it.** Node names in the `.scene` files include
- * `EVENT_splat_00`, `EVENT_blood_001` and `EVENT_hatTrail2`, and `EVENT_` is
- * one of the most common prefixes across the set.
+ * `LerpQSTMatrix` re-quantises to `int16` at every element (see LIMEDS_Misc.c),
+ * so the quantisation is part of how scene animation looks. A port that blends
+ * in float throughout produces visibly smoother motion than the original, which
+ * sounds like an improvement and is a behaviour change.
  *
- * So a scene node is an effect spawn point **because of what the artist called
- * it**. There is no flag, no separate list and no node type -- renaming a node
- * in the exporter changes what the engine does with it. That is the same
- * data-driven design `res/nolight.txt` shows in the lighting path, and it is
- * the second place this engine turns out to be configured by text rather than
- * by code.
+ * ## Transparent nodes are deferred, not drawn
  *
- * A port must reproduce the prefix test. A mod adding effects does it by naming
- * nodes, which is worth knowing before anyone builds a flag system that the
- * original never had.
+ * Nodes needing blending go to `AddToTranspMeshList` instead of being drawn
+ * here, which is what fills the list `FlushTranspMeshList` later empties. The
+ * opaque state is restored on both exits, exactly as in the override version.
  *
- * ## Animation is interpolated per node, from the palette
+ * ## The EVENT test again
  *
- *      bl  GetMatrixFromPalette      ; frame A
- *      bl  GetMatrixFromPalette      ; frame B
- *      bl  LerpQSTMatrix
+ * `cmp r3, #0x45` on the mesh name, same as the override path -- markers are
+ * skipped rather than drawn. Two independent functions carrying the same
+ * convention.
  *
- * Two palette lookups and a blend, per node, per frame. `LerpQSTMatrix`
- * re-quantises to int16 at every element -- see LIMEDS_Misc.c -- so the
- * quantisation is part of how scene animation looks, not an artefact to smooth
- * away.
+ * ## What is not written out
  *
- * The frame index reaches the palette through `__modsi3`, twice: the scene
- * loops on its own length, the same way LIME_TriggerEventsFromScene takes its
- * modulo against `SCENEINFO+0x44`.
- *
- * ## Transparent nodes are deferred, and the state is restored after
- *
- * Nodes that need blending go to `AddToTranspMeshList` instead of drawing, and
- * the function ends with `limeDisableAlphaBlending` followed by
- * `limeEnableDepthWrites` -- twice, on two exit paths. So the opaque state is
- * restored explicitly rather than left for the next caller to fix, which is why
- * FlushTranspMeshList can assume it starts from a known state.
- *
- * The body is left as the sequence above. The node walk carries several
- * independent flags and early exits whose ordering does not change what is
- * drawn, and transcribing it from one pass would put confident-looking
- * structure on branches that were not traced.
+ * The body below covers the walk, the two-key blend and the transparent
+ * deferral. It does **not** transcribe the flag handling around `LIME_printf`
+ * and the second `cmp ip, #1` in the prologue: those select between paths that
+ * were not traced, and the argument they test is not identified. Guessing which
+ * branch a flag selects is how the previous attempt at this file's other
+ * renderer went wrong.
  */
-void LIME_RenderScene(SCENEINFO *scene, long frame, long flags);
+void LIME_RenderScene(SCENEINFO *scene, long frame, long flags)
+{
+    long node;
+    long fa, fb;
+
+    (void)flags;
+
+    if (scene == NULL || scene->count2 == 0)
+        return;
+
+    fa = frame % scene->count2;         /* __modsi3, once per frame... */
+    if (fa < 0) fa = 0;
+    fb = (frame + 1) % scene->count2;   /* ...and again for the next */
+    if (fb < 0) fb = 0;
+
+    glScalef(scene->scale, scene->scale, scene->scale);
+
+    if (scene->nodeCount == 0)
+        return;
+
+    for (node = 0; node < scene->nodeCount; node++) {
+        SCENENODEKEY *keys = scene->nodeKeys[node];
+        uint16_t     *strm = scene->nodeStream[node];
+        SCENENODEKEY *ka, *kb;
+        MESHINFO *mesh;
+        QSTMATRIX blended;
+
+        if (keys == NULL)
+            continue;
+
+        if (strm[fa] == SCENE_NODE_HIDDEN)
+            goto restore;
+
+        ka = &keys[strm[fa]];
+        kb = &keys[strm[fb]];
+
+        mesh = scene->meshset->meshes[ka->meshIndex];
+
+        if (mesh->meshName[0] == 'E' && mesh->meshName[1] == 'V' &&
+            mesh->meshName[2] == 'E' && mesh->meshName[3] == 'N' &&
+            mesh->meshName[4] == 'T')
+            goto restore;               /* a marker, not geometry */
+
+        /* one palette matrix per key, blended -- re-quantised at every element */
+        LerpQSTMatrix(GetMatrixFromPalette(ka->paletteIndex, scene),
+                      GetMatrixFromPalette(kb->paletteIndex, scene),
+                      0.0f, (int16_t *)&blended);
+
+        if (ka->alpha != 0.0f) {
+            /* deferred: additive and unsorted, drawn by FlushTranspMeshList */
+            AddToTranspMeshList(scene->meshset, NULL, &blended,
+                                ka->meshIndex, 0);
+            goto restore;
+        }
+
+        LIME_PushMatrix();
+        LIME_RenderMesh(scene->meshset, ka->meshIndex, NULL, NULL);
+        LIME_PopMatrix(1);
+
+    restore:
+        limeDisableAlphaBlending();
+        limeEnableDepthWrites();
+    }
+}
 
 
 /* ------------------------------------------- LIME_RenderSceneOverrideTextures
