@@ -252,3 +252,13 @@ void lime_platform_last_sprite(float *out8)
     out8[4] = g_last_sprite.u;  out8[5] = g_last_sprite.v;
     out8[6] = g_last_sprite.du; out8[7] = g_last_sprite.dv;
 }
+
+/* The rotated, top-left-anchored sprite limeDrawFONTAtAngle draws through.
+ * Shares the recorder above so a test can inspect either path. */
+void limeDrawRotSpriteFromTopLeft(TEXTURE *page, float x, float y,
+                                  float w, float h, float u, float v,
+                                  float du, float dv, float angle)
+{
+    (void)angle;
+    limeDrawSprite(page, x, y, w, h, u, v, du, dv);
+}

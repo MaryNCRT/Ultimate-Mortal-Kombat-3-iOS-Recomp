@@ -44,15 +44,5 @@ void LIME_RenderMeshSingle(MESHINFO *mesh, TEXTURE *t0, TEXTURE *t1,
 
 
 
-int LIME_TriggerEventFromSceneH(long a0, SCENEEVENTTRACK *track,
-                                limeMATRIX44 *matrix, long a3, long a4,
-                                long a5, long a6, long a7, long a8,
-                                long a9, long a10)
-{
-    (void)a0; (void)track; (void)matrix; (void)a3; (void)a4; (void)a5;
-    (void)a6; (void)a7; (void)a8; (void)a9; (void)a10;
-    unwritten("LIME_TriggerEventFromSceneH");
-    return 0;
-}
 
 

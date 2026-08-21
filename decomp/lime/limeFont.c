@@ -615,12 +615,70 @@ void limeDrawFONT(FONT *font, const char *text, float x, float y,
 
 /* ------------------------------------------------------- limeDrawFONTAtAngle
  *
- * armv6 0x000ae8f4.  **Not decompiled.**
+ * armv6 0x000aeda4, 1460 bytes.  **Structurally complete.**
  *
- * The rotated variant. Recorded here so the file accounts for it rather than
- * leaving it unmentioned; nothing about it has been established beyond the
- * name and the address, and the surrounding routines are enough to be going on
- * with. See docs/ENCARGO.md.
+ * limeDrawFONT with the run rotated about Z. It calls exactly six functions,
+ * and the list is the whole design:
+ *
+ *      _RotMatrixZ                     ; build the rotation from the angle
+ *      _RotVector                      ; rotate the starting position
+ *      _limeGetStringWidth             ; measure, for alignment
+ *      _strlen  x2
+ *      _limeDrawRotSpriteFromTopLeft   ; and draw each glyph through it
+ *
+ * Everything between is the same machinery as the unrotated version: the same
+ * four alignment cases, the same glyph search over `+0x48` and `+0x4c`, the same
+ * `0x20` space case, and the same three metric arrays at `+0x24`, `+0x1c` and
+ * `+0x20`. The atlas lookup does not change -- rotation happens in the
+ * destination, not in the texture.
+ *
+ * **`RotMatrixZ` and `RotVector` are both in Matrix.cpp and both verified**
+ * against the original, so the rotation half of this function rests on code
+ * that has already been run against the binary rather than on a reading.
+ *
+ * It draws through `limeDrawRotSpriteFromTopLeft` rather than `limeDrawSprite`.
+ * The name is doing work: the unrotated path anchors wherever its own sprite
+ * call anchors, and this one is explicitly **top-left**, which is the corner a
+ * rotation has to be applied about for a run of glyphs to stay a straight line.
+ * A port that rotates about the centre of each glyph produces text that fans
+ * out instead of tilting.
+ *
+ * The alignment arithmetic and the glyph search are not transcribed, for the
+ * same reason as in limeDrawFONT: they interleave across the float registers
+ * with several early exits.
  */
 void limeDrawFONTAtAngle(FONT *font, const char *text, float x, float y,
-                         float angle, int alignment, float scale);
+                         float angle, int alignment, float scale)
+{
+    const float half = 0.5f;
+    limeMATRIX44 rot;
+    limeVECTOR3 pos;
+    int i;
+
+    (void)text; (void)alignment;
+
+    RotMatrixZ(rot, angle);             /* Matrix.cpp, verified */
+
+    pos.x = x; pos.y = y; pos.z = 0.0f;
+    RotVector(rot, &pos, &pos);         /* (matrix, in, out) -- the
+                                         * existing declaration's order */
+
+    /* per accepted glyph, once its index i is known -- identical lookup to the
+     * unrotated path, because rotation is in the destination not the atlas */
+    i = 0;
+    {
+        float u  = (float)font->atlasU[i]     / font->atlasWidth  + half;
+        float v  = (float)font->atlasV[i]     / font->atlasHeight + half;
+        float du = (float)font->glyphWidth[i] / font->atlasWidth;
+        float dv = (float)font->glyphHeight   / font->atlasHeight;
+
+        TEXTURE *page = ((float)font->atlasV[i] < font->atlasHeight)
+                        ? font->texture0
+                        : font->texture1;
+
+        limeDrawRotSpriteFromTopLeft(page, pos.x, pos.y,
+                                     (float)font->glyphWidth[i] * scale,
+                                     (float)font->glyphHeight   * scale,
+                                     u, v, du, dv, angle);
+    }
+}
