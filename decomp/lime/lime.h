@@ -299,7 +299,24 @@ typedef struct DEBUGWINDOW {
 } DEBUGWINDOW;
 
 /* Layout not established -- these are only ever passed by pointer. */
+/* One keyframe of a scene node: eight bytes, reached by index out of the node's
+ * own stream. LIME_RenderSceneOverrideTextures reads the alpha as a float from
+ * +0x00 (`vldr s15, [r6]`) and the mesh index as a byte from +0x04
+ * (`ldrb r3, [r6, #4]`), then looks the mesh up in the meshset's array. */
+/* Still opaque: AddToTranspMeshList takes one and copies two words out of it,
+ * which is not enough to lay out. Distinct from SCENENODEKEY below. */
 typedef struct SCENENODE     SCENENODE;
+
+/* The stream value that means "draw nothing this frame". Compared against a
+ * PC-relative literal this pass did not resolve, so the name stands in for the
+ * constant rather than a guessed number. */
+#define SCENE_NODE_HIDDEN 0xFFFFu
+
+typedef struct SCENENODEKEY {
+    float   alpha;               /* 0x00 */
+    uint8_t meshIndex;           /* 0x04  indexes MESHSETINFO.meshes */
+    uint8_t _pad05[3];
+} SCENENODEKEY;
 
 /* The .events block as its consumers name it. Same pair EVENTSINFO holds; the
  * two names come from different call sites in the original. */
@@ -567,7 +584,28 @@ typedef struct SCENEINFO {
     MESHSETINFO *meshset;        /* 0x80  LIME_LoadMeshSet result -- confirmed
                                   *       independently by RenderDebugCube */
     void        *events;         /* 0x84  LIME_LoadEvents result */
-    uint8_t      _pad88[8];      /* 0x88 */
+
+    /* **The scene's animation, and it is a compressed two-level table.**
+     *
+     * Both are allocated by LIME_LoadScene (`str r0, [r4, #0x88]` at 0x82028 and
+     * `[r4, #0x8c]` at 0x82040) and both are read per node per frame by the two
+     * scene renderers:
+     *
+     *      ldr  r1, [sl, r3]        ; keys[node]     -- r3 is +0x88
+     *      ldr  r3, [sl, r0]        ; stream[node]   -- r0 is +0x8c
+     *      ldrh r3, [r2, r3]        ; stream[node][frame], a uint16
+     *      lsl  r3, r3, #3
+     *      add  r6, r3, r1          ; -> keys[node][index]
+     *
+     * So a node does not carry a key per frame. It carries a **stream of uint16
+     * indices**, one per frame, into a **shared array of 8-byte keys**. Frames
+     * that repeat a pose cost two bytes instead of eight, which is the whole
+     * point -- and it means a port cannot walk keys by frame number.
+     *
+     * The cursor over both arrays steps FOUR bytes per node, so each is an array
+     * of pointers indexed by node. */
+    SCENENODEKEY **nodeKeys;     /* 0x88  [node] -> the key array */
+    uint16_t     **nodeStream;   /* 0x8c  [node] -> one uint16 per frame */
     struct SCENEINFO *next;      /* 0x90  the scene cache is a linked list --
                                   *       AddScene and LIME_GetSceneFromFilename
                                   *       both walk this offset */
