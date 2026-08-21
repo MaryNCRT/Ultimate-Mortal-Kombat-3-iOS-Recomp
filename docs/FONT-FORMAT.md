@@ -26,8 +26,8 @@ offset  size            meaning
 
   --- if not SIMPLE ---
         numGlyphs * W   metric array A          -> FONT+0x1c
-        numGlyphs * W   ADVANCE WIDTH           -> FONT+0x20
-        numGlyphs * W   metric array B          -> FONT+0x24
+        numGlyphs * W   metric array B          -> FONT+0x20
+        numGlyphs * W   ADVANCE WIDTH           -> FONT+0x24
 
 W is 1 or 2 -- see "The width is not in the file" below.
 ```
@@ -60,6 +60,15 @@ addne    r6, r6, #2
 Both paths store `int16` at the destination. So **a metrics file does not
 describe its own layout** — load it with the wrong flag and it parses cleanly
 and produces garbage. Any external tool needs that flag from the call site.
+
+## The advance is the THIRD array, not the second
+
+`FONT+0x24` is the advance width — `ldr r1, [r4, #0x24]` at `0xaec48` is what
+`limeGetStringWidth` accumulates. An earlier draft of this page put the advance
+at `+0x20`, on nothing more than it being the middle of three. The read order in
+`limeCreateFONT` is `+0x1c`, `+0x20`, `+0x24`, so the advance is the last array
+read, and the first two remain unnamed because nothing recovered so far touches
+them.
 
 ## The code table exists at two widths
 

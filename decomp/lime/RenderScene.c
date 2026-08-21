@@ -9,6 +9,9 @@
  * docs/SCENE-FORMAT.md derived from the loader.
  */
 
+#include <math.h>
+#include <string.h>
+#include <stdio.h>
 #include "lime.h"
 
 

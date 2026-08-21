@@ -30,6 +30,9 @@
  *      +0xe4   float
  */
 
+#include <math.h>
+#include <string.h>
+#include <stdio.h>
 #include "lime.h"
 
 #define EVENT_SLOTS   0xC0      /* 192 */

@@ -13,6 +13,9 @@
  * three globals it walks are named by role, not yet by symbol.
  */
 
+#include <math.h>
+#include <string.h>
+#include <stdio.h>
 #include "lime.h"
 
 /* ------------------------------------------------------------------ types
@@ -155,7 +158,7 @@ void GetMFromQuat2(const BONEANIMFRAME *q, SKINMATRIX43 *out)
  *      That global is where the character's world position enters the skeleton.
  *   5. MatrixMul2(local, parent, result)
  *   6. copy the 48-byte result to the palette cursor and advance it
- *   7. recurse into bone->child while it is non-NULL
+ *   7. loop over the nine child slots, recursing into each non-NULL one
  *
  * Step 4 is the part worth remembering: a .bones file's root translation is
  * not what gets used at runtime.
@@ -164,6 +167,7 @@ void CreateMatrixPaletteRecurse2(BONE *bone, SKINMATRIX43 *parent)
 {
     BONEANIMFRAME frame;
     SKINMATRIX43 local, result;
+    int i;
 
     /* 1-2: one frame per bone, in tree order */
     frame = *(const BONEANIMFRAME *)g_animFrameCursor;
@@ -191,8 +195,18 @@ void CreateMatrixPaletteRecurse2(BONE *bone, SKINMATRIX43 *parent)
     g_paletteCursor += 48;
 
     /* 7: depth first */
-    if (bone->child != NULL)
-        CreateMatrixPaletteRecurse2(bone->child, &result);
+    /* **A loop, not one child.** The disassembly reads the child pointer at
+     * +0x14, recurses when it is non-NULL, then does `add r4, r4, #4` and comes
+     * back -- walking the nine slots, bounded by the count at +0x00 which it
+     * reloads every iteration.
+     *
+     * An earlier pass wrote this as a single `bone->child`, which follows only
+     * the first branch. Every humanoid skeleton branches at the spine, so that
+     * version poses one arm and leaves the other at its bind pose. */
+    for (i = 0; i < bone->numChildren; i++) {
+        if (bone->children[i] != NULL)
+            CreateMatrixPaletteRecurse2(bone->children[i], &result);
+    }
 
     /* the sibling walk continues past the excerpt disassembled so far */
 }
@@ -252,10 +266,16 @@ void DrawSkinnedMesh2(SKININFO *skin, unsigned a, unsigned b, long flags,
                       limeVECTOR3 *outPos, limeVECTOR2 *outUV,
                       unsigned char *outCol, long e, long f)
 {
-    const unsigned char *idx  = skin->indexes;      /* SKININFO+0x20 */
-    const float         *wgt  = skin->weights;      /* SKININFO+0x24 */
-    const limeVECTOR3   *A    = skin->matricesA;    /* SKININFO+0x14 */
-    const limeVECTOR3   *B    = skin->matricesB;    /* SKININFO+0x28 */
+    /* Casts, not sloppiness. docs/SKIN-FORMAT.md types +0x20 as `int32 *` and
+     * +0x14 / +0x28 as matrix arrays, which is what the LOADER allocates. This
+     * consumer reads the same memory differently: the index array byte by byte
+     * -- four bone indices packed per word, matching the four floats per vertex
+     * at +0x24 -- and the matrices as flat vectors. Keeping the declared types
+     * honest and casting here records both views instead of blurring one. */
+    const unsigned char *idx  = (const unsigned char *)skin->indexes;   /* +0x20 */
+    const float         *wgt  = skin->weights;                          /* +0x24 */
+    const limeVECTOR3   *A    = (const limeVECTOR3 *)skin->matricesA;   /* +0x14 */
+    const limeVECTOR3   *B    = (const limeVECTOR3 *)skin->matricesB;   /* +0x28 */
     long i, k;
 
     for (i = 0; i < skin->numVerts; i++) {
@@ -462,7 +482,7 @@ void LIME_FreeSkin(SKININFO *skin)
         return;
 
     limeFree(skin->vertExtra);      /* +0x18 */
-    limeFree(skin->vertData);       /* +0x1c */
+    limeFree(skin->vertExtra);       /* +0x1c */
     limeFree(skin->matricesA);      /* +0x14 */
     limeFree(skin->weights);        /* +0x24 */
     limeFree(skin->indexes);        /* +0x20 */
@@ -629,12 +649,11 @@ SKININFO *LIME_LoadSkin(const char *filename)
  * animation frames has to do the same test or limbs will occasionally swing
  * through 300 degrees to reach a pose next to where they started.
  *
- * Whether the blend is a true slerp or a normalised lerp is not established
- * from this pass, and the name is not evidence: `UnpackAnimFrame` in this same
- * file unpacks nothing.
+ * **That open question is now answered, and the body is further down this
+ * file.** It is neither a slerp nor a normalised lerp: it is a plain lerp with
+ * the hemisphere flip and no renormalisation at all. The instinct recorded
+ * above -- that the name is not evidence -- was right.
  */
-float GetSlerpedQ(const BONEANIMFRAME *a, const BONEANIMFRAME *b,
-                  float t, BONEANIMFRAME *out);      /* body not recovered */
 
 
 /* ------------------------------------------------------------ LIME_LoadBones
@@ -744,11 +763,11 @@ void MatrixMul2(const SKINMATRIX43 *a, const SKINMATRIX43 *b, SKINMATRIX43 *out)
                               + a->m[r * 3 + 1] * b->m[3 + c]
                               + a->m[r * 3 + 2] * b->m[6 + c];
 
-    for (c = 0; c < 3; c++)             /* the translation row */
-        out->m[9 + c] = a->m[9]  * b->m[0 + c]
-                      + a->m[10] * b->m[3 + c]
-                      + a->m[11] * b->m[6 + c]
-                      + b->m[9 + c];    /* added, not multiplied */
+    for (c = 0; c < 3; c++)             /* the translation */
+        out->t[c] = a->t[0] * b->m[0 + c]
+                  + a->t[1] * b->m[3 + c]
+                  + a->t[2] * b->m[6 + c]
+                  + b->t[c];            /* added, not multiplied */
 }
 
 

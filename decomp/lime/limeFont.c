@@ -34,6 +34,9 @@
  * is not, and is left alone below rather than guessed at.
  */
 
+#include <math.h>
+#include <string.h>
+#include <stdio.h>
 #include "lime.h"
 
 
@@ -101,7 +104,12 @@ int limeFontStrLen(const char *s)
  * invent a `limeFontAdvance()` helper and `tools/symcheck.py` rejected it --
  * which is the whole reason that check exists.
  */
-float limeGetStringWidth(FONT *font, const char *s);      /* body not recovered */
+/* The body is still not written -- see the fuller note further down this file,
+ * which records what limeCreateFONT since established about the surrounding
+ * format. One correction to the paragraph above: the array the loop accumulates
+ * is at **FONT+0x24**, not FONT+0x0c. `ldr r1, [r4, #0x24]` at 0xaec48 is the
+ * read, and it is the third of the three planar metric arrays limeCreateFONT
+ * fills. FONT+0x0c is a separate field copied straight from the caller. */
 
 
 /* --------------------------------------------- limeGetStringWidthUCNoHeader
@@ -231,11 +239,21 @@ void limeCreateFONT(const char *tex0, const char *tex1, const char *metrics,
         return;
     }
 
-    font->metricA = limeMalloc("font", n * 2);          /* +0x24 */
-    font->metricB = limeMalloc("font", n * 2);          /* +0x1c */
-    font->advance = limeMalloc("font", n * 2);          /* +0x20 */
+    font->metricA = limeMalloc("font", n * 2);          /* +0x1c */
+    font->metricB = limeMalloc("font", n * 2);          /* +0x20 */
+    font->advance = limeMalloc("font", n * 2);          /* +0x24 */
 
-    /* three planar passes, in this order: +0x1c, +0x20, +0x24 */
+    /* Three planar passes, filling +0x1c, +0x20 and +0x24 in that order.
+     *
+     * The THIRD one is the advance width. limeGetStringWidth reads
+     * `ldr r1, [r4, #0x24]` at 0xaec48 and that is the array it accumulates --
+     * which is what names it, and what an earlier version of this file got
+     * backwards by assuming the middle array was the interesting one. */
+    for (i = 0; i < n; i++) {
+        font->metricA[i] = wide ? (int16_t)*(const uint16_t *)(data + cursor)
+                                : (int16_t)(int8_t)data[cursor];
+        cursor += wide ? 2 : 1;
+    }
     for (i = 0; i < n; i++) {
         font->metricB[i] = wide ? (int16_t)*(const uint16_t *)(data + cursor)
                                 : (int16_t)(int8_t)data[cursor];
@@ -243,11 +261,6 @@ void limeCreateFONT(const char *tex0, const char *tex1, const char *metrics,
     }
     for (i = 0; i < n; i++) {
         font->advance[i] = wide ? (int16_t)*(const uint16_t *)(data + cursor)
-                                : (int16_t)(int8_t)data[cursor];
-        cursor += wide ? 2 : 1;
-    }
-    for (i = 0; i < n; i++) {
-        font->metricA[i] = wide ? (int16_t)*(const uint16_t *)(data + cursor)
                                 : (int16_t)(int8_t)data[cursor];
         cursor += wide ? 2 : 1;
     }

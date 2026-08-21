@@ -8,6 +8,9 @@
  * its transform work. See docs/LIME-ENGINE.md for the full GL surface.
  */
 
+#include <math.h>
+#include <string.h>
+#include <stdio.h>
 #include "lime.h"
 
 
