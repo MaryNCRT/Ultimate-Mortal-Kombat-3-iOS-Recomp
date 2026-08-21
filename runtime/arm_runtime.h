@@ -93,6 +93,32 @@ static inline uint64_t F64_U64(double d)   { uint64_t b; memcpy(&b, &d, 8); retu
 /* Azucar para leer/escribir registros VFP como valores, no como bits. */
 #define VS(i)      U32_F32(ctx->v.s[i])
 #define VS_SET(i, x)  (ctx->v.s[i] = F32_U32(x))
+
+/* Float arithmetic on RAW BIT PATTERNS.
+ *
+ * recomp.py emits these for the fused multiply-accumulate forms -- vmla, vmls,
+ * vnmla -- because those read and write the same register, so the value has to
+ * be decoded and re-encoded around one operation rather than through VS/VS_SET.
+ *
+ * They were referenced by the emitter and never defined here. Nothing noticed
+ * because neither calibration module contains a vmls: the gap only appears when
+ * the gate is run on a module that does. That is the fourth defect of this shape
+ * found by extending the differential tests, after the ASR #32 shift, the
+ * missing tbb/tbh labels and the uULL literal suffix. */
+static inline uint32_t F32ADD(uint32_t a, uint32_t b)
+{ return F32_U32(U32_F32(a) + U32_F32(b)); }
+
+static inline uint32_t F32SUB(uint32_t a, uint32_t b)
+{ return F32_U32(U32_F32(a) - U32_F32(b)); }
+
+static inline uint32_t F32MUL(uint32_t a, uint32_t b)
+{ return F32_U32(U32_F32(a) * U32_F32(b)); }
+
+static inline uint32_t F32DIV(uint32_t a, uint32_t b)
+{ return F32_U32(U32_F32(a) / U32_F32(b)); }
+
+static inline uint32_t F32NEG(uint32_t a)
+{ return F32_U32(-U32_F32(a)); }
 #define VD(i)      U64_F64(ctx->v.d[i])
 #define VD_SET(i, x)  (ctx->v.d[i] = F64_U64(x))
 

@@ -125,7 +125,35 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ████████████▊░░░░░░░░░░░░░░░░░░░░░░░░░░░  32%
 ```
 
+
+| Area | Weight | Done | |
+|---|---:|---:|---|
+| Binary analysis and source-tree mapping | 4% | 100% | `██████████` |
+| Tooling and the verification oracle | 8% | 100% | `██████████` |
+| Asset format specifications | 8% | 100% | `██████████` |
+| `lime/common` — engine core (109 fn) | 12% | **100%** | `██████████` |
+| `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
+| `gamecode/logic` — fight engine (2,172 fn) | 28% | 4% | `░░░░░░░░░░` |
+| Native PC platform layer (161 fn to rewrite) | 17% | 10% | `█░░░░░░░░░` |
+| EA SDK stubs (~1,412 fn) | 5% | 0% | `░░░░░░░░░░` |
+
+```
+███████████████░░░░░░░░░░░░░░░░░░░░░░░░░  35%
+```
+
 **Roughly 35% of the total estimated effort. Nothing is playable yet.**
+
+**Why the foundational areas count for something.** The first three rows are
+finished, and they are what makes the rest tractable: the source tree is
+recovered, every asset format is specified, and every function now has an
+automated path from machine code to a differential test. That is real progress
+even though it renders no pixels.
+
+**The engine core is the fourth row, and it is done.** All 109 functions have a
+body; six of its nine files are also verified against the recompiled original.
+
+**Why the number is still not high.** The fight engine alone is 2,172 functions
+and has barely been started. Realistically this is a year or more of work.
 
 ### `lime/common` is complete — and here is what that does and does not mean
 
@@ -139,8 +167,8 @@ which is a weaker claim and an honest one:
 
 | | |
 |---|---|
-| Behaviourally verified | `Matrix`, `limeVector`, the `RenderMesh` loader, the `RenderSkinned` maths, the `Events` pool |
-| Cases compared | 81,023 synthetic, plus 590 files and 7,327 meshes of real game data |
+| Behaviourally verified | `Matrix`, `limeVector`, the `RenderMesh` loader, the `RenderSkinned` maths, the `Events` pool, the `LIMEDS_Misc` conversions |
+| Cases compared | 102,973 synthetic, plus 590 files and 7,327 meshes of real game data |
 | Divergences | **0** |
 | Written, compiled, not yet run against the oracle | the remainder |
 
@@ -168,13 +196,13 @@ test exposed.
 | `RenderSkinned.cpp` (20 fn) | ✅ | **18,780 cases, 0 divergences** |
 | `Events.cpp` (22 fn) | ✅ | **2,224 cases, 0 divergences** |
 | `RenderMesh.cpp` (19 fn) | ✅ | **590 files, 7,327 meshes, 0 divergences** |
+| `LIMEDS_Misc.cpp` (8 fn) | ✅ | **21,950 cases, 0 divergences** |
 | `RenderScene.cpp` (14 fn) | ✅ | ⬜ no test yet |
 | `limeFont.cpp` (6 fn) | ✅ | ⬜ no test yet |
-| `LIMEDS_Misc.cpp` (8 fn) | ✅ | ⬜ no test yet |
 | `DS_DebugWin.c` (7 fn) | ✅ | ⬜ no test yet |
 | `other.c` — `SwitchQueue` (1 of 333 fn) | ✅ | **500 pushes, 0 divergences** |
 
-**`lime/common` is 109 of 109.** Five of its nine files are also verified against
+**`lime/common` is 109 of 109.** Six of its nine files are also verified against
 the recompiled original, and the `RenderMesh` row is the whole file now rather
 than the loader alone — the render path went in once `tools/stubs.py` made the
 imports readable.

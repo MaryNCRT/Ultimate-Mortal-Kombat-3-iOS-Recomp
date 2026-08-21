@@ -140,12 +140,14 @@ typedef struct QSTMATRIX {
     float   translation[3];      /* 0x14  copied straight into m[12..14] */
 } QSTMATRIX;
 
-/* LerpQSTMatrix walks this with ldrsh/strh, i.e. as 16-bit elements. Against
- * the layout above that is only meaningful for the quaternion; re-quantising a
- * float through int16 would destroy it. Which range that loop actually covers
- * was not established, so the count stays here as the open question it is
- * rather than being quietly fixed at 4. */
-#define QST_ELEMENTS 16
+/* LerpQSTMatrix blends a whole QSTMATRIX, and it treats the two halves
+ * differently -- which is what settles the question this comment used to leave
+ * open. It reads int16 at 0x00, 0x02, 0x04 and 0x06, and FLOATS at 0x08, 0x0c,
+ * 0x10, 0x14, 0x18 and 0x1c. Four plus six, exactly the struct above.
+ *
+ * So the re-quantisation this project documents applies to the QUATERNION only.
+ * Scale and translation are blended in float and stay float. An earlier
+ * QST_ELEMENTS of 16 modelled the whole 32 bytes as int16 and was wrong. */
 
 /* One key in a bone animation track. GetSlerpedQ reads four floats at
  * +0x00..+0x0c as the rotation and writes 1.0f at +0x10 of its output. */
@@ -694,7 +696,8 @@ extern limeVECTOR3 g_fadeOffset;
 
 void   LIME_RenderMesh(MESHSETINFO *set, int index, TEXTURE *t0, TEXTURE *t1);
 void   ConvertQSTMatrixtoPCMatrix(const QSTMATRIX *src, float *dst);
-void   LerpQSTMatrix(const int16_t *a, const int16_t *b, float t, int16_t *out);
+void   LerpQSTMatrix(const QSTMATRIX *a, const QSTMATRIX *b, float t,
+                     QSTMATRIX *out);
 void   limeEnableAlphaBlending_Additive(void);
 void   limeEnableAlphaBlending_Basic(void);
 void   limeDisableAlphaBlending(void);

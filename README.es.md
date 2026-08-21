@@ -127,7 +127,36 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ████████████▊░░░░░░░░░░░░░░░░░░░░░░░░░░░  32%
 ```
 
+
+| Área | Peso | Hecho | |
+|---|---:|---:|---|
+| Análisis del binario y mapeo del árbol de fuentes | 4% | 100% | `██████████` |
+| Herramientas y el oráculo de verificación | 8% | 100% | `██████████` |
+| Especificaciones de los formatos de assets | 8% | 100% | `██████████` |
+| `lime/common` — núcleo del motor (109 fn) | 12% | **100%** | `██████████` |
+| `gamecode` — lógica de juego (291 fn) | 18% | 0% | `░░░░░░░░░░` |
+| `gamecode/logic` — motor de combate (2.172 fn) | 28% | 4% | `░░░░░░░░░░` |
+| Capa de plataforma PC nativa (161 fn a reescribir) | 17% | 10% | `█░░░░░░░░░` |
+| Stubs del EA SDK (~1.412 fn) | 5% | 0% | `░░░░░░░░░░` |
+
+```
+███████████████░░░░░░░░░░░░░░░░░░░░░░░░░  35%
+```
+
 **En torno al 35% del esfuerzo total estimado. Todavía no hay nada jugable.**
+
+**Por qué las áreas de base cuentan.** Las tres primeras filas están terminadas y
+son lo que hace tratable el resto: el árbol de fuentes está recuperado, todos los
+formatos de assets están especificados, y cada función tiene ya un camino
+automatizado desde el código máquina hasta un test diferencial. Eso es progreso
+real aunque no renderice un solo píxel.
+
+**El núcleo del motor es la cuarta fila, y está terminado.** Las 109 funciones
+tienen cuerpo; seis de sus nueve ficheros están además verificados contra el
+original recompilado.
+
+**Por qué el número sigue sin ser alto.** Solo el motor de combate son 2.172
+funciones y apenas se ha empezado. Realistamente esto es un año de trabajo o más.
 
 ### `lime/common` está completo — y esto es lo que significa y lo que no
 
@@ -141,8 +170,8 @@ compiladas, que es una afirmación más débil y honesta:
 
 | | |
 |---|---|
-| Verificado por comportamiento | `Matrix`, `limeVector`, el cargador de `RenderMesh`, la matemática de `RenderSkinned`, el pool de `Events` |
-| Casos comparados | 81.023 sintéticos, más 590 ficheros y 7.327 mallas de datos reales |
+| Verificado por comportamiento | `Matrix`, `limeVector`, el cargador de `RenderMesh`, la matemática de `RenderSkinned`, el pool de `Events`, las conversiones de `LIMEDS_Misc` |
+| Casos comparados | 102.973 sintéticos, más 590 ficheros y 7.327 mallas de datos reales |
 | Divergencias | **0** |
 | Escrito, compilado, aún sin pasar por el oráculo | el resto |
 
