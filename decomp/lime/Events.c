@@ -656,3 +656,95 @@ int LIME_TriggerEventFromSceneH(long a0, SCENEEVENTTRACK *track,
  * twice.
  */
 EVENTSINFO *LIME_LoadEvents(const char *filename, long arg1, long arg2);
+
+
+/* ---------------------------------------------------------- LIME_RenderEvents
+ *
+ * armv6 0x000e88ac, 556 bytes.  **Structurally complete.**
+ *
+ * Draws every live event once per frame.
+ *
+ * ## Two translations, and what they identify
+ *
+ * The interesting part is a pair of `glTranslatef` calls back to back:
+ *
+ *      ldr  r3, [r4, #0x10]        ; the event's scene
+ *      ldr  r0, [r3, #0x54]
+ *      ldr  r1, [r3, #0x58]
+ *      ldr  r2, [r3, #0x5c]
+ *      bl   _glTranslatef          ; ...to the scene's origin
+ *
+ *      ldr  r0, [r4, #0x50]
+ *      ldr  r1, [r4, #0x54]
+ *      ldr  r2, [r4, #0x58]
+ *      bl   _glTranslatef          ; ...then by the event's own offset
+ *
+ * Two independent facts fall out.
+ *
+ * **`EVENT+0x10` is the scene pointer**, which is exactly where
+ * LIME_UpdateEvents reads it from (`ldr ip, [r4, #0x10]`, then `[ip, #0x44]`
+ * for count2). Two functions, one offset, same meaning.
+ *
+ * **`SCENEINFO+0x54`, `+0x58` and `+0x5c` are a position**, three consecutive
+ * words fed straight to glTranslatef. LIME_LoadScene fills those three from a
+ * sibling file and this is what they turn out to be for -- the loader showed
+ * where they come from, this shows what they mean, and neither alone would
+ * have been enough to name them.
+ *
+ * An effect is therefore placed **relative to its scene**: the scene's origin
+ * first, the event's own offset second. A port that positions effects in world
+ * space will have every one of them land in the right place only while the
+ * scene sits at the origin.
+ *
+ * ## The rest
+ *
+ * Fields `+0x38`, `+0x40`, `+0x48` and `+0x4c` gate the draw -- `+0x4c` is
+ * compared against 1 specifically, so it is a mode rather than a flag. `+0x64`
+ * reaches a float at `[r1, #0x3c]`. `limeMatrixMult` composes the transform and
+ * `RenderDebugCube` is called from here, which is the only caller recovered so
+ * far for that half-stripped function.
+ *
+ * The body is not transcribed; the gating conditions interleave and were not
+ * traced individually.
+ */
+void LIME_RenderEvents(void);
+
+
+/* -------------------------------------------------- LIME_LoadMasterEventOffsets
+ *
+ * armv6 0x000e8230, 392 bytes.  **Structurally complete.**
+ *
+ * Loads the table `FindIdInMasterOffsets` searches -- the global registry that
+ * maps an effect name to an index.
+ *
+ * ## An 80-byte record
+ *
+ *      lsl r3, r1, #4              ; count * 16
+ *      lsl r1, r1, #6              ; count * 64
+ *      add r1, r3, r1              ; count * 80
+ *
+ * One multiply as two shifts and an add, the same trick LIME_LoadBones and
+ * AddToTranspMeshList use. The file is `memcpy`d in wholesale rather than
+ * parsed field by field, so **the on-disk and in-memory layouts are identical
+ * for these 80 bytes** -- unlike `.bones`, where 25 bytes on disk become 56 in
+ * memory.
+ *
+ * Within a record the code reads a float at `+0x40`, an int at `+0x44` and a
+ * float at `+0x48`. The 64 bytes before them are the name -- which is what
+ * FindIdInMasterOffsets compares against, and what makes the leading 64-byte
+ * field consistent with the name buffers everywhere else in this engine.
+ *
+ * ## Diagnostics that are not there
+ *
+ * The function calls `LIME_printf` **five times**, more than any other in
+ * lime/common -- on entry, after the load, on the count, on failure and at the
+ * end. All of them compile to nothing in the retail build.
+ *
+ * That is worth seeing rather than skipping past: this loader was clearly
+ * awkward enough to need tracing while it was being written, and every one of
+ * those messages is gone. Reading the retail binary means reading code whose
+ * author had more information than we do.
+ *
+ * The file buffer is freed on both the success and the failure path.
+ */
+void LIME_LoadMasterEventOffsets(void);
