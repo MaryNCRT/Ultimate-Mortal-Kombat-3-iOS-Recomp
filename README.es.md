@@ -124,9 +124,8 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ## Progreso general
 
 ```
-████████████▊░░░░░░░░░░░░░░░░░░░░░░░░░░░  32%
+███████████████░░░░░░░░░░░░░░░░░░░░░░░░░  35%
 ```
-
 
 | Área | Peso | Hecho | |
 |---|---:|---:|---|
@@ -138,10 +137,6 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 | `gamecode/logic` — motor de combate (2.172 fn) | 28% | 4% | `░░░░░░░░░░` |
 | Capa de plataforma PC nativa (161 fn a reescribir) | 17% | 10% | `█░░░░░░░░░` |
 | Stubs del EA SDK (~1.412 fn) | 5% | 0% | `░░░░░░░░░░` |
-
-```
-███████████████░░░░░░░░░░░░░░░░░░░░░░░░░  35%
-```
 
 **En torno al 35% del esfuerzo total estimado. Todavía no hay nada jugable.**
 
