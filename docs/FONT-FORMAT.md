@@ -116,3 +116,45 @@ Metrics are stored in authoring units and scaled at measure time.
   position and glyph size, but neither function recovered so far touches them,
   so they are recorded by offset and deliberately left unnamed. `limeDrawFONT`
   is where they will resolve.
+
+---
+
+## The second atlas is the overflow of the first
+
+```
+vcmp.f32 s13, s11        ; atlas height vs the glyph's y
+movhi    r3, #0x50       ; still inside  -> texture0
+movls    r3, #0x54       ; past the end  -> texture1
+ldr      r0, [r4, r3]
+```
+
+The second texture is not a style or a fallback. Glyphs are laid out **downward**
+and one that would run past the bottom of atlas 0 lives in atlas 1 instead, at a
+y that keeps counting. That is why `limeCreateFONT` takes two texture names and
+loads the second only when given one: a font small enough to fit needs no second
+page.
+
+A port must reproduce the comparison, not merely load both textures. Binding
+atlas 0 for everything renders the tail of a large character set as garbage from
+the wrong page — which on this build means the Korean text and nothing else,
+so it would pass every test run in English.
+
+## Two width routines, one difference
+
+`limeGetStringWidth` detects the encoding from a `0xFF 0xFE` BOM and searches
+the byte table at `+0x48` or the two-byte table at `+0x4c` accordingly.
+`limeGetStringWidthUCNoHeader` never tests: it uses `+0x4c` always, for text
+whose encoding the caller already knows and where a BOM would be an intruder
+rather than a marker.
+
+**That is why the codes are stored twice at load** — one table per encoding,
+chosen per string.
+
+Both abandon the search on a space (`0x20`) and return "not found" deliberately,
+so a space takes the fallback advance instead of a glyph width. An atlas has no
+cell for it and drawing one would emit a stray quad.
+
+Both accumulate in **integers** and convert once at the end, multiplying by
+`+0x14`. Rounding happens after the sum, not per glyph; a port that scales each
+advance individually accumulates a different error.
+

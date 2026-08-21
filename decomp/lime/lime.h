@@ -304,21 +304,40 @@ typedef struct TEXTURETOLOAD {
 typedef struct FONT {
     uint8_t   _pad00[4];
     int       simple;            /* 0x04  stored INVERTED from the file flag */
-    int       field08;           /* 0x08  byte 2 of the header */
-    int       field0c;           /* 0x0c */
+    int       glyphHeight;       /* 0x08  header byte 2 -- ONE height for every
+                                  *       glyph, which is why it is in the
+                                  *       header and not in a per-glyph array */
+    int       spacing;           /* 0x0c  added once per character by both
+                                  *       width routines -- inter-character
+                                  *       spacing, set from limeCreateFONT */
     int       fallbackAdvance;   /* 0x10  the constant 8 */
     int       field14;           /* 0x14  the scale applied at measure time */
     int16_t   numGlyphs;         /* 0x18 */
     uint8_t   _pad1a[2];
-    int16_t  *metricA;           /* 0x1c  unnamed on purpose -- nothing reads it yet */
-    int16_t  *metricB;           /* 0x20  likewise */
-    int16_t  *advance;           /* 0x24  the only one limeGetStringWidth sums:
-                                  *       ldr r1, [r4, #0x24] at 0xaec48 */
-    uint8_t   _pad28[4];
+    /* The atlas rectangle of each glyph. limeDrawFONT settles all three by what
+     * it divides them BY on the way to limeDrawSprite: atlasU and glyphWidth are
+     * both normalised by +0x34, atlasV by +0x38. Two share a divisor, so two
+     * share an axis. */
+    int16_t  *atlasU;            /* 0x1c  x position in the atlas */
+    int16_t  *atlasV;            /* 0x20  y position in the atlas */
+    int16_t  *glyphWidth;        /* 0x24  per-glyph width, and the advance
+                                  *       limeGetStringWidth accumulates */
+    /* Optional per-glyph kerning, one SIGNED byte each, added to the width when
+     * the pointer is non-null. limeGetStringWidth is the only reader:
+     *     ldr     r3, [r4, #0x28]
+     *     cmp     r3, #0
+     *     ldrsbne r3, [r3, r0]
+     *     addne   r8, r8, r3
+     * Nothing in limeCreateFONT was seen to allocate it, so a font that does not
+     * carry kerning leaves it null and every glyph keeps its plain width. */
+    int8_t   *kerning;           /* 0x28 */
     int       defaultAdvance;    /* 0x2c  simple fonts only */
     uint8_t   _pad30[4];
-    float     height;            /* 0x34 */
-    float     width;             /* 0x38 */
+    /* The atlas dimensions, and they are the OPPOSITE way round from an earlier
+     * naming here. +0x34 divides the horizontal metrics and +0x38 the vertical,
+     * which is what fixes them: the divisor names the axis. */
+    float     atlasWidth;        /* 0x34 */
+    float     atlasHeight;       /* 0x38 */
     uint8_t   _pad3c[12];
     uint8_t  *codes;             /* 0x48  one byte per glyph */
     int16_t  *codesW;            /* 0x4c  the same codes widened to 16 bits */
@@ -595,6 +614,8 @@ int    LIME_CountActiveEvents(void);
 void   KillAlleventsWithGroup(long group);
 void   LIME_UpdateEvents(void);
 void   LIME_KillSliders(void);
+void   limeDrawSprite(TEXTURE *page, float x, float y, float w, float h,
+                      float u, float v, float du, float dv);
 int    FindIdInMasterOffsets(const char *name);
 struct SCENEINFO *LIME_SceneExists(struct SCENEINFO *scene);
 void   LIME_FreeScene(struct SCENEINFO *scene);
