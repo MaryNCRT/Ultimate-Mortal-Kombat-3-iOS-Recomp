@@ -159,7 +159,23 @@ typedef struct SKININFO {
  * counts negatives UP to zero, so a killed event at -2 gets a two-frame grace
  * period before the slot is reused. */
 #define EVENT_SLOTS      192
-#define EVENT_STRIDE     0xF8    /* 248 bytes */
+#define EVENT_STRIDE     0xF8    /* 248 bytes IN THE BINARY -- see below */
+
+/* **A warning about every stride in this header.**
+ *
+ * The sizes recorded here are the original's, and the original is 32-bit ARM
+ * where a pointer is 4 bytes. Compiled for a 64-bit host every struct holding
+ * pointers is larger: EVENT is 248 there and 256 here, BONE is 56 and 96,
+ * MESHINFO is 88 and 120.
+ *
+ * That is fine, and it is not a layout error -- the field ORDER is what these
+ * definitions describe, and nothing in the clean C reaches into them by offset.
+ * But it means a hard-coded stride is only ever correct for memory the engine
+ * treats as raw bytes, such as a loaded file buffer. **Never step an array of
+ * host structs by the binary's byte stride.** LIME_UpdateEvents did exactly
+ * that, walked off the end of a 192-slot array, and segfaulted with no output
+ * because stdout was still buffered. Index the array and let the compiler size
+ * the step. */
 #define EVENT_KILL_VALUE 0.0f    /* written into +0xa4 and +0xe4 on a kill */
 
 typedef struct SCENEEVENTTRACK SCENEEVENTTRACK;
@@ -500,7 +516,7 @@ void  *limeLoadFile(const char *path);
 size_t limeFileSize(const char *path);
 void   limeFree(void *p);
 void  *limeMalloc(const char *tag, size_t bytes);
-void  *limeLoadTexture(const char *path, int a, int b);
+TEXTURE *limeLoadTexture(const char *path, int a, int b);
 void   MatrixMul2(const SKINMATRIX43 *a, const SKINMATRIX43 *b, SKINMATRIX43 *out);
 /* The mangled name is __Z9LightVertP11limeVECTOR3S0_ -- two limeVECTOR3* -- but
  * the recovered body writes through a bare float*. Same three floats either

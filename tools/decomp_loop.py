@@ -147,10 +147,40 @@ def submit(spec, run_name, retries=0):
         return False
 
     compiler = gcc_path()
-    cmd = [compiler, "-std=c99", "-Wall", "-Wextra", "-I", RUNTIME,
-           "-I", oracle_dir, spec["test"], spec["clean"],
-           os.path.join(oracle_dir, spec["name"] + ".c"),
-           os.path.join(RUNTIME, "arm_runtime.c"), "-o", exe, "-lm"]
+    # The clean C needs two more translation units to link. lime_globals.c holds
+    # the engine's own global state; lime_platform.c is the host side of the
+    # twelve platform symbols decomp/ declares but must not define.
+    #
+    # lime_platform.c is deliberately NOT the same code as arm_runtime.c's
+    # stub_limeLoadFile: those operate on guest memory for the oracle, these on
+    # host memory for the clean C. Two independent implementations reading the
+    # same files is the point -- it keeps the differential honest instead of
+    # having one side call the other.
+    # The engine links as one library. Everything in decomp/lime/ goes in
+    # EXCEPT the file under test, which the command already names -- linking it
+    # twice is a duplicate-definition error, and leaving the rest out means every
+    # cross-file call (LIME_LoadScene from RenderMesh, say) dangles.
+    lime_dir = os.path.join(ROOT, "decomp", "lime")
+    under_test = os.path.abspath(spec["clean"])
+    engine = [os.path.join(lime_dir, f) for f in sorted(os.listdir(lime_dir))
+              if f.endswith(".c")
+              and os.path.abspath(os.path.join(lime_dir, f)) != under_test]
+
+    support = engine + [os.path.join(RUNTIME, "lime_platform.c"),
+               # recomp.py emits default bodies for every import it had no
+               # hand-written shim for, each one calling arm_unimplemented().
+               # Linking this is what makes an unimplemented import fail loudly
+               # AT RUNTIME with its own name, which is the whole design -- and
+               # not linking it turned that into a wall of undefined references
+               # at link time instead.
+               os.path.join(oracle_dir, spec["name"] + "_shims.c")]
+    support = [f for f in support if os.path.isfile(f)]
+
+    cmd = ([compiler, "-std=c99", "-Wall", "-Wextra", "-I", RUNTIME,
+            "-I", oracle_dir, spec["test"], spec["clean"],
+            os.path.join(oracle_dir, spec["name"] + ".c"),
+            os.path.join(RUNTIME, "arm_runtime.c")]
+           + support + ["-o", exe, "-lm"])
     ok, _ = run(cmd, "compile")
     if not ok:
         row["reason"] = "compile"
@@ -158,7 +188,19 @@ def submit(spec, run_name, retries=0):
         append_stat(row)
         return False
 
-    ok, output = run([exe], "differential")
+    # Tests that read real game data need it pointed out to them. The pure-maths
+    # calibration pair takes no arguments and ignores these; a data-driven test
+    # like RenderMesh's needs the asset directory and the slice, and printed a
+    # usage line instead of running when the loop invoked it bare.
+    argv = [exe]
+    res_dir = os.environ.get("UMK3_RES")
+    if res_dir and os.path.isdir(res_dir):
+        argv.append(res_dir)
+        slice_path = umk3paths.slice_path()
+        if os.path.isfile(slice_path):
+            argv.append(slice_path)
+
+    ok, output = run(argv, "differential")
     row["differential_divergences"] = 0 if ok else "nonzero"
     row["seconds"] = "%.3f" % (time.monotonic() - started)
     if not ok:
