@@ -190,3 +190,20 @@ These accompany `.meshset`. All but one are now solved:
 Geometry, skinning, skeleton and animation are all readable against the shipped
 data, so there is enough here to draw an animated character. `.scene` — how a
 stage is assembled from its pieces — is the last one standing.
+
+---
+
+## A note on the `/ 32767` scale
+
+That divisor was derived by **fitting the shipped data** — it validates against
+604 of 605 files — rather than by reading the constant out of the loader.
+
+It is worth saying because a sibling constant turned out to differ. The QST
+quaternion scale was documented as `1/32767` for a long time on the same kind of
+reasoning, and the literal in the binary is actually
+`3.0518509447574615e-05`, whose reciprocal is `32767.000030516647`. A
+differential test at bit precision found it; by eye the two are the same number.
+
+**It is not the same constant and this one has not been re-measured.** Anyone
+working on this path should read the literal the `.meshset` loader uses rather
+than inherit the figure from here.

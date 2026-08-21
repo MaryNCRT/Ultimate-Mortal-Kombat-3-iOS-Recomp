@@ -2,48 +2,45 @@
 
 Current state of the project. Written so that someone can pick it up with no prior context.
 
-**Last updated:** 2026-08-15 — see [HANDOFF.md](HANDOFF.md) for the route, and
-[SESSION-2026-08-15.es.md](SESSION-2026-08-15.es.md) for that day's report.
+**Last updated:** 2026-08-21 — see [HANDOFF.md](HANDOFF.md) for the route and
+[ENCARGO.md](ENCARGO.md) for the next task.
 
-> Latest: the verification oracle is **finished**; the game runs in touchHLE
-> with **no known crash** (5 bytes, three patches); the **armv6 slice**
-> decompiles cleanly where armv7's NEON defeats Ghidra; `.events` solved;
-> `.pvr` measured and its block geometry verified 1,400/1,400; the **PVRTC
-> decoder works** at 1.5% mean error; and **`.scene` is solved** — 545 of 547
-> files, which was the last LIME asset format standing.
+> Latest: **`lime/common` is 109 of 109** — every function in the engine core has
+> a body, the module compiles clean with `-Wall -Wextra`, and **six of its nine
+> files are verified** against the recompiled original. 102,973 synthetic cases
+> plus 590 files and 7,327 meshes of real game data, zero divergences.
+>
+> Extending the differential tests found **four defects in the oracle itself**
+> and **five in already-committed decompiled code**, none of which was visible by
+> reading. That ratio is the finding of the period: running the gate is worth
+> more than the next module of decompilation.
 
 ---
 
 ## Overall progress
 
 ```
-██████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  25%
+███████████████░░░░░░░░░░░░░░░░░░░░░░░░░  35%
 ```
 
-**≈25% of the total estimated effort. Nothing is playable yet.**
+**≈35% of the total estimated effort. Nothing is playable yet.**
 
-Weights are our judgement of how much of the total each area represents;
-the completion figures are measured. Two numbers are worth keeping apart:
+Weights are our judgement of how much of the total each area represents; the
+completion figures are measured by `tools/progress.py`. Two numbers are worth
+keeping apart:
 
-- **25%** — share of the *whole project*, counting analysis, tooling and formats.
-- **0.7%** — share of the *decompilation itself*: 17 finished functions of 2,572.
+- **35%** — share of the *whole project*, counting analysis, tooling and formats.
+- **4.2%** — share of the *decompilation itself*: 109 finished functions of 2,572.
 
-Both are true. The first says the foundations are in place; the second says the
-bulk of the work has not started.
-
-> **Part of the jump from 18% is an arithmetic correction, not new progress.**
-> The table below has always been the stated basis for the headline figure, but
-> nobody had actually summed it: with the previous completion values it came to
-> 19%, not 18%. It is computed now. Of the real movement, most is the asset
-> formats reaching 80% and the platform layer starting from a smaller base —
-> see the Finch note below.
+Both are true. The first says the foundations are in place and the engine core is
+done; the second says the fight engine has barely been touched.
 
 | Area | Weight | Done | |
 |---|---:|---:|---|
 | Binary analysis and source-tree mapping | 4% | 100% | `██████████` |
 | Tooling and the verification oracle | 8% | 100% | `██████████` |
 | Asset format specifications | 8% | 100% | `██████████` |
-| `lime/common` — engine core (109 fn) | 12% | 15% | `██░░░░░░░░` |
+| `lime/common` — engine core (109 fn) | 12% | **100%** | `██████████` |
 | `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | 4% | `░░░░░░░░░░` |
 | Native PC platform layer (161 fn to rewrite) | 17% | 10% | `█░░░░░░░░░` |
@@ -65,10 +62,9 @@ any of the port is written.
 | The binary is understood and mapped | ✅ done |
 | A verification method exists and is proven | ✅ done |
 | The game runs somewhere as a behavioural reference | ✅ done (touchHLE, no known crash) |
-| Model format readable | ✅ done |
-| Animation formats readable | ✅ `.skin`, `.bones`, `.skinanim` and `.events` done |
-| Every format needed to draw an animated character | ✅ done |
 | Every LIME asset format | ✅ done — `.scene` was the last |
+| **The engine core is decompiled** | ✅ **done — 109 of 109** |
+| The engine core is *verified* | 🔄 six of nine files |
 | Something renders on a PC screen | ⬜ not started |
 | The game boots natively | ⬜ far off |
 | The game is playable natively | ⬜ far off |
@@ -80,37 +76,45 @@ any of the port is written.
 | Phase | Status |
 |---|---|
 | 0 — Binary analysis and source-tree mapping | ✅ complete |
-| 1 — Asset formats | ✅ **complete** — every format read and validated against the shipped data |
+| 1 — Asset formats | ✅ complete — every format read and validated against the shipped data |
 | 2 — Verification oracle | ✅ complete and proven |
 | 3 — Ghidra automation | ✅ headless pipeline working |
-| 4 — Decompile `lime/common` | 🔄 109/109 drafted, 2.5 modules finished |
-| 8 — Decompile fight logic | 🔄 `SwitchQueue` verified; entry points mapped |
+| 4 — Decompile `lime/common` | ✅ **complete — 109/109, six of nine files verified** |
 | 5 — Native PC platform layer | ⬜ not started |
 | 6 — EA SDK stubs | ⬜ not started (scope reduced, see below) |
 | 7 — Decompile `gamecode` | ⬜ not started |
-| 8 — Decompile fight logic | ⬜ not started |
+| 8 — Decompile fight logic | 🔄 `SwitchQueue` verified; entry points mapped |
 | 9 — Widescreen, gamepad, mods | ⬜ not started |
 
-**Honest framing:** 17 of 2,572 functions are fully done. That is ~0.7%. The percentage is not the interesting number — the pipeline that produced them is, and it now runs unattended.
+**Honest framing:** 109 of 2,572 functions are done, which is 4.2%. The
+percentage is not the interesting number — the pipeline that produced them is,
+and it now finds bugs on its own.
 
 ---
 
 ## Module status — `lime/common`
 
-| Module | Decompiled | Verified | Clean C | Differential test |
-|---|---|---|---|---|
-| `Matrix.cpp` (11 fn) | ✅ | ✅ | ✅ | **40,006 cases, 0 divergences** |
-| `limeVector.cpp` (2 fn) | ✅ | ✅ | ✅ | **20,013 cases, 0 divergences** |
-| `RenderMesh.cpp` — loader (3 of 19 fn) | ✅ | ✅ | ✅ | **590 files, 7,327 meshes, 0 divergences** |
-| `RenderMesh.cpp` — rendering (16 fn) | ✅ | ⬜ | ⬜ | needs a graphics backend first |
-| `RenderScene.cpp` (14 fn) | ✅ | ⬜ | ⬜ | ⬜ |
-| `RenderSkinned.cpp` (20 fn) | ✅ | ⬜ | ⬜ | ⬜ |
-| `Events.cpp` (22 fn) | ✅ | ⬜ | ⬜ | ⬜ |
-| `limeFont.cpp` (6 fn) | ✅ | ⬜ | ⬜ | ⬜ |
-| `LIMEDS_Misc.cpp` (8 fn) | ✅ | ⬜ | ⬜ | ⬜ |
-| `DS_DebugWin.c` (7 fn) | ✅ | ⬜ | ⬜ | ⬜ |
+| Module | Body written | Differential test |
+|---|---|---|
+| `Matrix.cpp` (11 fn) | ✅ | **40,006 cases, 0 divergences** |
+| `limeVector.cpp` (2 fn) | ✅ | **20,013 cases, 0 divergences** |
+| `LIMEDS_Misc.cpp` (8 fn) | ✅ | **21,950 cases, 0 divergences** |
+| `RenderSkinned.cpp` (20 fn) | ✅ | **18,780 cases, 0 divergences** |
+| `Events.cpp` (22 fn) | ✅ | **2,224 cases, 0 divergences** |
+| `RenderMesh.cpp` (19 fn) | ✅ | **590 files, 7,327 meshes, 0 divergences** |
+| `RenderScene.cpp` (14 fn) | ✅ | ⬜ no test yet |
+| `limeFont.cpp` (6 fn) | ✅ | ⬜ no test yet |
+| `DS_DebugWin.c` (7 fn) | ✅ | ⬜ no test yet |
 
-"Decompiled" means Ghidra produced a draft with signatures applied. "Clean C" means a human-readable reimplementation exists. Only the last column means *done*.
+**Only the last column means verified.** A body that compiles and passes
+`symcheck` is a strong claim about structure and no claim at all about
+behaviour — `LIME_UpdateEvents` had a confidently wrong body for weeks and only
+a differential test exposed it.
+
+Several bodies are **structural**: the call sequence and field access are
+recovered, and a branch condition or a GL enum inside them is marked in the
+comment as not pinned down rather than guessed. Those markers are deliberate and
+are where the next person should look.
 
 ---
 

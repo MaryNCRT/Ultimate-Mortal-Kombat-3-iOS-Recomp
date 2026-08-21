@@ -1,288 +1,166 @@
 # Encargo — what to pick up next
 
-A short, specific work order for whoever takes this on next. For orientation,
-read [HANDOFF.md](HANDOFF.md) first; this file is the *current* task, not the
-project overview.
+A short, specific work order for whoever takes this on next. Read
+[HANDOFF.md](HANDOFF.md) first for orientation; this file is the *current* task.
 
 ---
 
-## The engine compiles now. What that did and did not settle
+## Where things stand
 
-```bash
-for f in decomp/lime/*.c; do gcc -std=c99 -Wall -Wextra -fsyntax-only -I runtime -I decomp/lime $f; done
-```
+**`lime/common` is 109 of 109.** Every function in the engine core has a body,
+the module compiles clean with `-Wall -Wextra`, and `tools/symcheck.py` reports
+zero unknown callees.
 
-**0 errors, 12 warnings** — and every remaining warning is `unused parameter` on
-a body the binary itself left empty, so they are correct rather than tolerated.
+**Six of its nine files are verified** against the recompiled original:
 
-Linking every object together leaves exactly eighteen unresolved symbols, and
-each falls into one of two groups that are *supposed* to be unresolved:
+| Module | Differential test |
+|---|---|
+| `Matrix.cpp` | 40,006 cases |
+| `limeVector.cpp` | 20,013 cases |
+| `LIMEDS_Misc.cpp` | 21,950 cases |
+| `RenderSkinned.cpp` | 18,780 cases |
+| `Events.cpp` | 2,224 cases |
+| `RenderMesh.cpp` | 590 files, 7,327 meshes |
+| `RenderScene.cpp` | **none** |
+| `limeFont.cpp` | **none** |
+| `DS_DebugWin.c` | **none** |
 
-| group | symbols | why |
-|---|---|---|
-| Bodies deliberately not written | `CreateMatrixPaletteForGeneratingMesh`, `LIME_LoadEvents`, `LIME_LoadMeshSetTextures`, `LIME_LoadSkin1`, `LIME_RenderMeshSingle`, `LIME_TriggerEventFromSceneH` | documented declarations — see the table below |
-| The platform boundary | `glPushMatrix`, `glPopMatrix`, `glLoadIdentity`, `glMatrixMode`, `glMultMatrixf`, `glTranslatef`, `limeLoadFile`, `limeFileSize`, `limeFree`, `limeMalloc`, `limeLoadTexture`, `limeDeleteTexture` | `runtime/` supplies these; `decomp/` must not |
-
-Nothing else dangles. The engine is internally consistent.
-
-**That link-time gap is closed.** `runtime/lime_platform.c` supplies the twelve
-platform symbols on the host, `decomp/lime/lime_globals.c` the engine's globals,
-and `decomp/lime/lime_unimplemented.c` resolves the six deliberately-bodyless
-functions with definitions that abort and name themselves if reached. The loop
-links the whole engine minus the file under test.
-
-**RenderMesh.cpp passed** — 590 files, 7,327 meshes, 0 divergences:
-
-```bash
-UMK3_WORK=work UMK3_RES=<the res dir> python tools/decomp_loop.py --candidate   --name rendermesh --source-file RenderMesh.cpp   --clean decomp/lime/RenderMesh.c --test tests/test_rendermesh_diff.c --class B
-```
-
-**The next module is whichever one you write a differential test for.**
-`tests/test_switchqueue_diff.c` already exists and has never been run. After
-that, the modules with no test at all are the real work: a test is a day's
-thought about what could differ, and it is worth more than the function it
-checks.
-
-### The test that found something
-
-`tests/test_events_diff.c` is the first differential test here to catch a real
-error in already-committed code rather than confirm it. `LIME_UpdateEvents` had
-a branch read backwards — the path taken when an event's counters run out is
-where it **kills itself**, and the committed version treated it as "nothing to
-do". Finished effects stayed alive forever.
-
-It was invisible on the page. Both readings produce plausible C, and the
-disassembly line that settles it is a `beq` to an address 300 bytes away. Only
-running both implementations over the same pool showed it.
-
-**So write the test even when the function looks understood** — especially then.
-And assert behaviour, not only agreement: two implementations agreeing on the
-wrong thing is still wrong, which is why that test checks the grace period is
-two frames rather than merely that both sides do the same thing.
-
-### One rule this pass earned
-
-**Never step an array of host structs by the binary's byte stride.** `EVENT` is
-248 bytes in the binary because an ARM pointer is 4; `sizeof(EVENT)` here is 256.
-`LIME_UpdateEvents` walked a 192-slot array with `+ 0xf8` and ran off the end.
-A hard-coded stride is correct only for memory the engine treats as raw bytes —
-a loaded file buffer, like the 216-byte track records in `Events.c`. For a C
-array, index it.
-
-Engine globals now live in `decomp/lime/lime_globals.c` — one translation unit,
-because the original spread them across the files that used them and mirroring
-that gives every file both a declaration and a definition.
+Zero divergences everywhere. 102,973 synthetic cases plus real game data.
 
 ---
 
-## First: extend the oracle past the calibration pair
+## The job: write the three missing tests
 
-**Phase 0 is green.** `python tools/decomp_loop.py --calibrate` passes 2/2,
-60,019 cases, 0 divergences. It needs `UMK3_WORK` to hold `symbols.txt`,
-`func-to-file.txt` and `UMK3.armv7`.
+Not more decompilation. **Writing tests has been worth more than writing code
+for the whole of the last period**, and the numbers say so plainly.
 
-**Only 13 of the 88 written functions have ever been run.** That is the gap
-worth closing before writing more, because the first run found three real
-defects in an afternoon — including the recompiler emitting undefined behaviour
-for `ASR #32`, which means the oracle itself was capable of certifying wrong
-code.
+Extending the differential tests found **nine defects**:
 
-`RenderMesh.cpp` is the next module and `tests/test_rendermesh_diff.c` already
-exists. It currently fails to compile with **20 errors**, all bounded and all of
-one kind — the file was written to be read, not built:
+**Four in the oracle itself** — `recomp.py` emitting `>> 32` on a 32-bit type
+(undefined behaviour, compiled to `>> 0`); `tbb`/`tbh` jump-table targets never
+getting labels; double literals emitted with the invalid suffix `uULL`; and
+`F32ADD`/`F32SUB`/`F32MUL`/`F32NEG` referenced by the emitter and never defined.
 
-```
-8   undeclared globals      g_fadeTableBuilt, g_fadeTable, FADE_LEVELS,
-                            FullBrightLoaded, TheFullBrightInfo,
-                            g_debugEnabled, g_debugCubeScene, DEBUG_CUBE_SCENE
-6   missing declarations    LIME_RenderMeshSingle, limeDeleteTexture,
-                            LIME_FreeSingleMesh, limeFree, limeFileSize,
-                            LIME_LoadScene
-5   missing struct fields   MESHINFO.texture, MESHINFO.visible, MESHINFO.data
-1   signature mismatch      limeLoadFile
-```
+**Five in already-committed decompiled code** — `LIME_UpdateEvents` with a
+branch read backwards, so finished effects never died; `ConvertDSMatrixtoPCMatrix`
+writing zero at `m[15]` instead of `1.0f`; the QST scale constant taken as
+`1/32767` when the binary holds `3.0518509447574615e-05`; `LerpQSTMatrix`
+modelling all 32 bytes as `int16` when it blends four `int16` and six floats;
+and `CreateFadedRGBS` with its source and destination arguments swapped.
 
-**The signature one is a design decision, not a typo.** `lime.h` declares
-`limeLoadFile(path, size_t *out)` — the shape the PC runtime wants — while the
-binary has `limeLoadFile(path)` with a separate `limeFileSize(path)`. The
-decompiled code is a description of the original and should carry the original
-signature; the runtime should adapt. Decide that deliberately and write it down,
-because both call shapes are already in the tree.
+**Every one of the four oracle defects fires only on code the calibration pair
+does not resemble.** `Matrix.cpp` and `limeVector.cpp` contain no `vmls`, no
+jump table, no double literal and no `ASR #32`. Calibration alone would never
+have found any of them. That is the argument for testing modules rather than
+trusting a green Phase 0.
 
-Do not add a struct field to `lime.h` without an offset you can point at.
-Guessing one here corrupts every function that touches the struct.
+### How to write one
 
----
+Copy `tests/test_limedsmisc_diff.c`. It is the clearest of the five and it
+demonstrates the thing that matters: **choose inputs against the specific ways
+the function could be wrong**, not at random.
 
-## The job: finish `lime/common`
+- `MatrixMul2` gets matrices *including the translation row*, because the
+  rotation agrees under a plain 4×3 multiply and only row 3 tells the two apart.
+- `GetSlerpedQ` gets pairs at *exactly zero* dot product, because that is the
+  boundary the `vnegls` predicate includes and a `< 0` version would miss.
+- `Xform2` gets a destination that is *already non-zero*, because it accumulates
+  and a version that assigned would pass every test starting from zero.
+- `LerpQSTMatrix` has its two halves compared *separately*, because one is
+  quantised and one is not.
 
-**All 109 of 109 have a body.** What is left here is not writing, it is verifying:
+**Assert behaviour, not only agreement.** Two implementations agreeing on the
+wrong thing is still wrong. `tests/test_events_diff.c` checks directly that a
+killed event takes *two* frames to free, not merely that both sides do the same.
 
-| | count | what it means |
-|---|---:|---|
-| Body written | **109** | decompiled and verified against the gate |
+### What the three need
 
-A documented declaration is deliberate, not a gap to be tidied. Each one carries
-what was established plus an explicit note on what was *not*, because writing a
-plausible body over an unconfirmed layout is the failure mode this project
-guards against hardest. Filling one in is a short job for whoever confirms the
-missing piece; inventing one silently costs a session to undo.
-
-### Documented, body pending — the cheap wins
-
-```
-DS_DebugWin.c      LIME_Slider
-Events.cpp         LIME_LoadEvents
-Events.cpp         LIME_TriggerEventFromSceneH
-LIMEDS_Misc.cpp    ConvertQSTMatrixtoPCMatrix
-RenderMesh.cpp     LIME_LoadMeshSetTextures
-RenderMesh.cpp     LIME_RenderMeshSingleIndexed
-RenderMesh.cpp     CreateFadedRGBS
-RenderScene.cpp    FlushTranspMeshList
-RenderSkinned.cpp  LIME_LoadSkin1
-limeFont.cpp       limeGetStringWidth
-limeFont.cpp       limeGetStringWidthUCNoHeader
-```
-
-### Nothing is unread any more
-
-That list is empty. All 109 functions in `lime/common` have been examined; the
-14 without a body are documented declarations, each stating what was
-established and what was not.
-
-**So the remaining work here is not reading, it is confirming.** Every one of
-the 14 is blocked on the same kind of thing — a field layout, a literal in an
-unresolved pool, the ordering of a branch — and each names its own blocker in
-the comment above it. Pick one, resolve that single question, and the body
-follows in minutes.
-
-The ones most worth the trouble, and why:
-
-| function | what is blocking it | why it matters |
-|---|---|---|
-| `ConvertQSTMatrixtoPCMatrix` | the scale and translation halves were not traced | `FlushTranspMeshList` calls it for every transparent mesh |
-| `limeGetStringWidth` | the glyph search, not the format around it | every menu layout depends on it |
-| `limeDrawFONT` | which of `+0x1c` / `+0x20` is offset and which is width | the same two fields `FONT-FORMAT.md` leaves numbered |
-| `LIME_RenderScene` | the node walk carries several independent flags | the largest function in the module |
-
-`limeDrawFONT` and `limeGetStringWidth` are the pair: settle the two metric
-arrays once and both bodies, plus the last open question in
-[FONT-FORMAT.md](FONT-FORMAT.md), close together.
-
----|---|---:|
-| `Matrix.cpp` | 11/11 | — |
-| `limeVector.cpp` | 2/2 | — |
-| `RenderSkinned.cpp` | 18/20 | 2 |
-| `RenderMesh.cpp` | 15/19 | 4 |
-| `Events.cpp` | 16/22 | **6** |
-| `RenderScene.cpp` | 11/14 | 3 |
-| `DS_DebugWin.c` | 6/7 | 1 |
-| `LIMEDS_Misc.cpp` | 7/8 | 1 |
-| `limeFont.cpp` | 2/6 | 4 |
-
-### The method, which is routine now
-
-```bash
-python tools/disasm.py OUTPUT/armv6/UMK3.armv6 <mangled_symbol>
-```
-
-**Disassemble by name, never by a bare `0x...` address.** A numeric target makes
-`disasm` assume Thumb; the armv6 slice is ARM throughout, so it silently
-produces garbage rather than erroring.
-
-Order by size — the small ones are accessors and wrappers and go in minutes. To
-list what is left, sorted:
-
-```python
-# addresses and sizes come from OUTPUT/func-to-file.txt; a function is "done"
-# only if decomp/lime/*.c contains a definition WITH A BODY
-```
-
-Then, without exception:
-
-```bash
-python tools/symcheck.py decomp/ OUTPUT/symbols.txt      # must report 0
-```
-
-And **before reading any function that calls libc or GL**, resolve its imports:
-
-```bash
-python tools/stubs.py OUTPUT/armv6/UMK3.armv6 0x127e24
-```
-
-733 stubs resolve. Skipping this is not just a missing name, it is an invitation
-to guess: `IsTextureFullBright` was recorded as using `strcmp` when it actually
-uses **`strstr`**, and that one wrong word made the `.???` wildcard in
-`res/nolight.txt` look like an open mystery for several sessions. It was not —
-591 of the 605 shipped `.meshset` files contain `.???` in their texture names,
-and a substring test matches them exactly as intended.
+- **`DS_DebugWin.c`** — the easiest. Pure state machine over a window array. No
+  floats, no data files.
+- **`limeFont.cpp`** — needs a metrics file. `runtime/lime_platform.c` records
+  the last `limeDrawSprite` call, so a test can assert on the UV rectangle and
+  the atlas page without a renderer.
+- **`RenderScene.cpp`** — the hardest, and the one whose bodies are most
+  structural. It needs a scene built by hand in guest memory. Do this one last.
 
 ---
 
-## Three rules that this session actually needed
+## After that
 
-**Write what you established, not what would look complete.** Some functions
-are in the repo as documented declarations with **no body** — `limeGetStringWidth`
-is the current example, where the glyph *search* is not pinned down even though
-the format around it now is. That is the correct outcome, not a gap to be tidied.
+**`gamecode`, 291 functions.** `SwitchQueue` is already verified and is the
+proof that some of it is tractable: pure data manipulation over a ring buffer,
+no function pointers, no indirect branches. Most of the fight engine will not
+allow that, so treat `SwitchQueue` as the easy end of a hard body of code rather
+than a representative sample.
 
-The patience pays off: the glyph table was undecoded for several sessions, and
-`limeCreateFONT` then gave up the whole format at once — see
-[FONT-FORMAT.md](FONT-FORMAT.md). Guessing a body earlier would have buried a
-plausible wrong layout under a correct-looking function.
+**Local two-player is already written. Do not build it.** `_ButtonStatesP2`,
+five 120-byte button layouts, `_JoystickStateP2`, `_P2Controls`, `_PLAYER2MODEL`,
+plus `_isp2` and `_gup2` as real code — all present in **both** retail builds.
+The iPhone build simply has no menu entry reaching it; the iPad build does, and
+calls it "2 Players on 1 iPad". See [IPAD-BUILD.md](IPAD-BUILD.md). `_isp2`
+(48 bytes) and `_gup2` (368 bytes) are the obvious first targets in `gamecode`.
 
-**`symcheck` is not a formality.** It caught a live invention this session — a
-`limeFontAdvance()` helper written to paper over exactly that undecoded part.
-Run it before every commit. If it flags something, decide whether the name is
-real or invented; **do not add it to `ALLOW`**. An earlier session silenced
+---
+
+## Rules this project paid for
+
+**Write what you established, not what would look complete.** A body over an
+unconfirmed layout is worse than no body. This was tested twice in one session:
+`symcheck` rejected a `LIME_RenderSceneOverrideTextures` built on two invented
+accessors, and the count went **backwards** from 104 to 103 before the real
+layout was found. And `LIME_UpdateEvents` had a confidently wrong body that
+survived weeks of reading and fell to the first test.
+
+**`symcheck` is not a formality.** It has caught three live inventions:
+`limeFontAdvance()`, a `LOAD_U16` macro, and the two scene-node accessors. Run
+it before every commit. If it flags something, decide whether the name is real
+or invented — **do not add it to `ALLOW`**. An earlier session silenced
 `lime_load_file` that way and hid the fact that the binary calls `limeLoadFile`.
 
-**Do not state a constant you could not resolve.** `DS_DebugWin.c` documents the
-window layout but deliberately omits the record size, because those literal
-pools disassemble as `0xe12fff1e` — `bx lr` read as data. Say so in the comment.
+**Resolve imports before reading a function.** `tools/stubs.py` names all 733.
+Skipping it is not a missing name, it is an invitation to guess:
+`IsTextureFullBright` was recorded as using `strcmp` when it uses **`strstr`**,
+and that one word made the `.???` wildcard look like an unsolved mystery for
+several sessions.
 
-### And one about the counter itself
+**Do not state a constant you could not resolve.** And when you can resolve one,
+do — the QST scale sat in the docs as `1/32767` for a long time on a
+reasonable-looking assumption, and reading the eight bytes settled it in one
+step after a formula rewrite had failed to.
 
-The script that tallies progress matches a mangled symbol by trimming its
-argument encoding, and it **has been wrong at least once**: it failed on `Pc`
-and `PcS_` suffixes, so seven finished functions did not count and three
-published percentages were too low. If the number jumps without you having done
-the work, suspect the matcher and **check the newly-matched names by hand**
-before publishing the higher figure.
+**Never step an array of host structs by the binary's byte stride.** `EVENT` is
+248 bytes there because an ARM pointer is 4; `sizeof(EVENT)` here is 256.
+`LIME_UpdateEvents` walked a 192-slot array with `+ 0xf8` and ran off the end.
+Hard-coded strides are correct only for memory the engine treats as raw bytes.
+
+**Run with a control group.** A call-site scan once reported zero shader callers
+*and* zero `glBindTexture` callers, the second of which was sitting in a
+disassembly already read by eye. The scanner was mixing file offsets with
+virtual addresses. A negative result that cannot detect a known positive is not
+evidence of anything.
+
+**Suspect the counter when it moves without work.** `tools/progress.py` now
+matches by Itanium length prefix rather than by trimming type codes, because the
+guessing version undercounted by two, an older variant undercounted by seven and
+put three wrong figures in the README, and adding an abort-stub file once
+inflated the count from 88 to 93 with nothing written.
 
 ---
 
-## What is worth finding, not just counting
+## The standard a field identification has to meet
 
-The value of this work has consistently been in what each function *confirms or
-contradicts*, not in the function count. Recent examples, all from small
-functions nobody expected anything from:
+**Two independent functions, same offset, same meaning** — or a prediction from
+the disassembly that the shipped data then confirms without being consulted
+first.
 
-- `MatrixIdentity2` writes `1.0f` at `m[0]`, `m[4]`, `m[8]` — a 3x3 identity
-  only lands there at **stride 3**, confirming `SKINMATRIX43` a third time.
-- `LIME_FreeSkin` frees exactly the six documented `SKININFO` arrays. A missed
-  field would leak; a phantom one would crash.
-- `ConvertDSMatrixtoPCMatrix` multiplies by **1/4096** — the Nintendo DS
-  fixed-point scale. The "DS" in the filename is literal, and it fits the Java
-  ME ancestry already known from `EA_SDK/microedition/`.
-- `LIME_printf` and `RenderAxesLines` are **compiled away**. An empty function
-  is a finding.
-
-Write that line in every comment. It is what makes the file worth reading.
-
-### The standard a field identification has to meet
-
-Two independent functions, same offset, same meaning -- or a prediction from the
-disassembly that the shipped data then confirms without being consulted first.
-
-Both happened this session. `RenderDebugCube` reads `scene->[0x80]` and hands it
-to LIME_LoadMeshSetTextures; `LIME_LoadScene` contains the store that puts the
+Both kinds are in the repo. `RenderDebugCube` reads `scene->[0x80]` and hands it
+to `LIME_LoadMeshSetTextures`; `LIME_LoadScene` contains the store that puts the
 meshset there. Separately, `LIME_LoadScene` implied one unconditional sibling
 load and one guarded one, and counting `res/` afterwards gave 545 `.events`
-against 547 `.scene`, and only 74 `.offsets`. The prediction was written down
+against 547 `.scene` and only 74 `.offsets` — the prediction was written down
 before the count was taken.
 
-One function asserting an offset is a hypothesis. Do not write it as a fact.
+**One function asserting an offset is a hypothesis.** Do not write it as a fact.
 
 ---
 
@@ -292,46 +170,38 @@ One function asserting an offset is a hypothesis. Do not write it as a fact.
   prefix and the 1/4096 fixed point make it look like one; it shares no asset
   format, no source path, and none of 355 animation frame names. Evidence in
   [LIME-ENGINE.md](LIME-ENGINE.md). Do not re-check it.
-
-
-- **The engine mixes matrix conventions.** `CreatePerspectiveMatrix` and
-  `ConvertDSMatrixtoPCMatrix` are row-major and need transposing for GL;
-  `LIMEDS_SetObjectOrientation` hands its argument to `glMultMatrixf`
-  untransposed. There is no blanket rule.
+- **`ES2Renderer` is dead template code.** Twelve shader entry points are
+  imported and nothing calls them; no shader source and no `.vsh`/`.fsh` ship.
+  Do not decompile it hoping to find the real renderer.
+- **The engine mixes matrix conventions.** Matrices built from basis vectors
+  arrive GL-ready; matrices converted from the older fixed-point formats are
+  row-major and need transposing. There is no blanket rule.
 - **Geometry is Z-up**, GL is Y-up.
-- **`LerpVector3` runs backwards** from its argument order: `t = 0` returns the
-  *second* argument.
+- **`LerpVector3`, `GetSlerpedQ` and `LerpQSTMatrix` all run backwards** from
+  their argument order: `t = 0` returns the *first* argument via the `(1-t)`
+  term. Three functions, one convention.
+- **`GetSlerpedQ` does not slerp.** No `acos`, no `sin`, no renormalisation — a
+  lerp with a shortest-arc sign flip. Substituting a real slerp changes every
+  in-between pose and fixes nothing visible.
+- **Transparency is additive with depth writes off, and deliberately unsorted.**
+  Switching to standard alpha blending makes the missing sort a real bug.
+- **Shading is `GL_FLAT`.** Leaving GL's default `GL_SMOOTH` gives softer
+  shading than the original everywhere.
 - **Strings may be UTF-16**, detected at runtime from a `0xFF 0xFE` BOM. Both
   encodings travel as `const char *`.
-- **Lighting is monochrome with no ambient**, two directional lights through
-  `pow()`, negated dot products. A plain `max(0, dot)` looks visibly wrong.
-
----
-
-## After `lime/common`
-
-**Local two-player is already written.** Do not build it. `_ButtonStatesP2`,
-five 120-byte button layouts, `_JoystickStateP2`, `_P2Controls`,
-`_PLAYER2MODEL`, plus `_isp2` and `_gup2` as real code — all present in **both**
-retail builds. The iPhone build simply has no menu entry reaching it; the iPad
-build does, and calls it "2 Players on 1 iPad". See
-[IPAD-BUILD.md](IPAD-BUILD.md).
-
-`_isp2` (48 bytes) and `_gup2` (368 bytes) are the obvious next targets once the
-engine is done — they are in `gamecode`, not `lime/common`, so they are not part
-of this task.
 
 ---
 
 ## Housekeeping that is currently true
 
 - `runtime/` builds and runs on Windows (WGL) and Linux (SDL2), draws textured
-  lit geometry, and poses characters — verified against real game data to
-  0.000094, which is the print width.
-- `tools/decomp_loop.py` exists and implements the acceptance gate from
-  `ORDEN-BUCLE-AUTOMATIZADO.md`, **but has never been run**: it expects a
-  populated `work/` directory. Calibrating it against `Matrix.cpp` and
-  `limeVector.cpp` — its Phase 0 — is unfinished and worth doing before
-  trusting it.
+  lit geometry and poses characters.
+- `runtime/lime_platform.c` is the host side of the engine's platform API, and
+  it is deliberately **not** the same code as the guest-side stubs in
+  `arm_runtime.c` — two independent implementations reading the same files is
+  what keeps the differential honest.
+- `tools/decomp_loop.py --calibrate` passes 2/2. It needs `UMK3_WORK` to hold
+  `symbols.txt`, `func-to-file.txt` and `UMK3.armv7`, and `UMK3_RES` for tests
+  that read game data.
 - Both READMEs, `PROGRESS.md` and `HANDOFF.md` are current as of `lime/common`
-  at 88/109 and overall at 32%.
+  at 109/109 and overall at 35%.
