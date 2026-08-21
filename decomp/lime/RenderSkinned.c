@@ -70,8 +70,8 @@
  * The first and third arguments are unused in the compiled code. The compiler
  * kept them in the signature; nothing reads r0 or the original r2.
  */
-void Xform2(limeVECTOR3 *unused0, const limeVECTOR3 *vin,
-            limeVECTOR3 *unused2, limeVECTOR3 *vout,
+void Xform2(const limeVECTOR3 *unused0, const limeVECTOR3 *vin,
+            const limeVECTOR3 *unused2, limeVECTOR3 *vout,
             const SKINMATRIX43 *m, float w)
 {
     float x, y, z;
@@ -306,7 +306,7 @@ void DrawSkinnedMesh2(SKININFO *skin, unsigned a, unsigned b, long flags,
         }
 
         Normalise(&nrm);
-        LightVert(&nrm, &lit);
+        LightVert(&nrm, (float *)&lit);
 
         /* lit value -> one grey byte, alpha forced opaque */
         {
@@ -623,10 +623,16 @@ SKININFO *LIME_LoadSkin(const char *filename)
     skin = (SKININFO *)limeMalloc("skin", 0x30);
     skin->next = NULL;                   /* +0x00, before parsing anything */
 
+    /* The leading word is read and stepped over. Nothing here consumes it --
+     * LIME_LoadSkin1 re-reads the counts it needs from the block it is handed,
+     * so this is the file's own record count and the loader trusts the inner
+     * header instead. Kept, and marked, rather than deleted: a read the binary
+     * performs is part of the description even when its value goes unused. */
     count = *(const int32_t *)data;
+    (void)count;
     data += 4;
 
-    LIME_LoadSkin1(data, skin);
+    LIME_LoadSkin1((const char *)data, skin);
     return skin;
 }
 

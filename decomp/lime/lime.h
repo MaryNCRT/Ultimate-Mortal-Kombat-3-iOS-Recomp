@@ -86,7 +86,7 @@ typedef struct MESHSETINFO {
 /* Engine types                                                         */
 /*                                                                      */
 /* Every offset below is one that docs/SKIN-FORMAT.md, docs/EVENTS-      */
-/* FORMAT.md or a comment in decomp/lime/*.c derives from the            */
+/* FORMAT.md or a comment in decomp/lime/ sources derives from the            */
 /* disassembly. Types whose layout is NOT established are declared       */
 /* opaque rather than given plausible fields -- the code only passes     */
 /* those by pointer, and inventing a field here would corrupt every      */
@@ -169,9 +169,12 @@ typedef struct EVENT {
     float            cursor;     /* 0x04 */
     int              frameA;     /* 0x08 */
     int              frameB;     /* 0x0c */
-    uint8_t          _pad10[4];  /* 0x10 */
+    struct SCENEINFO *scene;     /* 0x10  `ldr ip, [r4, #0x10]` then
+                                  *       `ldr r3, [ip, #0x44]` for count2 */
     SCENEEVENTTRACK *track;      /* 0x14 */
-    uint8_t          _pad18[0x24];
+    uint8_t          _pad18[0x14];
+    int              repeat;     /* 0x2c  -1 loops forever */
+    uint8_t          _pad30[0xc];
     long             group;      /* 0x3c */
     uint8_t          _pad40[0x64];
     float            fadeA;      /* 0xa4 */
@@ -240,8 +243,21 @@ typedef struct DEBUGWINDOW {
 
 /* Layout not established -- these are only ever passed by pointer. */
 typedef struct SCENENODE     SCENENODE;
-typedef struct SCENEEVENTS   SCENEEVENTS;
-typedef struct Mk3Obj_t      Mk3Obj_t;
+
+/* The .events block as its consumers name it. Same pair EVENTSINFO holds; the
+ * two names come from different call sites in the original. */
+typedef struct SCENEEVENTS {
+    long  numTracks;             /* 0x00 */
+    void *tracks;                /* 0x04  numTracks x 216 bytes */
+} SCENEEVENTS;
+
+/* A game object. Only the frame number is established here -- IsOnWWFrame reads
+ * it at +0x08 and sign-extends from uint16. Everything else is gamecode's and
+ * has not been mapped. */
+typedef struct Mk3Obj_t {
+    uint8_t  _pad00[8];
+    uint16_t frame;              /* 0x08 */
+} Mk3Obj_t;
 
 /* A declarative texture manifest: a NULL-terminated array of 8-byte entries.
  * A module lists what it needs and where to put it, and one call fills them in.
@@ -286,7 +302,10 @@ typedef struct FONT {
 extern EVENT            g_events[EVENT_SLOTS];
 extern SCENEEVENTTRACK  g_fbxScratchTrack;   /* reused every LIME_PlayFBXAtPos */
 extern limeMATRIX44     g_fbxScratchMatrix;
-extern EVENTSINFO      *g_masterOffsets;
+/* Walked as raw bytes by FindIdInMasterOffsets, which strcmps at a fixed stride.
+ * Typed as bytes rather than as a struct array because the record layout is not
+ * established. */
+extern const char      *g_masterOffsets;
 extern int              g_masterOffsetCount;
 /* Declared with the struct tag: the full SCENEINFO definition lives further
  * down, after MESHSETINFO, and this block precedes it. */
@@ -322,7 +341,6 @@ extern float            g_rootPosition[3];
 extern float            g_lightPower0, g_lightPower1;
 extern float            g_lightExp0, g_lightExp1;
 
-extern int              g_stateA, g_stateB;
 
 /* GL enums the decompiled code names directly. */
 #ifndef GL_MODELVIEW
@@ -331,6 +349,7 @@ extern int              g_stateA, g_stateB;
 #ifndef GL_PROJECTION
 #define GL_PROJECTION 0x1701
 #endif
+
 
 /* ------------------------------------------------------------------ */
 /* limeVector.cpp                                                       */
@@ -425,7 +444,8 @@ extern int   g_debugEnabled;
  * three separate functions show a SCENEINFO beginning with its own filename. */
 typedef struct SCENEINFO {
     char         name[64];       /* 0x00 */
-    int          field40;        /* 0x40  touched on a cache hit */
+    int          refCount;       /* 0x40  incremented on a cache hit,
+                                  *       decremented by LIME_FreeScene */
     int          count2;         /* 0x44  the modulus LIME_TriggerEventsFromScene
                                   *       takes frame numbers against */
     void        *field48;        /* 0x48 */
@@ -441,10 +461,15 @@ typedef struct SCENEINFO {
     int          field70;        /* 0x70 */
     void        *field74;        /* 0x74 */
     int          field78;        /* 0x78 */
-    uint8_t      _pad7c[4];      /* 0x7c */
+    void        *tail;           /* 0x7c  GetMatrixFromPalette indexes this at
+                                  *       32 bytes a step */
     MESHSETINFO *meshset;        /* 0x80  LIME_LoadMeshSet result -- confirmed
                                   *       independently by RenderDebugCube */
     void        *events;         /* 0x84  LIME_LoadEvents result */
+    uint8_t      _pad88[8];      /* 0x88 */
+    struct SCENEINFO *next;      /* 0x90  the scene cache is a linked list --
+                                  *       AddScene and LIME_GetSceneFromFilename
+                                  *       both walk this offset */
 } SCENEINFO;
 
 extern SCENEINFO *g_debugCubeScene;
@@ -485,6 +510,21 @@ void   DS_ScrollLines(DEBUGWINDOW *win);
 void   CreateMatrixPaletteForGeneratingMesh(char *a, long b, long c, long d,
                                             float e, BONESINFO *bones);
 void   LIME_LoadSkin1(const char *data, SKININFO *skin);
+void   LIME_printf(int window, const char *fmt, ...);
+void   LIME_KillSliders(void);
+int    FindIdInMasterOffsets(const char *name);
+struct SCENEINFO *LIME_SceneExists(struct SCENEINFO *scene);
+void   LIME_FreeScene(struct SCENEINFO *scene);
+EVENTSINFO *LIME_LoadEvents(const char *filename, long a, long b);
+int    LIME_TriggerEventFromSceneH(long a0, SCENEEVENTTRACK *track,
+                                   limeMATRIX44 *matrix, long a3, long a4,
+                                   long a5, long a6, long a7, long a8,
+                                   long a9, long a10);
+
+/* The two state words KillIllegalWhirlwinds tests are dereferenced (`*g_stateA`),
+ * so they are pointers into gamecode state rather than plain ints. */
+extern int *g_stateA, *g_stateB;
+extern int  g_whirlwindFirstFrame;
 
 /* GL ES 1.1 fixed function. Declared here rather than pulled from a GL header so
  * the decompiled engine builds standalone; runtime/ supplies the real ones. */
