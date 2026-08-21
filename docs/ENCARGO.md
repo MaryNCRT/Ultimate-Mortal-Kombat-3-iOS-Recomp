@@ -291,6 +291,12 @@ One function asserting an offset is a hypothesis. Do not write it as a fact.
 
 ## Traps already paid for
 
+- **The DS Ultimate Mortal Kombat is not this engine's ancestor.** The `LIMEDS_`
+  prefix and the 1/4096 fixed point make it look like one; it shares no asset
+  format, no source path, and none of 355 animation frame names. Evidence in
+  [LIME-ENGINE.md](LIME-ENGINE.md). Do not re-check it.
+
+
 - **The engine mixes matrix conventions.** `CreatePerspectiveMatrix` and
   `ConvertDSMatrixtoPCMatrix` are row-major and need transposing for GL;
   `LIMEDS_SetObjectOrientation` hands its argument to `glMultMatrixf`
