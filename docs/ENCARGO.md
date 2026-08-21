@@ -7,11 +7,7 @@ A short, specific work order for whoever takes this on next. Read
 
 ## Where things stand
 
-**`lime/common` is 109 of 109.** Every function in the engine core has a body,
-the module compiles clean with `-Wall -Wextra`, and `tools/symcheck.py` reports
-zero unknown callees.
-
-**Six of its nine files are verified** against the recompiled original:
+**`lime/common` is 109 of 109, and every file is verified.**
 
 | Module | Differential test |
 |---|---|
@@ -20,18 +16,26 @@ zero unknown callees.
 | `LIMEDS_Misc.cpp` | 21,950 cases |
 | `RenderSkinned.cpp` | 18,780 cases |
 | `Events.cpp` | 2,224 cases |
+| `limeFont.cpp` | 896 cases |
+| `RenderScene.cpp` | 80 cases — **helpers only** |
+| `DS_DebugWin.c` | 58 cases |
 | `RenderMesh.cpp` | 590 files, 7,327 meshes |
-| `RenderScene.cpp` | **none** |
-| `limeFont.cpp` | **none** |
-| `DS_DebugWin.c` | **none** |
 
-Zero divergences everywhere. 102,973 synthetic cases plus real game data.
+Zero divergences throughout. 103,907 synthetic cases plus real game data.
+
+**The one gap that is not closed.** `RenderScene.cpp`'s test covers the
+transparent list, the palette lookup and the mesh search — not the two scene
+renderers. Those walk the two-level animation table and issue GL calls whose
+enums are not all pinned down; their bodies are marked *structural*, and driving
+them would compare this project's reading against itself precisely where it is
+least certain. Closing that needs a scene built by hand in guest memory and the
+remaining enums resolved.
 
 ---
 
-## The job: write the three missing tests
+## What writing those tests cost, and found
 
-Not more decompilation. **Writing tests has been worth more than writing code
+The three are written. **Writing tests has been worth more than writing code
 for the whole of the last period**, and the numbers say so plainly.
 
 Extending the differential tests found **nine defects**:
@@ -73,19 +77,23 @@ the function could be wrong**, not at random.
 wrong thing is still wrong. `tests/test_events_diff.c` checks directly that a
 killed event takes *two* frames to free, not merely that both sides do the same.
 
-### What the three need
+### The next test is the one this batch could not write
 
-- **`DS_DebugWin.c`** — the easiest. Pure state machine over a window array. No
-  floats, no data files.
-- **`limeFont.cpp`** — needs a metrics file. `runtime/lime_platform.c` records
-  the last `limeDrawSprite` call, so a test can assert on the UV rectangle and
-  the atlas page without a renderer.
-- **`RenderScene.cpp`** — the hardest, and the one whose bodies are most
-  structural. It needs a scene built by hand in guest memory. Do this one last.
+Two things would close `RenderScene.cpp` properly:
+
+1. **A scene built by hand in guest memory** — the two-level animation table
+   (`nodeKeys` at `+0x88`, `nodeStream` at `+0x8c`), a meshset, and a palette.
+   The pieces are all documented; nobody has assembled one.
+2. **The remaining GL enums.** Several arrive from literal pools that resolve to
+   addresses rather than values, so the bodies name the calls and not always the
+   constants. `tools/stubs.py` names the functions; the enums need the pools.
+
+Until then that file is honestly labelled "helpers only" in every table that
+mentions it, and the renderer bodies stay marked *structural*.
 
 ---
 
-## After that
+## Then: gamecode
 
 **`gamecode`, 291 functions.** `SwitchQueue` is already verified and is the
 proof that some of it is tractable: pure data manipulation over a ring buffer,

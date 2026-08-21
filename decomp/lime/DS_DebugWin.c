@@ -111,21 +111,38 @@ void DS_ScrollLines(DEBUGWINDOW *win)
  * Resets one window by index. **`-1` returns immediately**, which is how the
  * engine says "no window" without a separate flag.
  *
- * Four fields are zeroed: +0x00 and +0x04 (the two cursors), +0x18, and a
- * single byte at +0x38.
+ * **It clears 102 words, not four.** An earlier reading saw the first four
+ * stores and stopped: +0x00 and +0x04, then +0x18 and a byte at +0x38. Those
+ * last two are not window fields at all -- they are the first LINE record's
+ * +0x00 and +0x20, and the function loops over all fifty with `add r3, r3,
+ * #0x420`.
+ *
+ * Measured rather than read: clearing window 0 against a poisoned arena touches
+ * 102 words at 0x0, 0x4, 0x18, 0x38, 0x438, 0x458, 0x858 ... -- two per line
+ * across fifty lines, plus the two cursors. Fifty is the count DW_NewLine's
+ * `0x31` bound already implied, arrived at from the other direction.
+ *
+ * The second field per line is a **byte**, not a word: the instruction is
+ * `strb.w r2, [r3, #0x38]`. Writing four bytes there instead of one is what the
+ * differential test caught on its first run -- a single byte at +0x39 differing
+ * in every window.
  */
 void ClearDebugWindow(int index)
 {
     DEBUGWINDOW *win;
+    int i;
 
     if (index == -1)
         return;
 
-    win = &g_debugWindows[index];
+    win = &DebugWindows[index];         /* index * 0xcf20 */
     win->column = 0;                    /* +0x00 */
     win->line = 0;                      /* +0x04 */
-    win->field18 = 0;                   /* +0x18 */
-    win->flag38 = 0;                    /* +0x38, one byte */
+
+    for (i = 0; i < 50; i++) {          /* add r3, r3, #0x420 */
+        win->lines[i].field00 = 0;      /* +0x18 within the window, then +0x420 */
+        win->lines[i].flag20 = 0;       /* +0x38 -- `strb`, one byte only */
+    }
 }
 
 
@@ -169,7 +186,7 @@ void LIME_InitDebugWindow(void)
 {
     int i;
 
-    g_debugWindowEnabled = 1;
+    DS_DebugWindowOn = 1;
 
     for (i = 0; i < DEBUG_WINDOWS; i++) {
         /* per-window init, 0x8c = 140 units each */
@@ -211,7 +228,7 @@ void LIME_Slider(int window, int a, int b, int c, int d, int e)
     if (window == -1)
         return;                         /* -1 is "no window", as everywhere */
 
-    win = &g_debugWindows[window];      /* mla r0, r0, ip, lr */
+    win = &DebugWindows[window];      /* mla r0, r0, ip, lr */
 
     /* The line cursor is shifted left by 2 and added back to the window
      * pointer, so a slider writes into the SAME line buffer text does, at the

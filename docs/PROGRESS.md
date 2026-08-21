@@ -6,8 +6,8 @@ Current state of the project. Written so that someone can pick it up with no pri
 [ENCARGO.md](ENCARGO.md) for the next task.
 
 > Latest: **`lime/common` is 109 of 109** — every function in the engine core has
-> a body, the module compiles clean with `-Wall -Wextra`, and **six of its nine
-> files are verified** against the recompiled original. 102,973 synthetic cases
+> a body, the module compiles clean with `-Wall -Wextra`, and **every one of its nine
+> files is verified** against the recompiled original. 103,907 synthetic cases
 > plus 590 files and 7,327 meshes of real game data, zero divergences.
 >
 > Extending the differential tests found **four defects in the oracle itself**
@@ -64,7 +64,7 @@ any of the port is written.
 | The game runs somewhere as a behavioural reference | ✅ done (touchHLE, no known crash) |
 | Every LIME asset format | ✅ done — `.scene` was the last |
 | **The engine core is decompiled** | ✅ **done — 109 of 109** |
-| The engine core is *verified* | 🔄 six of nine files |
+| **The engine core is verified** | ✅ **all nine files** |
 | Something renders on a PC screen | ⬜ not started |
 | The game boots natively | ⬜ far off |
 | The game is playable natively | ⬜ far off |
@@ -79,7 +79,7 @@ any of the port is written.
 | 1 — Asset formats | ✅ complete — every format read and validated against the shipped data |
 | 2 — Verification oracle | ✅ complete and proven |
 | 3 — Ghidra automation | ✅ headless pipeline working |
-| 4 — Decompile `lime/common` | ✅ **complete — 109/109, six of nine files verified** |
+| 4 — Decompile `lime/common` | ✅ **complete — 109/109, every file verified** |
 | 5 — Native PC platform layer | ⬜ not started |
 | 6 — EA SDK stubs | ⬜ not started (scope reduced, see below) |
 | 7 — Decompile `gamecode` | ⬜ not started |
