@@ -84,9 +84,12 @@ Two things would close `RenderScene.cpp` properly:
 1. **A scene built by hand in guest memory** — the two-level animation table
    (`nodeKeys` at `+0x88`, `nodeStream` at `+0x8c`), a meshset, and a palette.
    The pieces are all documented; nobody has assembled one.
-2. **The remaining GL enums.** Several arrive from literal pools that resolve to
-   addresses rather than values, so the bodies name the calls and not always the
-   constants. `tools/stubs.py` names the functions; the enums need the pools.
+2. **Pairing each GL enum with the call that consumes it.** The enums themselves
+   are readable -- `tools/annotate.py` resolves the literal pools and they come
+   out as clean GL constants. What is not readable is which call takes which,
+   because the compiler interleaves the loads: a `GL_VERTEX_ARRAY` sits directly
+   before a `glClientActiveTexture` that cannot take it. Resolving this means
+   tracking register liveness, not reading more literals.
 
 Until then that file is honestly labelled "helpers only" in every table that
 mentions it, and the renderer bodies stay marked *structural*.

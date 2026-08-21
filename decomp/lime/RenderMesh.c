@@ -1059,10 +1059,17 @@ void LIME_RenderMeshSingleIndexed(MESHINFO *mesh, TEXTURE *tex0, TEXTURE *tex1,
  * this one took. A port that mirrors setup in teardown leaves unit 1 configured
  * after a single-texture mesh, and the next multi-texture draw inherits it.
  *
- * The GL enums are not all named. Several arrive from literal pools that resolve
- * to addresses rather than values in this pass, and this project does not state
- * constants it could not pin down; where one is named it is because the call
- * admits only one.
+ * **Why the GL enums are not all named, corrected.** An earlier note here said
+ * they resolve to addresses rather than values. That is wrong for most of
+ * them -- `tools/annotate.py` reads the literal pools and they come out as
+ * clean GL constants.
+ *
+ * The real obstacle is **pairing**. The compiler interleaves the loads with
+ * the calls: in this function a `GL_VERTEX_ARRAY` is loaded immediately
+ * before a `glClientActiveTexture`, which does not take that enum -- the
+ * value belongs to a later call and the register was simply free. So the
+ * constants present are known and which call consumes each one is not, and
+ * the body names an enum only where the call admits exactly one.
  */
 void LIME_RenderMeshSingle(MESHINFO *mesh, TEXTURE *t0, TEXTURE *t1,
                            float alpha, long flags)
