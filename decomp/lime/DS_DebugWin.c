@@ -25,6 +25,9 @@
  * it open.
  */
 
+#include <math.h>
+#include <string.h>
+#include <stdio.h>
 #include "lime.h"
 
 

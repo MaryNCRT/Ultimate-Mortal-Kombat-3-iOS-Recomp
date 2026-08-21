@@ -16,6 +16,9 @@
  * only the plumbing changed.
  */
 
+#include <math.h>
+#include <string.h>
+#include <stdio.h>
 #include "lime.h"
 
 #include <stdio.h>
@@ -120,11 +123,12 @@ MESHSETINFO *LIME_LoadMeshSet(const char *filename, int useLighting)
         if (n >= 8) {                       /* replace ".meshset" */
             memcpy(lightpath + n - 8, ".lighting", 10);
         }
-        light = (uint8_t *)limeLoadFile(lightpath, &light_size);
+        light_size = limeFileSize(lightpath);
+        light = (uint8_t *)limeLoadFile(lightpath);
     }
 
-    size_t data_size = 0;
-    uint8_t *data = (uint8_t *)limeLoadFile(filename, &data_size);
+    size_t data_size = limeFileSize(filename);
+    uint8_t *data = (uint8_t *)limeLoadFile(filename);
     if (!data) {
         free(light);
         return NULL;
@@ -350,7 +354,7 @@ void LIME_FreeNonVisibleMeshes(MESHSETINFO *set)
     for (i = 0; i < set->numMeshes; i++) {
         MESHINFO *mesh = set->meshes[i];
         if (mesh->visible == 0)                      /* +0x54 */
-            LIME_FreeSingleMesh(mesh);
+            LIME_FreeSingleMesh(set, i);             /* mov r0, set; mov r1, i */
     }
 }
 
@@ -366,8 +370,26 @@ void LIME_FreeNonVisibleMeshes(MESHSETINFO *set)
  * both compiled away -- this one really does write to stdout in the retail
  * binary, which is worth knowing when reading a capture from the emulator.
  *
- * The freed pointer is **MESHINFO+0x3c**, reached through the set's mesh array
- * at MESHSETINFO+0x48 rather than passed in.
+ * The mesh is reached through the set's array at MESHSETINFO+0x48 rather than
+ * passed in.
+ *
+ * **It frees six allocations, not one.** An earlier pass recorded only the
+ * first, which left this function leaking five blocks per mesh. The binary:
+ *
+ *      +0x3c   meshName
+ *      +0x40   textureName
+ *      +0x18   verts
+ *      +0x1c   indices
+ *      +0x24   vertLight   -- the only one null-checked, so it is optional
+ *      then the MESHINFO itself
+ *
+ * Six owned pointers released in a fixed order, exactly like LIME_FreeSkin
+ * releasing its six SKININFO arrays. A missed field leaks; a phantom one
+ * crashes.
+ *
+ * Note it **re-reads `set->meshes[index]` before every free** rather than
+ * caching the pointer -- reloaded from memory each time in the disassembly.
+ * Harmless, and preserved here so the shape matches.
  */
 void LIME_FreeSingleMesh(MESHSETINFO *set, int index)
 {
@@ -379,8 +401,15 @@ void LIME_FreeSingleMesh(MESHSETINFO *set, int index)
     if (mesh == NULL)
         return;
 
-    printf("...", mesh->data, set);      /* +0x3c */
-    limeFree(mesh->data);
+    limeFree(set->meshes[index]->meshName);      /* +0x3c */
+    limeFree(set->meshes[index]->textureName);   /* +0x40 */
+    limeFree(set->meshes[index]->verts);         /* +0x18 */
+    limeFree(set->meshes[index]->indices);       /* +0x1c */
+
+    if (set->meshes[index]->vertLight != NULL)   /* +0x24, guarded */
+        limeFree(set->meshes[index]->vertLight);
+
+    limeFree(set->meshes[index]);
 }
 
 
@@ -562,8 +591,8 @@ int IsTextureFullBright(const char *name)
             if (line[0] == 0x23 || line[0] == 0)
                 continue;               /* comments and blanks alike */
 
-            memcpy(TheFullBrightInfo.names[TheFullBrightInfo.count],
-                   line, 0x40 - 4);
+                memcpy(TheFullBrightInfo.names[TheFullBrightInfo.count],
+                   line, 64);      /* four ldm/stm pairs = 64 bytes */
             TheFullBrightInfo.count++;
         }
 
