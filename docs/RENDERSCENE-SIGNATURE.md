@@ -167,3 +167,40 @@ comparing this project's reading against itself in the places where the reading
 is least certain". That was the wrong conclusion from a correct worry: the
 oracle is not this project's reading, it is a mechanical translation of the
 shipped instructions, and it disagreed with the reading on six separate points.
+
+
+---
+
+## Where it ended up
+
+Twenty-one of twenty-nine cases match the original **exactly**, call for call and
+argument for argument: every early exit, every hidden node, every EVENT marker,
+both passes at four frames, non-adjacent frame pairs, a frame blended with
+itself, negative frames and overshoot.
+
+The eight that remain all diverge **inside LIME_RenderMesh**, not in the walk.
+Their first mismatch is at call 5, 11, 28 or 32 -- deep in a mesh draw -- and it
+is always one of , ,
+, ,  or .
+None of those is a call  makes itself.
+
+So the boundary is clean: **the scene renderers now agree with the original, and
+ does not.** That is a separate file whose own test
+compares mesh LOADING rather than the GL stream, which is why it never showed.
+The harness to check it already exists -- point  at it.
+
+### Two more defects, both mine, both worth recording
+
+ took a matrix argument as a  for both sides. On the
+clean side that TRUNCATED a 64-bit host pointer and then dereferenced it -- a
+segfault rather than a divergence, and it was misread for a while as the
+renderer crashing. A guest address is four bytes and a host pointer is eight;
+one parameter cannot be both. Split into  and .
+
+The same file recorded pointer arguments as raw values on the oracle side and as
+nullness on the clean side, manufacturing a divergence for every array pointer
+in every draw. A comparison has to be symmetric or it is not a comparison.
+
+Neither was in the code under test. Both were in the instrument -- which is the
+argument for control groups, and for not trusting a red result any further than
+a green one until the harness itself has been checked.

@@ -79,7 +79,10 @@ typedef struct MESHINFO {
     char       *textureName;     /* 0x40  buffer de 64 */
     TEXTURE    *texture;         /* 0x44  LIME_FreeMeshSetTextures reads this
                                   *       and passes it to limeDeleteTexture */
-    uint8_t     _pad48[8];       /* 0x48 */
+    int         field48;        /* 0x48  FlushTranspMeshList: nonzero means
+                                  *       use the CALLER{}s texture, zero means
+                                  *       use this mesh own at +0x44 */
+    uint8_t     _pad4c[4];       /* 0x4c */
     int         fullBright;      /* 0x50  IsTextureFullBright(textureName) */
     int         visible;         /* 0x54  LIME_FreeNonVisibleMeshes tests == 0 */
 } MESHINFO;
@@ -300,11 +303,19 @@ typedef struct EVENTSINFO {
  * walked back with a plain add #0x30. */
 #define TRANSPMESH_MAX 255
 
+/* FlushTranspMeshList reads five things out of this, and driving it named
+ * three that were previously anonymous: the float at +0x00 is the ALPHA and
+ * goes to glColor4f, the byte at +0x05 selects between two transform paths,
+ * and +0x2c is the MESH INDEX into meshset->meshes rather than a spare
+ * argument. See docs/RENDERSCENE-SIGNATURE.md. */
 typedef struct TRANSPMESH {
-    uint32_t     word0, word1;   /* 0x00  copied from the SCENENODE */
+    float        alpha;          /* 0x00  ldr r3, [r6] -> glColor4f 4th arg */
+    uint8_t      _pad04;         /* 0x04 */
+    uint8_t      field05;        /* 0x05  ldrb r3, [r6, #5]; cbnz -> 0x5f704 */
+    uint8_t      _pad06[2];      /* 0x06 */
     QSTMATRIX    qst;            /* 0x08  32 bytes, copied verbatim */
     void        *meshset;        /* 0x28 */
-    long         arg4;           /* 0x2c */
+    long         meshIndex;      /* 0x2c  ldr r2, [r3, r1, lsl #2] */
 } TRANSPMESH;
 
 /* One debug text window -- and it is **53,024 bytes**, which this project spent
