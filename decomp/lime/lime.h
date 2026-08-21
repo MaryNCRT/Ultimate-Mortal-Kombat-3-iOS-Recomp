@@ -302,20 +302,48 @@ typedef struct TRANSPMESH {
     long         arg4;           /* 0x2c */
 } TRANSPMESH;
 
-/* One debug text window. 50 lines; sliders live in slots 10 through 15, which
- * is why LIME_KillSliders is ClearDebugWindow six times. The record SIZE is not
- * stated: the literal pools disassemble as 0xe12fff1e (bx lr read as data), so
- * it could not be pinned down and is not guessed. */
-#define DEBUG_WINDOWS 16
-#define DEBUG_LINES   0x31
+/* One debug text window -- and it is **53,024 bytes**, which this project spent
+ * a long time unable to state.
+ *
+ * The size could not be read from the disassembly: the literal pools around
+ * DS_DebugWin.c disassemble as `0xe12fff1e`, which is `bx lr` being read as
+ * data, so the multiply's operand never resolved. The comment there said so and
+ * refused to guess.
+ *
+ * The recompiler resolved it. In the generated oracle the same instruction is
+ * `movw r3, #0xcf20` followed by `mul r0, r0, r3` -- 0xcf20 = 53,024 -- and
+ * running ClearDebugWindow(0) and ClearDebugWindow(1) against a poisoned arena
+ * confirms it: window 1's writes land at exactly +0xcf20.
+ *
+ * The layout falls out of the same measurement. Clearing one window touches 102
+ * words: the two cursors, then a pair inside each of **50 line records of 0x420
+ * bytes** starting at +0x18. Fifty is the line count already documented from
+ * DW_NewLine's `0x31` bound, arrived at independently.
+ *
+ *      0x18 + 50 * 0x420 = 0xCF18, and the record is 0xCF20.
+ *
+ * A line being 1,056 bytes is worth pausing on: this is a debug overlay that
+ * reserves 53 KB per window and sixteen of them. It was never in a shipped
+ * frame -- LIME_printf compiles to nothing -- and the memory was reserved
+ * anyway. */
+#define DEBUG_WINDOWS      16
+#define DEBUG_LINES        0x31          /* 49 is the last valid index */
+#define DEBUG_LINE_STRIDE  0x420         /* 1,056 bytes per line */
+#define DEBUG_WINDOW_SIZE  0xCF20        /* 53,024 bytes per window */
+
+typedef struct DEBUGLINE {
+    int     field00;             /* +0x00  cleared with `str`  -- a word */
+    uint8_t _pad04[0x1c];
+    uint8_t flag20;              /* +0x20  cleared with `strb` -- ONE BYTE */
+    uint8_t _pad21[DEBUG_LINE_STRIDE - 0x21];
+} DEBUGLINE;
 
 typedef struct DEBUGWINDOW {
-    int      column;             /* 0x00 */
-    int      line;               /* 0x04 */
-    uint8_t  _pad08[0x10];
-    int      field18;            /* 0x18  cleared by ClearDebugWindow */
-    uint32_t lines[DEBUG_LINES]; /* the text block DS_ScrollLines moves */
-    uint8_t  flag38;             /* 0x38, one byte */
+    int       column;            /* 0x00 */
+    int       line;              /* 0x04 */
+    uint8_t   _pad08[0x10];
+    DEBUGLINE lines[50];         /* 0x18, 50 x 0x420 */
+    uint8_t   _padtail[DEBUG_WINDOW_SIZE - 0x18 - 50 * DEBUG_LINE_STRIDE];
 } DEBUGWINDOW;
 
 /* Layout not established -- these are only ever passed by pointer. */
@@ -375,7 +403,12 @@ typedef struct FONT {
                                   *       width routines -- inter-character
                                   *       spacing, set from limeCreateFONT */
     int       fallbackAdvance;   /* 0x10  the constant 8 */
-    int       field14;           /* 0x14  the scale applied at measure time */
+    /* A FLOAT. Both width routines read it with `vldr s15, [r4, #0x14]`, which
+     * reinterprets the bits -- it does not convert an integer. An earlier
+     * version of this header typed it `int` and the clean C cast it, which
+     * gives the right answer only when the caller happened to pass a small
+     * whole number. */
+    float     field14;           /* 0x14  the scale applied at measure time */
     int16_t   numGlyphs;         /* 0x18 */
     uint8_t   _pad1a[2];
     /* The atlas rectangle of each glyph. limeDrawFONT settles all three by what
@@ -402,6 +435,14 @@ typedef struct FONT {
      * which is what fixes them: the divisor names the axis. */
     float     atlasWidth;        /* 0x34 */
     float     atlasHeight;       /* 0x38 */
+    /* Added to the width of a character that is NOT in the table, on top of
+     * the fallback advance. Only the not-found branch reads it:
+     *     ldr r3, [r4, #0x10]   ; the fallback
+     *     ldr r2, [r4, #0x3c]   ; and this
+     *     add r3, r3, r2
+     * so a font can make unknown characters wider than the plain fallback
+     * without touching the fallback itself. */
+    int       extraUnknown;      /* 0x3c */
     uint8_t   _pad3c[12];
     uint8_t  *codes;             /* 0x48  one byte per glyph */
     int16_t  *codesW;            /* 0x4c  the same codes widened to 16 bits */
@@ -432,8 +473,12 @@ extern struct SCENEINFO *g_sceneList;
 extern TRANSPMESH       g_transpMeshList[TRANSPMESH_MAX];
 extern int              g_transpMeshCount;
 
-extern DEBUGWINDOW      g_debugWindows[DEBUG_WINDOWS];
-extern int              g_debugWindowEnabled;
+/* The binary's own names: _DebugWindows is a POINTER to the array, and
+ * _DS_DebugWindowOn is the enable flag. An earlier pass called them
+ * g_debugWindows and g_debugWindowEnabled, which were inventions sitting
+ * next to a symbol table that had both. */
+extern DEBUGWINDOW     *DebugWindows;
+extern int              DS_DebugWindowOn;
 
 /* Lighting: two directional lights, monochrome, no ambient. See LIGHTING.md.
  * Held as bare float[3] rather than limeVECTOR3 -- NormaliseLDirs indexes them
@@ -636,6 +681,9 @@ extern SCENEINFO *g_debugCubeScene;
 #define DEBUG_CUBE_SCENE "debugcube.scene"
 
 void       *GetMatrixFromPalette(long index, SCENEINFO *scene);
+void        AddToTranspMeshList(MESHSETINFO *meshset, const SCENENODE *node,
+                                const QSTMATRIX *qst, long a3, long a4);
+void        ClearTranspMeshList(void);
 void        glScalef(float x, float y, float z);
 SCENEINFO *LIME_LoadScene(const char *filename, int a, int b, int c);
 void LIME_RenderMeshSingle(MESHINFO *mesh, TEXTURE *t0, TEXTURE *t1,
@@ -718,6 +766,10 @@ int    LIME_CountActiveEvents(void);
 void   KillAlleventsWithGroup(long group);
 void   LIME_UpdateEvents(void);
 void   LIME_KillSliders(void);
+float  limeGetStringWidth(const FONT *font, const char *text);
+float  limeGetStringWidthUCNoHeader(const FONT *font, const char *text);
+void   ClearDebugWindow(int index);
+void   DW_NewLine(DEBUGWINDOW *win);
 void   limeDrawSprite(TEXTURE *page, float x, float y, float w, float h,
                       float u, float v, float du, float dv);
 void   limeDrawRotSpriteFromTopLeft(TEXTURE *page, float x, float y,

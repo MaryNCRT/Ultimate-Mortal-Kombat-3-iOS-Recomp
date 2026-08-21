@@ -147,7 +147,7 @@ automatizado desde el código máquina hasta un test diferencial. Eso es progres
 real aunque no renderice un solo píxel.
 
 **El núcleo del motor es la cuarta fila, y está terminado.** Las 109 funciones
-tienen cuerpo; seis de sus nueve ficheros están además verificados contra el
+tienen cuerpo; los nueve ficheros están además verificados contra el
 original recompilado.
 
 **Por qué el número sigue sin ser alto.** Solo el motor de combate son 2.172
@@ -166,7 +166,7 @@ compiladas, que es una afirmación más débil y honesta:
 | | |
 |---|---|
 | Verificado por comportamiento | `Matrix`, `limeVector`, el cargador de `RenderMesh`, la matemática de `RenderSkinned`, el pool de `Events`, las conversiones de `LIMEDS_Misc` |
-| Casos comparados | 102.973 sintéticos, más 590 ficheros y 7.327 mallas de datos reales |
+| Casos comparados | 103.907 sintéticos, más 590 ficheros y 7.327 mallas de datos reales |
 | Divergencias | **0** |
 | Escrito, compilado, aún sin pasar por el oráculo | el resto |
 

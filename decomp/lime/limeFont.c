@@ -151,7 +151,7 @@ float limeGetStringWidthUCNoHeader(const FONT *font, const char *text)
         int i;
 
         if ((uint8_t)p[0] == 0x20 && p[1] == '\0') {
-            total += font->fallbackAdvance;
+            total += font->spacing + font->fallbackAdvance + font->extraUnknown;
             p += 2;
             continue;
         }
@@ -164,12 +164,13 @@ float limeGetStringWidthUCNoHeader(const FONT *font, const char *text)
             }
         }
 
+        total += font->spacing;                  /* every path, as above */
+
         if (index < 0)
-            total += font->fallbackAdvance;
+            total += font->fallbackAdvance + font->extraUnknown;
         else if (font->simple)
             total += font->defaultAdvance;
         else {
-            total += font->spacing;
             total += font->glyphWidth[index];
             if (font->kerning != NULL)
                 total += font->kerning[index];
@@ -178,7 +179,7 @@ float limeGetStringWidthUCNoHeader(const FONT *font, const char *text)
         p += 2;
     }
 
-    return (float)total * (float)font->field14;
+    return (float)total * font->field14;   /* already a float; no cast */
 }
 
 
@@ -424,7 +425,7 @@ float limeGetStringWidth(const FONT *font, const char *text)
         int i;
 
         if (code == 0x20) {             /* space: not searched for */
-            total += font->fallbackAdvance;
+            total += font->spacing + font->fallbackAdvance + font->extraUnknown;
             p += wide ? 2 : 1;
             continue;
         }
@@ -442,12 +443,26 @@ float limeGetStringWidth(const FONT *font, const char *text)
             }
         }
 
+        /* **The spacing is added on ALL THREE paths**, not only when a glyph is
+         * found. An earlier version added it once, inside the found branch,
+         * which measured every unknown character and every space short by
+         * exactly the spacing -- invisible in English and cumulative in
+         * anything that leans on the fallback.
+         *
+         * The not-found path also adds FONT+0x3c, a second allowance the other
+         * two do not touch:
+         *     ldr r3, [r4, #0x10]   ; the fallback
+         *     ldr r2, [r4, #0x3c]   ; and this
+         *     add r3, r3, r2
+         */
+        total += font->spacing;                  /* +0x0c, every character */
+
         if (index < 0)
-            total += font->fallbackAdvance;      /* +0x10 */
+            total += font->fallbackAdvance       /* +0x10 */
+                   + font->extraUnknown;         /* +0x3c, not-found only */
         else if (font->simple)
             total += font->defaultAdvance;       /* +0x2c */
         else {
-                total += font->spacing;              /* +0x0c, per character */
             total += font->glyphWidth[index];    /* +0x24 */
             if (font->kerning != NULL)
                 total += font->kerning[index];   /* +0x28, signed */
@@ -457,7 +472,7 @@ float limeGetStringWidth(const FONT *font, const char *text)
     }
 
     /* converted once, at the end -- not per glyph */
-    return (float)total * (float)font->field14;
+    return (float)total * font->field14;   /* already a float; no cast */
 }
 
 

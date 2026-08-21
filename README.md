@@ -145,7 +145,7 @@ automated path from machine code to a differential test. That is real progress
 even though it renders no pixels.
 
 **The engine core is the fourth row, and it is done.** All 109 functions have a
-body; six of its nine files are also verified against the recompiled original.
+body; all nine of its files are also verified against the recompiled original.
 
 **Why the number is still not high.** The fight engine alone is 2,172 functions
 and has barely been started. Realistically this is a year or more of work.
@@ -163,7 +163,7 @@ which is a weaker claim and an honest one:
 | | |
 |---|---|
 | Behaviourally verified | `Matrix`, `limeVector`, the `RenderMesh` loader, the `RenderSkinned` maths, the `Events` pool, the `LIMEDS_Misc` conversions |
-| Cases compared | 102,973 synthetic, plus 590 files and 7,327 meshes of real game data |
+| Cases compared | 103,907 synthetic, plus 590 files and 7,327 meshes of real game data |
 | Divergences | **0** |
 | Written, compiled, not yet run against the oracle | the remainder |
 
@@ -184,29 +184,33 @@ test exposed.
 
 ## Current status
 
-| Module | Decompiled | Differential test |
+| Module | Body written | Differential test |
 |---|---|---|
 | `Matrix.cpp` (11 fn) | ✅ | **40,006 cases, 0 divergences** |
 | `limeVector.cpp` (2 fn) | ✅ | **20,013 cases, 0 divergences** |
+| `LIMEDS_Misc.cpp` (8 fn) | ✅ | **21,950 cases, 0 divergences** |
 | `RenderSkinned.cpp` (20 fn) | ✅ | **18,780 cases, 0 divergences** |
 | `Events.cpp` (22 fn) | ✅ | **2,224 cases, 0 divergences** |
+| `limeFont.cpp` (6 fn) | ✅ | **896 cases, 0 divergences** |
+| `RenderScene.cpp` (14 fn) | ✅ | **80 cases, 0 divergences** — helpers only, see below |
+| `DS_DebugWin.c` (7 fn) | ✅ | **58 cases, 0 divergences** |
 | `RenderMesh.cpp` (19 fn) | ✅ | **590 files, 7,327 meshes, 0 divergences** |
-| `LIMEDS_Misc.cpp` (8 fn) | ✅ | **21,950 cases, 0 divergences** |
-| `RenderScene.cpp` (14 fn) | ✅ | ⬜ no test yet |
-| `limeFont.cpp` (6 fn) | ✅ | ⬜ no test yet |
-| `DS_DebugWin.c` (7 fn) | ✅ | ⬜ no test yet |
 | `other.c` — `SwitchQueue` (1 of 333 fn) | ✅ | **500 pushes, 0 divergences** |
 
-**`lime/common` is 109 of 109.** Six of its nine files are also verified against
-the recompiled original, and the `RenderMesh` row is the whole file now rather
-than the loader alone — the render path went in once `tools/stubs.py` made the
-imports readable.
+**Every file in `lime/common` now has a differential test.** 84,000 synthetic
+cases plus 590 files and 7,327 meshes of real game data, zero divergences
+throughout.
 
-The four files without a test are not a smaller job than the ones with one. A
-differential test is a day spent deciding what could differ; the one for
-`Events.cpp` found a branch this project had read backwards, and the one for
-`RenderMesh.cpp` found three defects in the recompiler itself. **Writing the
-remaining four is worth more than the next module of decompilation.**
+One caveat stated rather than buried: `RenderScene.cpp`'s test covers its
+helpers — the transparent list, the palette lookup, the mesh search — and **not**
+the two scene renderers. Those walk a two-level animation table and issue GL
+calls whose enums are not all pinned down; their bodies are marked *structural*,
+and a test driving them would compare this project's reading against itself
+exactly where the reading is least certain.
+
+The percentage bar has not moved: the row these tests advance was already at
+100%. What moved is how much of it is *trusted*, which the bar does not measure
+and this table does.
 
 Detailed status, decisions and known technical debt: [docs/PROGRESS.md](docs/PROGRESS.md).
 
