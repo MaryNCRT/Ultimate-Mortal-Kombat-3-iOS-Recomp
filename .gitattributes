@@ -1,0 +1,4 @@
+# Shell scripts must keep LF even on Windows: a CRLF shebang makes Linux
+# fail with "bad interpreter: /bin/sh^M", and core.autocrlf=true would other-
+# wise rewrite them in the working copy on a Windows checkout.
+*.sh text eol=lf
