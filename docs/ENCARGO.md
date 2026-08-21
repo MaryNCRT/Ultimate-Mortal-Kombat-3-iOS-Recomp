@@ -116,14 +116,14 @@ Guessing one here corrupts every function that touches the struct.
 
 ## The job: finish `lime/common`
 
-**93 of 109 have a body (85%).** The remaining 16 are **not all equal work**,
+**95 of 109 have a body (87%).** The remaining 14 are **not all equal work**,
 and the split matters more than the number:
 
 | | count | what it means |
 |---|---:|---|
-| Body written | 93 | decompiled and verified against the gate |
-| **Documented, body pending** | **11** | read, analysed, findings recorded — only the transcription is missing |
-| Not yet read | 10 | nobody has opened these |
+| Body written | 95 | decompiled and verified against the gate |
+| **Documented, body deliberately not written** | **14** | read, analysed, findings recorded — only the transcription is missing |
+| Not yet read | **0** | every function has been examined |
 
 A documented declaration is deliberate, not a gap to be tidied. Each one carries
 what was established plus an explicit note on what was *not*, because writing a
@@ -147,35 +147,32 @@ limeFont.cpp       limeGetStringWidth
 limeFont.cpp       limeGetStringWidthUCNoHeader
 ```
 
-### Not yet read
+### Nothing is unread any more
 
-```
-Events.cpp         LIME_LoadMasterEventOffsets
-Events.cpp         LIME_RenderEvents
-Events.cpp         LIME_TriggerEvent
-Events.cpp         LIME_TriggerEventsFromSceneOffsetIfFollowing
-RenderMesh.cpp     LIME_RenderMeshSingle
-RenderScene.cpp    LIME_RenderScene
-RenderScene.cpp    LIME_RenderSceneOverrideTextures
-RenderSkinned.cpp  CreateMatrixPaletteForGeneratingMesh
-limeFont.cpp       limeDrawFONT
-limeFont.cpp       limeDrawFONTAtAngle
-```
+That list is empty. All 109 functions in `lime/common` have been examined; the
+14 without a body are documented declarations, each stating what was
+established and what was not.
 
-`limeDrawFONT` is the highest-value one left: it is the only function that reads
-the two font metric arrays [FONT-FORMAT.md](FONT-FORMAT.md) could not name.
+**So the remaining work here is not reading, it is confirming.** Every one of
+the 14 is blocked on the same kind of thing — a field layout, a literal in an
+unresolved pool, the ordering of a branch — and each names its own blocker in
+the comment above it. Pick one, resolve that single question, and the body
+follows in minutes.
 
-**A caveat on that classification script.** It matches mangled names by trimming
-the argument encoding, and it misfiles anything whose suffix it cannot strip —
-`CreateFadedRGBS` and `CreateMatrixPaletteForGeneratingMesh` both report as
-unread when the first is in fact documented. Regenerate the lists by reading
-`decomp/lime/*.c`, not by trusting the matcher. This is the same class of bug
-that once made three published percentages too low. This is the row that moves
-the overall bar, and it is the bottleneck for everything downstream — there is
-no engine for the platform layer to drive until it is finished.
+The ones most worth the trouble, and why:
 
-| File | Done | Left |
-|---|---|---:|
+| function | what is blocking it | why it matters |
+|---|---|---|
+| `ConvertQSTMatrixtoPCMatrix` | the scale and translation halves were not traced | `FlushTranspMeshList` calls it for every transparent mesh |
+| `limeGetStringWidth` | the glyph search, not the format around it | every menu layout depends on it |
+| `limeDrawFONT` | which of `+0x1c` / `+0x20` is offset and which is width | the same two fields `FONT-FORMAT.md` leaves numbered |
+| `LIME_RenderScene` | the node walk carries several independent flags | the largest function in the module |
+
+`limeDrawFONT` and `limeGetStringWidth` are the pair: settle the two metric
+arrays once and both bodies, plus the last open question in
+[FONT-FORMAT.md](FONT-FORMAT.md), close together.
+
+---|---|---:|
 | `Matrix.cpp` | 11/11 | — |
 | `limeVector.cpp` | 2/2 | — |
 | `RenderSkinned.cpp` | 18/20 | 2 |

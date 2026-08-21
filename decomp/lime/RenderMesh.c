@@ -894,3 +894,65 @@ void CreateFadedRGBS(uint8_t *dst, char *src, float level, long count,
  */
 void LIME_RenderMeshSingleIndexed(MESHINFO *mesh, TEXTURE *tex0, TEXTURE *tex1,
                                   float alpha, long flags);
+
+
+/* ------------------------------------------------------- LIME_RenderMeshSingle
+ *
+ * armv6 0x00080da4, 680 bytes.  **Structurally complete.**
+ *
+ * Draws one mesh with up to two textures. The last function in this file to be
+ * read, and the one that finally names a TEXTURE field.
+ *
+ * ## TEXTURE+0x40 is the GL handle
+ *
+ *      ldr r1, [r5, #0x40]
+ *      bl  _glBindTexture
+ *
+ * The value at `+0x40` of a TEXTURE goes straight into `glBindTexture` as the
+ * name. `LIME_RenderMeshSingleIndexed` does the same at the same offset, so two
+ * functions agree -- which is the standard a field identification has to meet
+ * here, and the first thing recovered about the inside of a TEXTURE. Everything
+ * else about that struct is still opaque, and `lime.h` keeps it that way.
+ *
+ * Both textures are also tested at `+0x50` before the draw, and the two tests
+ * gate different branches. `+0x50` is where MESHINFO caches its
+ * `IsTextureFullBright` answer, so the same offset holding a lighting flag on a
+ * texture is plausible -- and plausible is not established, so it is recorded
+ * by offset and not named.
+ *
+ * ## The mesh's scale is pushed and popped around the draw
+ *
+ *      vldr s15, [r4, #0x10]
+ *      bl   _glPushMatrix
+ *      bl   _glScalef
+ *      bl   _glDrawElements
+ *      bl   _glPopMatrix
+ *
+ * So a mesh carries its own scale at `+0x10` and it is applied for exactly the
+ * duration of its draw. Nothing downstream inherits it, and nothing upstream
+ * has to know about it.
+ *
+ * Note this calls **`glPushMatrix` directly, not `LIME_PushMatrix`**. The
+ * wrapper exists precisely so the platform layer has one place to intercept,
+ * and this function bypasses it. A port that hooks only the LIME_ wrappers will
+ * miss this push and pop, and the mismatch shows up as a matrix stack that
+ * drifts by one somewhere else entirely.
+ *
+ * `glDepthMask` is likewise called directly rather than through
+ * `limeEnableDepthWrites`. Two engines' worth of abstraction and the hot path
+ * goes round both.
+ *
+ * ## Texture units
+ *
+ * `glClientActiveTexture` and `glActiveTexture` appear in pairs, before the
+ * draw and again after, with the client array state enabled and disabled around
+ * them. The teardown is what leaves the units in a known state for the next
+ * draw -- the same discipline FlushTranspMeshList relies on.
+ *
+ * The body is not transcribed. Which branch each `+0x50` test selects, and how
+ * the two texture units divide the work, were not traced; writing the sequence
+ * out in order would imply an understanding of the branches that this pass does
+ * not have.
+ */
+void LIME_RenderMeshSingle(MESHINFO *mesh, TEXTURE *t0, TEXTURE *t1,
+                           float alpha, long flags);

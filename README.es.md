@@ -129,6 +129,26 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 
 **En torno al 32% del esfuerzo total estimado. Todavía no hay nada jugable.**
 
+### `lime/common` está examinado por completo
+
+Las 109 funciones han sido leídas y documentadas. **95 tienen cuerpo**; las otras
+**14 son declaraciones documentadas** — la función está descrita a partir de su
+desensamblado, con una nota explícita sobre qué no se pudo fijar y por qué no se
+inventó un cuerpo encima.
+
+Esa distinción es deliberada y no es una lista de pendientes. `LIME_UpdateEvents`
+tenía un cuerpo escrito desde una lectura equivocada pero confiada, y hizo falta
+un test diferencial para descubrir que una rama iba al revés. Una declaración que
+dice "esto se sabe, esto no" no le cuesta nada a quien lee; un cuerpo plausible
+sobre un layout sin confirmar cuesta una sesión deshacerlo.
+
+| | nº |
+|---|---:|
+| Con cuerpo escrito | 95 |
+| Documentada, cuerpo deliberadamente no escrito | 14 |
+| Sin examinar | **0** |
+
+
 ### Qué significa aquí "decompilado", con precisión
 
 Los porcentajes de arriba cuentan funciones **leídas, entendidas y escritas como
@@ -154,7 +174,7 @@ Ampliar esa cobertura es el trabajo de mayor valor que queda en el motor, y est�
 anotado en [ENCARGO.md](docs/ENCARGO.md).
 
 
-La barra se mueve por primera vez en un buen rato, y solo porque `lime/common` se movió: 93 funciones de 109 frente a 21 hace poco. El trabajo de formatos que vino antes —resolverlos, renderizarlos y animarlos— valió muchísimo y **no vale ni un punto porcentual**, porque esa fila ya estaba al 100%. Lo que cambió ahí es que ahora está *demostrada* en vez de afirmada.
+La barra se mueve por primera vez en un buen rato, y solo porque `lime/common` se movió: 95 funciones de 109 frente a 21 hace poco. El trabajo de formatos que vino antes —resolverlos, renderizarlos y animarlos— valió muchísimo y **no vale ni un punto porcentual**, porque esa fila ya estaba al 100%. Lo que cambió ahí es que ahora está *demostrada* en vez de afirmada.
 
 Ese número es una estimación, así que aquí está la aritmética que hay detrás en vez de una cifra que haya que creerse. Los pesos son nuestro criterio sobre cuánto representa cada área del total; discrepa del reparto si quieres, pero las cifras de avance están medidas.
 
@@ -163,7 +183,7 @@ Ese número es una estimación, así que aquí está la aritmética que hay detr
 | Análisis del binario y mapeo del árbol de fuentes | 4% | 100% | `██████████` |
 | Herramientas y oráculo de verificación | 8% | 100% | `██████████` |
 | Especificaciones de formatos de assets | 8% | 100% | `██████████` |
-| `lime/common` — núcleo del motor (109 fn) | 12% | 85% | `████████░░` |
+| `lime/common` — núcleo del motor (109 fn) | 12% | 87% | `████████░░` |
 | `gamecode` — lógica de juego (291 fn) | 18% | 0% | `░░░░░░░░░░` |
 | `gamecode/logic` — motor de combate (2.172 fn) | 28% | 4% | `░░░░░░░░░░` |
 | Capa de plataforma nativa de PC (161 fn por reescribir) | 17% | 10% | `█░░░░░░░░░` |
