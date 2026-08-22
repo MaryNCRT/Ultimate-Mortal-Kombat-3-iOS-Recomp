@@ -20,7 +20,6 @@
 #define FACE_SIZE      6
 #define VERT_A        26
 #define VERT_B        20
-#define POS_SCALE  32767.0f
 
 static const char TAIL_MARK[] =
     "//=====================================================\n"
@@ -84,6 +83,10 @@ static long parse_as(const uint8_t *data, long size, char variant,
             free_partial(meshes, i + 1); return -1;
         }
 
+        /* A zero would be a division by zero in the original too; fall back
+         * to leaving the int16 alone rather than producing infinities. */
+        float pos_div = (m->radius != 0.0f) ? m->radius : 1.0f;
+
         int32_t nverts = m->num_verts;
         if (indexed) {
             if (off + (long)m->num_faces * FACE_SIZE > size) {
@@ -111,9 +114,24 @@ static long parse_as(const uint8_t *data, long size, char variant,
         for (int32_t v = 0; v < nverts; v++) {
             const uint8_t *p = data + off;
             if (variant == 'A') {
-                m->verts[v].x = (float)rd_i16(p + 0) / POS_SCALE;
-                m->verts[v].y = (float)rd_i16(p + 2) / POS_SCALE;
-                m->verts[v].z = (float)rd_i16(p + 4) / POS_SCALE;
+                /* **The divisor is the mesh's own field, not a constant.**
+                 *
+                 * LIME_RenderMeshSingle draws these positions as raw GL_SHORT
+                 * under `glScalef(1/boundsRadius, ...)` -- `vmov s12, 1.0f`
+                 * then `vdiv.f32 s16, s12, s14` with s14 = MESHINFO+0x10. So
+                 * model space is int16/boundsRadius and 32767 never appears in
+                 * the draw path at all.
+                 *
+                 * This loader used to divide by a flat 32767, a figure fitted
+                 * to make the shipped data land in [-1,1] rather than read out
+                 * of the loader -- docs/MESHSET-FORMAT.md flagged it as unmeasured.
+                 * It is wrong per mesh and wrong RELATIVE to other meshes:
+                 * Graveyard's gravestones carry 316.2, its ground 23.1 and its
+                 * moon 16.4, so a flat divisor renders all three at the same
+                 * size and none at the right one. */
+                m->verts[v].x = (float)rd_i16(p + 0) / pos_div;
+                m->verts[v].y = (float)rd_i16(p + 2) / pos_div;
+                m->verts[v].z = (float)rd_i16(p + 4) / pos_div;
                 m->verts[v].u = rd_f32(p + 6);
                 m->verts[v].v = rd_f32(p + 10);
                 /* 12 further bytes the engine loads and never reads */

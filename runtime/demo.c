@@ -38,6 +38,7 @@
 #include "platform/platform.h"
 #include "platform/gl.h"
 #include "lime/meshset.h"
+#include "lime/scene.h"
 #include "lime/skin.h"
 #include "lime/light.h"
 #include "lime/pvr.h"
@@ -63,25 +64,55 @@
 typedef struct {
     LimeMeshSet ms;
     GLuint     *tex;
+    LimeScene   sc;             /* the scene graph: what goes where */
+    int         has_scene;
     int         loaded;
 } StageGeom;
 
 static StageGeom g_stage;
 
-/* **A chosen number, not a recovered one.**
+/* **This used to be 170.0f, a number picked by eye. It is now 1.0.**
  *
- * Stage geometry is normalised: GRAVEYARD_LEVEL spans x[-0.6 0.7] y[0 1].
- * The skinned character comes out in bone units and stands about 106 tall. The
- * engine bridges the two with `scene->scale`, which `LIME_RenderScene` hands
- * to glScalef -- and that field is loaded from a sibling header that
- * LIME_LoadScene's decompiled body summarises rather than transcribes. Only 74
- * of 547 scenes ship a `.offsets`, and Graveyard is not one of them, so there
- * is nothing to read.
+ * Two separate things were wrong, and each one alone looks like "the stage is\n* the wrong size":
  *
- * So this is a number picked to make the arena look right next to a fighter,
- * and it is a placeholder for a field that exists and has not been recovered.
- * `--stage-scale N` overrides it. */
-static float g_stage_scale = 170.0f;
+ *   1. The `.meshset` loader divided vertex positions by a flat 32767, a
+ *      figure fitted to land the shipped data in [-1,1]. The original divides
+ *      by the mesh's OWN `boundsRadius` -- Graveyard carries 316.2 on its
+ *      gravestones, 23.1 on its ground and 16.4 on its moon -- so a flat
+ *      divisor renders every object at the same size and none at the right
+ *      one. Fixed in runtime/lime/meshset.c.
+ *
+ *   2. Nothing placed the objects. A stage `.meshset` holds its pieces in
+ *      LOCAL space and the `.scene` positions them; this demo drew all 58 at
+ *      the origin. Fixed by walking the scene graph below.
+ *
+ * With both corrected the units come out right on their own: a gravestone is
+ * 74 wide and 104 tall, the ground plane is 2,839 across and flat, and the
+ * fighter is 106 tall. `scene->scale` -- the field LIME_RenderScene hands to
+ * glScalef -- is 1.0 for Graveyard, which is what LIME_LoadScene stores at
+ * SCENEINFO+0x60 (`mov.w r3, #0x3f800000`) when no `.offsets` overrides it.
+ *
+ * `--stage-scale N` still overrides, for inspection. */
+static float g_stage_scale = 1.0f;
+
+/* Which frame of the scene's visibility stream to show. Graveyard carries
+ * 1,001 of them; a stage is static and frame 0 is the arena. */
+static int g_stage_frame = 0;
+
+/* The reference is a side-on view -- the camera the game itself uses. The
+ * orbit is an inspection aid, not the shot. */
+static int g_orbit = 0;
+
+/* --list: report what every scene node resolved to. */
+static int g_list = 0;
+
+/* How far the stage actually reaches, in world units, measured at load.
+ *
+ * The far plane used to be derived from the CHARACTER's size (radius * 60,
+ * about 6,400 units). Graveyard's moon sits at z = -27,483 and its sky plane
+ * at -28,629, so both fell outside the frustum and simply were not there. A
+ * stage decides how far the camera must see, not the fighter standing in it. */
+static float g_stage_reach = 0.0f;
 
 static LimeSkeleton g_sk;
 static LimeSkin     g_skin;
@@ -122,6 +153,22 @@ static GLuint upload(const char *res_dir, const char *tex_name)
 
 /* ------------------------------------------------------------- the stage */
 
+/* Stands in for LIME_FindMeshByName, which the scene loader calls with each
+ * object's name to bind a graph node to geometry. The original returns -1 on a
+ * miss and the caller narrows it to a byte, so 0xFF is "no mesh". */
+static int stage_find_mesh(const char *name, void *user)
+{
+    LimeMeshSet *ms = (LimeMeshSet *)user;
+    int i;
+
+    for (i = 0; i < ms->num_meshes; i++)
+        if (strcmp(ms->meshes[i].name, name) == 0)
+            return i;
+    return -1;
+}
+
+static int is_event_marker(const char *n);
+
 static int stage_load(const char *res_dir, const char *name)
 {
     char path[1024];
@@ -138,14 +185,162 @@ static int stage_load(const char *res_dir, const char *name)
     for (i = 0; i < g_stage.ms.num_meshes; i++)
         g_stage.tex[i] = upload(res_dir, g_stage.ms.meshes[i].texture);
 
+    /* The scene graph. Without it every mesh sits at the origin, which is what
+     * this demo did before and it looks exactly like a broken stage. */
+    snprintf(path, sizeof(path), "%s/%s.scene", res_dir, name);
+    g_stage.has_scene = lime_scene_load(path, &g_stage.sc,
+                                        stage_find_mesh, &g_stage.ms);
+
+    /* Measure the placed geometry: the far plane depends on it. */
+    if (g_stage.has_scene) {
+        int32_t n, v;
+        for (n = 0; n < g_stage.sc.num_nodes; n++) {
+            const LimeSceneKey *k = lime_scene_key(&g_stage.sc, (int)n, g_stage_frame);
+            const LimeMesh *m;
+            float mat[16];
+            if (!k || k->mesh_index == 0xFF ||
+                k->mesh_index >= g_stage.ms.num_meshes) continue;
+            if (k->palette_index >= g_stage.sc.palette_size) continue;
+            m = &g_stage.ms.meshes[k->mesh_index];
+            if (m->vert_count <= 0 || is_event_marker(m->name)) continue;
+            lime_qst_matrix(&g_stage.sc.palette[k->palette_index], mat);
+            for (v = 0; v < m->vert_count; v++) {
+                const float *sv = &m->verts[v].x;
+                int a;
+                for (a = 0; a < 3; a++) {
+                    float w = mat[a] * sv[0] + mat[4 + a] * sv[1] +
+                              mat[8 + a] * sv[2] + mat[12 + a];
+                    if (w < 0.0f) w = -w;
+                    if (w > g_stage_reach) g_stage_reach = w;
+                }
+            }
+        }
+        printf("  stage reach: %.0f world units\n", g_stage_reach);
+    }
+
+    if (g_list) {
+        int32_t n;
+        printf("  node                 mesh             texture                   tex alpha\n");
+        for (n = 0; n < g_stage.sc.num_nodes; n++) {
+            const LimeSceneKey *k = lime_scene_key(&g_stage.sc, (int)n, g_stage_frame);
+            const LimeMesh *m;
+            if (!k || k->mesh_index == 0xFF) {
+                printf("  %-20s (hidden)\n", g_stage.sc.nodes[n].name);
+                continue;
+            }
+            m = &g_stage.ms.meshes[k->mesh_index];
+            printf("  %-20s %-16s %-24s %3u %.2f%s\n",
+                   g_stage.sc.nodes[n].name, m->name, m->texture,
+                   (unsigned)g_stage.tex[k->mesh_index], k->alpha,
+                   g_stage.tex[k->mesh_index] ? "" : "   <-- NO TEXTURE");
+        }
+    }
+
     g_stage.loaded = 1;
-    printf("  stage: %s, %d meshes\n", name, g_stage.ms.num_meshes);
+    printf("  stage: %s, %d meshes", name, g_stage.ms.num_meshes);
+    if (g_stage.has_scene)
+        printf(", %d scene nodes, %d palette matrices, scale %.3f\n",
+               g_stage.sc.num_nodes, g_stage.sc.palette_size, g_stage.sc.scale);
+    else
+        printf(" -- NO .scene, drawing unplaced\n");
     return 1;
 }
 
-static void stage_draw(void)
+/* One mesh, with the client state and the matrix already set up. */
+static void stage_draw_mesh(const LimeMesh *m)
 {
-    int32_t i;
+    glVertexPointer(3, GL_FLOAT, sizeof(LimeVertex), &m->verts[0].x);
+    glTexCoordPointer(2, GL_FLOAT, sizeof(LimeVertex), &m->verts[0].u);
+
+    if (m->indices)
+        glDrawElements(GL_TRIANGLES, m->num_faces * 3,
+                       GL_UNSIGNED_SHORT, m->indices);
+    else
+        glDrawArrays(GL_TRIANGLES, 0, m->vert_count);
+}
+
+/* True for the markers LIME_RenderScene branches past. These are spawn points
+ * for effects, not geometry; drawing them fills the screen with white
+ * NOTEXTURE polygons. The engine tests the MESH's name, five letters, and
+ * Graveyard ships several. */
+static int is_event_marker(const char *n)
+{
+    return n[0] == 'E' && n[1] == 'V' && n[2] == 'E' && n[3] == 'N' && n[4] == 'T';
+}
+
+/*
+ * **The engine picks its blend mode from the mesh's NAME.**
+ *
+ * LIME_RenderScene tests the first letters of the mesh name and branches to a
+ * different GL state for each, at 0x0005fa0e onward:
+ *
+ *      name[0..4] == "ALPHA"   0x5fc08: cmp 0x50 'P', 0x48 'H', 0x41 'A'
+ *          _limeEnableAlphaBlending_Basic
+ *          _limeDisableDepthWrites
+ *
+ *      name[0..3] == "ATST"    0x5fc4a: cmp 0x54 'T', 0x53 'S', 0x54 'T'
+ *          _limeDisableAlphaBlending
+ *          glAlphaFunc(0x204, 0x3f666666)   -- GL_GREATER, 0.9f
+ *          glEnable(0xbc0)                  -- GL_ALPHA_TEST
+ *
+ *      name[0..4] == "EVENT"   not drawn at all
+ *
+ * That single glAlphaFunc call is the ONLY one in the armv7 slice -- found by
+ * decoding every Thumb BL and BLX in the binary and checking the target
+ * against the import stub, which turned up exactly one caller.
+ *
+ * `ATST` is `A`lpha `T`e`ST`, and it is not a curiosity: Graveyard's cutout
+ * foliage is named ATST_tree003..009 and ATST_Grass..003, and their textures
+ * are 62% and 71% transparent. Without the rule those two draw opaque and put
+ * white cards across the middle of the stage -- which is exactly what they did
+ * before this was found.
+ */
+static int is_atst(const char *n)
+{
+    return n[0] == 'A' && n[1] == 'T' && n[2] == 'S' && n[3] == 'T';
+}
+
+static int is_alpha_material(const char *n)
+{
+    return n[0] == 'A' && n[1] == 'L' && n[2] == 'P' && n[3] == 'H' &&
+           n[4] == 'A';
+}
+
+static void stage_bind(int idx, float alpha)
+{
+    if (g_stage.tex[idx]) {
+        glEnable(GL_TEXTURE_2D);
+        glBindTexture(GL_TEXTURE_2D, g_stage.tex[idx]);
+        glColor4f(1.0f, 1.0f, 1.0f, alpha);
+    } else {
+        /* **220 of the 1,620 textures are PNG, and the loader only reads
+         * PVRTC.** The big stage atlases are the PNG ones -- Graveyard's is
+         * GRAVEYARD_COMPLETEMAP.PNG, 1024x1024 RGBA. Until there is a PNG path
+         * these meshes have no texture, and leaving them at GL's default white
+         * makes them the brightest thing on screen. Dark grey says "missing"
+         * instead of shouting it. */
+        glDisable(GL_TEXTURE_2D);
+        glColor4f(0.16f, 0.16f, 0.18f, alpha);
+    }
+}
+
+/*
+ * The scene walk, following LIME_RenderScene's own order:
+ *
+ *      glScalef(scene->scale, ...)              -- SCENEINFO+0x60
+ *      for each node:
+ *          key = keys[ stream[frame] ]          -- 0xFFFF means hidden
+ *          skip meshes named EVENT*
+ *          alpha == 1.0 -> blending off, depth writes on
+ *          ConvertQSTMatrixtoPCMatrix(palette[key->paletteIndex]) ; glMultMatrixf
+ *          LIME_RenderMesh
+ *
+ * The palette index comes from the KEY (`ldrh r0, [r5, #6]`), not from the
+ * frame -- see docs/RENDERSCENE-SIGNATURE.md.
+ */
+static void stage_draw(int frame)
+{
+    int32_t n;
 
     if (!g_stage.loaded) return;
 
@@ -155,58 +350,79 @@ static void stage_draw(void)
     glPushMatrix();
     glScalef(g_stage_scale, g_stage_scale, g_stage_scale);
 
-    /* The sky and moon planes carry alpha in their textures -- Graveyard names
-     * them Alpha_Moon and Alpha_Moon001 -- and drawing them opaque puts a white
-     * card behind the whole stage.
-     *
-     * SRC_ALPHA / ONE_MINUS_SRC_ALPHA is not a guess: it is what
-     * limeEnableAlphaBlending_Basic was MEASURED to do, by driving the
-     * recompiled original and recording the GL call stream. See
-     * docs/RENDERSCENE-SIGNATURE.md. The additive path uses SRC_ALPHA / ONE and
-     * is a different thing. */
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-    for (i = 0; i < g_stage.ms.num_meshes; i++) {
-        const LimeMesh *m = &g_stage.ms.meshes[i];
-        if (m->vert_count <= 0) continue;
-
-        /* **The engine's own rule, and it is not cosmetic.** LIME_RenderScene
-         * tests the first five letters of the MESH's name and branches past
-         * the whole draw on EVENT -- see decomp/lime/RenderScene.c, verified
-         * against the original over 29 cases. These are spawn points for
-         * effects, not geometry, and drawing them fills the screen with white
-         * NOTEXTURE polygons. Graveyard ships several. */
-        if (m->name[0] == 'E' && m->name[1] == 'V' && m->name[2] == 'E' &&
-            m->name[3] == 'N' && m->name[4] == 'T')
-            continue;
-
-        if (g_stage.tex[i]) {
-            glEnable(GL_TEXTURE_2D);
-            glBindTexture(GL_TEXTURE_2D, g_stage.tex[i]);
-            glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-        } else {
-            /* **220 of the 1,620 textures are PNG, and the loader only reads
-             * PVRTC.** The big stage atlases are the PNG ones -- Graveyard's
-             * is GRAVEYARD_COMPLETEMAP.PNG, 1024x1024 RGBA. Until there is a
-             * PNG path these meshes have no texture, and leaving them at GL's
-             * default white makes them the brightest thing on screen. Dark
-             * grey says "missing" instead of shouting it. */
-            glDisable(GL_TEXTURE_2D);
-            glColor4f(0.16f, 0.16f, 0.18f, 1.0f);
+    if (!g_stage.has_scene) {
+        /* No scene graph: everything at the origin. Wrong, and visibly so, but
+         * better than drawing nothing. */
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        for (n = 0; n < g_stage.ms.num_meshes; n++) {
+            const LimeMesh *m = &g_stage.ms.meshes[n];
+            if (m->vert_count <= 0 || is_event_marker(m->name)) continue;
+            stage_bind((int)n, 1.0f);
+            stage_draw_mesh(m);
         }
+        glDisable(GL_BLEND);
+    } else {
+        glScalef(g_stage.sc.scale, g_stage.sc.scale, g_stage.sc.scale);
 
-        glVertexPointer(3, GL_FLOAT, sizeof(LimeVertex), &m->verts[0].x);
-        glTexCoordPointer(2, GL_FLOAT, sizeof(LimeVertex), &m->verts[0].u);
+        for (n = 0; n < g_stage.sc.num_nodes; n++) {
+            const LimeSceneKey *key = lime_scene_key(&g_stage.sc, (int)n, frame);
+            const LimeMesh *m;
+            float mat[16];
+            int idx;
 
-        if (m->indices)
-            glDrawElements(GL_TRIANGLES, m->num_faces * 3,
-                           GL_UNSIGNED_SHORT, m->indices);
-        else
-            glDrawArrays(GL_TRIANGLES, 0, m->vert_count);
+            if (!key) continue;                     /* hidden on this frame */
+
+            idx = (int)key->mesh_index;
+            if (idx == 0xFF || idx >= g_stage.ms.num_meshes) continue;
+            if (key->palette_index >= g_stage.sc.palette_size) continue;
+
+            m = &g_stage.ms.meshes[idx];
+            if (m->vert_count <= 0 || is_event_marker(m->name)) continue;
+
+            /* The engine's rule, and the threshold differs between its two
+             * renderers: the opaque one tests 1.0, LIME_RenderScene tests 0.97.
+             * An opaque node turns blending off and depth writes on and then
+             * draws anyway -- it does not skip. */
+            /* The name rule first -- it is the material -- then the key's
+             * own alpha. SRC_ALPHA / ONE_MINUS_SRC_ALPHA is not a guess: it is
+             * what limeEnableAlphaBlending_Basic was MEASURED to do, by
+             * driving the recompiled original and recording the GL call
+             * stream. See docs/RENDERSCENE-SIGNATURE.md. */
+            if (is_alpha_material(m->name)) {
+                glDisable(GL_ALPHA_TEST);
+                glEnable(GL_BLEND);
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                glDepthMask(GL_FALSE);
+            } else if (is_atst(m->name)) {
+                glDisable(GL_BLEND);
+                glAlphaFunc(GL_GREATER, 0.9f);
+                glEnable(GL_ALPHA_TEST);
+                glDepthMask(GL_TRUE);
+            } else if (key->alpha >= 1.0f) {
+                glDisable(GL_ALPHA_TEST);
+                glDisable(GL_BLEND);
+                glDepthMask(GL_TRUE);
+            } else {
+                glDisable(GL_ALPHA_TEST);
+                glEnable(GL_BLEND);
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                glDepthMask(GL_FALSE);
+            }
+
+            stage_bind(idx, key->alpha);
+
+            glPushMatrix();
+            lime_qst_matrix(&g_stage.sc.palette[key->palette_index], mat);
+            glMultMatrixf(mat);
+            stage_draw_mesh(m);
+            glPopMatrix();
+        }
+        glDepthMask(GL_TRUE);
+        glDisable(GL_BLEND);
+        glDisable(GL_ALPHA_TEST);
     }
 
-    glDisable(GL_BLEND);
     glPopMatrix();
     glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
 
@@ -395,6 +611,10 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--at") && i + 1 < argc) shot_at = atof(argv[++i]);
         else if (!strcmp(argv[i], "--stage-scale") && i + 1 < argc)
             g_stage_scale = (float)atof(argv[++i]);
+        else if (!strcmp(argv[i], "--scene-frame") && i + 1 < argc)
+            g_stage_frame = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--orbit")) g_orbit = 1;
+        else if (!strcmp(argv[i], "--list")) g_list = 1;
         else if (argv[i][0] != '-') {
             if (!res)      res = argv[i];
             else if (npos == 0) { chr = argv[i]; npos = 1; }
@@ -487,17 +707,24 @@ int main(int argc, char **argv)
         character_build();
 
         glMatrixMode(GL_PROJECTION);
-        perspective(45.0f, (float)w / (float)h, radius * 0.05f, radius * 60.0f);
+        {
+            /* Near is set off the fighter, far off the stage. Graveyard needs
+             * 30,000 units of depth for its sky and about 5 for the near
+             * plane, and one number cannot serve both. */
+            float zfar = radius * 60.0f;
+            if (g_stage_reach * 1.2f > zfar) zfar = g_stage_reach * 1.2f;
+            perspective(45.0f, (float)w / (float)h, radius * 0.2f, zfar);
+        }
 
         glMatrixMode(GL_MODELVIEW);
         glLoadIdentity();
-        ang = (float)(now * 12.0);
+        ang = g_orbit ? (float)(now * 12.0) : 0.0f;
         glTranslatef(0.0f, -radius * 0.30f, -radius * 3.6f);
         glRotatef(6.0f, 1.0f, 0.0f, 0.0f);
         glRotatef(ang, 0.0f, 1.0f, 0.0f);
         glTranslatef(-centre[0], -centre[1], -centre[2]);
 
-        stage_draw();
+        stage_draw(g_stage_frame);
         character_draw(1, lo[1]);       /* the dressing shadow, see the header */
         character_draw(0, 0.0f);
 
@@ -515,6 +742,7 @@ int main(int argc, char **argv)
     lime_bones_free(&g_sk);
     lime_skin_free(&g_skin);
     lime_anim_free(&g_anim);
+    if (g_stage.has_scene) lime_scene_free(&g_stage.sc);
     if (g_stage.loaded) lime_meshset_free(&g_stage.ms);
     free(g_pos); free(g_lit); free(g_vb); free(g_tb); free(g_cb);
     return 0;

@@ -2,10 +2,32 @@
 
 Current state of the project. Written so that someone can pick it up with no prior context.
 
-**Last updated:** 2026-08-21 — see [HANDOFF.md](HANDOFF.md) for the route and
+**Last updated:** 2026-08-22 — see [HANDOFF.md](HANDOFF.md) for the route and
 [ENCARGO.md](ENCARGO.md) for the next task.
 
-> Latest: **`lime/common` is 109 of 109** — every function in the engine core has
+> Latest: **a stage renders.** The demo draws Graveyard with its geometry in the
+> right place and at the right size, with an animated Sub-Zero standing on it.
+> Getting there closed three open questions and corrected one documented figure:
+>
+> - **The `.scene` tail records are the placement.** 40 bytes on disk mapping to
+>   the 32-byte `QSTMATRIX` the engine calls `SceneMtxPalette`: four floats
+>   scaled by `32767.0` into an `int16` quaternion, then `scale[3]` and
+>   `translation[3]` copied verbatim. [SCENE-FORMAT.md](SCENE-FORMAT.md) had
+>   recorded these as *"their meaning is not yet established"*.
+> - **The `.meshset` `/ 32767` divisor was wrong.** It was fitted to the shipped
+>   data, and the real one is the mesh's own `boundsRadius` — 316.2 on
+>   Graveyard's gravestones, 23.1 on its ground, 16.4 on its moon. One constant
+>   for all three renders them the same size and none correctly. The document
+>   had flagged the figure as unmeasured; it was right to.
+> - **The engine picks its blend mode from the mesh's NAME.** `ALPHA*` blends
+>   with depth writes off, `ATST*` (Alpha TeST) uses `glAlphaFunc(GL_GREATER,
+>   0.9)`, `EVENT*` is not drawn. That `glAlphaFunc` is the only call to it in
+>   the armv7 slice, found by decoding every Thumb BL and BLX in the binary.
+> - **`_SceneRenderAlwaysTrans`** is the global gating `LIME_RenderScene`'s
+>   opaque branch — the one [RenderScene.c](../decomp/lime/RenderScene.c) asked
+>   somebody to go and find.
+>
+> Previously: **`lime/common` is 109 of 109** — every function in the engine core has
 > a body, the module compiles clean with `-Wall -Wextra`, and **every one of its nine
 > files is verified** against the recompiled original. 103,907 synthetic cases
 > plus 590 files and 7,327 meshes of real game data, zero divergences.
