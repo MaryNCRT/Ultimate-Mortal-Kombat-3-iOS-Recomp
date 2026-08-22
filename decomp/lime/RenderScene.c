@@ -716,11 +716,48 @@ void LIME_RenderScene(long arg1, SCENEINFO *scene,
              * being drawn later by FlushTranspMeshList, not drawn here.
              *
              * So the opaque branch is gated by something none of these inputs
-             * satisfies -- a global at `0x00111dc4 + pc` is tested just inside
-             * it. Transcribing a draw that was never observed to happen is the
-             * exact failure this file already made once, so it is described
-             * here instead of written. Whoever needs opaque scene geometry
-             * should start by finding what sets that global.
+             * satisfies. **The global now has a name: `_SceneRenderAlwaysTrans`,
+             * at 0x00171760.**
+             *
+             *      0x5f994  ldr.w r3, [pc, #0x18c]      ; 0x00111dc4 + pc
+             *      0x5f998  add   r3, pc                ; _SceneRenderAlwaysTrans
+             *      0x5f99a  ldr   r3, [r3]
+             *      0x5f99c  cmp   r3, #0
+             *      0x5f99e  bne.w #0x5fc02               ; -> the transparent list
+             *
+             * Zero falls through into the opaque draw. Transcribing a draw that
+             * was never observed to happen is the exact failure this file made
+             * once, so the branch is still described rather than written -- but
+             * what it CONTAINS is now established, because a stage cannot be
+             * rendered without it:
+             *
+             * ## The material rules are a naming convention
+             *
+             * Just past `glMultMatrixf`, the original tests the leading letters
+             * of the MESH's name and picks a different GL state for each
+             * (0x0005fa0e onward):
+             *
+             *      "ALPHA"   0x5fc08, cmp 0x50 'P', 0x48 'H', 0x41 'A'
+             *          _limeEnableAlphaBlending_Basic
+             *          _limeDisableDepthWrites
+             *
+             *      "ATST"    0x5fc4a, cmp 0x54 'T', 0x53 'S', 0x54 'T'
+             *          _limeDisableAlphaBlending
+             *          glAlphaFunc(0x204, 0x3f666666)   ; GL_GREATER, 0.9f
+             *          glEnable(0xbc0)                  ; GL_ALPHA_TEST
+             *
+             *      "EVENT"   not drawn at all
+             *
+             * `ATST` is `A`lpha `T`e`ST`. That glAlphaFunc is the ONLY call to
+             * it in the armv7 slice -- established by decoding every Thumb BL
+             * and BLX in the binary and matching the target against the import
+             * stub, which turned up exactly one caller, here.
+             *
+             * It is not a curiosity. Graveyard's cutout foliage is named
+             * ATST_tree003..009 and ATST_Grass..003, and their textures are 62%
+             * and 71% transparent; without the rule they draw opaque and put
+             * white cards across the middle of the stage. runtime/demo.c
+             * applies both rules and says so.
              *
              * The threshold itself IS established, by bisection rather than by
              * reading the literal: 0.9700 behaves as opaque and 0.9699 does

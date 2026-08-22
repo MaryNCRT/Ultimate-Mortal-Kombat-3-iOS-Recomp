@@ -84,6 +84,26 @@ if [ -n "$OTHER" ]; then
     printf '  %-18s %d errors\n' "$OTHER" "$((errors - oe))"
 fi
 
+# ---------------------------------------------------------------- stray bytes
+#
+# Not a compiler check -- a source-hygiene one, and it has caught real damage.
+# Writing a file through an UNQUOTED shell heredoc makes the shell interpret
+# backslash escapes, so a comment that MENTIONS an escape sequence lands in the
+# file as the literal control byte instead. decomp/lime/RenderMesh.c carried a
+# NUL inside a comment for a long time: the compiler is perfectly happy with it
+# and grep just reports the file as binary, so nothing complained.
+#
+# Write source with a QUOTED heredoc or an editor tool, never an unquoted one.
+echo
+echo "=== stray control bytes ==="
+stray=0
+for f in $(LC_ALL=C grep -rlaP '[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]' --include='*.c' --include='*.h' --include='*.py' --include='*.sh' decomp runtime tools tests 2>/dev/null); do
+    printf '  %s has control bytes\n' "$f"
+    stray=$((stray + 1))
+    errors=$((errors + 1))
+done
+[ "$stray" = "0" ] && echo "  none"
+
 echo
 rm -f "$OBJ"
 echo "TOTAL: $errors errors, $warnings warnings"

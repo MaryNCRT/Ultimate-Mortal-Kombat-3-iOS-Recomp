@@ -189,21 +189,40 @@ These accompany `.meshset`. All but one are now solved:
 
 Geometry, skinning, skeleton and animation are all readable against the shipped
 data, so there is enough here to draw an animated character. `.scene` — how a
-stage is assembled from its pieces — is the last one standing.
+stage is assembled from its pieces — is solved too, including the placement
+records: see [SCENE-FORMAT.md](SCENE-FORMAT.md).
 
 ---
 
-## A note on the `/ 32767` scale
+## The `/ 32767` scale was wrong — it is `boundsRadius`
 
-That divisor was derived by **fitting the shipped data** — it validates against
-604 of 605 files — rather than by reading the constant out of the loader.
+This section used to warn that the divisor had been derived by **fitting the
+shipped data** rather than read out of the loader, and that it had not been
+re-measured. It has been measured now, and it was wrong.
 
-It is worth saying because a sibling constant turned out to differ. The QST
-quaternion scale was documented as `1/32767` for a long time on the same kind of
-reasoning, and the literal in the binary is actually
-`3.0518509447574615e-05`, whose reciprocal is `32767.000030516647`. A
-differential test at bit precision found it; by eye the two are the same number.
+There is no 32767 in the draw path at all. `LIME_RenderMeshSingle` hands the
+`int16` positions to GL untouched and divides with a `glScalef` built from the
+mesh's OWN header field:
 
-**It is not the same constant and this one has not been re-measured.** Anyone
-working on this path should read the literal the `.meshset` loader uses rather
-than inherit the figure from here.
+```
+glVertexPointer(3, GL_SHORT, 16, mesh->verts)
+vmov     s12, 1.0f
+vdiv.f32 s16, s12, s14        ; s14 = MESHINFO+0x10, boundsRadius
+glScalef(s16, s16, s16)
+```
+
+So model space is `int16 / boundsRadius`, per mesh.
+
+**A flat divisor is not merely imprecise, it is wrong RELATIVE to other meshes.**
+Graveyard carries `316.2` on its gravestones, `23.1` on its ground and `16.4` on
+its moon. Dividing all three by one constant renders them all at the same size
+and none at the right one; the stage comes out as a pile of unit-sized objects
+scattered across thousands of units of empty space. With the real divisor a
+gravestone is 74 wide and 104 tall, the ground plane is 2,839 across and flat,
+and the fighter standing on it is 106 — which is what the shipped game looks
+like.
+
+The warning was the right instinct and the fitted figure survived a long time
+because it produced tidy `[-1,1]` numbers. Tidy is not the same as correct.
+
+`runtime/lime/meshset.c` divides by `boundsRadius`.

@@ -38,6 +38,10 @@ This project is an attempt to bring it back properly, as **native PC software** 
 
 <sub>Six of the roster in their fighting stances, and the Graveyard stage — drawn by [`tools/pose.py`](tools/pose.py) and [`tools/meshview.py`](tools/meshview.py). Bone tree, pose, skin weights, topology, UVs, PVRTC texture decoding and the projection matrix all come from this project's own parsers and decompiled code. No emulator, no engine binary. [How it works](docs/MESH-VIEWER.md).</sub>
 
+<img src="docs/img/demo-graveyard.png" alt="The native demo rendering the Graveyard stage with an animated Sub-Zero" width="860">
+
+<sub>**The native demo** — [`runtime/demo.c`](runtime/demo.c), a real OpenGL window driven by this project's C, with no Python and no emulator anywhere in the picture. Sub-Zero is skinned and animated from `.bones`, `.skin` and `.skinanim`; the stage is assembled by walking the `.scene` graph and placing each object with the matrix palette the file carries, sized by its own `boundsRadius`. Each mesh's blend mode comes from its **name** — `ATST_*` means alpha test, which is what the engine itself does. See [Scene format](docs/SCENE-FORMAT.md).</sub>
+
 </div>
 
 The long-term goals, in order:

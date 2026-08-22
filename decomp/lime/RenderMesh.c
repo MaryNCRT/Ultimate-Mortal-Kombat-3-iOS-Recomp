@@ -454,10 +454,8 @@ int IsTextureFullBrightPath(const char *path)
  *
  * Copies one line out of a text buffer and returns the cursor past it.
  *
- * The terminator set is worth noting: it stops on ` ` **and** on `
-`
- * (0x0d), and treats `
-` (0x0a) as the line break. So it handles CRLF by
+ * The terminator set is worth noting: it stops on `\0` **and** on `\r`
+ * (0x0d), and treats `\n` (0x0a) as the line break. So it handles CRLF by
  * ending the line at the CR and stepping over the LF -- again, the shape of
  * code written against Windows-authored text files.
  */
