@@ -124,7 +124,7 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ## Progreso general
 
 ```
-███████████████░░░░░░░░░░░░░░░░░░░░░░░░░  35%
+██████████████░░░░░░░░░░░░░░░░░░░░░░░░░░  35,04%
 ```
 
 | Área | Peso | Hecho | |
@@ -133,12 +133,25 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 | Herramientas y el oráculo de verificación | 8% | 100% | `██████████` |
 | Especificaciones de los formatos de assets | 8% | 100% | `██████████` |
 | `lime/common` — núcleo del motor (109 fn) | 12% | **100%** | `██████████` |
-| `gamecode` — lógica de juego (291 fn) | 18% | 0% | `░░░░░░░░░░` |
-| `gamecode/logic` — motor de combate (2.172 fn) | 28% | 4% | `░░░░░░░░░░` |
+| `gamecode` — lógica de juego (291 fn) | 18% | 7,22% (21) | `█░░░░░░░░░` |
+| `gamecode/logic` — motor de combate (2.172 fn) | 28% | 0,14% (3) | `░░░░░░░░░░` |
 | Capa de plataforma PC nativa (161 fn a reescribir) | 17% | 10% | `█░░░░░░░░░` |
 | Stubs del EA SDK (~1.412 fn) | 5% | 0% | `░░░░░░░░░░` |
 
-**En torno al 35% del esfuerzo total estimado. Todavía no hay nada jugable.**
+**35,04% del esfuerzo total estimado. Todavía no hay nada jugable.**
+
+**Las tres filas del medio se cuentan; el resto son estimaciones.**
+`tools/progress.py` lee el árbol en cada ejecución para `lime/common`,
+`gamecode` y `gamecode/logic`; las otras cinco son juicios que mantiene una
+persona.
+
+Esas tres también estaban escritas a mano en el script, y se notó: `gamecode`
+figuraba en 0% y `gamecode/logic` en 4% mucho después de que ambos tuvieran
+cuerpos verificados en el repo. El global que producía era 34,82% frente a un
+35,04% real — **acertado por casualidad**, porque un número estaba siete puntos
+bajo y el otro cuatro alto, y los pesos casi los cancelaban. Un contador de
+progreso que hay que editar a mano para reflejar el progreso va a estar mal; que
+estuviera mal en una dirección favorecedora es lo que lo mantuvo con vida.
 
 **Por qué las áreas de base cuentan.** Las tres primeras filas están terminadas y
 son lo que hace tratable el resto: el árbol de fuentes está recuperado, todos los
