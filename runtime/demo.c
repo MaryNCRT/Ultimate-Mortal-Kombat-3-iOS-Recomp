@@ -567,6 +567,10 @@ static void stage_draw(int frame)
  * There is no glFog anywhere in the armv7 slice -- the binary imports no fog
  * entry point at all -- and _SceneTint is (1,1,1). This is the atmosphere.
  */
+/* How far above the floor the flattened shadow sits. Enough to clear the
+ * ground plane's depth, small enough not to read as floating. */
+#define SHADOW_LIFT 0.5f
+
 #define MAX_MIST 32
 
 typedef struct {
@@ -773,8 +777,20 @@ static void character_draw(int as_shadow, float ground_y)
         glDepthMask(GL_FALSE);
         glColor4f(0.0f, 0.0f, 0.0f, 0.45f);
 
+        /* **It has to land ABOVE the floor, not on the fighter's feet.**
+         *
+         * This used to be handed lo[1] -- the lowest vertex of the skinned
+         * character, which is -3.9 -- and Graveyard's cobbles are a plane at
+         * exactly y = 0.0. So the shadow was flattened 3.9 units UNDER the
+         * ground and the depth test threw every pixel of it away: the code ran
+         * every frame and drew nothing at all.
+         *
+         * A shadow on a floor is a coplanar surface, so it needs to be lifted
+         * clear of it by something. A small constant is enough here because the
+         * floor is flat and axis-aligned; a stage with sloped ground would want
+         * glPolygonOffset instead. */
         glPushMatrix();
-        glTranslatef(0.0f, ground_y, 0.0f);
+        glTranslatef(0.0f, ground_y + SHADOW_LIFT, 0.0f);
         glScalef(1.0f, 0.0f, 1.0f);         /* flatten */
         glVertexPointer(3, GL_FLOAT, 0, g_vb);
         glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(g_tri_count * 3));
@@ -1036,7 +1052,7 @@ int main(int argc, char **argv)
 
         stage_draw(g_stage_frame);
         mist_draw(now);
-        character_draw(1, lo[1]);       /* the dressing shadow, see the header */
+        character_draw(1, 0.0f);        /* the shadow, on the stage floor */
         character_draw(0, 0.0f);
 
         if (shot) {
