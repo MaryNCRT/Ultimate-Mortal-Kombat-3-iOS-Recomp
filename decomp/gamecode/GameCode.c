@@ -26,6 +26,19 @@ void FreeSomeTextures(TEXTURETOLOAD *list);
 extern int LockCamera;                  /* 0x00150e8c */
 extern int AxeTrailDisallowed;          /* 0x00150eac */
 extern TEXTURETOLOAD BloodTexturesToLoad[];  /* 0x00150e1c */
+extern int RenderSettings[2];           /* 0x001ab678, two words */
+
+/* The game state. `getTransferableFlags` reaches it through a pointer slot at
+ * 0x000f357c holding 0x0038c1fc, which is exactly where other.c independently
+ * places `G`. Only the one field this file reads is named. */
+typedef struct GAMESTATE {
+    uint8_t _pad000[0x44e];
+    int16_t field44e;                   /* 0x44e  ldrsh, normalised to 0 or 1 */
+} GAMESTATE;
+extern GAMESTATE *G;                    /* 0x0038c1fc */
+
+void DeviceRenderSettings(void);
+int  getTransferableFlags(void);
 
 void AllowCameraTracking(void);
 void StopCameraTracking(void);
@@ -100,4 +113,56 @@ void LoadBloodTextures(void)
 void FreeBloodTextures(void)
 {
     FreeSomeTextures(BloodTexturesToLoad);
+}
+
+
+/* -------------------------------------------------- DeviceRenderSettings
+ *
+ * armv7 0x0001b590, 16 bytes.  `__Z20DeviceRenderSettingsv`
+ *
+ *      ldr r3, [pc, #8] ; movs r2, #0 ; add r3, pc
+ *      str r2, [r3] ; str r2, [r3, #4] ; bx lr
+ *
+ * Two consecutive words zeroed at 0x001ab678, `_RenderSettings`. Two words and
+ * not one -- a body that cleared only the first would agree with the original
+ * on every test that never read the second, which is why the test checks the
+ * SPAN that moved rather than the value at one address.
+ *
+ * What the two words mean is not established here. Nothing in this function
+ * reads them back and nothing else decompiled so far touches them.
+ */
+void DeviceRenderSettings(void)
+{
+    RenderSettings[0] = 0;
+    RenderSettings[1] = 0;
+}
+
+
+/* -------------------------------------------------- getTransferableFlags
+ *
+ * armv7 0x0001c77c, 24 bytes.
+ *
+ *      ldr    r3, [pc, #0x10] ; add r3, pc ; ldr r3, [r3]
+ *      ldrsh.w r0, [r3, #0x44e]
+ *      subs   r0, #0 ; it ne ; movne r0, #1
+ *      bx     lr
+ *
+ * The PC-relative computation lands on a POINTER SLOT at 0x000f357c, and what
+ * the slot holds is 0x0038c1fc -- `_G`, the game state. That is the same
+ * global `other.c` reaches for `SwitchQueue`, arrived at from a different
+ * function by a different route, which is the standard this project asks for
+ * before a name is treated as established.
+ *
+ * The field is a SIGNED halfword at +0x44e and the return is normalised to
+ * 0 or 1, so the caller gets a boolean and the storage is not one. Both halves
+ * matter: `ldrsh` sign-extends, and a value like 0xFFFF is non-zero either way
+ * but reads as -1 rather than 65535 if anything ever compares it.
+ *
+ * Note the `it ne`. Instructions inside a Thumb IT block do not update the
+ * flags, and recomp.py used to emit one that did -- see docs/RENDERMESH-DRAW.md.
+ * This function is a small direct check that the fix holds.
+ */
+int getTransferableFlags(void)
+{
+    return (G->field44e != 0) ? 1 : 0;
 }
