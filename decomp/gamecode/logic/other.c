@@ -26,6 +26,32 @@
 
 #include <stdint.h>
 
+
+/* ------------------------------------------------------------------------
+ * The player object, as far as isp2 establishes it.
+ *
+ * Two offsets only. Everything else about this struct is unmapped and stays
+ * that way -- a placeholder array would imply a size nobody has measured.
+ * ------------------------------------------------------------------------ */
+typedef struct MK3OBJPROC {
+    uint8_t  _pad00[0x10];
+    uint32_t field10;            /* 0x10  isp2 ORs bit 4 into this */
+} MK3OBJPROC;
+
+typedef struct MK3OBJ {
+    MK3OBJPROC *field00;         /* 0x00  ldr r2, [r4] */
+    uint8_t     _pad04[0x28];
+    uint32_t    field2c;         /* 0x2c  receives the same OR-ed value */
+} MK3OBJ;
+
+/* Called by isp2 and decompiled elsewhere. Declared, not defined: this file
+ * owns the sequencing and not the steps. */
+void face_opponent(MK3OBJ *obj);
+void set_no_block(MK3OBJ *obj);
+void me_in_front(MK3OBJ *obj);
+void player_normpal(MK3OBJ *obj);
+void disable_all_buttons(MK3OBJ *obj);
+
 /*
  * The ring buffer.
  *
@@ -92,4 +118,65 @@ void SwitchQueue(uint16_t value, SWITCHQUEUE *q)
     if (q->head >= &q->slots[SWITCH_QUEUE_SLOTS]) {
         q->head = &q->slots[0];
     }
+}
+
+
+/* ------------------------------------------------------------------ isp2
+ *
+ * armv7 0x00058798, 48 bytes.  `_isp2`
+ *
+ * The first function decompiled out of `gamecode`, and it is mostly a
+ * sequencer: five calls in order, then two stores, then a sixth call.
+ *
+ *      face_opponent(obj)
+ *      set_no_block(obj)
+ *      me_in_front(obj)
+ *      player_normpal(obj)
+ *      flags = obj->field00->field10 | 0x10
+ *      obj->field2c = flags
+ *      obj->field00->field10 = flags
+ *      disable_all_buttons(obj)
+ *
+ * ## What the two stores are, and what they are not
+ *
+ *      ldr r2, [r4]           ; obj->field00 -- a POINTER
+ *      ldr r3, [r2, #0x10]
+ *      orr r3, r3, #0x10
+ *      str r3, [r4, #0x2c]    ; into the OBJECT
+ *      str r3, [r2, #0x10]    ; and back into whatever field00 points at
+ *
+ * The same value lands in two places, which is worth noticing rather than
+ * tidying: `obj->field2c` is not a copy that drifts, it is set from the
+ * combined value at the moment the bit goes in.
+ *
+ * ## Names not given
+ *
+ * `field00` is a pointer to something carrying a flags word at `+0x10`. The
+ * header of this file says each player object owns a PROC, and a process
+ * pointer at offset zero would fit — but "would fit" is not the standard this
+ * project holds itself to, and one function reading an offset is a hypothesis.
+ * So both fields are named by offset and the bit is left as `0x10`.
+ *
+ * Nor is the function's own name interpreted. `isp2` sits beside `gup2` in the
+ * two-player code and it is tempting to read it as something about player two;
+ * nothing here supports that, and the five calls it makes are all
+ * player-agnostic.
+ *
+ * Verified against the oracle by tests/test_isp2_diff.c: the call ORDER and the
+ * two stores, over a sweep of starting flag values.
+ */
+void isp2(MK3OBJ *obj)
+{
+    uint32_t flags;
+
+    face_opponent(obj);
+    set_no_block(obj);
+    me_in_front(obj);
+    player_normpal(obj);
+
+    flags = obj->field00->field10 | 0x10u;
+    obj->field2c = flags;
+    obj->field00->field10 = flags;
+
+    disable_all_buttons(obj);
 }

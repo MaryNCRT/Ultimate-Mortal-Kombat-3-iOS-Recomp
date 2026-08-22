@@ -138,6 +138,9 @@ class Emitter(object):
 
     # -- utilidades --
 
+
+    called_out = set()   # internal callees this run does not generate
+
     def cname(self, addr):
         name, _ = self.funcs[addr]
         return "func_%08x_%s" % (addr, name.lstrip("_"))
@@ -691,6 +694,13 @@ class Emitter(object):
                     return ["ctx->r[LR] = 0x%08xu;" % (ins.address + ins.size),
                             "%s(ctx);   /* override de %s */"
                             % (OVERRIDES[tname], tname)]
+                # Recorded so the header can declare it. Without --with-deps
+                # the callee is not generated, and the emitted C then calls an
+                # undeclared function -- which C99 rejects and which, worse,
+                # would give it an implicitly wrong signature. A caller can be
+                # verified long before its callees exist; the header just has
+                # to say they are somebody else's.
+                self.called_out.add(self.cname(target))
                 return ["ctx->r[LR] = 0x%08xu;" % (ins.address + ins.size),
                         "%s(ctx);" % self.cname(target)]
             raise Unsupported("llamada a destino desconocido 0x%08x" % target)
@@ -1228,8 +1238,21 @@ def main():
              "#define %s_H" % args.name.upper(),
              "#include \"arm_runtime.h\"",
              ""]
+    generated = set()
     for a in targets:
-        decls.append("void %s(arm_ctx *ctx);" % em.cname(a))
+        cn = em.cname(a)
+        generated.add(cn)
+        decls.append("void %s(arm_ctx *ctx);" % cn)
+
+    missing = sorted(n for n in em.called_out if n not in generated)
+    if missing:
+        decls += ["",
+                  "/* Llamadas internas que ESTA generacion no incluye (sin",
+                  " * --with-deps). Se declaran para que el .c compile; quien",
+                  " * las use tiene que definirlas -- normalmente un test que",
+                  " * quiere aislar al llamador de sus llamados. */"]
+        for n in missing:
+            decls.append("void %s(arm_ctx *ctx);" % n)
     if em.auto_shims:
         decls += ["",
                   "/* Importadas del binario sin shim escrito a mano. La",
