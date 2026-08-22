@@ -23,25 +23,34 @@ A short, specific work order for whoever takes this on next. Read
 
 Zero divergences throughout. 103,907 synthetic cases plus real game data.
 
-**RenderScene.cpp is closed as far as RenderScene goes.** The two renderers
-were not merely untested -- they were **wrong**, starting with their argument
-lists. Ten measured defects, written up in
-[RENDERSCENE-SIGNATURE.md](RENDERSCENE-SIGNATURE.md).
+**The engine draw path is closed.** Both scene renderers and the mesh draw now
+match the original call for call:
 
-`tests/test_renderscene_gl_diff.c` drives both against the oracle and compares
-the GL call stream: **21 of 29 cases match exactly**. The eight that do not
-diverge **inside LIME_RenderMesh** -- first mismatch at call 5, 11, 28 or 32,
-always a client-state or pointer call that `LIME_RenderScene` never makes
-itself. The walk, the gates, the deferral and the flush ordering all agree.
+| test | cases | divergences |
+|---|---|---|
+| `test_renderscene_gl_diff` | 29 | **0** |
+| `test_rendermesh_gl_diff` | 193 | **0** |
 
-**So the next target is `decomp/lime/RenderMesh.c`.** Its own test compares mesh
-LOADING, not GL, which is why a divergent draw stream sat there unnoticed. The
-instrument already exists -- point `tests/gl_trace.c` at it.
+Getting there took nineteen measured defects across the two files, plus a
+fifth defect in the oracle itself. Written up in
+[RENDERSCENE-SIGNATURE.md](RENDERSCENE-SIGNATURE.md) and
+[RENDERMESH-DRAW.md](RENDERMESH-DRAW.md).
+
+The one worth reading first: `recomp.py` emitted flag updates for instructions
+inside Thumb IT blocks, so both halves of every `ITE` ran. The obvious response
+to the divergences it caused was to invert a `fullBright` test in the clean C --
+which would have agreed with the oracle, passed the gate, and lit exactly the
+surfaces the engine exists to leave unlit. **A red result deserves no more trust
+than a green one until the instrument has been checked.**
 
 The enum-pairing problem this file used to describe as needing register liveness
 tracking **is solved and never needed it.** `recomp.py` emits every import as
 `stub_auto_glXxx(arm_ctx *ctx)`, so the register file at the instant of each
-call is simply available. Measure, do not infer.
+call is simply available. `tests/gl_trace.c` records both sides and compares
+them. Measure, do not infer.
+
+**So the next target is `gamecode`** -- 291 functions, starting with `_isp2`
+(48 bytes) and `_gup2` (368 bytes).
 
 ---
 

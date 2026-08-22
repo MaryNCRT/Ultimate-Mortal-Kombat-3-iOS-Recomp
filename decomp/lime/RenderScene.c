@@ -497,18 +497,9 @@ void AddToTranspMeshList(MESHSETINFO *meshset, const SCENENODE *node,
  * change what is drawn, and the body below leaves them out rather than guess
  * their order.
  */
-/* Two globals this function reads. Both live in the binary's __DATA and both
- * are zero in every configuration driven so far, so the values below are the
- * measured initial state rather than a guess at what sets them.
- *
- * g_pendingTranslate is CONSUMED: glTranslatef takes it and the next three
- * stores put it back to zero (0x5f6cc..0x5f6d0). LIME_RenderScene's own draw
- * path does the same thing at 0x5f9f8, so it is a one-shot offset that
- * something upstream arms. What arms it is not decompiled.
- *
- * g_transpColor supplies the RGB of the glColor4f; the alpha comes from the
- * item, which is how a scene's per-key alpha reaches the screen at all. */
-float g_pendingTranslate[3];
+/* The colour the deferred meshes are tinted with. A real global at
+ * `0x00112088 + pc`, zero in the loaded slice; the ALPHA that goes with it
+ * comes from the item, which is how a scene's per-key alpha reaches GL. */
 float g_transpColor[3];
 
 void FlushTranspMeshList(TEXTURE *texture, const SKINMATRIX43 *matrix)
@@ -546,14 +537,28 @@ void FlushTranspMeshList(TEXTURE *texture, const SKINMATRIX43 *matrix)
             continue;
         }
 
-        /* one-shot: applied, then cleared */
-        glTranslatef(g_pendingTranslate[0], g_pendingTranslate[1],
-                     g_pendingTranslate[2]);
-        g_pendingTranslate[0] = 0.0f;
-        g_pendingTranslate[1] = 0.0f;
-        g_pendingTranslate[2] = 0.0f;
+        /* **The translation is split out of the matrix and applied first.**
+         *
+         *      0x5f6b2  bl  _ConvertQSTMatrixtoPCMatrix   ; writes into r5
+         *      0x5f6be  ldr r1, [r4, #0x34]               ; r4 == r5
+         *      0x5f6c4  blx _glTranslatef
+         *      0x5f6cc  str r3, [r4, #0x30]               ; then zeroed
+         *      0x5f6d2  blx _glMultMatrixf
+         *
+         * r4 and r5 resolve to the SAME address, so `[r4, #0x30..0x38]` is
+         * `m[12..14]` of the matrix just converted -- the translation row.
+         *
+         * An earlier draft read this as a one-shot "pending translation"
+         * global that something upstream armed. It is nothing of the kind, and
+         * the giveaway was that the values changed with the blend factor: a
+         * global would not. Two PC-relative loads landing on one buffer looked
+         * like two different globals until the arithmetic was done. */
+        glTranslatef(m[12], m[13], m[14]);
+        m[12] = 0.0f;
+        m[13] = 0.0f;
+        m[14] = 0.0f;
 
-        glMultMatrixf(m);                /* untransposed: QST arrives GL-ready */
+        glMultMatrixf(m);                /* now rotation and scale only */
 
         /* the key's alpha, arriving as vertex colour rather than as a uniform */
         glColor4f(g_transpColor[0], g_transpColor[1], g_transpColor[2],
