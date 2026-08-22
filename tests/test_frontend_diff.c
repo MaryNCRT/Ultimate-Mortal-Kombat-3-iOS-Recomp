@@ -38,6 +38,22 @@
 float FE_WidthScale;
 float FE_HeightScale;
 
+/* FrontEnd.c has grown past the three scalers this test drives, and linking a
+ * translation unit means resolving everything in it. None of these is touched
+ * here. */
+int  KodeSelector[10];
+char Stats[0x98];
+int  CurrentTask;
+int  Menu_Task_Rematch[1], Menu_Task_Lobby[1], Menu_Task_Wifi_Bluetooth[1];
+int  Menu_Task_Credits[1], Menu_Task_About_Terms_of_Service[1];
+int  Menu_Task_About_Privacy_Policy[1], Menu_Task_About_Eula[1];
+int  Menu_Task_Manage_Profile[1], Menu_Task_Get_More_Games[1];
+int  lastTimerTimestamp;
+float vsScreenTimer;
+int  BasicMenuWithWidth(int *m, int w) { (void)m; (void)w; return 0; }
+void PopFETaskDeferred(void) { }
+void PushFETaskDeferred(int t) { (void)t; }
+
 float FE_X(float v);
 float FE_W(float v);
 float FE_H(float v);

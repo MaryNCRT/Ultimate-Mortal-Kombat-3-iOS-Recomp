@@ -57,10 +57,19 @@ int CurrentTask;
 static int g_clean_pushes, g_clean_pushed;
 void PushFETaskDeferred(int task) { g_clean_pushes++; g_clean_pushed = task; }
 
-/* FrontEnd.c holds more than the two functions driven here. */
+/* FrontEnd.c holds more than the two functions driven here, and it keeps
+ * growing; linking the translation unit means resolving all of it. */
 float FE_WidthScale, FE_HeightScale;
 int   KodeSelector[10];
 char  Stats[0x98];
+int   Menu_Task_Rematch[1], Menu_Task_Lobby[1], Menu_Task_Wifi_Bluetooth[1];
+int   Menu_Task_Credits[1], Menu_Task_About_Terms_of_Service[1];
+int   Menu_Task_About_Privacy_Policy[1], Menu_Task_About_Eula[1];
+int   Menu_Task_Manage_Profile[1], Menu_Task_Get_More_Games[1];
+int   lastTimerTimestamp;
+float vsScreenTimer;
+int   BasicMenuWithWidth(int *m, int w) { (void)m; (void)w; return 0; }
+void  PopFETaskDeferred(void) { }
 
 /* ---- the oracle side ---- */
 static int      g_oracle_pushes;

@@ -44,6 +44,11 @@ typedef struct PLAYER {
     uint32_t field14;                   /* 0x14  must land in 0x23..0x29 */
 } PLAYER;
 
+extern char OpponentTowerList[];         /* 0x0014fcb4 */
+
+int  limeWriteFile(const char *path, const void *data, long size, long flags);
+void Write_Tower(void);
+
 int  JadeStomachShaker(PLAYER *p);
 void DeviceRenderSettings(void);
 int  getTransferableFlags(void);
@@ -209,4 +214,26 @@ int JadeStomachShaker(PLAYER *p)
 
     d = (unsigned)p->field14 - 0x23u;
     return (d <= 6u) ? 1 : 0;
+}
+
+
+/* ---------------------------------------------------------------- Write_Tower
+ *
+ * armv7 0x00023818, 32 bytes.
+ *
+ *      ldr r1, [pc, #0x10] ; add r1, pc     ; -> _OpponentTowerList
+ *      ldr r0, [pc, #0x14] ; add r0, pc     ; -> "towerdata"
+ *      movs r2, #0xb0 ; movs r3, #0
+ *      bl  _limeWriteFile
+ *
+ * Saves the tower ladder: 0xb0 bytes of `_OpponentTowerList` to a file called
+ * "towerdata". The name is a string in the slice, not a constructed path, so
+ * there is no directory involved -- whatever `limeWriteFile` prefixes is the
+ * whole of the location policy.
+ *
+ * 0xb0 is 176 bytes. Nothing here says how many entries that is.
+ */
+void Write_Tower(void)
+{
+    limeWriteFile("towerdata", OpponentTowerList, 0xb0, 0);
 }
