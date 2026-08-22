@@ -33,8 +33,12 @@
 
 /* The slice's own data region, where these globals live. Poisoned before each
  * run so a store is visible as a change rather than as a value. */
+/* Wide enough to hold every global this batch touches. An earlier version
+ * stopped at 0x00151000 and missed _RenderSettings at 0x001ab678 entirely --
+ * which reads as "the function wrote nothing" and is really "the test was not
+ * looking there". A poison sweep is only evidence over the range it covers. */
 #define DATA_LO    0x00150000u
-#define DATA_HI    0x00151000u
+#define DATA_HI    0x001B0000u
 #define POISON     0xA5A5A5A5u
 
 static int  g_fail  = 0;
@@ -43,6 +47,12 @@ static long g_cases = 0;
 /* ---- what the clean side links against ---- */
 int LockCamera;
 int AxeTrailDisallowed;
+int RenderSettings[2];
+
+/* Only the field getTransferableFlags reads is named. */
+typedef struct GAMESTATE { uint8_t _pad000[0x44e]; int16_t field44e; } GAMESTATE;
+static GAMESTATE g_state;
+GAMESTATE *G = &g_state;
 /* The same shape lime.h gives it. Only its ADDRESS is ever compared, so one
  * entry is enough. */
 typedef struct TEXTURE TEXTURE;
@@ -60,6 +70,13 @@ void StopCameraTracking(void);
 void EndIntro(void);
 void LoadBloodTextures(void);
 void FreeBloodTextures(void);
+void DeviceRenderSettings(void);
+int  getTransferableFlags(void);
+
+/* The guest's own G, and the slot the code reaches it through. */
+#define G_SLOT   0x000f357cu
+#define G_STATE  0x00780000u
+#define G_F44E   0x44Eu
 
 /* ---- what the oracle calls ---- */
 static uint32_t g_oracle_list;
@@ -188,6 +205,60 @@ int main(int argc, char **argv)
     check("clean FreeBloodTextures passed BloodTexturesToLoad",
           g_clean_list == (const void *)BloodTexturesToLoad);
 
+    /* ---- DeviceRenderSettings: TWO words, not one ----
+     *
+     * A body that cleared only the first would agree with the original on any
+     * test that never looked at the second, so what is checked is the SPAN
+     * that moved. */
+    {
+        uint32_t a, lo = 0u, hi = 0u;
+        int      n = 0;
+
+        poison();
+        memset(&ctx, 0, sizeof(ctx)); ctx.r[SP] = STACK_TOP;
+        func_0001b590_Z20DeviceRenderSettingsv(&ctx);
+        for (a = DATA_LO; a < DATA_HI; a += 4u)
+            if (MEM_LD32(a) != POISON) { if (!n) lo = a; hi = a; n++; }
+
+        check("DeviceRenderSettings cleared exactly two words", n == 2);
+        check("and they are adjacent", n == 2 && hi == lo + 4u);
+        check("both are zero", n == 2 && MEM_LD32(lo) == 0u && MEM_LD32(hi) == 0u);
+
+        RenderSettings[0] = 0x1111; RenderSettings[1] = 0x2222;
+        DeviceRenderSettings();
+        check("clean DeviceRenderSettings clears both",
+              RenderSettings[0] == 0 && RenderSettings[1] == 0);
+    }
+
+    /* ---- getTransferableFlags ----
+     *
+     * A SIGNED halfword normalised to 0 or 1. The interesting inputs are the
+     * ones where sign and truth come apart: 0x8000 read unsigned is 32768 and
+     * read signed is -32768, and a body using ldrh instead of ldrsh agrees
+     * with one using ldrsh on every value once both are normalised. So the
+     * test also pins that the result never escapes as anything but 0 or 1 --
+     * which is the property the sign extension is there to preserve. */
+    {
+        static const uint16_t IN[] = { 0u, 1u, 0x7FFFu, 0x8000u, 0xFFFFu, 0x00FFu };
+        size_t k;
+
+        MEM_ST32(G_SLOT, G_STATE);
+        for (k = 0; k < sizeof(IN) / sizeof(IN[0]); k++) {
+            uint32_t got;
+            int      want = (IN[k] != 0u) ? 1 : 0;
+
+            MEM_ST16(G_STATE + G_F44E, IN[k]);
+            g_state.field44e = (int16_t)IN[k];
+
+            memset(&ctx, 0, sizeof(ctx)); ctx.r[SP] = STACK_TOP;
+            func_0001c77c_getTransferableFlags(&ctx);
+            got = ctx.r[0];
+
+            check("getTransferableFlags returns 0 or 1", got == 0u || got == 1u);
+            check("oracle and clean agree", (int)got == getTransferableFlags());
+            check("and it is the truth of the halfword", (int)got == want);
+        }
+    }
     printf("\nchecks: %ld    divergences: %d\n", g_cases, g_fail);
     if (!g_fail) {
         printf("\nthe addresses the source comments claim, confirmed from behaviour:\n");
