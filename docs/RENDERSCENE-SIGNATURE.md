@@ -180,22 +180,22 @@ itself, negative frames and overshoot.
 
 The eight that remain all diverge **inside LIME_RenderMesh**, not in the walk.
 Their first mismatch is at call 5, 11, 28 or 32 -- deep in a mesh draw -- and it
-is always one of , ,
-, ,  or .
-None of those is a call  makes itself.
+is always one of `glEnableClientState`, `glDisableClientState`,
+`glVertexPointer`, `glTexCoordPointer`, `glTexEnvf` or `glClientActiveTexture`.
+None of those is a call `LIME_RenderScene` makes itself.
 
 So the boundary is clean: **the scene renderers now agree with the original, and
- does not.** That is a separate file whose own test
+`decomp/lime/RenderMesh.c` does not.** That is a separate file whose own test
 compares mesh LOADING rather than the GL stream, which is why it never showed.
-The harness to check it already exists -- point  at it.
+The harness to check it already exists -- point `tests/gl_trace.c` at it.
 
 ### Two more defects, both mine, both worth recording
 
- took a matrix argument as a  for both sides. On the
+`tests/gl_trace.c` took a matrix argument as a `uint32_t` for both sides. On the
 clean side that TRUNCATED a 64-bit host pointer and then dereferenced it -- a
 segfault rather than a divergence, and it was misread for a while as the
 renderer crashing. A guest address is four bytes and a host pointer is eight;
-one parameter cannot be both. Split into  and .
+one parameter cannot be both. Split into `set_mat_host` and `set_mat_guest`.
 
 The same file recorded pointer arguments as raw values on the oracle side and as
 nullness on the clean side, manufacturing a divergence for every array pointer
