@@ -49,8 +49,42 @@ tracking **is solved and never needed it.** `recomp.py` emits every import as
 call is simply available. `tests/gl_trace.c` records both sides and compares
 them. Measure, do not infer.
 
-**So the next target is `gamecode`** -- 291 functions, starting with `_isp2`
-(48 bytes) and `_gup2` (368 bytes).
+**`gamecode` is under way: 23 of 291**, every one verified.
+
+| file | functions | test |
+|---|---|---|
+| `logic/other.c` | `SwitchQueue`, `isp2` | 500 + 205 |
+| `logic/mkreact.c` | `gup2` | 243 |
+| `GameCode.c` | 8 | 41 |
+| `FrontEnd.c` | 7 | 84 + part of 273 |
+| `text.c` | 3 | part of 273 |
+| `Particles.c`, `sound.c`, `Players.c` | 3 | 158 |
+
+### The shape these tests use
+
+Most of `gamecode` is sequencing, and the trick is that **a sequencer can be
+verified long before the things it sequences exist**. Generate the oracle
+WITHOUT `--with-deps`, let the callees come out as plain externs, and define
+them in the test -- once for the register-file side, once for the native side,
+both recording into one log. What then gets compared is exactly what the
+function under test decides: who it calls, in what order, with what argument,
+and what it writes.
+
+Three rules that keep paying:
+
+- **Compare addresses by IDENTITY, never by value.** A native build has no
+  binary code addresses and never will. Give both sides the same symbol table
+  and check *which* entry was used.
+- **Poison before you drive, then ask what SURVIVED.** A function that clears
+  one word per record agrees with a `memset` on that word everywhere. The
+  difference is only visible in what was left alone. Make the sweep wide enough
+  -- one of these reported "wrote nothing" because the range stopped short of
+  the global.
+- **Drive the gates apart.** `FE_X` and `FE_H` are indistinguishable while both
+  scales hold 1.0f, which is what they hold. Set them differently first.
+
+**Next**: keep going through the small end of `gamecode`, or start
+`gamecode/logic` (2,172 functions, the fight engine).
 
 ---
 
