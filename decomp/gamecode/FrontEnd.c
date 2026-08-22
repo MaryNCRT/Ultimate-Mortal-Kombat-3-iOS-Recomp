@@ -20,6 +20,13 @@ extern float FE_HeightScale;            /* 0x000ff9bc */
 extern int  KodeSelector[10];           /* 0x000ff8f8 */
 extern char Stats[0x98];                /* 0x00183c84 */
 
+/* Reached through a pointer slot at 0x000f3608 holding its address. */
+extern int CurrentTask;                 /* 0x00150590 */
+
+void PushFETaskDeferred(int task);
+
+void switchToTask(int task);
+void switchToFETask(int task);
 void resetKodeSelector(void);
 void Reset_Stats(void);
 
@@ -119,4 +126,49 @@ void resetKodeSelector(void)
 void Reset_Stats(void)
 {
     memset(Stats, 0, 0x98);
+}
+
+
+/* ------------------------------------------------------------ switchToTask
+ *
+ * armv7 0x0000312c, 24 bytes.
+ *
+ *      cmp r0, #4 ; bne out
+ *      ldr r3, [pc, #0xc] ; add r3, pc     ; -> a pointer SLOT at 0x000f3608
+ *      ldr r2, [r3]                        ; -> &CurrentTask, 0x00150590
+ *      ldr r3, [r2] ; cmp r3, #4
+ *      it ne ; strne r0, [r2]
+ *
+ * **It only ever does anything for task 4.** Anything else returns without
+ * touching the variable, so this is not a general setter despite the name --
+ * it is one specific transition with a guard on it.
+ *
+ * And the second guard makes the store conditional on the value not already
+ * being 4, which is redundant for the value written and is still what the
+ * original does. Written as-is: a port that drops it turns a no-op into a
+ * write, and anything watching that variable for changes would see one.
+ *
+ * Another `it ne`, so another check that the IT-block flag fix holds.
+ */
+void switchToTask(int task)
+{
+    if (task != 4)
+        return;
+    if (CurrentTask != 4)
+        CurrentTask = task;
+}
+
+
+/* ---------------------------------------------------------- switchToFETask
+ *
+ * armv7 0x000038bc, 12 bytes.
+ *
+ * A tail call to `PushFETaskDeferred` and nothing else. The argument goes
+ * straight through in r0. Worth keeping as its own function rather than
+ * inlining it away: the name is what the rest of the front end calls, and a
+ * deferred push is a different thing from an immediate one.
+ */
+void switchToFETask(int task)
+{
+    PushFETaskDeferred(task);
 }
