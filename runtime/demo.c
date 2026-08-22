@@ -88,7 +88,8 @@ static StageGeom g_stage;
  *
  * With both corrected the units come out right on their own: a gravestone is
  * 74 wide and 104 tall, the ground plane is 2,839 across and flat, and the
- * fighter is 106 tall. `scene->scale` -- the field LIME_RenderScene hands to
+ * fighter is 212.5 tall, which puts a gravestone at his waist. `scene->scale`
+ * -- the field LIME_RenderScene hands to
  * glScalef -- is 1.0 for Graveyard, which is what LIME_LoadScene stores at
  * SCENEINFO+0x60 (`mov.w r3, #0x3f800000`) when no `.offsets` overrides it.
  *
@@ -102,6 +103,10 @@ static int g_stage_frame = 0;
 /* The reference is a side-on view -- the camera the game itself uses. The
  * orbit is an inspection aid, not the shot. */
 static int g_orbit = 0;
+
+/* Multiplier on the gameplay camera's distance. 1.0 is the retail
+ * framing; larger pulls back to show more of the arena. */
+static float g_cam_dist = 1.0f;
 
 /* --list: report what every scene node resolved to. */
 static int g_list = 0;
@@ -615,6 +620,8 @@ int main(int argc, char **argv)
             g_stage_frame = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--orbit")) g_orbit = 1;
         else if (!strcmp(argv[i], "--list")) g_list = 1;
+        else if (!strcmp(argv[i], "--cam-dist") && i + 1 < argc)
+            g_cam_dist = (float)atof(argv[++i]);
         else if (argv[i][0] != '-') {
             if (!res)      res = argv[i];
             else if (npos == 0) { chr = argv[i]; npos = 1; }
@@ -623,7 +630,15 @@ int main(int argc, char **argv)
     }
 
     if (!res) {
-        printf("usage: %s <res dir> [character] [stage] [--from N --to M]\n",
+        printf("usage: %s <res dir> [character] [stage]\n"
+               "  --from N --to M     animation frame range\n"
+               "  --shot out.ppm      render one frame and exit\n"
+               "  --at T              the moment in the clip to capture\n"
+               "  --cam-dist N        pull the gameplay camera back (1.0 = retail)\n"
+               "  --orbit             circle the fighter instead\n"
+               "  --scene-frame N     which frame of the scene stream to show\n"
+               "  --stage-scale N     override scene->scale\n"
+               "  --list              report what every scene node resolved to\n",
                argv[0]);
         printf("  res dir is Payload/UMK3.app/res from your own copy.\n");
         return 1;
@@ -670,8 +685,8 @@ int main(int argc, char **argv)
         if (d > radius) radius = d;
     }
     if (radius < 1e-4f) radius = 1.0f;
-    printf("  character bounds: %.1f  centre (%.1f %.1f %.1f)\n",
-           radius, centre[0], centre[1], centre[2]);
+    printf("  character: %.1f tall, %.1f wide, feet at y=%.1f\n",
+           hi[1] - lo[1], hi[0] - lo[0], lo[1]);
 
     glEnable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
@@ -718,11 +733,44 @@ int main(int argc, char **argv)
 
         glMatrixMode(GL_MODELVIEW);
         glLoadIdentity();
-        ang = g_orbit ? (float)(now * 12.0) : 0.0f;
-        glTranslatef(0.0f, -radius * 0.30f, -radius * 3.6f);
-        glRotatef(6.0f, 1.0f, 0.0f, 0.0f);
-        glRotatef(ang, 0.0f, 1.0f, 0.0f);
-        glTranslatef(-centre[0], -centre[1], -centre[2]);
+
+        if (g_orbit) {
+            /* Inspection: circle the fighter. Not what the game does. */
+            ang = (float)(now * 12.0);
+            glTranslatef(0.0f, -radius * 0.30f, -radius * 3.6f);
+            glRotatef(6.0f, 1.0f, 0.0f, 0.0f);
+            glRotatef(ang, 0.0f, 1.0f, 0.0f);
+            glTranslatef(-centre[0], -centre[1], -centre[2]);
+        } else {
+            /*
+             * **The gameplay camera.**
+             *
+             * A 2D fighter's camera is LEVEL -- no pitch. Tilting it down is
+             * what makes a render look like a model viewer instead of a match,
+             * because the ground stops being a floor you stand on and becomes
+             * a surface you look at.
+             *
+             * The two numbers are framed against the shipped game rather than
+             * chosen: in a retail screenshot the fighter's feet sit about 15%
+             * up from the bottom edge and the head reaches about 78%, so the
+             * body spans roughly 62% of the frame height. With a 45 degree
+             * vertical field of view the frame is 2*d*tan(22.5) = 0.8284*d
+             * tall, so 62% of it needs d = height/0.62/0.8284 = 1.95*height,
+             * and putting the eye at 0.55*height above the feet lands the feet
+             * at that 15%.
+             *
+             * Both scale off the fighter's own size, so a taller character
+             * (Kabal, Sheeva) frames the same way rather than filling more of
+             * the screen.
+             */
+            float height = hi[1] - lo[1];
+            float dist   = height * 1.95f * g_cam_dist;
+            float eye_y  = lo[1] + 0.55f * height;
+
+            glTranslatef(0.0f, 0.0f, -dist);
+            glTranslatef(-centre[0], -eye_y, -centre[2]);
+        }
+        (void)ang;
 
         stage_draw(g_stage_frame);
         character_draw(1, lo[1]);       /* the dressing shadow, see the header */

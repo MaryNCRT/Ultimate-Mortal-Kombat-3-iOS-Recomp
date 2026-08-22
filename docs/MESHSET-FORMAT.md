@@ -219,8 +219,8 @@ its moon. Dividing all three by one constant renders them all at the same size
 and none at the right one; the stage comes out as a pile of unit-sized objects
 scattered across thousands of units of empty space. With the real divisor a
 gravestone is 74 wide and 104 tall, the ground plane is 2,839 across and flat,
-and the fighter standing on it is 106 — which is what the shipped game looks
-like.
+and the fighter standing on it is 212.5 tall — so a gravestone comes up to his
+waist, which is exactly what the shipped game looks like.
 
 The warning was the right instinct and the fitted figure survived a long time
 because it produced tidy `[-1,1]` numbers. Tidy is not the same as correct.
