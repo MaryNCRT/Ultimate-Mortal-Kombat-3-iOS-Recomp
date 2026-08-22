@@ -108,8 +108,36 @@ static int g_orbit = 0;
  * framing; larger pulls back to show more of the arena. */
 static float g_cam_dist = 1.0f;
 
+/* The gameplay camera, as multiples of the fighter's height, plus a downward
+ * tilt in degrees.
+ *
+ * **A solved fit was tried and thrown away.** Three points read off a retail
+ * screenshot -- feet at 83% of frame height, head at 22%, far edge of the
+ * cobbles at 65% -- give three equations for distance, eye height and pitch,
+ * and they solve exactly: distance 1.76, eye 1.07, pitch 16.05 degrees. The
+ * exactness is the problem. Three unknowns from three equations always fit,
+ * so the residual of zero validates nothing, and the answer put the camera
+ * above the fighter's head looking down at him -- visibly not the game.
+ * Hand-read pixel positions off a compressed capture with a HUD over it are
+ * not worth three significant figures.
+ *
+ * So these are the level-camera numbers, which are checkable: with a 45 degree
+ * vertical field of view the frame is 0.8284*d tall, so framing the body at
+ * about 62% of it needs d = 1.95*height, and an eye at 0.55*height above the
+ * feet puts the feet near 15% up from the bottom. A 2D fighter's camera is
+ * level; pitch stays at zero until there is a reference good enough to say
+ * otherwise. --cam-eye and --cam-pitch override. */
+static float g_cam_far   = 1.95f;
+static float g_cam_eye   = 0.55f;
+static float g_cam_pitch = 0.0f;
+
 /* --list: report what every scene node resolved to. */
 static int g_list = 0;
+
+/* --only SUBSTRING: draw just the stage meshes whose name contains it. An
+ * inspection aid -- telling "this surface is black" from "there is no surface
+ * here" is otherwise guesswork. */
+static const char *g_only = NULL;
 
 /* How far the stage actually reaches, in world units, measured at load.
  *
@@ -173,6 +201,7 @@ static int stage_find_mesh(const char *name, void *user)
 }
 
 static int is_event_marker(const char *n);
+static void mist_load(const char *res_dir);
 
 static int stage_load(const char *res_dir, const char *name)
 {
@@ -242,6 +271,7 @@ static int stage_load(const char *res_dir, const char *name)
     }
 
     g_stage.loaded = 1;
+    if (g_stage.has_scene) mist_load(res_dir);
     printf("  stage: %s, %d meshes", name, g_stage.ms.num_meshes);
     if (g_stage.has_scene)
         printf(", %d scene nodes, %d palette matrices, scale %.3f\n",
@@ -349,6 +379,27 @@ static void stage_draw(int frame)
 
     if (!g_stage.loaded) return;
 
+    /* **The one glShadeModel call in the armv7 slice, and it is scoped.**
+     *
+     * It sits at 0x0005e372 inside LIME_RenderMeshSingleIndexed -- the STAGE
+     * mesh path -- and loads 0x1d01, GL_FLAT. Scanning every Thumb BL and BLX
+     * in the binary turns up no other caller, so the skinned character never
+     * sets it and must not inherit it: its vertex colours are one lit grey per
+     * vertex, computed from the skinned normal, and GL_FLAT throws two of every
+     * three away and turns a smooth limb into a bag of facets.
+     *
+     * The demo used to set FLAT once at startup and never restore it, which is
+     * why the fighter looked polygonal. */
+    glShadeModel(GL_FLAT);
+
+    /* LIME_RenderScene enables it right after the tint colour:
+     *      0x5fa3c  blx _glColor4f
+     *      0x5fa40  movw r0, #0xb44        ; GL_CULL_FACE
+     *      0x5fa44  blx _glEnable
+     * The stage's geometry is authored one-sided; without this the far wall of
+     * every solid is drawn too. */
+    glEnable(GL_CULL_FACE);
+
     glEnableClientState(GL_VERTEX_ARRAY);
     glEnableClientState(GL_TEXTURE_COORD_ARRAY);
 
@@ -368,11 +419,32 @@ static void stage_draw(int frame)
         }
         glDisable(GL_BLEND);
     } else {
+        /*
+         * **Two passes, because the engine has two.**
+         *
+         * LIME_RenderScene does not draw a translucent node where it finds it:
+         * it hands it to AddToTranspMeshList and FlushTranspMeshList draws the
+         * batch later. Ignoring that and drawing in node order is visible on
+         * Graveyard, because its sky (node 2) comes after its moon (node 1) and
+         * sits 1,146 units FURTHER away. Both are translucent, so neither
+         * writes depth, so the sky blends over the moon at 90% and puts it out.
+         *
+         * So: opaque first with depth writes on, then the translucent nodes
+         * back to front. The sort key is the node's origin in VIEW space, read
+         * from the live modelview matrix, so it stays right under --orbit as
+         * well as under the gameplay camera.
+         */
+        struct { int32_t node; float depth; } defer[256];
+        int ndefer = 0;
+        float mv[16];
+
         glScalef(g_stage.sc.scale, g_stage.sc.scale, g_stage.sc.scale);
+        glGetFloatv(GL_MODELVIEW_MATRIX, mv);
 
         for (n = 0; n < g_stage.sc.num_nodes; n++) {
             const LimeSceneKey *key = lime_scene_key(&g_stage.sc, (int)n, frame);
             const LimeMesh *m;
+            const LimeQST *q;
             float mat[16];
             int idx;
 
@@ -384,53 +456,231 @@ static void stage_draw(int frame)
 
             m = &g_stage.ms.meshes[idx];
             if (m->vert_count <= 0 || is_event_marker(m->name)) continue;
+            if (g_only && !strstr(m->name, g_only)) continue;
 
-            /* The engine's rule, and the threshold differs between its two
-             * renderers: the opaque one tests 1.0, LIME_RenderScene tests 0.97.
-             * An opaque node turns blending off and depth writes on and then
-             * draws anyway -- it does not skip. */
-            /* The name rule first -- it is the material -- then the key's
-             * own alpha. SRC_ALPHA / ONE_MINUS_SRC_ALPHA is not a guess: it is
-             * what limeEnableAlphaBlending_Basic was MEASURED to do, by
-             * driving the recompiled original and recording the GL call
-             * stream. See docs/RENDERSCENE-SIGNATURE.md. */
-            if (is_alpha_material(m->name)) {
-                glDisable(GL_ALPHA_TEST);
-                glEnable(GL_BLEND);
-                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-                glDepthMask(GL_FALSE);
-            } else if (is_atst(m->name)) {
-                glDisable(GL_BLEND);
-                glAlphaFunc(GL_GREATER, 0.9f);
-                glEnable(GL_ALPHA_TEST);
-                glDepthMask(GL_TRUE);
-            } else if (key->alpha >= 1.0f) {
-                glDisable(GL_ALPHA_TEST);
-                glDisable(GL_BLEND);
-                glDepthMask(GL_TRUE);
-            } else {
-                glDisable(GL_ALPHA_TEST);
-                glEnable(GL_BLEND);
-                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-                glDepthMask(GL_FALSE);
+            /* Translucent: defer it. `ATST` is NOT translucent -- alpha test
+             * discards fragments outright, so it takes part in the depth
+             * buffer like any solid surface. */
+            if (!is_atst(m->name) &&
+                (is_alpha_material(m->name) || key->alpha < 1.0f)) {
+                if (ndefer < (int)(sizeof(defer) / sizeof(defer[0]))) {
+                    const float *t = g_stage.sc.palette[key->palette_index].translation;
+                    defer[ndefer].node  = n;
+                    defer[ndefer].depth = mv[2] * t[0] + mv[6] * t[1] +
+                                          mv[10] * t[2] + mv[14];
+                    ndefer++;
+                }
+                continue;
             }
 
+            q = &g_stage.sc.palette[key->palette_index];
+            glDisable(GL_BLEND);
+            glDepthMask(GL_TRUE);
+            if (is_atst(m->name)) {
+                glAlphaFunc(GL_GREATER, 0.9f);       /* 0x204, 0x3f666666 */
+                glEnable(GL_ALPHA_TEST);
+            } else {
+                glDisable(GL_ALPHA_TEST);
+            }
             stage_bind(idx, key->alpha);
 
+            glPushMatrix();
+            lime_qst_matrix(q, mat);
+            glMultMatrixf(mat);
+            stage_draw_mesh(m);
+            glPopMatrix();
+        }
+
+        /* Furthest first. View space looks down -Z, so the furthest node has
+         * the most negative depth. */
+        {
+            int i, j;
+            for (i = 1; i < ndefer; i++) {
+                float d = defer[i].depth;
+                int32_t nd = defer[i].node;
+                for (j = i - 1; j >= 0 && defer[j].depth > d; j--)
+                    defer[j + 1] = defer[j];
+                defer[j + 1].node  = nd;
+                defer[j + 1].depth = d;
+            }
+        }
+
+        glDisable(GL_ALPHA_TEST);
+        glDepthMask(GL_FALSE);
+        glEnable(GL_BLEND);
+        /* SRC_ALPHA / ONE_MINUS_SRC_ALPHA is not a guess: it is what
+         * limeEnableAlphaBlending_Basic was MEASURED to do, by driving the
+         * recompiled original and recording the GL call stream. */
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+        for (n = 0; n < ndefer; n++) {
+            const LimeSceneKey *key =
+                lime_scene_key(&g_stage.sc, (int)defer[n].node, frame);
+            const LimeMesh *m;
+            float mat[16];
+            int idx;
+
+            if (!key) continue;
+            idx = (int)key->mesh_index;
+            m = &g_stage.ms.meshes[idx];
+
+            stage_bind(idx, key->alpha);
             glPushMatrix();
             lime_qst_matrix(&g_stage.sc.palette[key->palette_index], mat);
             glMultMatrixf(mat);
             stage_draw_mesh(m);
             glPopMatrix();
         }
+
         glDepthMask(GL_TRUE);
         glDisable(GL_BLEND);
         glDisable(GL_ALPHA_TEST);
     }
 
     glPopMatrix();
+    glDisable(GL_CULL_FACE);
     glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
 
+    glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+    glDisableClientState(GL_VERTEX_ARRAY);
+}
+
+
+/* ------------------------------------------------------------- the mist
+ *
+ * **The stage's fog is a separate scene, instanced at spawn points.**
+ *
+ * Graveyard's `.scene` carries seven nodes named EVENT_gymist002..010 -- `gy
+ * mist`, graveyard mist. LIME_RenderScene refuses to draw anything whose mesh
+ * name begins EVENT, so on their own they are invisible markers; what they
+ * carry is a POSITION. Each is visible on exactly one frame of the visibility
+ * stream (frame 2), holds exactly one key, and its palette entry puts it at
+ * x=-10 with y from 39 to 191 and z from -122 to -1489 -- seven puffs at
+ * different heights and depths through the graveyard.
+ *
+ * What gets drawn there ships as its own file group: GYMIST1.meshset holds a
+ * single mesh, ALPHA_mist, 19 vertices and 8 triangles, textured
+ * ALPHA_GYMIST1; GYMIST1.scene animates it over 2,001 frames. The mesh name
+ * begins ALPHA, so it takes the blend-with-depth-writes-off path the engine
+ * selects by name.
+ *
+ * There is no glFog anywhere in the armv7 slice -- the binary imports no fog
+ * entry point at all -- and _SceneTint is (1,1,1). This is the atmosphere.
+ */
+#define MAX_MIST 32
+
+typedef struct {
+    LimeMeshSet ms;
+    LimeScene   sc;
+    GLuint      tex;
+    int         loaded;
+    float       pos[MAX_MIST][3];
+    int         count;
+} MistFx;
+
+static MistFx g_mist;
+
+/* How fast the mist's own 2,001-frame scene advances. A chosen tempo: the
+ * engine's rate comes from next_anirate, which is not decompiled. */
+static float g_mist_hz = 30.0f;
+
+static void mist_load(const char *res_dir)
+{
+    char path[1024];
+    int32_t n, f;
+
+    /* the spawn points, from the STAGE's scene */
+    for (n = 0; n < g_stage.sc.num_nodes && g_mist.count < MAX_MIST; n++) {
+        const LimeSceneNode *nd = &g_stage.sc.nodes[n];
+        if (!is_event_marker(nd->name)) continue;
+        if (!strstr(nd->name, "mist") && !strstr(nd->name, "MIST")) continue;
+        if (!nd->stream || !nd->keys) continue;
+
+        /* visible on one frame only, so scan for it rather than sampling 0 */
+        for (f = 0; f < g_stage.sc.num_frames; f++) {
+            if (nd->stream[f] == LIME_SCENE_HIDDEN) continue;
+            {
+                const LimeSceneKey *k = &nd->keys[nd->stream[f]];
+                const float *t;
+                if (k->palette_index >= g_stage.sc.palette_size) break;
+                t = g_stage.sc.palette[k->palette_index].translation;
+                g_mist.pos[g_mist.count][0] = t[0];
+                g_mist.pos[g_mist.count][1] = t[1];
+                g_mist.pos[g_mist.count][2] = t[2];
+                g_mist.count++;
+            }
+            break;
+        }
+    }
+    if (g_mist.count == 0) return;
+
+    snprintf(path, sizeof(path), "%s/GYMIST1.meshset", res_dir);
+    if (!lime_meshset_load(path, &g_mist.ms)) return;
+    snprintf(path, sizeof(path), "%s/GYMIST1.scene", res_dir);
+    if (!lime_scene_load(path, &g_mist.sc, stage_find_mesh, &g_mist.ms)) {
+        lime_meshset_free(&g_mist.ms);
+        return;
+    }
+    g_mist.tex = upload(res_dir, g_mist.ms.meshes[0].texture);
+    g_mist.loaded = 1;
+    printf("  mist: %d spawn points, %d frames, texture %s\n",
+           g_mist.count, g_mist.sc.num_frames,
+           g_mist.tex ? g_mist.ms.meshes[0].texture : "MISSING");
+}
+
+/* Drawn after the stage's own translucent pass, with the same state the ALPHA
+ * name rule selects: blended, depth writes off. */
+static void mist_draw(double now)
+{
+    int i;
+    int32_t n;
+    int frame;
+
+    if (!g_mist.loaded) return;
+
+    frame = (int)(now * (double)g_mist_hz);
+
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDepthMask(GL_FALSE);
+    glDisable(GL_ALPHA_TEST);
+    glDisable(GL_CULL_FACE);        /* a two-sided puff */
+
+    if (g_mist.tex) {
+        glEnable(GL_TEXTURE_2D);
+        glBindTexture(GL_TEXTURE_2D, g_mist.tex);
+    } else {
+        glDisable(GL_TEXTURE_2D);
+    }
+
+    for (n = 0; n < g_mist.sc.num_nodes; n++) {
+        const LimeSceneKey *key = lime_scene_key(&g_mist.sc, (int)n, frame);
+        const LimeMesh *m;
+        float mat[16];
+
+        if (!key || key->mesh_index == 0xFF ||
+            key->mesh_index >= g_mist.ms.num_meshes) continue;
+        if (key->palette_index >= g_mist.sc.palette_size) continue;
+        m = &g_mist.ms.meshes[key->mesh_index];
+        if (m->vert_count <= 0) continue;
+
+        lime_qst_matrix(&g_mist.sc.palette[key->palette_index], mat);
+        glColor4f(1.0f, 1.0f, 1.0f, key->alpha);
+
+        for (i = 0; i < g_mist.count; i++) {
+            glPushMatrix();
+            glTranslatef(g_mist.pos[i][0], g_mist.pos[i][1], g_mist.pos[i][2]);
+            glMultMatrixf(mat);
+            stage_draw_mesh(m);
+            glPopMatrix();
+        }
+    }
+
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
     glDisableClientState(GL_TEXTURE_COORD_ARRAY);
     glDisableClientState(GL_VERTEX_ARRAY);
 }
@@ -507,6 +757,9 @@ static void character_build(void)
 
 static void character_draw(int as_shadow, float ground_y)
 {
+    /* Interpolated: the per-vertex greys are the whole lighting model. */
+    glShadeModel(GL_SMOOTH);
+
     glEnableClientState(GL_VERTEX_ARRAY);
 
     if (as_shadow) {
@@ -620,6 +873,15 @@ int main(int argc, char **argv)
             g_stage_frame = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--orbit")) g_orbit = 1;
         else if (!strcmp(argv[i], "--list")) g_list = 1;
+        else if (!strcmp(argv[i], "--only") && i + 1 < argc)
+            g_only = argv[++i];
+        else if (!strcmp(argv[i], "--mist-hz") && i + 1 < argc)
+            g_mist_hz = (float)atof(argv[++i]);
+        else if (!strcmp(argv[i], "--no-mist")) g_mist_hz = -1.0f;
+        else if (!strcmp(argv[i], "--cam-eye") && i + 1 < argc)
+            g_cam_eye = (float)atof(argv[++i]);
+        else if (!strcmp(argv[i], "--cam-pitch") && i + 1 < argc)
+            g_cam_pitch = (float)atof(argv[++i]);
         else if (!strcmp(argv[i], "--cam-dist") && i + 1 < argc)
             g_cam_dist = (float)atof(argv[++i]);
         else if (argv[i][0] != '-') {
@@ -693,7 +955,6 @@ int main(int argc, char **argv)
     /* GL_FLAT, not GL's default GL_SMOOTH. docs/ENCARGO.md records this as a
      * real difference: leaving the default gives softer shading everywhere
      * than the original produces. */
-    glShadeModel(GL_FLAT);
     glClearColor(0.05f, 0.05f, 0.07f, 1.0f);
 
     t0 = plat_time();
@@ -764,15 +1025,17 @@ int main(int argc, char **argv)
              * the screen.
              */
             float height = hi[1] - lo[1];
-            float dist   = height * 1.95f * g_cam_dist;
-            float eye_y  = lo[1] + 0.55f * height;
+            float dist   = height * g_cam_far * g_cam_dist;
+            float eye_y  = lo[1] + g_cam_eye * height;
 
             glTranslatef(0.0f, 0.0f, -dist);
+            glRotatef(g_cam_pitch, 1.0f, 0.0f, 0.0f);
             glTranslatef(-centre[0], -eye_y, -centre[2]);
         }
         (void)ang;
 
         stage_draw(g_stage_frame);
+        mist_draw(now);
         character_draw(1, lo[1]);       /* the dressing shadow, see the header */
         character_draw(0, 0.0f);
 
@@ -790,6 +1053,7 @@ int main(int argc, char **argv)
     lime_bones_free(&g_sk);
     lime_skin_free(&g_skin);
     lime_anim_free(&g_anim);
+    if (g_mist.loaded) { lime_scene_free(&g_mist.sc); lime_meshset_free(&g_mist.ms); }
     if (g_stage.has_scene) lime_scene_free(&g_stage.sc);
     if (g_stage.loaded) lime_meshset_free(&g_stage.ms);
     free(g_pos); free(g_lit); free(g_vb); free(g_tb); free(g_cb);
