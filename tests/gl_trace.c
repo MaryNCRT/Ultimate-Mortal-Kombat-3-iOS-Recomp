@@ -55,9 +55,10 @@ static void set(glt_rec *r, int i, uint32_t v, int kind)
 }
 
 /* A matrix argument: copy the sixteen floats so the POINTED-AT value is what
- * gets compared, not the pointer. `host` selects which memory to read. */
-/* Two entry points on purpose. An earlier single function took the address as
- * a uint32_t for both sides, which TRUNCATED the clean side 64-bit host
+ * gets compared, not the pointer.
+ *
+ * Two entry points on purpose. An earlier single function took the address as
+ * a uint32_t for both sides, which TRUNCATED the clean side's 64-bit host
  * pointer and then dereferenced the result -- a segfault, not a divergence,
  * and it cost a debugging round. A guest address is four bytes and a host
  * pointer is eight; one parameter cannot be both. */

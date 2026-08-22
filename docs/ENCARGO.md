@@ -28,19 +28,19 @@ were not merely untested -- they were **wrong**, starting with their argument
 lists. Ten measured defects, written up in
 [RENDERSCENE-SIGNATURE.md](RENDERSCENE-SIGNATURE.md).
 
- drives both against the oracle and compares
+`tests/test_renderscene_gl_diff.c` drives both against the oracle and compares
 the GL call stream: **21 of 29 cases match exactly**. The eight that do not
 diverge **inside LIME_RenderMesh** -- first mismatch at call 5, 11, 28 or 32,
-always a client-state or pointer call that  never makes
+always a client-state or pointer call that `LIME_RenderScene` never makes
 itself. The walk, the gates, the deferral and the flush ordering all agree.
 
-**So the next target is .** Its own test compares mesh
+**So the next target is `decomp/lime/RenderMesh.c`.** Its own test compares mesh
 LOADING, not GL, which is why a divergent draw stream sat there unnoticed. The
-instrument already exists -- point  at it.
+instrument already exists -- point `tests/gl_trace.c` at it.
 
 The enum-pairing problem this file used to describe as needing register liveness
-tracking **is solved and never needed it.** recomp.py emits every import as
-, so the register file at the instant of each
+tracking **is solved and never needed it.** `recomp.py` emits every import as
+`stub_auto_glXxx(arm_ctx *ctx)`, so the register file at the instant of each
 call is simply available. Measure, do not infer.
 
 ---
