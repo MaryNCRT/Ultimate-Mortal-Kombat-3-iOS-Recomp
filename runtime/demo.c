@@ -109,27 +109,42 @@ static int g_orbit = 0;
  * framing; larger pulls back to show more of the arena. */
 static float g_cam_dist = 1.0f;
 
-/* The gameplay camera, as multiples of the fighter's height, plus a downward
- * tilt in degrees.
+/* **The field of view is 25 degrees, and it is read out of the binary.**
  *
- * **A solved fit was tried and thrown away.** Three points read off a retail
- * screenshot -- feet at 83% of frame height, head at 22%, far edge of the
- * cobbles at 65% -- give three equations for distance, eye height and pitch,
- * and they solve exactly: distance 1.76, eye 1.07, pitch 16.05 degrees. The
- * exactness is the problem. Three unknowns from three equations always fit,
- * so the residual of zero validates nothing, and the answer put the camera
- * above the fighter's head looking down at him -- visibly not the game.
- * Hand-read pixel positions off a compressed capture with a HUD over it are
- * not worth three significant figures.
+ * LIMEDS_Set3dMode is the ONLY caller of CreatePerspectiveMatrix in the armv7
+ * slice, and it loads its arguments as literals:
  *
- * So these are the level-camera numbers, which are checkable: with a 45 degree
- * vertical field of view the frame is 0.8284*d tall, so framing the body at
- * about 62% of it needs d = 1.95*height, and an eye at 0.55*height above the
- * feet puts the feet near 15% up from the bottom. A 2D fighter's camera is
- * level; pitch stays at zero until there is a reference good enough to say
- * otherwise. --cam-eye and --cam-pitch override. */
-static float g_cam_far   = 1.95f;
-static float g_cam_eye   = 0.55f;
+ *      0x5d966  ldr r2, =0x3f19999a      ; 0.6   -> _ratio, and the aspect
+ *      0x5d96c  ldr r1, =0x3edf66e7      ; 0.436332 rad = 25.0000 degrees
+ *      0x5d972  ldr r3, =0x43c80000      ; 400.0 -> far, pushed at [sp]
+ *      0x5d978  mov r3, #0x3f800000      ; 1.0   -> near
+ *      0x5d97c  bl  _CreatePerspectiveMatrix
+ *
+ * and CreatePerspectiveMatrix computes sin(f)/(1-cos(f)) = cot(f/2) into m[5],
+ * which is what gluPerspective puts there for a FULL vertical fov. So 25
+ * degrees, not the 45 this demo had been using.
+ *
+ * That single number was the "background is too small" complaint: 45 degrees
+ * makes everything behind the fighter 1.87x smaller relative to him, because a
+ * wider lens spreads the same world over more frame. Nothing was misplaced.
+ *
+ * **The near/far pair is NOT used here and that is an open question.** The
+ * engine passes 1.0 and 400.0, and Graveyard's own geometry reaches 28,629
+ * units -- its moon alone sits at z = -27,483. A 400-unit far plane cannot draw
+ * this stage as the files describe it, so something scales the world before it
+ * reaches the projection and this port has not found it. The demo derives its
+ * far plane from the stage instead and says so.
+ *
+ * The distance and eye height ARE fitted, but honestly this time: two points
+ * off a retail frame -- feet at 95% of frame height, head at 28% -- give
+ * distance 3.30 and eye 0.66, and those then PREDICT the far edge of the
+ * cobbles at 86.6% where the frame shows 83%. Fitted on two, checked against a
+ * third it never saw. The earlier attempt solved three unknowns from three
+ * points, fit exactly, validated nothing and was wrong. */
+#define GAME_FOV_DEGREES 25.0f
+
+static float g_cam_far   = 3.30f;
+static float g_cam_eye   = 0.66f;
 static float g_cam_pitch = 0.0f;
 
 /* --list: report what every scene node resolved to. */
@@ -1023,7 +1038,8 @@ int main(int argc, char **argv)
              * plane, and one number cannot serve both. */
             float zfar = radius * 60.0f;
             if (g_stage_reach * 1.2f > zfar) zfar = g_stage_reach * 1.2f;
-            perspective(45.0f, (float)w / (float)h, radius * 0.2f, zfar);
+            perspective(GAME_FOV_DEGREES, (float)w / (float)h,
+                        radius * 0.2f, zfar);
         }
 
         glMatrixMode(GL_MODELVIEW);
