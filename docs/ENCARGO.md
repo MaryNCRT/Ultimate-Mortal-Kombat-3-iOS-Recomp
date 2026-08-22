@@ -17,9 +17,9 @@ A short, specific work order for whoever takes this on next. Read
 | `RenderSkinned.cpp` | 18,780 cases |
 | `Events.cpp` | 2,224 cases |
 | `limeFont.cpp` | 896 cases |
-| `RenderScene.cpp` | 80 cases — **helpers only** |
+| `RenderScene.cpp` | 80 helper cases + 29 GL-stream cases |
 | `DS_DebugWin.c` | 58 cases |
-| `RenderMesh.cpp` | 590 files, 7,327 meshes |
+| `RenderMesh.cpp` | 590 files, 7,327 meshes + 193 GL-stream cases |
 
 Zero divergences throughout. 103,907 synthetic cases plus real game data.
 
@@ -98,22 +98,20 @@ the function could be wrong**, not at random.
 wrong thing is still wrong. `tests/test_events_diff.c` checks directly that a
 killed event takes *two* frames to free, not merely that both sides do the same.
 
-### The next test is the one this batch could not write
+### The test this section used to say could not be written
 
-Two things would close `RenderScene.cpp` properly:
+It is written, and both halves of it. `tests/gl_trace.c` records the GL call
+stream from either side of the comparison; `test_renderscene_gl_diff` and
+`test_rendermesh_gl_diff` drive the renderers and the mesh draw against it.
 
-1. **A scene built by hand in guest memory** — the two-level animation table
-   (`nodeKeys` at `+0x88`, `nodeStream` at `+0x8c`), a meshset, and a palette.
-   The pieces are all documented; nobody has assembled one.
-2. **Pairing each GL enum with the call that consumes it.** The enums themselves
-   are readable -- `tools/annotate.py` resolves the literal pools and they come
-   out as clean GL constants. What is not readable is which call takes which,
-   because the compiler interleaves the loads: a `GL_VERTEX_ARRAY` sits directly
-   before a `glClientActiveTexture` that cannot take it. Resolving this means
-   tracking register liveness, not reading more literals.
+The scene is built by hand in guest memory -- the two-level animation table
+(`nodeKeys` at `+0x88`, `nodeStream` at `+0x8c`), a meshset, a palette, and
+real geometry. **Put a test's arena above `0x00600000`**: the first version sat
+at `0x00300000`, inside the loaded slice's own data, and quietly overwrote the
+engine's globals with its palette.
 
-Until then that file is honestly labelled "helpers only" in every table that
-mentions it, and the renderer bodies stay marked *structural*.
+And the enum pairing needed no liveness analysis at all -- see the top of this
+file.
 
 ---
 
