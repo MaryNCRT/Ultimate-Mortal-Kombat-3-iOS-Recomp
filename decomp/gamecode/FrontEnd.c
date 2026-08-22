@@ -23,6 +23,22 @@ extern char Stats[0x98];                /* 0x00183c84 */
 /* Reached through a pointer slot at 0x000f3608 holding its address. */
 extern int CurrentTask;                 /* 0x00150590 */
 
+/* Menu tables, each terminated by -1. Only their addresses matter here. */
+extern int Menu_Task_Rematch[], Menu_Task_Lobby[], Menu_Task_Wifi_Bluetooth[];
+extern int Menu_Task_Credits[], Menu_Task_About_Terms_of_Service[];
+extern int Menu_Task_About_Privacy_Policy[], Menu_Task_About_Eula[];
+extern int Menu_Task_Manage_Profile[], Menu_Task_Get_More_Games[];
+
+extern int   lastTimerTimestamp;        /* 0x000ff8d8 */
+extern float vsScreenTimer;             /* 0x000ff8dc */
+
+int  BasicMenuWithWidth(int *menu, int width);
+void PopFETaskDeferred(void);
+
+int  getMenuItemNum(const int *menu);
+int  BasicMenu(int *menu);
+void resetCountersBeforeMP(void);
+
 void PushFETaskDeferred(int task);
 
 void switchToTask(int task);
@@ -171,4 +187,150 @@ void switchToTask(int task)
 void switchToFETask(int task)
 {
     PushFETaskDeferred(task);
+}
+
+
+/* ---------------------------------------------------------- getMenuItemNum
+ *
+ * armv7 0x00002fe4, 32 bytes.  `__Z14getMenuItemNumPi`
+ *
+ *      ldr   r3, [r0] ; cmp r3, #-1 ; beq empty
+ *      movs  r0, #0
+ *  L:  adds  r0, #1
+ *      ldr.w r3, [r2, r0, lsl #2]
+ *      cmp   r3, #-1 ; bne L
+ *
+ * How many entries a menu table has, counted to a **-1 terminator**. The empty
+ * case is handled before the loop rather than by it, which is why an empty
+ * table returns 0 and not 1: the loop increments before it reads, so entering
+ * it at all already claims one entry exists.
+ *
+ * The terminator is -1 and not 0. A menu item numbered 0 is perfectly legal.
+ */
+int getMenuItemNum(const int *menu)
+{
+    int n;
+
+    if (menu[0] == -1)
+        return 0;
+
+    n = 0;
+    do {
+        n++;
+    } while (menu[n] != -1);
+
+    return n;
+}
+
+
+/* ---------------------------------------------------- resetCountersBeforeMP
+ *
+ * armv7 0x000030a0, 32 bytes.
+ *
+ * Two stores to two adjacent globals, and the second is a FLOAT: the literal
+ * 0x44160000 is 600.0f. Written as a float rather than as the word, because
+ * `vsScreenTimer = 0x44160000` and `vsScreenTimer = 600.0f` are the same bytes
+ * and only one of them says what the code means.
+ */
+void resetCountersBeforeMP(void)
+{
+    lastTimerTimestamp = 0;
+    vsScreenTimer = 600.0f;
+}
+
+
+/* ---------------------------------------------------------------- BasicMenu
+ *
+ * armv7 0x0000ebb8, 16 bytes.  `__Z9BasicMenuPi`
+ *
+ * `BasicMenuWithWidth(menu, 0x120)` and nothing else. 0x120 is 288, and every
+ * front-end menu that does not ask for its own width gets that one.
+ */
+int BasicMenu(int *menu)
+{
+    return BasicMenuWithWidth(menu, 0x120);
+}
+
+
+/* ------------------------------------------------------- the menu tasks
+ *
+ * armv7 0x0000ebc8 onward, 28 bytes each, nine of them. Every one is the same
+ * four lines with a different table:
+ *
+ *      ldr  r0, [pc, #0x10] ; add r0, pc     ; -> Menu_Task_<name>
+ *      bl   __Z9BasicMenuPi
+ *      cmp  r0, #1 ; bne out
+ *      bl   _PopFETaskDeferred
+ *
+ * **Only a return of exactly 1 pops the task.** Not non-zero -- one. Whatever
+ * else BasicMenu can return leaves the menu on the stack, and writing this as
+ * `if (BasicMenu(...))` would close every menu on any other outcome.
+ *
+ * The pop is DEFERRED, matching `switchToFETask` above: the front end never
+ * changes its own task stack in the middle of handling one.
+ *
+ * These are written out one by one rather than generated. They are separate
+ * symbols in the binary with separate addresses, and collapsing them into a
+ * loop over `Menu_Task_*` would be this project inventing a structure the
+ * original does not have.
+ *
+ * A macro was tried first and both tools rejected it, which was the right
+ * answer for a reason worth recording: `symcheck` saw the macro parameter as
+ * a call to a function named `name` and reported it NOT IN BINARY, and
+ * `tools/progress.py` could not see the nine definitions at all and counted
+ * them as undone. A generated body is invisible to anything that reads the
+ * source as text, and both of this project's gates do exactly that.
+ */
+void FE_Task_Rematch(void)
+{
+    if (BasicMenu(Menu_Task_Rematch) == 1)
+        PopFETaskDeferred();
+}
+
+void FE_Task_Lobby(void)
+{
+    if (BasicMenu(Menu_Task_Lobby) == 1)
+        PopFETaskDeferred();
+}
+
+void FE_Task_Wifi_Bluetooth(void)
+{
+    if (BasicMenu(Menu_Task_Wifi_Bluetooth) == 1)
+        PopFETaskDeferred();
+}
+
+void FE_Task_Credits(void)
+{
+    if (BasicMenu(Menu_Task_Credits) == 1)
+        PopFETaskDeferred();
+}
+
+void FE_Task_About_Terms_of_Service(void)
+{
+    if (BasicMenu(Menu_Task_About_Terms_of_Service) == 1)
+        PopFETaskDeferred();
+}
+
+void FE_Task_About_Privacy_Policy(void)
+{
+    if (BasicMenu(Menu_Task_About_Privacy_Policy) == 1)
+        PopFETaskDeferred();
+}
+
+void FE_Task_About_Eula(void)
+{
+    if (BasicMenu(Menu_Task_About_Eula) == 1)
+        PopFETaskDeferred();
+}
+
+void FE_Task_Manage_Profile(void)
+{
+    if (BasicMenu(Menu_Task_Manage_Profile) == 1)
+        PopFETaskDeferred();
+}
+
+void FE_Task_Get_More_Games(void)
+{
+    if (BasicMenu(Menu_Task_Get_More_Games) == 1)
+        PopFETaskDeferred();
 }

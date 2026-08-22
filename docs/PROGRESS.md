@@ -20,18 +20,18 @@ Current state of the project. Written so that someone can pick it up with no pri
 ## Overall progress
 
 ```
-██████████████░░░░░░░░░░░░░░░░░░░░░░░░░░  35.04%
+██████████████░░░░░░░░░░░░░░░░░░░░░░░░░░  35.90%
 ```
 
-**35.04% of the total estimated effort. Nothing is playable yet.**
+**35.90% of the total estimated effort. Nothing is playable yet.**
 
 Weights are our judgement of how much of the total each area represents. The
 three decompilation figures are **measured from the tree** by
 `tools/progress.py` on every run; the other five are estimates a person
 maintains. Two numbers are worth keeping apart:
 
-- **35.04%** — share of the *whole project*, counting analysis, tooling and formats.
-- **5.2%** — share of the *decompilation itself*: 133 finished functions of 2,572.
+- **35.90%** — share of the *whole project*, counting analysis, tooling and formats.
+- **5.7%** — share of the *decompilation itself*: 147 finished functions of 2,572.
 
 Both are true. The first says the foundations are in place and the engine core is
 done; the second says the fight engine has barely been touched.
@@ -42,7 +42,7 @@ done; the second says the fight engine has barely been touched.
 | Tooling and the verification oracle | 8% | 100% | `██████████` |
 | Asset format specifications | 8% | 100% | `██████████` |
 | `lime/common` — engine core (109 fn) | 12% | **100%** | `██████████` |
-| `gamecode` — game logic (291 fn) | 18% | 7.22% (21) | `█░░░░░░░░░` |
+| `gamecode` — game logic (291 fn) | 18% | 12.03% (35) | `█░░░░░░░░░` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | 0.14% (3) | `░░░░░░░░░░` |
 | Native PC platform layer (161 fn to rewrite) | 17% | 10% | `█░░░░░░░░░` |
 | EA SDK stubs (~1,412 fn) | 5% | 0% | `░░░░░░░░░░` |
@@ -83,11 +83,11 @@ any of the port is written.
 | 4 — Decompile `lime/common` | ✅ **complete — 109/109, every file verified** |
 | 5 — Native PC platform layer | ⬜ not started |
 | 6 — EA SDK stubs | ⬜ not started (scope reduced, see below) |
-| 7 — Decompile `gamecode` | 🔄 21/291, every one verified |
+| 7 — Decompile `gamecode` | 🔄 35/291, every one verified |
 | 8 — Decompile fight logic | 🔄 3/2,172 — `SwitchQueue`, `isp2`, `gup2` |
 | 9 — Widescreen, gamepad, mods | ⬜ not started |
 
-**Honest framing:** 133 of 2,572 functions are done, which is 5.2%. The
+**Honest framing:** 147 of 2,572 functions are done, which is 5.7%. The
 percentage is not the interesting number — the pipeline that produced them is,
 and it now finds bugs on its own.
 
@@ -121,13 +121,14 @@ are where the next person should look.
 
 ## Module status — `gamecode`
 
-**21 of 291, every one verified.** Plus 3 of 2,172 in `gamecode/logic`.
+**35 of 291, every one verified.** Plus 3 of 2,172 in `gamecode/logic`.
 
 | file | done | total | test | checks |
 |---|---:|---:|---|---:|
-| `GameCode.cpp` | 8 | 79 | `test_gamecode_diff` | 41 |
-| `FrontEnd.cpp` | 7 | 126 | `test_frontend_diff`, `test_text_diff` | 84 + part |
+| `GameCode.cpp` | 9 | 79 | `test_gamecode_diff`, `test_gamecode3_diff` | 41 + part |
+| `FrontEnd.cpp` | 19 | 126 | `test_frontend_diff`, `test_text_diff`, `test_gamecode3_diff` | 84 + 328 |
 | `text.cpp` | 3 | 18 | `test_text_diff` | 273 total |
+| `achievements.cpp` | 1 | 12 | `test_gamecode3_diff` | 328 total |
 | `Particles.cpp` | 1 | 5 | `test_gamecode2_diff` | 158 total |
 | `Players.cpp` | 1 | 28 | `test_gamecode2_diff` | |
 | `sound.cpp` | 1 | 8 | `test_gamecode2_diff` | |
