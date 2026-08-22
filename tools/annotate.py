@@ -40,6 +40,18 @@ only the first is a fact about the variable; the second means the address fell
 between two symbols and the nearest preceding one is being reported. Near
 matches are marked `(near)` and should be treated as a hint, not a name.
 
+## A gap, stated rather than hidden
+
+It does not carry a literal across a register copy. `areAchievementsViewing`
+loads its base into r1 once and does `mov r3, r1 ; add r3, pc` inside the loop,
+so its address does not resolve and has to be worked out by hand -- the exact
+thing this tool exists to avoid. An attempt at it did not fire and was removed
+rather than left in place looking as though it worked; a tool that silently
+resolves some cases and not others is worse than one with a known limit.
+
+The shape to look for: an `add rN, pc` whose register was last written by a
+`mov` rather than by an `ldr [pc, ...]`.
+
 ## One thing this tool still cannot do for you
 
 It annotates each instruction where it stands. It does **not** pair a literal
