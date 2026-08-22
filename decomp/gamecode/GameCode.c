@@ -37,6 +37,14 @@ typedef struct GAMESTATE {
 } GAMESTATE;
 extern GAMESTATE *G;                    /* 0x0038c1fc */
 
+/* Only the two fields JadeStomachShaker reads are named. */
+typedef struct PLAYER {
+    uint32_t field00;                   /* 0x00  must be 0x10 */
+    uint8_t  _pad04[0x10];
+    uint32_t field14;                   /* 0x14  must land in 0x23..0x29 */
+} PLAYER;
+
+int  JadeStomachShaker(PLAYER *p);
 void DeviceRenderSettings(void);
 int  getTransferableFlags(void);
 
@@ -165,4 +173,40 @@ void DeviceRenderSettings(void)
 int getTransferableFlags(void)
 {
     return (G->field44e != 0) ? 1 : 0;
+}
+
+
+/* --------------------------------------------------- JadeStomachShaker
+ *
+ * armv7 0x0001c64c, 24 bytes.  `__Z17JadeStomachShakerP6PLAYER`
+ *
+ *      ldr  r3, [r0]        ; cmp r3, #0x10 ; bne -> return 0
+ *      ldr  r0, [r0, #0x14]
+ *      subs r0, #0x23
+ *      cmp  r0, #6
+ *      ite  hi ; movhi r0, #0 ; movls r0, #1
+ *
+ * Two gates: the field at +0x00 must be exactly 0x10, and then +0x14 must fall
+ * in **0x23..0x29 inclusive**.
+ *
+ * The range test is the subtract-and-compare-unsigned idiom, and the bound is
+ * inclusive because the predicate is `ls` and not `lo`. Writing `< 6` instead
+ * of `<= 6` loses the last value in the range -- one character state out of
+ * seven, which is exactly the kind of thing that ships.
+ *
+ * Unsigned also matters: a value below 0x23 wraps to something enormous rather
+ * than going negative, so the single comparison catches both ends. A signed
+ * version would let everything under 0x23 through.
+ *
+ * Another `ite`, so another small check that the IT-block flag fix holds.
+ */
+int JadeStomachShaker(PLAYER *p)
+{
+    unsigned d;
+
+    if (p->field00 != 0x10)
+        return 0;
+
+    d = (unsigned)p->field14 - 0x23u;
+    return (d <= 6u) ? 1 : 0;
 }
