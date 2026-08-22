@@ -39,6 +39,7 @@
 #include "platform/gl.h"
 #include "lime/meshset.h"
 #include "lime/scene.h"
+#include "lime/events.h"
 #include "lime/skin.h"
 #include "lime/light.h"
 #include "lime/pvr.h"
@@ -138,6 +139,9 @@ static int g_list = 0;
  * inspection aid -- telling "this surface is black" from "there is no surface
  * here" is otherwise guesswork. */
 static const char *g_only = NULL;
+
+/* The stage's file stem, for its sibling `.events`. */
+static const char *g_stage_name = "";
 
 /* How far the stage actually reaches, in world units, measured at load.
  *
@@ -271,6 +275,7 @@ static int stage_load(const char *res_dir, const char *name)
     }
 
     g_stage.loaded = 1;
+    g_stage_name = name;
     if (g_stage.has_scene) mist_load(res_dir);
     printf("  stage: %s, %d meshes", name, g_stage.ms.num_meshes);
     if (g_stage.has_scene)
@@ -578,7 +583,7 @@ typedef struct {
     LimeScene   sc;
     GLuint      tex;
     int         loaded;
-    float       pos[MAX_MIST][3];
+    float       xform[MAX_MIST][16];    /* one per instance, from `.events` */
     int         count;
 } MistFx;
 
@@ -591,44 +596,57 @@ static float g_mist_hz = 30.0f;
 static void mist_load(const char *res_dir)
 {
     char path[1024];
-    int32_t n, f;
+    LimeEvents ev;
+    int32_t i;
+    char stem[128];
+    size_t n;
 
-    /* the spawn points, from the STAGE's scene */
-    for (n = 0; n < g_stage.sc.num_nodes && g_mist.count < MAX_MIST; n++) {
-        const LimeSceneNode *nd = &g_stage.sc.nodes[n];
-        if (!is_event_marker(nd->name)) continue;
-        if (!strstr(nd->name, "mist") && !strstr(nd->name, "MIST")) continue;
-        if (!nd->stream || !nd->keys) continue;
+    /* **The instances come from the `.events` file, not from the markers.**
+     *
+     * The stage's EVENT_gymist* scene nodes give the seven positions, and they
+     * agree with this file to the last digit -- which is what makes either one
+     * trustworthy. But `.events` carries more than a position: each track holds
+     * a 3x3 and a translation in 12.12 fixed point, and the 3x3 is NOT the
+     * identity. The Y scales run 0.93, 0.69, 0.64, 0.55, 0.36 and two tracks
+     * carry a NEGATIVE X.
+     *
+     * That is the difference between one uniform sheet of fog and what the
+     * game actually shows: seven bands of different thickness, two of them
+     * mirrored so they drift the other way. Placing the instances by
+     * translation alone -- which this demo did first -- stacks seven identical
+     * bands on top of each other and looks like a grey wash. */
+    snprintf(path, sizeof(path), "%s/%s.events", res_dir, g_stage_name);
+    if (!lime_events_load(path, &ev)) return;
 
-        /* visible on one frame only, so scan for it rather than sampling 0 */
-        for (f = 0; f < g_stage.sc.num_frames; f++) {
-            if (nd->stream[f] == LIME_SCENE_HIDDEN) continue;
-            {
-                const LimeSceneKey *k = &nd->keys[nd->stream[f]];
-                const float *t;
-                if (k->palette_index >= g_stage.sc.palette_size) break;
-                t = g_stage.sc.palette[k->palette_index].translation;
-                g_mist.pos[g_mist.count][0] = t[0];
-                g_mist.pos[g_mist.count][1] = t[1];
-                g_mist.pos[g_mist.count][2] = t[2];
-                g_mist.count++;
-            }
-            break;
-        }
+    for (i = 0; i < ev.count && g_mist.count < MAX_MIST; i++) {
+        if (!ev.tracks[i].name[0]) continue;
+        lime_event_matrix(&ev.tracks[i], g_mist.xform[g_mist.count]);
+        g_mist.count++;
     }
-    if (g_mist.count == 0) return;
+    if (g_mist.count == 0) { lime_events_free(&ev); return; }
 
-    snprintf(path, sizeof(path), "%s/GYMIST1.meshset", res_dir);
-    if (!lime_meshset_load(path, &g_mist.ms)) return;
-    snprintf(path, sizeof(path), "%s/GYMIST1.scene", res_dir);
+    /* The track name is the effect's file group, upper-cased. */
+    n = strlen(ev.tracks[0].name);
+    if (n >= sizeof(stem)) n = sizeof(stem) - 1;
+    for (i = 0; i < (int32_t)n; i++) {
+        char c = ev.tracks[0].name[i];
+        stem[i] = (c >= 'a' && c <= 'z') ? (char)(c - 'a' + 'A') : c;
+    }
+    stem[n] = '\0';
+    lime_events_free(&ev);
+
+    snprintf(path, sizeof(path), "%s/%s.meshset", res_dir, stem);
+    if (!lime_meshset_load(path, &g_mist.ms)) { g_mist.count = 0; return; }
+    snprintf(path, sizeof(path), "%s/%s.scene", res_dir, stem);
     if (!lime_scene_load(path, &g_mist.sc, stage_find_mesh, &g_mist.ms)) {
         lime_meshset_free(&g_mist.ms);
+        g_mist.count = 0;
         return;
     }
     g_mist.tex = upload(res_dir, g_mist.ms.meshes[0].texture);
     g_mist.loaded = 1;
-    printf("  mist: %d spawn points, %d frames, texture %s\n",
-           g_mist.count, g_mist.sc.num_frames,
+    printf("  effect: %s x%d instances, %d frames, texture %s\n",
+           stem, g_mist.count, g_mist.sc.num_frames,
            g_mist.tex ? g_mist.ms.meshes[0].texture : "MISSING");
 }
 
@@ -675,8 +693,8 @@ static void mist_draw(double now)
 
         for (i = 0; i < g_mist.count; i++) {
             glPushMatrix();
-            glTranslatef(g_mist.pos[i][0], g_mist.pos[i][1], g_mist.pos[i][2]);
-            glMultMatrixf(mat);
+            glMultMatrixf(g_mist.xform[i]);   /* the instance, from `.events` */
+            glMultMatrixf(mat);               /* its own animated QST */
             stage_draw_mesh(m);
             glPopMatrix();
         }
