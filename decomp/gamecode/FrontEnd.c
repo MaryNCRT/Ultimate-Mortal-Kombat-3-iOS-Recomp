@@ -10,10 +10,18 @@
  */
 
 #include <stdint.h>
+#include <string.h>
 
 /* Both live in the slice's data and both hold 1.0f as shipped. */
 extern float FE_WidthScale;             /* 0x000ff9b8 */
 extern float FE_HeightScale;            /* 0x000ff9bc */
+
+/* Ten words as far as resetKodeSelector reaches; it writes six of them. */
+extern int  KodeSelector[10];           /* 0x000ff8f8 */
+extern char Stats[0x98];                /* 0x00183c84 */
+
+void resetKodeSelector(void);
+void Reset_Stats(void);
 
 float FE_X(float v);
 float FE_W(float v);
@@ -65,4 +73,50 @@ float FE_W(float v)
 float FE_H(float v)
 {
     return v * FE_HeightScale;
+}
+
+
+/* ------------------------------------------------------- resetKodeSelector
+ *
+ * armv7 0x00002f04, 24 bytes.
+ *
+ *      str r2, [r3]      ; +0x00
+ *      str r2, [r3, #4]  ; +0x04
+ *      str r2, [r3, #8]  ; +0x08
+ *      str r2, [r3, #0x1c]
+ *      str r2, [r3, #0x20]
+ *      str r2, [r3, #0x24]
+ *
+ * **Six words with a hole in the middle.** 0x0c through 0x18 are deliberately
+ * left alone, so this is not "clear the struct" -- it is two groups of three,
+ * and whatever sits between them survives a reset.
+ *
+ * A memset over 0x28 bytes would look tidier, pass any test that only asked
+ * about the six, and quietly wipe the four in the gap.
+ */
+void resetKodeSelector(void)
+{
+    KodeSelector[0] = 0;                /* 0x00 */
+    KodeSelector[1] = 0;                /* 0x04 */
+    KodeSelector[2] = 0;                /* 0x08 */
+    /* 0x0c .. 0x18 untouched */
+    KodeSelector[7] = 0;                /* 0x1c */
+    KodeSelector[8] = 0;                /* 0x20 */
+    KodeSelector[9] = 0;                /* 0x24 */
+}
+
+
+/* ------------------------------------------------------------- Reset_Stats
+ *
+ * armv7 0x00013120, 24 bytes.
+ *
+ *      ldr r0, [pc, #0xc] ; movs r1, #0 ; movs r2, #0x98 ; add r0, pc
+ *      blx _memset
+ *
+ * 0x98 bytes at `_Stats`, and here a memset IS what the original does -- which
+ * is worth saying next to resetKodeSelector above, where it is not.
+ */
+void Reset_Stats(void)
+{
+    memset(Stats, 0, 0x98);
 }
