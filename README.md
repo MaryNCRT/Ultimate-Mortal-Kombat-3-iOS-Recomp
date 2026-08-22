@@ -122,7 +122,7 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ## Overall progress
 
 ```
-███████████████░░░░░░░░░░░░░░░░░░░░░░░░░  35%
+██████████████░░░░░░░░░░░░░░░░░░░░░░░░░░  35.04%
 ```
 
 | Area | Weight | Done | |
@@ -131,12 +131,25 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 | Tooling and the verification oracle | 8% | 100% | `██████████` |
 | Asset format specifications | 8% | 100% | `██████████` |
 | `lime/common` — engine core (109 fn) | 12% | **100%** | `██████████` |
-| `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
-| `gamecode/logic` — fight engine (2,172 fn) | 28% | 4% | `░░░░░░░░░░` |
+| `gamecode` — game logic (291 fn) | 18% | 7.22% (21) | `█░░░░░░░░░` |
+| `gamecode/logic` — fight engine (2,172 fn) | 28% | 0.14% (3) | `░░░░░░░░░░` |
 | Native PC platform layer (161 fn to rewrite) | 17% | 10% | `█░░░░░░░░░` |
 | EA SDK stubs (~1,412 fn) | 5% | 0% | `░░░░░░░░░░` |
 
-**Roughly 35% of the total estimated effort. Nothing is playable yet.**
+**35.04% of the total estimated effort. Nothing is playable yet.**
+
+**The middle three rows are counted, the rest are estimates.** `tools/progress.py`
+reads the tree on every run for `lime/common`, `gamecode` and `gamecode/logic`;
+the other five are judgement calls a person maintains.
+
+Those three used to be hardcoded in the script too, and it showed: `gamecode`
+sat at 0% and `gamecode/logic` at 4% long after both had verified bodies
+committed. The overall figure it produced was 34.82% against a true 35.04% —
+**right to within a fifth of a percent by accident**, because one number was
+too low by seven points and the other too high by four, and the weights nearly
+cancelled them. A progress script that needs editing by hand to reflect
+progress will be wrong; that it was wrong in a flattering-looking direction is
+what made it survive.
 
 **Why the foundational areas count for something.** The first three rows are
 finished, and they are what makes the rest tractable: the source tree is

@@ -20,17 +20,18 @@ Current state of the project. Written so that someone can pick it up with no pri
 ## Overall progress
 
 ```
-███████████████░░░░░░░░░░░░░░░░░░░░░░░░░  35%
+██████████████░░░░░░░░░░░░░░░░░░░░░░░░░░  35.04%
 ```
 
-**≈35% of the total estimated effort. Nothing is playable yet.**
+**35.04% of the total estimated effort. Nothing is playable yet.**
 
-Weights are our judgement of how much of the total each area represents; the
-completion figures are measured by `tools/progress.py`. Two numbers are worth
-keeping apart:
+Weights are our judgement of how much of the total each area represents. The
+three decompilation figures are **measured from the tree** by
+`tools/progress.py` on every run; the other five are estimates a person
+maintains. Two numbers are worth keeping apart:
 
-- **35%** — share of the *whole project*, counting analysis, tooling and formats.
-- **4.2%** — share of the *decompilation itself*: 109 finished functions of 2,572.
+- **35.04%** — share of the *whole project*, counting analysis, tooling and formats.
+- **5.2%** — share of the *decompilation itself*: 133 finished functions of 2,572.
 
 Both are true. The first says the foundations are in place and the engine core is
 done; the second says the fight engine has barely been touched.
@@ -41,8 +42,8 @@ done; the second says the fight engine has barely been touched.
 | Tooling and the verification oracle | 8% | 100% | `██████████` |
 | Asset format specifications | 8% | 100% | `██████████` |
 | `lime/common` — engine core (109 fn) | 12% | **100%** | `██████████` |
-| `gamecode` — game logic (291 fn) | 18% | 0% | `░░░░░░░░░░` |
-| `gamecode/logic` — fight engine (2,172 fn) | 28% | 4% | `░░░░░░░░░░` |
+| `gamecode` — game logic (291 fn) | 18% | 7.22% (21) | `█░░░░░░░░░` |
+| `gamecode/logic` — fight engine (2,172 fn) | 28% | 0.14% (3) | `░░░░░░░░░░` |
 | Native PC platform layer (161 fn to rewrite) | 17% | 10% | `█░░░░░░░░░` |
 | EA SDK stubs (~1,412 fn) | 5% | 0% | `░░░░░░░░░░` |
 
@@ -82,11 +83,11 @@ any of the port is written.
 | 4 — Decompile `lime/common` | ✅ **complete — 109/109, every file verified** |
 | 5 — Native PC platform layer | ⬜ not started |
 | 6 — EA SDK stubs | ⬜ not started (scope reduced, see below) |
-| 7 — Decompile `gamecode` | ⬜ not started |
-| 8 — Decompile fight logic | 🔄 `SwitchQueue` verified; entry points mapped |
+| 7 — Decompile `gamecode` | 🔄 21/291, every one verified |
+| 8 — Decompile fight logic | 🔄 3/2,172 — `SwitchQueue`, `isp2`, `gup2` |
 | 9 — Widescreen, gamepad, mods | ⬜ not started |
 
-**Honest framing:** 109 of 2,572 functions are done, which is 4.2%. The
+**Honest framing:** 133 of 2,572 functions are done, which is 5.2%. The
 percentage is not the interesting number — the pipeline that produced them is,
 and it now finds bugs on its own.
 
@@ -115,6 +116,92 @@ Several bodies are **structural**: the call sequence and field access are
 recovered, and a branch condition or a GL enum inside them is marked in the
 comment as not pinned down rather than guessed. Those markers are deliberate and
 are where the next person should look.
+
+---
+
+## Module status — `gamecode`
+
+**21 of 291, every one verified.** Plus 3 of 2,172 in `gamecode/logic`.
+
+| file | done | total | test | checks |
+|---|---:|---:|---|---:|
+| `GameCode.cpp` | 8 | 79 | `test_gamecode_diff` | 41 |
+| `FrontEnd.cpp` | 7 | 126 | `test_frontend_diff`, `test_text_diff` | 84 + part |
+| `text.cpp` | 3 | 18 | `test_text_diff` | 273 total |
+| `Particles.cpp` | 1 | 5 | `test_gamecode2_diff` | 158 total |
+| `Players.cpp` | 1 | 28 | `test_gamecode2_diff` | |
+| `sound.cpp` | 1 | 8 | `test_gamecode2_diff` | |
+| `logic/other.c` | 2 | 333 | `test_switchqueue_diff`, `test_isp2_diff` | 500 + 205 |
+| `logic/mkreact.c` | 1 | 207 | `test_gup2_diff` | 243 |
+
+Zero divergences throughout.
+
+### The test shape this module needs
+
+`lime/common` was mostly maths, and maths compares by value. `gamecode` is
+mostly **sequencing** — a function whose whole content is calling other
+functions in an order — and almost none of those callees are decompiled.
+
+The trick is that **a sequencer can be verified long before the things it
+sequences exist.** Generate the oracle *without* `--with-deps`, let the callees
+come out as plain externs, and define them in the test: once for the
+register-file side, once for the native side, both recording into one log. What
+then gets compared is exactly what the function under test decides — who it
+calls, in what order, with what argument, and what it writes.
+
+`recomp.py` needed one fix for that to work at all. Without `--with-deps` the
+emitted C called functions nobody declared, which C99 rejects and which would
+otherwise have been given implicitly wrong signatures. It now records internal
+callees it does not generate and declares them in the header.
+
+### Three rules these tests keep proving
+
+- **Compare addresses by IDENTITY, never by value.** A native build has no
+  binary code addresses and never will. Give both sides the same symbol table
+  and check *which* entry was used. `gup2` pushes resume addresses into a
+  coroutine stack; the raw values can never match and the choice always can.
+
+- **Poison first, then ask what SURVIVED.** `InitParticles` clears one word per
+  0x30-byte record across 512 records. A `memset` agrees on that word
+  everywhere and destroys the other eleven — the difference is only visible in
+  what was left alone. Make the sweep wide enough, too: one of these reported
+  "wrote nothing" because the range stopped short of the global.
+
+- **Drive the gates apart before trusting agreement.** `FE_X` and `FE_H` are
+  indistinguishable while both scales hold `1.0f`, which is exactly what they
+  hold in the shipped binary. Set them differently first.
+
+### What was found on the way
+
+- **The front end's widescreen hook.** `FE_X`, `FE_W` and `FE_H` are the
+  coordinate scalers every menu goes through. X and W share `_FE_WidthScale`
+  and H has `_FE_HeightScale` — two numbers, not three, and the sharing is
+  load-bearing: stretching horizontally has to move a thing and its width by
+  the same factor or the layout tears. `_CreatePerspectiveMatrix` is the
+  corresponding hook for the game itself.
+
+- **`gup2` is a coroutine, not a function.** It runs a little, writes a resume
+  address into the switch stack at the head of PROC, and returns. Five entry
+  codes; anything else returns -3. Every resume target resolved to a named
+  thread function, three of them through pointer slots in `__DATA` rather than
+  directly — which is why they first looked like offsets into a UTF-16 string
+  blob.
+
+- **`strLenUnicode` stops on a pair of zero bytes, not one.** So ASCII stored
+  as UTF-16 — `41 00 42 00 00 00` — is two characters long and `strlen(s) / 2`
+  returns **zero** for it. Every ASCII character has a zero high byte, so that
+  mistake is not an edge case: it is wrong for almost every string the game
+  holds.
+
+- **`_G` confirmed from a second direction.** `getTransferableFlags` reaches
+  the game state through a pointer slot at `0x000f357c` holding `0x0038c1fc`,
+  which is exactly where `other.c` independently places it. Two functions, two
+  routes, one address — the standard this project asks for before a name counts.
+
+- **An oddity left standing.** `EndIntro` writes **10** to a symbol the table
+  calls `_AxeTrailDisallowed`. Ten is not a boolean and the address is an exact
+  symbol match, so something about that variable is not what its name suggests.
+  Whoever finds its reader settles it in one step.
 
 ---
 
