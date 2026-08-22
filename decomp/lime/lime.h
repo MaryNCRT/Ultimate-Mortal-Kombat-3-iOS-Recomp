@@ -862,6 +862,7 @@ extern int  g_whirlwindFirstFrame;
 #define GL_TRIANGLES            0x0004
 #define GL_FLOAT                0x1406
 #define GL_UNSIGNED_BYTE        0x1401
+#define GL_SHORT                0x1402
 #define GL_UNSIGNED_SHORT       0x1403
 #define GL_FLAT                 0x1D00
 #define GL_VERTEX_ARRAY         0x8074
@@ -873,6 +874,8 @@ extern int  g_whirlwindFirstFrame;
 #define GL_TEXTURE_ENV          0x2300
 #define GL_TEXTURE_ENV_MODE     0x2200
 #define GL_MODULATE             0x2100
+#define GL_REPLACE              0x1E01
+#define GL_CULL_FACE            0x0B44
 #endif
 
 void glEnable(unsigned cap);

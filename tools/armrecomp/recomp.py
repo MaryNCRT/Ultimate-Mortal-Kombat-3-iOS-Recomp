@@ -249,6 +249,24 @@ class Emitter(object):
 
         body = self.translate_body(ins, base, ops, fname)
 
+        # **Instructions inside an IT block do not update the flags.**
+        #
+        # In Thumb a 16-bit data-processing instruction normally sets them --
+        # `movs r3, #0` -- but inside an IT block the S bit is clear and the
+        # disassembly reads `movne r3, #0`. Capstone still reports the
+        # mnemonic as `movs`, and trusting it emitted a SET_NZ that clobbered
+        # the very flags the NEXT predicated instruction was about to test.
+        #
+        # The effect is that BOTH halves of an ITE run. It cost a real
+        # misreading: LIME_RenderMeshSingle appeared to take its vertex-colour
+        # path when the mesh was flagged full-bright, which is backwards, and
+        # the clean C was very nearly "corrected" to match a broken oracle.
+        #
+        # cmp/cmn/tst/teq are exempt -- they have no destination and setting
+        # flags is their whole purpose, which is why they are legal here.
+        if it_cond is not None and base not in ("cmp", "cmn", "tst", "teq"):
+            body = [ln for ln in body if not ln.startswith("SET_NZ(")]
+
         if cond_name:
             body = ["if (%s) { %s }" % (COND_EXPR[cond_name], " ".join(body))]
 

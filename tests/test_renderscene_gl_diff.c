@@ -67,21 +67,31 @@
 #define RAM_SIZE   (16u << 20)
 #define STACK_TOP  0x007F0000u
 
-/* guest layout */
-#define G_SCENE    0x00300000u
-#define G_KEYS_P   0x00301000u          /* nodeKeys[]   -- array of pointers */
-#define G_STRM_P   0x00302000u          /* nodeStream[] -- array of pointers */
-#define G_KEYS     0x00310000u
-#define G_STRM     0x00320000u
-#define G_PAL      0x00330000u
-#define G_MSET     0x00340000u
-#define G_MESHES   0x00341000u
-#define G_MESHD    0x00350000u
-#define G_MNAMES   0x00360000u
-#define G_TEX      0x00370000u
-#define G_VERTS    0x00380000u
-#define G_INDICES  0x00390000u
-#define G_VLIGHT   0x003A0000u
+/* guest layout.
+ *
+ * **Above 0x00600000 on purpose.** The first version of this test put its
+ * scene at 0x00300000, which lands inside the loaded slice's own data --
+ * so filling a palette with random words quietly overwrote the engine's
+ * globals, and FlushTranspMeshList read a "pending translation" that was
+ * actually this test's palette. The symptom looked like a divergence in the
+ * renderer.
+ *
+ * The slice is 0x23D0B0 bytes plus its data and bss. Anything the test
+ * builds has to start clear of that. */
+#define G_SCENE    0x00700000u
+#define G_KEYS_P   0x00701000u          /* nodeKeys[]   -- array of pointers */
+#define G_STRM_P   0x00702000u          /* nodeStream[] -- array of pointers */
+#define G_KEYS     0x00710000u
+#define G_STRM     0x00720000u
+#define G_PAL      0x00730000u
+#define G_MSET     0x00740000u
+#define G_MESHES   0x00741000u
+#define G_MESHD    0x00750000u
+#define G_MNAMES   0x00760000u
+#define G_TEX      0x00770000u
+#define G_VERTS    0x00780000u
+#define G_INDICES  0x00790000u
+#define G_VLIGHT   0x007A0000u
 
 #define MESH_VERTS 4
 #define MESH_FACES 2
@@ -215,42 +225,15 @@ static uint16_t     *h_strmPtr[MAX_NODES];
 static uint8_t       h_palette[MAX_KEYS * MAX_NODES * PAL_STRIDE + 256];
 static TEXTURE       g_htex[MAX_MESHES];
 
-/* Two globals FlushTranspMeshList reads. Their guest addresses are computed
- * from the PC-relative loads rather than guessed:
+/* The clean side's copies of two globals FlushTranspMeshList reads. Both are
+ * zero in the loaded slice and both stay zero here, so the two sides agree
+ * without the test having to write into guest memory at all.
  *
- *   0x0005f66c  ldr r3, [pc, #0x128]     -> literal 0x002647c8
- *   0x0005f6bc  add r4, pc               -> 0x002647c8 + 0x0005f6c0 = 0x002c3e88
- *   0x0005f670  ldr r2, [pc, #0x128]     -> literal 0x00112088
- *   0x0005f6d8  add r3, pc               -> 0x00112088 + 0x0005f6dc = 0x00171764
- *
- * They are NOT zero when the slice is loaded -- the first flush picked up
- * 0xf384aa99 as a translate component. Whatever arms them is outside these two
- * functions, so the test puts BOTH sides into the same known state instead of
- * comparing one implementation against uninitialised memory. Distinctive
- * values rather than zeros, so a side that dropped them would still fail. */
-#define G_PENDING_XLATE  0x002c3e88u
-#define G_TRANSP_COLOR   0x00171764u
-
-extern float g_pendingTranslate[3];
-extern float g_transpColor[3];
-
-static void seed_flush_globals(void)
-{
-    static const float xlate[3] = { 1.5f, -2.25f, 0.75f };
-    static const float color[3] = { 0.25f, 0.5f, 0.125f };
-    int i;
-
-    for (i = 0; i < 3; i++) {
-        uint32_t b;
-        g_pendingTranslate[i] = xlate[i];
-        memcpy(&b, &xlate[i], 4);
-        MEM_ST32(G_PENDING_XLATE + 0x30u + 4u * (uint32_t)i, b);
-
-        g_transpColor[i] = color[i];
-        memcpy(&b, &color[i], 4);
-        MEM_ST32(G_TRANSP_COLOR + 4u * (uint32_t)i, b);
-    }
-}
+ * An earlier version computed their guest addresses and seeded them. That was
+ * unnecessary and it was also wrong: the addresses it derived were off, and
+ * the real reason the values looked like garbage was that this test's own
+ * arena overlapped the slice. Moving the arena fixed the cause; the seeding
+ * was treating the symptom. */
 
 static void ctx_reset(arm_ctx *ctx)
 {
@@ -423,7 +406,6 @@ static void run_pair(const char *what, long frameA, long frameB, float blend,
     uint32_t bits;
 
     memcpy(&bits, &blend, 4);
-    seed_flush_globals();
     glt_reset();
 
     glt_select(&glt_clean);
@@ -530,6 +512,12 @@ int main(void)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
     arm_mem_init(RAM_SIZE);
+
+    /* LIME_RenderMesh reaches CreateFadedRGBS through this, and nothing in a
+     * draw path allocates it -- the engine does that once at startup. */
+    g_vertexColourScratch = malloc(4u * 64u);
+    if (g_vertexColourScratch == NULL)
+        return 2;
 
     printf("=== the two scene renderers, compared by GL call stream ===\n");
     printf("enums are measured from the oracle's register file, not read\n");

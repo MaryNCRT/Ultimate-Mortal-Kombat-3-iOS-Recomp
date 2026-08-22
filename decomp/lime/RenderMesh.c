@@ -1071,59 +1071,141 @@ void LIME_RenderMeshSingleIndexed(MESHINFO *mesh, TEXTURE *tex0, TEXTURE *tex1,
  * constants present are known and which call consumes each one is not, and
  * the body names an enum only where the call admits exactly one.
  */
+/* A global counter the function bumps on entry, before it does anything else:
+ *
+ *      ldr r1, [r3]           ; -> the counter
+ *      ldr r3, [r0, #4]       ; mesh->numFaces
+ *      ldr r2, [r1]
+ *      add r3, r2
+ *      str r3, [r1]
+ *
+ * Triangles drawn this frame, near enough. Nothing here reads it back, so it
+ * is kept only so the call stream and the side effects both match. */
+long g_meshFaceCounter;
+
 void LIME_RenderMeshSingle(MESHINFO *mesh, TEXTURE *t0, TEXTURE *t1,
                            float alpha, long flags)
 {
-    (void)flags; (void)t1;
+    int   texNotFullBright;
+    float scale;
 
+    /* `alpha` is genuinely unread. CreateFadedRGBS below gets a literal 1.0f
+     * (`mov.w r2, #0x3f800000`), not this argument -- an earlier body passed
+     * `alpha` through and it never had any effect on the original.
+     *
+     * `t1` is unread too. Both stay in the signature because the mangled name
+     * demands them: __Z21LIME_RenderMeshSingleP8MESHINFOP7TEXTURES2_fl. */
+    (void)t1; (void)alpha;
+
+    /* The original has no NULL guard -- `ldr.w sl, [r0, #0x18]` dereferences
+     * the mesh in the third instruction. This one is ours, and it makes us
+     * survive an input that would take the retail build down. */
     if (mesh == NULL)
         return;
 
-    /* full-bright skips the colour work rather than ignoring its result */
-    if (!mesh->fullBright && (t0 == NULL || t0->field50 == 0)) {
+    g_meshFaceCounter += mesh->numFaces;
+
+    /* A NULL texture is not an early exit. `beq #0x5e7ac` lands on
+     * `movs r2, #1; b #0x5e600`, which is the same value the test below would
+     * have computed from a texture whose flag is clear -- so no texture reads
+     * as "not full-bright" and the walk continues. */
+    texNotFullBright = (t0 == NULL) ? 1 : (t0->field50 == 0);
+
+    /* **Four conditions, and `flags` is one of them.**
+     *
+     *      0x5e600  ldr  r3, [sp, #0x3c]   ; flags -- the FIFTH argument
+     *      0x5e602  cbz  r3, #0x5e61a
+     *      0x5e604  ldr  r3, [r4, #0x24]   ; mesh->vertLight
+     *      0x5e606  cbz  r3, #0x5e61a
+     *      0x5e608  ldr  r3, [r4, #0x50]   ; mesh->fullBright
+     *      0x5e60c  ite  ne / andeq r3, r2, #1
+     *
+     * An earlier body here wrote `(void)flags;` and gated only on fullBright
+     * and the texture. That inverted the common case: LIME_RenderMesh calls
+     * this with flags = 0, so the colour path should NEVER run from there --
+     * and the old body ran it every time. Driving 97 combinations, the
+     * original took this branch in exactly none of them, which is what sent
+     * the reading back to the prologue. */
+    if (flags != 0 && mesh->vertLight != NULL && mesh->fullBright == 0 &&
+        texNotFullBright) {
         glEnableClientState(GL_COLOR_ARRAY);
-        CreateFadedRGBS(mesh->vertLight,            /* +0x24, the SOURCE */
+        CreateFadedRGBS(mesh->vertLight,        /* +0x24, the SOURCE */
                         g_vertexColourScratch,
-                        alpha, mesh->numVerts, g_fadeOffset);
+                        1.0f,                   /* a literal, not `alpha` */
+                        mesh->numVerts,
+                        g_fadeOffset);
         glColorPointer(4, GL_UNSIGNED_BYTE, 0, g_vertexColourScratch);
+    } else {
+        glDisableClientState(GL_COLOR_ARRAY);
     }
 
-    glDisableClientState(GL_NORMAL_ARRAY);
-    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+    /* An earlier body had `glDisableClientState(GL_NORMAL_ARRAY)` here. The
+     * original enables GL_VERTEX_ARRAY -- 0x8074, not 0x8075. That is exactly
+     * the mis-pairing the old comment in this file warned about and then made:
+     * the constants present were known, which one each call took was not. */
+    glEnableClientState(GL_VERTEX_ARRAY);
+
     glClientActiveTexture(GL_TEXTURE0);
     glActiveTexture(GL_TEXTURE0);
     glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-    glTexCoordPointer(2, GL_FLOAT, 0, mesh->verts);
 
-    if (t0 != NULL) {
-        glBindTexture(GL_TEXTURE_2D, t0->name);     /* TEXTURE+0x40 */
-        glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-        glEnable(GL_TEXTURE_2D);
-    }
+    /* **Stride 16, and the texcoords start eight bytes into the vertex.**
+     * `add.w r3, sl, #8` with `movs r2, #0x10`. Position and UV are the SAME
+     * buffer read at two offsets -- which is what makes LIMEVERTEX sixteen
+     * bytes rather than two arrays. A stride of 0 would have GL read the UVs
+     * as tightly packed and walk off the end. */
+    glTexCoordPointer(2, GL_FLOAT, 16, &mesh->verts[0].u);
 
-    glVertexPointer(3, GL_FLOAT, 0, mesh->verts);   /* +0x18 */
+    /* Bound whether or not there is a texture: the NULL case falls to
+     * 0x5e7b0, which binds r5 -- and r5 is the null pointer -- then rejoins.
+     * So a mesh with no material still binds 0 and still enables GL_TEXTURE_2D. */
+    glBindTexture(GL_TEXTURE_2D, (t0 != NULL) ? t0->name : 0u);
+    glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, (float)GL_MODULATE);
+    glEnable(GL_TEXTURE_2D);
 
-    /* the mesh's own scale, applied for exactly the duration of its draw --
-     * and through glPushMatrix DIRECTLY, not LIME_PushMatrix */
-    glPushMatrix();
-    glScalef(mesh->boundsRadius, mesh->boundsRadius, mesh->boundsRadius);
+    /* **GL_SHORT, not GL_FLOAT.** Positions are the three int16 at the front
+     * of LIMEVERTEX; lime.h has said so since the loader was written. An
+     * earlier body declared them float, which would make GL read two vertices
+     * as one and produce geometry that is wrong rather than absent. */
+    glVertexPointer(3, GL_SHORT, 16, mesh->verts);
+
+    /* **The reciprocal.** `vmov s12, 1.0f` then `vdiv.f32 s16, s12, s14` with
+     * s14 = mesh->[0x10]. So the field is a DIVISOR, not a scale -- which fits
+     * the int16 positions needing to come back down to model space. An earlier
+     * body passed the field straight to glScalef and got 2.5 where the
+     * original produces 0.4. */
+    scale = 1.0f / mesh->boundsRadius;
+
+    glPushMatrix();                     /* direct, NOT LIME_PushMatrix */
+    glScalef(scale, scale, scale);
     glDrawElements(GL_TRIANGLES, mesh->numFaces * 3,
                    GL_UNSIGNED_SHORT, mesh->indices);   /* +0x1c */
     glPopMatrix();
 
     glDepthMask(1);                     /* direct, not limeEnableDepthWrites */
 
-    /* both units torn down, however many were used */
-    glClientActiveTexture(GL_TEXTURE0);
-    glActiveTexture(GL_TEXTURE0);
-    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+    /* **Unit 1 first, then unit 0.** The order is not arbitrary: leaving unit
+     * 0 selected is what the next draw expects, so the teardown walks
+     * backwards and finishes on the unit setup will use. An earlier body had
+     * these the other way round and left unit 1 current. */
     glClientActiveTexture(GL_TEXTURE1);
     glActiveTexture(GL_TEXTURE1);
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+    glClientActiveTexture(GL_TEXTURE0);
+    glActiveTexture(GL_TEXTURE0);
     glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
 
     glDisableClientState(GL_TEXTURE_COORD_ARRAY);
     glBindTexture(GL_TEXTURE_2D, 0);
-    glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+
+    /* GL_REPLACE on the way out, GL_MODULATE on the way in. The literal at
+     * 0x45f00800 is 7681.0f and 7681 is 0x1E01. Both enums arrive as FLOATS
+     * because the entry point is glTexEnvf. */
+    glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, (float)GL_REPLACE);
     glDisable(GL_TEXTURE_2D);
+    glDisable(GL_CULL_FACE);            /* an earlier body dropped this */
+    glDisableClientState(GL_VERTEX_ARRAY);
     glDisableClientState(GL_COLOR_ARRAY);
+    glDisableClientState(GL_NORMAL_ARRAY);
+    glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, (float)GL_REPLACE);
 }
