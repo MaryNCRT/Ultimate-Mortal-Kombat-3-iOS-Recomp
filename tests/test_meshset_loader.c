@@ -42,6 +42,8 @@
 #define MI_FULLBRIGHT  0x50
 
 static int g_fail = 0;
+static int  g_short_light_warned = 0;
+static long g_short_light = 0;
 static long g_files = 0, g_meshes = 0, g_verts = 0, g_tris = 0, g_skipped = 0;
 
 /*
@@ -248,11 +250,35 @@ static void check_file(const char *root, const char *fname)
         uint32_t gl = MEM_LD32(mi + MI_VERTLIGHT);
         int lbad = 0;
         for (int v = 0; v < nv && !lbad; v++) {
-            unsigned char want = 0xFF;
-            if (light && light_off + (size_t)v < (size_t)lightsz) {
-                want = light[light_off + (size_t)v];
+            if (light == NULL) {
+                /* No .lighting at all: the original memsets 0xFF, and that IS
+                 * defined behaviour worth asserting. 308 of the 605 meshsets
+                 * take this path. */
+                if (g_ram[gl + v] != 0xFF) lbad = 1;
+            } else if (light_off + (size_t)v < (size_t)lightsz) {
+                if (g_ram[gl + v] != light[light_off + (size_t)v]) lbad = 1;
+            } else {
+                /* **A .lighting that is SHORTER than the header's vertex
+                 * count.** The loader sizes the buffer from the header and
+                 * copies from the file, so the tail is whatever the allocator
+                 * left -- undefined on both sides, and different on each.
+                 *
+                 * Asserting 0xFF here was wrong: that value belongs to the
+                 * missing-file path, not to a short one. It made
+                 * KANO_STANDARD.lighting (42,867 bytes, one byte short of its
+                 * mesh) look like a loader divergence for as long as this test
+                 * has existed. tests/test_rendermesh_diff.c already got this
+                 * right and counts the file instead.
+                 *
+                 * Exactly one asset in res/ is affected. */
+                if (!g_short_light_warned) {
+                    printf("  nota: %s -- el .lighting se queda corto para el "
+                           "recuento de la cabecera; el resto no se compara\n",
+                           fname);
+                    g_short_light_warned = 1;
+                }
+                g_short_light++;
             }
-            if (g_ram[gl + v] != want) lbad = 1;
         }
         if (lbad) { fail(fname, light ? "vertLight no coincide con el .lighting"
                                       : "vertLight != 0xFF sin .lighting"); break; }

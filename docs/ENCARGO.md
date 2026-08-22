@@ -251,6 +251,17 @@ before the count was taken.
   it is deliberately **not** the same code as the guest-side stubs in
   `arm_runtime.c` — two independent implementations reading the same files is
   what keeps the differential honest.
+- **Three tests need the extracted IPA** and take the asset directory as their
+  first argument: `test_rendermesh_diff`, `test_meshset_loader` and
+  `test_switchqueue_diff`. Point them at the `res/` folder inside the extracted
+  `Payload/UMK3.app/`. Nothing in the repository holds assets and nothing should.
+- **`KANO_STANDARD.lighting` is one byte short** of its own header's vertex
+  count -- the only such asset in `res/`. The loader sizes the buffer from the
+  header, so the tail is whatever the allocator left: undefined on both sides
+  and different on each. Both loader tests now count it instead of asserting on
+  it. `test_meshset_loader` used to expect `0xFF` there, which is the
+  MISSING-file value and not the short-file one, and reported a divergence for
+  as long as it has existed.
 - `tools/decomp_loop.py --calibrate` passes 2/2. It needs `UMK3_WORK` to hold
   `symbols.txt`, `func-to-file.txt` and `UMK3.armv7`, and `UMK3_RES` for tests
   that read game data.
