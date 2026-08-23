@@ -95,3 +95,56 @@ void achievementsIncreaseSubzeroXerox(void)
     if (achievementTracker[0x5c / 4] > 99)
         achievementsUnlock(0x12);
 }
+
+
+/* --------------------------------------------------------- achievementsReset
+ *
+ * armv7 0x000a0280, 40 bytes.  **Complete.**
+ *
+ * Zeroes the whole tracker: `[+0]`, then a loop from `+4` to `+0x4c`, then four
+ * unrolled stores at `+0x50`, `+0x54`, `+0x58` and `+0x5c`.
+ *
+ * **That last store is an independent confirmation of the array's size.** The
+ * bound came from the symbol table -- `_achievementTracker` at 0x00379c60 and
+ * `_SceneEvents` at 0x00379cc0, so 96 bytes -- and this function clears exactly
+ * 0x00 through 0x5c and stops. Twenty-four words, from a completely different
+ * direction, agreeing to the word.
+ */
+void achievementsReset(void)
+{
+    int i;
+
+    for (i = 0; i < ACHIEVEMENT_SLOTS; i++)
+        achievementTracker[i] = 0;
+}
+
+
+/* ------------------------------------------- achievementsIncreaseMatchesWon
+ *
+ * armv7 0x000a08fc, 44 bytes.  **Complete.**
+ *
+ *      ldr  r3, [r2, #0x50]
+ *      adds r3, #1
+ *      cmp  r3, #0xa
+ *      str  r3, [r2, #0x50]
+ *      beq  unlock 7
+ *      cmp  r3, #0x64
+ *      beq  unlock 8
+ *
+ * **Exact equality, where achievementsIncreaseSubzeroXerox uses `>`.** These
+ * two fire once each, on the tenth win and the hundredth; the Xerox one fires
+ * on the hundredth and on every clone after it. Both are transcribed as
+ * written -- the difference is in the original and a port that normalises them
+ * to one style changes one of the two.
+ *
+ * Ten wins is achievement 7, a hundred is 8. Slot 0x50 counts matches won.
+ */
+void achievementsIncreaseMatchesWon(void)
+{
+    int n = ++achievementTracker[0x50 / 4];
+
+    if (n == 10)
+        achievementsUnlock(7);
+    else if (n == 100)
+        achievementsUnlock(8);
+}

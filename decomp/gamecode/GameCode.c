@@ -8,6 +8,7 @@
  */
 
 #include <stdint.h>
+#include <string.h>   /* memset, for clearSpriteListsAndEvents */
 
 /* TEXTURETOLOAD is the engine's {name, destination} pair — see decomp/lime,
  * where LIME_SetSceneTextures walks the same shape. Declared rather than
@@ -293,4 +294,55 @@ void DeleteLoadingScreenTexture(void)
     if (LoadingTexture != 0)
         limeDeleteTexture(LoadingTexture);
     LoadingTexture = 0;
+}
+
+
+extern float ShakeOffset[3];            /* 0x001f44bc */
+
+
+/* ---------------------------------------------------------- CalcShakeOffset
+ *
+ * armv7 0x0001c620, 36 bytes.  **Complete.**
+ *
+ *      rsb.w r0, r0, #0            <- NEGATED first
+ *      vcvt.f32.s32
+ *      vdiv.f32 by 100.0
+ *      str 0 -> [+0]
+ *      str 0 -> [+4]
+ *      str   -> [+8]
+ *
+ * The screen shake is **one axis only**: x and y are zeroed and the value goes
+ * to z. And the input is negated before the divide, so a positive argument
+ * pushes the offset negative.
+ *
+ * Both details are easy to lose. A port that writes all three components, or
+ * that drops the `rsb`, produces a shake that looks plausible and is wrong in a
+ * direction nobody notices until it is compared side by side.
+ */
+void CalcShakeOffset(long amount)
+{
+    ShakeOffset[0] = 0.0f;
+    ShakeOffset[1] = 0.0f;
+    ShakeOffset[2] = (float)(-amount) / 100.0f;
+}
+
+
+extern char mpSpriteList[0x140];        /* 0x001ab680 */
+extern char mpEventQueue[0x1b0];        /* 0x001ab7c0 */
+
+
+/* --------------------------------------------------- clearSpriteListsAndEvents
+ *
+ * armv7 0x00021ebc, 36 bytes.  **Complete.**
+ *
+ * Two memsets, and the sizes are literals: 0x140 and 0x1b0. Both buffers belong
+ * to the multiplayer path -- they are the lists packSpriteList and
+ * setNextSpritesAndEvents fill -- and this is called from Task_GameInit and
+ * GameInit_LoadABit, so they are cleared on every load whether or not a
+ * multiplayer session exists.
+ */
+void clearSpriteListsAndEvents(void)
+{
+    memset(mpSpriteList, 0, 0x140);
+    memset(mpEventQueue, 0, 0x1b0);
 }

@@ -38,3 +38,30 @@ uint32_t get_csound(long index, long character)
 {
     return ochar_sound_tables[character][index].field04;
 }
+
+
+extern long triple_sndtab[][2];         /* 0x001790b8, stride 8 */
+int printf(const char *fmt, ...);
+
+
+/* ---------------------------------------------------------------- get_tsound
+ *
+ * armv7 0x000a8538, 32 bytes.  **Complete.**
+ *
+ *      printf("Tsound 0x%x %d\n", id, id)
+ *      r0 = triple_sndtab[id][1]
+ *
+ * **The printf is not debug scaffolding left in by accident -- it ships.** It
+ * runs on every call, in the retail build, and prints the same value twice.
+ * That is worth transcribing rather than dropping: a port that removes it is
+ * fine, but a port that removes it WITHOUT noticing has quietly changed how
+ * expensive this function is, and it is called from the sound path.
+ *
+ * The table entry is read at +4, so each row is two words and the first is
+ * something this function never looks at.
+ */
+long get_tsound(long id)
+{
+    printf("Tsound 0x%x %d\n", (unsigned)id, (int)id);
+    return triple_sndtab[id][1];
+}
