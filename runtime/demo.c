@@ -603,6 +603,26 @@ static void stage_draw(int frame)
  */
 /* How far above the floor the flattened shadow sits. Enough to clear the
  * ground plane's depth, small enough not to read as floating. */
+/* **The fighter and the stage are NOT drawn at the same scale.**
+ *
+ * The engine scales each with its own global, and both are literals in __DATA:
+ *
+ *      _SceneScale  0x0014dfd8  = 0.013313805684447289   RenderLevelBG
+ *      _PlayerSize  0x00150cc4  = 0.01015624962747097    RenderLevelPlayers
+ *
+ * so a player vertex ends up 0.762836 of the size a stage vertex of the same
+ * numeric value does. Drawing both at 1.0 -- which this demo did -- makes the
+ * fighter 1.311x too big for the arena he is standing in, and every gravestone,
+ * tree and tomb correspondingly too small.
+ *
+ * _SceneScale also settles something that had looked like a contradiction.
+ * LIMEDS_Set3dMode builds the projection with far = 400.0, and Graveyard's
+ * geometry reaches 28,629 units; scaled, that is 28,629 x 0.0133138 = 381,
+ * which fits inside the 400 with about 5% to spare. The stage was never
+ * oversized: it is authored large and scaled down once, at the top of
+ * RenderLevelBG, and the far plane is cut to fit it. */
+#define PLAYER_TO_SCENE 0.762836f
+
 #define SHADOW_LIFT 0.5f
 
 #define MAX_MIST 32
@@ -794,9 +814,9 @@ static void character_build(void)
             long o = t * 3 + c;
             if ((int)v >= b->num_matrices) v = 0;
 
-            g_vb[o * 3 + 0] = g_pos[v * 3 + 0];
-            g_vb[o * 3 + 1] = g_pos[v * 3 + 1];
-            g_vb[o * 3 + 2] = g_pos[v * 3 + 2];
+            g_vb[o * 3 + 0] = g_pos[v * 3 + 0] * PLAYER_TO_SCENE;
+            g_vb[o * 3 + 1] = g_pos[v * 3 + 1] * PLAYER_TO_SCENE;
+            g_vb[o * 3 + 2] = g_pos[v * 3 + 2] * PLAYER_TO_SCENE;
 
             g_tb[o * 2 + 0] = b->uv[t * 6 + c * 2 + 0];
             g_tb[o * 2 + 1] = b->uv[t * 6 + c * 2 + 1];
