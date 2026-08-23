@@ -53,3 +53,30 @@ void InitParticles(void)
     for (i = 0; i < PARTICLE_COUNT; i++)
         Particles[i].field08 = 0;
 }
+
+
+extern long PIrand_seed;                /* 0x0016f740 */
+
+
+/* ---------------------------------------------------------------- PI_limeRand
+ *
+ * armv7 0x0005ab18, 52 bytes.  **Complete.**
+ *
+ *      seed = seed * 0x41c64e6d + 0x3039
+ *      return (seed / 0x10000) % 0x8000
+ *
+ * **A textbook LCG with the textbook constants**: 1103515245 and 12345 are the
+ * pair from the C standard's own example `rand()`, and the shift-and-mask tail
+ * is `(seed / 65536) % 32768` written out by the compiler, sign handling and
+ * all -- `bics r0, r0, r0, asr #32` is the branchless "clamp negatives to zero"
+ * that the division needs.
+ *
+ * The particle system keeps its OWN seed, separate from `limeRand`. That is
+ * worth preserving in a port: sharing one generator between particles and
+ * gameplay makes the fight's randomness depend on how many sparks were drawn.
+ */
+long PI_limeRand(void)
+{
+    PIrand_seed = PIrand_seed * 1103515245L + 12345L;
+    return (PIrand_seed / 0x10000) % 0x8000;
+}
