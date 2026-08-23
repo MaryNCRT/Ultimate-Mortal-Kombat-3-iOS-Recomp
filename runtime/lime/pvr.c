@@ -1,4 +1,5 @@
 #include "pvr.h"
+#include "png.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -243,6 +244,27 @@ bool lime_texture_load(const char *res_dir, const char *mesh_texture,
         if (lime_pvr_load(path, out)) return true;
         snprintf(path, sizeof(path), "%s/%s%s", res_dir, stem, exts[e]);
         if (lime_pvr_load(path, out)) return true;
+    }
+
+    /* **221 of the shipped textures are PNG, not PVRTC.** This used to stop at
+     * the loop above and return false, so every stage whose atlas is a PNG drew
+     * untextured -- the single largest visual gap in the port. See png.c. */
+    {
+        static const char *png[2] = { ".PNG", ".png" };
+        uint8_t *rgba;
+        int w, h;
+        for (int e = 0; e < 2; e++) {
+            snprintf(path, sizeof(path), "%s/Textures/%s%s", res_dir, stem, png[e]);
+            if (lime_png_load(path, &rgba, &w, &h)) {
+                out->rgba = rgba; out->width = w; out->height = h;
+                return true;
+            }
+            snprintf(path, sizeof(path), "%s/%s%s", res_dir, stem, png[e]);
+            if (lime_png_load(path, &rgba, &w, &h)) {
+                out->rgba = rgba; out->width = w; out->height = h;
+                return true;
+            }
+        }
     }
     return false;
 }

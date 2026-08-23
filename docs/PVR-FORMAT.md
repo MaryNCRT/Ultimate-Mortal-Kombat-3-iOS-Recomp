@@ -253,3 +253,36 @@ family gives 25 more pairs at 512×512 PNG against 256×256 PVR — downscaling 
 PNG would make them comparable, with resampling error folded in but still
 useful as a cross-check.
 
+
+
+---
+
+## The other half of the textures are PNG
+
+The loader in this port read only `.pvr` for a long time, and that quietly cost
+most of the game's stages. **183 of the shipped textures exist ONLY as PNG**, and
+they are not incidental ones: the list is
+`BALCONY_COMPLETEMAP`, `BELLTOWER_COMPLETEMAP`, `BRIDGE_COMPLETEMAP`,
+`CAVE_COMPLETEMAP`, ... — the stage atlases. A stage whose atlas is a PNG drew
+untextured, which looked like a broken stage rather than a missing decoder.
+
+221 PNG files ship. They are uniform and easy:
+
+| bit depth | colour type | interlace | count |
+|---|---|---|---:|
+| 8 | 6 (RGBA) | none | 364 |
+| 8 | 2 (RGB) | none | 64 |
+| 8 | 3 (palette, with `PLTE` + `tRNS`) | none | 14 |
+
+(The counts total more than 221 because the survey matched `*.PNG` and `*.png`
+on a case-insensitive filesystem and saw each file twice — worth saying, because
+that double count is exactly the kind of thing that turns into a fake finding.)
+
+`runtime/lime/png.c` decodes them, and it carries its own DEFLATE: the project
+ships no third-party code and there is no zlib on the build host, so the stored,
+fixed-Huffman and dynamic-Huffman block types are written out.
+
+**Verification.** All 221 files decode with zero failures — but decoding without
+error is not decoding correctly, so fifteen of them, covering all three colour
+types, were compared **byte for byte** against an independent reference decoder
+written in Python against the standard library's `zlib`. 15 of 15 identical.
