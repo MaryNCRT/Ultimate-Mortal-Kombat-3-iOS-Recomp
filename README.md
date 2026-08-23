@@ -128,7 +128,7 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ## Overall progress
 
 ```
-██████████████░░░░░░░░░░░░░░░░░░░░░░░░░░  36.71%
+████████████████░░░░░░░░░░░░░░░░░░░░░░░░  38.93%
 ```
 
 | Area | Weight | Done | |
@@ -142,7 +142,7 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 | Native PC platform layer (161 fn to rewrite) | 17% | 10% | `█░░░░░░░░░` |
 | EA SDK stubs (~1,412 fn) | 5% | 0% | `░░░░░░░░░░` |
 
-**36.71% of the total estimated effort. Nothing is playable yet.**
+**38.93% of the total estimated effort. Nothing is playable yet.**
 
 **The middle three rows are counted, the rest are estimates.** `tools/progress.py`
 reads the tree on every run for `lime/common`, `gamecode` and `gamecode/logic`;

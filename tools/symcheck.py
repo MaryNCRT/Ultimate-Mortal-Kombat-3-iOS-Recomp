@@ -82,12 +82,26 @@ def strip_comments_and_strings(src):
     return src
 
 
+# C keywords, which the call regex picks up whenever one is followed by a
+# parenthesis. `typedef void (*fn)(void *)` reads as a call to `void()`; so do
+# `sizeof (T)`, `return (x)`, `if (` and every cast. None of them can ever be a
+# callee, so filtering them is not silencing a finding -- unlike ALLOW, which
+# is for real names that are deliberately not in the binary.
+C_KEYWORDS = {
+    "auto", "break", "case", "char", "const", "continue", "default", "do",
+    "double", "else", "enum", "extern", "float", "for", "goto", "if", "inline",
+    "int", "long", "register", "restrict", "return", "short", "signed",
+    "sizeof", "static", "struct", "switch", "typedef", "union", "unsigned",
+    "void", "volatile", "while", "_Bool", "_Complex", "_Imaginary",
+}
+
+
 def check_file(path, syms, verbose=False):
     src = strip_comments_and_strings(open(path, "r", errors="replace").read())
     local = set(DEF_RE.findall(src)) | set(MACRO_RE.findall(src))
     bad = []
     for name in sorted(set(CALL_RE.findall(src))):
-        if name in ALLOW or name in local:
+        if name in C_KEYWORDS or name in ALLOW or name in local:
             continue
         if name in syms or ("_" + name) in syms:
             if verbose:

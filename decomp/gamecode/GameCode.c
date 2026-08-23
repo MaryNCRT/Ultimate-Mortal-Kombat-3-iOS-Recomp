@@ -406,3 +406,92 @@ void SetCameraOverridePosFrom2d(float x, float y, float z)
     CamOverridePos[0] = x / WorldScaleAdjust;
     OverrideCamera = 1;
 }
+
+
+extern int CamTrackToPlayer;            /* 0x0014dfc4 */
+extern int IsInFinishing;               /* 0x00150cbc */
+extern int *RoundParam;                 /* pointer slot -> 0x0038ed04 */
+void limeInit(void);
+void LIME_InitEventsManager(void);
+void LIME_InitDebugWindow(void);
+void LIME_LoadMasterEventOffsets(void);
+
+
+/* -------------------------------------------------------------- GameCodeInit
+ *
+ * armv7 0x0001c7c0, 56 bytes.  **Complete.**
+ *
+ * The whole of the game's startup, and it is short: three engine inits, three
+ * globals, and the master event offsets last.
+ *
+ * **`_CamTrackToPlayer` starts at -1, not 0.** Zero is a valid player index, so
+ * the sentinel for "track nobody" has to be something else, and a port that
+ * zero-initialises this instead has the camera following player 0 from the
+ * first frame.
+ *
+ * `RoundParam` is reached through a pointer slot and only two of its fields are
+ * touched here: +0x34 set to 1 and +0x38 cleared. They are not named because
+ * nothing in this function says what they are.
+ */
+void GameCodeInit(void)
+{
+    limeInit();
+    LIME_InitEventsManager();
+    LIME_InitDebugWindow();
+
+    CamTrackToPlayer = -1;              /* mov.w r2, #-1 */
+    IsInFinishing    = 0;
+
+    RoundParam[0x38 / 4] = 0;
+    RoundParam[0x34 / 4] = 1;
+
+    LIME_LoadMasterEventOffsets();
+}
+
+
+extern int JaxGrowCounter;              /* 0x0010ded8 */
+extern void **GameObjects;              /* 0x0014dfec */
+
+
+/* -------------------------------------------------------- RunJaxGrowCounters
+ *
+ * armv7 0x0001c3cc, 56 bytes.  **Complete.**
+ *
+ * **Both tests are the same test, written two different ways by the compiler.**
+ *
+ *      ldrh  r3, [r2, #8]
+ *      add.w r3, r3, #0xe800
+ *      adds  r3, #0x84
+ *      uxth  r3, r3
+ *      cmp   r3, #1
+ *      bls   grow
+ *
+ * Adding 0xe884 and truncating to sixteen bits maps 0x177c to 0 and 0x177d to
+ * 1, so `<= 1` after that is exactly `x == 0x177c || x == 0x177d`. The second
+ * test, on the signed halfword at +0x18, spells the same pair out as two
+ * compares because the value is signed and the trick does not apply.
+ *
+ * So: the counter advances when EITHER of two fields holds one of two adjacent
+ * ids. 0x177c is 6012 -- an animation or frame number for Jax's grow, which the
+ * function name says and nothing here confirms.
+ *
+ * A port that reads the range check as a range has invented a rule the game
+ * does not have.
+ */
+void RunJaxGrowCounters(void)
+{
+    const unsigned short *o = (const unsigned short *)GameObjects[0];
+
+    if (o == 0)
+        return;
+
+    if (o[4] == 0x177c || o[4] == 0x177d) {         /* the halfword at +8 */
+        JaxGrowCounter++;
+        return;
+    }
+    {
+        short s = ((const short *)o)[0x18 / 2];
+        if (s == 0x177c || s == 0x177d)
+            JaxGrowCounter++;
+    }
+}

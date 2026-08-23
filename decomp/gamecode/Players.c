@@ -161,3 +161,78 @@ void ClearAnimRemapTables(void)
         FrameRemapTable[i][1] = -1;
     }
 }
+
+
+typedef int EPLAYER;
+typedef struct FRONTEND_CHARACTER FRONTEND_CHARACTER;
+void Preload1Character(EPLAYER who, FRONTEND_CHARACTER *fe, long a, long b);
+
+
+/* ------------------------------------------------------ PreloadGameCharacters
+ *
+ * armv7 0x0005ce74, 40 bytes.  **Complete.**
+ *
+ * Walks a -1 terminated list of player ids and preloads each one, passing NULL
+ * for the front-end character and 0 for the third argument, with the caller's
+ * argument going through unchanged as the fourth.
+ *
+ * `ldr r0, [r4, #4]!` is the advance: pre-indexed with writeback, so the
+ * terminator check at the bottom sees the NEXT entry and the loop needs no
+ * separate increment.
+ */
+void PreloadGameCharacters(const EPLAYER *list, long arg)
+{
+    long i;
+
+    for (i = 0; list[i] != -1; i++)
+        Preload1Character(list[i], 0, 0, arg);
+}
+
+
+#define FE_CHARACTER_SLOTS  25
+#define FE_CHARACTER_STRIDE 0x668
+
+typedef struct ANIMATEDCHARACTER ANIMATEDCHARACTER;
+void FreeAnimatedCharacter(ANIMATEDCHARACTER *c);
+void LIME_FreeScene(void *scene);
+
+extern char TheFECharacters[FE_CHARACTER_SLOTS][FE_CHARACTER_STRIDE];  /* 0x0020e634 */
+
+
+/* ------------------------------------------------------ FreeFrontEndCharacters
+ *
+ * armv7 0x0005bff8, 60 bytes.  **Complete.**
+ *
+ * Twenty-five slots of 0x668 bytes -- the loop runs from the base to base +
+ * 0xa028 in steps of 0x668, which is where both numbers come from.
+ *
+ * Per slot, the character pointer lives at +4:
+ *
+ *      if (!c) continue
+ *      if (c->scene) { LIME_FreeScene(c->scene); c->scene = 0; }
+ *      FreeAnimatedCharacter(c)
+ *
+ * **The pointer is re-read from the slot after the scene is freed** (`ldr r2,
+ * [r4, #4]` and again `ldr r0, [r4, #4]`), rather than being kept in a
+ * register across the call. Transcribed as written: LIME_FreeScene taking a
+ * path that could touch the slot is not something this function assumes it
+ * cannot.
+ */
+void FreeFrontEndCharacters(void)
+{
+    int i;
+
+    for (i = 0; i < FE_CHARACTER_SLOTS; i++) {
+        void **slot = (void **)(TheFECharacters[i] + 4);
+        void **c = (void **)*slot;
+
+        if (c == 0)
+            continue;
+
+        if (c[0x10 / 4] != 0) {
+            LIME_FreeScene(c[0x10 / 4]);
+            ((void **)*slot)[0x10 / 4] = 0;
+        }
+        FreeAnimatedCharacter((ANIMATEDCHARACTER *)*slot);
+    }
+}

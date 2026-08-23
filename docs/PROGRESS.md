@@ -33,8 +33,13 @@ Current state of the project. Written so that someone can pick it up with no pri
 >   [png.c](../runtime/lime/png.c) decodes them with its own DEFLATE; fifteen
 >   files across all three colour types are byte-identical to an independent
 >   reference decoder.
-> - **`gamecode` is 48 of 291**, up from 35, with a new file `HudAnim.c`. One of
->   the new functions caught a wrong array bound in already-committed code.
+> - **`gamecode` is 84 of 291**, up from 35, with three new files -- `HudAnim.c`,
+>   `Blood.c` and the front end's static-init pair. Several of the new bodies
+>   carry behaviour a tidier rewrite would lose: `Error()` never returns,
+>   `getRandomLevel`'s distribution is deliberately uneven, `ClearAnimRemapTables`
+>   writes two different values per pair, and the two achievement counters use
+>   different comparisons on purpose. One of them caught a wrong array bound in
+>   already-committed code, and a second confirmed the correction independently.
 >
 > Previously: **`lime/common` is 109 of 109** — every function in the engine core has
 > a body, the module compiles clean with `-Wall -Wextra`, and **every one of its nine
@@ -51,10 +56,10 @@ Current state of the project. Written so that someone can pick it up with no pri
 ## Overall progress
 
 ```
-██████████████░░░░░░░░░░░░░░░░░░░░░░░░░░  35.90%
+████████████████░░░░░░░░░░░░░░░░░░░░░░░░  38.93%
 ```
 
-**35.90% of the total estimated effort. Nothing is playable yet.**
+**38.93% of the total estimated effort. Nothing is playable yet.**
 
 Weights are our judgement of how much of the total each area represents. The
 three decompilation figures are **measured from the tree** by
