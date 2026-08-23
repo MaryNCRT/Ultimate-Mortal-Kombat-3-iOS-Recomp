@@ -769,3 +769,70 @@ void __static_initialization_and_destruction_0(int action, int priority)
     _ZN13LocaleManagerC1Ev(&_ZN13LocaleManager10s_instanceE);
     __cxa_atexit(__tcf_0, 0, &__mh_execute_header);
 }
+
+
+extern int syncCharacters;              /* 0x000ff814 */
+extern int syncCharactersOpponent;      /* 0x000ff818 */
+extern char Stats_[];                   /* see Write_Stats; 0x00183c84 */
+int   isParentBasedOnSpeed(void);
+int   puts(const char *s);
+void *limeLoadSaveFile(const char *name);
+void  limeFree(void *p);
+
+
+/* --------------------------------------------- processCharacterSelectedPacket
+ *
+ * armv7 0x000163d8, 44 bytes.  **Complete.**
+ *
+ * Three guards and a counter, and the counter is capped at five by testing
+ * BEFORE the increment (`cmp r3, #4; bgt out`), so it reaches 5 and stops.
+ *
+ * The `puts` ships, like get_tsound's printf, and its message carries the
+ * original's typo: "incresing syncCharacterOpponent". Transcribed as it is --
+ * correcting it would make the string in the binary and the string in this file
+ * differ, and that string is how somebody greps from one to the other.
+ */
+void processCharacterSelectedPacket(void)
+{
+    if (!isParentBasedOnSpeed())
+        return;
+    if (syncCharacters == 0)
+        return;
+    if (syncCharactersOpponent > 4)
+        return;
+
+    syncCharactersOpponent++;
+    puts("incresing syncCharacterOpponent");
+}
+
+
+/* ---------------------------------------------------------------- Load_Stats
+ *
+ * armv7 0x00012830, 52 bytes.  **Complete.**
+ *
+ *      p = limeLoadSaveFile("statsdata")
+ *      if (!p) { Write_Stats(); return; }       <- writes a fresh one
+ *      copy 0x98 bytes, word by word, into _Stats
+ *      limeFree(p)
+ *
+ * **A missing save file is not an error, it is a first run**, and the recovery
+ * is to write the current in-memory stats out rather than to zero anything. So
+ * whatever `_Stats` holds at that moment becomes the saved file.
+ *
+ * The size is the same literal 0x98 Write_Stats uses, and the copy is a word
+ * loop rather than a memcpy -- 152 bytes, 38 words.
+ */
+void Load_Stats(void)
+{
+    long *src = (long *)limeLoadSaveFile("statsdata");
+    long *dst = (long *)Stats_;
+    int i;
+
+    if (src == 0) {
+        Write_Stats();                  /* first run: seed the file */
+        return;
+    }
+    for (i = 0; i < 0x98 / 4; i++)
+        dst[i] = src[i];
+    limeFree(src);
+}
