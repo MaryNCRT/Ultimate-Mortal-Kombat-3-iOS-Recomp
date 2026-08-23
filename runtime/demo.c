@@ -713,11 +713,7 @@ static void mist_draw(double now)
 
     glEnableClientState(GL_VERTEX_ARRAY);
     glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glDepthMask(GL_FALSE);
-    glDisable(GL_ALPHA_TEST);
-    glDisable(GL_CULL_FACE);        /* a two-sided puff */
+    glDisable(GL_CULL_FACE);        /* effect quads are two-sided */
 
     if (g_mist.tex) {
         glEnable(GL_TEXTURE_2D);
@@ -738,6 +734,35 @@ static void mist_draw(double now)
         if (m->vert_count <= 0) continue;
 
         lime_qst_matrix(&g_mist.sc.palette[key->palette_index], mat);
+
+        /* **Effects obey the same naming convention as the stage.**
+         *
+         * GYMIST1's mesh is ALPHA_mist and PIT_BLADES' is ALPHA_blade, so both
+         * take the blend-with-depth-writes-off path. TORCHFIRE2's is Plane007
+         * -- no prefix -- so the engine draws it OPAQUE, and its texture
+         * PARTICLE1 is fully opaque to match. Forcing blending on every effect
+         * mesh, which this function used to do, is wrong for exactly that case
+         * and quietly stops the torches writing depth. */
+        if (is_alpha_material(m->name)) {
+            glDisable(GL_ALPHA_TEST);
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            glDepthMask(GL_FALSE);
+        } else if (is_atst(m->name)) {
+            glDisable(GL_BLEND);
+            glAlphaFunc(GL_GREATER, 0.9f);
+            glEnable(GL_ALPHA_TEST);
+            glDepthMask(GL_TRUE);
+        } else if (key->alpha >= 1.0f) {
+            glDisable(GL_ALPHA_TEST);
+            glDisable(GL_BLEND);
+            glDepthMask(GL_TRUE);
+        } else {
+            glDisable(GL_ALPHA_TEST);
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            glDepthMask(GL_FALSE);
+        }
         glColor4f(1.0f, 1.0f, 1.0f, key->alpha);
 
         for (i = 0; i < g_mist.count; i++) {
@@ -751,6 +776,7 @@ static void mist_draw(double now)
 
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
+    glDisable(GL_ALPHA_TEST);
     glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
     glDisableClientState(GL_TEXTURE_COORD_ARRAY);
     glDisableClientState(GL_VERTEX_ARRAY);
