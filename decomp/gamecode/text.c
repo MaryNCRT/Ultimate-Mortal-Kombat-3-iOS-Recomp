@@ -220,3 +220,36 @@ long convertAsciiStringToUnicode(char *dst, const char *src)
     dst[n * 2 + 1] = 0;             /* strb [r2, lr], lr = dst + 1 */
     return n;
 }
+
+
+extern long   UCPtr;                    /* 0x00178034 */
+extern char  *usprintfBuffers[16];      /* 0x00178038 */
+
+
+/* ---------------------------------------------------------------------- UC
+ *
+ * armv7 0x000a7400, 52 bytes.  **Complete.**
+ *
+ *      UCPtr = (UCPtr + 1 > 15) ? 0 : UCPtr + 1
+ *      convertAsciiStringToUnicode(usprintfBuffers[UCPtr], s)
+ *      return usprintfBuffers[UCPtr]
+ *
+ * **Sixteen rotating buffers, and the caller owns none of them.** This is the
+ * idiom that lets `UC("...")` be used inline in a drawing call: the returned
+ * pointer stays valid until sixteen more conversions have happened, and then it
+ * is silently reused.
+ *
+ * A port must keep the count at sixteen. Any smaller and a caller that holds
+ * several converted strings across one frame starts seeing them change under
+ * it -- and the failure looks like a text bug, not a lifetime bug.
+ *
+ * The pointer is re-read from `UCPtr` after the conversion rather than kept in
+ * a register, which is transcribed as written; nothing in this function can
+ * change it, but the original does not assume that.
+ */
+char *UC(const char *s)
+{
+    UCPtr = (UCPtr + 1 > 15) ? 0 : UCPtr + 1;
+    convertAsciiStringToUnicode(usprintfBuffers[UCPtr], s);
+    return usprintfBuffers[UCPtr];
+}

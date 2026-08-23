@@ -95,3 +95,35 @@ long get_rsound(long id, long seed)
     seed %= rsnd_choices[id];
     return rsnd_table[id][seed * 2 + 1];
 }
+
+
+extern long  group_choices[];           /* 0x0017b2e0 */
+extern long *group_table[];             /* 0x0017b308 */
+
+
+/* ---------------------------------------------------------------- get_gsound
+ *
+ * armv7 0x000a7e84, 48 bytes.  **Complete.**
+ *
+ *      if (seed < 0) seed = -seed
+ *      n   = group_choices[group]
+ *      idx = n * variant + (seed % n)
+ *      return group_table[group][idx * 2 + 1]
+ *
+ * The same shape as get_rsound with one more dimension: `variant` selects a
+ * BLOCK of `n` sounds and the seed picks within it, so the table is a flat
+ * array indexed as if it were two-dimensional. `mla r1, r4, r6, r0` is that
+ * whole index in one instruction.
+ *
+ * The negation before the modulus is the same guard get_rsound has, and for the
+ * same reason: a negative remainder would index backwards.
+ */
+long get_gsound(long group, long variant, long seed)
+{
+    long n;
+
+    if (seed < 0)
+        seed = -seed;
+    n = group_choices[group];
+    return group_table[group][(n * variant + (seed % n)) * 2 + 1];
+}

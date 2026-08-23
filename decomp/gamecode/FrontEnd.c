@@ -583,3 +583,61 @@ int getRandomLevel(void)
 {
     return mpLevelList[(limeRand() & 0x3f) % 14];
 }
+
+
+extern long **FrameRemapTablePtr;       /* pointer slot -> 0x002003d4 */
+extern char **PlayerDefsPtr;            /* pointer slot -> 0x00170950 */
+extern float *PlayerZPosPtr;            /* pointer slot -> 0x00150e88 */
+
+typedef struct limeVECTOR3 { float x, y, z; } limeVECTOR3;
+
+
+/* ------------------------------------------------------------ HaveFrameInList
+ *
+ * armv7 0x00003294, 60 bytes.  **Complete.**
+ *
+ * Walks `list` until -1, and for each entry looks up the SECOND word of that
+ * entry's row in `_FrameRemapTable` -- the same table ClearAnimRemapTables
+ * fills with (0, -1) pairs -- comparing it against `frame`.
+ *
+ * So the list holds remap-table INDICES, not frame numbers, and the frame
+ * number is what the table's second word holds. Comparing the list entries
+ * directly against `frame` would compile and would always be wrong.
+ */
+int HaveFrameInList(const long *list, long frame)
+{
+    long i;
+
+    for (i = 0; list[i] != -1; i++)
+        if ((*FrameRemapTablePtr)[list[i] * 2 + 1] == frame)
+            return 1;
+    return 0;
+}
+
+
+/* ------------------------------------------------------- GetCharacterOffsetPos
+ *
+ * armv7 0x000032d0, 44 bytes.  **Complete.**
+ *
+ *      idx*4, idx*16, minus -> idx*12, plus idx -> idx*13, <<2 -> idx*52
+ *      out->x = def[+0x08]
+ *      out->y = *_PlayerZPos          <- a GLOBAL, not a field
+ *      out->z = def[+0x0c]
+ *
+ * Two of the three components come from the character's own definition and the
+ * middle one from a global that every character shares. The stride is 52 bytes,
+ * built by the compiler out of shifts rather than a multiply.
+ *
+ * The naming is the original's and it is confusing on purpose-free grounds:
+ * the global is called `_PlayerZPos` and it lands in the vector's **y**. Left
+ * as the code has it rather than renamed to match, because the symbol name is
+ * evidence and the assignment is evidence, and they disagree.
+ */
+void GetCharacterOffsetPos(int index, limeVECTOR3 *out)
+{
+    const char *def = *PlayerDefsPtr + index * 52;
+
+    out->x = *(const float *)(def + 0x08);
+    out->y = *PlayerZPosPtr;
+    out->z = *(const float *)(def + 0x0c);
+}
