@@ -418,3 +418,140 @@ void PopFETaskDeferred(void)
     FE_FadeAdd = -0.033333335f;      /* the literal 0xbd088889 */
     PendingPop = 1;
 }
+
+
+extern float FE_HeightScale;            /* 0x000ff9bc */
+extern float FE_YOffset;                /* 0x000ff9b4 */
+extern int  *limeScreenWidth;           /* pointer slot at 0x00171aec */
+
+
+/* ---------------------------------------------------------------------- FE_Y
+ *
+ * armv7 0x00002ea0, 36 bytes.  **Complete.**
+ *
+ * The front end's vertical layout transform: `y * FE_HeightScale + FE_YOffset`.
+ * Every menu coordinate goes through it, which is how one layout serves several
+ * screen heights.
+ */
+float FE_Y(float y)
+{
+    return y * FE_HeightScale + FE_YOffset;
+}
+
+
+/* ------------------------------------------------------------------ getScale
+ *
+ * armv7 0x00002fbc, 32 bytes.  **Complete.**
+ *
+ *      ldr r3, =_limeScreenWidth   <- through a pointer SLOT, then dereferenced
+ *      vcvt.f32.s32
+ *      vdiv.f32 by 480.0
+ *
+ * **480 is the original iPhone's width**, so this returns the screen's width as
+ * a multiple of the resolution the front end was laid out for: 1.0 on a 3GS,
+ * 2.0 on a Retina 4. Nothing here is aspect-aware -- it is width only -- which
+ * is worth knowing before anyone widens the front end for the PC port.
+ */
+float getScale(void)
+{
+    return (float)(*limeScreenWidth) / 480.0f;
+}
+
+
+extern int  PendingPopAll;              /* 0x001008b8 */
+extern int  FE_CurrentTask;             /* 0x001008bc */
+extern int  Menu_Task_Training[];       /* 0x00100ec0 */
+int  BasicMenu(int *menu);
+void FE_Task_VS_Screen_Destroy(void);
+
+
+/* ------------------------------------------------------ PopAllFETasksDeferred
+ *
+ * armv7 0x00002f1c, 24 bytes.  **Complete.**
+ *
+ * **No guard, unlike its three siblings.** PopFETaskDeferred, ...Deferred2 and
+ * ...DeferredSelected all test `PendingPop == -1` first and do nothing if a pop
+ * is already queued; this one overwrites whatever was pending. That asymmetry
+ * is the behaviour: "pop everything" outranks "pop one".
+ */
+void PopAllFETasksDeferred(long count)
+{
+    FE_FadeAdd    = -0.033333335f;      /* the literal 0xbd088889 */
+    PendingPop    = 1;
+    PendingPopAll = (int)count;
+}
+
+
+/* --------------------------------------------------------- PopFETaskDeferred2
+ *
+ * armv7 0x00002f44, 28 bytes.  **Complete.**
+ *
+ * PopFETaskDeferred with 2 instead of 1. Whatever consumes PendingPop reads the
+ * value as a count or a mode, not a flag.
+ */
+void PopFETaskDeferred2(void)
+{
+    if (PendingPop != -1)
+        return;
+
+    FE_FadeAdd = -0.033333335f;
+    PendingPop = 2;
+}
+
+
+/* -------------------------------------------------- PopFETaskDeferredSelected
+ *
+ * armv7 0x00002f6c, 28 bytes.  **Complete.**
+ *
+ * The general form: the caller chooses the value. Note the store order --
+ * `str r0, [r2]` comes BEFORE the fade is set here, where the other two set the
+ * fade first. Nothing observes the difference on one thread, and it is
+ * transcribed as written rather than normalised.
+ */
+void PopFETaskDeferredSelected(long which)
+{
+    if (PendingPop != -1)
+        return;
+
+    PendingPop = (int)which;
+    FE_FadeAdd = -0.033333335f;
+}
+
+
+/* --------------------------------------------------------- FE_Special_Destroys
+ *
+ * armv7 0x00003310, 40 bytes.  **Complete.**
+ *
+ *      r2 = (FE_CurrentTask == 0x2b)
+ *      r3 = (FE_CurrentTask == 0x22) ? (r2 | 1) : r2
+ *      if (r3) FE_Task_VS_Screen_Destroy()
+ *
+ * Two task ids share one teardown. The compiler built the disjunction with an
+ * `ite` pair rather than a branch, which is why it reads as arithmetic; it is
+ * an `||`.
+ */
+void FE_Special_Destroys(void)
+{
+    if (FE_CurrentTask == 0x2b || FE_CurrentTask == 0x22)
+        FE_Task_VS_Screen_Destroy();
+}
+
+
+/* ------------------------------------------------------------ FE_Task_Training
+ *
+ * armv7 0x0000ed1c, 40 bytes.  **Complete.**
+ *
+ * One menu, two outcomes. The pushed task id is `r0 + 0x1a` computed on the
+ * path where r0 is known to be 1, so it is 27 -- written as the sum rather than
+ * as 27 because the addition is what the code does and the 1 is a menu result,
+ * not a constant.
+ */
+void FE_Task_Training(void)
+{
+    int r = BasicMenu(Menu_Task_Training);
+
+    if (r == 1)
+        PushFETaskDeferred(r + 0x1a);
+    else if (r == 2)
+        PopFETaskDeferred();
+}

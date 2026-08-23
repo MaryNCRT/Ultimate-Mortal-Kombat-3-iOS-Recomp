@@ -108,3 +108,67 @@ long strLenUnicode(const char *s)
 void CheckAllUnicodeCharsUsed(void)
 {
 }
+
+
+extern char **LanguageTextPtrs;         /* 0x003857d8, one pointer per string */
+int  sprintf(char *dst, const char *fmt, ...);
+long convertAsciiStringToUnicode(char *dst, const char *src);
+
+
+/* ------------------------------------------------------------------ GameText
+ *
+ * armv7 0x000a72a8, 36 bytes.  **Complete.**
+ *
+ * The string table lookup. -1 is the miss and returns a pointer to an empty
+ * string in __TEXT rather than NULL, which is why callers pass the result
+ * straight to the font code without checking it.
+ */
+const char *GameText(long index)
+{
+    if (index == -1)
+        return "";                      /* 0x00177f8c, an empty string */
+    return LanguageTextPtrs[index];
+}
+
+
+/* ---------------------------------------------------------- GameTextNoHeader
+ *
+ * armv7 0x000a72cc, 40 bytes.  **Complete.**
+ *
+ * The same lookup with **two bytes skipped**, so each stored string carries a
+ * two-byte header the drawing code sometimes wants and sometimes does not.
+ *
+ * The -1 path is not just GameText's: it loads a DIFFERENT empty string, four
+ * bytes further on, and branches to the `bx lr` PAST the `adds r0, #2`. So the
+ * miss case returns an unadjusted pointer in both functions, and adding the two
+ * to it -- which a tidier-looking rewrite would -- walks off the end of a
+ * one-byte string.
+ */
+const char *GameTextNoHeader(long index)
+{
+    if (index == -1)
+        return "";                      /* 0x00177f90, and NOT advanced by 2 */
+    return LanguageTextPtrs[index] + 2;
+}
+
+
+/* ------------------------------------------------------------------- copyInt
+ *
+ * armv7 0x000a75ac, 40 bytes.  **Complete.**
+ *
+ * Formats an integer and writes it out as UNICODE, returning the byte length:
+ * `convertAsciiStringToUnicode` returns a character count and the result is
+ * shifted left by one (`lsls r0, r0, #1`), so two bytes per character.
+ *
+ * The scratch buffer is 0x40 bytes on the stack and `sprintf` is unbounded.
+ * Sixty-four bytes is far beyond any %d, so it cannot overflow here -- but the
+ * shape is worth noting rather than silently "fixing" to snprintf, because the
+ * return value is a length the caller uses and a truncating rewrite changes it.
+ */
+long copyInt(char *dst, long value)
+{
+    char buf[0x40];
+
+    sprintf(buf, "%d", (int)value);
+    return convertAsciiStringToUnicode(dst, buf) * 2;
+}
