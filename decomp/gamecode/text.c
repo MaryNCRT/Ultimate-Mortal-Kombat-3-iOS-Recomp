@@ -172,3 +172,51 @@ long copyInt(char *dst, long value)
     sprintf(buf, "%d", (int)value);
     return convertAsciiStringToUnicode(dst, buf) * 2;
 }
+
+
+/* ----------------------------------------------------------------- copyFloat
+ *
+ * armv7 0x000a75d4, 44 bytes.  **Complete.**
+ *
+ * copyInt with "%f". **The value arrives in a REGISTER PAIR**: the prologue
+ * moves r1 into r2 and r2 into r3 before the call, which is a double being
+ * shuffled into the varargs slots under the soft-float ABI. So the parameter is
+ * a double, not a float -- C promotes it at the call site and this function
+ * never sees the original.
+ */
+long copyFloat(char *dst, double value)
+{
+    char buf[0x40];
+
+    sprintf(buf, "%f", value);
+    return convertAsciiStringToUnicode(dst, buf) * 2;
+}
+
+
+/* ------------------------------------------- convertAsciiStringToUnicode
+ *
+ * armv7 0x000a7310, 56 bytes.  **Complete.**
+ *
+ * Widens ASCII to UTF-16LE by interleaving zero bytes, and returns the
+ * CHARACTER count -- which is why every caller shifts it left by one to get
+ * bytes.
+ *
+ * **The terminator is two bytes and it is written on both paths.** The empty
+ * -source branch at 0xa733e skips the loop and still stores the pair, so an
+ * empty input produces a well-formed empty UTF-16 string rather than nothing.
+ * A rewrite that returns early on an empty source leaves the destination
+ * uninitialised.
+ */
+long convertAsciiStringToUnicode(char *dst, const char *src)
+{
+    long n = 0;
+
+    while (src[n] != 0) {
+        dst[n * 2]     = src[n];
+        dst[n * 2 + 1] = 0;
+        n++;
+    }
+    dst[n * 2]     = 0;             /* strb [ip, r2] */
+    dst[n * 2 + 1] = 0;             /* strb [r2, lr], lr = dst + 1 */
+    return n;
+}

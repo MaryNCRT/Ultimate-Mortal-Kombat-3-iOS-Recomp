@@ -88,3 +88,33 @@ void HUDANIM_Destroy(void)
     TheHud.anim   = 0;
     TheHud.active = 0;
 }
+
+
+void LoadSomeTextures(TEXTURETOLOAD *list);
+
+
+/* ------------------------------------------------------------- HUDANIM_Init
+ *
+ * armv7 0x0007dc60, 40 bytes.  **Complete.**
+ *
+ *      ldr  r3, [_TheHud]
+ *      cbnz r3, skip               <- textures only when not already up
+ *      bl   _LoadSomeTextures(_HUDANIM_ttl)
+ *   skip:
+ *      movs r2, #1
+ *      str  r2, [_TheHud]          <- active
+ *      subs r2, #1
+ *      str  r2, [_TheHud, #4]      <- anim = 0
+ *
+ * The texture load is guarded but the two stores are not, so calling this twice
+ * loads once and resets the animation both times. `subs r2, #1` producing the
+ * zero is the compiler reusing the 1 it already had, not a second constant.
+ */
+void HUDANIM_Init(void)
+{
+    if (TheHud.active == 0)
+        LoadSomeTextures(HUDANIM_ttl);
+
+    TheHud.active = 1;
+    TheHud.anim   = 0;
+}
