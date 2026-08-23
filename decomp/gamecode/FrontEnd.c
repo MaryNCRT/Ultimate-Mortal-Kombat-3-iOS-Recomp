@@ -836,3 +836,51 @@ void Load_Stats(void)
         dst[i] = src[i];
     limeFree(src);
 }
+
+
+#define LEVEL_INFO_STRIDE  244
+#define LEVEL_SLOTS         16
+
+extern char **LevelInfoPtr;             /* pointer slot -> 0x0014e8d4 */
+
+
+/* -------------------------------------------------------------- GetNextLevel
+ *
+ * armv7 0x00002d54, 68 bytes.  **Complete, and it can hang.**
+ *
+ *      cur++
+ *      if (cur > 15) cur = 0
+ *      while (Level_Info[cur].field70 != 0) {
+ *          cur++
+ *          if (cur > 15) cur = 0
+ *      }
+ *      return cur
+ *
+ * The entry stride is 244 bytes, built out of shifts: `cur*4`, `cur*64`,
+ * subtract for `cur*60`, add `cur` for `cur*61`, shift for `cur*244`.
+ *
+ * **There is no exhaustion check.** The `cur <= 15` test inside the loop is
+ * always true, because the wrap happens before the test is reached, so the only
+ * way out is finding an entry whose +0x70 is zero. If all sixteen are non-zero
+ * this spins forever.
+ *
+ * That is in the original and it is left in. The caller evidently guarantees at
+ * least one free slot, and a port that adds a bail-out has to decide what to
+ * return when it bails -- which is a game-design answer this file cannot
+ * supply. Worth a comment at the call site rather than a silent guard here.
+ */
+int GetNextLevel(int cur)
+{
+    const char *info = *LevelInfoPtr;
+
+    cur++;
+    if (cur > LEVEL_SLOTS - 1)
+        cur = 0;
+
+    while (*(const long *)(info + cur * LEVEL_INFO_STRIDE + 0x70) != 0) {
+        cur++;
+        if (cur > LEVEL_SLOTS - 1)
+            cur = 0;
+    }
+    return cur;
+}

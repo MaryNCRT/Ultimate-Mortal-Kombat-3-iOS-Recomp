@@ -495,3 +495,42 @@ void RunJaxGrowCounters(void)
             JaxGrowCounter++;
     }
 }
+
+
+extern int GameMode;                    /* 0x0014faa4 */
+extern int Health[2];                   /* 0x0014fa64 */
+int  isParentBasedOnSpeed(void);
+void achievementsIncreaseMatchesWon(void);
+
+
+/* ------------------------------------------------------------- updateMPWins
+ *
+ * armv7 0x000224d4, 48 bytes.  **Complete.**
+ *
+ *      if (GameMode != 1) return
+ *      if (isParentBasedOnSpeed())  { if (Health[1]) return; }
+ *      else                         { if (Health[0]) return; }
+ *      achievementsIncreaseMatchesWon()
+ *
+ * **Each side watches the OTHER player's health, and which index that is
+ * depends on the role.** The peer that `isParentBasedOnSpeed` calls the parent
+ * reads Health[1]; the other reads Health[0]. Both then credit the same win.
+ *
+ * That asymmetry is the whole function. A port that picks one index for both
+ * sides gives one player every multiplayer achievement and the other none, and
+ * it would look correct in single-player testing because GameMode gates it.
+ */
+void updateMPWins(void)
+{
+    if (GameMode != 1)
+        return;
+
+    if (isParentBasedOnSpeed()) {
+        if (Health[1] != 0)
+            return;
+    } else {
+        if (Health[0] != 0)
+            return;
+    }
+    achievementsIncreaseMatchesWon();
+}
