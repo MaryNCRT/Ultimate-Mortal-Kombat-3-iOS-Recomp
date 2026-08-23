@@ -154,7 +154,32 @@ static float g_cam_dist = 1.0f;
  * eyeballing a still had introduced. */
 #define GAME_FOV_DEGREES 25.0f
 
-static float g_cam_far   = 4.48f;
+/* **The zoom is the engine's, and the endpoints are literals.**
+ *
+ *      _camzoomedin   0x0014dfb4  = 3.60
+ *      _camzoomedout  0x0014dfb8  = 5.55
+ *      _Camera        0x0014fa74  = (0.0, -600.0, 146.0)
+ *      _CameraLookAt  0x0014fa80  = (0.0, 0.0, 0.0)
+ *      _zoomedoutweight            the blend between the two
+ *
+ * MK cameras pull back as the fighters separate, and this is where that lives.
+ * The two distances measured off the capture -- 4.09 fighter heights with the
+ * fighters close and 4.88 with them apart -- fall INSIDE [3.60, 5.55], and the
+ * eye height measured there (136 to 143) sits against the 146 the binary
+ * carries. Two independent numbers landing where the code says they should is
+ * the check; what is NOT established is the unit the 3.60 and 5.55 are in, so
+ * they are used here as multiples of the fighter's height because that is what
+ * makes our measurements land inside them, and that reading is stated rather
+ * than assumed.
+ *
+ * The demo has one fighter and so no separation to track: --cam-zoom picks a
+ * point on the line, and the default reproduces the mid-fight framing. */
+#define CAM_ZOOMED_IN   3.60f
+#define CAM_ZOOMED_OUT  5.55f
+
+/* 0 = fighters together, 1 = fully apart. 0.451 gives the 4.48 fitted before. */
+static float g_cam_zoom  = 0.451f;
+
 static float g_cam_eye   = 0.66f;
 static float g_cam_pitch = 0.0f;
 
@@ -992,6 +1017,8 @@ int main(int argc, char **argv)
             g_cam_eye = (float)atof(argv[++i]);
         else if (!strcmp(argv[i], "--cam-pitch") && i + 1 < argc)
             g_cam_pitch = (float)atof(argv[++i]);
+        else if (!strcmp(argv[i], "--cam-zoom") && i + 1 < argc)
+            g_cam_zoom = (float)atof(argv[++i]);
         else if (!strcmp(argv[i], "--cam-dist") && i + 1 < argc)
             g_cam_dist = (float)atof(argv[++i]);
         else if (argv[i][0] != '-') {
@@ -1136,7 +1163,9 @@ int main(int argc, char **argv)
              * the screen.
              */
             float height = hi[1] - lo[1];
-            float dist   = height * g_cam_far * g_cam_dist;
+            float zoom   = CAM_ZOOMED_IN +
+                           g_cam_zoom * (CAM_ZOOMED_OUT - CAM_ZOOMED_IN);
+            float dist   = height * zoom * g_cam_dist;
             float eye_y  = lo[1] + g_cam_eye * height;
 
             glTranslatef(0.0f, 0.0f, -dist);
