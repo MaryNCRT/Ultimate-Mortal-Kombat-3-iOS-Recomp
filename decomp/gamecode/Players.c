@@ -236,3 +236,41 @@ void FreeFrontEndCharacters(void)
         FreeAnimatedCharacter((ANIMATEDCHARACTER *)*slot);
     }
 }
+
+
+typedef struct PLAYERDEF PLAYERDEF;
+void Load1Character(PLAYER *p, EPLAYER who, FRONTEND_CHARACTER *fe, long a, long b);
+
+
+/* ---------------------------------------------------------- LoadGameCharacter
+ *
+ * armv7 0x0005cd70, 48 bytes.  **Complete.**
+ *
+ *      Load1Character(p, def[0], fe, 0, arg)
+ *      p->[0x5e8] = 0
+ *      p->[0]     = def[0]
+ *      p->[0x5ec] = -1
+ *      p->[0x530] = 0
+ *
+ * **`def[0]` is re-read from memory after the call** rather than kept in a
+ * register, so Load1Character is allowed to change it and the value stored into
+ * the player is whatever it holds afterwards. Caching it would be a different
+ * program.
+ *
+ * +0x5ec starts at -1, the same "nobody" sentinel GameCodeInit uses for the
+ * camera. +0x530 is the alt-costume texture DumpAltCostume frees, cleared here
+ * so a freshly loaded character never inherits the previous one's.
+ */
+void LoadGameCharacter(PLAYER *p, PLAYERDEF *def, FRONTEND_CHARACTER *fe,
+                       long arg)
+{
+    long *pw = (long *)p;
+    const long *dw = (const long *)def;
+
+    Load1Character(p, (EPLAYER)dw[0], fe, 0, arg);
+
+    pw[0x5e8 / 4] = 0;
+    pw[0]         = dw[0];          /* re-read, not cached across the call */
+    pw[0x5ec / 4] = -1;
+    pw[0x530 / 4] = 0;              /* the alt costume DumpAltCostume frees */
+}
