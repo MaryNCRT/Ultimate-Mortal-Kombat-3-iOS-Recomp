@@ -5,6 +5,28 @@ A short, specific work order for whoever takes this on next. Read
 
 ---
 
+## The task right now: gamecode
+
+**`gamecode` is 48 of 291.** That is where the effort goes. Everything below is
+context for how to do it and what the project has already paid to learn; the
+task itself is one line — pick the next function, transcribe it from the armv7
+disassembly, and do not write anything the disassembly does not say.
+
+The renderer is no longer the bottleneck. All 18 arenas draw, textured, with
+their effects and an animated fighter in them, and the numbers that place them
+all came out of the binary rather than out of tuning: the 25-degree field of
+view, `_SceneScale` and `_PlayerSize`, the camera zoom endpoints, the additive
+transparency model. `runtime/demo.c` is the harness that made each of those
+visible, and `--only`, `--list` and a magenta clear colour are how a missing
+surface gets told apart from a dark one.
+
+Three things are open and written up rather than guessed at:
+[#17](../../issues/17) the second background layer, [#18](../../issues/18) the
+global gating `LIME_RenderScene`'s opaque branch, [#19](../../issues/19)
+Graveyard's floor gap.
+
+---
+
 ## Where things stand
 
 **`lime/common` is 109 of 109, and every file is verified.**
@@ -149,9 +171,9 @@ file.
 
 ---
 
-## Then: gamecode
+## gamecode, in more detail
 
-**`gamecode`, 291 functions.** `SwitchQueue` is already verified and is the
+**`gamecode`, 291 functions, 48 written.** `SwitchQueue` is already verified and is the
 proof that some of it is tractable: pure data manipulation over a ring buffer,
 no function pointers, no indirect branches. Most of the fight engine will not
 allow that, so treat `SwitchQueue` as the easy end of a hard body of code rather
