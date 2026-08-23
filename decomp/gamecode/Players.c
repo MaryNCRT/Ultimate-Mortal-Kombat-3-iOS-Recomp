@@ -37,3 +37,91 @@ void DumpAltCostume(PLAYER *p)
         p->altCostume = NULL;
     }
 }
+
+
+/* Declared here rather than pulled from a header gamecode does not have. */
+extern long WantedFrames[];             /* 0x00295cd4, terminated by -1 */
+int printf(const char *fmt, ...);
+
+
+/* --------------------------------------------------------------------- Error
+ *
+ * armv7 0x0005c334, 20 bytes.  **Complete.**
+ *
+ *      mov r1, r0
+ *      ldr r0, ="!!!!! FATAL ERROR: %s\n"
+ *      blx _printf
+ *      b   .                       <- 0x5c342 branches to ITSELF
+ *
+ * **It does not return, and it does not exit.** The last instruction is a
+ * branch to its own address: a deliberate hang, with the message already
+ * printed. On a 2011 iPhone that is a frozen screen and a watchdog kill, which
+ * is a reasonable thing to do when there is no console to read.
+ *
+ * A port must not quietly turn this into a return. Anything calling Error()
+ * has decided the process is finished, and callers are written on that
+ * assumption -- there is no error path after the call because the original
+ * never comes back from it.
+ */
+void Error(const char *msg)
+{
+    printf("!!!!! FATAL ERROR: %s\n", msg);
+    for (;;)
+        ;                           /* b 0x5c342 -- the branch is to itself */
+}
+
+
+/* ------------------------------------------------------------- WantThisFrame
+ *
+ * armv7 0x0005b9b4, 40 bytes.  **Complete.**
+ *
+ * Linear search of `_WantedFrames` for `frame`, with -1 ending the list.
+ * Returns 1 on a hit and 0 otherwise.
+ *
+ * The disassembly reads oddly because the compiler peeled the first iteration:
+ * the entry test loads [r2] and jumps straight into the comparison, and only
+ * the loop body advances by 4 and re-checks for the terminator. Written as a
+ * plain loop below, which is the same thing.
+ */
+int WantThisFrame(long frame)
+{
+    long i;
+
+    for (i = 0; WantedFrames[i] != -1; i++)
+        if (WantedFrames[i] == frame)
+            return 1;
+    return 0;
+}
+
+
+/* ----------------------------------------------------------- IsOstrichProblem
+ *
+ * armv7 0x0005bb1c, 40 bytes.  **Complete.**
+ *
+ *      ldr  r3, [r0]
+ *      cmp  r3, #0xc               <- character 12 and no other
+ *      bne  return 0
+ *      ldr  r3, [r0, #0x51c]
+ *      movw r2, #0x127             <- 295
+ *      cmp  r3, r2
+ *      beq  return 1
+ *      ldr  r0, [r0, #0x520]
+ *      cmp  r0, r2
+ *      -> r0 = (equal)
+ *
+ * Character 12 with either of two adjacent fields equal to 295. The name is the
+ * developers': something about that character's animation misbehaves and this
+ * is the test that spots it. Which character 12 is, and what 295 indexes, are
+ * not established here -- the shape of the test is, and inventing names for the
+ * two fields would be inventing the finding.
+ */
+int IsOstrichProblem(PLAYER *p)
+{
+    const long *w = (const long *)p;
+
+    if (w[0] != 12)
+        return 0;
+    if (w[0x51c / 4] == 295)
+        return 1;
+    return w[0x520 / 4] == 295;
+}

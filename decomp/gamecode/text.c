@@ -93,3 +93,18 @@ long strLenUnicode(const char *s)
     }
     return i / 2;
 }
+
+
+/* --------------------------------------------------- CheckAllUnicodeCharsUsed
+ *
+ * armv7 0x000a72f4, 4 bytes: `bx lr`.
+ *
+ * Empty in the shipped build. The name says it was a coverage check over the
+ * font's glyph table -- the sort of thing compiled out of a release -- and the
+ * symbol survives because the linker kept the entry, not because anything runs.
+ * It is written out rather than skipped so the file's function count matches
+ * the binary's.
+ */
+void CheckAllUnicodeCharsUsed(void)
+{
+}
