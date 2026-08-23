@@ -346,3 +346,63 @@ void clearSpriteListsAndEvents(void)
     memset(mpSpriteList, 0, 0x140);
     memset(mpEventQueue, 0, 0x1b0);
 }
+
+
+extern float WorldScaleAdjust;          /* 0x0014df9c = 64.0 */
+extern float CamOverridePos[3];         /* 0x001ab000 */
+extern int   OverrideCamera;            /* 0x0010dea8 */
+
+
+/* ------------------------------------------------------ setTransferableFlags
+ *
+ * armv7 0x0001c794, 36 bytes.  **Complete.**
+ *
+ * Masks the argument to one bit and stores it as a HALFWORD at `G + 0x44e`.
+ * Both branches store the same masked value -- the compiler split them only
+ * because it had the constant 1 in a register on one side -- so this is a plain
+ * `G->field44e = flags & 1`.
+ *
+ * getTransferableFlags, already in this file, reads the same halfword and
+ * normalises it to 0 or 1 on the way out -- so the pair round-trips, and the
+ * mask here is what makes that true rather than the read doing the work.
+ */
+void setTransferableFlags(long flags)
+{
+    G->field44e = (int16_t)(flags & 1);
+}
+
+
+/* ----------------------------------------------- SetCameraOverridePosFrom2d
+ *
+ * armv7 0x0001c42c, 44 bytes.  **Complete, and it uses one of its three
+ * arguments.**
+ *
+ *      stm.w sp, {r0, r1, r2}          <- three words spilled
+ *      vldr  s14, [sp]                 <- only the FIRST is read
+ *      vdiv.f32 s14, s14, _WorldScaleAdjust     ; 64.0
+ *      vstr  s14, [_CamOverridePos]
+ *      movs  r2, #1
+ *      str   r2, [_OverrideCamera]
+ *
+ * The spill of r0, r1 and r2 into three consecutive words is what a struct
+ * passed by value looks like under this ABI, so the parameter is almost
+ * certainly a `limeVECTOR3` rather than three floats -- but only x is read, y
+ * and z are spilled and abandoned, and `_CamOverridePos` keeps whatever its
+ * other two components already held.
+ *
+ * That is transcribed rather than tidied. A port that helpfully writes all
+ * three components is not doing what the original does, and the name says the
+ * input is a 2d position, so dropping components may well be deliberate.
+ *
+ * The divisor is `_WorldScaleAdjust`, 64.0 -- a second world-scale constant
+ * alongside `_SceneScale` and `_PlayerSize`. What relates them is not
+ * established.
+ */
+void SetCameraOverridePosFrom2d(float x, float y, float z)
+{
+    (void)y;
+    (void)z;                            /* spilled to the stack, never read */
+
+    CamOverridePos[0] = x / WorldScaleAdjust;
+    OverrideCamera = 1;
+}

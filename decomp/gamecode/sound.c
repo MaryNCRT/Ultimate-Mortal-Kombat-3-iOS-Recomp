@@ -65,3 +65,33 @@ long get_tsound(long id)
     printf("Tsound 0x%x %d\n", (unsigned)id, (int)id);
     return triple_sndtab[id][1];
 }
+
+
+extern long  rsnd_choices[];            /* 0x0017b370, one count per id */
+extern long *rsnd_table[];              /* 0x0017b330, one row array per id */
+
+
+/* ---------------------------------------------------------------- get_rsound
+ *
+ * armv7 0x000a7ed4, 52 bytes.  **Complete.**
+ *
+ *      if (seed < 0) seed = -seed      <- `it lt; rsblt`
+ *      seed %= rsnd_choices[id]
+ *      row = rsnd_table[id]
+ *      return row[seed * 2 + 1]
+ *
+ * A random-sound picker with the randomness supplied by the caller. The
+ * negation matters: `__modsi3` on a negative dividend gives a negative
+ * remainder in C, which would index backwards, so the sign is taken off first
+ * rather than the result being fixed up afterwards.
+ *
+ * The row stride is 8 and the value read is at +4, the same shape get_tsound
+ * uses on `_triple_sndtab`.
+ */
+long get_rsound(long id, long seed)
+{
+    if (seed < 0)
+        seed = -seed;
+    seed %= rsnd_choices[id];
+    return rsnd_table[id][seed * 2 + 1];
+}

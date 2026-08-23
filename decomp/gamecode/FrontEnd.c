@@ -555,3 +555,31 @@ void FE_Task_Training(void)
     else if (r == 2)
         PopFETaskDeferred();
 }
+
+
+extern int mpLevelList[];               /* 0x000ddffc, file-local in the original */
+long limeRand(void);
+
+
+/* ------------------------------------------------------------ getRandomLevel
+ *
+ * armv7 0x000055fc, 40 bytes.  **Complete.**
+ *
+ *      bl   _limeRand
+ *      and  r0, r0, #0x3f          <- 0..63
+ *      ... magic-number divide by 14 ...
+ *      ldr  r0, [_mpLevelList, r0, lsl #2]
+ *
+ * The `% 14` is a multiply by 0x92492493 and a shift, which is the compiler's
+ * reciprocal for 14 rather than anything meaningful -- the modulus is what
+ * matters and it says the multiplayer level list has fourteen entries.
+ *
+ * **The mask makes the distribution uneven and that is in the original.**
+ * `rand() & 0x3f` gives 0..63, and 64 is not a multiple of 14, so levels 0..7
+ * come up five times in sixty-four and levels 8..13 only four. A port that
+ * "fixes" this to a uniform pick changes which stages players see.
+ */
+int getRandomLevel(void)
+{
+    return mpLevelList[(limeRand() & 0x3f) % 14];
+}

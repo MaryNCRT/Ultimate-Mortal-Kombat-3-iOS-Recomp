@@ -125,3 +125,39 @@ int IsOstrichProblem(PLAYER *p)
         return 1;
     return w[0x520 / 4] == 295;
 }
+
+
+/* `_FrameRemapTable` — 0x002003d4. Pairs of words, and the loop below gives its
+ * length: it runs from the base to base + 0xe268 in steps of 8, so 7,245
+ * entries of two words. */
+#define FRAME_REMAP_ENTRIES  7245
+
+extern long FrameRemapTable[FRAME_REMAP_ENTRIES][2];    /* 0x002003d4 */
+
+
+/* ------------------------------------------------------- ClearAnimRemapTables
+ *
+ * armv7 0x0005b8dc, 40 bytes.  **Complete.**
+ *
+ *      movs r3, #0
+ *      str  r3, [r2, #-0x8]        <- first word: 0
+ *      subs r3, #1
+ *      str  r3, [r2, #-0x4]        <- second word: -1
+ *      adds r2, #8
+ *
+ * **The two words are cleared to different values**, and that is the point: 0
+ * in the first and -1 in the second. `subs r3, #1` on a register holding zero
+ * is how the compiler produced the -1 without a second literal, which is easy
+ * to read past.
+ *
+ * A memset would put zero in both and quietly change what an empty entry means.
+ */
+void ClearAnimRemapTables(void)
+{
+    int i;
+
+    for (i = 0; i < FRAME_REMAP_ENTRIES; i++) {
+        FrameRemapTable[i][0] = 0;
+        FrameRemapTable[i][1] = -1;
+    }
+}
