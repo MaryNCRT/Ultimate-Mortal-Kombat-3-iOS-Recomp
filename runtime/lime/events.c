@@ -51,7 +51,13 @@ bool lime_events_load(const char *path, LimeEvents *out)
     fclose(f);
 
     n = rd_i32(d);
-    if (n <= 0 || n > 100000) { free(d); return false; }
+    if (n < 0 || n > 100000) { free(d); return false; }
+
+    /* **An empty file is a valid one.** 390 of the 545 shipped `.events` are
+     * exactly four bytes holding numTracks == 0 -- a scene that declares no
+     * effects. Returning false for those, which this did, reports 390 parse
+     * failures that are not failures, and would have masked a real one. */
+    if (n == 0) { free(d); return true; }
 
     out->tracks = (LimeEventTrack *)calloc((size_t)n, sizeof(LimeEventTrack));
     if (!out->tracks) { free(d); return false; }

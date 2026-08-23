@@ -11,7 +11,8 @@ Current state of the project. Written so that someone can pick it up with no pri
 >
 > - **The `.events` file places effect instances**, and each instance carries its
 >   own 3x3 and translation in 12.12 fixed point. Graveyard's seven `gymist1`
->   tracks differ in Y scale (0.93 down to 0.36) and two carry a negative X, so
+>   tracks differ in Y scale (0.93 down to 0.36) and two are turned 180 degrees
+>   about Z (X and Y both negative, determinant still positive), so
 >   the fog is several bands of different thickness drifting opposite ways rather
 >   than one sheet. Nothing about it is Graveyard-specific: the same code gives
 >   Pit its 7 spinning blades, Street its 20 newspapers, Lair 29 lava pulses,
