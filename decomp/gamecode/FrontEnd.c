@@ -641,3 +641,131 @@ void GetCharacterOffsetPos(int index, limeVECTOR3 *out)
     out->y = *PlayerZPosPtr;
     out->z = *(const float *)(def + 0x0c);
 }
+
+
+#define PEER_SLOTS   5
+#define PEER_STRIDE  0x40
+
+extern char peerNames[PEER_SLOTS][PEER_STRIDE];     /* 0x00185730 */
+extern int  peerNamesFlags[];                       /* 0x00185930 */
+void __static_initialization_and_destruction_0(int a, int b);
+
+
+/* ------------------------------------------------------------ resetPeerNames
+ *
+ * armv7 0x00003064, 44 bytes.  **Complete, and it is not symmetric.**
+ *
+ * The loop clears the first TWO BYTES of each of five 64-byte name slots -- not
+ * the whole slot -- and zeroes `peerNamesFlags[1..5]` as it goes, through a
+ * pre-indexed `str r2, [r1, #4]!` that writes index 1 on its first pass and
+ * never touches index 0.
+ *
+ * Then, after the loop:
+ *
+ *      str r1, [r3, #4]        <- peerNamesFlags[1] = 1
+ *      str r2, [r3, #0x18]     <- peerNamesFlags[6] = 0
+ *
+ * So index 1 is cleared and then immediately set to 1, index 0 is never written
+ * at all, and index 6 is outside the range the loop covers. All three are
+ * transcribed as they are. A port that "cleans this up" into a memset plus one
+ * flag has changed three things, and the local peer -- which is what slot 1
+ * being 1 most likely marks -- is the one that would break.
+ *
+ * Only two bytes of each name are cleared because a name is a UTF-16 string and
+ * two zero bytes are its terminator; the rest is left as whatever it held.
+ */
+void resetPeerNames(void)
+{
+    int i;
+
+    for (i = 0; i < PEER_SLOTS; i++) {
+        peerNames[i][0] = 0;
+        peerNames[i][1] = 0;            /* the UTF-16 terminator, not a wipe */
+        peerNamesFlags[i + 1] = 0;      /* index 0 is never written */
+    }
+    peerNamesFlags[1] = 1;
+    peerNamesFlags[6] = 0;
+}
+
+
+/* ------------------------------------------------- __GLOBAL__I_InGameLevelSelect
+ *
+ * armv7 0x0001b580, 16 bytes.  **Complete.**
+ *
+ * The compiler's own static-initialisation thunk for this translation unit,
+ * calling the shared constructor body with (1, 0xffff) -- the standard
+ * "construct, all priorities" pair. It is written out because it is a function
+ * in the binary and the counts should match, not because there is anything to
+ * learn from it.
+ */
+void __GLOBAL__I_InGameLevelSelect(void)
+{
+    __static_initialization_and_destruction_0(1, 0xffff);
+}
+
+
+void FE_Task_VS_Screen_Init(void);
+void InitKodeScreen(void);
+
+/* The C++ runtime's own names, spelled as C because gamecode has no C++ here.
+ * `_ZN13LocaleManagerC1Ev` is the constructor, `__tcf_0` the compiler-generated
+ * destructor thunk, and `__mh_execute_header` the image handle __cxa_atexit
+ * wants so the registration can be unwound with the image. */
+typedef struct LocaleManager LocaleManager;
+
+/* Spelled with the MANGLED names rather than readable ones. They are valid C
+ * identifiers, they are what the symbol table holds, and tools/symcheck.py
+ * verifies every callee against that table -- inventing `LocaleManager_ctor`
+ * here made it report a function that does not exist, which is the tool working
+ * as intended. */
+extern LocaleManager _ZN13LocaleManager10s_instanceE;   /* 0x00379c1c */
+void _ZN13LocaleManagerC1Ev(LocaleManager *self);
+void __tcf_0(void *p);
+extern char __mh_execute_header;
+typedef void (*cxa_dtor)(void *);
+int  __cxa_atexit(cxa_dtor fn, void *arg, void *dso);
+
+
+/* ----------------------------------------------------------- FE_Special_Inits
+ *
+ * armv7 0x00004e48, 56 bytes.  **Complete.**
+ *
+ * The mirror of FE_Special_Destroys, with one extra step: tasks 0x2b and 0x22
+ * both get the VS screen initialised, and 0x2b **also** gets the kode screen.
+ * The teardown side has no equivalent second step.
+ *
+ * `_FE_CurrentTask` is re-read for the second test rather than kept in a
+ * register. Nothing between the two can change it, and it is transcribed as
+ * written.
+ */
+void FE_Special_Inits(void)
+{
+    if (FE_CurrentTask == 0x2b || FE_CurrentTask == 0x22)
+        FE_Task_VS_Screen_Init();
+
+    if (FE_CurrentTask == 0x2b)
+        InitKodeScreen();
+}
+
+
+/* ------------------------------- __static_initialization_and_destruction_0
+ *
+ * armv7 0x0009fc0c, 52 bytes.  **Complete.**
+ *
+ * The compiler's shared static-init body for the translation unit: constructs
+ * `LocaleManager::s_instance` and registers its destructor with
+ * `__cxa_atexit`. It runs only for the (1, 0xffff) pair, which is the
+ * "construct, all priorities" call `__GLOBAL__I_InGameLevelSelect` makes.
+ *
+ * **LocaleManager is the only C++ object with static storage in this build**
+ * that reaches a constructor here, which is worth knowing: the port does not
+ * need a general static-init mechanism, it needs that one object.
+ */
+void __static_initialization_and_destruction_0(int action, int priority)
+{
+    if (action != 1 || priority != 0xffff)
+        return;
+
+    _ZN13LocaleManagerC1Ev(&_ZN13LocaleManager10s_instanceE);
+    __cxa_atexit(__tcf_0, 0, &__mh_execute_header);
+}
