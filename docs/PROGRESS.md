@@ -5,27 +5,32 @@ Current state of the project. Written so that someone can pick it up with no pri
 **Last updated:** 2026-08-22 — see [HANDOFF.md](HANDOFF.md) for the route and
 [ENCARGO.md](ENCARGO.md) for the next task.
 
-> Latest: **a stage renders.** The demo draws Graveyard with its geometry in the
-> right place and at the right size, with an animated Sub-Zero standing on it.
-> Getting there closed three open questions and corrected one documented figure:
+> Latest: **every stage renders, with its effects.** The demo now draws all 18
+> arenas textured, each running whatever effect its own files declare, with an
+> animated fighter standing in it.
 >
-> - **The `.scene` tail records are the placement.** 40 bytes on disk mapping to
->   the 32-byte `QSTMATRIX` the engine calls `SceneMtxPalette`: four floats
->   scaled by `32767.0` into an `int16` quaternion, then `scale[3]` and
->   `translation[3]` copied verbatim. [SCENE-FORMAT.md](SCENE-FORMAT.md) had
->   recorded these as *"their meaning is not yet established"*.
-> - **The `.meshset` `/ 32767` divisor was wrong.** It was fitted to the shipped
->   data, and the real one is the mesh's own `boundsRadius` — 316.2 on
->   Graveyard's gravestones, 23.1 on its ground, 16.4 on its moon. One constant
->   for all three renders them the same size and none correctly. The document
->   had flagged the figure as unmeasured; it was right to.
-> - **The engine picks its blend mode from the mesh's NAME.** `ALPHA*` blends
->   with depth writes off, `ATST*` (Alpha TeST) uses `glAlphaFunc(GL_GREATER,
->   0.9)`, `EVENT*` is not drawn. That `glAlphaFunc` is the only call to it in
->   the armv7 slice, found by decoding every Thumb BL and BLX in the binary.
-> - **`_SceneRenderAlwaysTrans`** is the global gating `LIME_RenderScene`'s
->   opaque branch — the one [RenderScene.c](../decomp/lime/RenderScene.c) asked
->   somebody to go and find.
+> - **The `.events` file places effect instances**, and each instance carries its
+>   own 3x3 and translation in 12.12 fixed point. Graveyard's seven `gymist1`
+>   tracks differ in Y scale (0.93 down to 0.36) and two carry a negative X, so
+>   the fog is several bands of different thickness drifting opposite ways rather
+>   than one sheet. Nothing about it is Graveyard-specific: the same code gives
+>   Pit its 7 spinning blades, Street its 20 newspapers, Lair 29 lava pulses,
+>   Rooftop 7 cloud layers over 4,802 frames, and Jade's Desert its single buried
+>   Cyrax.
+> - **221 of the textures are PNG and were not being read at all.** 183 exist
+>   only as PNG, including nearly every `*_COMPLETEMAP` stage atlas, so most
+>   arenas were drawing untextured. `runtime/lime/png.c` decodes them with its
+>   own DEFLATE; 15 files across all three colour types are byte-identical to an
+>   independent reference decoder.
+> - **The projection is the game's own.** `LIMEDS_Set3dMode` passes 25.0000
+>   degrees, and the demo had been using 45 -- which alone made everything behind
+>   the fighter 1.87x too small.
+> - **`_SceneScale` (0.0133138) and `_PlayerSize` (0.0101562)** are separate
+>   globals, so the fighter is drawn at 0.7628 of the stage's scale. Drawing both
+>   at 1.0 made him 1.311x too big. The same constant explains the projection's
+>   far plane of 400: 28,629 stage units x 0.0133138 = 381.
+> - The camera is fitted from a 1920x1080 capture of the game running, two frames
+>   of it, and it predicts a third point it never saw.
 >
 > Previously: **`lime/common` is 109 of 109** — every function in the engine core has
 > a body, the module compiles clean with `-Wall -Wextra`, and **every one of its nine
