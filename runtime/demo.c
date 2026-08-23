@@ -135,15 +135,26 @@ static float g_cam_dist = 1.0f;
  * reaches the projection and this port has not found it. The demo derives its
  * far plane from the stage instead and says so.
  *
- * The distance and eye height ARE fitted, but honestly this time: two points
- * off a retail frame -- feet at 95% of frame height, head at 28% -- give
- * distance 3.30 and eye 0.66, and those then PREDICT the far edge of the
- * cobbles at 86.6% where the frame shows 83%. Fitted on two, checked against a
- * third it never saw. The earlier attempt solved three unknowns from three
- * points, fit exactly, validated nothing and was wrong. */
+ * The distance and eye height are fitted from a 1920x1080 capture of the game
+ * itself, two frames of it, and the fit carries its own check:
+ *
+ *      fighters apart (frame 1996)   d = 4.88 heights, eye = 0.64
+ *      fighters close (frame  961)   d = 4.09 heights, eye = 0.67
+ *
+ * **The camera pulls back as the fighters separate**, which is what every MK
+ * camera does, so the distance is not one number. The eye height barely moves
+ * across the two, and that stability is what says the fit is sound rather than
+ * two unrelated numbers that happen to solve.
+ *
+ * An earlier pass read these off a compressed screenshot with a HUD over it and
+ * got 3.30 -- far too close. At that distance the near, BRIGHT half of the
+ * cobble plane falls below the frame and only its dark far edge is on screen,
+ * which is why the floor looked flat and dim and why its far edge read as a
+ * hard line instead of fading out. Measuring the video fixed a defect that
+ * eyeballing a still had introduced. */
 #define GAME_FOV_DEGREES 25.0f
 
-static float g_cam_far   = 3.30f;
+static float g_cam_far   = 4.48f;
 static float g_cam_eye   = 0.66f;
 static float g_cam_pitch = 0.0f;
 
@@ -154,6 +165,9 @@ static int g_list = 0;
  * inspection aid -- telling "this surface is black" from "there is no surface
  * here" is otherwise guesswork. */
 static const char *g_only = NULL;
+
+/* --no-cull: draw both faces, to tell a missing surface from a culled one. */
+static int g_no_cull = 0;
 
 /* The stage's file stem, for its sibling `.events`. */
 static const char *g_stage_name = "";
@@ -418,7 +432,7 @@ static void stage_draw(int frame)
      *      0x5fa44  blx _glEnable
      * The stage's geometry is authored one-sided; without this the far wall of
      * every solid is drawn too. */
-    glEnable(GL_CULL_FACE);
+    if (!g_no_cull) glEnable(GL_CULL_FACE);
 
     glEnableClientState(GL_VERTEX_ARRAY);
     glEnableClientState(GL_TEXTURE_COORD_ARRAY);
@@ -924,6 +938,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--list")) g_list = 1;
         else if (!strcmp(argv[i], "--only") && i + 1 < argc)
             g_only = argv[++i];
+        else if (!strcmp(argv[i], "--no-cull")) g_no_cull = 1;
         else if (!strcmp(argv[i], "--mist-hz") && i + 1 < argc)
             g_mist_hz = (float)atof(argv[++i]);
         else if (!strcmp(argv[i], "--no-mist")) g_mist_hz = -1.0f;
