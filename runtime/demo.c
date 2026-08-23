@@ -49,6 +49,32 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* **The transparency model, in one place.**
+ *
+ * LIME_RenderScene hands any node under this alpha to AddToTranspMeshList, and
+ * FlushTranspMeshList draws that list with:
+ *
+ *      limeEnableAlphaBlending_Additive()
+ *      limeDisableDepthWrites()
+ *
+ * **Additive, and therefore unsorted.** Additive blending is commutative, so
+ * a+b+c is the same pixel in any order and the list is drawn in insertion order
+ * with no depth sort anywhere. decomp/lime/RenderScene.c says exactly that, and
+ * warns that adding a back-to-front sort is the thing a port is most likely to
+ * "improve" by mistake. This demo did precisely that, to stop Graveyard's sky
+ * painting over its moon -- a problem additive blending does not have, because
+ * adding a dark sky to a bright moon cannot dim it.
+ *
+ * It also fixes Balcony's torches. TORCHFIRE2's key alpha runs 0.034 to 0.900,
+ * so it belongs on this list; PARTICLE1 is a flame on a black field with alpha
+ * 255 everywhere, and drawing that opaque paints the black field too -- a grey
+ * box around every flame. Added, the black contributes nothing.
+ *
+ * The threshold is 0.97 and it was established by bisection against the
+ * recompiled original, not read from a literal: 0.9700 behaves as opaque and
+ * 0.9699 does not. */
+#define SCENE_OPAQUE_ALPHA 0.97f
+
 #define WIN_W 1280
 #define WIN_H 720
 
@@ -493,12 +519,10 @@ static void stage_draw(int frame)
          * from the live modelview matrix, so it stays right under --orbit as
          * well as under the gameplay camera.
          */
-        struct { int32_t node; float depth; } defer[256];
+        struct { int32_t node; } defer[256];
         int ndefer = 0;
-        float mv[16];
 
         glScalef(g_stage.sc.scale, g_stage.sc.scale, g_stage.sc.scale);
-        glGetFloatv(GL_MODELVIEW_MATRIX, mv);
 
         for (n = 0; n < g_stage.sc.num_nodes; n++) {
             const LimeSceneKey *key = lime_scene_key(&g_stage.sc, (int)n, frame);
@@ -517,18 +541,10 @@ static void stage_draw(int frame)
             if (m->vert_count <= 0 || is_event_marker(m->name)) continue;
             if (g_only && !strstr(m->name, g_only)) continue;
 
-            /* Translucent: defer it. `ATST` is NOT translucent -- alpha test
-             * discards fragments outright, so it takes part in the depth
-             * buffer like any solid surface. */
-            if (!is_atst(m->name) &&
-                (is_alpha_material(m->name) || key->alpha < 1.0f)) {
-                if (ndefer < (int)(sizeof(defer) / sizeof(defer[0]))) {
-                    const float *t = g_stage.sc.palette[key->palette_index].translation;
-                    defer[ndefer].node  = n;
-                    defer[ndefer].depth = mv[2] * t[0] + mv[6] * t[1] +
-                                          mv[10] * t[2] + mv[14];
-                    ndefer++;
-                }
+            /* Under the threshold it goes on the list, whatever it is named. */
+            if (key->alpha < SCENE_OPAQUE_ALPHA) {
+                if (ndefer < (int)(sizeof(defer) / sizeof(defer[0])))
+                    defer[ndefer++].node = n;
                 continue;
             }
 
@@ -550,27 +566,14 @@ static void stage_draw(int frame)
             glPopMatrix();
         }
 
-        /* Furthest first. View space looks down -Z, so the furthest node has
-         * the most negative depth. */
-        {
-            int i, j;
-            for (i = 1; i < ndefer; i++) {
-                float d = defer[i].depth;
-                int32_t nd = defer[i].node;
-                for (j = i - 1; j >= 0 && defer[j].depth > d; j--)
-                    defer[j + 1] = defer[j];
-                defer[j + 1].node  = nd;
-                defer[j + 1].depth = d;
-            }
-        }
-
+        /* No sort: additive is commutative. See SCENE_OPAQUE_ALPHA. */
         glDisable(GL_ALPHA_TEST);
         glDepthMask(GL_FALSE);
         glEnable(GL_BLEND);
-        /* SRC_ALPHA / ONE_MINUS_SRC_ALPHA is not a guess: it is what
-         * limeEnableAlphaBlending_Basic was MEASURED to do, by driving the
-         * recompiled original and recording the GL call stream. */
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        /* SRC_ALPHA / ONE is what limeEnableAlphaBlending_Additive was MEASURED
+         * to do, by driving the recompiled original and recording the GL call
+         * stream. See docs/RENDERSCENE-SIGNATURE.md. */
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE);
 
         for (n = 0; n < ndefer; n++) {
             const LimeSceneKey *key =
@@ -769,7 +772,13 @@ static void mist_draw(double now)
          * PARTICLE1 is fully opaque to match. Forcing blending on every effect
          * mesh, which this function used to do, is wrong for exactly that case
          * and quietly stops the torches writing depth. */
-        if (is_alpha_material(m->name)) {
+        if (key->alpha < SCENE_OPAQUE_ALPHA) {
+            /* the deferred list: additive, depth writes off */
+            glDisable(GL_ALPHA_TEST);
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+            glDepthMask(GL_FALSE);
+        } else if (is_alpha_material(m->name)) {
             glDisable(GL_ALPHA_TEST);
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -779,15 +788,10 @@ static void mist_draw(double now)
             glAlphaFunc(GL_GREATER, 0.9f);
             glEnable(GL_ALPHA_TEST);
             glDepthMask(GL_TRUE);
-        } else if (key->alpha >= 1.0f) {
+        } else {
             glDisable(GL_ALPHA_TEST);
             glDisable(GL_BLEND);
             glDepthMask(GL_TRUE);
-        } else {
-            glDisable(GL_ALPHA_TEST);
-            glEnable(GL_BLEND);
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-            glDepthMask(GL_FALSE);
         }
         glColor4f(1.0f, 1.0f, 1.0f, key->alpha);
 
