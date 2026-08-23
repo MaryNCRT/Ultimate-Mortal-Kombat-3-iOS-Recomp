@@ -11,7 +11,10 @@
  * nodes in the stage's `.scene`. Two independent files agreeing to the last
  * digit is what makes this a reading rather than a guess -- and the `.events`
  * file carries more: a 3x3 whose Y scale differs per instance (0.93, 0.69,
- * 0.64, 0.55, 0.36) and whose X is NEGATIVE on two of them. That is what turns
+ * 0.64, 0.55, 0.36) and, on two of them, X and Y BOTH negative. Both at once
+ * is not a mirror -- the determinant stays positive, 0.693 -- it is a 180
+ * degree rotation about Z, so those two bands are the same band turned round.
+ * That is what turns
  * one uniform sheet of mist into several bands of different thickness drifting
  * in opposite directions.
  */

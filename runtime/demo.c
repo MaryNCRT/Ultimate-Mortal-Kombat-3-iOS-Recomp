@@ -682,7 +682,8 @@ static void mist_load(const char *res_dir)
      * trustworthy. But `.events` carries more than a position: each track holds
      * a 3x3 and a translation in 12.12 fixed point, and the 3x3 is NOT the
      * identity. The Y scales run 0.93, 0.69, 0.64, 0.55, 0.36 and two tracks
-     * carry a NEGATIVE X.
+     * carry X and Y both negative, which is a 180 degree rotation about Z and
+     * not a mirror -- the determinant stays positive.
      *
      * That is the difference between one uniform sheet of fog and what the
      * game actually shows: seven bands of different thickness, two of them
