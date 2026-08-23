@@ -40,7 +40,9 @@ This project is an attempt to bring it back properly, as **native PC software** 
 
 <img src="docs/img/demo-graveyard.png" alt="The native demo rendering the Graveyard stage with an animated Sub-Zero" width="860">
 
-<sub>**The native demo** — [`runtime/demo.c`](runtime/demo.c), a real OpenGL window driven by this project's C, with no Python and no emulator anywhere in the picture. Sub-Zero is skinned and animated from `.bones`, `.skin` and `.skinanim`; the stage is assembled by walking the `.scene` graph and placing each object with the matrix palette the file carries, sized by its own `boundsRadius`. Each mesh's blend mode comes from its **name** — `ATST_*` means alpha test, which is what the engine itself does. See [Scene format](docs/SCENE-FORMAT.md).</sub>
+<img src="docs/img/demo-balcony.png" alt="The same demo rendering the Balcony stage" width="430">
+
+<sub>**The native demo** — [`runtime/demo.c`](runtime/demo.c), a real OpenGL window driven by this project's C, with no Python and no emulator anywhere in the picture. **All 18 arenas draw**, each running whatever effect its own files declare — Graveyard's seven drifting mist bands, Balcony's sixteen torches, Pit's seven spinning blades. Sub-Zero is skinned and animated from `.bones`, `.skin` and `.skinanim`; the stage is assembled by walking the `.scene` graph and placing each object with the matrix palette the file carries, sized by its own `boundsRadius`. Each mesh's blend mode comes from its **name** — `ATST_*` means alpha test, which is what the engine itself does. See [Scene format](docs/SCENE-FORMAT.md).</sub>
 
 </div>
 
@@ -126,7 +128,7 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ## Overall progress
 
 ```
-██████████████░░░░░░░░░░░░░░░░░░░░░░░░░░  35.90%
+██████████████░░░░░░░░░░░░░░░░░░░░░░░░░░  36.71%
 ```
 
 | Area | Weight | Done | |
@@ -140,7 +142,7 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 | Native PC platform layer (161 fn to rewrite) | 17% | 10% | `█░░░░░░░░░` |
 | EA SDK stubs (~1,412 fn) | 5% | 0% | `░░░░░░░░░░` |
 
-**35.90% of the total estimated effort. Nothing is playable yet.**
+**36.71% of the total estimated effort. Nothing is playable yet.**
 
 **The middle three rows are counted, the rest are estimates.** `tools/progress.py`
 reads the tree on every run for `lime/common`, `gamecode` and `gamecode/logic`;

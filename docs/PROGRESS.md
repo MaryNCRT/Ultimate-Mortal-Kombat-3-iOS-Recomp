@@ -5,33 +5,36 @@ Current state of the project. Written so that someone can pick it up with no pri
 **Last updated:** 2026-08-22 — see [HANDOFF.md](HANDOFF.md) for the route and
 [ENCARGO.md](ENCARGO.md) for the next task.
 
-> Latest: **every stage renders, with its effects.** The demo now draws all 18
-> arenas textured, each running whatever effect its own files declare, with an
-> animated fighter standing in it.
+> Latest: **all 18 arenas render, textured, with their effects and an animated
+> fighter standing in them** — and the transparency model, the projection and
+> the two scale globals all come out of the binary rather than out of tuning.
 >
-> - **The `.events` file places effect instances**, and each instance carries its
->   own 3x3 and translation in 12.12 fixed point. Graveyard's seven `gymist1`
->   tracks differ in Y scale (0.93 down to 0.36) and two are turned 180 degrees
->   about Z (X and Y both negative, determinant still positive), so
->   the fog is several bands of different thickness drifting opposite ways rather
->   than one sheet. Nothing about it is Graveyard-specific: the same code gives
->   Pit its 7 spinning blades, Street its 20 newspapers, Lair 29 lava pulses,
->   Rooftop 7 cloud layers over 4,802 frames, and Jade's Desert its single buried
->   Cyrax.
-> - **221 of the textures are PNG and were not being read at all.** 183 exist
->   only as PNG, including nearly every `*_COMPLETEMAP` stage atlas, so most
->   arenas were drawing untextured. `runtime/lime/png.c` decodes them with its
->   own DEFLATE; 15 files across all three colour types are byte-identical to an
->   independent reference decoder.
-> - **The projection is the game's own.** `LIMEDS_Set3dMode` passes 25.0000
->   degrees, and the demo had been using 45 -- which alone made everything behind
->   the fighter 1.87x too small.
-> - **`_SceneScale` (0.0133138) and `_PlayerSize` (0.0101562)** are separate
->   globals, so the fighter is drawn at 0.7628 of the stage's scale. Drawing both
->   at 1.0 made him 1.311x too big. The same constant explains the projection's
->   far plane of 400: 28,629 stage units x 0.0133138 = 381.
-> - The camera is fitted from a 1920x1080 capture of the game running, two frames
->   of it, and it predicts a third point it never saw.
+> - **Transparency is ADDITIVE and unsorted.** `FlushTranspMeshList` opens with
+>   `limeEnableAlphaBlending_Additive` and `limeDisableDepthWrites`, and
+>   additive blending is commutative, so the deferred list needs no depth sort.
+>   [RenderScene.c](../decomp/lime/RenderScene.c) had warned in advance that
+>   adding one is *"the thing most likely to be improved by mistake in a port"*.
+>   This port added one, and it is gone.
+> - **The projection is the game's own**: `LIMEDS_Set3dMode` passes 25.0000
+>   degrees, not the 45 the demo assumed, which alone made everything behind the
+>   fighter 1.87x too small.
+> - **`_SceneScale` (0.0133138) and `_PlayerSize` (0.0101562)** are separate, so
+>   the fighter is drawn at 0.7628 of the stage's scale, and the same constant
+>   explains the projection's far plane of 400: 28,629 stage units scaled is 381.
+> - **The camera zoom endpoints are literals**: `_camzoomedin` 3.60 and
+>   `_camzoomedout` 5.55. Two distances measured off a 1080p capture of the game
+>   running — 4.09 with the fighters close, 4.88 apart — fall inside them.
+> - **The `.events` file places effect instances**, each with its own 3x3 and
+>   translation in 12.12 fixed point. Nothing about it is Graveyard-specific:
+>   the same code gives Pit its 7 blades, Street its 20 newspapers, Lair 29 lava
+>   pulses, Rooftop 7 cloud layers over 4,802 frames.
+> - **221 textures are PNG and were not being read at all.** 183 exist only as
+>   PNG, including nearly every stage atlas, so most arenas drew untextured.
+>   [png.c](../runtime/lime/png.c) decodes them with its own DEFLATE; fifteen
+>   files across all three colour types are byte-identical to an independent
+>   reference decoder.
+> - **`gamecode` is 48 of 291**, up from 35, with a new file `HudAnim.c`. One of
+>   the new functions caught a wrong array bound in already-committed code.
 >
 > Previously: **`lime/common` is 109 of 109** — every function in the engine core has
 > a body, the module compiles clean with `-Wall -Wextra`, and **every one of its nine

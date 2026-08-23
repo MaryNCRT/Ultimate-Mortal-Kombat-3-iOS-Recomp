@@ -185,7 +185,7 @@ These accompany `.meshset`. All but one are now solved:
 | `.bones` | skeleton hierarchy | ✅ 27/29 (ROBO1/ROBO2 use a 24-byte bone) |
 | `.skinanim` | skeletal animation | ✅ 28/29 ([issue #2](../../issues/2) for SINDEL) |
 | `.events` | effect tracks | ✅ 544/545 — [EVENTS-FORMAT.md](EVENTS-FORMAT.md) |
-| `.scene` | scene graph | ⬜ unsolved |
+| `.scene` | scene graph | ✅ 545/547 — [SCENE-FORMAT.md](SCENE-FORMAT.md), including the placement records |
 
 Geometry, skinning, skeleton and animation are all readable against the shipped
 data, so there is enough here to draw an animated character. `.scene` — how a
