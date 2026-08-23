@@ -334,3 +334,87 @@ void FE_Task_Get_More_Games(void)
     if (BasicMenu(Menu_Task_Get_More_Games) == 1)
         PopFETaskDeferred();
 }
+
+
+extern int   VSAssetsLoaded;            /* 0x000ff9a8 */
+extern int   PendingPop;                /* 0x001008b4, -1 when idle */
+extern float FE_FadeAdd;                /* 0x0010089c */
+extern char  Stats[];                   /* 0x00183c84 */
+void limeWriteFile(const char *name, const void *data, long size, long flags);
+
+
+/* ---------------------------------------------------------- FE_Task_Kode_List
+ *
+ * armv7 0x000031a0, 4 bytes: `bx lr`.
+ *
+ * Empty. One of the front-end task slots that exists so the task table has an
+ * entry at that index; the screen it would have driven is not in this build.
+ * docs/HIDDEN-CONTENT.md collects the rest of these.
+ */
+void FE_Task_Kode_List(void)
+{
+}
+
+
+/* -------------------------------------------------- FE_Task_VS_Screen_Destroy
+ *
+ * armv7 0x00003300, 16 bytes.  **Complete.**
+ *
+ * Clears the flag and nothing else -- the textures the VS screen loaded are not
+ * freed here. Whatever loads them next tests this flag and reloads.
+ */
+void FE_Task_VS_Screen_Destroy(void)
+{
+    VSAssetsLoaded = 0;
+}
+
+
+/* ---------------------------------------------------------------- Write_Stats
+ *
+ * armv7 0x0001270c, 32 bytes.  **Complete.**
+ *
+ *      ldr  r1, =_Stats
+ *      ldr  r0, ="statsdata"
+ *      movs r2, #0x98              <- 152 bytes, the whole block
+ *      movs r3, #0
+ *      bl   _limeWriteFile
+ *
+ * The size is a literal, not a sizeof: 152 bytes of `_Stats` go to disk under
+ * the name "statsdata" whatever the struct grows to. A port that writes
+ * sizeof(Stats) instead would produce a file the original cannot read back the
+ * moment the two disagree.
+ */
+void Write_Stats(void)
+{
+    limeWriteFile("statsdata", Stats, 0x98, 0);
+}
+
+
+/* ---------------------------------------------------------- PopFETaskDeferred
+ *
+ * armv7 0x00002f94, 28 bytes.  **Complete.**
+ *
+ *      ldr  r2, =_PendingPop
+ *      ldr  r3, [r2]
+ *      cmp  r3, #-1
+ *      bne  out                    <- already pending: do nothing
+ *      ldr  r3, =_FE_FadeAdd
+ *      ldr  r1, =0xbd088889        <- -0.033333335f
+ *      str  r1, [r3]
+ *      movs r3, #1
+ *      str  r3, [r2]
+ *
+ * -1 means idle, so a second call while a pop is already queued is ignored
+ * rather than queued twice. The fade rate it installs is -0.0333333507, which
+ * is -1/30 to within a float: one thirtieth per frame, so the screen is gone
+ * in thirty frames -- half a second at the 60 Hz this game does not run at, one
+ * second at the 30 it does.
+ */
+void PopFETaskDeferred(void)
+{
+    if (PendingPop != -1)
+        return;
+
+    FE_FadeAdd = -0.033333335f;      /* the literal 0xbd088889 */
+    PendingPop = 1;
+}

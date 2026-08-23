@@ -7,10 +7,21 @@
 
 #include <stdint.h>
 
-/* Twenty entries, as far as this function reaches: the loop runs while the
- * byte cursor is not 0x50, which is 20 words. Nothing here says what an entry
- * means, only that 1 is the value being counted. */
-#define ACHIEVEMENT_SLOTS 20
+/* **Twenty-four entries, bounded by the symbol table.**
+ *
+ * This said twenty, honestly labelled as "as far as this function reaches":
+ * areAchievementsViewing's loop runs while the byte cursor is not 0x50, which
+ * is 20 words, and that is a lower bound rather than a size.
+ *
+ * achievementsIncreaseSubzeroXerox reaches `[r2, #0x5c]` -- index 23 -- and the
+ * compiler caught the contradiction at -Wextra as soon as it was written. The
+ * real bound is in the symbol table: `_achievementTracker` sits at 0x00379c60
+ * and the next symbol, `_SceneEvents`, at 0x00379cc0, so the block is 96 bytes,
+ * 24 words, and index 23 is its last slot exactly.
+ *
+ * Nothing here says what an entry means, only that 1 is the value being counted
+ * and that slot 23 counts Sub-Zero's clones. */
+#define ACHIEVEMENT_SLOTS 24
 
 extern int achievementTracker[ACHIEVEMENT_SLOTS];   /* 0x00379c60 */
 
@@ -52,4 +63,35 @@ int areAchievementsViewing(void)
             count++;
     }
     return count;
+}
+
+
+void achievementsUnlock(int id);
+
+
+/* ------------------------------------------ achievementsIncreaseSubzeroXerox
+ *
+ * armv7 0x000a08dc, 32 bytes.  **Complete.**
+ *
+ *      ldr  r3, [r2, #0x5c]
+ *      adds r3, #1
+ *      cmp  r3, #0x63              <- 99
+ *      str  r3, [r2, #0x5c]        <- stored BEFORE the branch
+ *      ble  out
+ *      movs r0, #0x12              <- achievement 18
+ *      bl   _achievementsUnlock
+ *
+ * The counter is written back whether or not the threshold is crossed, and the
+ * comparison is `> 99`, so the unlock fires on the hundredth and on every one
+ * after it. That is not a bug to tidy: achievementsUnlock is idempotent for an
+ * already-unlocked id everywhere else in this file, and a port that fires it
+ * only once would differ on a reset save.
+ *
+ * "Xerox" is Sub-Zero's clone move. Field 0x5c of the tracker counts them.
+ */
+void achievementsIncreaseSubzeroXerox(void)
+{
+    achievementTracker[0x5c / 4]++;
+    if (achievementTracker[0x5c / 4] > 99)
+        achievementsUnlock(0x12);
 }

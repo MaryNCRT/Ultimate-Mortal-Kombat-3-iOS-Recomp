@@ -237,3 +237,60 @@ void Write_Tower(void)
 {
     limeWriteFile("towerdata", OpponentTowerList, 0xb0, 0);
 }
+
+
+extern TEXTURE *LoadingTexture;         /* 0x001abb94 */
+void limeDeleteTexture(TEXTURE *tex);
+
+
+/* ----------------------------------------------------------- GameCodeDestroy
+ *
+ * armv7 0x0001c778, 4 bytes: `bx lr`.
+ *
+ * Empty. The teardown counterpart to GameCodeInit, and the shipped game never
+ * tears down -- iOS 3 apps were killed, not closed. Written out so the file's
+ * count matches the binary rather than silently skipped.
+ */
+void GameCodeDestroy(void)
+{
+}
+
+
+/* ---------------------------------------------------------- RemapKicksPunches
+ *
+ * armv7 0x0001b7a0, 4 bytes: `bx lr`.
+ *
+ * Empty, and it takes an argument it never reads. The name and the signature
+ * are all that survive of a button-remapping hook; whatever it did lives in the
+ * settings code now.
+ */
+void RemapKicksPunches(long arg)
+{
+    (void)arg;
+}
+
+
+/* -------------------------------------------------- DeleteLoadingScreenTexture
+ *
+ * armv7 0x0001c800, 36 bytes.  **Complete.**
+ *
+ *      ldr  r0, =_LoadingTexture
+ *      ldr  r0, [r0]
+ *      cbz  r0, skip
+ *      bl   _limeDeleteTexture
+ *   skip:
+ *      ldr  r3, =_LoadingTexture
+ *      movs r2, #0
+ *      str  r2, [r3]
+ *
+ * The pointer is cleared on BOTH paths -- the store is past the cbz target, not
+ * inside the branch. So calling this twice is safe, and calling it on a texture
+ * that was never loaded is safe, which is what lets the loading screen be torn
+ * down from more than one place.
+ */
+void DeleteLoadingScreenTexture(void)
+{
+    if (LoadingTexture != 0)
+        limeDeleteTexture(LoadingTexture);
+    LoadingTexture = 0;
+}
