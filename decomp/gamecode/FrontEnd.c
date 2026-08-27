@@ -2568,8 +2568,14 @@ extern float *limeTouchScreenX;         /* pointer slot -> 0x00171af4 */
 extern float *limeTouchScreenY;         /* pointer slot */
 extern float *limeLastTouchScreenX;     /* pointer slot */
 extern float *limeLastTouchScreenY;     /* pointer slot */
-extern long  *SFXHandle;                /* pointer slot */
-extern float *MusicVol;                 /* pointer slot -> 0x000ff830 */
+extern long  SFXHandle[];               /* 0x001ab99c -- an ARRAY of sound handles.
+                                         * Every site reaches it as `ldr r3,[slot]`
+                                         * then `ldr r0,[r3,#0x68]`: the slot holds
+                                         * the ADDRESS of the array, so declaring it
+                                         * `long *` dereferenced once too many. */
+extern float MusicVol[];                /* 0x000ff830 -- an ARRAY, same correction:
+                                         * `add r1,pc` puts the array address in r1
+                                         * and the volume is `[r1 + idx*4]`. */
 
 void limePlaySound(long id, float vol, float pan, long flags);
 

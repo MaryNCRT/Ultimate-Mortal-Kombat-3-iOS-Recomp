@@ -140,7 +140,9 @@ extern int Settings[10];                /* 0x00100e34 */
 
 
 extern long *MercyMessage;              /* pointer slot -> 0x0014fb40 */
-extern float *MusicVol;                 /* pointer slot -> 0x000ff830 */
+extern float MusicVol[];                /* 0x000ff830 -- an ARRAY, same correction:
+                                         * `add r1,pc` puts the array address in r1
+                                         * and the volume is `[r1 + idx*4]`. */
 long limeRand(void);
 void limeStopTune(void);
 void limePlayTune(const char *file, long vol, long arg);
@@ -187,7 +189,9 @@ void PlayFatalityVoice(void)
 
 
 extern int   Settings[10];              /* 0x00100e34 */
-extern float *MusicVol;                 /* pointer slot -> 0x000ff830 */
+extern float MusicVol[];                /* 0x000ff830 -- an ARRAY, same correction:
+                                         * `add r1,pc` puts the array address in r1
+                                         * and the volume is `[r1 + idx*4]`. */
 extern long  *PLAYER1MODEL;             /* pointer slot -> 0x0014e1b4 */
 extern long  *PLAYER2MODEL;             /* pointer slot */
 
