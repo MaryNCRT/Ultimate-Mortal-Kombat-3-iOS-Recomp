@@ -2778,3 +2778,168 @@ void GetReal6ButtonJoyBits(int dir, const int *buttons, Mk3Obj_t *unused,
                                     obj[0x0a / 2] & 0x10, 1);
     }
 }
+
+
+/* ### More of PLAYER, from the reading side
+ *
+ * `PlayerAutoSmoothAnims` writes +0x51c, +0x520 and +0x524; this function is
+ * what reads them, and it hands all three straight to
+ * `RenderAnimatedCharacter` as its two frames and blend factor. The chain is
+ * closed: the smoother decides, the renderer interpolates.
+ *
+ *      +0x51c  long   frameA          written by PlayerAutoSmoothAnims
+ *      +0x520  long   frameB
+ *      +0x524  float  t
+ *      +0x528  TEXTURE *skin
+ *      +0x52c  long            (passed to LIME_RenderScene)
+ *      +0x540  long   mirrored        also read by DoSmokesSmoke
+ *      +0x548  float  matrix[16]      multiplied straight onto MODELVIEW
+ *      +0x5d0  float  shadowY
+ *      +0x5d4  float  grey            AnimateFECharacters sets this to 1.0f
+ *      +0x5d8  float  pos[3]
+ */
+typedef struct ANIMATEDCHARACTER ANIMATEDCHARACTER;
+typedef struct PLAYER PLAYER;
+
+long IsFrameVisible(ANIMATEDCHARACTER *c, long a, long b);
+void RenderAnimatedCharacter(char *name, ANIMATEDCHARACTER *c,
+                             long frameA, long frameB, float t,
+                             float y, float grey, limeVECTOR3 *pos,
+                             void *tex, long visible);
+extern float AttachTransforms[];        /* 0x0018ee00 */
+extern float **MatrixPalette2;          /* pointer slot */
+
+void LIME_PushMatrix(void);
+void LIME_PopMatrix(long n);
+void LIME_KillAllLights(void);
+void LIME_RenderScene(long a, void *scene, long frameA, long frameB, float t,
+                      long b, long c, long d, void *tex, long e, float *att);
+void limeDisableAlphaBlending(void);
+void limeEnableDepthWrites(void);
+void glMatrixMode(unsigned int m);
+void glMultMatrixf(const float *m);
+#define GL_MODELVIEW 0x1700
+
+
+/* --------------------------------------------------------------- RenderPlayer
+ *
+ * armv7 0x00023c7c, 620 bytes.  **Complete.**
+ *
+ * Draws one fighter and, optionally, whatever is attached to him.
+ *
+ *      LIME_PushMatrix()
+ *      glMatrixMode(GL_MODELVIEW)
+ *      glMultMatrixf(p + 0x548)            <- the player's own 4x4
+ *      glCullFace(p->mirrored ? GL_FRONT : GL_BACK)
+ *      limeDisableAlphaBlending()
+ *      limeEnableDepthWrites()
+ *      ... RenderAnimatedCharacter(...)
+ *      glCullFace(GL_BACK)
+ *      LIME_KillAllLights()
+ *      LIME_PopMatrix(1)
+ *
+ * **The mirrored fighter flips the cull face here too**, from the same +0x540
+ * flag, and restores GL_BACK unconditionally on the way out -- the identical
+ * discipline `RenderAMesh` uses. Two independent draw paths, one rule.
+ *
+ * ### Four call sites, one difference
+ *
+ * `RenderAnimatedCharacter` is called from four places in this function and
+ * every argument but the last is the same. The last is its `visible` flag:
+ *
+ *      IsFrameVisible said yes, `flag` set      ->  0
+ *      IsFrameVisible said yes, `flag` clear    ->  1
+ *      character 12 on frame 295                ->  1, and a DIFFERENT name
+ *      IsFrameVisible said no                   ->  whatever it returned
+ *
+ * The third is the per-character exception again -- **12 and 295, the same pair
+ * `IsFrameVisible` special-cases** -- and here it does something concrete: the
+ * name passed is `PlayerDefs[0x288]` rather than the fighter's own
+ * `PlayerDefs[id].name`. A fixed entry, not indexed by character. So that
+ * combination draws with somebody else's asset name.
+ *
+ * A `frameA` of -1 skips the draw entirely and goes straight to the cleanup.
+ *
+ * ### The attachment pass copies the whole palette first
+ *
+ *      memcpy(AttachTransforms, *MatrixPalette2, 0x1c20)
+ *      LIME_RenderScene(6, anim->[0x10], frameA, frameB, t, 0, 0, 0,
+ *                       skin, +0x52c, AttachTransforms)
+ *
+ * 0x1c20 is 7,200 bytes -- 150 matrices of 48, the 3x4 skin matrix this tree
+ * already knows. So the attachment is posed against a **snapshot** of the
+ * palette taken after the fighter was drawn, not against the live one; anything
+ * that moves the palette between the two draws does not affect the attachment.
+ *
+ * Returns `p->anim->[0x34][1]`, read after everything else is done.
+ */
+long RenderPlayer(PLAYER *p, long attach, long flag)
+{
+    long *w = (long *)p;
+    ANIMATEDCHARACTER *c = (ANIMATEDCHARACTER *)(uintptr_t)
+                           (unsigned long)w[1];
+    float grey = ((float *)w)[0x5d4 / 4];
+    char *const *def;
+    long vis;
+
+    LIME_PushMatrix();
+    glMatrixMode(GL_MODELVIEW);
+    glMultMatrixf((const float *)&w[0x548 / 4]);
+
+    glEnable(GL_CULL_FACE);
+    glCullFace(w[0x540 / 4] != 0 ? GL_FRONT : GL_BACK);
+
+    limeDisableAlphaBlending();
+    limeEnableDepthWrites();
+
+    vis = IsFrameVisible(c, w[0x51c / 4], w[0x520 / 4]);
+    def = (char *const *)(PlayerDefs + w[0] * PLAYERDEF_STRIDE);
+
+    if (vis == 0) {
+        RenderAnimatedCharacter(def[0x18 / 4], c,
+                                w[0x51c / 4], w[0x520 / 4],
+                                ((float *)w)[0x524 / 4],
+                                ((float *)w)[0x5d0 / 4], grey,
+                                (limeVECTOR3 *)&w[0x5d8 / 4],
+                                (void *)(uintptr_t)(unsigned long)w[0x528 / 4],
+                                vis);
+    } else if (w[0x51c / 4] != -1) {
+        if (w[0x14 / 4] == 0x127 && w[0] == 12) {
+            /* the 12/295 exception: somebody else's asset name */
+            RenderAnimatedCharacter(
+                    ((char *const *)PlayerDefs)[0x288 / 4], c,
+                    w[0x51c / 4], w[0x520 / 4],
+                    ((float *)w)[0x524 / 4],
+                    ((float *)w)[0x5d0 / 4], grey,
+                    (limeVECTOR3 *)&w[0x5d8 / 4],
+                    (void *)(uintptr_t)(unsigned long)w[0x528 / 4], 1);
+        } else {
+            RenderAnimatedCharacter(def[0x18 / 4], c,
+                                    w[0x51c / 4], w[0x520 / 4],
+                                    ((float *)w)[0x524 / 4],
+                                    ((float *)w)[0x5d0 / 4], grey,
+                                    (limeVECTOR3 *)&w[0x5d8 / 4],
+                                    (void *)(uintptr_t)(unsigned long)
+                                        w[0x528 / 4],
+                                    flag ? 0 : 1);
+        }
+
+        if (attach != 0) {
+            memcpy(AttachTransforms, *MatrixPalette2, 0x1c20);
+            LIME_RenderScene(6,
+                             (void *)(uintptr_t)(unsigned long)
+                                 ((const long *)c)[0x10 / 4],
+                             w[0x51c / 4], w[0x520 / 4],
+                             ((float *)w)[0x524 / 4], 0, 0, 0,
+                             (void *)(uintptr_t)(unsigned long) w[0x528 / 4],
+                             w[0x52c / 4], AttachTransforms);
+        }
+    }
+
+    glCullFace(GL_BACK);
+    LIME_KillAllLights();
+    LIME_PopMatrix(1);
+
+    return ((const long *)(uintptr_t)(unsigned long)
+            ((const long *)c)[0x34 / 4])[1];
+}
