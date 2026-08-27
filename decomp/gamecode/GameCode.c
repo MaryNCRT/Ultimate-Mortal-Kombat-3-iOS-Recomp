@@ -2278,3 +2278,133 @@ void Load_SaveData(void)
 
     limeFree(surv);
 }
+
+
+extern long  EnduranceChange;           /* 0x0010df14 */
+extern long  EnduranceCharacters[];     /* 0x001ab014 */
+extern long  LastEnduranceCharacter;    /* 0x001ab674 */
+extern long  EnduranceMatchTable2[];    /* 0x00145f1c, two words a row */
+extern long  EnduranceMatchTreasure7[]; /* 0x00145f3c, four words a row */
+extern long  EnduranceMatchTreasure8[]; /* 0x00145f7c, four words a row */
+extern long  EnduranceTowerList[];      /* 0x0014fb50, eleven words a row */
+/* `RoundParam` is declared above as `int *`; the three fields this function
+ * writes are BYTES, so they go through a char view of the same pointer. */
+#define ROUNDPARAM_B  ((char *)RoundParam)
+extern long *TreasurePlayed;            /* pointer slot */
+extern long  girlrand, girlrand2;       /* 0x0010de74, 0x0010de78 */
+extern long  boyrand,  boyrand2;        /* 0x0010de6c, 0x0010de70 */
+extern long *PLAYER2MODEL;              /* pointer slot -> 0x0014e1b8 */
+
+
+/* --------------------------------------------------------- InitEnduranceMatch
+ *
+ * armv7 0x0001b5a0, 512 bytes.  **Complete.**
+ *
+ * Sets up an endurance fight -- one player against a queue of opponents. The
+ * queue lives in `_EnduranceCharacters`, terminated by -1, and is mirrored into
+ * three bytes of `_RoundParam` at +0x18, +0x19 and +0x1a.
+ *
+ * The default comes from `EnduranceMatchTable2[Destiny]`, two words a row: the
+ * first becomes `Character2` and `PLAYER2MODEL`, the second the single queued
+ * opponent. The queue is then closed with -1.
+ *
+ * ### `EnduranceTowerList` is eleven words a row -- again
+ *
+ * The index is `Stage + 11 * Destiny`, the same shape `FE_Task_VS_Screen_Init`
+ * uses on `OpponentTowerList` and the same 44-byte row `PopulateTower` writes.
+ * **A value of 2 in that list means a two-opponent endurance match**, and the
+ * setup is derived from the 2 itself rather than looked up: `2 + 16` is the
+ * fighter shown, and the queue becomes `{5, 15, -1}` with 15 being that
+ * fighter minus three. Three constants from one table entry.
+ *
+ * ### GameMode 5 overrides everything with the treasure matches
+ *
+ *      TreasurePlayed == 7   three from EnduranceMatchTreasure7, by girlrand
+ *      TreasurePlayed == 8   three from EnduranceMatchTreasure8, by boyrand
+ *      TreasurePlayed == 9   a fixed queue: fighter 11 against 24 then 25
+ *
+ * The two random ones read **three consecutive entries of a four-wide row,
+ * wrapping**: row `girlrand`, starting at `girlrand2 & 3`, then `+1` and `+2`
+ * masked the same way. So the same three opponents always appear together and
+ * only their order rotates -- it is a rotation, not a draw, exactly like the
+ * ladder in `PopulateTower`.
+ *
+ * 24 and 25 in the third case are the same two fixed bosses `PopulateTower`
+ * puts at the end of every ladder.
+ *
+ * Every path writes `-1` into the last queue slot and into `RoundParam + 0x1a`,
+ * so the queue is always terminated even when it is shorter than three.
+ */
+void InitEnduranceMatch(void)
+{
+    long d = Destiny;
+    long v;
+
+    EnduranceChange = 0;
+
+    Character2    = EnduranceMatchTable2[d * 2];
+    *PLAYER2MODEL = EnduranceMatchTable2[d * 2];
+    EnduranceCharacters[0]  = EnduranceMatchTable2[d * 2 + 1];
+    LastEnduranceCharacter  = EnduranceMatchTable2[d * 2 + 1];
+    ROUNDPARAM_B[0x18] = (char)EnduranceMatchTable2[d * 2 + 1];
+    ROUNDPARAM_B[0x19] = (char)-1;
+    EnduranceCharacters[1]  = -1;
+
+    v = EnduranceTowerList[Stage + 11 * d];
+    if (v == 2) {
+        Character2    = v + 0x10;       /* 18, derived from the 2 */
+        *PLAYER2MODEL = v + 0x10;
+        ROUNDPARAM_B[0x18] = 5;
+        ROUNDPARAM_B[0x19] = (char)(v + 0x10 - 3);        /* 15 */
+        ROUNDPARAM_B[0x1a] = (char)-1;
+        EnduranceCharacters[0] = 5;
+        EnduranceCharacters[1] = v + 0x10 - 3;
+        EnduranceCharacters[2] = -1;
+        LastEnduranceCharacter = v + 0x10 - 3;
+    }
+
+    if (GameMode != 5)
+        return;
+
+    if (*TreasurePlayed == 7) {
+        long r = girlrand * 4;
+        long a = EnduranceMatchTreasure7[r + ((girlrand2 + 0) & 3)];
+        long b = EnduranceMatchTreasure7[r + ((girlrand2 + 1) & 3)];
+        long c = EnduranceMatchTreasure7[r + ((girlrand2 + 2) & 3)];
+
+        Character2    = a;
+        *PLAYER2MODEL = a;
+        ROUNDPARAM_B[0x18] = (char)b;
+        ROUNDPARAM_B[0x19] = (char)c;
+        ROUNDPARAM_B[0x1a] = (char)-1;
+        EnduranceCharacters[0] = b;
+        EnduranceCharacters[1] = c;
+        EnduranceCharacters[2] = -1;
+        LastEnduranceCharacter = c;
+    } else if (*TreasurePlayed == 8) {
+        long r = boyrand * 4;
+        long a = EnduranceMatchTreasure8[r + ((boyrand2 + 0) & 3)];
+        long b = EnduranceMatchTreasure8[r + ((boyrand2 + 1) & 3)];
+        long c = EnduranceMatchTreasure8[r + ((boyrand2 + 2) & 3)];
+
+        Character2    = a;
+        *PLAYER2MODEL = a;
+        ROUNDPARAM_B[0x18] = (char)b;
+        ROUNDPARAM_B[0x19] = (char)c;
+        ROUNDPARAM_B[0x1a] = (char)-1;
+        EnduranceCharacters[0] = b;
+        EnduranceCharacters[1] = c;
+        EnduranceCharacters[2] = -1;
+        LastEnduranceCharacter = c;
+    } else if (*TreasurePlayed == 9) {
+        Character2    = 11;
+        *PLAYER2MODEL = 11;
+        ROUNDPARAM_B[0x18] = 24;          /* the two ladder bosses */
+        ROUNDPARAM_B[0x19] = 25;
+        ROUNDPARAM_B[0x1a] = (char)-1;
+        EnduranceCharacters[0] = 24;
+        EnduranceCharacters[1] = 25;
+        EnduranceCharacters[2] = -1;
+        LastEnduranceCharacter = 25;
+    }
+}
