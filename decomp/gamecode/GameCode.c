@@ -864,3 +864,79 @@ int CheckForUnclaimedTreasure(void)
     }
     return 1;
 }
+
+
+extern float Camera[3];                 /* 0x0014fa74 = (0.0, -600.0, 146.0) */
+extern int   ClearedZBuffer;            /* 0x001f44c8 */
+extern int  *LevelSelectPtr;            /* pointer slot -> 0x000ff7f8 */
+void LIMEDS_Set3dMode(void);
+void SetToUseCamera(const float *eye);
+void RenderLevelBG(void);
+void RenderLevelPlayers(void);
+void LIME_RenderEvents(long pass);
+void MaintainParticles(void);
+void KillIllegalWhirlwinds(void);
+void RenderExtras(void);
+void limeClearDepthBuffer(void);
+
+
+/* ------------------------------------------------------------- RenderGameView
+ *
+ * armv7 0x000260d4, 140 bytes.  **Complete. This is the frame's 3D half.**
+ *
+ *      LIMEDS_Set3dMode()
+ *      eye = Camera + ShakeOffset            <- componentwise, all three
+ *      SetToUseCamera(eye)
+ *      RenderLevelBG()
+ *      LIME_RenderEvents(0)                  <- pass 0
+ *      ClearedZBuffer = 0
+ *      RenderLevelPlayers()
+ *      if (ClearedZBuffer && LevelSelect == 2) limeClearDepthBuffer()
+ *      LIME_RenderEvents(1)                  <- pass 1
+ *      MaintainParticles()
+ *      KillIllegalWhirlwinds()
+ *      RenderExtras()
+ *
+ * **The screen shake is added to the camera here and nowhere else.**
+ * CalcShakeOffset writes only the z component and zeroes x and y, and this adds
+ * all three, so the shake moves the eye along z -- toward and away from the
+ * fight -- rather than jittering it sideways.
+ *
+ * `_Camera` is (0.0, -600.0, 146.0) and `_CameraLookAt` is the origin, which is
+ * what this port measured independently from a capture of the game running:
+ * an eye height of 136 to 143 against the 146 the binary carries.
+ *
+ * **LIME_RenderEvents runs twice, with 0 and then 1** -- the same two-pass
+ * argument decomp/lime/Events.c documents, opaque then translucent, and the
+ * players are drawn BETWEEN them.
+ *
+ * `_ClearedZBuffer` is cleared before the players and tested after, so
+ * RenderLevelPlayers sets it. Combined with LevelSelect == 2 it triggers a
+ * depth clear before the second event pass -- a character drawn on top of the
+ * arena regardless of depth, which is what a level-select preview needs.
+ */
+void RenderGameView(void)
+{
+    float eye[3];
+
+    LIMEDS_Set3dMode();
+
+    eye[0] = Camera[0] + ShakeOffset[0];
+    eye[1] = Camera[1] + ShakeOffset[1];
+    eye[2] = Camera[2] + ShakeOffset[2];    /* the shake is z-only */
+    SetToUseCamera(eye);
+
+    RenderLevelBG();
+    LIME_RenderEvents(0);                   /* opaque pass */
+
+    ClearedZBuffer = 0;
+    RenderLevelPlayers();                   /* which may set it */
+
+    if (ClearedZBuffer != 0 && *LevelSelectPtr == 2)
+        limeClearDepthBuffer();
+
+    LIME_RenderEvents(1);                   /* translucent pass */
+    MaintainParticles();
+    KillIllegalWhirlwinds();
+    RenderExtras();
+}
