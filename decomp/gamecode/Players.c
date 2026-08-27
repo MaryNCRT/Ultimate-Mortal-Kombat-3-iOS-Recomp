@@ -452,3 +452,51 @@ int IsLiaProblem(PLAYER *p)
     b = w[0x520 / 4];
     return (b == 0xf1 || b == 0x105 || b == 0xf8 || b == 0xf9 || b == 0x101);
 }
+
+
+/* ---------------------------------------------------- CreateFramesWeWantFromFIDs
+ *
+ * armv7 0x0005b960, 84 bytes.  **Complete.**
+ *
+ *      n = 0
+ *      while (fids[n] != -1) {
+ *          v = 0
+ *          if (FrameRemapTable[fids[n]][0] == who
+ *              && FrameRemapTable[fids[n]][1] != -1)
+ *              v = FrameRemapTable[fids[n]][1]
+ *          out[n] = v
+ *          n++
+ *      }
+ *      out[n] = -1
+ *      return n
+ *
+ * Translates a -1 terminated list of frame IDs into the frames THIS character
+ * actually has, writing 0 where it has none.
+ *
+ * **Both halves of the remap pair are checked, and 0 is the miss value while -1
+ * is the terminator.** ClearAnimRemapTables fills the table with exactly that
+ * pair -- 0 in the first word, -1 in the second -- so an entry nobody has
+ * claimed fails the first test and an entry claimed but not resolved fails the
+ * second. Two functions in two files agreeing on what an empty slot looks like.
+ *
+ * The output list is always terminated, including when the input was empty:
+ * the -1 store is past the loop, not inside it.
+ */
+long CreateFramesWeWantFromFIDs(long *out, EPLAYER who, const long *fids)
+{
+    long n = 0;
+
+    while (fids[n] != -1) {
+        long fid = fids[n];
+        long v = 0;
+
+        if (FrameRemapTable[fid][0] == (long)who &&
+            FrameRemapTable[fid][1] != -1)
+            v = FrameRemapTable[fid][1];
+
+        out[n] = v;
+        n++;
+    }
+    out[n] = -1;                        /* always, even for an empty input */
+    return n;
+}
