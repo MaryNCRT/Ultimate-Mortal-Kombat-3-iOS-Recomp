@@ -3099,3 +3099,126 @@ void AnimateBG(void)
         BGSceneFrame[i] += 1.0f;                /* not frame-rate scaled */
     }
 }
+
+
+extern long   DrawSpear[2];             /* 0x0010deec */
+extern long   SpearWhichTexture[2];     /* 0x0010def4 */
+extern float  SpearStartPos[2][3];      /* 0x001ab63c */
+extern float  SpearEndPos[2][3];        /* 0x001ab624 */
+extern void  *SpearTexture[];           /* 0x001ab654 */
+extern float *FaceMeMatrix;             /* pointer slot */
+extern float  ShadowOffset;             /* 0x0014dfc8 */
+
+void limeDrawFaceMeSpriteWH(void *tex, const float *m, float x, long a,
+                            float y, long b, long c, float d, float e,
+                            float w, float f, float g, float h, float i,
+                            float j, long k, float l);
+
+
+/* ------------------------------------------------------------- RenderExtras
+ *
+ * armv7 0x00020fa8, 636 bytes.  **Complete.**
+ *
+ * Draws Scorpion's spear -- the only thing in "extras" -- for both players, as
+ * two face-me sprites: a stretched shaft and a fixed-size tip.
+ *
+ * Per player, and it is skipped entirely unless `_DrawSpear[player]` is set:
+ *
+ * ### The direction test is inverted by the mirror flag
+ *
+ *      mirrored (+0x540 set):  draw only while start.x <  end.x
+ *      not mirrored:           draw only while start.x >= end.x
+ *
+ * The same +0x540 that flips the cull face in `RenderPlayer` and picks the
+ * smoke offset in `DoSmokesSmoke`. Here it decides which way the spear is
+ * allowed to point, so a spear travelling the wrong way for the fighter's
+ * facing is simply not drawn.
+ *
+ * ### The shaft
+ *
+ * The texture is `SpearTexture[SpearWhichTexture[player] % 3]` -- **three
+ * shaft textures cycled**, and the modulo is a reciprocal multiply with magic
+ * `0x55555556` and no shift, which is 3 worked out numerically rather than
+ * assumed.
+ *
+ * The sprite is stretched: its width argument is `start.x - end.x`, so it spans
+ * whatever the spear currently covers, and its Y is
+ * `ShadowOffset + 1.35` computed in **double** and narrowed at the call. The
+ * 1.35 is a double literal in the pool, not a float widened.
+ *
+ * ### The tip
+ *
+ * A second sprite, drawn only when `SpearWhichTexture[player] % 3 <= 1` -- so
+ * one of the three shaft phases has no tip at all. It uses
+ * `SpearTexture[3]` or `SpearTexture[4]` and a width of **+0.25 or -0.25**,
+ * chosen by comparing the same two X positions again and by whether
+ * `SpearWhichTexture` is above 2. The sign is what points the tip.
+ *
+ * So `_SpearTexture` holds at least five entries: three shaft phases and two
+ * tip orientations.
+ *
+ * Everything else in the long argument list is 1.0f or 0, written slot by slot;
+ * the parameter names of `limeDrawFaceMeSpriteWH` are not established, so the
+ * call below is transcribed positionally.
+ */
+void RenderExtras(void)
+{
+    long i;
+    char *p = Players;
+
+    limeEnableAlphaBlending_Basic();
+
+    for (i = 0; i < 2; i++, p += 0x5f0) {
+        float y;
+        long phase;
+        void *tex;
+
+        if (DrawSpear[i] == 0)
+            continue;
+
+        if (((const long *)p)[0x540 / 4] != 0) {
+            if (!(SpearStartPos[i][0] < SpearEndPos[i][0]))
+                continue;
+        } else {
+            if (SpearStartPos[i][0] > SpearEndPos[i][0])
+                continue;
+        }
+
+        phase = SpearWhichTexture[i] % 3;       /* magic 0x55555556 */
+        tex   = SpearTexture[phase];
+        y     = (float)((double)ShadowOffset + 1.35);
+
+        /* the shaft: width is however far the spear reaches */
+        limeDrawFaceMeSpriteWH(tex, FaceMeMatrix, SpearEndPos[i][0], 0,
+                               y, 0, 0, 1.0f, 1.0f,
+                               SpearStartPos[i][0] - SpearEndPos[i][0],
+                               0.25f, 1.0f, 1.0f, 1.0f, 1.0f, 0, 0.25f);
+
+        if (phase > 1)
+            continue;                           /* one phase has no tip */
+
+        if (SpearWhichTexture[i] > 2) {
+            if (SpearStartPos[i][0] < SpearEndPos[i][0]) {
+                tex = SpearTexture[4];
+                limeDrawFaceMeSpriteWH(tex, FaceMeMatrix, SpearEndPos[i][0], 0,
+                                       y, 0, 0, 1.0f, 1.0f, 0.25f,
+                                       0.25f, 1.0f, 1.0f, 1.0f, 1.0f, 0, 0.25f);
+            } else {
+                tex = SpearTexture[3];
+                limeDrawFaceMeSpriteWH(tex, FaceMeMatrix, SpearEndPos[i][0], 0,
+                                       y, 0, 0, 1.0f, 1.0f, 0.25f,
+                                       0.25f, 1.0f, 1.0f, 1.0f, 1.0f, 0, 0.25f);
+            }
+        } else {
+            tex = SpearTexture[3];
+            if (SpearStartPos[i][0] < SpearEndPos[i][0])
+                limeDrawFaceMeSpriteWH(tex, FaceMeMatrix, SpearEndPos[i][0], 0,
+                                       y, 0, 0, 1.0f, 1.0f, 0.25f,
+                                       0.25f, 1.0f, 1.0f, 1.0f, 1.0f, 0, 0.25f);
+            else
+                limeDrawFaceMeSpriteWH(tex, FaceMeMatrix, SpearEndPos[i][0], 0,
+                                       y, 0, 0, 1.0f, 1.0f, -0.25f,
+                                       0.25f, 1.0f, 1.0f, 1.0f, 1.0f, 0, 0.25f);
+        }
+    }
+}
