@@ -2943,3 +2943,159 @@ long RenderPlayer(PLAYER *p, long attach, long flag)
     return ((const long *)(uintptr_t)(unsigned long)
             ((const long *)c)[0x34 / 4])[1];
 }
+
+
+/* ### The second background layer has its own everything
+ *
+ * This function is the first place in the tree where `_BGSceneHandle2` is
+ * driven rather than merely mentioned, and it settles the shape of the pair:
+ *
+ *      layer 0   BGSceneHandle,  SceneScale,  SceneX,  SceneY,  SceneZ
+ *                -> RealBGSceneMatrix + 0x00
+ *      layer 1   BGSceneHandle2, SceneScale2, SceneX2, SceneY2, SceneZ2
+ *                -> RealBGSceneMatrix + 0x40
+ *
+ * so `_RealBGSceneMatrix` is TWO 4x4 matrices, and the second layer is
+ * positioned and scaled entirely independently of the first. See issue #17. */
+extern void  *BGSceneHandle;            /* 0x001aba40 */
+extern void  *BGSceneHandle2;           /* 0x001aba44 */
+extern long   BGSceneLoops[2];          /* 0x001aba80 */
+extern float  BGSceneFrame[2];          /* 0x001abb20 */
+extern long   BGSceneController[];      /* 0x001aba88, twelve bytes an entry */
+extern float  RealBGSceneMatrix[32];    /* 0x001abaa0, two 4x4 */
+extern float  M_Rot90[16];              /* 0x0018edc0 */
+extern long   ExtraEffects;             /* 0x0014e1e8 */
+extern float  SceneScale,  SceneX,  SceneY,  SceneZ;    /* 0x0014dfd8 .. */
+extern float  SceneScale2, SceneX2, SceneY2, SceneZ2;   /* 0x0014dfe8 .. */
+
+void RotMatrixX(float *m, float angle);
+void limeMatrixLoadIdentity(float *m);
+void limeMatrixMult(const float *a, const float *b, float *out);
+void limeScaleMatrix(float *m, float s);
+void LIME_TriggerEventsFromScene(void *scene, long frame, const float *m,
+                                 long a, long b, long c, long d, long e);
+
+
+/* ------------------------------------------------------------------ AnimateBG
+ *
+ * armv7 0x00021c1c, 672 bytes.  **Complete.**
+ *
+ * Advances the background scene animation, **for both layers**, and fires their
+ * event tracks. Returns immediately when `_ExtraEffects` is clear or the first
+ * scene handle is null.
+ *
+ * ### Building the two matrices
+ *
+ *      RotMatrixX(M_Rot90, 1.5707964f)         <- PI/2, from the pool
+ *      identity -> multiply by M_Rot90 -> scale by SceneScale
+ *      translate by (SceneX, SceneY, SceneZ)   -> RealBGSceneMatrix[0]
+ *      identity -> scale by SceneScale2
+ *      translate by (SceneX2, SceneY2, SceneZ2) -> RealBGSceneMatrix[0x40]
+ *
+ * **Only the first layer gets the X rotation.** The second is built from a
+ * fresh identity and never sees `M_Rot90`, so the two layers do not share an
+ * orientation -- which is the sort of thing a port reproduces by accident only
+ * if it copies the sequence rather than the intent.
+ *
+ * The translation is written **directly into elements 12, 13 and 14** of the
+ * identity matrix before the multiply, not applied through a call -- the stores
+ * are at `sp+0x40` with the matrix at `sp+0x10`, so they land on the
+ * translation row of the 4x4. Reading those offsets as if they were relative to
+ * the matrix pointer puts them past its end; gcc's `-Warray-bounds` caught
+ * exactly that mistake here before it was committed.
+ *
+ * ### The per-layer loop
+ *
+ * For each layer, if its frame counter has crossed into a new integer it calls
+ *
+ *      LIME_TriggerEventsFromScene(handle, (long)frame, matrix,
+ *                                  0, -1, LevelSelect == 2, 0, 0)
+ *
+ * -- and the second layer passes `0` where the first passes `0` too, but from a
+ * different literal (`r3 = -1` then `adds r3, #1`), so the two call sites are
+ * genuinely separate code rather than a shared tail.
+ *
+ * **`LevelSelect == 2` is passed as a flag to both.** Whatever stage 2 is, it
+ * changes how the background events are triggered.
+ *
+ * Then the counter advances by exactly `1.0f` a call -- **not scaled by frame
+ * time**, unlike `MaintainFESlide`. The background animation is therefore tied
+ * to the frame rate, and a 60 fps port runs it at double speed unless this is
+ * changed deliberately.
+ *
+ * ### Non-looping scenes stop on the last frame
+ *
+ * When `BGSceneLoops[layer]` is zero the counter is clamped to
+ * `scene->count - 1` (`+0x44` of the scene, the same field `HUDANIM_Update`
+ * reads) and the layer stops advancing. Looping scenes are never clamped here
+ * at all -- the wrap happens inside `LIME_TriggerEventsFromScene`.
+ *
+ * The loop ends after layer 1, and layer 1 is skipped entirely when
+ * `_BGSceneHandle2` is null -- which is the normal case for most stages and is
+ * why the second layer went unnoticed for so long.
+ */
+void AnimateBG(void)
+{
+    long stage2;
+    long i;
+
+    if (ExtraEffects == 0)
+        return;
+
+    stage2 = (*LevelSelectPtr == 2);
+
+    if (BGSceneHandle == 0)
+        return;
+
+    {
+        float rot[16], tmp[16], acc[16];
+
+        RotMatrixX(M_Rot90, 1.5707964f);        /* 0x3fc90e55 */
+
+        limeMatrixLoadIdentity(tmp);
+        limeMatrixMult(M_Rot90, tmp, rot);
+        limeScaleMatrix(rot, SceneScale);
+
+        limeMatrixLoadIdentity(acc);
+        acc[12] = SceneX;   /* sp+0x40, the matrix being at sp+0x10 */
+        acc[13] = SceneY;
+        acc[14] = SceneZ;
+        limeMatrixMult(acc, rot, RealBGSceneMatrix);
+
+        limeMatrixLoadIdentity(acc);            /* layer 2: no rotation */
+        acc[12] = SceneX2;
+        acc[13] = SceneY2;
+        acc[14] = SceneZ2;
+        limeScaleMatrix(acc, SceneScale2);
+        limeMatrixMult(acc, RealBGSceneMatrix, &RealBGSceneMatrix[0x40 / 4]);
+    }
+
+    for (i = 0; i < 2; i++) {
+        void *handle = (i == 0) ? BGSceneHandle : BGSceneHandle2;
+        long *ctl = &BGSceneController[i * 3];
+        float *m  = (i == 0) ? RealBGSceneMatrix
+                             : &RealBGSceneMatrix[0x40 / 4];
+
+        if (i == 1 && BGSceneHandle2 == 0)
+            return;
+        if (handle == 0)
+            continue;
+
+        if (BGSceneLoops[i] == 0) {
+            float last = (float)(((const long *)handle)[0x44 / 4] - 1);
+            if (BGSceneFrame[i] >= last) {
+                BGSceneFrame[i] = last;         /* stop on the last frame */
+                continue;
+            }
+        }
+
+        if ((long)BGSceneFrame[i] != ctl[2]) {
+            LIME_TriggerEventsFromScene(handle, (long)BGSceneFrame[i], m,
+                                        0, -1, stage2, 0, 0);
+            ctl[2] = (long)BGSceneFrame[i];
+        }
+        ctl[1] = (long)BGSceneFrame[i];
+
+        BGSceneFrame[i] += 1.0f;                /* not frame-rate scaled */
+    }
+}
