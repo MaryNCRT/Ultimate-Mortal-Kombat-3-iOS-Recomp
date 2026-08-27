@@ -7,7 +7,7 @@ Read this, then [METHODOLOGY.md](METHODOLOGY.md). Everything else is reference.
 
 ## Where the project actually stands
 
-**44.32% of the total estimated effort. Nothing is playable.** The arithmetic is
+**48.96% of the total estimated effort. Nothing is playable.** The arithmetic is
 in the [README](../README.md#overall-progress) and the weights are a judgement
 call; the completion figures are measured by `tools/progress.py` on every run.
 
@@ -16,13 +16,13 @@ call; the completion figures are measured by `tools/progress.py` on every run.
 | Asset formats | **100%** — solved, demonstrated, animating |
 | `lime/common` | **109 of 109** written, **all nine files verified** |
 | Native executable | **exists**, draws all 18 arenas with a skinned animated fighter |
-| `gamecode` | **171 of 291** — the current front |
+| `gamecode` | **246 of 291** — the current front |
 | `gamecode/logic` (fight engine) | 3 of 2,172 — essentially untouched |
 | Platform layer | window, GL context and asset loading on Windows and Linux; no audio, no input mapping |
 
 The shape of the project is still that it has **more verified knowledge than
 code**, but less lopsidedly than it was: `lime/common` is finished and
-`gamecode` is past halfway. The fight engine is the mountain that remains.
+`gamecode` is past five-sixths. The fight engine is the mountain that remains.
 
 **If you are picking this up mid-stream, the front is `gamecode`.** Work
 smallest-function-first through `python tools/pending.py`; the small ones keep
@@ -105,7 +105,7 @@ protects nothing and costs the project its only visible evidence.
 
 ### 1. Finish `gamecode` — this is the front
 
-**171 of 291.** Nine files under `decomp/gamecode/`. Run
+**246 of 291.** Ten files under `decomp/gamecode/`. Run
 `python tools/pending.py 40` for what is left, size-ordered.
 
 **Work smallest-first.** This has been repeatedly worth it: the small functions
@@ -115,10 +115,36 @@ need, and going in size order means you never block on an unknown. `checkIfKode`
 (156 bytes) caught a misread jump table in `initArguments`; `limeUC` (184 bytes)
 explained why `getToken` starts at `s + 2`.
 
-The tail is six functions that alone come to roughly 55 KB of Thumb —
-`GameInit_LoadABit` 11,700 B, `DrawHUD` 11,536 B, `FE_Task_About_Help` 10,360 B,
-`MovesList` 8,796 B, `AddNewGameEvents` 6,644 B, `UpdateInGamePauseMenu`
-5,720 B. Budget for them separately; they are not more of the same.
+**The strongest case for it so far**: the front-end task functions corrected
+*seven* wrong type declarations, none of which was findable from inside the
+function that declared them. `limeCreateFONT`'s last parameter is a float and
+not an int, `SFXHandle` and `MusicVol` are arrays and not pointers,
+`exitTimeout` and `KontinueTime` are floats and not longs, and both
+`EASDK_LogEvent` variants had an argument typed wrong. Every one was settled by
+reading a caller. Assume any signature that has never been read from a call site
+is provisional.
+
+What is left is the tail, and it is all large. Six functions alone come to
+roughly 55 KB of Thumb — `GameInit_LoadABit` 11,700 B, `DrawHUD` 11,536 B,
+`FE_Task_About_Help` 10,360 B, `MovesList` 8,796 B, `AddNewGameEvents` 6,644 B,
+`UpdateInGamePauseMenu` 5,720 B — and the next tier (`FE_Task_About_About`,
+`DrawMoveListIcons`, `DrawControls`, `TrackCam`, `MaintainParticles`,
+`RenderLevelBG`) is 1.5 to 1.9 KB each. Budget for them separately; they are not
+more of the same.
+
+**`tools/annotate.py` truncates at the first literal pool** inside a function,
+so for anything of this size its output stops early — and silently, which is
+worse. Several functions in this block have their last third past a pool. Use
+`tools/disasm_range.py` for those:
+
+```bash
+python tools/disasm_range.py work/UMK3.armv7 0x00010348 0x00010474
+```
+
+It steps over undecodable halfwords as `.word` and resumes, and resolves the
+`ldr rN,[pc,#imm]` / `add rN,pc` pairs the same way `annotate.py` does. Reach
+for `annotate.py` first — it names call targets, which this does not — and fall
+back to this the moment the output ends somewhere a branch says it should not.
 
 **The bar for landing one is not negotiable:** `bash tools/check.sh` at **zero
 errors and zero warnings in `decomp/gamecode`** (the 13 `unused parameter`
@@ -133,7 +159,13 @@ consistently been.
 
 ### 2. Then `gamecode/logic`
 
-3 of 2,172, and the real mountain. Everything learned in `gamecode` about
+3 of 2,172, and the real mountain. **Its boundary with `gamecode` is already a
+function pointer**: `mk3_init`'s third argument is `FrameID_GetBBox`, handed in
+at init rather than called directly (see `decomp/gamecode/training.c`). Any
+indirect call inside the logic module that takes a frame id and returns a box is
+almost certainly that callback.
+
+Everything learned in `gamecode` about
 `PLAYER` (stride 0x5f0), `ANIMATEDCHARACTER` (character id at +8, frames at
 +4 with an 88-byte stride) and the two frame tables feeds straight into it.
 `moves_data.x` already names **92 `t_` handlers and 90 `q_` predicates** — see
