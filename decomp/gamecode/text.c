@@ -514,3 +514,54 @@ long getToken(const char *s)
     }
     return foundToken.type;
 }
+
+
+/* ------------------------------------------------------------------- limeUC
+ *
+ * armv7 0x000a7348, 184 bytes.  **Complete.**
+ *
+ * Takes the next of the sixteen `_usprintfBuffers` and fills it with a
+ * **byte-for-byte copy of the input, prefixed with a UTF-16LE BOM**:
+ *
+ *      buf[0] = 0xFF
+ *      buf[1] = 0xFE
+ *      buf[2..] = s[0..]           copied as 16-bit units until both bytes zero
+ *
+ * **It does not convert anything.** The name suggests ASCII to Unicode and the
+ * file already has `convertAsciiStringToUnicode` for that; this one takes a
+ * string that is ALREADY UTF-16LE and only puts the byte-order mark in front of
+ * it. The loop reads s[i] and s[i+1] and writes them straight through.
+ *
+ * The terminator is the 16-bit zero: it stops when both bytes of a unit are
+ * zero, and writes that pair out as well, so the result is terminated.
+ *
+ * **This is where getToken second byte comes from.** That function starts
+ * scanning at `s + 2`, which is exactly the BOM this writes -- the two are the
+ * producer and consumer of the same convention, and neither says so on its own.
+ *
+ * The buffer index advances first and wraps at 16, so sixteen live results can
+ * be in flight before one is overwritten. The 0xFF/0xFE pair is produced from a
+ * single -1 doubled, not from two constants.
+ */
+char *limeUC(const char *s)
+{
+    char *buf;
+    long i;
+
+    UCPtr++;
+    if (UCPtr > 15)
+        UCPtr = 0;
+
+    buf = usprintfBuffers[UCPtr];
+    buf[0] = (char)0xFF;                /* mov r2, #-1     */
+    buf[1] = (char)0xFE;                /* adds r2, r2, r2 */
+
+    for (i = 0; s[i] != 0 || s[i + 1] != 0; i += 2) {
+        buf[i + 2] = s[i];
+        buf[i + 3] = s[i + 1];
+    }
+    buf[i + 2] = 0;                     /* the 16-bit terminator */
+    buf[i + 3] = 0;
+
+    return usprintfBuffers[UCPtr];      /* re-read, not the cached pointer */
+}

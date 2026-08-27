@@ -738,3 +738,313 @@ int IsAFrameVisible(ANIMATEDCHARACTER *c, long frame)
 
     return f[0x28 / 4] == 1;
 }
+
+
+/* `_PlayerDefs` -- 0x00170950, **52 bytes** an entry. Three functions now spell
+ * that stride out the same way, `(n*16 - n*4 + n) << 2`, which is 13 << 2.
+ *
+ * Word 0 is the character id. The seven words from +0x18 to +0x30 are asset
+ * name pointers; Load1Character passes all seven on and the ORDER it passes
+ * them in is not the order they sit in. */
+extern char *PlayerDefs;                /* 0x00170950 */
+#define PLAYERDEF_STRIDE  52
+
+/* `_Players` -- 0x001fa4d4, and the second player is at +0x5f0. */
+#define PLAYER_STRIDE  0x5f0
+
+ANIMATEDCHARACTER *LoadAnimatedCharacter(char *a, char *b, char *c, char *d,
+                                         char *e, char *f, char *g,
+                                         EPLAYER who, FRONTEND_CHARACTER *fe,
+                                         long p, long q, long r);
+
+
+/* ------------------------------------------------------------ Load1Character
+ *
+ * armv7 0x0005ccec, 132 bytes.  **Complete.**
+ *
+ * Unpacks one PLAYERDEF into the twelve-argument LoadAnimatedCharacter call and
+ * hangs the result off the player.
+ *
+ * **The seven asset names are not passed in memory order.** The def holds them
+ * at +0x18 through +0x30 and they go out as
+ *
+ *      +0x30, +0x24, +0x20, +0x18, +0x28, +0x2c, +0x1c
+ *
+ * There is no pattern to recover and no way to guess it back; it is transcribed
+ * from the register assignments and it has to stay exactly this.
+ *
+ * **The EPLAYER handed to LoadAnimatedCharacter is `def[0]`, not the `who` this
+ * function was called with.** The caller argument is used only to index the
+ * table and then to stamp the loaded character. Normally the two agree -- but
+ * nothing here makes them, and the code goes out of its way to read the def.
+ *
+ * The tenth argument is a hardcoded 1; only the fifth argument of this function
+ * reaches the twelfth.
+ *
+ * Afterwards:
+ *
+ *      p->anim   = result          (+0x04)
+ *      result[8] = who             (+0x08)
+ *
+ * **That +0x08 store is where the character id in an ANIMATEDCHARACTER comes
+ * from** -- the same field IsAFrameVisible and IsFrameVisible read to decide
+ * their per-character frame exceptions. Written here, read there.
+ */
+void Load1Character(PLAYER *p, EPLAYER who, FRONTEND_CHARACTER *fe,
+                    long a, long b)
+{
+    char **def = (char **)(PlayerDefs + who * PLAYERDEF_STRIDE);
+    const long *defw = (const long *)def;
+    ANIMATEDCHARACTER *c;
+
+    c = LoadAnimatedCharacter(def[0x30 / 4], def[0x24 / 4], def[0x20 / 4],
+                              def[0x18 / 4], def[0x28 / 4], def[0x2c / 4],
+                              def[0x1c / 4],
+                              (EPLAYER)defw[0], fe, a, 1, b);
+
+    ((long *)p)[1] = (long)(uintptr_t)c;    /* p->anim, +0x04 */
+    ((long *)c)[2] = who;                   /* the character id, +0x08 */
+}
+
+
+void LoadGameCharacterCheckCache(PLAYER *p, PLAYERDEF *def,
+                                 FRONTEND_CHARACTER *fe);
+int  puts(const char *s);
+void LoadAllFramesTXT(void);
+
+
+/* ------------------------------------------------ LoadGameCharacterCheckCache
+ *
+ * armv7 0x0005ce9c, 136 bytes.  **Complete.**
+ *
+ * LoadGameCharacter with two cache lookups in front of it:
+ *
+ *      printf("loading character %s...\n", def->name)
+ *
+ *      1. if OrigLoadedPlayers[1] is live and its id matches, reuse it
+ *         OUTRIGHT -- p->anim points at the other player character and the
+ *         function returns without touching anything else.
+ *      2. otherwise ask HavePreloadedCharacter; on a hit, puts("Found in
+ *         cache!") and take it.
+ *      3. otherwise Load1Character, then **ask HavePreloadedCharacter again**
+ *         and store THAT as p->anim.
+ *
+ * Case 1 returning early is the one that matters: it is the only path that does
+ * not stamp `p->id`, `p->[0x5e8]` and `p->[0x5ec]`. A mirror match leaves those
+ * three fields holding whatever the previous character left there.
+ *
+ * The second HavePreloadedCharacter in case 3 overwrites the pointer
+ * Load1Character has already written into p->anim. The two agree in practice,
+ * but the code asks rather than assuming, and that is transcribed.
+ *
+ * Note it checks `OrigLoadedPlayers[1]` only -- slot 0 is never consulted.
+ */
+void LoadGameCharacterCheckCache(PLAYER *p, PLAYERDEF *def,
+                                 FRONTEND_CHARACTER *fe)
+{
+    long *pw = (long *)p;
+    const long *dw = (const long *)def;
+    ANIMATEDCHARACTER *c;
+
+    printf("loading character %s...\n", ((char *const *)def)[0x18 / 4]);
+
+    if (OrigLoadedPlayers[1] != 0 &&
+        dw[0] == ((const long *)OrigLoadedPlayers[1])[2]) {
+        pw[1] = (long)(uintptr_t)OrigLoadedPlayers[1];
+        return;                         /* the three fields below are NOT set */
+    }
+
+    c = HavePreloadedCharacter((EPLAYER)dw[0]);
+    if (c != 0) {
+        puts("Found in cache!");
+        pw[1] = (long)(uintptr_t)c;
+    } else {
+        Load1Character(p, (EPLAYER)dw[0], fe, 0, 1);
+        c = HavePreloadedCharacter((EPLAYER)dw[0]);
+        pw[1] = (long)(uintptr_t)c;     /* asked again, not reused */
+    }
+
+    pw[0x5e8 / 4] = 0;
+    pw[0]         = dw[0];
+    pw[0x5ec / 4] = -1;
+}
+
+
+/* ------------------------------------------------------- LoadLevelCharacters
+ *
+ * armv7 0x0005d078, 160 bytes.  **Complete.**
+ *
+ *      printf("Loading characters... (%s vs %s)...\n", nameA, nameB)
+ *      ClearAnimRemapTables()
+ *      LoadAllFramesTXT()
+ *      LoadGameCharacter(&Players[0], &PlayerDefs[a], NULL, 0)
+ *      LoadGameCharacter(&Players[1], &PlayerDefs[b], NULL, a == b)
+ *      Players[0].altCostume = 0
+ *      Players[1].altCostume = 0
+ *      OrigLoadedPlayers[0] = Players[0].anim
+ *      OrigLoadedPlayers[1] = Players[1].anim
+ *
+ * **The fourth argument to the second load is `a == b`** -- the mirror-match
+ * flag, computed right there from the two ids. That is what tells the loader
+ * the second fighter is the same character as the first, and it is the only
+ * place the flag comes from.
+ *
+ * The two `altCostume` stores are redundant: LoadGameCharacter clears +0x530
+ * for each player already, and these clear the same two words a second time
+ * (0xb20 being 0x5f0 + 0x530, player two's copy of the field). Transcribed
+ * because they are there, not because they do anything.
+ *
+ * The remap tables are cleared and the frame text reloaded BEFORE either
+ * character is touched, so a level load always starts from a blank remap.
+ */
+void LoadLevelCharacters(EPLAYER a, EPLAYER b)
+{
+    PLAYER *p0 = (PLAYER *)Players;
+    PLAYER *p1 = (PLAYER *)(Players + PLAYER_STRIDE);
+    PLAYERDEF *da = (PLAYERDEF *)(PlayerDefs + a * PLAYERDEF_STRIDE);
+    PLAYERDEF *db = (PLAYERDEF *)(PlayerDefs + b * PLAYERDEF_STRIDE);
+
+    printf("Loading characters... (%s vs %s)...\n",
+           ((char *const *)da)[0x18 / 4], ((char *const *)db)[0x18 / 4]);
+
+    ClearAnimRemapTables();
+    LoadAllFramesTXT();
+
+    LoadGameCharacter(p0, da, 0, 0);
+    LoadGameCharacter(p1, db, 0, (a == b) ? 1 : 0);
+
+    p0->altCostume = 0;                 /* already cleared, twice over */
+    p1->altCostume = 0;
+
+    OrigLoadedPlayers[0] = (ANIMATEDCHARACTER *)(uintptr_t)((long *)p0)[1];
+    OrigLoadedPlayers[1] = (ANIMATEDCHARACTER *)(uintptr_t)((long *)p1)[1];
+}
+
+
+/* `_AllFramesTable` -- 0x00218cc4, **65 bytes** an entry: one byte at +0 that
+ * nothing here writes, then a 64-byte name. The compiler spells the stride as
+ * `i*64 + i`. */
+#define ALLFRAMES_STRIDE  65
+#define ALLFRAMES_COUNT   0x1c4c        /* 7244 */
+
+extern char *AllFramesTable;            /* 0x00218cc4 */
+
+void *limeLoadFile(const char *name);
+void  limeFree(void *p);
+int   sscanf(const char *s, const char *fmt, ...);
+size_t strlen(const char *s);
+
+
+/* ---------------------------------------------------------- LoadAllFramesTXT
+ *
+ * armv7 0x0005cf24, 176 bytes.  **Complete.**
+ *
+ * Reads `framelists/allframes.txt` into `_AllFramesTable`, one whitespace-
+ * delimited name per entry, with `sscanf(p, "%32s", entry + 1)`.
+ *
+ * **7244 entries, and that is the third place this number turns up.**
+ * FrameID_GetBBox rejects a frame id above 7244 and ClearAnimRemapTables walks
+ * 7245. So the table holds 7245 slots and this fills the first 7244 of them --
+ * the numbers do not quite meet, and the difference is recorded rather than
+ * smoothed: one slot is left as it was.
+ *
+ * The name field is 64 bytes but `%32s` caps a name at 32 characters plus its
+ * terminator, so half the field is unreachable through this loader.
+ *
+ * After each successful token the cursor advances by `strlen` of what was
+ * written -- not by what sscanf consumed -- and then any run of `\n` and
+ * `\r` is skipped. A line that does not scan leaves the cursor where it
+ * was, so the loop spends the rest of its 7244 iterations reading the same
+ * bytes. It is bounded, so it terminates; it just stops making progress.
+ *
+ * ### The failure path only looks like it falls through
+ *
+ * If limeLoadFile returns NULL it calls
+ *
+ *      Error("Couldn't load master frames list!!\n")
+ *
+ * and then branches back into the parse loop with the null pointer still in
+ * hand -- which reads like a crash waiting to happen. It is not: `Error` above
+ * ends in a branch to its own address and never comes back. The loop head is
+ * simply where the compiler pointed the unreachable edge.
+ */
+void LoadAllFramesTXT(void)
+{
+    char *buf = (char *)limeLoadFile("framelists/allframes.txt");
+    char *p;
+    long i;
+
+    if (buf == 0)
+        Error("Couldn't load master frames list!!\n");   /* never returns */
+
+    p = buf;
+    for (i = 0; i != ALLFRAMES_COUNT; i++) {
+        char *dst = AllFramesTable + i * ALLFRAMES_STRIDE + 1;
+
+        if (sscanf(p, "%32s", dst) == 1)
+            p += strlen(dst);
+
+        while (*p == 10 || *p == 13)    /* newline, carriage return */
+            p++;
+    }
+
+    limeFree(buf);
+}
+
+
+/* `_IdlesPerPlayer` -- 0x00171288, two words an entry. */
+/* `_TheFECharacters` is already declared above as [25][0x668]; slot 23 is the
+ * one this function loads as character 0. */
+extern long *IdlesPerPlayer[];          /* 0x00171288, {value, list} pairs */
+
+
+/* ----------------------------------------------------- LoadFrontEndCharacters
+ *
+ * armv7 0x0005cfd4, 164 bytes.  **Complete.**
+ *
+ * Sets up one front-end character slot and loads its model.
+ *
+ * **Character 0 gets a preamble nobody else gets**: ClearAnimRemapTables and
+ * LoadAllFramesTXT run first, then it falls into the same body. So the frame
+ * tables are rebuilt on the first character of a front-end load and not again.
+ *
+ * The body clears +4 and +0x65c, copies `IdlesPerPlayer[who][0]` into +0x660,
+ * and then copies that entry second word -- a **-1-terminated list** -- into
+ * the slot at +0x5f4, terminating it with its own -1.
+ *
+ * **Character 23 is loaded as character 0.** `(who == 0x17) ? 0 : who` is the
+ * id handed to Load1Character, while the destination slot and the id stamped
+ * into +0 afterwards stay 23. So slot 23 holds character 0 geometry under its
+ * own name.
+ *
+ * The same pointer is passed as both the PLAYER and the FRONTEND_CHARACTER
+ * argument -- one struct playing both parts.
+ */
+void LoadFrontEndCharacters(long who)
+{
+    char *fc;
+    long *dst;
+    const long *src;
+
+    if (who == 0) {
+        ClearAnimRemapTables();
+        LoadAllFramesTXT();
+    }
+
+    fc = TheFECharacters[who];
+
+    ((long *)fc)[1]            = 0;             /* +0x04 */
+    *(long *)(fc + 0x650 + 0xc) = 0;            /* +0x65c */
+    *(long *)(fc + 0x660)       = IdlesPerPlayer[who * 2][0];
+
+    src = IdlesPerPlayer[who * 2 + 1];
+    dst = (long *)(fc + 0x5f0 + 4);
+    while (*src != -1)
+        *dst++ = *src++;
+    *dst = -1;
+
+    Load1Character((PLAYER *)fc, (EPLAYER)((who == 0x17) ? 0 : who),
+                   (FRONTEND_CHARACTER *)fc, 0, 0);
+
+    ((long *)fc)[0] = who;              /* stamped AFTER the load */
+}
