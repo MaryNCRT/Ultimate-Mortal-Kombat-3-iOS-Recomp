@@ -2153,3 +2153,95 @@ void PopulateTower(void)
 
     Write_Tower();
 }
+
+
+/* `_Stats` -- 0x00183c84. Five words are reached from here:
+ *
+ *      +0x00  best win streak (a running maximum)
+ *      +0x04  wins            single player
+ *      +0x08  losses          single player
+ *      +0x0c  wins            human vs human
+ *      +0x10  losses          human vs human
+ */
+/* `_Stats` is already declared above as char[0x98]; these are its first five
+ * words. */
+#define STATW(n)  (((long *)Stats)[(n) / 4])
+
+extern long Health[];                   /* 0x0014fa64, one per player */
+extern long Player1Wins;                /* 0x0014e204 */
+extern long winStreak;                  /* 0x0014e1a8 */
+
+int  isParent(void);
+void Write_Stats(void);
+
+
+/* ------------------------------------------------------------------ UpdateStats
+ *
+ * armv7 0x0001272c, 260 bytes.  **Complete.**
+ *
+ * Books the result of a match. `GameMode` picks which pair of counters moves:
+ *
+ *      GameMode == 6   nothing is counted, Write_Stats runs anyway
+ *      GameMode == 1   the human-vs-human pair, +0x0c and +0x10
+ *      anything else   the single-player pair, +0x04 and +0x08
+ *
+ * ### Each side judges the match by the OTHER player health
+ *
+ * In the human-vs-human case it asks `isParent()` and then reads a different
+ * slot of `_Health` depending on the answer:
+ *
+ *      parent      -> Health[1] == 0  ->  "wins"
+ *      not parent  -> Health[0] == 0  ->  "wins"
+ *
+ * So the parent checks the child health and the child checks the parent, and
+ * both arrive at the same verdict from their own copy of the state. Reading it
+ * as "check my own health" gets the sign backwards on one of the two devices,
+ * which is exactly the sort of thing that only shows up in a real two-device
+ * test.
+ *
+ * It prints `wins` or `loss` on the way through -- both survive in retail.
+ *
+ * The single-player path uses `Player1Wins` instead, and then keeps the best
+ * streak with `if (Stats[0] <= winStreak) Stats[0] = winStreak`. **The
+ * comparison is `<=`, so an equal streak is rewritten with itself** rather than
+ * skipped. Harmless, and transcribed as written.
+ *
+ * Every path ends in Write_Stats, including GameMode 6 which changed nothing.
+ */
+void UpdateStats(void)
+{
+    if (GameMode == 1) {
+        if (isParent()) {
+            puts("increasing human wins/loss - parent");
+            if (Health[1] == 0) {
+                puts("wins");
+                STATW(0x0c)++;
+            } else {
+                puts("loss");
+                STATW(0x10)++;
+            }
+        } else {
+            if (Health[0] == 0) {
+                puts("wins");
+                STATW(0x0c)++;
+            } else {
+                puts("loss");
+                STATW(0x10)++;
+            }
+        }
+        Write_Stats();
+        return;
+    }
+
+    if (GameMode != 6) {
+        if (Player1Wins != 0)
+            STATW(0x04)++;
+        else
+            STATW(0x08)++;
+
+        if (STATW(0) <= winStreak)
+            STATW(0) = winStreak;
+    }
+
+    Write_Stats();
+}
