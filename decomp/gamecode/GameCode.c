@@ -534,3 +534,84 @@ void updateMPWins(void)
     }
     achievementsIncreaseMatchesWon();
 }
+
+
+extern int    LoadedBGExtents;          /* 0x0015108c */
+extern int    CurrentTask;              /* 0x00150590 */
+extern void (*TaskFunctionList[])(void);/* 0x0017d940 */
+void LoadBGExtents(void);
+void limeBegin(void);
+void limeFinish(void);
+void limeStartLoadingAnim(void);
+void limeStopLoadingAnim(void);
+void heartbeatUpdate(void);
+void glDisable(unsigned cap);
+
+
+/* -------------------------------------------------------- LIME_KillAllLights
+ *
+ * armv7 0x00023c24, 88 bytes.  **Complete.**
+ *
+ * Ten glDisable calls and nothing else: GL_LIGHTING (0xb50), all eight lights
+ * GL_LIGHT0..GL_LIGHT7 (0x4000..0x4007), and GL_COLOR_MATERIAL (0xb57).
+ *
+ * **All eight lights are disabled explicitly**, not in a loop, though the enum
+ * values are consecutive and a loop would have been equivalent. Worth noting
+ * for a GL ES 2 port: none of this exists there, and the whole function becomes
+ * a no-op rather than something to translate.
+ */
+void LIME_KillAllLights(void)
+{
+    glDisable(0x0b50);                  /* GL_LIGHTING */
+    glDisable(0x4000);                  /* GL_LIGHT0 */
+    glDisable(0x4001);
+    glDisable(0x4002);
+    glDisable(0x4003);
+    glDisable(0x4004);
+    glDisable(0x4005);
+    glDisable(0x4006);
+    glDisable(0x4007);                  /* GL_LIGHT7 */
+    glDisable(0x0b57);                  /* GL_COLOR_MATERIAL */
+}
+
+
+/* -------------------------------------------------------------- GameCodeMain
+ *
+ * armv7 0x000232bc, 88 bytes.  **Complete. This is the frame.**
+ *
+ *      if (!LoadedBGExtents) { LoadBGExtents(); LoadedBGExtents = 1; }
+ *      limeBegin()
+ *      if (CurrentTask == 8) limeStartLoadingAnim()
+ *      else                  limeStopLoadingAnim()
+ *      TaskFunctionList[CurrentTask]()
+ *      limeFinish()
+ *      heartbeatUpdate()
+ *
+ * The whole game is one indirect call through a task table, and **task 8 is the
+ * loading screen** -- the only index that gets the spinner started rather than
+ * stopped, and the stop runs on every other frame whether or not one is
+ * showing.
+ *
+ * The lazy LoadBGExtents happens INSIDE the frame rather than at init, and the
+ * flag is set after the call, so a LoadBGExtents that failed would retry every
+ * frame.
+ */
+void GameCodeMain(void)
+{
+    if (LoadedBGExtents == 0) {
+        LoadBGExtents();
+        LoadedBGExtents = 1;
+    }
+
+    limeBegin();
+
+    if (CurrentTask == 8)
+        limeStartLoadingAnim();         /* task 8 is the loading screen */
+    else
+        limeStopLoadingAnim();
+
+    TaskFunctionList[CurrentTask]();
+
+    limeFinish();
+    heartbeatUpdate();
+}
