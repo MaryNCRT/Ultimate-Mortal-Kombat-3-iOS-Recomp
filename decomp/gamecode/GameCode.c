@@ -3899,3 +3899,167 @@ void SetToUseCamera(const float *arg)
                                 at[0],  at[1],  at[2],
                                 up[0],  up[1],  up[2]);
 }
+
+
+extern float *StaticMeshAmbient;        /* pointer slot -> 0x002bfe74 */
+extern void  *WhiteTexture;             /* 0x001ab998 */
+
+float fabsf(float x);
+
+/* Fifteen slots, not two: this loop walks `_Players` fifteen times at the
+ * 0x5f0 stride. The compiler spells that stride as `(i*128 - i*32 - i) << 4`,
+ * which is 95 << 4 = 1520 = 0x5f0 -- a third independent confirmation. */
+#define PLAYER_SLOTS  15
+
+
+/* ------------------------------------------------------------- LightPlayers
+ *
+ * armv7 0x0001bfe4, 1000 bytes.  **Complete.**
+ *
+ * Sets each player slot's light position and brightness, and publishes the
+ * ambient for static meshes. Called at the end of `MaintainLevelScenes`.
+ *
+ * ### The light position comes from the level, per scene
+ *
+ *      CurrentScene == 0   Level_Info[lvl] + 0x00, 0x04, 0x08
+ *      otherwise           Level_Info[lvl] + 0x34, 0x38, 0x3c
+ *
+ * -- a **third** pair of per-scene fields in that table, on top of the two
+ * camera sets `MaintainLevelScenes` established. So the upper and lower halves
+ * of an arena have independent lighting as well as independent camera bounds.
+ *
+ * The three components are copied into the player at +0x5d8, +0x5dc and +0x5e0,
+ * and the same three multiplied by **255.0** become `_StaticMeshAmbient`.
+ *
+ * ### Four levels get distance-based brightness, and no two the same way
+ *
+ * Brightness starts at 1.0 in `p[0x5d4]` and four stages override it from the
+ * fighter's Z (`p[8]`), each with its own reference height, falloff and step
+ * count. All four floor at **0.7** and clamp at 1.0:
+ *
+ *      level 1   b = 1 + |z - 183/scale| / -10       one sample
+ *      level 8   b = 1 + |z - 120/scale| / -11       one sample
+ *      level 5   four samples from -630/scale, stepping 480/scale,
+ *                b = 1 + |z - h| * -0.5, taking the BRIGHTEST
+ *      level 4   scene 1: five samples from -550/scale, stepping 330/scale,
+ *                         b = 1 + |z - h| / -3.5, brightest wins
+ *                scene 0: falls into level 5's four-sample form
+ *
+ * The multi-sample cases are **lamps in a row**: each iteration measures the
+ * distance to one light and keeps the largest brightness, which is why the
+ * comparison is `if (candidate > current)` and not an accumulation. Level 4's
+ * upper and lower halves have different numbers of lamps -- five and four.
+ *
+ * All the falloff arithmetic is done in **double** and narrowed only when
+ * stored, including the `-0.5`, `-3.5`, `-10` and `-11` which are `vmov.f64`
+ * immediates rather than pool constants.
+ *
+ * ### Per-slot texture selection
+ *
+ * Four flags on the player pick which texture goes into `p[0x528]`:
+ *
+ *      +0x530 non-null   that texture directly, and p[0x52c] = anim[0x28]
+ *      +0x538 set        anim[0x1c], and all four corners set to 1.0
+ *      +0x53c set        `_WhiteTexture`, corners to 1.0
+ *      +0x534 set        anim[0x18], corners to 1.0
+ *
+ * They are tested in that order and each can overwrite the last, so the final
+ * texture is whichever of the four flags is set **latest in the sequence**, not
+ * the first one found.
+ *
+ * ### One slot is skipped by identity
+ *
+ * When `CurrentScene` is non-zero and the slot is index 0, it compares a signed
+ * byte at `GameObjects + 0x0c` against the same byte at `GameObjects + 0x1c`;
+ * equal means the two fighters are the same object and the lighting for that
+ * slot is derived from `Players[0].anim[8]` instead. A mirror-match guard, in
+ * the lighting.
+ */
+void LightPlayers(void)
+{
+    long lvl = *LevelSelectPtr;
+    long scene = CurrentScene;
+    float ref1 = 183.0f / WorldScaleAdjust;
+    float ref8 = 120.0f / WorldScaleAdjust;
+    char *p = Players;
+    long i;
+
+    for (i = 0; i < PLAYER_SLOTS; i++, p += 0x5f0) {
+        float *bright = (float *)(p + 0x5d4);
+        float *lp     = (float *)(p + 0x5d8);
+        const float *src;
+        float z = ((const float *)p)[2];
+        long k;
+
+        *bright = 1.0f;
+
+        if (lvl == 1) {
+            double b = 1.0 + (double)fabsf(z - ref1) / -10.0;
+            *bright = 0.7f;
+            if (b > 0.7)
+                *bright = (b > 1.0) ? 1.0f : (float)b;
+        } else if (lvl == 8) {
+            double b = 1.0 + (double)fabsf(z - ref8) / -11.0;
+            *bright = 0.7f;
+            if (b > 0.7)
+                *bright = (b > 1.0) ? 1.0f : (float)b;
+        } else if (lvl == 4 && scene == 1) {
+            float h = -550.0f / WorldScaleAdjust;
+            *bright = 0.7f;
+            for (k = 0; k < 5; k++, h += 330.0f / WorldScaleAdjust) {
+                double b = 1.0 + (double)fabsf(z - h) / -3.5;
+                if ((double)*bright < b)
+                    *bright = (float)b;
+            }
+            if (*bright > 1.0f)
+                *bright = 1.0f;
+        } else if (lvl == 5 || (lvl == 4 && scene == 0)) {
+            float h = -630.0f / WorldScaleAdjust;
+            *bright = 0.7f;
+            for (k = 0; k < 4; k++, h += 480.0f / WorldScaleAdjust) {
+                double b = 1.0 + (double)fabsf(z - h) * -0.5;
+                if ((double)*bright < b)
+                    *bright = (float)b;
+            }
+            if (*bright > 1.0f)
+                *bright = 1.0f;
+        }
+
+        src = (const float *)&Level_Info[lvl * LEVELINFO_STRIDE
+                                         + (scene != 0 ? 0x34 : 0x00)];
+        lp[0] = src[0];
+        lp[1] = src[1];
+        lp[2] = src[2];
+
+        StaticMeshAmbient[0] = lp[0] * 255.0f;
+        StaticMeshAmbient[1] = lp[1] * 255.0f;
+        StaticMeshAmbient[2] = lp[2] * 255.0f;
+
+        /* the four texture flags, in order, each able to override the last */
+        {
+            long *pw = (long *)p;
+            const long *anim = (const long *)(uintptr_t)
+                               (unsigned long)pw[1];
+
+            if (anim != 0 && pw[0x530 / 4] != 0) {
+                pw[0x528 / 4] = pw[0x530 / 4];
+                pw[0x52c / 4] = anim[0x28 / 4];
+            }
+            if (pw[0x538 / 4] != 0) {
+                *bright = 1.0f;
+                if (anim != 0)
+                    pw[0x528 / 4] = anim[0x1c / 4];
+            }
+            if (pw[0x53c / 4] != 0) {
+                *bright = 1.0f;
+                if (anim != 0)
+                    pw[0x528 / 4] = (long)(uintptr_t)WhiteTexture;
+            }
+            if (pw[0x534 / 4] != 0) {
+                *bright = 1.0f;
+                if (anim != 0)
+                    pw[0x528 / 4] = anim[0x18 / 4];
+            }
+        }
+    }
+}
