@@ -211,19 +211,29 @@ void LIME_InitDebugWindow(void)
  * `LIME_KillSliders` clearing those slots is just `ClearDebugWindow` six times
  * for that reason.
  *
- * It takes at least six arguments -- three in registers and three read from the
- * stack at +0x10, +0x14 and +0x18 -- which are not broken out here.
+ * It takes SEVEN arguments -- four in registers and three read from the stack
+ * at +0x10, +0x14 and +0x18. What they mean could not be settled from inside
+ * this function, because the values only pass through it. **The call sites
+ * settle it.** `RenderFECharacters` (decomp/gamecode/FrontEnd.c) makes seven
+ * of these calls in a row:
  *
- * The body below is the addressing only. What the six arguments mean, and what
- * is written into the line slot, are not established: the values pass through a
- * literal pool this pass could not resolve. Writing the reach and stopping is
- * the honest half.
+ *      LIME_Slider(1, &FECAMPOSX,     "camx",      -10.0f,  10.0f, 0, 0)
+ *      LIME_Slider(1, &CameraLookAt[0], "atx",    -100.0f, 100.0f, 0, 0)
+ *      LIME_Slider(1, SceneGroundOffset, "groundoff", -100.0f, 100.0f, 0, 0)
+ *
+ * so the shape is (window, the float the slider edits, its label, the low and
+ * high ends of its range, and two more that are always zero at every call
+ * found so far).
+ *
+ * The body below is still the addressing only -- what is written into the line
+ * slot remains unread -- but the interface is no longer a guess.
  */
-void LIME_Slider(int window, int a, int b, int c, int d, int e)
+void LIME_Slider(int window, float *value, const char *label,
+                 float lo, float hi, long step, long e)
 {
     DEBUGWINDOW *win;
 
-    (void)a; (void)b; (void)c; (void)d; (void)e;
+    (void)value; (void)label; (void)lo; (void)hi; (void)step; (void)e;
 
     if (window == -1)
         return;                         /* -1 is "no window", as everywhere */
