@@ -1922,3 +1922,66 @@ int drawPage2x1Wide(int x, int y)
 
     return r;
 }
+
+
+extern int BUTTON_BOXLT[];              /* 0x00100488 */
+extern int BUTTON_BOXLB[];              /* 0x001004b0 */
+extern int BUTTON_BOXRB[];              /* 0x001004c4 */
+
+int limeCheckForUserMusic(void);
+
+
+/* -------------------------------------------------- drawPage2x2BigForSettings
+ *
+ * armv7 0x00015578, 192 bytes.  **Complete.**
+ *
+ * The settings page buttons. Returns 1, 3 or 4 for the one pressed, 0 for none,
+ * and every return is gated on `FE_FadeAdd == 0` the same way drawPage2x1Wide
+ * gates its own.
+ *
+ *      BOXLT at (0x9c, 0x59)   -> 1
+ *      BOXLB at (0x9c, 0xe0)   -> 3       only when there is no user music
+ *      BOXRB at (0x145, 0xe0)  -> 4
+ *
+ * **`limeCheckForUserMusic()` decides which of the two bottom buttons exists.**
+ * With the phone playing the user own music the BOXLB slot is skipped entirely
+ * -- not drawn greyed, not drawn at all -- and only BOXRB appears. There is no
+ * value 2: the layout has four slots and one of them is never used.
+ *
+ * ### It lies to the button it is about to draw
+ *
+ * Around the BOXRB call it saves `Settings[3]`, **writes zero over it**, draws,
+ * and puts the saved value back:
+ *
+ *      saved = Settings[3];  Settings[3] = 0;
+ *      DrawButtonNew(BUTTON_BOXRB, ...)
+ *      Settings[3] = saved;
+ *
+ * So that button is rendered as though the setting were off, whatever it really
+ * is, and the real value is restored before anyone else can see it. Settings[3]
+ * is the music volume index PlayFatalityVoice reads. A port that drops the
+ * save/restore pair draws the right thing and corrupts the setting; a port that
+ * drops the zeroing draws the wrong thing. Both halves have to survive.
+ */
+int drawPage2x2BigForSettings(void)
+{
+    int r = 0;
+    int saved;
+
+    if (DrawButtonNew(BUTTON_BOXLT, 0x9c, 0x59, 1) && FE_FadeAdd == 0.0f)
+        r = 1;
+
+    if (!limeCheckForUserMusic()) {
+        if (DrawButtonNew(BUTTON_BOXLB, 0x9c, 0xe0, 1) && FE_FadeAdd == 0.0f)
+            r = 3;
+    }
+
+    saved = Settings[3];
+    Settings[3] = 0;                    /* drawn as though it were off */
+
+    if (DrawButtonNew(BUTTON_BOXRB, 0x145, 0xe0, 1) && FE_FadeAdd == 0.0f)
+        r = 4;
+
+    Settings[3] = saved;
+    return r;
+}
