@@ -3729,3 +3729,173 @@ void MaintainLevelScenes(void)
 
     LightPlayers();
 }
+
+
+extern float SceneGroundOffset;         /* 0x0014df8c */
+extern long  InitGroundOffset;          /* 0x0014df90 */
+extern long  blast_player_height;       /* 0x0014df98 */
+extern long  DoneSmashEffect;           /* 0x0010ded4 */
+extern void *SmashThruScene;            /* 0x001aba74 */
+extern float LastEye[3];                /* 0x001f4454 */
+extern float LastAt[3];                 /* 0x001f4448 */
+extern long  NewCam;                    /* 0x0014e1bc */
+extern long  DoIntroFlag;               /* 0x0014e1c0 */
+extern float GameTime;                  /* 0x0014fa58 */
+extern float *m;                        /* pointer slot */
+extern float *CameraLookAt;             /* pointer slot -> 0x0014fa80 */
+
+long get_tsound(long id);
+
+void limeMatrixCopy(const float *src, float *dst);
+void LIME_PlayFBXAtPos(float *m, long a, void *scene, long b);
+void LIMEDS_SetCameraOrientation(float ex, float ey, float ez,
+                                 float tx, float ty, float tz,
+                                 float ux, float uy, float uz);
+
+
+/* ------------------------------------------------------------ SetToUseCamera
+ *
+ * armv7 0x00025d50, 900 bytes.  **Complete.**
+ *
+ * Places the camera. Takes an eye position and produces the eye, target and up
+ * vectors for `LIMEDS_SetCameraOrientation` -- with the up vector a static
+ * `(0, 0, 1)`, the same Z-up `HUDANIM_Render` uses.
+ *
+ * ### The camera lags by exactly one seventh
+ *
+ *      eye = (eye + LastEye * 6) / 7
+ *      at  = (at  + LastAt  * 6) / 7
+ *
+ * Each frame it moves **one seventh of the way** to where it was asked to go.
+ * That is the whole camera damping, and 6 and 7 are `vmov.f32` immediates, not
+ * data -- there is no tuning global for it.
+ *
+ * It is not always on. The smoothing runs only when **all five** of these hold:
+ *
+ *      CurrentTask == 6            in the fight
+ *      GamePaused == 0
+ *      DoIntro == 0
+ *      GameTime < 98.0
+ *      blast_state is 0 or 4
+ *
+ * so the camera snaps rather than glides during the intro, while paused, in the
+ * last stretch of the round, and through a stage transition. A port that damps
+ * unconditionally gets a camera that drifts during the intro and refuses to cut
+ * on a blast.
+ *
+ * `_LastEye` and `_LastAt` are written on **every** path, smoothed or not, so
+ * the history is correct the moment smoothing turns back on.
+ *
+ * ### Two camera modes
+ *
+ *      NewCam == 0   at  = arg + (0, 0, SceneGroundOffset)
+ *                    eye = at with Y reduced by exactly 1.0
+ *
+ *      NewCam != 0   at  = CameraLookAt + (0, 0, SceneGroundOffset)
+ *                    eye = arg         + (0, 0, SceneGroundOffset)
+ *
+ * The old mode ignores `_CameraLookAt` entirely and pins the eye one unit
+ * behind the target on Y; the new one takes both from globals. Both add the
+ * same ground offset to Z only.
+ *
+ * ### SceneGroundOffset, and the smash
+ *
+ *      blast_state == 0    if RoundParam[0x30] != 0,
+ *                          offset = -InitGroundOffset / WorldScaleAdjust
+ *      blast_state 1 or 2  offset = (blast_player_height - player Y)
+ *                                   / WorldScaleAdjust
+ *      CurrentTask == 3    offset = 0, unconditionally
+ *
+ * The player Y is an `int16` read out of `_GameObjects` at `blast_state * 16 -
+ * 0x0a`, so state 1 reads player one and state 2 reads player two -- the state
+ * doubles as the player index.
+ *
+ * **The smash effect fires from inside the camera code.** Once the offset
+ * reaches -1.5 or above and `_DoneSmashEffect` is clear, it copies the falling
+ * player's matrix, zeroes its +0x38, plays `_SmashThruScene` through
+ * `LIME_PlayFBXAtPos`, plays `get_tsound(0)` at the usual
+ * `MusicVol[Settings[3]] / 100`, and sets the done flag. So the sound and the
+ * particle burst for falling through a floor are triggered by the camera
+ * noticing how far down the fighter is, not by the collision.
+ *
+ * Player two's matrix is at `Players + 0xb20 + 0x18` and player one's at
+ * `Players + 0x548` -- 0xb20 being 0x548 + 0x5d8, which is neither the player
+ * stride nor a round number. Transcribed as the two literals they are.
+ */
+void SetToUseCamera(const float *arg)
+{
+    float up[3];
+    float eye[3], at[3];
+
+    up[0] = 0.0f;                       /* C.217 */
+    up[1] = 0.0f;
+    up[2] = 1.0f;
+
+    if (GameObjects != 0) {
+        long st = blast_state;
+
+        if (st == 0) {
+            if (((const signed char *)RoundParam)[0x30] != 0)
+                SceneGroundOffset = (float)(-InitGroundOffset)
+                                    / WorldScaleAdjust;
+        } else if (st == 1 || st == 2) {
+            const short *o = (const short *)GameObjects;
+            long h = blast_player_height - o[st * 8 - 5];
+
+            SceneGroundOffset = (float)h / WorldScaleAdjust;
+
+            if (SceneGroundOffset >= -1.5f && DoneSmashEffect == 0) {
+                const char *pm = (st == 2) ? (Players + 0xb20 + 0x18)
+                                           : (Players + 0x548);
+                limeMatrixCopy((const float *)pm, m);
+                m[0x38 / 4] = 0.0f;
+                LIME_PlayFBXAtPos(m, 0, SmashThruScene, 1);
+
+                if (Settings[3] != 0) {
+                    long s = get_tsound(0);
+                    if (s != -1)
+                        limePlaySound(s, MusicVol[Settings[3]] / 100.0f,
+                                      1.0f, 0);
+                }
+                DoneSmashEffect = 1;
+            }
+        }
+    }
+
+    if (CurrentTask == 3)
+        SceneGroundOffset = 0.0f;
+
+    if (NewCam == 0) {
+        at[0]  = arg[0];
+        at[1]  = arg[1];
+        at[2]  = arg[2] + SceneGroundOffset;
+        eye[0] = arg[0];
+        eye[1] = arg[1] - 1.0f;         /* one unit behind on Y */
+        eye[2] = at[2];
+    } else {
+        at[0]  = CameraLookAt[0];
+        at[1]  = CameraLookAt[1];
+        at[2]  = CameraLookAt[2] + SceneGroundOffset;
+        eye[0] = arg[0];
+        eye[1] = arg[1];
+        eye[2] = arg[2] + SceneGroundOffset;
+
+        if (CurrentTask == 6 && GamePaused == 0 && DoIntroFlag == 0
+            && GameTime < 98.0f
+            && (blast_state == 4 || blast_state == 0)) {
+            at[0]  = (at[0]  + LastAt[0]  * 6.0f) / 7.0f;
+            at[1]  = (at[1]  + LastAt[1]  * 6.0f) / 7.0f;
+            at[2]  = (at[2]  + LastAt[2]  * 6.0f) / 7.0f;
+            eye[0] = (eye[0] + LastEye[0] * 6.0f) / 7.0f;
+            eye[1] = (eye[1] + LastEye[1] * 6.0f) / 7.0f;
+            eye[2] = (eye[2] + LastEye[2] * 6.0f) / 7.0f;
+        }
+    }
+
+    LastEye[0] = eye[0];  LastEye[1] = eye[1];  LastEye[2] = eye[2];
+    LastAt[0]  = at[0];   LastAt[1]  = at[1];   LastAt[2]  = at[2];
+
+    LIMEDS_SetCameraOrientation(eye[0], eye[1], eye[2],
+                                at[0],  at[1],  at[2],
+                                up[0],  up[1],  up[2]);
+}
