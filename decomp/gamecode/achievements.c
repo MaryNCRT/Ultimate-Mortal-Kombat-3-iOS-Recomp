@@ -263,8 +263,12 @@ extern int Settings[10];                /* 0x00100e34 */
  * touched here and it is cleared on every unlock; what it holds is not
  * established by this function. */
 typedef struct ACHIEVEMENTDESCR {
-    long pad[3];                        /* 0x00 .. 0x08 */
-    long timer;                         /* 0x0c, zeroed on unlock */
+    long id;                            /* 0x00, the GameText id of the label */
+    long pad[2];                        /* 0x04 .. 0x08 */
+    /* +0x0c is a FLOAT -- achievementsDraw runs sin() on it. achievementsUnlock
+     * clears it with an integer zero store, which is the same bit pattern, so
+     * the union keeps both honest. */
+    union { float f; long w; } timer;   /* 0x0c */
 } ACHIEVEMENTDESCR;
 
 extern ACHIEVEMENTDESCR achievementsDescr[];    /* 0x0017684c */
@@ -305,7 +309,7 @@ int achievementsUnlock(int id)
             return 0;
 
         achievementTracker[id]      = 2;
-        achievementsDescr[id].timer = 0;
+        achievementsDescr[id].timer.w = 0;
         return 0;
     }
 
@@ -313,7 +317,7 @@ int achievementsUnlock(int id)
         return 0;
 
     achievementTracker[id]      = areAchievementsViewing() ? 4 : 1;
-    achievementsDescr[id].timer = 0;
+    achievementsDescr[id].timer.w = 0;
     return 1;
 }
 
@@ -452,4 +456,144 @@ void preprocessPreloadKode(void)
     *LevelSelect = *requestedLevel;     /* the host has the last word */
     sendLevelPacket();
     puts("MP:KODE NOT ENTERED");
+}
+
+
+extern float *FE_HeightScale;           /* pointer slot -> 0x000ff9bc */
+extern float *FE_WidthScale;            /* pointer slot -> 0x000ff9b8 */
+extern void **GameFontSlot;             /* pointer slot -> 0x001abb98 */
+extern long  *GamePausedPtr;            /* pointer slot */
+extern int   *limeScreenWidthP;         /* pointer slot */
+extern int   *limeScreenHeightP;        /* pointer slot */
+
+const char *GameText(long id);
+void limeFillRect(float x, float y, float w, float h,
+                  float r, float g, float b, float a);
+void limeDrawFONT(void *font, const char *text, float x, float y,
+                  long align, float scale, const float *colour);
+double sin(double x);
+double cos(double x);
+double fabs(double x);
+
+
+/* ---------------------------------------------------------- achievementsDraw
+ *
+ * armv7 0x000a0928, 684 bytes.  **Complete.**
+ *
+ * Draws the unlock banner for any achievement in state 1, and retires it when
+ * it has finished sliding.
+ *
+ * ### The banner slides on a sine and eases at the wrong end
+ *
+ *      y = limeScreenHeight + sin(timer) * -32 * FE_HeightScale
+ *
+ * At `timer == 0` that is exactly the bottom of the screen -- off it. At PI/2
+ * the banner is 32 scaled units up, fully visible. At PI it is back off the
+ * bottom. One half-period of sine is the whole animation.
+ *
+ * The timer advances by
+ *
+ *      timer += fabs(cos(timer) * 0.05) + 0.01
+ *
+ * and `|cos|` is **largest at the ends and smallest in the middle**, so the
+ * banner moves fast on the way in, **lingers at the top**, and moves fast on
+ * the way out. That is the opposite of the ease-in-out a port would reach for
+ * by default, and it is exactly what a notification wants. The `+ 0.01` floor
+ * is what stops it stalling completely at PI/2, where `cos` is zero.
+ *
+ * Both the sine and the step are computed in **double**; only the final Y is
+ * narrowed.
+ *
+ * **The timer does not advance while `GamePaused` is set** -- the banner
+ * freezes mid-slide rather than running out behind the pause menu.
+ *
+ * ### The three tracker states, from the reading side
+ *
+ * `achievementsUnlock` writes 1, 2 or 4. Here is what they mean:
+ *
+ *      1   sliding -- draw the banner and advance the timer
+ *      2   done -- counted, never drawn again
+ *      4   unlocked while the achievements screen was open; on the first frame
+ *          the screen is NOT open it becomes 1 and starts sliding
+ *
+ * So 4 is a deferred 1, and this function is what defers it. Reaching PI sets
+ * the entry to 2 and zeroes its timer.
+ *
+ * ### Achievement 17 is awarded for the other nineteen
+ *
+ *      if (finished == 19 && achievementTracker[17] == 0)
+ *          achievementsUnlock(17);
+ *
+ * `finished` counts entries in state 2 across the twenty slots this loop walks.
+ * So slot 17 is the meta-achievement, and it is granted from inside the draw
+ * loop rather than from wherever the other nineteen are earned.
+ *
+ * Two lines of text per banner: `GameText(0x65)` -- a fixed heading -- in grey
+ * at 0.9 scale, and `GameText(descr[i].id)` in white at 0.65, both offset from
+ * the sliding Y.
+ */
+void achievementsDraw(void)
+{
+    float white[4], grey[4];
+    long finished = 0;
+    long i;
+
+    white[0] = white[1] = white[2] = white[3] = 1.0f;           /* C.13 */
+    grey[0]  = grey[1]  = grey[2]  = grey[3]  = 0.9f;           /* C.14 */
+
+    for (i = 0; i < 20; i++) {
+        long v = achievementTracker[i];
+        float y;
+
+        if (v == 4) {
+            if (areAchievementsViewing()) {
+                v = achievementTracker[i];      /* re-read, still 4 */
+                if (v != 1)
+                    goto next;
+            } else {
+                achievementTracker[i] = 1;      /* the deferred start */
+                achievementsDescr[i].timer.w = 0;
+                v = 1;
+            }
+        }
+
+        if (v != 1) {
+            if (v == 2)
+                finished++;
+            goto next;
+        }
+
+        y = (float)((double)*limeScreenHeightP
+                    + sin((double)achievementsDescr[i].timer.f)
+                      * -32.0 * (double)*FE_HeightScale);
+
+        limeFillRect(0.0f, y, (float)*limeScreenWidthP,
+                     32.0f * *FE_HeightScale, 0.0f, 0.0f, 0.0f, 0.5f);
+
+        limeDrawFONT(*GameFontSlot, GameText(0x65),
+                     4.0f * *FE_WidthScale, y + 20.0f * *FE_HeightScale,
+                     0, 0.65f * *FE_WidthScale, grey);
+
+        limeDrawFONT(*GameFontSlot, GameText(achievementsDescr[i].id),
+                     14.0f * *FE_WidthScale, y + 20.0f * *FE_HeightScale,
+                     0, 0.9f * *FE_WidthScale, white);
+
+        if (*GamePausedPtr == 0) {
+            double t = achievementsDescr[i].timer.f;
+            achievementsDescr[i].timer.f =
+                (float)(t + fabs(cos(t) * 0.05) + 0.01);
+        }
+
+        if (achievementsDescr[i].timer.f >= 3.1415927f) {
+            achievementTracker[i] = 2;
+            achievementsDescr[i].timer.w = 0;
+            finished++;
+        }
+
+    next:
+        ;
+    }
+
+    if (finished == 19 && achievementTracker[17] == 0)
+        achievementsUnlock(17);         /* the meta-achievement */
 }
