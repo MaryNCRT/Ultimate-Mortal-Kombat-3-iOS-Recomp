@@ -4235,3 +4235,125 @@ void ReadControls(void)
                 = 1;
     }
 }
+
+
+extern long ButtonsPos4[];              /* 0x0015012c */
+extern long ButtonsPos5[];              /* 0x001501a4 */
+extern long ButtonsPos6[];              /* 0x0015021c */
+extern long JoystickStatePosXv;         /* 0x0014fec0 */
+extern long JoystickStatePosYv;         /* 0x0014fec4 */
+extern float JSIZE;                     /* 0x0014e1dc = 64.0 */
+
+
+/* -------------------------------------------------------- DrawControlsPreview
+ *
+ * armv7 0x0001ddc0, 732 bytes.  **Complete.**
+ *
+ * Draws the on-screen controls at half size, offset by the caller's origin.
+ *
+ * ### It rebuilds the live layout from the scheme every frame
+ *
+ *      Settings[4] == 4  ->  copy ButtonsPos4 into ButtonsPos
+ *                  == 5  ->  ButtonsPos5
+ *                  == 6  ->  ButtonsPos6
+ *
+ * all 6 entries x 5 words, and the copy is written as a **transposed** double
+ * loop -- outer over the five words, inner over the six entries -- so it walks
+ * the destination in 0x14 steps five separate times rather than once in
+ * sequence. Same bytes, five passes.
+ *
+ * ### The dial position is derived, not stored
+ *
+ *      JoystickStatePosX = (long)JSIZE
+ *      JoystickStatePosY = (long)(limeScreenHeight - JSIZE)
+ *
+ * so the dial sits `JSIZE` in from the left and `JSIZE` up from the bottom --
+ * one constant placing it in the corner, and `_JSIZE` is 64.0 in the shipped
+ * data. `CheckLeftDial` then hit-tests against this position.
+ *
+ * ### Opacity comes from Settings[6]
+ *
+ *      0 -> 0.5      1 -> 0.75      2 -> 1.0
+ *
+ * Three steps, written as two `it eq` blocks with 0.5 as the fall-through, so
+ * any other value also gives 0.5.
+ *
+ * ### The atlas: pressed is the EVEN column
+ *
+ *      u0 = ((glyph & 3) * 2 + (pressed ? 0 : 1)) * 0.125
+ *      v0 = (glyph / 4) * 0.25
+ *      u1 = 0.125      v1 = 0.25
+ *
+ * Eight columns by four rows, and each button occupies **two adjacent cells** --
+ * pressed on the even column, released on the odd one. The `+ 1` is the only
+ * difference between the two draw paths, which the compiler emitted as two
+ * near-identical copies of the whole call.
+ *
+ * The glyph id is `+0x0c` of the entry; the button index used for
+ * `ButtonStates` is `+0x10`. They are separate fields, so the same artwork can
+ * serve two logical buttons.
+ *
+ * ### Everything is halved
+ *
+ *      x = FE_X(originX) + (entry.x - entry.size / 2) * 0.5
+ *      y = FE_Y(originY) + (entry.y - entry.size / 2) * 0.5
+ *      w = h = entry.size * 0.5
+ *
+ * The `size / 2` centring uses the signed `(n + (n >>> 31)) >> 1` shape, and the
+ * outer 0.5 is what makes this a preview rather than the live control.
+ */
+void DrawControlsPreview(long originX, long originY)
+{
+    float colour[4];
+    float alpha;
+    long i, k;
+    const long *src;
+
+    colour[0] = colour[1] = colour[2] = colour[3] = 1.0f;   /* C.126 */
+
+    src = (Settings[4] == 4) ? ButtonsPos4
+        : (Settings[4] == 5) ? ButtonsPos5
+        : (Settings[4] == 6) ? ButtonsPos6 : 0;
+
+    if (src != 0) {
+        for (k = 0; k < 5; k++)                 /* transposed on purpose */
+            for (i = 0; i < 6; i++)
+                ButtonsPos[i * 5 + k] = src[i * 5 + k];
+    }
+
+    alpha = (Settings[6] == 1) ? 0.75f
+          : (Settings[6] == 2) ? 1.0f : 0.5f;
+
+    JoystickStatePosXv = (long)JSIZE;
+    JoystickStatePosYv = (long)((float)limeScreenHeight - JSIZE);
+
+    for (i = 0; i < 6; i++) {
+        const long *e = &ButtonsPos[i * 5];
+        long idx = e[4];
+        long glyph, col;
+        float x, y, wh;
+
+        if (idx == -1)
+            continue;
+
+        glyph = e[3];
+        col   = (glyph & 3) * 2;
+        if (ButtonStates[idx] == 0)
+            col += 1;                           /* released is the odd cell */
+
+        x  = (float)FE_X((float)originX)
+             + (float)(e[0] - ((e[2] + ((unsigned long)e[2] >> 31)) >> 1))
+               * 0.5f;
+        y  = (float)FE_Y((float)originY)
+             + (float)(e[1] - ((e[2] + ((unsigned long)e[2] >> 31)) >> 1))
+               * 0.5f;
+        wh = (float)e[2] * 0.5f;
+
+        colour[3] = alpha;
+
+        limeDrawSprite((TEXTURE *)*ButtonsTPage, x, y, wh, wh,
+                       (float)((double)col * 0.125),
+                       (float)((double)(glyph / 4) * 0.25),
+                       0.125f, 0.25f, (long *)colour);
+    }
+}
