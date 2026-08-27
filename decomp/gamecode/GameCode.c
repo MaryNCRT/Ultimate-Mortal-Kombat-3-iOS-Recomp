@@ -940,3 +940,69 @@ void RenderGameView(void)
     KillIllegalWhirlwinds();
     RenderExtras();
 }
+
+
+extern int Destiny;                     /* 0x0014e20c */
+extern int GameStarted;                 /* 0x0014e208 */
+extern int Stage;                       /* 0x0014e214 */
+
+
+extern int *Character1Ptr;              /* slot -> 0x000ff988 */
+extern int *ClassicSubZeroUnlockedPtr;  /* slot -> 0x000ff970 */
+extern int *ErmacUnlockedPtr;           /* slot -> 0x000ff974 */
+extern int *MileenaUnlockedPtr;         /* slot -> 0x000ff978 */
+extern int *JadeUnlockedPtr;            /* slot -> 0x000ff97c */
+extern int *SurvivalStagePtr;           /* slot -> 0x000ff980 */
+extern int *TreasureGained;             /* slot -> 0x00101164, 10 words */
+extern int *EndingsGained;              /* slot -> 0x00101088, 23 words */
+extern int  winStreak;                  /* 0x0014e1a8 */
+void Write_SaveData(void);
+
+
+/* -------------------------------------------------------------- Reset_SaveData
+ *
+ * armv7 0x0002359c, 124 bytes.  **Complete.**
+ *
+ * Zeroes everything a save holds and writes it straight back out:
+ *
+ *      Destiny, GameStarted, Stage, Character1, winStreak, SurvivalStage
+ *      ClassicSubZeroUnlocked, ErmacUnlocked, MileenaUnlocked, JadeUnlocked
+ *      TreasureGained[0..9]        (loop to 0x28)
+ *      EndingsGained[0..22]        (loop to 0x5c)
+ *      Write_SaveData()
+ *
+ * **The four unlock flags are cleared too**, so this is a full wipe and not a
+ * "start a new run" -- Classic Sub-Zero, Ermac, Mileena and Jade all go back to
+ * locked. Anything that wants to reset progress without taking the roster away
+ * needs a different function; this one does not have a partial mode.
+ *
+ * `Destiny` is set to 0 here, where FE_Task_Game_Over sets it to -1. Two
+ * different "no destiny" values in the same codebase, and both are transcribed
+ * as written -- FE_Task_Game_Over is ending a run, this is erasing one.
+ *
+ * The two arrays are 10 and 23 words, from the loop bounds 0x28 and 0x5c.
+ */
+void Reset_SaveData(void)
+{
+    int i;
+
+    Destiny     = 0;                    /* 0 here, -1 in FE_Task_Game_Over */
+    GameStarted = 0;
+    Stage       = 0;
+
+    *Character1Ptr = 0;
+    *ClassicSubZeroUnlockedPtr = 0;     /* the unlocks go too */
+    *ErmacUnlockedPtr          = 0;
+    *MileenaUnlockedPtr        = 0;
+    *JadeUnlockedPtr           = 0;
+
+    winStreak         = 0;
+    *SurvivalStagePtr = 0;
+
+    for (i = 0; i < 0x28 / 4; i++)
+        TreasureGained[i] = 0;
+    for (i = 0; i < 0x5c / 4; i++)
+        EndingsGained[i] = 0;
+
+    Write_SaveData();
+}
