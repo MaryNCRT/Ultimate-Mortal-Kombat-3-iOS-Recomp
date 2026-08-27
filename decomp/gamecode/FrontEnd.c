@@ -3924,3 +3924,211 @@ void FE_Task_Select_Leaderboard(void)
         PopFETaskDeferred();
     }
 }
+
+
+extern BUTTONNEW BUTTON_1X1_1D;         /* 0x0010053c */
+extern char *strBuf;                    /* pointer slot -> _str, 0x001f3cac */
+
+
+/* --------------------------------------------------- FE_Task_About_Usage_Sharing
+ *
+ * armv7 0x0000e11c, 640 bytes.  **Complete.**
+ *
+ * The opt-in screen for EA's usage tracking. One toggle button, a status line,
+ * an explanation line, and Back.
+ *
+ * ### The status line is built with three different text calls
+ *
+ *      usprintf(str, UC("%s : %s"),
+ *               GameTextNoHeader(0xd9),
+ *               GameTextNoHeader(Settings[9] ? 0xe1 : 0xe2))
+ *      limeDrawFONT(GameFont, limeUC(str), FE_X(240), FE_Y(64), ...)
+ *
+ * `GameTextNoHeader` for both halves because `usprintf` is about to prefix the
+ * BOM through `limeUC`, and `UC` for the format string itself. Four of the
+ * UTF-16 functions in one statement.
+ *
+ * **The `on` and `off` strings are 0xe1 and 0xe2**, and the label is 0xd9.
+ *
+ * ### `Settings[9]` is the toggle, and it is read three separate times
+ *
+ *      once to choose 0xe1 vs 0xe2 for the status line
+ *      once to choose GameText(0xaf) vs GameText(0xb0) for the explanation
+ *      and never written here
+ *
+ * So this screen only displays the setting; pressing the button pushes task
+ * 0x19 and that is where the change happens. Nothing is written back from
+ * here, which is why leaving via Back needs no save.
+ *
+ * ### The press is latched before the draw, not after
+ *
+ *      pressed = DrawButtonNew(&BUTTON_1X1_1D, 0xf0, 0xa0, 1)
+ *      if (pressed) pressed = (FE_FadeAdd == 0.0f)
+ *      ... draw everything ...
+ *      if (pressed) PushFETaskDeferred(0x19)
+ *
+ * The button is drawn first and its result carried through the whole frame
+ * before being acted on, so the screen always draws one more complete frame in
+ * its old state after the tap.
+ *
+ * The Back button is the usual `BUTTON_BACK` at `(0x1a7, 0x130)` with
+ * `GameText(7)` at `(423, 296)` -- identical placement to
+ * `FE_Task_Select_Leaderboard`, so that pair is a shared front-end convention
+ * rather than a per-screen choice.
+ */
+void FE_Task_About_Usage_Sharing(void)
+{
+    long pressed;
+    long back;
+
+    limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0234375f, 1.0f, 0.703125f, col);
+
+    pressed = DrawButtonNew(&BUTTON_1X1_1D, 0xf0, 0xa0, 1);
+    if (pressed)
+        pressed = (FE_FadeAdd == 0.0f);
+
+    usprintf(strBuf, UC("%s : %s"),
+             GameTextNoHeader(0xd9),
+             GameTextNoHeader(Settings[9] != 0 ? 0xe1 : 0xe2));
+
+    limeDrawFONT(GameFont, limeUC(strBuf),
+                 (float)FE_X(240.0f), (float)FE_Y(64.0f),
+                 1, FE_WidthScale, fontcol);
+
+    limeDrawFONT(GameFont,
+                 GameText(Settings[9] != 0 ? 0xaf : 0xb0),
+                 240.0f * FE_WidthScale, (float)FE_Y(152.0f),
+                 1, FE_WidthScale, fontcol);
+
+    if (pressed == 1)
+        PushFETaskDeferred(0x19);
+
+    back = DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1);
+
+    limeDrawFONT(GameFont, GameText(7),
+                 (float)FE_X(423.0f), (float)FE_Y(296.0f),
+                 1, FE_WidthScale, fontcol);
+
+    if (back)
+        PopFETaskDeferred();
+}
+
+
+extern BUTTONNEW BUTTON_BOXRT;          /* 0x0010049c */
+extern long *Player2NumButtonsP;        /* pointer slot -> 0x0010de68 */
+extern long  currentAchievementPage;    /* 0x000ff96c */
+
+void Reset_Stats(void);
+void Write_Stats(void);
+void Reset_SaveData(void);
+void achievementsReset(void);
+void ResetSettingsData(void);
+void Reset_PresetButtonData(void);
+void limeStopTune(void);
+void limePlayTune(const char *file, long vol, long arg);
+
+
+/* ------------------------------------------- FE_Task_ResetAllDataConfirmation
+ *
+ * armv7 0x00015cbc, 776 bytes.  **Complete.**
+ *
+ * "Are you sure?" for wiping every saved thing. Two box buttons -- `BOXLT` at
+ * `(0x9c, 0xa0)` for yes and `BOXRT` at `(0x145, 0xa0)` for no -- with
+ * `GameText(0xeb)` at 156 and `GameText(0xec)` at 325, both at y 152, plus the
+ * prompt at `GameText(0x11b)`, y 52, and a heading at y 240.
+ *
+ * ### What "reset all" actually resets, in order
+ *
+ *      Reset_Stats()               Write_Stats()
+ *      Reset_SaveData()
+ *      achievementsReset()         Write_AchievementsData()
+ *      ResetSettingsData()         Write_SettingsData()
+ *      Reset_PresetButtonData()    Write_PresetButtonData()
+ *
+ * Four reset/write pairs -- **except `Reset_SaveData`, which is never followed
+ * by a write here**. The save file is left holding the old data until something
+ * else writes it. That asymmetry is the one thing in this function a port could
+ * get wrong without noticing, because everything looks correct until the app is
+ * killed before the next save.
+ *
+ * Then two fixups that are not part of any reset function:
+ *
+ *      *Player2NumButtons = 5;
+ *      currentAchievementPage = 0;
+ *
+ * **`Player1NumButtons` is not touched.** So a factory reset leaves player one
+ * on whatever button count they had and forces player two to five.
+ *
+ * ### The music is handled from both ends
+ *
+ *      Settings[2] != 0  ->  limeStopTune() before the reset
+ *      Settings[2] == 0  ->  after the reset, limePlayTune("MainMenu.mp3",
+ *                            (long)MusicVol[Settings[2]], ...)
+ *
+ * -- the branch is taken on the value **before** `ResetSettingsData` runs and
+ * the tune is restarted with the value **after**, so a reset that changes
+ * `Settings[2]` starts the menu music at the new volume without a stop.
+ *
+ * Both the confirm and the cancel paths end in `PopFETaskDeferred()`, and both
+ * are gated on `FE_FadeAdd == 0` in the usual way.
+ */
+void FE_Task_ResetAllDataConfirmation(void)
+{
+    long yes, no;
+
+    limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0234375f, 1.0f, 0.703125f, col);
+
+    limeDrawFONT(GameFont, GameText(0x11c),
+                 (float)FE_X(240.0f), (float)FE_Y(240.0f),
+                 1, FE_WidthScale, fontcol);
+
+    limeDrawFONT(GameFont, GameText(0x11b),
+                 (float)FE_X(240.0f), (float)FE_Y(52.0f),
+                 1, FE_WidthScale, fontcol);
+
+    yes = DrawButtonNew(&BUTTON_BOXLT, 0x9c,  0xa0, 1);
+    no  = DrawButtonNew(&BUTTON_BOXRT, 0x145, 0xa0, 1);
+
+    if (no && FE_FadeAdd == 0.0f) {
+        limeDrawFONT(GameFont, GameText(0xeb), (float)FE_X(156.0f),
+                     (float)FE_Y(152.0f), 1, FE_WidthScale, fontcol);
+        limeDrawFONT(GameFont, GameText(0xec), (float)FE_X(325.0f),
+                     (float)FE_Y(152.0f), 1, FE_WidthScale, fontcol);
+        PopFETaskDeferred();
+        return;
+    }
+
+    limeDrawFONT(GameFont, GameText(0xeb), (float)FE_X(156.0f),
+                 (float)FE_Y(152.0f), 1, FE_WidthScale, fontcol);
+    limeDrawFONT(GameFont, GameText(0xec), (float)FE_X(325.0f),
+                 (float)FE_Y(152.0f), 1, FE_WidthScale, fontcol);
+
+    if (!yes)
+        return;
+
+    if (Settings[2] != 0)
+        limeStopTune();
+
+    Reset_Stats();
+    Write_Stats();
+    Reset_SaveData();               /* no Write_SaveData -- see above */
+    achievementsReset();
+    Write_AchievementsData();
+    ResetSettingsData();
+    Write_SettingsData();
+    Reset_PresetButtonData();
+    Write_PresetButtonData();
+
+    *Player2NumButtonsP = 5;        /* player ONE is left alone */
+
+    if (Settings[2] != 0)
+        limePlayTune("MainMenu.mp3", (long)MusicVol[Settings[2]], 0);
+    else
+        currentAchievementPage = 0;
+
+    PopFETaskDeferred();
+}
