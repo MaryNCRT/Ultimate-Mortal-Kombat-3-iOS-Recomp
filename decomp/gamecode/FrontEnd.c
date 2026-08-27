@@ -5696,3 +5696,183 @@ void FE_Task_Settings(void)
         Write_SettingsData();
     }
 }
+
+
+/* ----------------------------------------------------------- FE_Task_Achievements
+ *
+ * armv7 0x0000afd4, 1284 bytes.  **Complete.**
+ *
+ * The achievements list: six rows a page, four pages, prev/back/next along the
+ * bottom.
+ *
+ * ### Twenty achievements in twenty-four slots
+ *
+ *      idx = currentAchievementPage * 6 + row      (row 0..5)
+ *      if (idx > 0x13) skip the row entirely
+ *
+ * so the last page shows four entries and two blanks. The page arrows are
+ * gated by the same number:
+ *
+ *      prevEnabled = (page <= 0)            ? 2 : 1
+ *      nextEnabled = ((page + 1) * 6 > 0x13) ? 2 : 1
+ *
+ * **1 and 2, not 1 and 0.** Those values go straight into `DrawButtonNew`'s
+ * fourth argument *and* are used as a divisor for the label colour:
+ *
+ *      colour = 1.0f / enabled
+ *
+ * giving white for an available arrow and exactly half-grey for a dead one.
+ * One number doing both jobs is why the disabled state is 2 rather than 0 --
+ * zero would have divided by zero.
+ *
+ * ### The row colour is the lock state
+ *
+ *      unlocked  colour 1.0f, marker GameText(0x11)
+ *      locked    colour 0.5f, marker GameText(0x10)
+ *
+ * written into the same four-word stack buffer the whole screen passes as its
+ * font colour, so each row overwrites it just before drawing. The buffer starts
+ * as `{1,1,1,1}` (the C.599 literal) for the title and the Back label.
+ *
+ * `achievementTracker[idx] != 0` is the unlocked test -- the same array
+ * `QuitAsWin` sets a bit in at `[0x54/4]` for the tower achievements.
+ *
+ * ### This call site names `ACHIEVEMENTDESCR + 0x04`
+ *
+ *      GameText(achievementsDescr[idx].id)    at y,      scale 1.05
+ *      GameText(achievementsDescr[idx].descr) at y + 18, scale 0.80
+ *
+ * `achievements.c` could only say that +0x00 was a GameText id and that +0x04
+ * was unread. Here it is read and handed to `GameText` as well: **+0x04 is the
+ * description's text id**, drawn smaller and eighteen units below the name.
+ * Two ids per entry, one entry per achievement, sixteen bytes apart.
+ *
+ * Rows step by 40 units. The name is left-aligned at x = 20 and the lock
+ * marker right-aligned at x = 460, which is what makes the row read as one
+ * line even though it is three separate draws.
+ *
+ * ### The page number is not stored anywhere the rest of the game reads
+ *
+ * `currentAchievementPage` is bumped by +1 or -1 here and reset to 0 by the
+ * screens that enter this one. Nothing clamps it on the way in; the clamping
+ * is entirely in the two `enabled` tests above, which is safe only because the
+ * same test also disables the button that would move it.
+ */
+extern BUTTONNEW BUTTON_MINI_1;         /* 0x00100550 */
+extern BUTTONNEW BUTTON_MINI_2;         /* 0x00100564 */
+extern BUTTONNEW BUTTON_MINI_3;         /* 0x00100578 */
+
+/* Sixteen bytes an entry -- see decomp/gamecode/achievements.c, which named
+ * +0x00 and left +0x04 unread. This function reads it. */
+typedef struct FEACHIEVEMENTDESCR {
+    long id;                            /* 0x00  GameText id of the name */
+    long descr;                         /* 0x04  GameText id of the description */
+    long pad08;                         /* 0x08 */
+    long timer;                         /* 0x0c */
+} FEACHIEVEMENTDESCR;
+
+extern FEACHIEVEMENTDESCR *achievementsDescr;   /* pointer slot -> 0x0017684c */
+extern int achievementTracker[24];              /* 0x00379c60 */
+
+void FE_Task_Achievements(void)
+{
+    float rowcol[4];                    /* sp+0x28, the C.599 literal */
+    long  prevEnabled, nextEnabled;
+    long  sel;
+    long  row, y;
+
+    rowcol[0] = 1.0f;
+    rowcol[1] = 1.0f;
+    rowcol[2] = 1.0f;
+    rowcol[3] = 1.0f;
+
+    limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0234375f, 1.0f, 0.703125f, col);
+
+    prevEnabled = (currentAchievementPage <= 0) ? 2 : 1;
+    nextEnabled = ((currentAchievementPage + 1) * 6 > 0x13) ? 2 : 1;
+
+    limeDrawFONT(GameFont, GameText(0xcc), (float)FE_X(240.0f),
+                 (float)FE_Y(4.0f), 1, FE_WidthScale, rowcol);
+
+    limeDrawSprite((TEXTURE *)*FEBits3,
+                   (float)FE_X(6.0f), (float)FE_Y(26.0f),
+                   (float)FE_W(468.0f), (float)FE_H(256.0f),
+                   0.0f, 0.4296875f, 0.9140625f, 0.5f, col);
+
+    sel = DrawButtonNew(&BUTTON_MINI_1, 0x52, 0x12e, (int)prevEnabled) ? 1 : 0;
+    if (DrawButtonNew(&BUTTON_MINI_2, 0xf0, 0x12e, 1))
+        sel = 2;
+    if (DrawButtonNew(&BUTTON_MINI_3, 0x18e, 0x12e, (int)nextEnabled))
+        sel = 3;
+
+    limeDrawFONT(GameFont, GameText(7), (float)FE_X(240.0f),
+                 (float)FE_Y(294.0f), 1, FE_WidthScale, rowcol);
+
+    y = 40;
+    for (row = 0; row < 6; row++) {
+        long idx = currentAchievementPage * 6 + row;
+
+        if (idx <= 0x13) {
+            long marker;
+            float shade;
+
+            if (achievementTracker[idx] != 0) {
+                shade  = 1.0f;
+                marker = 0x11;
+            } else {
+                shade  = 0.5f;
+                marker = 0x10;
+            }
+            rowcol[0] = shade;
+            rowcol[1] = shade;
+            rowcol[2] = shade;
+
+            limeDrawFONT(GameFont, GameText(marker),
+                         (float)FE_X(460.0f), (float)FE_Y((float)y),
+                         2, 1.0499999f * FE_WidthScale, rowcol);
+
+            limeDrawFONT(GameFont, GameText(achievementsDescr[idx].id),
+                         (float)FE_X(20.0f), (float)FE_Y((float)y),
+                         0, 1.0499999f * FE_WidthScale, rowcol);
+
+            limeDrawFONT(GameFont, GameText(achievementsDescr[idx].descr),
+                         (float)FE_X(20.0f), (float)FE_Y((float)(y + 0x12)),
+                         0, 0.80000001f * FE_WidthScale, rowcol);
+        }
+        y += 40;
+    }
+
+    /* The two arrows' labels, dimmed by the same number that disabled them. */
+    {
+        float shade = 1.0f / (float)nextEnabled;
+
+        rowcol[0] = shade;
+        rowcol[1] = shade;
+        rowcol[2] = shade;
+        limeDrawFONT(GameFont, GameText(8),
+                     (float)(long)FE_X(398.0f), (float)(long)FE_Y(294.0f),
+                     1, FE_WidthScale, rowcol);
+    }
+    {
+        float shade = 1.0f / (float)prevEnabled;
+
+        rowcol[0] = shade;
+        rowcol[1] = shade;
+        rowcol[2] = shade;
+        limeDrawFONT(GameFont, GameText(0x12),
+                     (float)FE_X(82.0f), (float)FE_Y(294.0f),
+                     1, FE_WidthScale, rowcol);
+    }
+
+    if (nextEnabled == 1 && sel == 3) {
+        currentAchievementPage += 1;
+        puts("NEXT");
+    } else if (prevEnabled == 1 && sel == 1) {
+        currentAchievementPage -= 1;
+        puts("PREV");
+    } else if (sel == 2) {
+        PopFETaskDeferred();
+    }
+}
