@@ -1197,3 +1197,97 @@ void FE_Task_Game_Over(void)
         Stage   = 0;
     }
 }
+
+
+#define FE_TASK_STACK_MAX  0x200
+
+
+/* ---------------------------------------------------------------- PushFETask
+ *
+ * armv7 0x00004ee0, 96 bytes.  **Complete.**
+ *
+ *      if (FE_TaskStackPointer >= 0x200) return
+ *      if (task == 0x2b) puts("...  PUSHING MP VS SCREEN")
+ *      if (FE_CurrentTask == task) return
+ *      printf("push fe task: %d->%d\n", FE_CurrentTask, task)
+ *      dumpStack()
+ *      FE_CurrentTaskStack[FE_TaskStackPointer++] = FE_CurrentTask
+ *      FE_Special_Destroys()
+ *      FE_CurrentTask = task
+ *      FE_Special_Inits()
+ *      dumpStack()
+ *
+ * PopFETask's mirror, and the ordering is the same: the teardown runs while
+ * _FE_CurrentTask still names the OLD task, the setup after it names the new
+ * one. Both read the global rather than taking an argument.
+ *
+ * **The overflow check drops the push silently** -- 512 deep and it returns
+ * without a word, where every other refusal in this file prints something. The
+ * MP VS screen announcement fires BEFORE the already-on-that-task check, so
+ * pushing 0x2b onto 0x2b prints the banner and then does nothing.
+ */
+void PushFETask(int task)
+{
+    if (FE_TaskStackPointer >= FE_TASK_STACK_MAX)
+        return;                         /* silent, unlike every other refusal */
+
+    if (task == 0x2b)
+        puts("########################  PUSHING MP VS SCREEN");
+
+    if (FE_CurrentTask == task)
+        return;
+
+    printf("push fe task: %d->%d\n", FE_CurrentTask, task);
+    dumpStack();
+
+    FE_CurrentTaskStack[FE_TaskStackPointer] = FE_CurrentTask;
+    FE_TaskStackPointer++;
+
+    FE_Special_Destroys();              /* still the OLD task */
+    FE_CurrentTask = task;
+    FE_Special_Inits();                 /* now the NEW one */
+    dumpStack();
+}
+
+
+extern int  opponentCharacter;          /* 0x000ff998 */
+extern int  playerCharacter;            /* 0x000ff99c */
+extern int  CharacterConfirmed;         /* 0x000ff8cc */
+extern int  CharacterSelected;          /* 0x000ff8d0 */
+extern int *FrameCountPtr;              /* pointer slot -> 0x0014fa60 */
+extern int *incomingQueueStartPtr;      /* pointer slot -> 0x0017c928 */
+extern int *incomingQueueLenPtr;        /* pointer slot -> 0x0017c92c */
+
+
+/* ------------------------------------------------------ resetCharacterSelection
+ *
+ * armv7 0x000030c0, 72 bytes.  **Complete.**
+ *
+ * Eight globals, and the values are not uniform:
+ *
+ *      syncCharactersOpponent = 0      CharacterConfirmed = -1
+ *      syncCharacters         = 0      CharacterSelected  = -1
+ *      opponentCharacter      = -1     FrameCount         = 0
+ *      playerCharacter        = -1     incomingQueueStart = 0
+ *                                      incomingQueueLen   = 1
+ *
+ * **-1 for the four that name a character, 0 for the counters, and 1 for the
+ * queue length.** The last is the odd one: an "empty" incoming queue is length
+ * ONE here, not zero, so whatever consumes it treats index 0 as reserved.
+ *
+ * A port that memsets this group to zero breaks all three conventions at once,
+ * and the character ones would look like player 0 being pre-selected.
+ */
+void resetCharacterSelection(void)
+{
+    syncCharactersOpponent = 0;
+    syncCharacters         = 0;
+    opponentCharacter      = -1;
+    playerCharacter        = -1;
+    CharacterConfirmed     = -1;
+    CharacterSelected      = -1;
+
+    *FrameCountPtr         = 0;
+    *incomingQueueStartPtr = 0;
+    *incomingQueueLenPtr   = 1;         /* one, not zero */
+}
