@@ -4138,3 +4138,236 @@ void FE_Task_ResetAllDataConfirmation(void)
 
     PopFETaskDeferred();
 }
+
+
+/* --------------------------------------------------- FE_Task_Catagory_Select
+ *
+ * armv7 0x000075ec, 748 bytes.  **Complete.**  (The spelling is the binary's.)
+ *
+ * Training's category picker: three choices on a 1x3 page, and Back.
+ *
+ *      1 -> TrainingCatagory = 0
+ *      2 -> TrainingCatagory = 1
+ *      3 -> TrainingCatagory = 2
+ *
+ * and each of the three does the same two things afterwards: start the fade
+ * out (`FE_FadeAdd = -0.033333335f`) and `FadeMusicOut = 1`. The labels are
+ * `GameText(0xee)`, `0xef` and `0xf2` -- note the third is not `0xf0`, so the
+ * three strings are not contiguous in the text table.
+ *
+ * ### The transition happens on a later frame, not on the click
+ *
+ *      if (FE_FadeAdd == 0.0f && FE_Fade == 0.0f) {
+ *          Character2 = Character1;
+ *          CurrentTask = 4;
+ *          PopFETask(); PopAllFETasksDeferred(0);
+ *          VSWait = 0;
+ *          Write_SaveData();
+ *      }
+ *
+ * Both conditions together mean "the fade has finished AND the screen is
+ * black": `FE_FadeAdd` back to zero is the fade having stopped, `FE_Fade` at
+ * zero is it having reached the end rather than having been cancelled. The
+ * click only arms it; this block runs on whichever later frame satisfies both.
+ *
+ * **`Character2 = Character1`** -- training puts the player's character on
+ * both sides. That is also why nothing here picks an opponent.
+ *
+ * The check runs on every frame including the ones where Back was pressed, so
+ * `PopFETaskDeferred()` and this block can both happen in one frame.
+ */
+extern long TrainingCatagory;           /* 0x0017809c */
+extern long FadeMusicOut;               /* 0x0010dee8 */
+
+void Write_SaveData(void);
+
+void FE_Task_Catagory_Select(void)
+{
+    long choice, back;
+
+    limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0234375f, 1.0f, 0.703125f, col);
+
+    choice = drawPage1x3Small();
+
+    limeDrawFONT(GameFont, GameText(0xee), (float)FE_X(240.0f),
+                 (float)FE_Y(82.0f),  1, FE_WidthScale, fontcol);
+    limeDrawFONT(GameFont, GameText(0xef), (float)FE_X(240.0f),
+                 (float)FE_Y(152.0f), 1, FE_WidthScale, fontcol);
+    limeDrawFONT(GameFont, GameText(0xf2), (float)FE_X(240.0f),
+                 (float)FE_Y(222.0f), 1, FE_WidthScale, fontcol);
+
+    if (choice == 1 || choice == 2 || choice == 3) {
+        TrainingCatagory = choice - 1;
+        FE_FadeAdd = -0.033333335f;
+        FadeMusicOut = 1;
+    }
+
+    back = DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1);
+
+    limeDrawFONT(GameFont, GameText(7), (float)FE_X(423.0f),
+                 (float)FE_Y(296.0f), 1, FE_WidthScale, fontcol);
+
+    if (back)
+        PopFETaskDeferred();
+
+    if (FE_FadeAdd == 0.0f && FE_Fade == 0.0f) {
+        Character2 = Character1;
+        CurrentTask = 4;
+        PopFETask();
+        PopAllFETasksDeferred(0);
+        VSWait = 0;
+        Write_SaveData();
+    }
+}
+
+
+/* ------------------------------------------------------------- Task_FEDestroy
+ *
+ * armv7 0x0001b1fc, 848 bytes.  **Complete.**
+ *
+ * Tears the whole front end down on the way into a fight. Almost all of it is
+ * a flat list of `limeDeleteTexture` calls, and the interesting parts are the
+ * three places where the list is NOT flat.
+ *
+ * ### The array bounds confirm the character count independently
+ *
+ *      CharacterVSTexture   0x00183d80 .. 0x00183de8   0x68 = 26 pointers
+ *      CharacterVSTexture2  0x00183de8 .. 0x00183e50   0x68 = 26 pointers
+ *
+ * and the loop walks indices 1..25 after doing 0 by hand. Twenty-six, the same
+ * number `Players.c` measured from the gap between `FECharacters` and the next
+ * symbol. Two unrelated pieces of the binary agreeing on 26 is what makes it a
+ * fact rather than a reading.
+ *
+ *      FireLogo             0x00183e54   ten pointers
+ *      TowerPortraitTexture 0x00183e88   twenty-eight pointers
+ *      SpotlightTextures    0x00183f14   two pointers
+ *
+ * all measured the same way, from the loop bound and the next symbol.
+ *
+ * ### Four sound handles are never released
+ *
+ *      limeDeleteSound(SFXHandle[0])
+ *      for (i = 4; i <= 25; i++) limeDeleteSound(SFXHandle[i])
+ *
+ * Indices **1, 2 and 3 are skipped**, and index 26 -- the "Gstart" handle
+ * `Task_LoadGeneralData` loads at boot -- is past the end of the loop. Whether
+ * those four are freed somewhere else is not established; nothing found so far
+ * frees them. Four handles is not a lot, but this function runs on every entry
+ * into a fight, so if they are genuinely leaked it is per fight, not once.
+ *
+ * ### The music is stopped only when it was on
+ *
+ *      if (Settings[2]) limeStopTune();
+ *
+ * `Settings[2]` is the music volume index, and 0 is muted. So a player who
+ * turned music off -- or whose own music turned it off, via
+ * `limeCheckForUserMusic` at boot -- skips the stop entirely.
+ *
+ * Ends by handing control on: `CurrentTask = 8`, `NextTask = 5`.
+ */
+extern void **ButtonsTPage;             /* pointer slot */
+extern void **FEBits3;                  /* pointer slot */
+extern void **SmokeTexture;             /* pointer slot */
+extern void **FBIconTexture;            /* pointer slot */
+extern void **FBLoginTexture;           /* pointer slot */
+extern void **FBLogoutTexture;          /* pointer slot */
+extern void **GreenFrameTexture;        /* pointer slot */
+extern void **RedFrameTexture;          /* pointer slot */
+
+extern void *CharacterVSTexture[26];    /* 0x00183d80 */
+extern void *CharacterVSTexture2[26];   /* 0x00183de8 */
+extern void *OrangeTexture;             /* 0x00183e50 */
+extern void *FireLogo[10];              /* 0x00183e54 */
+extern void *LightningTexture;          /* 0x00183e84 */
+extern void *TowerPortraitTexture[28];  /* 0x00183e88 */
+extern void *FloorTexture;              /* 0x00183ef8 */
+extern void *BricksTexture;             /* 0x00183efc */
+extern void *MainMenuBGTexture;         /* 0x00183f00 */
+extern void *GameOverTopTexture;        /* 0x00183f04 */
+extern void *GameOverBottomTexture;     /* 0x00183f08 */
+extern void *MetalScreenTexture;        /* 0x00183f0c */
+extern void *VSTexture;                 /* 0x00183f10 */
+extern void *SpotlightTextures[2];      /* 0x00183f14 */
+extern void *KodesTexture;              /* 0x00183f1c */
+extern void *MainLogoTexture;           /* 0x00183f20 */
+extern void *SelectBGTexture;           /* 0x00183f24 */
+extern void *PortraitBorderTexture;     /* 0x00183f2c */
+
+extern long *NextTask;                  /* pointer slot -> 0x0015058c */
+
+void FreeFrontEndCharacters(void);
+void limeDeleteSound(long handle);
+void limeDeleteTexture(void *tex);
+
+void Task_FEDestroy(void)
+{
+    int i;
+
+    FadeMusicOut = 0;
+    CharacterConfirmed = -1;
+    CharacterSelected  = -1;
+
+    if (Settings[2])
+        limeStopTune();
+
+    FreeFrontEndCharacters();
+
+    /* Sounds. Note where this starts and where it stops. */
+    limeDeleteSound(SFXHandle[0]);
+    for (i = 4; i <= 25; i++)
+        limeDeleteSound(SFXHandle[i]);
+
+    limeDeleteTexture(CharacterVSTexture[0]);
+    limeDeleteTexture(CharacterVSTexture2[0]);
+    for (i = 1; i < 26; i++) {
+        limeDeleteTexture(CharacterVSTexture[i]);
+        limeDeleteTexture(CharacterVSTexture2[i]);
+    }
+
+    limeDeleteTexture(*ButtonsTPage);
+    limeDeleteTexture(OrangeTexture);
+    for (i = 0; i < 10; i++)
+        limeDeleteTexture(FireLogo[i]);
+
+    limeDeleteTexture(*FEBits1);
+    limeDeleteTexture(*FEBits2);
+    limeDeleteTexture(*FEBits3);
+    limeDeleteTexture(*FEBackground);
+    limeDeleteTexture(SpotlightTextures[0]);
+    limeDeleteTexture(SpotlightTextures[1]);
+
+    limeDeleteTexture(KodesTexture);
+    limeDeleteTexture(MainMenuBGTexture);
+    limeDeleteTexture(GameOverTopTexture);
+    limeDeleteTexture(GameOverBottomTexture);
+    limeDeleteTexture(MetalScreenTexture);
+    limeDeleteTexture(VSTexture);
+    limeDeleteTexture(FENew1Texture);
+    limeDeleteTexture(Vortex1Texture);
+    limeDeleteTexture(Vortex2Texture);
+    limeDeleteTexture(LightningTexture);
+
+    limeDeleteTexture(TowerPortraitTexture[0]);
+    for (i = 1; i < 28; i++)
+        limeDeleteTexture(TowerPortraitTexture[i]);
+
+    limeDeleteTexture(FloorTexture);
+    limeDeleteTexture(BricksTexture);
+    limeDeleteTexture(*SmokeTexture);
+    limeDeleteTexture(MainLogoTexture);
+    limeDeleteTexture(SelectBGTexture);
+    limeDeleteTexture(PortraitBorderTexture);
+    limeDeleteTexture(*FBIconTexture);
+    limeDeleteTexture(*FBLoginTexture);
+    limeDeleteTexture(*FBLogoutTexture);
+    limeDeleteTexture(*GreenFrameTexture);
+    limeDeleteTexture(*RedFrameTexture);
+
+    DestroyFEMeshSets();
+
+    CurrentTask = 8;
+    *NextTask   = 5;
+}
