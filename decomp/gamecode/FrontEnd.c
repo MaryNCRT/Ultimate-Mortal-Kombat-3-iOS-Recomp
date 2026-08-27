@@ -6250,3 +6250,183 @@ void FE_Task_Survival_Summary(void)
                                          DisplaySurvivalStage, stats, 0xc);
     }
 }
+
+
+/* ------------------------------------------------------- FE_Task_Character_Select
+ *
+ * armv7 0x0000ab54, 1152 bytes.  **Complete.**
+ *
+ * The character grid. `drawCharacterSelection(-1)` draws the portraits and does
+ * the picking; this function is the frame around it -- the background, the
+ * heading, Back, Play, and what each game mode does once a character is
+ * confirmed.
+ *
+ * ### Three state words, and what each one means
+ *
+ *      CharacterSelected    the cell the finger is on, -1 for none
+ *      CharacterConfirmed   the cell Play was pressed on, -1 for none
+ *      opponentCharacter    the other player's, in mode 6 only
+ *
+ * Play is drawn only once `CharacterSelected != -1`, and in mode 6 only once
+ * **both** it and `opponentCharacter` are set -- so the button appears when the
+ * choice is complete rather than being drawn and disabled.
+ *
+ * Back is drawn only when `FE_TaskStackPointer > 0`: there is nothing to go back
+ * to from the bottom of the stack, so the button is absent rather than inert.
+ * Pressing it resets all three state words and `Character_SelectWait`.
+ *
+ * ### The background is one of a set, chosen elsewhere
+ *
+ *      limeDrawSprite(SelectBGTexture[BGRandomised], ...  0.9375f, 0.625f)
+ *
+ * `BGRandomised` indexes the array; nothing here picks it. The V range stops at
+ * **0.625** and the U at 0.9375, so the art occupies five eighths of its
+ * texture's height and fifteen sixteenths of its width -- not a power-of-two
+ * fit, unlike the loading screen's clean 0.75.
+ *
+ * ### Confirming a character does something different in every mode
+ *
+ *      mode 0 (arcade)   if newGameFlag: Write_SaveData(); PopulateTower();
+ *                        newGameFlag = 0
+ *                        TowerState = -1; PushFETaskDeferred(0x1c)
+ *      mode 3 (karnage)  Character2 = 0x19, start the fade
+ *      mode 4 (survival) Character2 = TowerRand[abs(limeRand()) % 22],
+ *                        start the fade
+ *      mode 5            Character2 = 0x19, start the fade
+ *      mode 6 (2 players) Character2 = opponentCharacter, start the fade
+ *
+ * **0x19 is the same opponent for karnage and mode 5** -- character 25, the
+ * boss `PopulateTower` pins at the end of every ladder. Survival draws its
+ * first opponent from `TowerRand`, the same 22-entry shuffle table `QuitAsWin`
+ * redraws from after every survival win, with the same `abs()` before the
+ * modulo.
+ *
+ * Arcade is the only mode that does not start a fade here: it pushes front-end
+ * task 0x1c (the tower screen) instead, and `newGameFlag` decides whether the
+ * ladder is rebuilt first. Committing the save **before** repopulating is the
+ * order that makes an interrupted new game keep the old tower rather than half
+ * of a new one.
+ *
+ * ### Once the fade has finished, the mode picks the next task
+ *
+ *      if (FE_FadeAdd == 0.0f && FE_Fade == 0.0f) {
+ *          modes 3, 4, 5   CurrentTask = 4
+ *          mode 6          LevelSelect = GetNextLevel(LevelSelect);
+ *                          CurrentTask = 4;
+ *                          log 0x7556 "2 Players on 1 iPad"
+ *      }
+ *
+ * Only mode 6 advances the level. The other three go into the fight on whatever
+ * `LevelSelect` already held, which is what makes the arena feel fixed in
+ * karnage and survival and rotate in two-player.
+ */
+extern long  BGRandomised;              /* 0x000ff8b4 */
+extern void *SelectBGTexture;           /* 0x00183f24, an ARRAY here */
+extern long  Character_SelectWait;      /* 0x000ff8c8 */
+extern long  newGameFlag;               /* 0x000ff850 */
+extern long  TowerState;                /* 0x000ff9ac */
+extern BUTTONNEW BUTTON_PLAY;           /* 0x001007e4 */
+
+void EASDK_LogEventEnumEnumStringNum(long id, long a, const char *s,
+                                     long b, long n);
+
+void drawCharacterSelection(long sel);
+int  GetNextLevel(int cur);
+
+void FE_Task_Character_Select(void)
+{
+    long back = 0;
+
+    limeEnableAlphaBlending_Basic();
+    limeSet2DDrawing();
+
+    limeDrawSprite((TEXTURE *)(&SelectBGTexture)[BGRandomised],
+                   0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0f, 0.9375f, 0.625f, col);
+
+    limeDrawFONT(GameFont, GameText(0x4a), (float)FE_X(240.0f),
+                 (float)FE_Y(8.0f), 1, FE_WidthScale, fontcol);
+
+    drawCharacterSelection(-1);
+
+    if (FE_TaskStackPointer > 0) {
+        back = DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1);
+
+        limeDrawFONT(GameFont, GameText(7), (float)FE_X(423.0f),
+                     (float)FE_Y(296.0f), 1, FE_WidthScale, fontcol);
+
+        if (back) {
+            PopFETaskDeferred();
+            Character_SelectWait = 0;
+            CharacterConfirmed   = -1;
+            CharacterSelected    = -1;
+            opponentCharacter    = -1;
+        }
+    }
+
+    /* The fade has finished AND the screen is black: hand over to the fight. */
+    if (FE_FadeAdd == 0.0f && FE_Fade == 0.0f) {
+        if (GameMode == 3 || GameMode == 4 || GameMode == 5) {
+            CurrentTask = 4;
+        } else if (GameMode == 6) {
+            LevelSelect = GetNextLevel(LevelSelect);
+            CurrentTask = 4;
+            EASDK_LogEventEnumEnumStringNum(0x7556, 15,
+                                            "2 Players on 1 iPad", 0, 0);
+        }
+    }
+
+    if (GameMode == 6) {
+        /* Both sides have to have chosen before Play appears. */
+        if (CharacterSelected != -1 && opponentCharacter != -1) {
+            if (DrawButtonNew(&BUTTON_PLAY, 0xf0, 0x130, 1))
+                CharacterConfirmed = CharacterSelected;
+
+            limeDrawFONT(GameFont, GameText(0xc), (float)FE_X(240.0f),
+                         (float)FE_Y(296.0f), 1, FE_WidthScale, fontcol);
+        }
+    } else {
+        if (CharacterSelected != -1) {
+            if (DrawButtonNew(&BUTTON_PLAY, 0xf0, 0x130, 1))
+                CharacterConfirmed = CharacterSelected;
+
+            limeDrawFONT(GameFont, GameText(0xc), (float)FE_X(240.0f),
+                         (float)FE_Y(296.0f), 1, FE_WidthScale, fontcol);
+        }
+    }
+
+    if (CharacterConfirmed == -1)
+        return;
+
+    Character1 = CharacterConfirmed;
+
+    if (GameMode == 0) {
+        if (newGameFlag != 0) {
+            Write_SaveData();
+            PopulateTower();
+            newGameFlag = 0;
+        }
+        TowerState = -1;
+        PushFETaskDeferred(0x1c);
+    }
+
+    if (GameMode == 3) {
+        FE_FadeAdd = -0.033333335f;
+        Character2 = 0x19;
+    } else if (GameMode == 4) {
+        long r;
+
+        FE_FadeAdd = -0.033333335f;
+        r = limeRand();
+        if (r < 0)
+            r = -r;
+        Character2 = TowerRand[r % 22];
+    } else if (GameMode == 5) {
+        FE_FadeAdd = -0.033333335f;
+        Character2 = 0x19;
+    } else if (GameMode == 6) {
+        Character2 = opponentCharacter;
+        FE_FadeAdd = -0.033333335f;
+    }
+}
