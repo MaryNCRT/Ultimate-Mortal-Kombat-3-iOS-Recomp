@@ -2408,3 +2408,134 @@ void InitEnduranceMatch(void)
         LastEnduranceCharacter = 25;
     }
 }
+
+
+extern void *SplashTexture1;            /* 0x001abb8c */
+extern void *SplashTexture2;            /* 0x001abb90 */
+extern long  SplashCount;               /* 0x00150cc8 */
+extern long *limeDeferredDeviceSideways;/* pointer slot */
+extern long *limeDeviceSideways;        /* pointer slot */
+extern float *FE_YOffset;               /* pointer slot */
+extern float *FE_WidthScaleP;           /* pointer slot -- see below */
+extern float *FE_HeightScaleP;          /* pointer slot */
+
+void SetupFEScale(void);
+void limeSetColourMask(long r, long g, long b, long a);
+void Task_LoadingScreen(void);
+
+
+/* ------------------------------------------------------- Task_LoadSplashScreen
+ *
+ * armv7 0x0001d594, 568 bytes.  **Complete.**
+ *
+ * The two publisher splash screens, driven entirely by one frame counter,
+ * `_SplashCount`, which this function increments on **every** path including
+ * the ones that draw nothing.
+ *
+ * The whole timeline, in frames:
+ *
+ *        0          load SPLASH1.PNG and SPLASH2.PNG, draw 1 at full alpha
+ *        1 .. 120   SPLASH1, alpha 1
+ *      121 .. 179   SPLASH1, alpha (180 - n) / 60      fading out
+ *      180 .. 190   nothing drawn -- a deliberate gap
+ *      191 .. 249   SPLASH2, alpha (n - 190) / 60      fading in
+ *      250 .. 430   SPLASH2, alpha 1
+ *      431 .. 489   SPLASH2, alpha (490 - n) / 60      fading out
+ *      491 ..       delete both textures, CurrentTask = NextTask = 1,
+ *                   Task_LoadingScreen(), delete LoadingTexture if present
+ *
+ * **The eleven-frame gap between the two logos is real**, not an artefact of
+ * the fades meeting: 180..190 falls outside every drawing range. At 30 fps that
+ * is about a third of a second of black, and it is what makes the two logos
+ * read as separate rather than as a crossfade.
+ *
+ * All three fades divide by **60**, so each takes two seconds at 30 fps
+ * regardless of how long the plateau either side of it is.
+ *
+ * ### Both orientation flags are forced sideways
+ *
+ *      *limeDeferredDeviceSideways = 1
+ *      *limeDeviceSideways         = 1
+ *
+ * every frame, not once. So the splash cannot be rotated out from under itself
+ * by anything else changing them.
+ *
+ * ### The sprite is a window into the texture, not the whole thing
+ *
+ *      limeDrawSprite(tex, 0, FE_YOffset,
+ *                     480 * FE_WidthScale, 320 * FE_HeightScale,
+ *                     0.03125f, 0.1875f, 0.9375f, 0.625f, colour)
+ *
+ * The four UVs are 1/32, 6/32, 30/32 and 20/32 -- an inset window, so the
+ * shipped PNG is larger than the part that is shown and the margins are never
+ * sampled. A port that draws 0..1 gets the logo surrounded by whatever the
+ * padding contains.
+ *
+ * 480 x 320 is the device resolution written as literals and scaled at draw
+ * time, which is how this survives a different screen.
+ *
+ * `limeSetColourMask(1, 1, 1, 0)` leaves the alpha channel unwritten -- the
+ * fade is in the vertex colour, not in the framebuffer alpha.
+ *
+ * The colour block is written **twice**: copied from the function's own static
+ * `{1, 1, 1, 1}` and then filled with four more explicit 1.0 stores before the
+ * alpha is overwritten. Transcribed once; the duplication does nothing.
+ */
+void Task_LoadSplashScreen(void)
+{
+    float colour[4];
+    long n;
+    void *tex;
+
+    colour[0] = colour[1] = colour[2] = colour[3] = 1.0f;   /* C.243 */
+
+    SetupFEScale();
+    *limeDeferredDeviceSideways = 1;
+    *limeDeviceSideways         = 1;
+
+    limeEnableAlphaBlending_Basic();
+    limeSetColourMask(1, 1, 1, 0);
+    limeSet2DDrawing();
+
+    n = SplashCount;
+
+    if (n == 0) {
+        SplashTexture1 = limeLoadTexture("SPLASH1.PNG", 1, 0);
+        SplashTexture2 = limeLoadTexture("SPLASH2.PNG", 1, 0);
+        tex = SplashTexture1;
+    } else if (n > 179) {
+        if ((unsigned long)(n - 191) <= 298) {          /* 191 .. 489 */
+            if (n <= 249)
+                colour[3] = (float)(n - 190) / 60.0f;   /* fading in */
+            else if (n > 430)
+                colour[3] = (float)(490 - n) / 60.0f;   /* fading out */
+            tex = SplashTexture2;
+        } else if (n <= 490) {
+            SplashCount++;                              /* the gap: nothing */
+            return;
+        } else {
+            limeDeleteTexture(SplashTexture1);
+            limeDeleteTexture(SplashTexture2);
+            CurrentTask = 1;
+            NextTask    = 1;
+            Task_LoadingScreen();
+            if (LoadingTexture != 0)
+                limeDeleteTexture(LoadingTexture);
+            SplashCount++;
+            return;
+        }
+    } else if (n > 120) {
+        colour[3] = (float)(180 - n) / 60.0f;           /* fading out */
+        tex = SplashTexture1;
+    } else {
+        tex = SplashTexture1;
+    }
+
+    limeDrawSprite(tex, 0.0f, *FE_YOffset,
+                   480.0f * *FE_WidthScaleP,
+                   320.0f * *FE_HeightScaleP,
+                   0.03125f, 0.1875f, 0.9375f, 0.625f,
+                   (long *)colour);
+
+    SplashCount++;
+}
