@@ -2934,7 +2934,7 @@ void limeDisableDepthWrites(void);
 void limeEnableAlphaBlending_Basic(void);
 void glPushMatrix(void);
 void glScalef(float x, float y, float z);
-void SetToUseCamera(void);
+void SetToUseCamera(const float *eye);
 void limeEnableAlphaBlending_Additive(void);
 void RotMatrixY(float *m, float angle);
 void RenderAMesh(int a, int b, float *pos, float *m, int flip,
@@ -3004,7 +3004,7 @@ void DrawVortex3D(void)
     CameraLookAt[2] = FECamPos[2];
     CameraLookAt[1] = FECamPos[1] + 1.0f;
 
-    SetToUseCamera();
+    SetToUseCamera(FECamPos);
     limeEnableAlphaBlending_Additive();
     limeDisableDepthTest();
     limeDisableDepthWrites();
@@ -4370,4 +4370,301 @@ void Task_FEDestroy(void)
 
     CurrentTask = 8;
     *NextTask   = 5;
+}
+
+
+/* --------------------------------------------- FE_Task_Manage_Social_Features
+ *
+ * armv7 0x00012e28, 760 bytes.  **Complete.**
+ *
+ * Two privacy toggles on one page, with Back. Together with
+ * `FE_Task_About_Usage_Sharing` (`Settings[9]`) this accounts for
+ * `Settings[7]`, `[8]` and `[9]` -- the three consecutive words at the end of
+ * the settings block are the three things the game asks permission for.
+ *
+ *      Settings[8]   toggled by choice 1, label drawn at y = 60
+ *      Settings[7]   toggled by choice 2, label drawn at y = 160
+ *
+ * Both toggle with `x ^= 1`, and both use the same pair of strings for their
+ * state -- `GameText(0xe1)` for on and `0xe2` for off, the same two
+ * `FE_Task_About_Usage_Sharing` uses. The headings are `0xe8` and `0x396`.
+ *
+ * ### The network check is cached in a sentinel, and never invalidated
+ *
+ *      if (socialConnectionAvailable == -1)
+ *          socialConnectionAvailable = EASDK_ConnectedToNetwork();
+ *
+ * -1 means "not asked yet"; 0 and 1 are real answers. So the network is
+ * probed on the first frame this screen is ever shown and the answer is kept
+ * from then on. Nothing in this function ever writes -1 back, so losing or
+ * gaining connectivity while the game runs does not change what this screen
+ * believes -- unlike `FE_Task_Select_Leaderboard`, which sets its own
+ * `leaderboardsConnectionAVailable` back to -1 on every frame and therefore
+ * re-probes constantly. Two screens, two opposite policies.
+ *
+ * Note also that the answer is never *used* here. It is computed, cached, and
+ * the page draws the same either way.
+ *
+ * ### Leaving saves, twice over
+ *
+ * Choice 5 -- the page's own confirm -- and the Back button both do
+ * `PopFETaskDeferred(); Write_SettingsData();`. Written out twice in the
+ * original, which is why pressing both in one frame would save twice.
+ */
+extern long socialConnectionAvailable;  /* 0x00100e2c */
+
+void FE_Task_Manage_Social_Features(void)
+{
+    long choice, back;
+
+    limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0234375f, 1.0f, 0.703125f, col);
+
+    if (socialConnectionAvailable == -1)
+        socialConnectionAvailable = EASDK_ConnectedToNetwork();
+
+    choice = drawPage2x1Wide(0, 0);
+
+    limeDrawFONT(GameFont, GameText(0xe8), (float)FE_X(240.0f),
+                 (float)FE_Y(44.0f), 1, FE_WidthScale, fontcol);
+
+    limeDrawFONT(GameFont, GameText(Settings[8] ? 0xe1 : 0xe2),
+                 (float)FE_X(240.0f), (float)FE_Y(60.0f),
+                 1, FE_WidthScale, fontcol);
+
+    limeDrawFONT(GameFont, GameText(0x396), (float)FE_X(240.0f),
+                 (float)FE_Y(144.0f), 1, FE_WidthScale, fontcol);
+
+    limeDrawFONT(GameFont, GameText(Settings[7] ? 0xe1 : 0xe2),
+                 (float)FE_X(240.0f), (float)FE_Y(160.0f),
+                 1, FE_WidthScale, fontcol);
+
+    if (choice == 1) {
+        Settings[8] ^= 1;
+    } else if (choice == 2) {
+        Settings[7] ^= 1;
+    } else if (choice == 5) {
+        PopFETaskDeferred();
+        Write_SettingsData();
+    }
+
+    back = DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1);
+
+    limeDrawFONT(GameFont, GameText(7), (float)FE_X(423.0f),
+                 (float)FE_Y(296.0f), 1, FE_WidthScale, fontcol);
+
+    if (back) {
+        PopFETaskDeferred();
+        Write_SettingsData();
+    }
+}
+
+
+/* -------------------------------------------------------- RenderFECharacters
+ *
+ * armv7 0x00009568, 1080 bytes.  **Complete.**
+ *
+ * Draws the one or two characters that stand on the front-end screens -- the
+ * select screen, the versus screen -- in 3D, over whatever 2D background was
+ * already drawn. The two arguments are character indices, and -1 in either
+ * slot means "nobody there".
+ *
+ * ### The whole camera is exposed as debug sliders
+ *
+ *      LIME_Slider(1, &FECAMPOSX,        "camx",      -10,  10, 0, 0)
+ *      LIME_Slider(1, &FECAMPOSY,        "camy",      -10,  10, 0, 0)
+ *      LIME_Slider(1, &FECAMPOSZ,        "camz",      -10,  10, 0, 0)
+ *      LIME_Slider(1, &CameraLookAt[0],  "atx",      -100, 100, 0, 0)
+ *      LIME_Slider(1, &CameraLookAt[1],  "aty",      -100, 100, 0, 0)
+ *      LIME_Slider(1, &CameraLookAt[2],  "atz",      -100, 100, 0, 0)
+ *      LIME_Slider(1, SceneGroundOffset, "groundoff", -100, 100, 0, 0)
+ *
+ * Seven sliders, still in the shipped binary. **These call sites are what
+ * fixed `LIME_Slider`'s signature** -- decomp/lime/DS_DebugWin.c could see
+ * that it took seven arguments but not what they were, because the values only
+ * pass through it. Here they are named, ranged and typed, all at once.
+ *
+ * The camera itself is then placed by hand every frame:
+ *
+ *      FECamPos[0]     = FECAMPOSX + FEPlayer1Offset      (slot 0)
+ *                      = FEPlayer2Offset - FECAMPOSX      (slot 1)
+ *      FECamPos[1]     = FECAMPOSY
+ *      FECamPos[2]     = FECAMPOSZ
+ *      CameraLookAt    = { FECamPos[0], FECAMPOSY + 1.0f, FECAMPOSZ }
+ *
+ * The target is the camera's own position lifted by exactly 1.0 -- a level
+ * shot aimed one unit up, which is what puts a standing fighter's chest in the
+ * middle of the frame instead of their feet. **The X offset is applied with
+ * opposite sign for the two slots**, and it is the offset that moves, not the
+ * camera: the second character is framed from the mirror-image position.
+ *
+ * ### The mirroring, and the flag that goes with it
+ *
+ * The second character is drawn with its X offset negated, then
+ * `glScalef(-1, 1, 1)`, and around that scale the character's `+0x540` is set
+ * to 0 and then back to 1. Setting the flag back to 1 *after* the mirroring
+ * scale is what tells the renderer this one is inside a negative-determinant
+ * matrix -- the same condition that needs `glCullFace(GL_FRONT)`, documented in
+ * `runtime/demo.c`. Front-end and in-game agree on the convention.
+ *
+ * ### The per-character scale comes from the character definition
+ *
+ *      scale = PlayerDefs[FEChars[i]].field04 * PlayerSize
+ *      glScalef(scale, scale, scale)
+ *      glRotatef(90, 1, 0, 0)
+ *
+ * `PLAYERDEF` stride 52 again, and its `+0x04` is a per-character size
+ * multiplier -- so the roster is not all one height, and the difference is
+ * data, not art. The 90 degree rotation about X is the Z-up to Y-up flip the
+ * whole front end uses.
+ *
+ * ### Same character on both sides gets the alternate skin
+ *
+ *      char->field528 = anim->field14                 (the default skin)
+ *      if (both slots hold the same character)
+ *          char->field528 = anim->field24             (the alternate)
+ *
+ * `field14` and `field24` are the two skins; `RenderPlayer` reads `field528`
+ * as the one to use. Which side gets the alternate depends on the mode:
+ *
+ *      GameMode != 1   slot 1 takes it
+ *      GameMode == 1   isParent() ? slot 1 : slot 0
+ *
+ * In a network versus the HOST keeps the default and the guest gets the
+ * alternate -- decided by `isParent`, so both machines agree without having to
+ * negotiate it. Outside a network game the rule is simply "the one on the
+ * right".
+ *
+ * ### Nothing is drawn until the frames are in memory
+ *
+ *      if (!HaveFrameInList(&char[0x5f4], char->field664)) continue;
+ *
+ * so a slot whose animation has not finished loading is skipped for that frame
+ * rather than drawn wrong -- which is what makes the select screen tolerable
+ * while `Preload1Character` is still working.
+ */
+#define FE_CHARACTER_STRIDE 0x668
+
+extern long   FEChars[2];               /* 0x0018ed78 */
+extern float *SceneGroundOffset;        /* pointer slot -> 0x0014df8c */
+extern float *ShadowOffset;             /* pointer slot */
+extern float  FECAMPOSX;                /* 0x00101710 */
+extern float  FECAMPOSY;                /* 0x00101714 */
+extern float  FECAMPOSZ;                /* 0x00101718 */
+extern float  FEPlayer1Offset;          /* 0x00183d68 */
+extern float  FEPlayer2Offset;          /* 0x00183d64 */
+extern char  *TheFECharacters;          /* pointer slot -> 0x0020e634 */
+extern char  *PlayerDefs;               /* pointer slot -> 0x00170950 */
+extern float *PlayerSize;               /* pointer slot */
+
+void ClearDebugWindow(int index);
+void LIME_Slider(int window, float *value, const char *label,
+                 float lo, float hi, long step, long e);
+void LIME_PushMatrix(void);
+void LIME_PopMatrix(void);
+void limeGetCurrentModelMatrix(float *out);
+void glMatrixMode(unsigned mode);
+void glLoadIdentity(void);
+void glRotatef(float angle, float x, float y, float z);
+void RenderPlayer(void *player, long a, long b);
+
+void RenderFECharacters(long slot0, long slot1)
+{
+    int i;
+
+    FEChars[0] = slot0;
+    FEChars[1] = slot1;
+
+    LIMEDS_Set3dMode();
+    *SceneGroundOffset = 0.0f;
+    *ShadowOffset = 0.0f;
+    ClearDebugWindow(1);
+
+    LIME_Slider(1, &FECAMPOSX, "camx", -10.0f, 10.0f, 0, 0);
+    LIME_Slider(1, &FECAMPOSY, "camy", -10.0f, 10.0f, 0, 0);
+    LIME_Slider(1, &FECAMPOSZ, "camz", -10.0f, 10.0f, 0, 0);
+    LIME_Slider(1, &CameraLookAt[0], "atx", -100.0f, 100.0f, 0, 0);
+    LIME_Slider(1, &CameraLookAt[1], "aty", -100.0f, 100.0f, 0, 0);
+    LIME_Slider(1, &CameraLookAt[2], "atz", -100.0f, 100.0f, 0, 0);
+    LIME_Slider(1, SceneGroundOffset, "groundoff", -100.0f, 100.0f, 0, 0);
+
+    for (i = 0; i < 2; i++) {
+        char  *ch;
+        float *def;
+        void **anim;
+        float  scale;
+        long   which;
+
+        if (i == 0)
+            FECamPos[0] = FECAMPOSX + FEPlayer1Offset;
+        else
+            FECamPos[0] = FEPlayer2Offset - FECAMPOSX;
+
+        FECamPos[1] = FECAMPOSY;
+        FECamPos[2] = FECAMPOSZ;
+
+        CameraLookAt[1] = FECAMPOSY + 1.0f;
+        CameraLookAt[2] = FECAMPOSZ;
+        CameraLookAt[0] = FECamPos[0];
+
+        SetToUseCamera(FECamPos);
+
+        which = FEChars[i];
+        if (which == -1)
+            continue;
+
+        ch = TheFECharacters + which * FE_CHARACTER_STRIDE;
+
+        if (!HaveFrameInList((const long *)(ch + 0x5f4),
+                             *(const long *)(ch + 0x664)))
+            continue;
+
+        *(long *)ch = FEChars[i];
+        GetCharacterOffsetPos((int)FEChars[i], (limeVECTOR3 *)(ch + 0x5c8));
+
+        if (i != 0)
+            *(float *)(ch + 0x5c8) = -*(float *)(ch + 0x5c8);
+
+        def = (float *)(PlayerDefs + FEChars[i] * 52);
+        scale = def[1] * *PlayerSize;   /* PLAYERDEF+0x04 */
+
+        LIME_PushMatrix();
+        glMatrixMode(0x1700);           /* GL_MODELVIEW */
+        glLoadIdentity();
+        glScalef(scale, scale, scale);
+        glRotatef(90.0f, 1.0f, 0.0f, 0.0f);
+
+        *(long *)(ch + 0x540) = 0;
+        if (i != 0) {
+            glScalef(-1.0f, 1.0f, 1.0f);
+            *(long *)(ch + 0x540) = 1;
+        }
+
+        limeGetCurrentModelMatrix((float *)(ch + 0x548));
+
+        *(long *)(ch + 0x578) = *(const long *)(ch + 0x5c8);
+        *(long *)(ch + 0x57c) = *(const long *)(ch + 0x5d0);
+        *(long *)(ch + 0x580) = *(const long *)(ch + 0x5cc);
+
+        LIME_PopMatrix();
+
+        *(float *)(ch + 0x5d8) = 0.65f;
+        *(float *)(ch + 0x5dc) = 0.65f;
+        *(float *)(ch + 0x5e0) = 0.7f;
+
+        anim = *(void ***)(ch + 4);
+        *(void **)(ch + 0x528) = anim[0x14 / 4];
+        *(long *)(ch + 0x52c) = 0;
+
+        if (GameMode == 1) {
+            if (slot0 == slot1 && (isParent() ? i != 0 : i == 0))
+                *(void **)(ch + 0x528) = anim[0x24 / 4];
+        } else {
+            if (i != 0 && slot0 == slot1)
+                *(void **)(ch + 0x528) = anim[0x24 / 4];
+        }
+
+        RenderPlayer(ch, 1, 0);
+    }
 }
