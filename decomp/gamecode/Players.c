@@ -274,3 +274,63 @@ void LoadGameCharacter(PLAYER *p, PLAYERDEF *def, FRONTEND_CHARACTER *fe,
     pw[0x5ec / 4] = -1;
     pw[0x530 / 4] = 0;              /* the alt costume DumpAltCostume frees */
 }
+
+
+#define PRELOAD_STRIDE 0x5f4
+
+extern int  NumPreloadedCharacters;     /* 0x00171358 */
+extern char PreloadedCharacters[][PRELOAD_STRIDE];  /* 0x0028bc10 */
+int IsAFrameVisible(ANIMATEDCHARACTER *c, long frame);
+
+
+/* -------------------------------------------------------------- IsFrameVisible
+ *
+ * armv7 0x0005ba54, 68 bytes.  **Complete.**
+ *
+ *      if (c->field8 == 12 && (a == 295 || b == 295))
+ *          return 0
+ *      return IsAFrameVisible(c, b) | IsAFrameVisible(c, a)
+ *
+ * **The same 12 and 295 that IsOstrichProblem tests**, in a different file and
+ * for a different purpose: that one asks whether a player is in the broken
+ * state, this one refuses to draw the frame. Two functions independently
+ * special-casing the same character and the same id says 295 is a real frame
+ * that character 12 must not show, not a coincidence of constants.
+ *
+ * Note the argument order in the tail call: `b` is tested first, then `a`. The
+ * OR makes it irrelevant to the result and it is transcribed as written.
+ */
+int IsFrameVisible(ANIMATEDCHARACTER *c, long a, long b)
+{
+    if (((const long *)c)[2] == 12 && (a == 295 || b == 295))
+        return 0;
+
+    return IsAFrameVisible(c, b) | IsAFrameVisible(c, a);
+}
+
+
+/* ------------------------------------------------- FreePreloadedCharacters
+ *
+ * armv7 0x0005c038, 56 bytes.  **Complete.**
+ *
+ * Frees the character at +8 of each of `NumPreloadedCharacters` slots, stride
+ * 0x5f4, then zeroes the count.
+ *
+ * **The count is re-read from memory every iteration** (`mov r3, r6; add r3,
+ * pc; ldr r3, [r3]`) rather than held in a register, so FreeAnimatedCharacter
+ * is allowed to change it and the loop would notice. Hoisting it is the obvious
+ * optimisation and it is a different program.
+ */
+void FreePreloadedCharacters(void)
+{
+    int i;
+
+    if (NumPreloadedCharacters == 0)
+        return;
+
+    for (i = 0; i != NumPreloadedCharacters; i++)
+        FreeAnimatedCharacter(*(ANIMATEDCHARACTER **)
+                              (PreloadedCharacters[i] + 8));
+
+    NumPreloadedCharacters = 0;
+}

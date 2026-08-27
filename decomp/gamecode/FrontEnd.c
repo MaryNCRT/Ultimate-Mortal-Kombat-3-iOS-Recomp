@@ -922,3 +922,63 @@ void PushFETaskDeferred(int task)
     FE_FadeAdd  = -0.033333335f;
     PendingPush = task;
 }
+
+
+extern char CustomButtonsPos4[0x78];    /* 0x00150294 */
+extern char CustomButtonsPos5[0x78];    /* 0x0015030c */
+extern char CustomButtonsPos6[0x78];    /* 0x00150384 */
+void achievementsReset(void);
+extern int achievementTracker[24];       /* 0x00379c60, see achievements.c */
+void Write_AchievementsData(void);
+
+
+/* --------------------------------------------------------- Load_AchievementsData
+ *
+ * armv7 0x00015ba8, 76 bytes.  **Complete.**
+ *
+ *      p = limeLoadSaveFile("achievementsdata")
+ *      if (!p) { achievementsReset(); Write_AchievementsData(); return; }
+ *      copy 0x00..0x4c in a loop, then 0x50, 0x54, 0x58 and 0x5c unrolled
+ *      limeFree(p)
+ *
+ * **A third independent confirmation that the tracker is 24 words.** The symbol
+ * table bounds it at 96 bytes; achievementsReset clears 0x00 through 0x5c; and
+ * this copies exactly the same range and stops. Three unrelated pieces of
+ * evidence, one of them in a different file, agreeing to the word.
+ *
+ * The missing-file recovery differs from Load_Stats: that one writes the
+ * current in-memory stats out, this one RESETS first and then writes. So a lost
+ * achievements file starts you at zero, and a lost stats file preserves
+ * whatever the session had.
+ */
+void Load_AchievementsData(void)
+{
+    long *src = (long *)limeLoadSaveFile("achievementsdata");
+    int i;
+
+    if (src == 0) {
+        achievementsReset();            /* zero first, unlike Load_Stats */
+        Write_AchievementsData();
+        return;
+    }
+    for (i = 0; i < 0x60 / 4; i++)
+        achievementTracker[i] = src[i];
+    limeFree(src);
+}
+
+
+/* ------------------------------------------------------- Write_PresetButtonData
+ *
+ * armv7 0x00012874, 62 bytes.  **Complete.**
+ *
+ * Three saves of 0x78 bytes each -- the 4, 5 and 6 button layouts to
+ * "preset4data", "preset5data" and "preset6data". The size is a literal in all
+ * three, as in Write_Stats, so the file format is fixed at 120 bytes whatever
+ * the struct becomes.
+ */
+void Write_PresetButtonData(void)
+{
+    limeWriteFile("preset4data", CustomButtonsPos4, 0x78, 0);
+    limeWriteFile("preset5data", CustomButtonsPos5, 0x78, 0);
+    limeWriteFile("preset6data", CustomButtonsPos6, 0x78, 0);
+}
