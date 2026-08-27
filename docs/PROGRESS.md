@@ -1840,6 +1840,114 @@ a fatality cancel its own particle swarm by group without tracking slots.
 
 ---
 
+## `gamecode` 190 of 291 (65.29%)
+
+Nineteen more since the last entry. The theme of this block is **cross-
+confirmation**: functions written years apart agreeing on numbers neither of
+them states.
+
+### One table geometry, three functions
+
+`PopulateTower` writes the arcade ladders with a 44-byte row stride.
+`FE_Task_VS_Screen_Init` reads `OpponentTowerList[Destiny * 11 + Stage]`.
+`InitEnduranceMatch` reads `EnduranceTowerList[Stage + 11 * Destiny]`. Eleven
+words a row, from three directions, with none of them saying so.
+
+`Load_SaveData` then clamps `Stage` to at most `Destiny + 8` -- and the ladders
+hold 6, 7, 8 and 9 random opponents plus two fixed bosses, which is 8, 9, 10 and
+11 fights for Destiny 0 through 3. The validation encodes the ladder length.
+
+### Rotations, not draws
+
+Three separate systems pick their content by **walking a table from a random
+starting point**, never by rolling per slot:
+
+- `PopulateTower` walks `TowerRand` forwards or backwards with wraparound.
+- `FE_Task_VS_Screen_Init` takes `TowerRand[|limeRand()| % 22]` -- and 22 is
+  that table's row width, recovered from the reciprocal-multiply magic
+  `0x2e8ba2e9`.
+- `InitEnduranceMatch` reads three consecutive entries of a four-wide row,
+  wrapping, so the same three opponents always appear together and only their
+  order rotates.
+
+Whatever ordering the designers put into those tables survives. A port that
+"simplifies" any of the three to picking at random loses it silently.
+
+### The shadow renderer exists, and this repo said it did not
+
+`RenderAnimatedCharacter` paints the body pass's own vertices black and flattens
+them with `glScalef(1, 0, 1)`. There is no shadow mesh because there was never
+meant to be one.
+
+`runtime/demo.c` guessed that approach correctly and then asserted in its own
+header that no such renderer existed. **A conclusion written into the code that
+turns out to be false is worse than no conclusion** -- it reads as already
+checked. Corrected in place, with the two real differences (the height rule
+scales by -100 from `_ShadowOffset`; the original is opaque, not blended at
+0.45) filed as [#21](../../issues/21).
+
+### The save format, both ends
+
+`Write_SaveData` and `Load_SaveData` between them give the whole 172-byte
+layout, including **the four hidden-roster flags as their own words**:
+`ClassicSubZeroUnlocked`, `ErmacUnlocked`, `MileenaUnlocked`, `JadeUnlocked`.
+So the hidden characters are persisted state, not a derived condition -- what
+remains is finding who writes them.
+
+The checksum is a plain unsigned sum, verified on load, and failing it calls
+`Reset_SaveData` and carries on. A corrupt save is silently replaced, never
+rejected.
+
+### The UTF-16 system, closed
+
+`processString` completes it. `usprintf` runs it twice with `initArguments`
+between; the token count from the first pass is the loop bound the second
+needed. `getToken` produces the type numbers `initArguments` dispatches on, and
+`limeUC` explains why `getToken` starts at `s + 2` -- it writes the `FF FE` BOM
+that `LoadTextData` bakes into every shipped string.
+
+That chain also caught two real errors of mine: `initArguments`' jump table read
+as though it were in address order (it is not -- type 4 is the eight-byte case,
+not type 3), and `processString`'s last two parameters declared in the wrong
+order.
+
+### Smaller things worth not re-deriving
+
+- **`TheFECharacters` is 26 slots, not 25.** Measured: 0x0020e634 to
+  0x00218cc4 is 0xa690, which is 26 * 0x668 exactly. `AnimateFECharacters`
+  compares after its body, so it processes slot 25 -- which would have been a
+  one-entry overrun in shipping code under the old figure.
+- **`RenderAMesh` flips `glCullFace` to `GL_FRONT`** with its mirrored X scale.
+  Mirroring without it turns the fighter inside out ([#20](../../issues/20)).
+- **`TouchAreaWH` returns 2 for held and 1 for released**, looks at touch slot
+  zero only, and clicks only on release.
+- **`CheckLeftDial`** quantises to eight directions with
+  `(((int)((1-t)*256) + 16) & 0xFF) >> 5` -- the mask is what makes sector 7
+  and sector 0 meet without a special case. Its outer radius is `FE_W(80)`
+  except under P2 controls, where it is a raw unscaled 96.
+- **Blood colour comes from the model id**, hardcoded: 7, 8 and 14 bleed black,
+  11 and 19 green. `Settings[0]` suppresses the drawing but the event still
+  ages and expires.
+- **`AnimateIntroCharacterPlayers1Frame` clamps its counter UP**, so an intro
+  longer than 120 entries never plays anything before its last 120.
+- **`DrawOptionAsText` calls `limeUC` three times a line** for a width it then
+  discards -- six lines exhaust the sixteen-buffer ring while the function is
+  still running.
+- **`preprocessPreloadKode`** maps kode to level through a hand-written,
+  non-monotonic table, and in two-player the host overwrites the guest's choice
+  with `requestedLevel`.
+- The per-character frame exceptions are now at **three** functions: 3/290 and
+  6/365 in `IsAFrameVisible`, 12/295 in `IsFrameVisible`, and 6/365 again in
+  `RenderAnimatedCharacter`.
+
+### `annotate.py` resolves GOT-style slots now
+
+`add rN, pc` followed by `ldr rN, [rN]` was being resolved by hand in every
+function. The tool now names the pointee when the target has no exact symbol but
+the word it holds does -- safe in a way chasing a real symbol is not, because no
+variable is being read, only a relocation followed. It named the four hidden-
+roster flags the moment it was switched on.
+
 ## Next up
 
 **Finish `gamecode`.** 171 of 291, and it is the current front. `lime/common` is
