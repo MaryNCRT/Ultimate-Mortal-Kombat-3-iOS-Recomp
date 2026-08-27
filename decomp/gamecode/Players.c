@@ -404,3 +404,51 @@ void FreeLevelCharacters(void)
     if (*(const long *)(Players + PLAYER_STRIDE + 0x530) != 0)
         DumpAltCostume((PLAYER *)(Players + PLAYER_STRIDE));
 }
+
+
+extern int *DoIntroPtr;                 /* pointer slot -> 0x0014e1c0 */
+extern int *CurrentTaskPtr;             /* pointer slot -> 0x00150590 */
+
+
+/* ------------------------------------------------------------- IsLiaProblem
+ *
+ * armv7 0x0005ba98, 132 bytes.  **Complete.**
+ *
+ *      if (DoIntro)          return 0
+ *      if (CurrentTask == 3) return 0
+ *      if (p->field00 != 6)  return 0
+ *      return  p->field51c is one of {0xf1, 0x101, 0x105, 0xf8, 0xf9}
+ *           || p->field520 is one of the same five
+ *
+ * **The same shape as IsOstrichProblem, one character over.** That one tests
+ * character 12 against a single id; this tests character 6 against five, in the
+ * same two adjacent fields at +0x51c and +0x520, and IsFrameVisible tests the
+ * pair again from a third file. Four functions, three files, one pattern: a
+ * character id plus an animation id, checked in two neighbouring slots.
+ *
+ * The two extra guards are this one's own. It gives up during the intro and
+ * during task 3, so whatever "the Lia problem" is, it is a fight-time artefact
+ * and the code that asks about it runs in both places.
+ *
+ * The compiler built each set of comparisons as `ite` pairs OR-ed together
+ * rather than a switch, which is why the disassembly reads as arithmetic.
+ */
+int IsLiaProblem(PLAYER *p)
+{
+    const long *w = (const long *)p;
+    long a, b;
+
+    if (*DoIntroPtr != 0)
+        return 0;
+    if (*CurrentTaskPtr == 3)
+        return 0;
+    if (w[0] != 6)
+        return 0;
+
+    a = w[0x51c / 4];
+    if (a == 0xf1 || a == 0x105 || a == 0xf8 || a == 0xf9 || a == 0x101)
+        return 1;
+
+    b = w[0x520 / 4];
+    return (b == 0xf1 || b == 0x105 || b == 0xf8 || b == 0xf9 || b == 0x101);
+}

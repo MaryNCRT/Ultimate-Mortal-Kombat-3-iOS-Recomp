@@ -1381,3 +1381,104 @@ void FE_Task_Challenge(void)
     if (r == 8)
         PopFETaskDeferred();
 }
+
+
+void Write_SettingsData(void);
+void Write_PresetButtonData(void);
+
+
+/* ----------------------------------------------------------- Load_SettingsData
+ *
+ * armv7 0x000154ec, 116 bytes.  **Complete.**
+ *
+ *      puts("########### loading settings data!")
+ *      p = limeLoadSaveFile("settingsdata")
+ *      if (!p) {
+ *          puts("###########  cannot load settings data!")
+ *          ResetSettingsData()
+ *          Write_SettingsData()
+ *          return
+ *      }
+ *      copy 0x28 bytes into Settings
+ *      printf(fmt, Settings[7]); printf(fmt, Settings[8]); printf(fmt, Settings[9])
+ *      limeFree(p)
+ *
+ * The recovery is reset-then-write, the same shape Load_AchievementsData uses
+ * and the opposite of Load_Stats, which writes whatever memory already held.
+ *
+ * **Only the last three settings are printed**, at +0x1c, +0x20 and +0x24 --
+ * the three ResetSettingsData sets to 1. Whatever they control was worth
+ * watching and the other seven were not.
+ */
+void Load_SettingsData(void)
+{
+    long *src;
+    int i;
+
+    puts("########### loading settings data!");
+
+    src = (long *)limeLoadSaveFile("settingsdata");
+    if (src == 0) {
+        puts("###########  cannot load settings data!");
+        ResetSettingsData();
+        Write_SettingsData();
+        return;
+    }
+
+    for (i = 0; i < 0x28 / 4; i++)
+        Settings[i] = (int)src[i];
+
+    printf("%d\n", Settings[7]);
+    printf("%d\n", Settings[8]);
+    printf("%d\n", Settings[9]);
+
+    limeFree(src);
+}
+
+
+/* ------------------------------------------------------- Load_PresetButtonData
+ *
+ * armv7 0x000128c8, 132 bytes.  **Complete.**
+ *
+ * Three loads of 0x78 bytes into CustomButtonsPos4, 5 and 6, each freed after
+ * the copy, and **every one of the three failures jumps to the same recovery:
+ * Write_PresetButtonData, and nothing else.**
+ *
+ * No reset. So the recovery writes out whatever the live tables happen to hold
+ * at that moment -- which, if preset4data loaded and preset5data did not, is
+ * the loaded 4 alongside the defaults for 5 and 6. That is the Load_Stats shape
+ * (write what memory has) and NOT the Load_AchievementsData shape (reset first,
+ * then write), and the difference is worth stating because the two sit within a
+ * few hundred bytes of each other in the same file.
+ */
+void Load_PresetButtonData(void)
+{
+    long *src;
+    int i;
+
+    src = (long *)limeLoadSaveFile("preset4data");
+    if (src == 0)
+        goto reset;
+    for (i = 0; i < 0x78 / 4; i++)
+        ((long *)CustomButtonsPos4)[i] = src[i];
+    limeFree(src);
+
+    src = (long *)limeLoadSaveFile("preset5data");
+    if (src == 0)
+        goto reset;
+    for (i = 0; i < 0x78 / 4; i++)
+        ((long *)CustomButtonsPos5)[i] = src[i];
+    limeFree(src);
+
+    src = (long *)limeLoadSaveFile("preset6data");
+    if (src == 0)
+        goto reset;
+    for (i = 0; i < 0x78 / 4; i++)
+        ((long *)CustomButtonsPos6)[i] = src[i];
+    limeFree(src);
+    return;
+
+reset:
+    /* Whatever the live tables hold right now -- there is no reset here. */
+    Write_PresetButtonData();
+}
