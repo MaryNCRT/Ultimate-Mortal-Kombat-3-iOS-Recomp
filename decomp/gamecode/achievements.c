@@ -261,10 +261,17 @@ extern int Settings[10];                /* 0x00100e34 */
 
 /* `_achievementsDescr` -- 0x0017684c, sixteen bytes an entry. Only +0xc is
  * touched here and it is cleared on every unlock; what it holds is not
- * established by this function. */
+ * established by this function.
+ *
+ * **+0x04 is settled elsewhere.** `FE_Task_Achievements`
+ * (decomp/gamecode/FrontEnd.c) draws two lines per entry and hands +0x04 to
+ * `GameText` exactly as it does +0x00 -- so an entry carries two text ids, the
+ * name and the description, and this file simply never reads the second. */
 typedef struct ACHIEVEMENTDESCR {
     long id;                            /* 0x00, the GameText id of the label */
-    long pad[2];                        /* 0x04 .. 0x08 */
+    long descr;                         /* 0x04, the GameText id of the
+                                         *       description line */
+    long pad08;                         /* 0x08 */
     /* +0x0c is a FLOAT -- achievementsDraw runs sin() on it. achievementsUnlock
      * clears it with an integer zero store, which is the same bit pattern, so
      * the union keeps both honest. */
