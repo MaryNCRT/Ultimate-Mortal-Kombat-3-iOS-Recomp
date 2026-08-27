@@ -6071,3 +6071,182 @@ void FE_Task_Stats(void)
     limeDrawFONT(GameFont, GameText(9), (float)FE_X(423.0f),
                  (float)FE_Y(296.0f), 1, FE_WidthScale, fontcol);
 }
+
+
+/* ----------------------------------------------------- FE_Task_Survival_Summary
+ *
+ * armv7 0x00010474, 1356 bytes.  **Complete.**
+ *
+ * The survival score screen. It is `FE_Task_Karnage_Summary` with a different
+ * number and a different leaderboard key, and the two are worth reading
+ * together -- the spotlights, the username handshake, the exit timeout and the
+ * blinking wait message are all the same code written out twice.
+ *
+ *      Karnage    KarnageScore           key "shaokahn_med"
+ *      Survival   DisplaySurvivalStage   key "survival_easy"
+ *
+ * ### Two singular/plural strings, chosen by stage == 1
+ *
+ *      stage == 1   GameTextNoHeader(0xb8) on screen, 0xba into the feed text
+ *      otherwise    GameTextNoHeader(0xb9) on screen, 0xbb into the feed text
+ *
+ * A dedicated string for "1 round" against "%d rounds" -- four ids for what is
+ * one sentence, which is what a language without a two-way plural needs.
+ *
+ * ### The title is the one Y on this screen that ignores FE_YOffset
+ *
+ *      y = 160.0f * FE_HeightScale        (the title)
+ *      y = FE_Y(180.0f)                   (everything else)
+ *
+ * and `FE_Y(v)` is `v * FE_HeightScale + FE_YOffset`. So the title is placed
+ * with the scale but **without the offset**, while the line directly under it
+ * gets both. On a screen where `FE_YOffset` is zero the two agree; on a
+ * letterboxed one the title sits twenty units too high relative to its own
+ * subtitle. Transcribed as written -- a port that fixes it is changing the
+ * layout, which is a decision, so it is flagged rather than silently repaired.
+ *
+ * ### A kilobyte of stack for a string nothing reads
+ *
+ *      sub.w sp, sp, #0x430
+ *      usprintf(<sp+0x3c>, GameTextNoHeader(0xba or 0xbb), stage, stageAtEntry)
+ *
+ * The frame is 0x43c bytes and the buffer at `sp+0x3c` is about a kilobyte of
+ * it. Nothing reads it back -- the same dead feed-post `FE_Task_Karnage_Summary`
+ * carries, and see docs/GAME-BUGS.md. Here it also costs 1KB of stack on every
+ * frame the screen is up.
+ *
+ * The two values handed to it are `DisplaySurvivalStage` read now and the same
+ * global read in the function prologue. Nothing between the two reads writes
+ * it, so they always agree; the second read exists because the compiler
+ * spilled the prologue value and reloaded it.
+ *
+ * ### `feedPosted` is set only when the stage is not positive
+ *
+ *      if (DisplaySurvivalStage <= 0) feedPosted = 1;
+ *
+ * The opposite of `FE_Task_Karnage_Summary`, which sets it unconditionally.
+ * With the posting code gone from both, the flag has no consistent meaning
+ * left; it is recorded here because the inconsistency is itself the evidence
+ * that the feature was removed piecemeal.
+ *
+ * ### The exit button's interactivity is the readiness flag
+ *
+ *      DrawButtonNew(&BUTTON_EXITBIG, 0x1a7, 0x130, ready)
+ *
+ * where Karnage passes a literal 1. And the "EXIT" label is drawn only when
+ * `ready` is set, so while the leaderboard is still pending the button is
+ * there, inert and unlabelled, with the blinking `GameText(0x13)` in the
+ * middle of the screen instead.
+ */
+extern long DisplaySurvivalStage;       /* 0x000ff984 */
+
+void FE_Task_Survival_Summary(void)
+{
+    char  feedText[0x400];              /* sp+0x3c, never read */
+    long  stageAtEntry = DisplaySurvivalStage;
+    long  ready, exiting;
+
+    limeDrawSprite((TEXTURE *)MetalScreenTexture, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0f, 1.0f, 1.0f, col);
+
+    limeEnableAlphaBlending_Additive();
+
+    DrawAnimAsSprite(0, 0, FE_WidthScale, 0x80,
+                     0x80, (long)(uintptr_t)SpotlightTextures,
+                     (const char *)&spotlight_SpriteDef, spotlight_Anim,
+                     0, (long)*GameCounter,
+                     0, spotlight_Anim[0] - 1, 1, col);
+
+    DrawAnimAsSprite((long)((float)*limeScreenWidth
+                            + -128.0f * FE_WidthScale),
+                     0, FE_WidthScale, 0x80,
+                     0x80, (long)(uintptr_t)SpotlightTextures,
+                     (const char *)&spotlight_SpriteDef, spotlight_Anim,
+                     1, (long)*GameCounter,
+                     0, spotlight_Anim[0] - 1, 1, col);
+
+    limeEnableAlphaBlending_Basic();
+
+    if (EASDK_ConnectedToNetwork() && Settings[8]) {
+        EASOC_MayhemTest(1);
+        if (EASOC_MayhemNeedsUserName()) {
+            if (userNameEntryViewed == 0) {
+                userNameEntryViewed = 1;
+                PushFETaskDeferred(0x2e);
+            } else if (userNameEntryViewed == 2) {
+                printf("SUBMITTING NEW NAME: %s!\n", ourName);
+                EASOC_MayhemSetUserName(ourName);
+                userNameEntryViewed++;
+            } else if (userNameEntryViewed == 3) {
+                if (!EASOC_MayhemIsPending()) {
+                    EASOC_MayhemReset();
+                    userNameEntryViewed++;
+                }
+            }
+        }
+    }
+
+    /* The title -- scaled but not offset; see the header. */
+    limeDrawFONT(GameFont, GameText(0x5a),
+                 (float)(*limeScreenWidth / 2), 160.0f * FE_HeightScale,
+                 1, FE_WidthScale, fontcol);
+
+    if (DisplaySurvivalStage == 1)
+        usprintf(strBuf, GameTextNoHeader(0xb8), DisplaySurvivalStage);
+    else
+        usprintf(strBuf, GameTextNoHeader(0xb9), DisplaySurvivalStage);
+
+    limeDrawFONT(GameFont, limeUC(strBuf),
+                 (float)(*limeScreenWidth / 2), (float)FE_Y(180.0f),
+                 1, FE_WidthScale, fontcol);
+
+    if (DisplaySurvivalStage <= 0)
+        feedPosted = 1;
+
+    if (DisplaySurvivalStage == 1)
+        usprintf(feedText, GameTextNoHeader(0xba),
+                 DisplaySurvivalStage, stageAtEntry);
+    else
+        usprintf(feedText, GameTextNoHeader(0xbb),
+                 DisplaySurvivalStage, stageAtEntry);
+
+    ready = !EASDK_ConnectedToNetwork() || EASOC_MayhemIsReady();
+
+    exiting = -1;
+
+    if (!ready && exitTimeout > 0.0f) {
+        exitTimeout = exitTimeout + -1.0f / limeFPSScaleFactor;
+        if (exitTimeout < 0.0f)
+            exitTimeout = 0.0f;
+
+        {
+            long t = (long)exitTimeout;
+
+            if (t < 0x21c) {
+                long corr = (t >> 31) >> 24;
+                if ((((t + corr) & 0xff) - corr) > 0x80)
+                    limeDrawFONT(GameFont, GameText(0x13),
+                                 (float)(*limeScreenWidth / 2),
+                                 (float)FE_Y(200.0f),
+                                 1, FE_WidthScale, fontcol);
+            }
+        }
+    } else {
+        ready = 1;
+
+        exiting = DrawButtonNew(&BUTTON_EXITBIG, 0x1a7, 0x130,
+                                (int)ready) ? 0 : -1;
+
+        limeDrawFONT(GameFont, GameText(9), (float)FE_X(423.0f),
+                     (float)FE_Y(296.0f), 1, FE_WidthScale, fontcol);
+    }
+
+    if (FE_FadeAdd == 0.0f && exiting == 0) {
+        PopAllFETasksDeferred(0);
+
+        if (EASDK_ConnectedToNetwork() && Settings[8] && EASOC_MayhemIsReady())
+            EASOC_MayhemPostStatWithData("survival_easy",
+                                         DisplaySurvivalStage, stats, 0xc);
+    }
+}
