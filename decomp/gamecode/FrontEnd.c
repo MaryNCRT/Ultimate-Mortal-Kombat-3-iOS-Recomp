@@ -3450,3 +3450,119 @@ void FE_Task_Button_Edit(void)
         PopFETaskDeferred();
     }
 }
+
+
+extern char ButtonSplitText[];          /* 0x00184730, 256 bytes a line */
+
+
+/* ------------------------------------------------------- DrawOptionAsButton
+ *
+ * armv7 0x0000deb0, 620 bytes.  **Complete.**
+ *
+ * `DrawOptionAsText`'s sibling: wraps the text the same way, draws it the same
+ * way, and then **hit-tests it**. Returns 1 while a finger is inside, 0
+ * otherwise.
+ *
+ * The wrap goes into `_ButtonSplitText` (0x00184730) where the other uses
+ * `_ButtonSplitText2` -- two 256-byte-per-line buffers so the two can be live
+ * at once.
+ *
+ * The layout is identical to `DrawOptionAsText`: lines 20 apart, the block
+ * centred by subtracting `lines * 10 - 10`, and the same integer line offset
+ * carried in a float register.
+ *
+ * ### The hit box is the widest LINE, not the block
+ *
+ *      left   = FE_X(x - 8) + widest * -0.5
+ *      right  = FE_X(x + 8) + widest *  0.5
+ *      top    = FE_Y(y - 10 - (lines * 10 - 10))
+ *      bottom = FE_Y(y) + FE_H(30) + FE_H(lines * 10 - 10)
+ *
+ * `widest` is the longest scaled line width measured during the draw, so a
+ * one-word option has a narrow target and a wrapped one a wide one. The 8 is
+ * added to x on **both** sides before the half-width, which widens the box by
+ * 16 either way -- not a centring correction, a margin.
+ *
+ * Note the vertical bounds are not symmetric: the top subtracts the half-block
+ * from `y` and the bottom **adds** the full block plus a fixed `FE_H(30)`, so
+ * the box hangs further below the text than above it.
+ *
+ * ### It only responds at the two ends of a fade
+ *
+ *      FE_Fade == 1.0f  ->  test
+ *      FE_Fade == 0.0f  ->  test
+ *      anything else    ->  return 0
+ *
+ * That is `_FE_Fade`, the fade LEVEL, not `_FE_FadeAdd`, the per-frame step
+ * everything else in the front end gates on. So this button is live both when
+ * the screen is fully up and when it is fully dark, and dead only mid-fade --
+ * a different rule from `drawPage2x1Wide` and friends, which require the step
+ * to be exactly zero.
+ *
+ * ### It measures the same line three times
+ *
+ * Per line: `limeUC` + `limeGetStringWidth` to compare against the running
+ * maximum, and then **both again inside the branch** to store the value it just
+ * computed. Plus the `limeUC` for the draw itself. Three `limeUC` calls a line,
+ * the same shape `DrawOptionAsText` has -- and the same six-line ceiling on the
+ * sixteen-buffer ring.
+ *
+ * Unlike `DrawOptionAsText`, the maximum here is actually used.
+ */
+long DrawOptionAsButton(const char *text, int x, int y, int scale,
+                        const float *colour, float maxWidth)
+{
+    long lines = 0;
+    long i, lineOffset;
+    float widest = 0.0f;
+    float tx, ty, edge;
+
+    CreateWrappedTextArrays(text, ButtonSplitText, &lines, (long)maxWidth,
+                            GameFont, (float)scale * FE_WidthScale);
+
+    if (lines > 0) {
+        lineOffset = 0;
+        for (i = 0; i < lines; i++, lineOffset += 0x14) {
+            char *line = &ButtonSplitText[i * 256];
+            float py = (float)y - (float)(lines * 10 - 10)
+                       + (float)lineOffset;
+            float w;
+
+            limeDrawFONT(GameFont, limeUC(line),
+                         (float)FE_X((float)x), (float)FE_Y(py),
+                         1, (float)scale * FE_WidthScale, colour);
+
+            w = (float)limeGetStringWidth(GameFont, limeUC(line))
+                * FE_WidthScale * (float)scale;
+
+            if (w > widest)             /* recomputed, as in DrawOptionAsText */
+                widest = (float)limeGetStringWidth(GameFont, limeUC(line))
+                         * FE_WidthScale * (float)scale;
+        }
+    }
+
+    if (FE_Fade != 1.0f && FE_Fade != 0.0f)
+        return 0;
+
+    tx = limeTouchScreenX[0];
+
+    edge = (float)FE_X((float)(x - 8)) + widest * -0.5f;
+    if (tx < edge)
+        return 0;
+
+    edge = (float)FE_X((float)(x + 8)) + widest * 0.5f;
+    if (tx > edge)
+        return 0;
+
+    ty = limeTouchScreenY[0];
+
+    edge = (float)FE_Y((float)y - 10.0f - (float)(lines * 10 - 10));
+    if (ty < edge)
+        return 0;
+
+    edge = (float)FE_Y((float)y)
+           + (float)FE_H(30.0f)
+           + (float)FE_H((float)(lines * 10 - 10));
+
+    return (ty <= edge) ? 1 : 0;
+}
