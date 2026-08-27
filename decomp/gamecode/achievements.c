@@ -597,3 +597,104 @@ void achievementsDraw(void)
     if (finished == 19 && achievementTracker[17] == 0)
         achievementsUnlock(17);         /* the meta-achievement */
 }
+
+
+extern void **KodesTexture;             /* pointer slot -> 0x00183f1c */
+extern void  *GameFont;                 /* pointer slot -> 0x001abb98 */
+extern float *fontcolP;                 /* pointer slot -> 0x0014f9f0 */
+extern float *FE_WidthScaleP;           /* pointer slot -> 0x000ff9b8 */
+extern float *FE_HeightScaleP;          /* pointer slot -> 0x000ff9bc */
+typedef struct TEXTURE TEXTURE;
+
+void *limeLoadTexture(const char *name, long a, long b);
+void  limeDrawSprite(TEXTURE *tex, float x, float y, float w, float h,
+                     float u0, float v0, float u1, float v1, long *colour);
+
+
+/* ---------------------------------------------------------------- drawKodeTip
+ *
+ * armv7 0x000a0530, 804 bytes.  **Complete.**
+ *
+ * Shows one kode's button sequence: two lines of text and **six glyphs**, drawn
+ * from `KOMBAT_KODES_TPAGE.PNG`.
+ *
+ * The six values come straight out of `_kodes[index]` -- words 0 through 5 of
+ * its 32-byte entry, copied into two stack arrays of three. **Those are exactly
+ * the six words `checkIfKode` compares against `KodeSelector[0..2]` and
+ * `[7..9]`**, so this function is the display side of the same six-symbol
+ * sequence: three per row, two rows.
+ *
+ * ### The glyph atlas is 5 wide with 48-pixel cells
+ *
+ *      column = value % 5
+ *      row    = value / 5
+ *      u0 = column * 48 * (1/256)      u1 = 0.1875   (48/256)
+ *      v0 = row    * 48 * (1/128)      v1 = 0.375    (48/128)
+ *
+ * -- a 256x128 texture in a 5x2 grid of 48x48 cells with padding. The `% 5` is
+ * a reciprocal multiply with magic `0x66666667` and a shift of 1, worked out
+ * numerically rather than assumed, and the `* 48` is spelled `(n << 6) -
+ * (n << 4)` both times.
+ *
+ * So a kode symbol is a **number 0..9** and the atlas holds ten glyphs. That is
+ * the alphabet of the kode screen.
+ *
+ * The glyphs step 32 apart horizontally, and the second row is offset by
+ * `+0x74` -- 116 -- from the first.
+ *
+ * ### It reloads the texture every single call
+ *
+ *      *KodesTexture = limeLoadTexture("KOMBAT_KODES_TPAGE.PNG", 0, 0);
+ *
+ * unconditionally, at the top of every frame this tip is on screen, and the
+ * previous handle is overwritten without being freed. `drawLoadingBackground`
+ * does a defensive reload too, but only when its handle is NULL; this one does
+ * not check. Whether `limeLoadTexture` caches by name is not established here,
+ * and if it does not this leaks a texture per frame.
+ *
+ * That is worth flagging rather than reproducing: a port should load it once.
+ *
+ * The two labels are `GameText(0x363)` and `GameText(0x364)`, at 240 and 132
+ * scaled, with the usual `FE_WidthScale` / `FE_HeightScale` pair.
+ */
+void drawKodeTip(long index)
+{
+    float white[4];
+    long seq[6];
+    long i;
+
+    white[0] = white[1] = white[2] = white[3] = 1.0f;   /* C.25 */
+
+    seq[0] = kodes[index].seq[0];
+    seq[1] = kodes[index].seq[1];
+    seq[2] = kodes[index].seq[2];
+    seq[3] = kodes[index].seq[3];
+    seq[4] = kodes[index].seq[4];
+    seq[5] = kodes[index].seq[5];
+
+    limeDrawFONT(GameFont, GameText(0x363),
+                 240.0f * *FE_WidthScaleP, 116.0f * *FE_HeightScaleP,
+                 1, *FE_WidthScaleP, fontcolP);
+
+    limeDrawFONT(GameFont, GameText(0x364),
+                 240.0f * *FE_WidthScaleP, 132.0f * *FE_HeightScaleP,
+                 1, *FE_WidthScaleP, fontcolP);
+
+    /* reloaded every call, and the old handle is dropped -- see above */
+    *KodesTexture = limeLoadTexture("KOMBAT_KODES_TPAGE.PNG", 0, 0);
+
+    for (i = 0; i < 6; i++) {
+        long v   = seq[i];
+        long col = v % 5;               /* magic 0x66666667, shift 1 */
+        long row = v / 5;
+        float x  = (float)(0x86 + (i % 3) * 0x20);
+        float y  = (i < 3) ? 160.0f : 160.0f + 116.0f;
+
+        limeDrawSprite((TEXTURE *)*KodesTexture,
+                       x * *FE_WidthScaleP, y * *FE_HeightScaleP,
+                       32.0f * *FE_WidthScaleP, 32.0f * *FE_HeightScaleP,
+                       (float)((double)(col * 48) * 0.00390625),   /* 1/256 */
+                       (float)((double)(row * 48) * 0.0078125),    /* 1/128 */
+                       0.1875f, 0.375f, (long *)white);
+    }
+}
