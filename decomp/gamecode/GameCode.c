@@ -2646,3 +2646,135 @@ void ShowDebugInfo(void)
                      (float)(limeScreenWidth - 8), (float)FE_Y(96.0f),
                      2, 1.0f, fontcol);
 }
+
+
+extern long  LastSpecialButton[2];      /* 0x00150e98 */
+extern long  Player1NumButtons;         /* 0x0010de64 */
+extern long  Player2NumButtons;         /* 0x0010de68 */
+extern MKMOVE FourButtonMoves[];        /* 0x0015092c */
+
+int isParentBasedOnSpeed(void);
+
+
+/* ------------------------------------------------------ GetReal6ButtonJoyBits
+ *
+ * armv7 0x0001e3cc, 576 bytes.  **Complete.**
+ *
+ * Builds the raw six-button input word from the dial direction and the button
+ * array, then converts the directions to facing-relative form.
+ *
+ * ### The dial is eight-way and diagonals set two bits
+ *
+ *      dir in {8, 1, 2}   |= 0x01   up
+ *      dir in {4, 5, 6}   |= 0x02   down
+ *      dir in {6, 7, 8}   |= 0x04   left
+ *      dir in {2, 3, 4}   |= 0x08   right
+ *
+ * Each range is three wide and they overlap at the corners, so `dir == 2` sets
+ * up **and** right. Direction 0 sets nothing -- neutral. Every test is written
+ * as an unsigned range check (`subs` then `cmp ... #2`), which is how one
+ * comparison covers three values.
+ *
+ * The six buttons are `buttons[0..5]` into bits 0x10 through 0x200 -- that is
+ * the "6Button" in the name.
+ *
+ * ### This is the exact inverse of GetArcadeJoyBits' tail
+ *
+ *      if (LEFT)  set (facing & 0x10) ? 0x0800 : 0x1000
+ *      if (RIGHT) set (facing & 0x10) ? 0x1000 : 0x0800
+ *
+ * 0x800 is TOWARD and 0x1000 is AWAY -- the same two bits `GetArcadeJoyBits`
+ * converts back into LEFT and RIGHT on the way out, with the same facing flag.
+ * **One function turns absolute into relative on input and the other turns
+ * relative into absolute on output**, and neither makes sense without the
+ * other. Both are needed, in that order, or the fighter mirrors his own inputs.
+ *
+ * The facing flag lives at `GameObjects[player * 16 + 0x0a]`, so the two
+ * players' object records are sixteen bytes apart.
+ *
+ * ### 0x400 is edge-triggered
+ *
+ *      if (buttons[6] && LastSpecialButton[p] == 0) bits |= 0x400;
+ *      LastSpecialButton[p] = buttons[6];
+ *
+ * The bit is set only on the rising edge, and the store happens on **every**
+ * path including when the button is released -- so a port that only updates
+ * `LastSpecialButton` when the button is down latches the bit forever.
+ *
+ * ### Fewer than six buttons goes back through GetArcadeJoyBits
+ *
+ * With `PlayerNNumButtons` at 4 or 5 the assembled word is run through
+ * `GetArcadeJoyBits(bits, FourButtonMoves, facing & 0x10, 1)` to synthesise the
+ * buttons the player does not have. At 6 nothing extra happens.
+ *
+ * The last argument is **1 in all four cases**, but spelled two ways: the
+ * four-button arms compute it as `NumButtons - 3` and the five-button arms use
+ * a literal 1. `NumButtons - 3` would be 2 at five buttons -- that expression is
+ * simply never reached with a 5. Transcribed as the constant it always is.
+ *
+ * The four-button arms then fall through into the five-button test, which
+ * cannot also be true. Dead, harmless, and left as written.
+ *
+ * ### Which player
+ *
+ *      isParentBasedOnSpeed()  ->  p = (the fifth argument != 0)
+ *      otherwise               ->  p = (GameMode == 1)
+ *
+ * so in single player the player index comes from the game mode rather than
+ * from the caller.
+ */
+void GetReal6ButtonJoyBits(int dir, const int *buttons, Mk3Obj_t *unused,
+                           long *out, int which)
+{
+    long bits = *out;
+    long p;
+    const unsigned short *obj;
+
+    (void)unused;
+
+    if (dir == 8 || (unsigned)(dir - 1) <= 1) bits |= 0x01;     /* up    */
+    if ((unsigned)(dir - 4) <= 2)             bits |= 0x02;     /* down  */
+    if ((unsigned)(dir - 6) <= 2)             bits |= 0x04;     /* left  */
+    if ((unsigned)(dir - 2) <= 2)             bits |= 0x08;     /* right */
+
+    if (buttons[0]) bits |= 0x010;
+    if (buttons[1]) bits |= 0x020;
+    if (buttons[2]) bits |= 0x040;
+    if (buttons[3]) bits |= 0x080;
+    if (buttons[4]) bits |= 0x100;
+    if (buttons[5]) bits |= 0x200;
+
+    *out = bits;
+
+    p = isParentBasedOnSpeed() ? (which != 0) : (GameMode == 1);
+
+    obj = (const unsigned short *)*GameObjects;
+    if (obj != 0) {
+        long facing = obj[(p * 16 + 0x0a) / 2] & 0x10;
+
+        if (bits & 0x04)                        /* left  */
+            bits |= facing ? 0x0800 : 0x1000;
+        if (bits & 0x08)                        /* right */
+            bits |= facing ? 0x1000 : 0x0800;
+
+        *out = bits;
+    }
+
+    if (buttons[6] != 0 && LastSpecialButton[p] == 0)
+        *out |= 0x400;                          /* the rising edge only */
+    LastSpecialButton[p] = buttons[6];           /* stored either way */
+
+    obj = (const unsigned short *)*GameObjects;
+    if (obj == 0)
+        return;
+
+    if (p) {
+        if (Player2NumButtons == 4 || Player2NumButtons == 5)
+            *out = GetArcadeJoyBits(*out, FourButtonMoves,
+                                    obj[0x1a / 2] & 0x10, 1);
+    } else {
+        if (Player1NumButtons == 4 || Player1NumButtons == 5)
+            *out = GetArcadeJoyBits(*out, FourButtonMoves,
+                                    obj[0x0a / 2] & 0x10, 1);
+    }
+}
