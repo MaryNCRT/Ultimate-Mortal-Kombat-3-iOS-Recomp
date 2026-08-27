@@ -32,7 +32,7 @@ extern int Menu_Task_Manage_Profile[], Menu_Task_Get_More_Games[];
 extern int   lastTimerTimestamp;        /* 0x000ff8d8 */
 extern float vsScreenTimer;             /* 0x000ff8dc */
 
-int  BasicMenuWithWidth(int *menu, int width);
+long BasicMenuWithWidth(const long *items, int width);
 void PopFETaskDeferred(void);
 
 int  getMenuItemNum(const int *menu);
@@ -248,7 +248,7 @@ void resetCountersBeforeMP(void)
  */
 int BasicMenu(int *menu)
 {
-    return BasicMenuWithWidth(menu, 0x120);
+    return (int)BasicMenuWithWidth((const long *)menu, 0x120);
 }
 
 
@@ -3565,4 +3565,126 @@ long DrawOptionAsButton(const char *text, int x, int y, int scale,
            + (float)FE_H((float)(lines * 10 - 10));
 
     return (ty <= edge) ? 1 : 0;
+}
+
+
+char *limeUC(const char *s);
+const char *UC(const char *s);
+const char *GameTextNoHeader(long id);
+long usprintf(char *dst, const char *fmt, ...);
+
+
+/* ------------------------------------------------------- BasicMenuWithWidth
+ *
+ * armv7 0x0000e8d4, 740 bytes.  **Complete.**
+ *
+ * `BasicMenuMod` with a panel behind it and a heading, and a caller-supplied
+ * width. Returns the index released on, or 0.
+ *
+ * ### The scale is derived from the screen, not taken from FE_WidthScale
+ *
+ *      scale = limeScreenWidth / 480.0f
+ *
+ * -- computed here rather than read from `_FE_WidthScale`, which every other
+ * front-end function uses. The two agree on a 480-wide screen and are not
+ * guaranteed to anywhere else, so a port must not substitute one for the other.
+ *
+ * Row pitch is `32 * scale` and the block is centred by starting at
+ *
+ *      base = (long)(limeScreenHeight / 2  -  scale * (count * 16))
+ *
+ * with `count * 16` being half of `count * 32` -- the same straddle
+ * construction `BasicMenuMod` and `DrawOptionAsText` use.
+ *
+ * ### The panel
+ *
+ *      limeFillRect(limeScreenWidth / 2 - width / 2, base - 8,
+ *                   width, count * 32 * scale,
+ *                   0.0f, 0.0f, 0.0f, 0.7f)
+ *
+ * A flat black rectangle at 70%, drawn before anything else. The `-8` on Y is a
+ * raw unscaled inset while the height is scaled -- the same mixed-units shape
+ * recorded in issue #22, here inside one call.
+ *
+ * ### Index 0 IS drawn, as a heading
+ *
+ *      usprintf(buf, UC("--- %s ---"), GameTextNoHeader(items[0]))
+ *      limeDrawFONT(GameFont, limeUC(buf), centre, y, 1, scale, fontcol)
+ *
+ * `BasicMenuMod` skips index 0 entirely; this one decorates it and prints it.
+ * Same array convention, two different readings of the first slot -- so a menu
+ * array is not portable between the two functions without knowing which draws
+ * the header.
+ *
+ * The heading uses `GameTextNoHeader`, the variant that does not expect a BOM,
+ * because `usprintf` is about to add one through `limeUC`.
+ *
+ * ### The hit band
+ *
+ *      horizontally   centre - w/2 .. centre + w/2, w the line's own width
+ *      vertically     y - 6 (unscaled) .. y + 22 * scale
+ *
+ * Asymmetric: the top margin is a raw 6 and the bottom is a scaled 22. Only a
+ * release counts (`limeLastTouchScreenX[0] == -1`), and **the heading row is
+ * not hit-tested** -- index 0 takes the drawing branch and skips straight to
+ * the increment.
+ */
+long BasicMenuWithWidth(const long *items, int width)
+{
+    char buf[0x100];
+    float scale = (float)*limeScreenWidth / 480.0f;
+    float pitch, base, blockH;
+    long count = 0;
+    long selected = 0;
+    long i;
+
+    if (items[0] != -1)
+        for (count = 1; items[count] != -1; count++)
+            ;
+
+    pitch  = scale * 32.0f;
+    blockH = pitch * (float)count;
+    base   = (float)(long)((float)(*limeScreenHeight / 2)
+                           - scale * (float)(count * 16));
+
+    limeFillRect((float)(*limeScreenWidth / 2) + (float)width * -0.5f,
+                 base - 8.0f, (float)width, blockH,
+                 0.0f, 0.0f, 0.0f, 0.7f);
+
+    if (count <= 0)
+        return 0;
+
+    for (i = 0; i < count; i++) {
+        float y = base + (float)i * pitch;
+        float cx = (float)(*limeScreenWidth / 2);
+        float tx, ty, w;
+
+        if (i == 0) {                   /* the heading, never hit-tested */
+            usprintf(buf, UC("--- %s ---"), GameTextNoHeader(items[0]));
+            limeDrawFONT(GameFont, limeUC(buf), cx, y, 1, scale, fontcol);
+            continue;
+        }
+
+        w = (float)limeGetStringWidth(GameFont, GameText(items[i]));
+        limeDrawFONT(GameFont, GameText(items[i]), cx, y, 1, scale, fontcol);
+
+        if (limeLastTouchScreenX[0] != -1.0f)
+            continue;
+
+        tx = limeTouchScreenX[0];
+        if (tx < cx + w * scale * -0.5f)
+            continue;
+        if (tx > cx + w * scale * 0.5f)
+            continue;
+
+        ty = limeTouchScreenY[0];
+        if (ty < y - 6.0f)              /* raw 6 above */
+            continue;
+        if (ty > y + 22.0f * scale)     /* scaled 22 below */
+            continue;
+
+        selected = i;
+    }
+
+    return selected;
 }
