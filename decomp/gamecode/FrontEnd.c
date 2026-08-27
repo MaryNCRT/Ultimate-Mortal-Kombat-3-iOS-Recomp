@@ -4668,3 +4668,324 @@ void RenderFECharacters(long slot0, long slot1)
         RenderPlayer(ch, 1, 0);
     }
 }
+
+
+/* ---------------------------------------- FE_Task_About_Usage_Sharing_Confirm
+ *
+ * armv7 0x000129c0, 1128 bytes.  **Complete.**
+ *
+ * The "are you sure" screen behind the usage-sharing toggle. It reads
+ * `Settings[9]` -- the same word `FE_Task_About_Usage_Sharing` toggles -- and
+ * asks the opposite question depending on which way it is currently set.
+ *
+ *      Settings[9] on    heading GameText(0xaf)   body GameText(0xb1)
+ *      Settings[9] off   heading GameText(0xb0)   body GameText(0xb2)
+ *
+ * ### Chinese and Korean get a different text scale
+ *
+ *      if (!strcmp(Language, "ZH") || !strcmp(Language, "KO")) {
+ *          headingScale = 1.25f;   bodyScale = 1.0f;
+ *      } else {
+ *          headingScale = 1.0f;    bodyScale = 0.75f;
+ *      }
+ *
+ * Two language codes, compared by `strcmp` against string literals, deciding
+ * two font multipliers. CJK glyphs carry more detail per character, so they are
+ * drawn a third larger and the body is not shrunk at all. **This is the only
+ * place found so far where the layout branches on the language**, and it is
+ * worth knowing for the port: a new language with a dense script needs adding
+ * here, not just a new text file.
+ *
+ * ### The OK button is drawn by one thing and tested by another
+ *
+ * `DrawButtonNew(&BUTTON_OK, 0x39, 0x130, 1)` draws it -- and **its return
+ * value is thrown away**. The press is detected instead by a hit test written
+ * out by hand right below it:
+ *
+ *      limeLastTouchScreenX[0] == -1.0f                  (a fresh press)
+ *      limeTouchScreenX[0] <= 114.0f * FE_WidthScale
+ *      limeTouchScreenY[0] >= limeScreenHeight - 64.0f * FE_HeightScale
+ *
+ * The Back button, three lines earlier, does use its return value. So one
+ * screen contains both conventions, and the hand-rolled one uses numbers
+ * (114, 64) that have nothing to do with the button's own drawn position
+ * (0x39, 0x130). Any port that moves or resizes this button has to change two
+ * unrelated places or the artwork and the touch target come apart.
+ *
+ * ### The fade suppresses the text but not the buttons
+ *
+ *      if (FE_FadeAdd < 0.0f) skip the heading and the body
+ *
+ * Only the text is skipped; the two buttons are still drawn and the touch test
+ * still runs while the screen fades out.
+ *
+ * ### Opting out is logged; opting in is not
+ *
+ *      if (Settings[9]) EASDK_LogEvent(0x7548, 0, NULL, 0, 0);
+ *      Settings[9] ^= 1;
+ *      Write_SettingsData();
+ *      PopFETaskDeferred();
+ *
+ * The event fires on the way out only -- EA records the opt-out, and the
+ * opt-in is silent. Both write the settings and leave the screen.
+ */
+extern char Language[10];               /* 0x001ab980 */
+extern BUTTONNEW BUTTON_OK;             /* 0x001007a8 */
+extern char HelpSpiltText[];            /* 0x00182c84, 256 bytes a line */
+
+void EASDK_LogEvent(long id, long a, const char *s, long b, long c);
+int  strcmp(const char *a, const char *b);
+
+void FE_Task_About_Usage_Sharing_Confirm(void)
+{
+    float headingScale, bodyScale;
+    long  lines, i;
+    long  back;
+
+    limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0234375f, 1.0f, 0.703125f, col);
+
+    if (strcmp(Language, "ZH") == 0 || strcmp(Language, "KO") == 0) {
+        headingScale = 1.25f;
+        bodyScale    = 1.0f;
+    } else {
+        headingScale = 1.0f;
+        bodyScale    = 0.75f;
+    }
+
+    if (FE_FadeAdd >= 0.0f) {
+        const char *body;
+
+        limeDrawFONT(GameFont, GameText(Settings[9] ? 0xaf : 0xb0),
+                     (float)FE_X(240.0f), (float)FE_Y(32.0f),
+                     1, headingScale * FE_WidthScale, fontcol);
+
+        body = GameText(Settings[9] ? 0xb1 : 0xb2);
+
+        CreateWrappedTextArrays(body, HelpSpiltText, &lines,
+                                *limeScreenWidth - 0x20,
+                                GameFont, bodyScale * FE_WidthScale);
+
+        for (i = 0; i < lines; i++)
+            limeDrawFONT(GameFont, limeUC(&HelpSpiltText[i * 256]),
+                         (float)(*limeScreenWidth / 2),
+                         (float)FE_Y((float)(i * 16 + 0x48)),
+                         1, bodyScale * FE_WidthScale, fontcol);
+    }
+
+    back = DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1);
+
+    limeDrawFONT(GameFont, GameText(0x58), (float)FE_X(423.0f),
+                 (float)FE_Y(296.0f), 1, FE_WidthScale, fontcol);
+
+    if (back)
+        PopFETaskDeferred();
+
+    /* Drawn, and the result deliberately discarded -- see above. */
+    DrawButtonNew(&BUTTON_OK, 0x39, 0x130, 1);
+
+    limeDrawFONT(GameFont, GameText(0xc), (float)FE_X(57.0f),
+                 (float)FE_Y(296.0f), 1, FE_WidthScale, fontcol);
+
+    if (limeLastTouchScreenX[0] == -1.0f
+        && limeTouchScreenX[0] <= 114.0f * FE_WidthScale
+        && limeTouchScreenY[0] >= (float)*limeScreenHeight
+                                  + -64.0f * FE_HeightScale) {
+        puts("OPTOUT CONFIRMED!");
+
+        if (Settings[9])
+            EASDK_LogEvent(0x7548, 0, 0, 0, 0);
+
+        Settings[9] ^= 1;
+        Write_SettingsData();
+        PopFETaskDeferred();
+    }
+}
+
+
+/* ------------------------------------------------- FE_Task_Multiplayer_Summary
+ *
+ * armv7 0x00015fc0, 1048 bytes.  **Complete.**
+ *
+ * The lobby both players sit in once a session is up: three options, of which
+ * only the guest's third one is ever live for them.
+ *
+ *      BUTTON_1X3_1 at (0xed, 0x5a)   -> 1   start a fight
+ *      BUTTON_1X3_2 at (0xed, 0xa0)   -> 2   back to the menu
+ *      BUTTON_1X3_3 at (0xed, 0xe6)   -> 3   end the session
+ *
+ * ### Only the host can drive the session, and the UI says so twice
+ *
+ *      interactive = (WaitForOpponent == 0) && isParent()
+ *
+ * That same expression gates the first two buttons -- computed twice, once
+ * per button, from freshly re-read state -- and it also chooses the colour of
+ * the first two labels: `fontcol` when it is true, and a **local grey
+ * {0.5, 0.5, 0.5, 0.5}** built on the stack when it is false. So the guest sees
+ * the same two rows greyed and inert. The third button passes 1 unconditionally
+ * and its label always uses `fontcol`: leaving is never taken away from you.
+ *
+ * ### A press only counts once the fade has stopped
+ *
+ *      if (DrawButtonNew(...)) choice = (FE_FadeAdd == 0.0f) ? n : 0;
+ *
+ * Written out separately for all three. A button pressed while the screen is
+ * already fading is swallowed, which is what stops a double transition when
+ * the player taps twice.
+ *
+ * ### The heartbeat is a modulo on a frame counter
+ *
+ *      sendInd++;
+ *      if (sendInd % 60 == 22) sendGenericPacket(0x3f800000, 0);
+ *
+ * One packet every sixtieth frame -- once a second at 60fps -- and at offset
+ * **22**, not 0. An offset means this screen's keep-alive does not collide
+ * with anything else that fires on a round multiple of 60. The divide is the
+ * usual reciprocal multiply, magic `0x88888889` with the add-back and a shift
+ * of five: `2290649225 / 2^37` is exactly `1/60`.
+ *
+ * ### Every frame resets the sync state
+ *
+ *      resetCountersBeforeMP(); startTime = 0; syncState = 0; readyToSync = 0;
+ *
+ * unconditionally, before the heartbeat. So the lobby is not just idle -- it
+ * actively holds the sync machinery at zero for as long as it is on screen,
+ * and whatever the network layer was mid-way through is discarded once per
+ * frame. That is why entering a fight from here always starts from a clean
+ * sync rather than from whatever the lobby left behind.
+ *
+ * ### The three exits
+ *
+ *      1  requestedLevel = getRandomLevel(); PopFETaskDeferred();
+ *         resetCharacterSelection(); enableHeartbeat(3);
+ *         sendFEMenuPacket(-1) x3
+ *      2  PopFETaskDeferred2(); sendFEMenuPacket(-2) x3;
+ *         resetCharacterSelection(); enableHeartbeat(3)
+ *      3  PopAllFETasksDeferred(0); disableHeartbeat(); endMP()
+ *
+ * **The menu packet is sent three times, not once**, on both of the first two
+ * paths -- there is no loop, it is written out three times. This is an
+ * unreliable channel and the sender is spamming the transition rather than
+ * waiting for an acknowledgement. A port with a reliable transport can send it
+ * once; a port that keeps the original protocol must keep all three, because
+ * the receiver is presumably tolerant of duplicates precisely because of this.
+ *
+ * All three paths then bump `thisSessionId` and set `startDebug = 1`, and all
+ * three are reached only after `dumpStack()` -- a debug routine still wired
+ * into the shipped release build.
+ */
+extern long  pressedPlay;               /* 0x000ff824 */
+extern long  opponentPressedPlay;       /* 0x000ff828 */
+extern long *WaitForOpponent;           /* pointer slot -> 0x0010df18 */
+extern long *startTime;                 /* pointer slot */
+extern long *syncState;                 /* pointer slot */
+extern long *readyToSync;               /* pointer slot */
+extern long  sendInd;                   /* 0x00100ebc */
+extern long *requestedLevel;            /* pointer slot */
+extern long  thisSessionId;             /* 0x000ff81c */
+extern long  startDebug;                /* 0x000ff800 */
+
+void sendGenericPacket(long a, long b);
+void enableHeartbeat(long mode);
+void disableHeartbeat(void);
+void sendFEMenuPacket(long item);
+void endMP(void);
+
+void FE_Task_Multiplayer_Summary(void)
+{
+    /* C.381, four words on the stack. The greyed-out label colour. */
+    float grey[4];
+    long  choice;
+    long  live;
+
+    grey[0] = 0.5f;
+    grey[1] = 0.5f;
+    grey[2] = 0.5f;
+    grey[3] = 0.5f;
+
+    pressedPlay = 0;
+    opponentPressedPlay = 0;
+
+    limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0234375f, 1.0f, 0.703125f, col);
+
+    choice = 0;
+
+    live = (*WaitForOpponent == 0) && isParent();
+    if (DrawButtonNew(&BUTTON_1X3_1, 0xed, 0x5a, (int)live))
+        choice = (FE_FadeAdd == 0.0f) ? 1 : 0;
+
+    live = (*WaitForOpponent == 0) && isParent();
+    if (DrawButtonNew(&BUTTON_1X3_2, 0xed, 0xa0, (int)live)) {
+        if (FE_FadeAdd == 0.0f)
+            choice = 2;
+    }
+
+    if (DrawButtonNew(&BUTTON_1X3_3, 0xed, 0xe6, 1)) {
+        if (FE_FadeAdd == 0.0f)
+            choice = 3;
+    }
+
+    if (*WaitForOpponent == 0 && isParent()) {
+        limeDrawFONT(GameFont, GameText(0xf7), (float)FE_X(235.0f),
+                     (float)FE_Y(82.0f), 1, FE_WidthScale, fontcol);
+        limeDrawFONT(GameFont, GameText(0xc6), (float)FE_X(235.0f),
+                     (float)FE_Y(152.0f), 1, FE_WidthScale, fontcol);
+    } else {
+        limeDrawFONT(GameFont, GameText(0xf7), (float)FE_X(235.0f),
+                     (float)FE_Y(82.0f), 1, FE_WidthScale, grey);
+        limeDrawFONT(GameFont, GameText(0xc6), (float)FE_X(235.0f),
+                     (float)FE_Y(152.0f), 1, FE_WidthScale, grey);
+    }
+
+    limeDrawFONT(GameFont, GameText(0xc7), (float)FE_X(235.0f),
+                 (float)FE_Y(222.0f), 1, FE_WidthScale, fontcol);
+
+    resetCountersBeforeMP();
+    *startTime   = 0;
+    *syncState   = 0;
+    *readyToSync = 0;
+
+    sendInd++;
+    if (sendInd % 60 == 22) {
+        /* 0x3f800000 is the bit pattern of 1.0f, but it is forwarded to
+         * sendPacket as a raw payload word and nothing on the way reads it as
+         * a number -- so it stays the bits. */
+        sendGenericPacket(0x3f800000, 0);
+    }
+
+    if (choice == 0)
+        return;
+
+    dumpStack();
+
+    if (choice == 1) {
+        *requestedLevel = getRandomLevel();
+        PopFETaskDeferred();
+        resetCharacterSelection();
+        enableHeartbeat(3);
+        sendFEMenuPacket(-1);
+        sendFEMenuPacket(-1);
+        sendFEMenuPacket(-1);
+        dumpStack();
+        thisSessionId++;
+        startDebug = 1;
+    } else if (choice == 2) {
+        PopFETaskDeferred2();
+        sendFEMenuPacket(-2);
+        sendFEMenuPacket(-2);
+        sendFEMenuPacket(-2);
+        resetCharacterSelection();
+        enableHeartbeat(3);
+        thisSessionId++;
+        startDebug = 1;
+    } else if (choice == 3) {
+        PopAllFETasksDeferred(0);
+        disableHeartbeat();
+        endMP();
+        thisSessionId++;
+        startDebug = 1;
+    }
+}
