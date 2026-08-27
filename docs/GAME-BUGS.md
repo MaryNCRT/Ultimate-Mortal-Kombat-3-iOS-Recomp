@@ -277,3 +277,30 @@ crash much later.
 `decomp/gamecode/GameCode.c` declares the buffer as sixteen bytes and says why
 in a comment. That is identical for every value the game actually passes and
 not a stack overwrite for the ones it does not.
+
+---
+
+## The Karnage feed post is still written and still flagged as sent
+
+`FE_Task_Karnage_Summary` (armv7 `0x0000ffbc`) does this every frame:
+
+```c
+feedPosted = 1;
+usprintf(<128 bytes of stack at sp+0x40>, GameTextNoHeader(0x120), KarnageScore);
+```
+
+`feedPosted` is set unconditionally, and the buffer the message is formatted
+into is **never read again** — no later instruction in the function touches
+`sp+0x40`. The text is built and dropped.
+
+This is not a crash, and it costs only a `usprintf` per frame. It matters
+because `feedPosted` is a lie: anything that consults it to decide whether the
+score was shared will believe it was, on every frame this screen is on, with or
+without a network. The most likely history is a Facebook feed post whose
+posting call was removed for the release while the string building and the flag
+stayed.
+
+### What the port should do
+
+Delete both. They are recorded here so that deleting them is a decision taken
+with the evidence rather than an unexplained divergence from the original.
