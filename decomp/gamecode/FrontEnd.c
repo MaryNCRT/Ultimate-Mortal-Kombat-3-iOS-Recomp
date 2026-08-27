@@ -1755,3 +1755,90 @@ void SetupFEScale(void)
 
     *UseLOWAssetsPtr = (w == 480) ? 1 : 0;           /* exactly 480, not <= */
 }
+
+
+#define CHARACTER_SLOTS 26
+
+extern signed char CharacterAvailable[CHARACTER_SLOTS];  /* 0x0018ed5c */
+extern int  ErmacUnlocked;              /* 0x000ff974 */
+extern int  JadeUnlocked;               /* 0x000ff97c */
+extern int  GameMode;                   /* slot -> 0x0014faa4 */
+extern int *TreasureGained;             /* slot -> 0x00101164, see Reset_SaveData */
+
+
+/* ------------------------------------------------------- SetupLockedCharacters
+ *
+ * armv7 0x000031a4, 176 bytes.  **Complete.**
+ *
+ *      ErmacUnlocked = TreasureGained[2] != 0
+ *      JadeUnlocked  = TreasureGained[3] != 0
+ *      clear all 26 slots of CharacterAvailable
+ *      if (GameMode == 2) { CharacterAvailable[1] = 2; return; }
+ *      CharacterAvailable[0x18] = 1
+ *      CharacterAvailable[0x19] = 1
+ *      ... twenty-two more set to 2 ...
+ *      if (ErmacUnlocked) CharacterAvailable[0x14] = 2
+ *      if (JadeUnlocked)  CharacterAvailable[0x10] = 2
+ *
+ * **There are TWO availability values, not one.** Slots 0x18 and 0x19 get 1;
+ * every other available slot gets 2. The 2 is built as `0x1a - 0x18` from the
+ * loop counter the compiler already had, which is exactly the kind of thing
+ * that reads as noise and is not: a port writing 1 everywhere collapses two
+ * states into one.
+ *
+ * **GameMode 2 unlocks exactly one character**, slot 1, and nothing else -- not
+ * even the two that get 1 in the normal path. Whatever mode 2 is, it is a
+ * single-character mode.
+ *
+ * Ermac and Jade are gated on treasure slots 2 and 3, and their unlock flags are
+ * recomputed here from TreasureGained rather than read from the save -- so the
+ * save's own ErmacUnlocked and JadeUnlocked are outputs of this function, not
+ * inputs to it.
+ */
+void SetupLockedCharacters(void)
+{
+    int i;
+
+    ErmacUnlocked = (TreasureGained[2] != 0);
+    JadeUnlocked  = (TreasureGained[3] != 0);
+
+    for (i = 0; i < CHARACTER_SLOTS; i++)
+        CharacterAvailable[i] = 0;
+
+    if (GameMode == 2) {
+        CharacterAvailable[1] = 2;      /* one character, and only one */
+        return;
+    }
+
+    CharacterAvailable[0x19] = 1;       /* these two get 1 ... */
+    CharacterAvailable[0x18] = 1;
+
+    CharacterAvailable[0x01] = 2;       /* ... and everything else gets 2 */
+    CharacterAvailable[0x05] = 2;
+    CharacterAvailable[0x02] = 2;
+    CharacterAvailable[0x0b] = 2;
+    CharacterAvailable[0x12] = 2;
+    CharacterAvailable[0x04] = 2;
+    CharacterAvailable[0x0f] = 2;
+    CharacterAvailable[0x0d] = 2;
+    CharacterAvailable[0x03] = 2;
+
+    if (ErmacUnlocked)
+        CharacterAvailable[0x14] = 2;
+    if (JadeUnlocked)
+        CharacterAvailable[0x10] = 2;
+
+    CharacterAvailable[0x00] = 2;
+    CharacterAvailable[0x06] = 2;
+    CharacterAvailable[0x09] = 2;
+    CharacterAvailable[0x0c] = 2;
+    CharacterAvailable[0x16] = 2;
+    CharacterAvailable[0x0a] = 2;
+    CharacterAvailable[0x15] = 2;
+    CharacterAvailable[0x08] = 2;
+    CharacterAvailable[0x11] = 2;
+    CharacterAvailable[0x13] = 2;
+    CharacterAvailable[0x07] = 2;
+    CharacterAvailable[0x0e] = 2;
+    CharacterAvailable[0x17] = 2;
+}
