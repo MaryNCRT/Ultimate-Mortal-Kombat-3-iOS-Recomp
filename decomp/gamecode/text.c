@@ -337,8 +337,8 @@ int asciiToUnicode(const char *src, char *dst, long dst_bytes)
 typedef struct TOKEN {
     long type;                          /* 0x00  1..4, see below */
     union {
-        long  word;                     /* 0x04  str  -- cases 1, 2 and 3 */
-        short half;                     /* 0x04  strh -- case 4, low half only */
+        long  word;                     /* 0x04  str  -- cases 1, 2 and 4 */
+        short half;                     /* 0x04  strh -- case 3, low half only */
     } value;
     long value2;                        /* 0x08, only the 8-byte case uses it */
 } TOKEN;
@@ -357,17 +357,23 @@ int printf(const char *fmt, ...);
  * `tbb` dispatches on type - 1, and the four cases are:
  *
  *      1, 2   one word          value  = *cursor++          (4 bytes consumed)
- *      3      TWO words         value  = cursor[0]
+ *      3      a halfword        low 16 bits only            (4 bytes consumed)
+ *      4      TWO words         value  = cursor[0]
  *                               value2 = cursor[1]          (8 bytes consumed)
- *      4      a halfword        value's low 16 bits only    (4 bytes consumed)
  *
- * **Case 3 is the double, and this is the marshaller that proves it.** A double
- * arrives as a REGISTER PAIR under this binary's soft-float ABI -- the fact the
+ * The `tbb` table is `{3, 3, 20, 14}` and its base is 0x000a756a, so the targets
+ * are base + 2*byte: 0xa7570, 0xa7570, 0xa7592 (`ldrh`) and 0xa7586 (`ldm`).
+ * **Type 4 is the eight-byte one, not type 3** -- the table is not in address
+ * order and reading it as though it were swaps the two.
+ *
+ * **Case 4 is the double, and this is the marshaller that proves it.** A double
+ * arrives as a REGISTER PAIR under this binary soft-float ABI -- the fact the
  * runtime already depends on -- and here it is again from the other side: eight
- * bytes read, eight bytes stepped, two words stored.
+ * bytes read, eight bytes stepped, two words stored. `getToken` closes the
+ * loop: the token character that produces type 4 is `f`.
  *
- * **Case 4 stores a halfword into a word slot and leaves the top half alone.**
- * `strh r3, [r5, #4]`, not `str`. So a type-4 token reuses whatever the upper
+ * **Case 3 stores a halfword into a word slot and leaves the top half alone.**
+ * `strh r3, [r5, #4]`, not `str`. So a type-3 token reuses whatever the upper
  * 16 bits of that slot held from a previous call. It still steps the cursor by
  * a full 4, because the value was promoted to int on the way in.
  *
@@ -395,15 +401,15 @@ long initArguments(long count, const long *args)
             t->value.word = *args++;
             break;
 
-        case 3:                         /* a double: two words */
+        case 3:                         /* halfword into the low half only */
+            t->value.half = (short)*args;   /* strh: top half untouched */
+            args++;
+            break;
+
+        case 4:                         /* a double: two words */
             t->value.word = args[0];
             t->value2     = args[1];
             args += 2;
-            break;
-
-        case 4:                         /* halfword into the low half only */
-            t->value.half = (short)*args;   /* strh: top half untouched */
-            args++;
             break;
 
         default:
@@ -413,4 +419,98 @@ long initArguments(long count, const long *args)
         }
     }
     return 0;
+}
+
+
+/* `_foundToken` -- 0x003877e0. Three fields are written here; +8 is never
+ * touched by this function and stays unnamed. */
+typedef struct FOUNDTOKEN {
+    long        type;                   /* 0x00  0 none, 1 's', 2 'd', 4 'f' */
+    long        index;                  /* 0x04  0..7 from the digit, -1 if none */
+    long        unknown;                /* 0x08 */
+    const char *at;                     /* 0x0c  the unit the type char sits on */
+} FOUNDTOKEN;
+
+extern FOUNDTOKEN foundToken;           /* 0x003877e0 */
+
+
+/* ------------------------------------------------------------------ getToken
+ *
+ * armv7 0x000a74ac, 156 bytes.  **Complete.**
+ *
+ * Scans a UTF-16 string for the next `#<digit><type>` escape and leaves what it
+ * found in `_foundToken`, returning the type:
+ *
+ *      #3d   ->  type 2, index 2      an int
+ *      #1s   ->  type 1, index 0      a string
+ *      #2f   ->  type 4, index 1      a double
+ *
+ * **These are the same type numbers `initArguments` dispatches on**, and `f`
+ * mapping to 4 is what pins that function jump table down: type 4 is the
+ * eight-byte case, so a float promoted to double in varargs. The two functions
+ * are the two halves of one format, read from opposite ends.
+ *
+ * The digit is `c - '1'` kept only when it lands in 0..7, so the escapes are
+ * numbered from ONE in the string and from zero in the table -- eight arguments
+ * maximum, and `#9d` silently leaves the index at whatever it was.
+ *
+ * **It starts at `s + 2`, skipping the first 16-bit unit**, and steps two bytes
+ * at a time through `decodeLHWord`. Nothing here says what that first unit
+ * holds, only that no caller of this function ever sees it.
+ *
+ * ### Two vestigial branches
+ *
+ * The escape handler is reached only when the in-escape flag is set, and it
+ * immediately re-tests the same flag; the arm for it being clear is
+ * unreachable. Likewise `#` copies the in-escape flag into the done flag before
+ * setting it, and at that point it is always zero. Neither is transcribed as an
+ * `if`, because writing a branch that cannot be taken would be describing the
+ * compiler output rather than the program.
+ */
+long getToken(const char *s)
+{
+    const char *p = s + 2;
+    int inEscape = 0;
+    uint32_t c;
+
+    foundToken.type  = 0;
+    foundToken.index = -1;
+
+    while ((c = decodeLHWord(p)) != 0) {
+        if (inEscape) {
+            long d = (long)c - '1';
+            if ((unsigned short)d <= 7)
+                foundToken.index = d;
+            inEscape = 0;
+            p += 2;
+            continue;
+        }
+
+        switch (c) {
+        case '#':
+            inEscape = 1;
+            p += 2;
+            continue;
+
+        case 's':
+            foundToken.type = 1;
+            foundToken.at   = p;
+            return 1;
+
+        case 'd':
+            foundToken.type = 2;
+            foundToken.at   = p;
+            return 2;
+
+        case 'f':
+            foundToken.type = 4;
+            foundToken.at   = p;
+            return 4;
+
+        default:
+            p += 2;
+            continue;
+        }
+    }
+    return foundToken.type;
 }
