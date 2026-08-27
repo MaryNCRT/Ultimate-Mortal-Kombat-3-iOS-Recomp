@@ -1482,3 +1482,83 @@ reset:
     /* Whatever the live tables hold right now -- there is no reset here. */
     Write_PresetButtonData();
 }
+
+
+extern const char *FETaskNames[];       /* 0x00100d60 */
+extern int BUTTON_1X3_1[];              /* 0x001004d8 */
+extern int BUTTON_1X3_2[];              /* 0x001004ec */
+extern int BUTTON_1X3_3[];              /* 0x00100500 */
+int DrawButtonNew(int *b, int x, int y, int flag);
+
+
+/* ----------------------------------------------------------------- dumpStack
+ *
+ * armv7 0x000038c8, 108 bytes.  **Complete.**
+ *
+ *      puts("STACK:")
+ *      for (i = 0; i < FE_TaskStackPointer; i++)
+ *          printf("#%d:%s(%d)\n", i, FETaskNames[stack[i]], stack[i])
+ *      printf("######################### (%s)(%d)\n",
+ *             FETaskNames[FE_CurrentTask], FE_CurrentTask)
+ *
+ * **The whole front-end task stack is printed on every push and every pop**,
+ * and both PushFETask and PopFETask call this TWICE. So one menu transition
+ * prints the stack four times over, plus its own line.
+ *
+ * All of it ships. That is worth knowing before anyone measures the front end's
+ * frame time in a port: on a device with a slow console this is the cost.
+ *
+ * The stack pointer is re-read from memory each iteration rather than held in a
+ * register, which is why the loop looks heavier than it is.
+ */
+void dumpStack(void)
+{
+    int i;
+
+    puts("STACK:");
+
+    for (i = 0; i < FE_TaskStackPointer; i++)
+        printf("#%d:%s(%d)\n", i,
+               FETaskNames[FE_CurrentTaskStack[i]], FE_CurrentTaskStack[i]);
+
+    printf("######################### (%s)(%d)\n",
+           FETaskNames[FE_CurrentTask], FE_CurrentTask);
+}
+
+
+/* ---------------------------------------------------------- drawPage1x3Small
+ *
+ * armv7 0x00007558, 148 bytes.  **Complete.**
+ *
+ * Three buttons at a fixed x of 0xed and y of 0x5a, 0xa0 and 0xe6, returning
+ * which one was pressed -- **but only while the screen is not fading**.
+ * FE_FadeAdd being non-zero means a transition is in flight, and a press during
+ * one is swallowed.
+ *
+ * The first button is the odd one out: it sets the result to 1 OR ZERO with an
+ * `ite`, where the other two only overwrite on the fade-clear path. The
+ * difference cannot show, because a press that arrives during a fade leaves the
+ * result at its initial zero either way -- but the code is not symmetric and it
+ * is transcribed as it is.
+ *
+ * A press on button 1 does NOT skip the other two: the branch jumps back into
+ * the sequence rather than out of it, so all three are drawn every frame and a
+ * later press wins.
+ */
+int drawPage1x3Small(void)
+{
+    int r = 0;
+
+    if (DrawButtonNew(BUTTON_1X3_1, 0xed, 0x5a, 1))
+        r = (FE_FadeAdd == 0.0f) ? 1 : 0;   /* the ite, not an if */
+
+    if (DrawButtonNew(BUTTON_1X3_2, 0xed, 0xa0, 1))
+        if (FE_FadeAdd == 0.0f)
+            r = 2;
+
+    if (DrawButtonNew(BUTTON_1X3_3, 0xed, 0xe6, 1))
+        if (FE_FadeAdd == 0.0f)
+            r = 3;
+
+    return r;
+}
