@@ -2321,3 +2321,63 @@ void FE_Task_VS_Screen_Init(void)
     Character2Override = -1;
     VSAssetsLoaded     = 1;
 }
+
+
+void limeFillRect(float x, float y, float w, float h,
+                  float r, float g, float b, float a);
+
+
+/* ------------------------------------------ DrawGreenHighlight / DrawRedHighlight
+ *
+ * armv7 0x0000359c and 0x00003704, 360 bytes each.  **Both complete.**
+ *
+ * A hollow rectangle -- four filled bars making an outline `thick` pixels wide:
+ *
+ *      (x,             y,             w,     thick)     top
+ *      (x,             y + h - thick, w,     thick)     bottom
+ *      (x,             y,             thick, h    )     left
+ *      (x + w - thick, y,             thick, h    )     right
+ *
+ * Every coordinate goes through `FE_X` / `FE_Y` / `FE_W` / `FE_H`, so the bars
+ * scale with the front end rather than being in device pixels. The corners are
+ * covered twice -- the top and bottom bars span the full width and the side
+ * bars span the full height -- which is invisible at alpha 1 and would not be
+ * if either were translucent.
+ *
+ * **The two functions are identical apart from one colour**: green is
+ * `(0, 1, 0, 1)` and red is `(1, 0, 0, 1)`. The compiler emitted two full
+ * copies rather than sharing a body, 720 bytes for what is one function and a
+ * parameter. They are written here as one static helper and two wrappers,
+ * which is a readability choice and not a claim about the original.
+ *
+ * `h` arrives in r3 and `thick` is the only stack argument.
+ */
+static void DrawHighlight(int x, int y, int w, int h, int thick,
+                          float r, float g, float b)
+{
+    limeFillRect((float)FE_X((float)x), (float)FE_Y((float)y),
+                 (float)FE_W((float)w), (float)FE_H((float)thick),
+                 r, g, b, 1.0f);
+
+    limeFillRect((float)FE_X((float)x), (float)FE_Y((float)(h + y - thick)),
+                 (float)FE_W((float)w), (float)FE_H((float)thick),
+                 r, g, b, 1.0f);
+
+    limeFillRect((float)FE_X((float)x), (float)FE_Y((float)y),
+                 (float)FE_W((float)thick), (float)FE_H((float)h),
+                 r, g, b, 1.0f);
+
+    limeFillRect((float)FE_X((float)(w + x - thick)), (float)FE_Y((float)y),
+                 (float)FE_W((float)thick), (float)FE_H((float)h),
+                 r, g, b, 1.0f);
+}
+
+void DrawGreenHighlight(int x, int y, int w, int h, int thick)
+{
+    DrawHighlight(x, y, w, h, thick, 0.0f, 1.0f, 0.0f);
+}
+
+void DrawRedHighlight(int x, int y, int w, int h, int thick)
+{
+    DrawHighlight(x, y, w, h, thick, 1.0f, 0.0f, 0.0f);
+}
