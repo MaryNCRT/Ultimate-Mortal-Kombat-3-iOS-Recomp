@@ -4533,3 +4533,164 @@ void QuitAsLose(void)
     if (Settings[2] != 0)
         FadeMusicOut = 1;
 }
+
+
+extern float IntroPlayer1PosX;          /* 0x0014f930 */
+extern float IntroPlayer1PosZ;          /* 0x0014f934 */
+extern float PlayerSize;                /* 0x00150cc4 */
+
+void glTranslatef(float x, float y, float z);
+void glRotatef(float a, float x, float y, float z);
+
+
+/* --------------------------------------------------- RenderIntroCharacterPlayer
+ *
+ * armv7 0x00021638, 824 bytes.  **Complete.**
+ *
+ * Draws the two fighters during the intro, each with its attached objects.
+ *
+ *      glTranslatef(IntroPlayer1PosX, IntroPlayer1PosZ, SceneGroundOffset)
+ *      glRotatef(90, 1, 0, 0)
+ *      glScalef(PlayerSize, PlayerSize, PlayerSize)
+ *
+ * `_PlayerSize` is the same 0.01015625 global `runtime/demo.c` uses for the
+ * fighter-to-stage ratio, and the 90-degree X rotation is the same one
+ * `HUDANIM_Render` applies -- the Z-up world meeting a Y-up mesh.
+ *
+ * ### Character 24 is drawn mirrored
+ *
+ *      if (anim->characterId == 24) {
+ *          glScalef(-scale, scale, scale);
+ *          glCullFace(GL_FRONT);
+ *      } else {
+ *          glScalef(scale, scale, scale);
+ *          glCullFace(GL_BACK);
+ *      }
+ *
+ * The negation is `eor r0, r1, #0x80000000` and the cull flip goes with it --
+ * the **fourth** place in this tree with that exact pairing, after
+ * `RenderAMesh`, `RenderPlayer` and `RenderExtras`. Character 24 is one of the
+ * two fixed bosses `PopulateTower` appends to every ladder, and it is the only
+ * character with a hardcoded mirror in the intro.
+ *
+ * The per-character scale comes from `PlayerDefs[id] + 0x04`, so it multiplies
+ * the global `PlayerSize` already on the matrix.
+ *
+ * ### Which fighters appear depends on IntroCamCount
+ *
+ *      player 1 drawn when  IntroCamCount > 1
+ *      player 2 drawn when  IntroCamCount > 2 || IntroCamCount == 0
+ *
+ * so at 0 only player two, at 1 neither, at 2 only player one, and above that
+ * both. `AnimateIntroCharacterPlayers1Frame` uses the same global to choose
+ * which fighter's animation advances -- the two halves of one intro
+ * choreography.
+ *
+ * ### Player two's translate is divided by the scale
+ *
+ *      glTranslatef(-IntroPlayer1PosX / PlayerSize,
+ *                   -IntroPlayer1PosZ / PlayerSize, ...)
+ *
+ * because `glScalef(PlayerSize, ...)` is already on the matrix stack, so the
+ * offset has to be pre-divided to land in the same units. Both components are
+ * negated first: player two is placed by undoing player one's offset and going
+ * the other way.
+ *
+ * Each fighter is followed by the same attachment pass `RenderPlayer` uses --
+ * `memcpy(AttachTransforms, *MatrixPalette2, 0x1c20)` then
+ * `LIME_RenderScene(6, ...)` -- so the attachment is posed against a snapshot
+ * taken after the body was drawn.
+ *
+ * `p[0x534]` is cleared before each draw, and `p[0x528]` is set from
+ * `anim[0x14]`, overriding whatever `LightPlayers` chose.
+ */
+void RenderIntroCharacterPlayer(void)
+{
+    long *p0 = (long *)Players;
+    long *p1 = (long *)(Players + 0x5f0);
+
+    glMatrixMode(GL_MODELVIEW);
+    glPushMatrix();
+
+    glTranslatef(IntroPlayer1PosX, IntroPlayer1PosZ, SceneGroundOffset);
+    glRotatef(90.0f, 1.0f, 0.0f, 0.0f);
+    glScalef(PlayerSize, PlayerSize, PlayerSize);
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_BACK);
+
+    if (IntroCamCount > 1 && p0[1] != 0) {
+        const long *anim = (const long *)(uintptr_t)(unsigned long) p0[1];
+        const float *def = (const float *)(PlayerDefs
+                                           + p0[0] * PLAYERDEF_STRIDE);
+        float s = def[1];
+
+        glEnable(GL_CULL_FACE);
+
+        if (anim[2] == 24) {            /* the hardcoded mirror */
+            glScalef(-s, s, s);
+            glCullFace(GL_FRONT);
+        } else {
+            glScalef(s, s, s);
+            glCullFace(GL_BACK);
+        }
+
+        p0[0x534 / 4] = 0;
+        p0[0x528 / 4] = anim[0x14 / 4];
+
+        RenderAnimatedCharacter(0, (ANIMATEDCHARACTER *)anim,
+                                p0[0x51c / 4], p0[0x520 / 4],
+                                ((float *)p0)[0x524 / 4],
+                                0.0f, 1.0f,
+                                (limeVECTOR3 *)&p0[0x5d8 / 4],
+                                (void *)(uintptr_t)(unsigned long)
+                                    p0[0x528 / 4], 1);
+
+        memcpy(AttachTransforms, *MatrixPalette2, 0x1c20);
+        LIME_RenderScene(6,
+                         (void *)(uintptr_t)(unsigned long) anim[0x10 / 4],
+                         p0[0x51c / 4], p0[0x520 / 4],
+                         ((float *)p0)[0x524 / 4], 0, 0, 0,
+                         (void *)(uintptr_t)(unsigned long) p0[0x528 / 4],
+                         p0[0x52c / 4], AttachTransforms);
+    }
+
+    if ((IntroCamCount > 2 || IntroCamCount == 0) && p1[1] != 0) {
+        const long *anim = (const long *)(uintptr_t)(unsigned long) p1[1];
+        const float *def = (const float *)(PlayerDefs
+                                           + p1[0] * PLAYERDEF_STRIDE);
+        float s = def[1];
+
+        /* pre-divided: PlayerSize is already on the matrix */
+        glTranslatef(-IntroPlayer1PosX / PlayerSize,
+                     -IntroPlayer1PosZ / PlayerSize, 0.0f);
+
+        if (anim[2] == 24) {
+            glScalef(-s, s, s);
+            glCullFace(GL_FRONT);
+        } else {
+            glScalef(s, s, s);
+            glCullFace(GL_BACK);
+        }
+
+        p1[0x534 / 4] = 0;
+        p1[0x528 / 4] = anim[0x14 / 4];
+
+        RenderAnimatedCharacter(0, (ANIMATEDCHARACTER *)anim,
+                                p1[0x51c / 4], p1[0x520 / 4],
+                                ((float *)p1)[0x524 / 4],
+                                0.0f, 1.0f,
+                                (limeVECTOR3 *)&p1[0x5d8 / 4],
+                                (void *)(uintptr_t)(unsigned long)
+                                    p1[0x528 / 4], 1);
+
+        memcpy(AttachTransforms, *MatrixPalette2, 0x1c20);
+        LIME_RenderScene(6,
+                         (void *)(uintptr_t)(unsigned long) anim[0x10 / 4],
+                         p1[0x51c / 4], p1[0x520 / 4],
+                         ((float *)p1)[0x524 / 4], 0, 0, 0,
+                         (void *)(uintptr_t)(unsigned long) p1[0x528 / 4],
+                         p1[0x52c / 4], AttachTransforms);
+    }
+
+    glPopMatrix();
+}
