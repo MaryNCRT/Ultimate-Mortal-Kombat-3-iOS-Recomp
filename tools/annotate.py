@@ -304,6 +304,20 @@ def annotate(binary, func, symbols_path, calls_only=False):
                 target = (here + 4 + literals[reg]) & 0xFFFFFFFF
                 addresses[reg] = target
                 text = read_cstr(data, target)
+
+                # A target with NO exact symbol whose word IS one is a GOT-like
+                # indirection slot: `add rN, pc` then `ldr rN, [rN]`. Naming it
+                # here is safe in a way chasing a real symbol is not -- there is
+                # no variable being read, only a relocation being followed, and
+                # the alternative is resolving it by hand every single time.
+                _n, exact = syms.lookup(target)
+                if not exact:
+                    word = read_u32(data, target)
+                    if word is not None:
+                        pointee, pexact = syms.lookup(word)
+                        if pexact:
+                            note.append("SLOT -> %s" % pointee)
+
                 note.append("ADDRESS %s%s"
                             % (syms.describe(target),
                                (' "%s"' % text) if text else ""))
