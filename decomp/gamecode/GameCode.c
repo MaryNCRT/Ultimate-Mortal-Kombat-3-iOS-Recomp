@@ -3465,3 +3465,112 @@ void Task_MultiplayerSync(void)
 
     FrameCount += 1.0f / *limeFPSScaleFactorP;
 }
+
+
+/* ### The sprite-animation frame record
+ *
+ * `DrawAnimAsSprite` indexes an animation table, takes the frame number out of
+ * it, and reads a record at a **64-byte stride**. Eleven of its words are used:
+ *
+ *      [0]  x extent          [6]  texture index into the caller's array
+ *      [1]  y extent          [7]  texture width   (the UV divisor)
+ *      [2]  x extent 2        [8]  texture height  (the UV divisor)
+ *      [3]  y extent 2        [9]  x anchor
+ *      [4]  x origin          [10] y anchor
+ *      [5]  y origin
+ *
+ * The names are what the arithmetic makes them; nothing in the symbol table
+ * describes this record.
+ */
+#define ANIMSPRITE_STRIDE  64
+
+long __modsi3(long a, long b);
+
+
+/* ---------------------------------------------------------- DrawAnimAsSprite
+ *
+ * armv7 0x0001c8bc, 392 bytes.  **Complete**, and unusually opaque per byte --
+ * fourteen arguments, four of which are only pinned down by what the arithmetic
+ * does with them.
+ *
+ * ### Picking the frame
+ *
+ *      wrap != 0:   idx = first + ((last - first + 1) % abs(modulus))
+ *      wrap == 0:   idx = first + min(last - first, modulus)
+ *
+ * The absolute value is `eor`/`sub` on the sign bit, and the modulo is a real
+ * `__modsi3` call rather than a reciprocal multiply -- so the divisor is not a
+ * constant here. **The two arms differ in kind, not just in clamping**: one
+ * wraps and one saturates, and the caller's flag chooses between a looping
+ * animation and one that holds its last frame.
+ *
+ * The frame number is `table[idx + 1]`, not `table[idx]`.
+ *
+ * ### The UVs are ratios against the record's own texture size
+ *
+ *      u0 =  record[0] / record[7]        v0 =  record[1] / record[8]
+ *      u1 = -record[2] / record[7]        v1 =  record[3] / record[8]
+ *
+ * with **the mirrored path swapping which extent feeds u0 and u1**, and only
+ * that. Everything else -- position, colour, the vertical pair -- is identical
+ * between the two arms, so the whole mirror is one exchange of two divisions.
+ *
+ * The negation on `u1` is a `vneg.f32` on the unmirrored path only.
+ *
+ * ### The position
+ *
+ * The draw origin is built from the record's origin minus its anchor, with two
+ * of the caller's scalars subtracted in:
+ *
+ *      x = record[4] - (record[9]  - arg4)
+ *      y = record[5] - (record[10] - arg5)
+ *
+ * so the caller supplies a per-call offset that cancels part of the record's
+ * own anchoring. Both are then scaled by the float in r2 and added to the
+ * caller's x and y.
+ *
+ * Returns the frame index it used.
+ */
+long DrawAnimAsSprite(long x, long y, float scale, long ax,
+                      long ay, long unused,
+                      const char *frames, const long *table,
+                      long mirror, long modulus,
+                      long first, long last, long wrap,
+                      long *colour)
+{
+    long n = last - first;
+    long idx;
+    const long *r;
+    float ox, oy, tw, th;
+    void *tex;
+
+    (void)unused;
+
+    if (wrap != 0) {
+        long m = (modulus ^ (modulus >> 31)) - (modulus >> 31);   /* abs */
+        idx = first + __modsi3(n + 1, m);
+    } else {
+        idx = first + ((n >= modulus) ? modulus : n);
+    }
+
+    r = (const long *)(frames + table[idx + 1] * ANIMSPRITE_STRIDE);
+
+    ox = (float)(r[4] - (r[9]  - ax));
+    oy = (float)(r[5] - (r[10] - ay));
+    tw = (float)r[7];
+    th = (float)r[8];
+    tex = ((void *const *)frames)[r[6]];        /* the caller's texture array */
+
+    limeDrawSprite((TEXTURE *)tex,
+                   (float)x + ox * scale,
+                   (float)y + oy * scale,
+                   (float)r[0] * scale,
+                   (float)r[1] * scale,
+                   mirror ?  (float)r[0] / tw : (float)r[2] / tw,
+                   (float)r[1] / th,
+                   mirror ? -(float)r[2] / tw : (float)r[0] / tw,
+                   (float)r[3] / th,
+                   colour);
+
+    return idx;
+}
