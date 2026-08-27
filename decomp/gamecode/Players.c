@@ -1048,3 +1048,59 @@ void LoadFrontEndCharacters(long who)
 
     ((long *)fc)[0] = who;              /* stamped AFTER the load */
 }
+
+
+extern long PLAYER1MODEL;               /* 0x0014e1b4 */
+
+/* The preload array and its 0x5f4 stride are declared above. This function
+ * builds that stride as `((n*16 - n*4) << 7) - (n*16 - n*4)` -- 12n * 127 --
+ * which is 1524, and 1524 is 0x5f4. Two functions, two spellings, same number.
+ * Note it is the PLAYER stride 0x5f0 plus four. */
+
+
+/* --------------------------------------------------------- Preload1Character
+ *
+ * armv7 0x0005cda0, 212 bytes.  **Complete.**
+ *
+ * Load1Character's sibling for the preload cache: same seven asset names in the
+ * same out-of-order order, same `def[0]` rather than the caller's `who` as the
+ * EPLAYER argument. It returns immediately if the character is already
+ * preloaded.
+ *
+ * **The two differ in the last three arguments.** Load1Character passes
+ * `(a, 1, b)`; this passes `(a, b, who == PLAYER1MODEL)`. So the flag
+ * Load1Character hardcodes to 1 is the caller `b` here, and the twelfth
+ * argument -- constant in the other function -- is a live test against the
+ * global `_PLAYER1MODEL`. Whatever that twelfth argument selects, it is on for
+ * exactly one character per preload pass.
+ *
+ * `NumPreloadedCharacters` is read into a local BEFORE the load and the new
+ * entry is written at that saved index afterwards, so a nested preload during
+ * LoadAnimatedCharacter would be overwritten by this one. Transcribed as the
+ * save-then-use it is.
+ */
+void Preload1Character(EPLAYER who, FRONTEND_CHARACTER *fe, long a, long b)
+{
+    char **def;
+    const long *defw;
+    long slot;
+    ANIMATEDCHARACTER *c;
+
+    if (HavePreloadedCharacter(who) != 0)
+        return;
+
+    slot = NumPreloadedCharacters;      /* read before the load */
+    def  = (char **)(PlayerDefs + who * PLAYERDEF_STRIDE);
+    defw = (const long *)def;
+
+    c = LoadAnimatedCharacter(def[0x30 / 4], def[0x24 / 4], def[0x20 / 4],
+                              def[0x18 / 4], def[0x28 / 4], def[0x2c / 4],
+                              def[0x1c / 4],
+                              (EPLAYER)defw[0], fe, a, b,
+                              (who == PLAYER1MODEL) ? 1 : 0);
+
+    *(long *)&PreloadedCharacters[slot][0] = who;
+    *(long *)&PreloadedCharacters[slot][8] = (long)(uintptr_t)c;
+
+    NumPreloadedCharacters++;
+}
