@@ -4063,3 +4063,175 @@ void LightPlayers(void)
         }
     }
 }
+
+
+/* `_ButtonsPos` 0x001f4144 and `_ButtonsPosP2` 0x001f41bc, **20 bytes** an
+ * entry, six entries each:
+ *
+ *      +0x00  long  x
+ *      +0x04  long  y
+ *      +0x08, +0x0c  not read here
+ *      +0x10  long  button index, or -1 for an unused slot
+ */
+#define BUTTONPOS_STRIDE  20
+#define BUTTON_SLOTS      6
+#define TOUCH_SLOTS_RC    10
+
+extern long ButtonsPos[];               /* 0x001f4144 */
+extern long ButtonsPosP2[];             /* 0x001f41bc */
+extern long ButtonStates[7];            /* 0x0014fef4 */
+extern long LastButtonStates[7];        /* 0x0014fed8 */
+extern long ButtonStatesP2[7];          /* 0x0014ff2c */
+extern long LastButtonStatesP2[7];      /* 0x0014ff10 */
+extern long JoystickStateP2;            /* 0x0014fecc */
+
+
+/* -------------------------------------------------------------- ReadControls
+ *
+ * armv7 0x000262f0, 740 bytes.  **Complete.**
+ *
+ * Turns the raw touch slots into dial and button state, once per frame, for one
+ * player or two.
+ *
+ *      P2Controls = 0
+ *      if (GameMode == 6) P2Controls = GameMode - 5      <- 1, written as 6-5
+ *
+ * so two-player controls are on exactly in mode 6, and the 1 is computed from
+ * the mode rather than assigned.
+ *
+ * ### Each touch claims the NEAREST button, not every button it overlaps
+ *
+ * For each of the ten touch slots it measures the distance to all six button
+ * positions, keeps the closest one inside a radius, and sets that button's
+ * state. A slot whose X is -1 is skipped, and a button whose index is -1 is
+ * skipped -- so an unused layout slot costs nothing.
+ *
+ * The search starts from **999.0f**, which is the "no button yet" sentinel; a
+ * touch further than that from everything would be missed, and nothing on a
+ * 480-wide screen can be.
+ *
+ * Because it is nearest-wins rather than any-overlap, **two adjacent buttons
+ * can never both fire from one finger** -- but two fingers can each claim the
+ * same button, and nothing here prevents that.
+ *
+ * ### The two players get different hit radii, and one is unscaled
+ *
+ *      player 1, single-player   (float)(long)FE_W(40.0f)   truncated to int
+ *      player 1, two-player      FE_W(40.0f)                not truncated
+ *      player 2                  52.0f                      no scaler at all
+ *
+ * Three behaviours from one function. The truncation is a real `vcvt.s32.f32`
+ * followed by `vcvt.f32.s32` on the P1 path and it happens **only** when
+ * `P2Controls` is clear, so turning on two-player controls silently changes
+ * player one's button radius by up to a pixel.
+ *
+ * The flat 52 for player two is the fourth place in this tree where one side of
+ * a pair is scaled and the other is not -- see issue #22 -- and the second in
+ * the input path, after `CheckLeftDial`'s unscaled P2 dial radius. On the
+ * original 480x320 screen `FE_W(40)` is 40 and 52 is simply a bigger target;
+ * anywhere else they diverge.
+ *
+ * ### The state rings
+ *
+ * Before the scan, each of the seven button slots is copied into
+ * `LastButtonStates` and then cleared, so a button not touched this frame is
+ * released rather than sticky, and the previous frame is preserved for edge
+ * detection. Slot 0 is done outside the loop, which then runs from 4 to 0x1c --
+ * the same peeled first iteration `InitGameEvents` and `InitKodeScreen` use.
+ *
+ * `JoystickState` is `CheckLeftDial(player) + 1`, so the eight-way result 0..7
+ * becomes 1..8 -- exactly the range `GetReal6ButtonJoyBits` tests, with 0 left
+ * free for "no touch on the dial".
+ */
+void ReadControls(void)
+{
+    long t, b, i;
+
+    P2Controls = 0;
+    if (GameMode == 6)
+        P2Controls = GameMode - 5;
+
+    JoystickState = CheckLeftDial(0) + 1;
+
+    LastButtonStates[0] = ButtonStates[0];
+    ButtonStates[0] = 0;
+    for (i = 1; i < 7; i++) {
+        LastButtonStates[i] = ButtonStates[i];
+        ButtonStates[i] = 0;
+    }
+
+    for (t = 0; t < TOUCH_SLOTS_RC; t++) {
+        float best = 999.0f;
+        long nearest = -1;
+
+        for (b = 0; b < BUTTON_SLOTS; b++) {
+            const long *e = &ButtonsPos[b * (BUTTONPOS_STRIDE / 4)];
+            float dx, dy, d, radius;
+
+            if (limeTouchScreenX[t] == -1.0f)
+                continue;
+            if (e[4] == -1)
+                continue;
+
+            dx = (float)e[0] - limeTouchScreenX[t];
+            dy = limeTouchScreenY[t] - (float)e[1];
+            d  = sqrtf(dx * dx + dy * dy);
+
+            radius = (float)FE_W(40.0f);
+            if (P2Controls == 0)
+                radius = (float)(long)radius;   /* truncated, only here */
+
+            if (d >= radius)
+                continue;
+            if (best > d) {
+                best = d;
+                nearest = b;
+            }
+        }
+
+        if (nearest != -1)
+            ButtonStates[ButtonsPos[nearest * (BUTTONPOS_STRIDE / 4) + 4]] = 1;
+    }
+
+    if (P2Controls == 0)
+        return;
+
+    JoystickStateP2 = CheckLeftDial(1) + 1;
+
+    LastButtonStatesP2[0] = ButtonStatesP2[0];
+    ButtonStatesP2[0] = 0;
+    for (i = 1; i < 7; i++) {
+        LastButtonStatesP2[i] = ButtonStatesP2[i];
+        ButtonStatesP2[i] = 0;
+    }
+
+    for (t = 0; t < TOUCH_SLOTS_RC; t++) {
+        float best = 999.0f;
+        long nearest = -1;
+
+        for (b = 0; b < BUTTON_SLOTS; b++) {
+            const long *e = &ButtonsPosP2[b * (BUTTONPOS_STRIDE / 4)];
+            float dx, dy, d;
+
+            if (limeTouchScreenX[t] == -1.0f)
+                continue;
+            if (e[4] == -1)
+                continue;
+
+            dx = (float)e[0] - limeTouchScreenX[t];
+            dy = limeTouchScreenY[t] - (float)e[1];
+            d  = sqrtf(dx * dx + dy * dy);
+
+            if (d >= 52.0f)             /* a flat 52, never scaled */
+                continue;
+            if (d < best) {
+                best = d;
+                nearest = b;
+            }
+        }
+
+        if (nearest != -1)
+            ButtonStatesP2[ButtonsPosP2[nearest * (BUTTONPOS_STRIDE / 4) + 4]]
+                = 1;
+    }
+}
