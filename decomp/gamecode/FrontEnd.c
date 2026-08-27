@@ -1842,3 +1842,46 @@ void SetupLockedCharacters(void)
     CharacterAvailable[0x0e] = 2;
     CharacterAvailable[0x17] = 2;
 }
+
+
+extern int   KodeSelectorParticle[10];  /* 0x000ff920 */
+extern float KodeTime;                  /* 0x000ff964 */
+extern int   KodeSuccess;               /* 0x000ff968 */
+
+
+/* ----------------------------------------------------------- InitKodeScreen
+ *
+ * armv7 0x00003144, 92 bytes.  **Complete.**
+ *
+ * Clears both kode arrays, sets the timer and clears the success flag.
+ *
+ * **This settles the length of KodeSelector.** The declaration above says "ten
+ * words as far as resetKodeSelector reaches", which was a floor, not a
+ * measurement -- that function writes six of them. Here the loop runs the byte
+ * cursor from 4 to 0x28, and with index 0 written before it that is exactly ten
+ * words, for BOTH arrays. Two functions, opposite ends, same answer.
+ *
+ * The peeled first iteration is the same trick InitGameEvents uses: the cursor
+ * doubles as the loop counter, so starting it at zero would cost a compare.
+ *
+ * `_KodeTime` is set to the literal 0x419ffdf4. As an integer that is
+ * 1101332980 and means nothing; as a float it is 19.999001, which is a
+ * twenty-second countdown a hair under the round number -- so it is a float
+ * here. The exact bits are recorded because the value is odd enough that a port
+ * writing a clean 20.0f would be making a decision, not transcribing one.
+ */
+void InitKodeScreen(void)
+{
+    int i;
+
+    KodeSelectorParticle[0] = 0;
+    KodeSelector[0]         = 0;
+
+    for (i = 1; i < 10; i++) {
+        KodeSelectorParticle[i] = 0;
+        KodeSelector[i]         = 0;
+    }
+
+    KodeTime    = 19.999001f;           /* 0x419ffdf4 exactly */
+    KodeSuccess = 0;
+}

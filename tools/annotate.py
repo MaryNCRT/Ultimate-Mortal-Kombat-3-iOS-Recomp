@@ -40,17 +40,13 @@ only the first is a fact about the variable; the second means the address fell
 between two symbols and the nearest preceding one is being reported. Near
 matches are marked `(near)` and should be treated as a hint, not a name.
 
-## A gap, stated rather than hidden
+## Literals are tracked, and invalidated
 
-It does not carry a literal across a register copy. `areAchievementsViewing`
-loads its base into r1 once and does `mov r3, r1 ; add r3, pc` inside the loop,
-so its address does not resolve and has to be worked out by hand -- the exact
-thing this tool exists to avoid. An attempt at it did not fire and was removed
-rather than left in place looking as though it worked; a tool that silently
-resolves some cases and not others is worse than one with a known limit.
-
-The shape to look for: an `add rN, pc` whose register was last written by a
-`mov` rather than by an `ldr [pc, ...]`.
+A register's literal is followed across `mov rD, rS`, so the common shape --
+hoist a base out of a loop, copy it in, `add rN, pc` -- resolves. Just as
+importantly, **any other write to a register clears it**. Before that, a stale
+literal survived a reload and the next `add` resolved against it, naming an
+address that had nothing to do with it.
 
 ## One thing this tool still cannot do for you
 
@@ -214,6 +210,10 @@ RE_LDR_PC = re.compile(
     r"0x([0-9a-f]+)\s+ldr[.\w]*\s+(\w+), \[pc, #(?:0x)?[0-9a-f]+\]\s*;\s*=0x([0-9a-f]+)")
 RE_ADD_PC2 = re.compile(r"0x([0-9a-f]+)\s+add[.\w]*\s+(\w+), pc\s*$")
 RE_ADD_PC3 = re.compile(r"0x([0-9a-f]+)\s+add[.\w]*\s+(\w+), pc, (\w+)\s*$")
+RE_MOV = re.compile(r"0x[0-9a-f]+\s+mov[.\w]*\s+(\w+), (\w+)\s*$")
+# The destination register of any instruction: the first operand. Used to
+# INVALIDATE a tracked literal, never to create one.
+RE_DEST = re.compile(r"0x[0-9a-f]+\s+([a-z][a-z0-9.]*)\s+(\w+)[,\s]")
 RE_LDR_REG = re.compile(r"0x([0-9a-f]+)\s+ldr[.\w]*\s+(\w+), \[(\w+)\]\s*$")
 RE_CALL = re.compile(r"\b(?:bl|blx)\s+#0x([0-9a-f]+)")
 
@@ -249,6 +249,41 @@ def annotate(binary, func, symbols_path, calls_only=False):
                 name, _ = syms.lookup(target & ~1)      # Thumb bit
             if name:
                 note.append("-> %s" % name)
+
+        # ---- keep the tracked literals HONEST --------------------------
+        #
+        # This used to track only `ldr rN, [pc, ...]` and never clear it, so a
+        # register reloaded by anything else still carried its OLD literal and
+        # the next `add rN, pc` resolved against it -- producing a confident
+        # `_KodeSelector+0x8 (near)` for an address that is really
+        # `_KodeSelectorParticle`. A wrong name is worse than no name: it reads
+        # like an answer.
+        #
+        # So every instruction now clears its destination first, and only the
+        # two forms below put anything back.
+        # The three forms the handlers below interpret set the tracking
+        # themselves and must not be cleared out from under them.
+        interpreted = (RE_LDR_PC.search(line) or RE_ADD_PC2.search(line)
+                       or RE_ADD_PC3.search(line) or RE_MOV.match(line.strip()))
+        m = RE_DEST.match(line.strip())
+        if m and not interpreted and m.group(1) not in (
+                "cmp", "cmn", "tst", "teq", "str", "strb", "strh", "strd",
+                "stm", "stmia", "push", "b", "bl", "blx", "bx", "cbz", "cbnz"):
+            literals.pop(m.group(2), None)
+            addresses.pop(m.group(2), None)
+
+        # ---- mov rD, rS : the literal travels with the copy ----
+        #
+        # The compiler hoists a base out of a loop and copies it in, so the
+        # `add rN, pc` inside the loop is fed by a `mov`, not by a load. The
+        # docstring called this a known gap; it is closed.
+        m = RE_MOV.match(line.strip())
+        if m:
+            dst, src = m.group(1), m.group(2)
+            if src in literals:
+                literals[dst] = literals[src]
+            if src in addresses:
+                addresses[dst] = addresses[src]
 
         # ---- a literal pool load ----
         m = RE_LDR_PC.search(line)

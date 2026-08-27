@@ -329,3 +329,88 @@ int asciiToUnicode(const char *src, char *dst, long dst_bytes)
     dst[strlen(src) * 2 + 1] = 0;
     return 1;
 }
+
+
+/* `_listOfTokens` -- 0x003877f0. Twelve bytes an entry: a type tag, then room
+ * for eight bytes of value. The stride and the four tags come out of
+ * initArguments' own jump table; nothing else in this tree describes them. */
+typedef struct TOKEN {
+    long type;                          /* 0x00  1..4, see below */
+    union {
+        long  word;                     /* 0x04  str  -- cases 1, 2 and 3 */
+        short half;                     /* 0x04  strh -- case 4, low half only */
+    } value;
+    long value2;                        /* 0x08, only the 8-byte case uses it */
+} TOKEN;
+
+extern TOKEN listOfTokens[];            /* 0x003877f0 */
+
+int printf(const char *fmt, ...);
+
+
+/* ------------------------------------------------------------- initArguments
+ *
+ * armv7 0x000a7548, 100 bytes.  **Complete.**
+ *
+ * usprintf's varargs marshaller: walks `count` already-parsed tokens and pulls
+ * each one's value off the caller's argument block according to its type. A
+ * `tbb` dispatches on type - 1, and the four cases are:
+ *
+ *      1, 2   one word          value  = *cursor++          (4 bytes consumed)
+ *      3      TWO words         value  = cursor[0]
+ *                               value2 = cursor[1]          (8 bytes consumed)
+ *      4      a halfword        value's low 16 bits only    (4 bytes consumed)
+ *
+ * **Case 3 is the double, and this is the marshaller that proves it.** A double
+ * arrives as a REGISTER PAIR under this binary's soft-float ABI -- the fact the
+ * runtime already depends on -- and here it is again from the other side: eight
+ * bytes read, eight bytes stepped, two words stored.
+ *
+ * **Case 4 stores a halfword into a word slot and leaves the top half alone.**
+ * `strh r3, [r5, #4]`, not `str`. So a type-4 token reuses whatever the upper
+ * 16 bits of that slot held from a previous call. It still steps the cursor by
+ * a full 4, because the value was promoted to int on the way in.
+ *
+ * An unknown tag is not fatal: it prints
+ *
+ *      USPRINTF ERROR - WRONG ORDER OF ARGUMENTS! TOKEN = %d
+ *
+ * and carries on to the next token with the cursor NOT advanced -- which
+ * desynchronises everything after it. The message says "wrong order" because
+ * that is how it happens in practice: the tokens are parsed from the format
+ * string and the values from the call, and they only line up if they match.
+ *
+ * Returns 0 always.
+ */
+long initArguments(long count, const long *args)
+{
+    long i;
+
+    for (i = 0; i < count; i++) {
+        TOKEN *t = &listOfTokens[i];
+
+        switch (t->type) {
+        case 1:
+        case 2:
+            t->value.word = *args++;
+            break;
+
+        case 3:                         /* a double: two words */
+            t->value.word = args[0];
+            t->value2     = args[1];
+            args += 2;
+            break;
+
+        case 4:                         /* halfword into the low half only */
+            t->value.half = (short)*args;   /* strh: top half untouched */
+            args++;
+            break;
+
+        default:
+            printf("USPRINTF ERROR - WRONG ORDER OF ARGUMENTS! TOKEN = %d\n",
+                   (int)t->type);
+            break;                      /* cursor deliberately not advanced */
+        }
+    }
+    return 0;
+}

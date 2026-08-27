@@ -57,10 +57,10 @@ Current state of the project. Written so that someone can pick it up with no pri
 ## Overall progress
 
 ```
-█████████████████░░░░░░░░░░░░░░░░░░░░░░░  42.52%
+█████████████████░░░░░░░░░░░░░░░░░░░░░░░  42.77%
 ```
 
-**42.52% of the total estimated effort. Nothing is playable yet.**
+**42.77% of the total estimated effort. Nothing is playable yet.**
 
 Weights are our judgement of how much of the total each area represents. The
 three decompilation figures are **measured from the tree** by
@@ -79,7 +79,7 @@ done; the second says the fight engine has barely been touched.
 | Tooling and the verification oracle | 8% | 100% | `██████████` |
 | Asset format specifications | 8% | 100% | `██████████` |
 | `lime/common` — engine core (109 fn) | 12% | **100%** | `██████████` |
-| `gamecode` — game logic (291 fn) | 18% | 48.80% (142) | `█████░░░░░` |
+| `gamecode` — game logic (291 fn) | 18% | 50.17% (146) | `█████░░░░░` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | 0.14% (3) | `░░░░░░░░░░` |
 | Native PC platform layer (161 fn to rewrite) | 17% | 10% | `█░░░░░░░░░` |
 | EA SDK stubs (~1,412 fn) | 5% | 0% | `░░░░░░░░░░` |
@@ -1875,6 +1875,64 @@ anyone arriving cold is in [HANDOFF.md](HANDOFF.md).
 - `ROBO1_STANDARD` and `ROBO2_STANDARD` are a different export variant across four formats. Understood, handled, but their `.scene` files remain stubs.
 
 ---
+
+## `gamecode` past the halfway mark: 146 of 291 (50.17%)
+
+Nine files now, the last three arrivals being `FrameID_GetBBox`, `initArguments`,
+`InitKodeScreen` and `dumpMem`.
+
+### Two tables of frames, not one
+
+`FrameID_GetBBox` reads `_FrameInfo2` for a frame's `{x, y, w, h}` and writes the
+box out through up to four optional pointers -- a caller can ask for any subset.
+**If that record's height is zero it falls back to a SECOND table, `_FrameInfo`,**
+with the same layout. Nothing else in this tree mentions a second frame table.
+
+Its range guard is `fid > 7244`, and 7244 is one less than the 7,245 entries
+`ClearAnimRemapTables` walks. Two functions, opposite ends, same length.
+
+`fid == -1` is not a frame at all: it builds a 400x200 box from `_Camera` and
+`_WorldScaleAdjust`, centred on `Camera[0] * 64` horizontally and on
+`-(Camera[2] * 64) + 196` vertically. Note the vertical reads **Camera[2]**,
+negated -- the Z-up world arriving in a 2D box.
+
+### The double, confirmed from the other side
+
+`initArguments` is `usprintf`'s varargs marshaller, and its `tbb` gives the four
+token types outright: 1 and 2 take one word, **3 takes TWO** and steps the cursor
+by eight, 4 stores a halfword with `strh` and steps by four.
+
+Case 3 is the double. That a double arrives as a register PAIR under this
+binary's soft-float ABI was established from the calling side; here is the
+receiving side agreeing.
+
+Case 4's `strh` leaves the upper 16 bits of its slot holding whatever the
+previous call left there. Transcribed, not tidied.
+
+### `KodeSelector` is ten words, measured twice
+
+`resetKodeSelector` writes six of them, which only ever established a floor.
+`InitKodeScreen`'s loop runs its byte cursor to 0x28 for both kode arrays, so
+ten is the answer -- and it sets `_KodeTime` to the literal `0x419ffdf4`,
+19.999001 as a float. A port writing `20.0f` would be making a decision rather
+than transcribing one.
+
+### A bug in our own tooling, found and fixed
+
+`tools/annotate.py` tracked a register's literal from `ldr rN, [pc, ...]` and
+**never cleared it**. A register reloaded by anything else still carried the old
+value, so the next `add rN, pc` resolved against it -- and the tool printed
+`ADDRESS ... _KodeSelector+0x8 (near)` for something that is really
+`_KodeSelectorParticle`. A wrong name is worse than no name: it reads like an
+answer.
+
+It now clears every instruction's destination register and follows a literal
+across `mov rD, rS`, which also closes the gap its own docstring had described
+as open. Both loop bases in `InitKodeScreen` resolve to exact symbols now, and
+they match the addresses worked out by hand.
+
+Anything decompiled before this commit that leaned on a `(near)` label deserves
+a second look.
 
 ## Toolchain
 
