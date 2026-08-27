@@ -4357,3 +4357,179 @@ void DrawControlsPreview(long originX, long originY)
                        0.125f, 0.25f, (long *)colour);
     }
 }
+
+
+extern long  *JustWon;                  /* pointer slot */
+extern long   winningStryk;             /* 0x0014dffc */
+extern long  *feedPosted;               /* pointer slot */
+extern long   defeatedBySK;             /* 0x0010deb4 */
+extern long   lastWinStreak;            /* 0x0014e1ac */
+extern long   points;                   /* 0x0014e1b0 */
+extern float  timeInGame;               /* 0x0014e1e0 */
+extern long  *KontinueTime;             /* pointer slot -> 0x000ff960 */
+extern long  *exitTimeout;              /* pointer slot -> 0x00182c80 */
+extern long   WaitForOpponent;          /* 0x0010df18 */
+extern long   FadeMusicOut;             /* 0x0010dee8 */
+/* Both are pointer slots to arrays of C strings. */
+extern const char **DestinyNames;
+extern const char **DestinyNamesLoss;
+extern long  *DisplaySurvivalStage, *SurvivalStageP;
+extern long  *FE_TaskStackPointer, *FE_CurrentTask;
+
+extern long Player1Wins;                /* 0x0014e204 */
+
+const char *getStageName(long stage);
+void PushFETask(int task);
+void UpdateStats(void);
+int  achievementsUnlock(int id);
+void sendQuit(void);
+void Write_AchievementsData(void);
+void EASDK_LogEventEnumEnumStringNum(long id, long a, const char *s,
+                                     long b, float n);
+
+
+/* ---------------------------------------------------------------- QuitAsLose
+ *
+ * armv7 0x000269d0, 692 bytes.  **Complete.**
+ *
+ * The lose path out of a fight. Clears `*JustWon`, logs the arcade case, then
+ * does something different for every game mode.
+ *
+ * ### Three losses to character 25 unlock achievement 15
+ *
+ *      if (PLAYER2MODEL == 25) {
+ *          if (++defeatedBySK > 2) achievementsUnlock(15);
+ *      } else {
+ *          defeatedBySK = 0;
+ *      }
+ *
+ * The counter is **reset by any loss to anyone else**, so it is three
+ * consecutive losses, not three in total. Character 25 is one of the two fixed
+ * bosses `PopulateTower` puts at the end of every ladder, and `defeatedBySK`
+ * names it: Shao Kahn.
+ *
+ * ### Per-mode exits
+ *
+ *      mode 0 (arcade)  winStreak -> lastWinStreak and points, then 0
+ *                       KontinueTime = 19.999001f
+ *                       PushFETask(0x1d), Player1Wins = 0, UpdateStats()
+ *      mode 1 (versus)  PushFETask(0x28), WaitForOpponent = 0,
+ *                       Player1Wins = 0, sendQuit(); UpdateStats() only if
+ *                       the fade had not already started
+ *      mode 2           nothing but the fade
+ *      mode 3           PushFETask(0x27), exitTimeout = 600.0f
+ *      mode 4 (survival) streak saved as above, PushFETask(0x26),
+ *                       DisplaySurvivalStage = SurvivalStage, SurvivalStage = 0,
+ *                       Write_SaveData(), exitTimeout = 600.0f
+ *      mode 5           FE_TaskStackPointer = 0, FE_CurrentTask = 0,
+ *                       Player1Wins = 0, UpdateStats()
+ *      mode 6           nothing but the fade
+ *
+ * Every one of them sets `FE_FadeAdd` to **-0.03333333507180214**, the same
+ * literal the whole front end uses to start a fade out.
+ *
+ * **`KontinueTime` gets 19.999001f -- bit for bit the same odd literal
+ * `InitKodeScreen` writes into `_KodeTime`.** Two unrelated countdowns sharing
+ * one value that is neither 20 nor anything derived; whatever produced it was
+ * used twice.
+ *
+ * Mode 5 is the only one that empties the front-end task stack rather than
+ * pushing onto it.
+ *
+ * ### The arcade logging happens before the switch
+ *
+ *      EASDK_LogEventEnumEnumString(0x754e, 15, DestinyNamesLoss[Destiny],
+ *                                   15, getStageName(Stage))
+ *      EASDK_LogEventEnumEnumStringNum(0x754f, 15, DestinyNames[Destiny],
+ *                                      7, (long)timeInGame)
+ *      printf(..., (double)timeInGame)
+ *
+ * 0x754e and 0x754f are 30030 and 30031. `timeInGame` is truncated to an int
+ * for the event and passed as a **double** to the printf on the very next line,
+ * so the log and the analytics disagree about its precision.
+ *
+ * Ends with `Write_AchievementsData()` and, if `Settings[2]` is set,
+ * `FadeMusicOut = 1`.
+ */
+void QuitAsLose(void)
+{
+    *JustWon = 0;
+
+    if (GameMode == 0) {
+        EASDK_LogEventEnumEnumString(0x754e, 15,
+                DestinyNamesLoss[Destiny],
+                15, getStageName(Stage));
+        EASDK_LogEventEnumEnumStringNum(0x754f, 15,
+                DestinyNames[Destiny],
+                7, (float)(long)timeInGame);
+        printf("%f", (double)timeInGame);
+    }
+
+    winningStryk = 0;
+    *feedPosted  = 0;
+
+    switch (GameMode) {
+    case 1:
+        PushFETask(0x28);
+        WaitForOpponent = 0;
+        Player1Wins = 0;
+        sendQuit();
+        if (*FE_FadeAddP == 0.0f)
+            UpdateStats();
+        *FE_FadeAddP = -0.033333335f;
+        break;
+
+    case 2:
+    case 6:
+        *FE_FadeAddP = -0.033333335f;
+        break;
+
+    case 3:
+        *FE_FadeAddP = -0.033333335f;
+        PushFETask(0x27);
+        *exitTimeout = 600;
+        break;
+
+    case 4:
+        lastWinStreak = winStreak;
+        winStreak     = 0;
+        points        = lastWinStreak;
+        *FE_FadeAddP    = -0.033333335f;
+        PushFETask(0x26);
+        *DisplaySurvivalStage = *SurvivalStageP;
+        *SurvivalStageP       = 0;
+        Write_SaveData();
+        *exitTimeout = 600;
+        break;
+
+    case 5:
+        *FE_FadeAddP = -0.033333335f;
+        *FE_TaskStackPointer = 0;
+        *FE_CurrentTask      = 0;
+        Player1Wins = 0;
+        UpdateStats();
+        break;
+
+    default:                            /* arcade */
+        if (*PLAYER2MODEL == 25) {
+            defeatedBySK++;
+            if (defeatedBySK > 2)
+                achievementsUnlock(15);
+        } else {
+            defeatedBySK = 0;
+        }
+        lastWinStreak = winStreak;
+        winStreak     = 0;
+        points        = lastWinStreak;
+        *FE_FadeAddP    = -0.033333335f;
+        *KontinueTime = 0x419ffdf4;     /* 19.999001f, as in InitKodeScreen */
+        PushFETask(0x1d);
+        Player1Wins = 0;
+        UpdateStats();
+        break;
+    }
+
+    Write_AchievementsData();
+    if (Settings[2] != 0)
+        FadeMusicOut = 1;
+}
