@@ -1485,10 +1485,13 @@ reset:
 
 
 extern const char *FETaskNames[];       /* 0x00100d60 */
-extern int BUTTON_1X3_1[];              /* 0x001004d8 */
-extern int BUTTON_1X3_2[];              /* 0x001004ec */
-extern int BUTTON_1X3_3[];              /* 0x00100500 */
-int DrawButtonNew(int *b, int x, int y, int flag);
+/* The BUTTONNEW layout is established at DrawButtonNew's definition below. */
+typedef struct BUTTONNEW BUTTONNEW;
+
+extern BUTTONNEW BUTTON_1X3_1;          /* 0x001004d8 */
+extern BUTTONNEW BUTTON_1X3_2;          /* 0x001004ec */
+extern BUTTONNEW BUTTON_1X3_3;          /* 0x00100500 */
+long DrawButtonNew(BUTTONNEW *b, int x, int y, int interactive);
 
 
 /* ----------------------------------------------------------------- dumpStack
@@ -1549,14 +1552,14 @@ int drawPage1x3Small(void)
 {
     int r = 0;
 
-    if (DrawButtonNew(BUTTON_1X3_1, 0xed, 0x5a, 1))
+    if (DrawButtonNew(&BUTTON_1X3_1, 0xed, 0x5a, 1))
         r = (FE_FadeAdd == 0.0f) ? 1 : 0;   /* the ite, not an if */
 
-    if (DrawButtonNew(BUTTON_1X3_2, 0xed, 0xa0, 1))
+    if (DrawButtonNew(&BUTTON_1X3_2, 0xed, 0xa0, 1))
         if (FE_FadeAdd == 0.0f)
             r = 2;
 
-    if (DrawButtonNew(BUTTON_1X3_3, 0xed, 0xe6, 1))
+    if (DrawButtonNew(&BUTTON_1X3_3, 0xed, 0xe6, 1))
         if (FE_FadeAdd == 0.0f)
             r = 3;
 
@@ -1889,8 +1892,8 @@ void InitKodeScreen(void)
 
 /* `_BUTTON_1X2_1D` 0x00100514 and `_BUTTON_1X2_2D` 0x00100528 -- two BUTTONNEW
  * records twenty bytes apart. DrawButtonNew takes one by reference. */
-extern int BUTTON_1X2_1D[];
-extern int BUTTON_1X2_2D[];
+extern BUTTONNEW BUTTON_1X2_1D;
+extern BUTTONNEW BUTTON_1X2_2D;
 
 
 /* ---------------------------------------------------------- drawPage2x1Wide
@@ -1914,19 +1917,19 @@ int drawPage2x1Wide(int x, int y)
     int cx = x + 0xf0;
     int r  = 0;
 
-    if (DrawButtonNew(BUTTON_1X2_1D, cx, y + 0x3c, 1) && FE_FadeAdd == 0.0f)
+    if (DrawButtonNew(&BUTTON_1X2_1D, cx, y + 0x3c, 1) && FE_FadeAdd == 0.0f)
         r = 1;
 
-    if (DrawButtonNew(BUTTON_1X2_2D, cx, y + 0xa0, 1) && FE_FadeAdd == 0.0f)
+    if (DrawButtonNew(&BUTTON_1X2_2D, cx, y + 0xa0, 1) && FE_FadeAdd == 0.0f)
         r = 2;
 
     return r;
 }
 
 
-extern int BUTTON_BOXLT[];              /* 0x00100488 */
-extern int BUTTON_BOXLB[];              /* 0x001004b0 */
-extern int BUTTON_BOXRB[];              /* 0x001004c4 */
+extern BUTTONNEW BUTTON_BOXLT;          /* 0x00100488 */
+extern BUTTONNEW BUTTON_BOXLB;          /* 0x001004b0 */
+extern BUTTONNEW BUTTON_BOXRB;          /* 0x001004c4 */
 
 int limeCheckForUserMusic(void);
 
@@ -1954,7 +1957,7 @@ int limeCheckForUserMusic(void);
  * and puts the saved value back:
  *
  *      saved = Settings[3];  Settings[3] = 0;
- *      DrawButtonNew(BUTTON_BOXRB, ...)
+ *      DrawButtonNew(&BUTTON_BOXRB, ...)
  *      Settings[3] = saved;
  *
  * So that button is rendered as though the setting were off, whatever it really
@@ -1968,18 +1971,18 @@ int drawPage2x2BigForSettings(void)
     int r = 0;
     int saved;
 
-    if (DrawButtonNew(BUTTON_BOXLT, 0x9c, 0x59, 1) && FE_FadeAdd == 0.0f)
+    if (DrawButtonNew(&BUTTON_BOXLT, 0x9c, 0x59, 1) && FE_FadeAdd == 0.0f)
         r = 1;
 
     if (!limeCheckForUserMusic()) {
-        if (DrawButtonNew(BUTTON_BOXLB, 0x9c, 0xe0, 1) && FE_FadeAdd == 0.0f)
+        if (DrawButtonNew(&BUTTON_BOXLB, 0x9c, 0xe0, 1) && FE_FadeAdd == 0.0f)
             r = 3;
     }
 
     saved = Settings[3];
     Settings[3] = 0;                    /* drawn as though it were off */
 
-    if (DrawButtonNew(BUTTON_BOXRB, 0x145, 0xe0, 1) && FE_FadeAdd == 0.0f)
+    if (DrawButtonNew(&BUTTON_BOXRB, 0x145, 0xe0, 1) && FE_FadeAdd == 0.0f)
         r = 4;
 
     Settings[3] = saved;
@@ -2859,7 +2862,7 @@ void PopFETaskDeferredSelected(long task);
  *
  * ### The two arms of the button test are the same draw
  *
- * `DrawButtonNew(BUTTON_1X3_3, 0xed, 0xe6, 1)` gates on the usual
+ * `DrawButtonNew(&BUTTON_1X3_3, 0xed, 0xe6, 1)` gates on the usual
  * `FE_FadeAdd == 0`, and **both outcomes draw the identical label** --
  * `GameText(0xc3)` at `FE_X(235)`, `FE_Y(222)`, same font, same colour, same
  * scale. The only difference is what happens after: the pressed path
@@ -2889,7 +2892,7 @@ void FE_Task_Multiplayer_Disconnected(void)
                  (float)(*limeScreenHeight / 2 - 0x14),
                  1, FE_WidthScale, col);
 
-    pressed = DrawButtonNew(BUTTON_1X3_3, 0xed, 0xe6, 1)
+    pressed = DrawButtonNew(&BUTTON_1X3_3, 0xed, 0xe6, 1)
               && FE_FadeAdd == 0.0f;
 
     limeDrawFONT(GameFont, GameText(0xc3),
@@ -3210,4 +3213,137 @@ long BasicMenuMod(const long *items, const long *disabled)
     }
 
     return selected;
+}
+
+
+/* `BUTTONNEW`, as far as DrawButtonNew reaches. Declared here rather than
+ * guessed at beyond these five fields. */
+struct BUTTONNEW {
+    long  style;                        /* 0x00, 0..8; anything else is a
+                                         *       full-texture fallback */
+    long  w;                            /* 0x04 */
+    long  h;                            /* 0x08 */
+    short thickness;                    /* 0x0c, for the red highlight */
+    short pad;                          /* 0x0e */
+    float pressed;                      /* 0x10, set to 1.0f on release */
+};
+
+extern void **FEBits1;                  /* pointer slot -> 0x001f40f4 */
+extern void **FEBits2;                  /* pointer slot -> 0x001f40f8 */
+
+void DrawRedHighlight(int x, int y, int w, int h, int thick);
+
+
+/* -------------------------------------------------------------- DrawButtonNew
+ *
+ * armv7 0x000057d8, 924 bytes.  **Complete.**  The button every front-end
+ * screen in this tree goes through.
+ *
+ * The rectangle is **centred on the given point**: `x - w/2`, `y - h/2`, with
+ * the halving done as the signed `(n + (n >>> 31)) >> 1` the compiler emits.
+ *
+ * ### Nine styles, one atlas, and one that changes texture
+ *
+ * A `tbb` on `style` picks the UV window:
+ *
+ *      style  u0          v0          u1          v1          texture
+ *      0      0.5078125   0           0.2890625   0.234375    FEBits1
+ *      1      0           0           0.40625     0.09375     FEBits1
+ *      2      0.1015625   0           0.5234375   0.09375     FEBits1
+ *      3      0.359375    0           0.640625    0.171875    **FEBits2**
+ *      4      0.578125    0.65234375  0.296875    0.0625      FEBits1
+ *      5      0.5078125   0.65234375  0.296875    0.0625      FEBits1
+ *      6      0.6484375   0.65234375  0.0859375   0.0625      FEBits1
+ *      7      0           0.4140625   0.1484375   0.0625      FEBits1
+ *      8      0           0.5703125   0.22265625  0.0625      FEBits1
+ *      >8     0           0           1.0         1.0         FEBits1
+ *
+ * **Style 3 is the only one that reads `_FEBits2`**, and it is the only style
+ * whose art lives in the second atlas. Everything else shares the first.
+ *
+ * Every value is an exact binary fraction over 128 or 256, so they were typed
+ * as pixel offsets into a power-of-two texture rather than tuned.
+ *
+ * ### The return is the caller's own flag, not a boolean
+ *
+ * With `interactive != 1` it draws and returns 0 without any hit testing. With
+ * 1 it returns **the argument** on a release inside the rectangle -- which is
+ * 1, but written as a copy of the parameter rather than a constant.
+ *
+ * A release also sets `b->pressed = 1.0f` and plays `SFXHandle[0x1a]` at
+ * `MusicVol[Settings[3]] / 100`, gated on `Settings[3]`.
+ *
+ * ### The highlight is drawn from the HELD test, which runs either way
+ *
+ * After the release check -- whether it matched or not -- a second test asks
+ * whether a finger is down inside the rectangle **and `FE_FadeAdd <= 0`**, and
+ * if so calls `DrawRedHighlight` with the button's own `thickness`. So the red
+ * frame is the pressed-state feedback, it is drawn by the button rather than by
+ * the screen, and it is suppressed during a fade like every other front-end
+ * interaction in this tree.
+ *
+ * The two tests use different globals: the release path reads
+ * `limeLastTouchScreen*` and the held path reads `limeTouchScreen*`.
+ */
+long DrawButtonNew(BUTTONNEW *b, int x, int y, int interactive)
+{
+    void *tex = *FEBits1;
+    float u0 = 0.0f, v0 = 0.0f, u1 = 1.0f, v1 = 1.0f;
+    float px, py, pw, ph;
+    long r = 0;
+
+    switch (b->style) {
+    case 0: u0 = 0.5078125f; u1 = 0.2890625f;  v1 = 0.234375f;  break;
+    case 1:                  u1 = 0.40625f;    v1 = 0.09375f;   break;
+    case 2: u0 = 0.1015625f; u1 = 0.5234375f;  v1 = 0.09375f;   break;
+    case 3: u0 = 0.359375f;  u1 = 0.640625f;   v1 = 0.171875f;
+            tex = *FEBits2;                                     break;
+    case 4: u0 = 0.578125f;  v0 = 0.65234375f; u1 = 0.296875f;
+            v1 = 0.0625f;                                       break;
+    case 5: u0 = 0.5078125f; v0 = 0.65234375f; u1 = 0.296875f;
+            v1 = 0.0625f;                                       break;
+    case 6: u0 = 0.6484375f; v0 = 0.65234375f; u1 = 0.0859375f;
+            v1 = 0.0625f;                                       break;
+    case 7:                  v0 = 0.4140625f;  u1 = 0.1484375f;
+            v1 = 0.0625f;                                       break;
+    case 8:                  v0 = 0.5703125f;  u1 = 0.22265625f;
+            v1 = 0.0625f;                                       break;
+    default:                                                    break;
+    }
+
+    px = (float)FE_X((float)(x - ((b->w + ((unsigned long)b->w >> 31)) >> 1)));
+    py = (float)FE_Y((float)(y - ((b->h + ((unsigned long)b->h >> 31)) >> 1)));
+    pw = (float)FE_W((float)b->w);
+    ph = (float)FE_H((float)b->h);
+
+    limeDrawSprite((TEXTURE *)tex, px, py, pw, ph, u0, v0, u1, v1, fontcol);
+
+    if (interactive != 1)
+        return 0;
+
+    /* released inside? */
+    if (limeTouchScreenX[0] == -1.0f) {
+        float lx = limeLastTouchScreenX[0];
+        float ly;
+
+        if (px < lx && lx < px + pw
+            && py < (ly = limeLastTouchScreenY[0]) && ly < py + ph) {
+            b->pressed = 1.0f;
+            if (Settings[3] != 0)
+                limePlaySound(SFXHandle[0x68 / 4],
+                              MusicVol[Settings[3]] / 100.0f, 1.0f, 0);
+            r = interactive;            /* the argument, not a literal 1 */
+        }
+    }
+
+    /* held inside? -- runs either way, and only draws */
+    if (limeTouchScreenX[0] > px && limeTouchScreenX[0] < px + pw
+        && limeTouchScreenY[0] > py && limeTouchScreenY[0] < py + ph
+        && FE_FadeAdd <= 0.0f) {
+        DrawRedHighlight(x - (int)((b->w + ((unsigned long)b->w >> 31)) >> 1),
+                         y - (int)((b->h + ((unsigned long)b->h >> 31)) >> 1),
+                         (int)b->w, (int)b->h, b->thickness);
+    }
+
+    return r;
 }
