@@ -1236,3 +1236,183 @@ void IntroRender2dBits(void)
                  (float)limeScreenWidth, (float)limeScreenHeight,
                  0.0f, 0.0f, 0.0f, 1.0f - FE_Fade);
 }
+
+
+/* `_Mk3Obj_t` -- the arcade object record. Only the four fields this function
+ * reads are established here, all of them 16-bit:
+ *
+ *      +0x04  int16   x in arcade units
+ *      +0x06  int16   y in arcade units, sign INVERTED on the way out
+ *      +0x08  int16   frame id, signed
+ *      +0x0a  uint16  flags, bit 4 tested
+ */
+typedef struct Mk3Obj_t Mk3Obj_t;
+
+/* `_FrameRemapTable` 0x002003d4, eight bytes an entry, first word used.
+ * `_PlayerDefs` 0x00170950, **52 bytes** an entry -- the compiler spells the
+ * multiply out as `(n*16 - n*4 + n) << 2`, which is 13 << 2. */
+extern long  *FrameRemapTable;          /* pointer slot -> 0x002003d4 */
+extern char  *PlayerDefs;               /* pointer slot -> 0x00170950 */
+/* Moved with `ldr`/`str`, never through the FPU, so it is declared as the word
+ * it is copied as. See the note in the function below. */
+extern union { float f; long w; } PlayerZPos;   /* 0x00150e88 */
+
+#define PLAYERDEF_STRIDE  52
+
+
+/* ------------------------------------------------- ArcadePosTo3dPosNO_OFFSETS
+ *
+ * armv7 0x0001c594, 140 bytes.  **Complete.**
+ *
+ * Arcade coordinates to a world position, without the per-object offsets the
+ * 304-byte `ArcadePosTo3dPos` applies:
+ *
+ *      out->x = (float)obj->x / WorldScaleAdjust
+ *      out->y = PlayerZPos                          <- copied as a raw word
+ *      out->z = -(float)obj->y / WorldScaleAdjust
+ *               + PlayerDefs[remap].height
+ *
+ * **The arcade Y is negated and lands in Z.** The arcade runs Y down the
+ * screen; the engine runs Z up the world. That sign is the whole conversion and
+ * it is the easiest thing here to lose.
+ *
+ * `PlayerZPos` is moved with `ldr`/`str`, not through the FPU -- the bit
+ * pattern is copied, so a signalling NaN would survive it intact. Transcribed
+ * as a word copy for that reason.
+ *
+ * The player-def index comes from `FrameRemapTable[obj->frame]`, and the frame
+ * id is read SIGNED (`ldrsh`), so a negative frame indexes backwards off the
+ * front of the table. Nothing guards it.
+ *
+ * ### The branch that does not branch
+ *
+ * `obj->flags & 0x10` selects between two literal-pool entries -- and **both
+ * resolve to `_WorldScaleAdjust` at 0x0014df9c**, checked by hand rather than
+ * trusted from the tool. The neighbours are `_blast_player_height` at
+ * 0x0014df98 and `_psp_scale` at 0x0014dfa0, so there is no second symbol
+ * hiding at that address.
+ *
+ * So the test is vestigial: whichever way it goes, the divisor is the same.
+ * It is transcribed as the single divisor it really is, with the flag noted
+ * here, because writing an `if` whose arms are identical would be inventing a
+ * distinction the machine does not make. Whatever the source said, this binary
+ * divides by 64.0 either way.
+ */
+void ArcadePosTo3dPosNO_OFFSETS(Mk3Obj_t *obj, float *out)
+{
+    const short *o = (const short *)obj;
+    long remap = FrameRemapTable[o[4] * 2];         /* [frame], stride 8 */
+    const float *def;
+
+    /* o[2] is +4, o[3] is +6, o[4] is +8 -- all int16. */
+    out[0] = (float)o[2] / WorldScaleAdjust;
+    ((long *)out)[1] = PlayerZPos.w;    /* word copy, not a float load */
+
+    def = (const float *)(PlayerDefs + remap * PLAYERDEF_STRIDE);
+    out[2] = (float)(-o[3]) / WorldScaleAdjust + def[0x0c / 4];
+}
+
+
+extern int  limeScreenWidthI;           /* alias comment only -- see below */
+extern long col[];                      /* 0x0014fa00 */
+
+void limeDrawSprite(TEXTURE *tex, float x, float y, float w, float h,
+                    float u0, float v0, float u1, float v1, long *colour);
+
+
+/* ------------------------------------------------------ drawLoadingBackground
+ *
+ * armv7 0x0001c824, 152 bytes.  **Complete.**
+ *
+ * The loading screen backdrop, drawn full-screen from `_LoadingTexture`:
+ *
+ *      limeDrawSprite(tex, 0, 0, screenW, screenH, 0, 0, 1.0f, 0.75f, col)
+ *
+ * **`v1` is 0.75, not 1.0.** The texture is sampled to three quarters of its
+ * height, which is what a 1024x768 image sitting in a 1024x1024 texture needs.
+ * A port that stretches the whole texture gets the picture squashed and a
+ * quarter of blank space at the bottom, and it will look almost right.
+ *
+ * ### It reloads its own texture
+ *
+ * If `_LoadingTexture` is NULL it prints `reloading texture...` and calls
+ * `limeLoadTexture("FE_TITLE_LOADING.PNG", 0, 0)` itself, stores the result,
+ * and falls back into the draw. Task_LoadingScreen above loads the same file --
+ * so this is a second, defensive load for the case where the texture was freed
+ * underneath the loading screen. If that load fails too it draws nothing and
+ * returns; it does not loop.
+ *
+ * The guard before the draw is `tex[0x40] != 0`, a field of TEXTURE this tree
+ * has not otherwise named -- a loaded texture with that word clear is skipped.
+ */
+void drawLoadingBackground(void)
+{
+    TEXTURE *tex = LoadingTexture;
+
+    if (tex == 0) {
+        puts("reloading texture...");
+        tex = (TEXTURE *)limeLoadTexture("FE_TITLE_LOADING.PNG", 0, 0);
+        LoadingTexture = tex;
+        if (tex == 0)
+            return;
+    }
+
+    if (((const long *)tex)[0x40 / 4] == 0)
+        return;
+
+    limeDrawSprite(tex, 0.0f, 0.0f,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
+                   0.0f, 0.0f, 1.0f, 0.75f, col);
+}
+
+
+/* `_ButtonsTPage` -- 0x001f40d8, a pointer slot to the button atlas texture.
+ * Eight buttons across: the U extent below is exactly 1/8. */
+extern TEXTURE **ButtonsTPage;
+
+int FE_X(float x);
+int FE_Y(float y);
+int FE_W(float w);
+int FE_H(float h);
+
+
+/* --------------------------------------------------------- drawSingleButton
+ *
+ * armv7 0x0001e09c, 152 bytes.  **Complete.**
+ *
+ * One 64x64 button from the atlas, positioned through the front-end scalers:
+ *
+ *      limeDrawSprite(*ButtonsTPage,
+ *                     FE_X(x), FE_Y(y), FE_W(64), FE_H(64),
+ *                     0.0f, 0.5f, 0.125f, 0.25f, colour)
+ *
+ * **The V pair runs backwards: v0 is 0.5 and v1 is 0.25.** That is not a
+ * transcription slip -- 0.5 is loaded into the sp+8 slot and 0.25 into sp+0x10,
+ * the same slots that hold 0 and 0.75 in drawLoadingBackground. The sprite is
+ * sampled bottom-to-top, so a port that normalises the pair draws every button
+ * upside down.
+ *
+ * U runs 0 to 0.125, one eighth, which is where the eight-across atlas comes
+ * from.
+ *
+ * The colour is a five-word local: four 1.0f copied from the function own
+ * static constant, then `tint` written over the fifth. So the caller controls
+ * only that last word and the RGBA above it is always white.
+ */
+void drawSingleButton(int x, int y, long tint)
+{
+    /* Four floats then one raw word -- the fifth slot is written with `str`,
+     * never as a float, so the union keeps that honest. */
+    union { float f; long w; } colour[5];
+
+    colour[0].f = 1.0f;                 /* __ZZ16drawSingleButtonE5C.105 */
+    colour[1].f = 1.0f;
+    colour[2].f = 1.0f;
+    colour[3].f = 1.0f;
+    colour[4].w = tint;
+
+    limeDrawSprite(*ButtonsTPage,
+                   (float)FE_X((float)x), (float)FE_Y((float)y),
+                   (float)FE_W(64.0f),    (float)FE_H(64.0f),
+                   0.0f, 0.5f, 0.125f, 0.25f, &colour[0].w);
+}
