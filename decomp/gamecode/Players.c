@@ -189,7 +189,13 @@ void PreloadGameCharacters(const EPLAYER *list, long arg)
 }
 
 
-#define FE_CHARACTER_SLOTS  25
+/* **26, measured rather than assumed.** `_TheFECharacters` runs from 0x0020e634
+ * to the next common symbol `_AllFramesTable` at 0x00218cc4 -- 0xa690 bytes,
+ * which is 26 * 0x668 exactly. This said 25 until AnimateFECharacters was read:
+ * its loop ends when the cursor reaches base + 0xa028, and the compare sits
+ * AFTER the body, so slot 25 is processed. With 25 slots that would have been a
+ * one-entry overrun in shipping code; with 26 it is simply the last entry. */
+#define FE_CHARACTER_SLOTS  26
 #define FE_CHARACTER_STRIDE 0x668
 
 typedef struct ANIMATEDCHARACTER ANIMATEDCHARACTER;
@@ -1103,4 +1109,106 @@ void Preload1Character(EPLAYER who, FRONTEND_CHARACTER *fe, long a, long b)
     *(long *)&PreloadedCharacters[slot][8] = (long)(uintptr_t)c;
 
     NumPreloadedCharacters++;
+}
+
+
+extern long **IdleLists;                /* pointer slot -> 0x0014e0d8 */
+extern long  *SizeofIdleLists;          /* pointer slot -> 0x0014e140 */
+extern long   AnimSmoothWindowSize;     /* 0x00171368 */
+
+void PlayerAutoSmoothAnims(PLAYER *p);
+
+
+/* ------------------------------------------------------- AnimateFECharacters
+ *
+ * armv7 0x0005bdd4, 284 bytes.  **Complete.**
+ *
+ * Advances the idle animation of every front-end character slot, all 26 of
+ * them, every frame.
+ *
+ * Per slot:
+ *
+ *      cursor += dt * speed * 0.5f                 (+0x65c += , speed at +0x660)
+ *      if (IdleLists[who] == NULL) { frame = -1; }
+ *      else {
+ *          if (list[(long)cursor] == -1) cursor = 0.0f      <- end marker
+ *          while ((float)(SizeofIdleLists[who] / 4) <= cursor)
+ *              cursor -= dt * speed * 0.5f                  <- back it off
+ *          frame = list[(long)cursor]
+ *      }
+ *      p->[0x14] = frame
+ *      p->[0x5d4] = 1.0f
+ *
+ * ### The half
+ *
+ * The step is `dt * speed * 0.5`, not `dt * speed`. The 0.5 is a `vmov.f32
+ * s10, #0.5` immediate, separate from anything in the data, so it is a
+ * hardcoded halving of every front-end idle -- the menus run their characters
+ * at half the rate their own speed field asks for.
+ *
+ * ### The clamp is a loop, not a modulo
+ *
+ * When the cursor runs past the end of the list it does not wrap and it does
+ * not clamp: it **subtracts the same step repeatedly** until it is back in
+ * range. With a small step that is one iteration; with a large `dt` it is
+ * several. Rewriting it as `fmod` changes nothing observable and rewriting it
+ * as a single subtract does, so it is transcribed as the loop it is.
+ *
+ * The bound is `SizeofIdleLists[who] / 4` -- a byte size turned into an entry
+ * count, with the signed-division rounding the compiler emits (`n + 3` when
+ * negative, then `asr #2`) transcribed rather than simplified to `/ 4`.
+ *
+ * ### It borrows a global around the call
+ *
+ * `_AnimSmoothWindowSize` is saved, set to **0x28**, `PlayerAutoSmoothAnims` is
+ * called, and the old value is put back -- the same save-write-restore shape
+ * `drawPage2x2BigForSettings` uses on `Settings[3]`. So front-end characters
+ * smooth over a 40-frame window whatever the game is using, and nothing else
+ * ever sees the change.
+ *
+ * A slot with no idle list gets frame -1 and still goes through the smoothing.
+ */
+void AnimateFECharacters(float dt)
+{
+    long i;
+
+    for (i = 0; i < FE_CHARACTER_SLOTS; i++) {
+        char  *fc    = TheFECharacters[i];
+        long   who   = ((long *)fc)[0];
+        float *cursor = (float *)(fc + 0x65c);
+        float  speed  = *(const float *)(fc + 0x660);
+        float  step   = dt * speed * 0.5f;
+        const long *list = IdleLists[who];
+        long   saved;
+
+        *cursor += step;
+
+        if (list == 0) {
+            *(long *)(fc + 0x664) = -1;
+        } else {
+            long n;
+
+            if (list[(long)*cursor] == -1)
+                *cursor = 0.0f;         /* the end marker */
+
+            n = SizeofIdleLists[who];
+            if (n < 0)
+                n += 3;                 /* the signed /4 rounding, as emitted */
+            n >>= 2;
+
+            while ((float)n <= *cursor)
+                *cursor -= step;        /* back it off, one step at a time */
+
+            *(long *)(fc + 0x664) = list[(long)*cursor];
+        }
+
+        ((long *)fc)[0x14 / 4] = *(long *)(fc + 0x664);
+
+        saved = AnimSmoothWindowSize;
+        AnimSmoothWindowSize = 0x28;    /* borrowed for one call */
+        PlayerAutoSmoothAnims((PLAYER *)fc);
+        AnimSmoothWindowSize = saved;
+
+        *(float *)(fc + 0x5d0 + 4) = 1.0f;
+    }
 }

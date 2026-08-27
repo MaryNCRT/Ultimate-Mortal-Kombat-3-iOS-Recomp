@@ -2245,3 +2245,79 @@ void UpdateStats(void)
 
     Write_Stats();
 }
+
+
+extern long  VSWait;                    /* 0x000ff9a0 */
+extern float VSScroll;                  /* 0x000ff9a4 */
+extern long  TowerState;                /* 0x000ff9ac */
+extern long  Character1;                /* 0x000ff988 */
+extern long  Character2;                /* 0x000ff98c */
+extern long  Character2Override;        /* 0x00101798 */
+/* `VSAssetsLoaded`, `GameStarted`, `Destiny` and `Stage` are declared above. */
+
+
+/* --------------------------------------------------- FE_Task_VS_Screen_Init
+ *
+ * armv7 0x00004d38, 272 bytes.  **Complete.**
+ *
+ * Sets up the versus screen and, in the process, decides who player two is.
+ *
+ *      VSWait   = 0
+ *      VSScroll = 256.0f
+ *
+ *      GameMode == 1  ->  nothing else; multiplayer picks its own opponent
+ *      otherwise      ->  GameStarted = 1, TowerState = -1, then:
+ *
+ *          GameMode == 4   Character2 = TowerRand[|limeRand()| % 22]
+ *          otherwise       Character2 = OpponentTowerList[Destiny * 11 + Stage]
+ *                          and if GameMode == 2, Character2 = Character1
+ *
+ *      Character2Override = -1
+ *      VSAssetsLoaded     = 1
+ *
+ * ### It confirms the tower list layout from the reading side
+ *
+ * `OpponentTowerList[Destiny * 11 + Stage]` -- **eleven words a row**, which is
+ * exactly the 44-byte stride `PopulateTower` writes with. One function fills
+ * the table, this one reads it, and they agree without either saying so.
+ * `Destiny` is the ladder and `Stage` is how far up it the player is.
+ *
+ * `GameMode == 4` bypasses the ladder entirely and takes a random entry from
+ * the first 22 of `_TowerRand` -- the same table `PopulateTower` walks, read
+ * flat here rather than by row.
+ *
+ * The modulus is a reciprocal multiply: magic `0x2e8ba2e9`, `smull`, `asr #2`.
+ * Worked out numerically rather than assumed, that is **22** -- and 22 is the
+ * TowerRand row width. The absolute value is taken first, so a negative
+ * `limeRand()` cannot index backwards.
+ *
+ * `GameMode == 2` is the mirror match: player two is set to player one AFTER
+ * the ladder lookup has already chosen someone, overwriting it.
+ *
+ * `VSScroll` starts at 256.0 and `Character2Override` at -1, the same "nobody"
+ * sentinel used elsewhere in this tree.
+ */
+void FE_Task_VS_Screen_Init(void)
+{
+    VSWait   = 0;
+    VSScroll = 256.0f;
+
+    if (GameMode != 1) {
+        GameStarted = 1;
+        TowerState   = -1;
+
+        if (GameMode == 4) {
+            long r = limeRand();
+            if (r < 0)
+                r = -r;
+            Character2 = TowerRand[r % 22];
+        } else {
+            Character2 = OpponentTowerList[Destiny * 11 + Stage];
+            if (GameMode == 2)
+                Character2 = Character1;    /* the mirror match */
+        }
+    }
+
+    Character2Override = -1;
+    VSAssetsLoaded     = 1;
+}
