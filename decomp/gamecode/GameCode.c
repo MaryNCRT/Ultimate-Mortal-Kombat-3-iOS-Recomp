@@ -4872,8 +4872,10 @@ void CheckAllUnicodeCharsUsed(void);
 
 /* Five fixed arguments -- the callee reads r0..r3 and one stack word. Part of
  * the EA tracking family (LogEvent / LogEventEnumEnum / ...EnumEnumString),
- * all of which are stub territory for the port. */
-void EASDK_LogEvent(long id, long a, const char *s, long b, long c);
+ * all of which are stub territory for the port. The last argument is a
+ * STRING: this call site passes 0 for it and says nothing, but
+ * FE_Task_Main_Menu passes "OPTIONS", "PLAY" and friends. */
+void EASDK_LogEvent(long id, long a, const char *s1, long b, const char *s2);
 
 /* The name font's character set, 87 characters and a NUL. The 0xa3 is a pound
  * sign in Latin-1 -- the only non-ASCII code in the table, and the reason the

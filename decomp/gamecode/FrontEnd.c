@@ -4733,7 +4733,11 @@ extern char Language[10];               /* 0x001ab980 */
 extern BUTTONNEW BUTTON_OK;             /* 0x001007a8 */
 extern char HelpSpiltText[];            /* 0x00182c84, 256 bytes a line */
 
-void EASDK_LogEvent(long id, long a, const char *s, long b, long c);
+/* Five fixed arguments, and the LAST ONE IS A STRING. This screen passes 0
+ * for it, which said nothing; FE_Task_Main_Menu passes "OPTIONS", "EXTRAS",
+ * "PLAY" and so on, which settles it -- the shape is the same as
+ * EASDK_LogEventEnumEnumString. */
+void EASDK_LogEvent(long id, long a, const char *s1, long b, const char *s2);
 int  strcmp(const char *a, const char *b);
 
 void FE_Task_About_Usage_Sharing_Confirm(void)
@@ -5122,5 +5126,235 @@ void FE_Task_Continue_Screen(void)
         Destiny = -1;
         Stage = 0;
         Write_SaveData();
+    }
+}
+
+
+/* ------------------------------------------------------------ FE_Task_Main_Menu
+ *
+ * armv7 0x0001ac64, 1200 bytes.  **Complete.**
+ *
+ * The main menu. Five touch areas, the 3D vortex behind them, the logo riding
+ * the slide, and the EA ticker on top.
+ *
+ * ### It is also where a run is torn down
+ *
+ *      otherPlayerPaused = 0;  playerLostRound = 1;  defeatedBySK = 0;
+ *      limeRand();             mpLobbyCurrentPage = 0;  GamePaused = 0;
+ *      resetKodeSelector();
+ *
+ * every frame, unconditionally, before anything is drawn. `playerLostRound`
+ * is set to **1**, not 0 -- so simply being on the main menu marks the player
+ * as having lost a round, which is what stops the flawless-tower achievement
+ * (`QuitAsWin` checks `playerLostRound == 0` on tower 3) from surviving a trip
+ * out to the menu. `defeatedBySK` going to 0 likewise resets the three
+ * consecutive losses `QuitAsLose` counts.
+ *
+ * The bare `limeRand()` call keeps no result: it is there to stir the sequence
+ * so that the tower shuffle differs between runs that reach the menu at
+ * different times.
+ *
+ * ### Five touch areas, and the odd one out
+ *
+ *      Touch_MMPlay     (0,   0x5a) 0xed x 0x34   -> 0
+ *      Touch_MMOptions  (0,   0)    0xc4 x 0x44   -> 1
+ *      Touch_MMHelp     (0,   0xa0) 0xd2 x 0x32   -> 2
+ *      Touch_MMExtra    (0,   0xd2) 0xc4 x 0x3c   -> 3
+ *      Touch_MMMore     (0,  0x11c) 0xa8 x 0x32   -> 4
+ *
+ * All five are tested every frame and their raw results are kept in globals,
+ * because `DrawMainMenu` reads them back as colour indices:
+ *
+ *      DrawMainMenu(opt >> 1) + 1, (play >> 1) + 1, (help >> 1) + 1,
+ *                  (extra >> 1) + 1, (more >> 1) + 3)
+ *
+ * `TouchAreaWH` returns 2 while held and 1 on release, so `>> 1` is "is it
+ * held", and the +1 turns that into a row in `mmfontcol`. **The fifth gets +3
+ * rather than +1** -- "More Games" is coloured from a different pair of rows,
+ * which is how it reads as an external link rather than a menu entry.
+ *
+ * ### While the slide runs, the menu is drawn dead
+ *
+ *      if (FESlideOffset != 0.0f) DrawMainMenu(0, 0, 0, 0, 5);
+ *
+ * Zero for the four, and **5** for More Games -- its own inert row. The touch
+ * areas were still evaluated above, and their results still went into the
+ * globals, but the selection is thrown away (`sel = -1`) so nothing can be
+ * chosen mid-slide.
+ *
+ * The logo is drawn on both paths, at
+ *
+ *      x = FE_X(FESlideOffset * 240.0f + 220.0f)
+ *
+ * so it slides at 240 units per unit of offset while the menu text underneath
+ * is handled by `DrawMainMenu`'s own offsetting.
+ *
+ * ### The exits
+ *
+ *      0  PLAY           flawlessVictories = 0, FESlideNextTask = 1
+ *      1  OPTIONS        FESlideNextTask = 5
+ *      2  HELP & ABOUT   FESlideNextTask = 7
+ *      3  EXTRAS         FESlideNextTask = 6
+ *      4  MORE GAMES     EASDK_GetMoreGames(Language, 0)   -- leaves the game
+ *
+ * All four internal ones set `FESlideDir = 1` and let `MaintainFESlide` do the
+ * transition on later frames. Every one of the five logs
+ * `EASDK_LogEvent(0xc35d, 15, "MAIN MENU", 15, <name>)` with its own literal.
+ *
+ * ### A dead level-cycler
+ *
+ * The tail contains a complete "advance `LevelSelect` to the next level whose
+ * `Level_Info[i] + 0x70` is zero, wrapping at 16" block, guarded by
+ * `sel == 5`. **`sel` is only ever -1, 0, 1, 2, 3 or 4** -- the five touch
+ * areas plus the no-selection default, and the slide path forces -1. Nothing
+ * writes 5. So the block cannot run.
+ *
+ * It is transcribed below rather than dropped, because it is the only place in
+ * the front end that walks `Level_Info` looking for a free slot, and it is
+ * almost certainly a debug level-skip whose trigger was removed and whose body
+ * was not. Its own inner `if (r3 > 15) restore and give up` is dead a second
+ * time over, since the index is wrapped to 0..15 on the line before.
+ */
+extern long *otherPlayerPaused;         /* pointer slot */
+extern long  playerLostRound;           /* 0x000ff8b8 */
+extern long *defeatedBySK;              /* pointer slot */
+extern long *GamePaused;                /* pointer slot */
+extern long  Touch_MMOptions;           /* 0x00100e5c */
+extern long  Touch_MMPlay;              /* 0x00100e60 */
+extern long  Touch_MMHelp;              /* 0x00100e64 */
+extern long  Touch_MMExtra;             /* 0x00100e68 */
+extern long  Touch_MMMore;              /* 0x00100e6c */
+extern long *flawlessVictories;         /* pointer slot */
+extern long  LevelSelect;               /* 0x000ff7f8 */
+
+int  EASOC_MayhemNeedsUserName(void);
+void limeSet2DDrawing(void);
+void EASDK_ShowMessage(void);
+void EASDK_SetLoggingDisable(long off);
+void EASDK_GetMoreGames(const char *language, long a);
+void achievementsDraw(void);
+int  puts(const char *s);
+
+static void DrawMainMenuLogo(void)
+{
+    limeDrawSprite((TEXTURE *)MainLogoTexture,
+                   (float)FE_X(FESlideOffset * 240.0f + 220.0f),
+                   (float)FE_H(26.0f),
+                   (float)FE_W(420.0f),
+                   (float)FE_H(420.0f),
+                   0.0f, 0.0f, 1.0f, 1.0f, col);
+}
+
+void FE_Task_Main_Menu(void)
+{
+    long sel;
+
+    *otherPlayerPaused = 0;
+    playerLostRound    = 1;
+    *defeatedBySK      = 0;
+    limeRand();                         /* result discarded: stirs the sequence */
+    mpLobbyCurrentPage = 0;
+    *GamePaused        = 0;
+    resetKodeSelector();
+
+    if (EASOC_MayhemNeedsUserName())
+        EASOC_MayhemReset();
+
+    limeEnableAlphaBlending_Basic();
+    limeSet2DDrawing();
+
+    limeDrawSprite((TEXTURE *)MainMenuBGTexture, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0f, 1.0f, 0.75f, col);
+
+    DrawVortex3D();
+    limeEnableAlphaBlending_Basic();
+    limeSet2DDrawing();
+
+    Touch_MMOptions = TouchAreaWH(0, 0, 0xc4, 0x44);
+    sel = (Touch_MMOptions & 1) ? 1 : -1;
+
+    Touch_MMPlay = TouchAreaWH(0, 0x5a, 0xed, 0x34);
+    if (Touch_MMPlay & 1)
+        sel = 0;
+
+    Touch_MMHelp = TouchAreaWH(0, 0xa0, 0xd2, 0x32);
+    if (Touch_MMHelp & 1)
+        sel = 2;
+
+    Touch_MMExtra = TouchAreaWH(0, 0xd2, 0xc4, 0x3c);
+    if (Touch_MMExtra & 1)
+        sel = 3;
+
+    Touch_MMMore = TouchAreaWH(0, 0x11c, 0xa8, 0x32);
+    if (Touch_MMMore & 1)
+        sel = 4;
+
+    MaintainFESlide();
+
+    if (FESlideOffset != 0.0f) {
+        DrawMainMenu(0, 0, 0, 0, 5);
+        DrawMainMenuLogo();
+        sel = -1;
+    } else {
+        DrawMainMenu((int)((Touch_MMOptions >> 1) + 1),
+                     (int)((Touch_MMPlay    >> 1) + 1),
+                     (int)((Touch_MMHelp    >> 1) + 1),
+                     (int)((Touch_MMExtra   >> 1) + 1),
+                     (int)((Touch_MMMore    >> 1) + 3));
+        DrawMainMenuLogo();
+
+        if (sel == 1) {
+            FESlideDir      = 1;
+            FESlideNextTask = 5;
+            EASDK_LogEvent(0xc35d, 15, "MAIN MENU", 15, "OPTIONS");
+        } else if (sel == 3) {
+            FESlideDir      = 1;
+            FESlideNextTask = 6;
+            EASDK_LogEvent(0xc35d, 15, "MAIN MENU", 15, "EXTRAS");
+        } else if (sel == 2) {
+            FESlideDir      = 1;
+            FESlideNextTask = 7;
+            EASDK_LogEvent(0xc35d, 15, "MAIN MENU", 15, "HELP & ABOUT");
+        } else if (sel == 0) {
+            *flawlessVictories = 0;
+            FESlideDir      = 1;
+            FESlideNextTask = 1;
+            EASDK_LogEvent(0xc35d, 15, "MAIN MENU", 15, "PLAY");
+        } else if (sel == 4) {
+            puts("#########################\nENTERING STORE (opt 4");
+            EASDK_LogEvent(0xc35d, 15, "MAIN MENU", 15, "MORE GAMES");
+            EASDK_GetMoreGames(Language, 0);
+        }
+    }
+
+    EASDK_ShowMessage();
+    EASDK_SetLoggingDisable(0);
+    DrawTicker();
+    achievementsDraw();
+
+    /* UNREACHABLE -- see the header. Kept as transcription. */
+    if (sel == 5) {
+        const char *info;
+        long previous = LevelSelect;
+        long cur;
+
+        LevelSelect = previous + 1;
+        if (LevelSelect > LEVEL_SLOTS - 1)
+            LevelSelect = 0;
+
+        info = *LevelInfoPtr;
+        cur  = LevelSelect;
+
+        while (*(const long *)(info + cur * LEVEL_INFO_STRIDE + 0x70) != 0) {
+            if (cur > LEVEL_SLOTS - 1) {    /* dead again: cur is already wrapped */
+                LevelSelect = previous;
+                return;
+            }
+            cur++;
+            if (cur == LEVEL_SLOTS)
+                cur = 0;
+        }
+        LevelSelect = cur;
     }
 }
