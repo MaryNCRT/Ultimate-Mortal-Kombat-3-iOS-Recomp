@@ -2052,3 +2052,113 @@ long CheckLeftDial(int player)
 
     return -1;
 }
+
+
+/* `_SaveData` -- 0x001f439c, **172 bytes** (0xac), the last word being a
+ * checksum. Every field below is written by this function and nothing else in
+ * it is touched:
+ *
+ *      +0x00  GameStarted
+ *      +0x04  Destiny                 which arcade ladder
+ *      +0x08  Stage                   how far up it
+ *      +0x0c  Character1
+ *      +0x10  ClassicSubZeroUnlocked
+ *      +0x14  ErmacUnlocked
+ *      +0x18  MileenaUnlocked
+ *      +0x1c  JadeUnlocked
+ *      +0x20  TreasureGained[10]
+ *      +0x48  winStreak
+ *      +0x4c  EndingsGained[23]
+ *      +0xa8  checksum -- the sum of every word above
+ */
+#define SAVEDATA_SIZE  0xac
+
+/* `TreasureGained` (10 words) and `EndingsGained` (23 words) are already
+ * declared above with those same counts, derived there independently. */
+extern long  SaveData[];                /* 0x001f439c */
+extern long *ClassicSubZeroUnlocked;
+extern long *ErmacUnlocked;
+extern long *MileenaUnlocked;
+extern long *JadeUnlocked;
+extern long *SurvivalStage;
+extern long *SurvivalHealth;
+
+
+/* ------------------------------------------------------------- Write_SaveData
+ *
+ * armv7 0x00023404, 408 bytes.  **Complete.**
+ *
+ * Serialises the save into `_SaveData` and writes it to `savedata`.
+ *
+ * ### The four unlock flags are named here
+ *
+ *      ClassicSubZeroUnlocked, ErmacUnlocked, MileenaUnlocked, JadeUnlocked
+ *
+ * -- the four classic MK3 hidden fighters, each its own word in the save at
+ * +0x10 through +0x1c. So the hidden roster is not a derived state or a kode
+ * side effect: it is **persisted, one flag per character**, and whatever sets
+ * them is what a port has to find. Nothing in this function writes them; it
+ * only copies them out.
+ *
+ * ### It does nothing at all unless GameMode is 0
+ *
+ * The whole body is skipped for any other mode, and the function then falls
+ * straight to the survival check. So a save written during an arcade ladder is
+ * written by somebody else, or not at all.
+ *
+ * ### The checksum is a plain sum
+ *
+ * Every word stored is added into a running total and the total goes in the
+ * last word, +0xa8. Not a CRC, not weighted -- an unsigned sum, so any two
+ * fields that swap values leave it unchanged. The size passed to
+ * `limeWriteFile` is 0xac, exactly the checksum offset plus four.
+ *
+ * ### Survival is a second, separate file
+ *
+ * `GameMode == 4` additionally writes **twelve bytes** to `survival` from a
+ * stack buffer: `SurvivalStage`, `Character1`, `SurvivalHealth`. That file has
+ * no checksum and shares no layout with the main one.
+ */
+void Write_SaveData(void)
+{
+    long sum = 0;
+    long i;
+
+    if (GameMode == 0) {
+        SaveData[0x00 / 4] = GameStarted;
+        SaveData[0x04 / 4] = Destiny;
+        SaveData[0x08 / 4] = Stage;
+        SaveData[0x0c / 4] = Character1;
+        SaveData[0x10 / 4] = *ClassicSubZeroUnlocked;
+        SaveData[0x14 / 4] = *ErmacUnlocked;
+        SaveData[0x18 / 4] = *MileenaUnlocked;
+        SaveData[0x1c / 4] = *JadeUnlocked;
+        SaveData[0x48 / 4] = winStreak;
+
+        sum = SaveData[0x00 / 4] + SaveData[0x04 / 4] + SaveData[0x08 / 4]
+            + SaveData[0x0c / 4] + SaveData[0x10 / 4] + SaveData[0x14 / 4]
+            + SaveData[0x18 / 4] + SaveData[0x1c / 4] + SaveData[0x48 / 4];
+
+        for (i = 0; i < 10; i++) {              /* +0x20 .. +0x44 */
+            SaveData[0x20 / 4 + i] = TreasureGained[i];
+            sum += TreasureGained[i];
+        }
+
+        for (i = 0; i < 23; i++) {              /* +0x4c .. +0xa4 */
+            SaveData[0x4c / 4 + i] = EndingsGained[i];
+            sum += EndingsGained[i];
+        }
+
+        SaveData[0xa8 / 4] = sum;               /* a plain sum, not a CRC */
+        limeWriteFile("savedata", SaveData, SAVEDATA_SIZE, 0);
+    }
+
+    if (GameMode == 4) {
+        long survival[3];
+
+        survival[0] = *SurvivalStage;
+        survival[1] = Character1;
+        survival[2] = *SurvivalHealth;
+        limeWriteFile("survival", survival, 0xc, 0);
+    }
+}
