@@ -360,3 +360,47 @@ ANIMATEDCHARACTER *HavePreloadedCharacter(EPLAYER who)
 
     return 0;
 }
+
+
+#define PLAYER_STRIDE  0x5f0
+
+extern ANIMATEDCHARACTER *OrigLoadedPlayers[2];  /* 0x00295ccc */
+extern char Players[];                           /* 0x001fa4d4 */
+
+
+/* --------------------------------------------------------- FreeLevelCharacters
+ *
+ * armv7 0x0005c080, 68 bytes.  **Complete.**
+ *
+ *      FreePreloadedCharacters()
+ *      if (OrigLoadedPlayers[0]) FreeAnimatedCharacter(it)
+ *      if (OrigLoadedPlayers[1]) FreeAnimatedCharacter(it)
+ *      OrigLoadedPlayers[1] = 0
+ *      OrigLoadedPlayers[0] = 0                <- cleared in that order
+ *      if (Players[0xb20]) DumpAltCostume(&Players[0x5f0])
+ *
+ * **The last test cross-checks two numbers from elsewhere in the file.** It
+ * reads `Players + 0xb20` and, if set, calls DumpAltCostume on `Players +
+ * 0x5f0`. 0xb20 - 0x5f0 = 0x530, which is exactly the field LoadGameCharacter
+ * clears and DumpAltCostume frees. So the PLAYER stride is 0x5f0 and the alt
+ * costume lives at +0x530 -- three functions in agreement, none of which
+ * mentions the other.
+ *
+ * Only player TWO is checked. Player one's alt costume is not dumped here.
+ */
+void FreeLevelCharacters(void)
+{
+    FreePreloadedCharacters();
+
+    if (OrigLoadedPlayers[0])
+        FreeAnimatedCharacter(OrigLoadedPlayers[0]);
+    if (OrigLoadedPlayers[1])
+        FreeAnimatedCharacter(OrigLoadedPlayers[1]);
+
+    OrigLoadedPlayers[1] = 0;
+    OrigLoadedPlayers[0] = 0;
+
+    /* player two only: 0x5f0 + 0x530 = 0xb20 */
+    if (*(const long *)(Players + PLAYER_STRIDE + 0x530) != 0)
+        DumpAltCostume((PLAYER *)(Players + PLAYER_STRIDE));
+}
