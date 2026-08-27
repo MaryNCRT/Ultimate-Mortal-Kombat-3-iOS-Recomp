@@ -1068,3 +1068,129 @@ void Task_LoadingScreen(void)
     Task_LoadingScreen_DRAWSCREEN(NextTask == 5 ? 1 : 0, 0);
     CurrentTask = NextTask;
 }
+
+
+#define FRAME_ID_MAX  0x1c4c            /* 7244 */
+
+extern long FrameInfo2[][4];            /* 0x00129f1c, {x, y, w, h} */
+extern long FrameInfo[][4];             /* 0x0010df1c, the fallback */
+
+
+/* ------------------------------------------------------------ FrameID_GetBBox
+ *
+ * armv7 0x0001c674, 260 bytes.  **Complete, and it has three paths.**
+ *
+ * Normal: FrameInfo2[fid] is {x, y, w, h} at a 16-byte stride, and the outputs
+ * are x, y, x+w and y+h -- each written only if its pointer is non-NULL, so a
+ * caller can ask for any subset.
+ *
+ * **Fallback: if FrameInfo2[fid].h is zero it reads `_FrameInfo` instead**, a
+ * second table at 0x0010df1c with the same shape. So there are two frame tables
+ * and the second is consulted when the first has no height. That is not
+ * mentioned anywhere else in this tree.
+ *
+ * **Out of range is not an error**: fid above 7244 zeroes all four outputs and
+ * carries on. 7244 is one less than the 7,245 entries ClearAnimRemapTables
+ * walks -- the two tables are the same length, established from opposite ends.
+ *
+ * **fid == -1 means "the camera", not a frame.** It builds a box from
+ * `_Camera` and `_WorldScaleAdjust` (64.0) with three literals -- 200, 196 and
+ * 100:
+ *
+ *      cx = Camera[0] * 64
+ *      *x0 = cx - 200         *x1 = cx + 200
+ *      cy = -(Camera[2] * 64)
+ *      *y0 = cy - 100 + 196   *y1 = cy + 100 + 196
+ *
+ * Note the vertical uses Camera[2], negated, where the horizontal uses
+ * Camera[0] -- the Z-up world reaching the 2D box -- and that the 196 is added
+ * to BOTH edges while the 100 is the half-height. So the box is 400 by 200,
+ * centred horizontally on the camera and offset 196 vertically.
+ *
+ * The -1 path writes all four unconditionally, unlike the normal one.
+ */
+void FrameID_GetBBox(long fid, long *x0, long *y0, long *x1, long *y1)
+{
+    long x = 0, y = 0, w = 0, h = 0;
+
+    if (fid <= FRAME_ID_MAX) {
+        if (FrameInfo2[fid][3] != 0) {
+            x = FrameInfo2[fid][0];
+            y = FrameInfo2[fid][1];
+            w = FrameInfo2[fid][2];
+            h = FrameInfo2[fid][3];
+        } else {
+            x = FrameInfo[fid][0];      /* the second table */
+            y = FrameInfo[fid][1];
+            w = FrameInfo[fid][2];
+            h = FrameInfo[fid][3];
+        }
+    }
+
+    if (x0) *x0 = x;
+    if (y0) *y0 = y;
+    if (x1) *x1 = x + w;
+    if (y1) *y1 = y + h;
+
+    if (fid != -1)
+        return;
+
+    {   /* -1 is the camera, and every output is written */
+        float cx = Camera[0] * WorldScaleAdjust;
+        float cy = -(Camera[2] * WorldScaleAdjust);
+
+        *x0 = (long)(cx - 200.0f);
+        *x1 = (long)(cx + 200.0f);
+        *y0 = (long)(cy - 100.0f + 196.0f);
+        *y1 = (long)(cy + 100.0f + 196.0f);
+    }
+}
+
+
+int  puts(const char *s);
+int  putchar(int c);
+
+
+/* -------------------------------------------------------------------- dumpMem
+ *
+ * armv7 0x0002b8dc, 100 bytes.  **Complete.**
+ *
+ * A debug hex dump, banner above and below:
+ *
+ *      ################################################
+ *      %04x %04x %04x ...
+ *      \n################################################
+ *
+ * **The bytes are read SIGNED** -- `ldrsb`, then passed to a `%04x`. So a byte
+ * above 0x7f prints as `ffffffb2`, eight characters wide, not `00b2`. The
+ * columns stop lining up exactly where the data stops being ASCII, which for a
+ * dump of raw memory is most of it.
+ *
+ * That is transcribed rather than corrected. It is a debug function that
+ * shipped in the retail binary, the misalignment is what its author saw, and
+ * anyone reading a dump produced by a "fixed" version against one in an old bug
+ * report would be comparing two different things.
+ *
+ * The trailing newline is only emitted when the last byte fills a row, so a
+ * dump whose length is not a multiple of `perline` runs its closing banner onto
+ * the same line as the last row.
+ */
+void dumpMem(char *p, int len, int perline)
+{
+    int i, col;
+
+    puts("################################################");
+
+    for (i = 0, col = 0; i < len; ) {
+        printf("%04x ", (int)*(signed char *)p);
+        p++;
+        i++;
+        col++;
+        if (col >= perline) {
+            putchar(10);                /* \n */
+            col = 0;
+        }
+    }
+
+    puts("\n################################################");
+}
