@@ -1006,3 +1006,65 @@ void Reset_SaveData(void)
 
     Write_SaveData();
 }
+
+
+void Task_LoadingScreen_DRAWSCREEN(long a, long percent);
+
+
+extern int   randomKode;                /* 0x00151084 */
+extern int   DrawRandomKode;            /* 0x001f44cc */
+extern int   TipToDisplay;              /* 0x001f44d0 */
+extern int   NextTask;                  /* 0x0015058c */
+void *limeLoadTexture(const char *name, long a, long b);
+long  limeRand(void);
+int   printf(const char *fmt, ...);
+
+
+/* ---------------------------------------------------------- Task_LoadingScreen
+ *
+ * armv7 0x0001d4c4, 168 bytes.  **Complete.**
+ *
+ *      LoadingTexture = limeLoadTexture("FE_TITLE_LOADING.PNG", 0, 0)
+ *      randomKode     = |limeRand()| % 20
+ *      printf("RANDOM KODE IS %d\n", randomKode)
+ *      DrawRandomKode = limeRand() & 1
+ *      TipToDisplay   = |limeRand()| % 14
+ *      Task_LoadingScreen_DRAWSCREEN(NextTask == 5 ? 1 : 0, 0)
+ *      CurrentTask = NextTask
+ *
+ * **Three separate limeRand calls, and each is masked differently**: modulo 20
+ * for the kode, one bit for whether to show it at all, modulo 14 for the tip.
+ * Both moduli are reciprocal multiplies -- the %14 uses the same 0x92492493
+ * getRandomLevel does, which is how you can tell they are the same idiom rather
+ * than two different intents.
+ *
+ * The negation before each modulus is the same guard get_rsound and get_gsound
+ * carry: a negative remainder would index backwards.
+ *
+ * **The loading screen's own art is a PNG.** `FE_TITLE_LOADING.PNG` -- one of
+ * the 183 textures that exist only in that format, which is why this port needed
+ * a PNG decoder before any of it could be seen.
+ *
+ * NextTask == 5 selects a different draw variant and is the only thing the
+ * first argument carries.
+ */
+void Task_LoadingScreen(void)
+{
+    long r;
+
+    LoadingTexture = limeLoadTexture("FE_TITLE_LOADING.PNG", 0, 0);
+
+    r = limeRand();
+    if (r < 0) r = -r;
+    randomKode = (int)(r % 20);
+    printf("RANDOM KODE IS %d\n", randomKode);
+
+    DrawRandomKode = (int)(limeRand() & 1);
+
+    r = limeRand();
+    if (r < 0) r = -r;
+    TipToDisplay = (int)(r % 14);       /* the same 0x92492493 as getRandomLevel */
+
+    Task_LoadingScreen_DRAWSCREEN(NextTask == 5 ? 1 : 0, 0);
+    CurrentTask = NextTask;
+}
