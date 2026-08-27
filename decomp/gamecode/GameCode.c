@@ -3354,3 +3354,114 @@ void TogglePauseMenu(void)
 
     EASDK_LogEventEnumEnumString(0xc360, 15, "INGAME MENU", 15, "MOVES INFO");
 }
+
+
+extern float *startTime;                /* pointer slot */
+extern float  FrameCount;               /* 0x0014fa60 */
+extern long  *readyToSync;              /* pointer slot */
+extern long   LevelMusic[];             /* 0x0014f8c8 */
+extern void  *GameFontP;                /* pointer slot -> 0x001abb98 */
+extern float *limeFPSScaleFactorP;      /* pointer slot */
+
+char *limeUC(const char *s);
+long  usprintf(char *dst, const char *fmt, ...);
+
+const char *UC(const char *s);
+const char *GameTextNoHeader(long id);
+long  syncGame(long frame);
+void  enableHeartbeat(long n);
+void  limePlayTune(const char *file, long vol, long arg);
+
+
+/* -------------------------------------------------------- Task_MultiplayerSync
+ *
+ * armv7 0x00022514, 504 bytes.  **Complete.**
+ *
+ * The "waiting for the other player" screen. Draws the loading backdrop, one
+ * centred line of text, and calls `syncGame(FrameCount)` every frame until it
+ * returns 1.
+ *
+ * ### The text blinks on a 128-frame cycle
+ *
+ *      (FrameCount % 128) > 64  ?  <one string>  :  <the other>
+ *
+ * The modulo is signed and spelled out the way the compiler emits it
+ * (`asr #31`, `lsr #25`, `add`, `and #0x7f`, `sub`) rather than as `% 128`.
+ * Which pair of strings is used depends on `*startTime`:
+ *
+ *      startTime != 0    GameTextNoHeader(0x3b7)  alternating with `" "`
+ *      startTime == 0    GameTextNoHeader(0x0e)   alternating with `" "`
+ *
+ * So it is a two-state blink between a message and a single space -- the
+ * message flashes rather than animating, and the "%s" format is only there to
+ * pass one or the other through `usprintf`.
+ *
+ * The result goes through `usprintf` into a stack buffer and then `limeUC` for
+ * the BOM, which is three of the four functions in the UTF-16 chain used in one
+ * line.
+ *
+ * ### FrameCount is frame-rate scaled, unlike BGSceneFrame
+ *
+ *      FrameCount += 1.0f / limeFPSScaleFactor
+ *
+ * -- the same `limeFPSScaleFactor` division `MaintainFESlide` uses, and the
+ * opposite of `AnimateBG`, which adds a flat 1.0f. Two frame counters in the
+ * same binary with different frame-rate behaviour; a port has to keep them
+ * apart.
+ *
+ * ### On a successful sync
+ *
+ *      enableHeartbeat(10)
+ *      CurrentTask = 6
+ *      free the loading texture if it is still there
+ *      if (Settings[2]) limePlayTune(LevelMusic[*LevelSelect],
+ *                                    MusicVol[Settings[2]], 1)
+ *
+ * `_LevelMusic` is indexed by the selected stage, so each arena has its own
+ * tune, and `Settings[2]` is the music volume index -- the same slot
+ * `PlayFatalityVoice` reads. The volume is converted from the float table to an
+ * int at the call.
+ *
+ * `FrameCount` still advances on the frame the sync succeeds.
+ */
+void Task_MultiplayerSync(void)
+{
+    char buf[0x100];
+    const char *msg;
+    long f;
+
+    limeSet2DDrawing();
+    limeEnableAlphaBlending_Basic();
+    drawLoadingBackground();
+
+    f = (long)FrameCount;
+
+    if (*startTime != 0.0f)
+        msg = (f % 128 > 64) ? GameTextNoHeader(0x3b7) : UC(" ");
+    else
+        msg = (f % 128 > 64) ? UC(" ") : GameTextNoHeader(0x0e);
+
+    usprintf(buf, UC("%s"), msg);
+
+    limeDrawFONT(GameFontP, limeUC(buf),
+                 (float)(limeScreenWidth / 2),
+                 (float)(limeScreenHeight / 2),
+                 1, *FE_WidthScaleP, fontcol);
+
+    *readyToSync = 1;
+
+    if (syncGame((long)FrameCount) == 1) {
+        enableHeartbeat(10);
+        CurrentTask = 6;
+
+        if (LoadingTexture != 0)
+            limeDeleteTexture(LoadingTexture);
+
+        if (Settings[2] != 0)
+            limePlayTune((const char *)(uintptr_t)(unsigned long)
+                             LevelMusic[*LevelSelectPtr],
+                         (long)MusicVol[Settings[2]], 1);
+    }
+
+    FrameCount += 1.0f / *limeFPSScaleFactorP;
+}
