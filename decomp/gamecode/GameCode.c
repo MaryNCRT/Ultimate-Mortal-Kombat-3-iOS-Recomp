@@ -1828,3 +1828,227 @@ void UpdateIntroCharacterPlayers(void)
 
     AnimSmoothWindowSize = saved;
 }
+
+
+extern float IntroCountTimer;           /* 0x0014e1cc */
+extern long  IntroCamCount;             /* 0x0014f940 */
+
+
+/* ------------------------------------------ AnimateIntroCharacterPlayers1Frame
+ *
+ * armv7 0x00021aac, 368 bytes.  **Complete.**
+ *
+ * Steps one intro frame for each fighter, then calls
+ * `UpdateIntroCharacterPlayers` to push the result into the players.
+ *
+ * ### Which fighter advances is decided by IntroCamCount
+ *
+ *      IntroCamCount == 0   ->  player 2 always;  player 1 only if `force`
+ *      IntroCamCount != 0   ->  player 1 always;  player 2 only if `force`
+ *
+ * The two tests are built from the same `force != 0` boolean with an `orr #1`
+ * on opposite arms, so exactly one fighter is unconditional at any moment and
+ * the argument overrides that. The intro alternates whose animation runs by
+ * flipping one counter.
+ *
+ * ### The counter is clamped UP, not down: only the last 120 entries play
+ *
+ * Per fighter:
+ *
+ *      count += 1.0f
+ *      n = SizeofIntroLists[character]
+ *      if (n == 0) { IntroCountTimer = 1.0f; }
+ *      else {
+ *          limit = n / 4 - 120
+ *          if (count < limit) { count = limit; if (limit < 0) count = 0; }
+ *          if (!force) IntroCountTimer += 1/120
+ *      }
+ *
+ * `count < limit` sets `count = limit` -- forward, not back. So an intro whose
+ * list is longer than 120 entries **never plays anything before its last 120**;
+ * the counter is snapped past them on the first frame and increments normally
+ * after that. A list shorter than 120 gives a negative limit and the counter is
+ * reset to 0 instead.
+ *
+ * A clamp written the other way round -- the obvious reading -- makes long
+ * intros play from the beginning and run 120 frames too long. This is the
+ * detail in the function.
+ *
+ * ### The timer step is 1/120
+ *
+ * `0.008333333767950535`, the nearest float to 1/120, and only when `force` is
+ * zero. So the timer tracks unforced frames only, and at 30 fps it reaches 1.0
+ * after four seconds of them.
+ *
+ * The `n == 0` path sets the timer to a flat 1.0 and skips the counter work
+ * entirely -- a character with no intro list is treated as already finished.
+ */
+void AnimateIntroCharacterPlayers1Frame(long force)
+{
+    long f = (force != 0) ? 1 : 0;
+    long n;
+    float limit;
+
+    /* player 2 -- unconditional while IntroCamCount is zero */
+    if ((IntroCamCount != 0) ? f : (f | 1)) {
+        IntroCount2 += 1.0f;
+        n = SizeofIntroLists[Character2];
+
+        if (n == 0) {
+            IntroCountTimer = 1.0f;
+        } else {
+            if (n < 0)
+                n += 3;
+            limit = (float)((n >> 2) - 0x78);       /* 120 */
+
+            if (IntroCount2 < limit) {
+                IntroCount2 = limit;                /* forward, not back */
+                if (limit < 0.0f)
+                    IntroCount2 = 0.0f;
+            }
+            if (!force)
+                IntroCountTimer += 0.008333333767950535f;   /* 1/120 */
+        }
+    }
+
+    /* player 1 -- unconditional while IntroCamCount is non-zero */
+    if ((IntroCamCount == 0) ? f : (f | 1)) {
+        IntroCount += 1.0f;
+        n = SizeofIntroLists[Character1];
+
+        if (n == 0) {
+            IntroCountTimer = 1.0f;
+        } else {
+            if (n < 0)
+                n += 3;
+            limit = (float)((n >> 2) - 0x78);
+
+            if (IntroCount < limit) {
+                IntroCount = limit;
+                if (limit < 0.0f)
+                    IntroCount = 0.0f;
+            }
+            if (!force)
+                IntroCountTimer += 0.008333333767950535f;
+        }
+    }
+
+    UpdateIntroCharacterPlayers();
+}
+
+
+extern float JOUTERDIAL;                /* 0x00150598 */
+extern float JINNERDIAL;                /* 0x00150594, read only here */
+extern long  P2Controls;                /* 0x0014fec8 */
+extern long  JoystickStatePosX;         /* 0x0014fec0 */
+extern long  JoystickStatePosY;         /* 0x0014fec4 */
+extern long  JoystickStatePosXP2;       /* 0x0014fed0 */
+extern long  JoystickStatePosYP2;       /* 0x0014fed4 */
+
+/* Ten touch slots each; -1.0f means the slot is empty. */
+#define TOUCH_SLOTS  10
+extern float *limeTouchScreenX;         /* pointer slot -> 0x00171af4 */
+extern float *limeTouchScreenY;         /* pointer slot */
+
+double acos(double x);
+float  sqrtf(float x);
+
+
+/* ------------------------------------------------------------- CheckLeftDial
+ *
+ * armv7 0x00026170, 384 bytes.  **Complete.**
+ *
+ * Reads the on-screen direction dial. Returns **0..7** for the eight-way
+ * direction under the finger, or **-1** when no touch is on the dial.
+ *
+ * A touch counts only inside the ANNULUS between `JINNERDIAL` and
+ * `JOUTERDIAL` -- squared distances are compared, so no square root is taken
+ * until a slot has already passed both tests.
+ *
+ * ### The outer radius stops scaling under P2 controls
+ *
+ *      JOUTERDIAL = FE_W(80.0f);
+ *      if (P2Controls) JOUTERDIAL = 96.0f;
+ *
+ * The default goes through `FE_W` and follows the screen; the P2 override is a
+ * **raw 96 with no scaler anywhere near it**. On any screen where FE_W(80) is
+ * not 96 the two players get different dial sizes. Transcribed as written --
+ * it reads like a hardcoded pixel value someone dropped in, and reproducing it
+ * is the only way a port behaves the same.
+ *
+ * It also writes the global every call rather than computing a local, so
+ * anything else reading `JOUTERDIAL` sees whichever player was checked last.
+ *
+ * ### The angle
+ *
+ *      len = sqrt(dx*dx + dy*dy)
+ *      t   = acos(dy / len) / PI          <- in [0, 1]
+ *      if (dx / len < 0) t = -t           <- signed by the x half
+ *      t   = (t + 1) * 0.5                <- back to [0, 1]
+ *      if (t < 0) t += 1
+ *      dir = (((int)((1 - t) * 256) + 16) & 0xFF) >> 5
+ *
+ * The `acos` is done in **double** precision -- `vcvt.f64.f32` in, the divide
+ * by PI in `.f64`, and only then narrowed back. PI is the literal
+ * 3.1415927410125732, the float value widened, not the double constant.
+ *
+ * The last line is the whole quantiser: scale to 256, add half a sector (16),
+ * wrap to a byte, and take the top three bits. The `& 0xFF` is what makes the
+ * wrap free, so sector 7 and sector 0 meet without a special case.
+ *
+ * `dy` is computed as `centre - touch` and `dx` as `touch - centre` -- opposite
+ * senses, which is what puts screen-down and angle-up the same way round.
+ */
+long CheckLeftDial(int player)
+{
+    float cx, cy;
+    float outer2, inner2;
+    long i;
+
+    JOUTERDIAL = (float)FE_W(80.0f);
+    if (P2Controls != 0)
+        JOUTERDIAL = 96.0f;             /* unscaled, unlike the default */
+
+    if (player == 0) {
+        cx = (float)JoystickStatePosX;
+        cy = (float)JoystickStatePosY;
+    } else {
+        cx = (float)JoystickStatePosXP2;
+        cy = (float)JoystickStatePosYP2;
+    }
+
+    outer2 = JOUTERDIAL * JOUTERDIAL;
+    inner2 = JINNERDIAL * JINNERDIAL;
+
+    for (i = 0; i < TOUCH_SLOTS; i++) {
+        float dx, dy, d2, len, t;
+        long dir;
+
+        if (limeTouchScreenX[i] == -1.0f)
+            continue;                   /* empty slot */
+
+        dx = limeTouchScreenX[i] - cx;
+        dy = cy - limeTouchScreenY[i];  /* note the opposite sense */
+        d2 = dx * dx + dy * dy;
+
+        if (d2 > outer2)
+            continue;
+        if (d2 < inner2)
+            continue;
+
+        len = sqrtf(d2);
+        t = (float)(acos((double)(dy / len)) / 3.1415927410125732);
+
+        if (dx / len < 0.0f)
+            t = -t;
+
+        t = (t + 1.0f) * 0.5f;
+        if (t < 0.0f)
+            t += 1.0f;
+
+        dir = (long)((1.0f - t) * 256.0f);
+        return ((dir + 0x10) & 0xFF) >> 5;
+    }
+
+    return -1;
+}
