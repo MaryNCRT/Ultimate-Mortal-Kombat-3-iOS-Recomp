@@ -211,3 +211,45 @@ void preprocessPostloadKode(void)
     else if (kode == 0)
         H[0x1c / 2] = 1;
 }
+
+
+int puts(const char *s);
+
+
+extern const char *DestinationNovice[];      /* 0x001769f0 */
+extern const char *DestinationWarrior[];     /* 0x00176a80 */
+extern const char *DestinationMaster[];      /* 0x00176b20 */
+extern const char *DestinationGrandMaster[]; /* 0x00176bd8 */
+
+
+/* --------------------------------------------------------------- getStageName
+ *
+ * armv7 0x000a0440, 92 bytes.  **Complete.**
+ *
+ * Four tables, one per tier, selected by a `tbb` jump table:
+ *
+ *      0  DestinationNovice
+ *      1  DestinationWarrior
+ *      2  DestinationMaster
+ *      3  DestinationGrandMaster
+ *
+ * **The default is not an error path even though it prints like one.** A tier
+ * above 3 puts "DEFAULT @getStageName!!!" and then reads DestinationNovice --
+ * the same table case 0 uses, reached by different code. So an out-of-range
+ * tier returns a valid name, loudly.
+ *
+ * The message ships. Three exclamation marks, like PushFETaskDeferred's: the
+ * house style for "this should not happen but here is a sane answer".
+ */
+const char *getStageName(int tier, int index)
+{
+    switch (tier) {
+        case 0: return DestinationNovice[index];
+        case 1: return DestinationWarrior[index];
+        case 2: return DestinationMaster[index];
+        case 3: return DestinationGrandMaster[index];
+        default: break;
+    }
+    puts("DEFAULT @getStageName!!!");
+    return DestinationNovice[index];    /* the same table as case 0 */
+}

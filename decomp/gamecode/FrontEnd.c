@@ -1153,3 +1153,47 @@ int getMenuStartPos(const int *menu)
 
     return (int)(mid + step * (float)getMenuItemNum(menu));
 }
+
+
+extern int Menu_Task_Game_Over[];       /* 0x00101770 */
+extern int GameStarted;                 /* 0x0014e208 */
+extern int Destiny;                     /* 0x0014e20c */
+extern int Stage;                       /* 0x0014e214 */
+void PopulateTower(void);
+
+
+/* ------------------------------------------------------------ FE_Task_Game_Over
+ *
+ * armv7 0x0000ec1c, 72 bytes.  **Complete.**
+ *
+ *      r = BasicMenu(Menu_Task_Game_Over)
+ *      r == 1 -> PopFETaskDeferred()
+ *      r == 2 -> PopAllFETasksDeferred(r - 2)   ; the argument is ZERO
+ *                GameStarted = 0
+ *                PopulateTower()
+ *                Destiny = -1
+ *                Stage   = 0
+ *
+ * **The argument to PopAllFETasksDeferred is computed as `r - 2` on the path
+ * where r is known to be 2**, so it is always zero. Written as the subtraction
+ * rather than as 0, because the subtraction is what the code does and folding
+ * it hides that the value came from the menu result.
+ *
+ * Destiny is reset to -1 and Stage to 0 -- the same "nobody" sentinel
+ * GameCodeInit uses for the camera, and 0 being a valid stage is why they
+ * differ.
+ */
+void FE_Task_Game_Over(void)
+{
+    int r = BasicMenu(Menu_Task_Game_Over);
+
+    if (r == 1) {
+        PopFETaskDeferred();
+    } else if (r == 2) {
+        PopAllFETasksDeferred(r - 2);   /* always 0 on this path */
+        GameStarted = 0;
+        PopulateTower();
+        Destiny = -1;
+        Stage   = 0;
+    }
+}
