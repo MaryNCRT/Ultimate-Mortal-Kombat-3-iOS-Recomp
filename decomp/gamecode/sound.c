@@ -266,3 +266,210 @@ void LoadSoundList(SOUNDENTRY *list)
         list++;
     }
 }
+
+
+/* The forty-four sound tables, **in the order both functions walk them** --
+ * `LoadAllSounds` and `UnLoadAllSounds` use exactly the same sequence. Twenty-
+ * seven generic effect tables, then seventeen per-character voice tables. */
+/* `triple_sndtab` is declared above as long[][2] -- the same eight bytes a
+ * SOUNDENTRY has, reached there by index and here as a list. */
+extern SOUNDENTRY gs_death[];
+extern SOUNDENTRY gs_shook[];
+extern SOUNDENTRY gs_run[];
+extern SOUNDENTRY gs_tripped_voice[];
+extern SOUNDENTRY gs_face_hit_voice[];
+extern SOUNDENTRY gs_attack[];
+extern SOUNDENTRY gs_jump[];
+extern SOUNDENTRY gs_grab[];
+extern SOUNDENTRY gs_slam[];
+extern SOUNDENTRY gs_wasted[];
+extern SOUNDENTRY tab_rsnd_enemy_boom[];
+extern SOUNDENTRY tab_rsnd_sk_bonus_win[];
+extern SOUNDENTRY tab_rsnd_splish[];
+extern SOUNDENTRY tab_rsnd_stab[];
+extern SOUNDENTRY tab_rsnd_footstep[];
+extern SOUNDENTRY tab_rsnd_big_block[];
+extern SOUNDENTRY tab_rsnd_small_block[];
+extern SOUNDENTRY tab_rsnd_smack[];
+extern SOUNDENTRY tab_rsnd_med_smack[];
+extern SOUNDENTRY tab_rsnd_klang[];
+extern SOUNDENTRY tab_rsnd_big_smack[];
+extern SOUNDENTRY tab_rsnd_rocks[];
+extern SOUNDENTRY tab_rsnd_body_hit[];
+extern SOUNDENTRY tab_rsnd_ground[];
+extern SOUNDENTRY tab_rsnd_whoosh[];
+extern SOUNDENTRY tab_rsnd_big_whoosh[];
+extern SOUNDENTRY st_kano[];
+extern SOUNDENTRY st_sonya[];
+extern SOUNDENTRY st_jax[];
+extern SOUNDENTRY st_subzero[];
+extern SOUNDENTRY st_swat[];
+extern SOUNDENTRY st_indian[];
+extern SOUNDENTRY st_lia[];
+extern SOUNDENTRY st_robo1[];
+extern SOUNDENTRY st_lao[];
+extern SOUNDENTRY st_tusk[];
+extern SOUNDENTRY st_sg[];
+extern SOUNDENTRY st_st[];
+extern SOUNDENTRY st_lk[];
+extern SOUNDENTRY st_motaro[];
+extern SOUNDENTRY st_sk[];
+extern SOUNDENTRY st_nj[];
+extern SOUNDENTRY st_fn[];
+
+void UnLoadSoundList(SOUNDENTRY *list);
+
+/* The unique-sound cache is **512 slots**: LoadAllSounds clears index 0 and
+ * then steps a byte cursor from 4 to 0x7fc in fours, which is 511 more. */
+#define SOUND_UNIQUE_SLOTS  512
+
+
+/* ------------------------------------------------------------- LoadAllSounds
+ *
+ * armv7 0x000a82d4, 612 bytes.  **Complete.**
+ *
+ * Clears the dedupe cache and then loads all forty-four tables in order.
+ *
+ * The reset is unconditional and covers **every one of the 512 slots**: the
+ * name's first byte to 0 and the handle to -1. Only the first byte of each
+ * 32-byte name is touched, which is enough to make it an empty string for the
+ * `strcmp` in `LoadSoundList`.
+ *
+ * That is the whole dedupe mechanism: a name already in the cache shares its
+ * handle instead of being loaded twice, and with seventeen character voice
+ * tables overlapping heavily that matters.
+ */
+void LoadAllSounds(void)
+{
+    long i;
+
+    SoundListUniqueCounter = 0;
+    SoundListUniqueNames[0] = 0;
+    SoundListUniqueHandle[0] = -1;
+
+    for (i = 1; i < SOUND_UNIQUE_SLOTS; i++) {
+        SoundListUniqueNames[i * SOUND_UNIQUE_NAME_STRIDE] = 0;
+        SoundListUniqueHandle[i] = -1;
+    }
+
+    LoadSoundList((SOUNDENTRY *)triple_sndtab);
+    LoadSoundList(gs_death);
+    LoadSoundList(gs_shook);
+    LoadSoundList(gs_run);
+    LoadSoundList(gs_tripped_voice);
+    LoadSoundList(gs_face_hit_voice);
+    LoadSoundList(gs_attack);
+    LoadSoundList(gs_jump);
+    LoadSoundList(gs_grab);
+    LoadSoundList(gs_slam);
+    LoadSoundList(gs_wasted);
+    LoadSoundList(tab_rsnd_enemy_boom);
+    LoadSoundList(tab_rsnd_sk_bonus_win);
+    LoadSoundList(tab_rsnd_splish);
+    LoadSoundList(tab_rsnd_stab);
+    LoadSoundList(tab_rsnd_footstep);
+    LoadSoundList(tab_rsnd_big_block);
+    LoadSoundList(tab_rsnd_small_block);
+    LoadSoundList(tab_rsnd_smack);
+    LoadSoundList(tab_rsnd_med_smack);
+    LoadSoundList(tab_rsnd_klang);
+    LoadSoundList(tab_rsnd_big_smack);
+    LoadSoundList(tab_rsnd_rocks);
+    LoadSoundList(tab_rsnd_body_hit);
+    LoadSoundList(tab_rsnd_ground);
+    LoadSoundList(tab_rsnd_whoosh);
+    LoadSoundList(tab_rsnd_big_whoosh);
+    LoadSoundList(st_kano);
+    LoadSoundList(st_sonya);
+    LoadSoundList(st_jax);
+    LoadSoundList(st_subzero);
+    LoadSoundList(st_swat);
+    LoadSoundList(st_indian);
+    LoadSoundList(st_lia);
+    LoadSoundList(st_robo1);
+    LoadSoundList(st_lao);
+    LoadSoundList(st_tusk);
+    LoadSoundList(st_sg);
+    LoadSoundList(st_st);
+    LoadSoundList(st_lk);
+    LoadSoundList(st_motaro);
+    LoadSoundList(st_sk);
+    LoadSoundList(st_nj);
+    LoadSoundList(st_fn);
+}
+
+
+/* ----------------------------------------------------------- UnLoadAllSounds
+ *
+ * armv7 0x000a7fac, 612 bytes.  **Complete.**
+ *
+ * The same forty-four tables in the same order, through `UnLoadSoundList`, then
+ * the cache reset.
+ *
+ * **The two functions clear the cache differently, and only one of them is
+ * safe on its own.** This one walks `0 .. SoundListUniqueCounter - 1` and then
+ * zeroes the counter; `LoadAllSounds` walks all 512 regardless. So unloading
+ * leaves slots past the counter holding whatever they held -- stale names with
+ * stale handles -- and it is `LoadAllSounds`' unconditional sweep that makes
+ * that harmless.
+ *
+ * A port that keeps only one of the two resets, or that trusts the counter in
+ * both, resurrects a freed handle the first time a later run happens to reach a
+ * higher slot. The order matters: reset at the START of loading, not at the end
+ * of unloading.
+ */
+void UnLoadAllSounds(void)
+{
+    long i;
+
+    UnLoadSoundList((SOUNDENTRY *)triple_sndtab);
+    UnLoadSoundList(gs_death);
+    UnLoadSoundList(gs_shook);
+    UnLoadSoundList(gs_run);
+    UnLoadSoundList(gs_tripped_voice);
+    UnLoadSoundList(gs_face_hit_voice);
+    UnLoadSoundList(gs_attack);
+    UnLoadSoundList(gs_jump);
+    UnLoadSoundList(gs_grab);
+    UnLoadSoundList(gs_slam);
+    UnLoadSoundList(gs_wasted);
+    UnLoadSoundList(tab_rsnd_enemy_boom);
+    UnLoadSoundList(tab_rsnd_sk_bonus_win);
+    UnLoadSoundList(tab_rsnd_splish);
+    UnLoadSoundList(tab_rsnd_stab);
+    UnLoadSoundList(tab_rsnd_footstep);
+    UnLoadSoundList(tab_rsnd_big_block);
+    UnLoadSoundList(tab_rsnd_small_block);
+    UnLoadSoundList(tab_rsnd_smack);
+    UnLoadSoundList(tab_rsnd_med_smack);
+    UnLoadSoundList(tab_rsnd_klang);
+    UnLoadSoundList(tab_rsnd_big_smack);
+    UnLoadSoundList(tab_rsnd_rocks);
+    UnLoadSoundList(tab_rsnd_body_hit);
+    UnLoadSoundList(tab_rsnd_ground);
+    UnLoadSoundList(tab_rsnd_whoosh);
+    UnLoadSoundList(tab_rsnd_big_whoosh);
+    UnLoadSoundList(st_kano);
+    UnLoadSoundList(st_sonya);
+    UnLoadSoundList(st_jax);
+    UnLoadSoundList(st_subzero);
+    UnLoadSoundList(st_swat);
+    UnLoadSoundList(st_indian);
+    UnLoadSoundList(st_lia);
+    UnLoadSoundList(st_robo1);
+    UnLoadSoundList(st_lao);
+    UnLoadSoundList(st_tusk);
+    UnLoadSoundList(st_sg);
+    UnLoadSoundList(st_st);
+    UnLoadSoundList(st_lk);
+    UnLoadSoundList(st_motaro);
+    UnLoadSoundList(st_sk);
+    UnLoadSoundList(st_nj);
+    UnLoadSoundList(st_fn);
+
+    for (i = 0; i < SoundListUniqueCounter; i++) {   /* only the used ones */
+        SoundListUniqueNames[i * SOUND_UNIQUE_NAME_STRIDE] = 0;
+        SoundListUniqueHandle[i] = -1;
+    }
+    SoundListUniqueCounter = 0;
+}
