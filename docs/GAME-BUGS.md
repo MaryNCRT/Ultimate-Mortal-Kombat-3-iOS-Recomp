@@ -208,3 +208,39 @@ Raise the array and keep the check. A widescreen or higher-resolution port draws
 **more** of a stage at once, so it moves toward this ceiling rather than away
 from it. Deleting the check to be safe is the wrong instinct: if the limit can
 be reached, the one thing worse than hitting it is hitting it silently.
+
+---
+
+## The name font's character table is copied by a hard-coded length
+
+`Task_LoadGeneralData` (armv7 `0x00023910`) builds the font used for player
+names and the on-screen debug text, then overwrites the code table that
+`limeCreateFONT` had just read out of `namefont.ft2`:
+
+```
+ldr     r0, [r4, #0x48]     ; NameFont.codes, allocated for numGlyphs entries
+movs    r2, #0x58           ; 88 bytes -- a literal
+blx     _memcpy
+```
+
+`NameFont.codes` is allocated by `limeCreateFONT` with **one byte per glyph in
+the .ft2 file**. The copy is 88 bytes regardless. A `namefont.ft2` carrying
+fewer than 88 glyphs overruns a heap allocation by the difference, silently.
+
+The shipped `namefont.ft2` evidently has at least 88, or the game would not
+have survived its own QA — this is a latent bug, not an observed one. It
+matters to the port for two reasons: an asset pipeline that rebuilds the font
+can trip it, and so can a translation that ships a smaller name font.
+
+The widening loop immediately after is the counter-example of how to do it —
+it bounds itself on `NameFont.numGlyphs`, the value read from the file:
+
+```c
+for (i = 0; i < NameFont.numGlyphs; i++)
+    NameFont.codesW[i] = NameFont.codes[i];
+```
+
+### What the port should do
+
+Copy `min(sizeof NameFontCodes, NameFont.numGlyphs)` bytes, and say something
+when the font is short rather than quietly drawing the wrong glyphs.

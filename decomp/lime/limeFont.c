@@ -252,17 +252,29 @@ float limeGetStringWidthUCNoHeader(const FONT *font, const char *text)
  * that fails to load still measures text, at 8 units per character, instead of
  * returning zero and collapsing every layout to a point.
  *
+ * ## The last argument is a FLOAT, and the caller is what proves it
+ *
+ * `str r3, [r4, #0x14]` moves the stack argument into FONT+0x14 without
+ * converting it, and FONT+0x14 is read back with `vldr`. From inside this
+ * function alone that is ambiguous -- a raw word store says nothing about what
+ * the word means. `Task_LoadGeneralData` (decomp/gamecode/GameCode.c) settles
+ * it: it builds the three fonts of the game and passes `0x3ea66666` for the
+ * game font and `0x3f800000` for the other two, which are 0.325f and 1.0f.
+ * They are float literals, so the parameter is a float. Typed `int`, the clean
+ * C would have converted 1051931443 to a float and every glyph in the game
+ * would have measured out at that scale.
+ *
  * The file buffer is freed before returning.
  */
 void limeCreateFONT(const char *tex0, const char *tex1, const char *metrics,
-                    FONT *font, int arg4, int height, int width,
-                    int wide, int arg8)
+                    FONT *font, int spacing, int height, int width,
+                    int wide, float scale)
 {
     const uint8_t *data;
     int i, n, cursor;
 
-    font->field14 = arg8;               /* +0x14, the scale applied at the end */
-    font->spacing = arg4;               /* +0x0c */
+    font->field14 = scale;              /* +0x14, the scale applied at the end */
+    font->spacing = spacing;            /* +0x0c */
     font->fallbackAdvance = 8;          /* +0x10, used when nothing loaded */
     font->simple = 0;                   /* +0x04 */
     /* Named by what limeDrawFONT divides by, not by argument order: +0x34

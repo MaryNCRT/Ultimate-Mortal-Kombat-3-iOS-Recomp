@@ -20,6 +20,25 @@ typedef struct TEXTURETOLOAD {
     TEXTURE   **dest;            /* 0x04  where the handle goes */
 } TEXTURETOLOAD;
 
+/* The engine's font object, laid out to match FONT in decomp/lime/lime.h.
+ * GameCode.cpp reaches these by ADDRESS -- `add r0, pc` and straight into the
+ * call, with no load in between -- so the C has to pass `&GameFont`, not
+ * `GameFont`. An earlier `extern void *NameFont;` here dereferenced once too
+ * many and would have drawn every debug line with the first word of the struct
+ * as its font pointer. Only the fields gamecode touches are named; lime.h has
+ * the rest. (`GameFontP` further down is a different thing: the pointer SLOT
+ * other translation units use to find the same object.) */
+typedef struct GAMEFONT {
+    uint8_t   _pad00[0x0c];
+    int       spacing;                  /* 0x0c */
+    int       fallbackAdvance;          /* 0x10 */
+    uint8_t   _pad14[4];
+    int16_t   numGlyphs;                /* 0x18 */
+    uint8_t   _pad1a[0x2e];
+    uint8_t  *codes;                    /* 0x48  one byte per glyph */
+    int16_t  *codesW;                   /* 0x4c  the same, widened */
+} GAMEFONT;
+
 void LoadSomeTextures(TEXTURETOLOAD *list);
 void FreeSomeTextures(TEXTURETOLOAD *list);
 
@@ -2551,7 +2570,7 @@ extern long  SpeedNormal;               /* 0x0014e1f8 */
 extern long  JoystickState;             /* 0x0014febc */
 extern float *limeFPS;                  /* pointer slot */
 extern long  *limeRenderedPolyCount;    /* pointer slot */
-extern void  *NameFont;                 /* 0x001c3bf4 */
+extern GAMEFONT NameFont;               /* 0x001c3bf4 */
 extern float  fontcol[];                /* 0x0014f9f0 */
 extern char   str[];                    /* 0x001f3cac, the shared scratch buffer */
 
@@ -2625,24 +2644,24 @@ void ShowDebugInfo(void)
 
     sprintf(str, "Poly Count %d  Joy: %d",
             (int)*limeRenderedPolyCount, (int)JoystickState);
-    limeDrawFONT(NameFont, str, 8.0f, (float)FE_Y(96.0f), 0, 1.0f, fontcol);
+    limeDrawFONT(&NameFont, str, 8.0f, (float)FE_Y(96.0f), 0, 1.0f, fontcol);
 
     if (AIOn == 2)
-        limeDrawFONT(NameFont, "AI: CPU vs CPU", 8.0f, (float)FE_Y(112.0f),
+        limeDrawFONT(&NameFont, "AI: CPU vs CPU", 8.0f, (float)FE_Y(112.0f),
                      0, 1.0f, fontcol);
     else if (AIOn == 1)
-        limeDrawFONT(NameFont, "AI: Human vs CPU", 8.0f, (float)FE_Y(112.0f),
+        limeDrawFONT(&NameFont, "AI: Human vs CPU", 8.0f, (float)FE_Y(112.0f),
                      0, 1.0f, fontcol);
     else
-        limeDrawFONT(NameFont, "AI: Human vs Human", 8.0f, (float)FE_Y(112.0f),
+        limeDrawFONT(&NameFont, "AI: Human vs Human", 8.0f, (float)FE_Y(112.0f),
                      0, 1.0f, fontcol);
 
     if (SpeedNormal != 0)
-        limeDrawFONT(NameFont, "Speed: Normal",
+        limeDrawFONT(&NameFont, "Speed: Normal",
                      (float)(limeScreenWidth - 8), (float)FE_Y(96.0f),
                      2, 1.0f, fontcol);
     else
-        limeDrawFONT(NameFont, "Speed: Slow-mo",
+        limeDrawFONT(&NameFont, "Speed: Slow-mo",
                      (float)(limeScreenWidth - 8), (float)FE_Y(96.0f),
                      2, 1.0f, fontcol);
 }
@@ -3231,9 +3250,15 @@ extern float *HUD_Scale;                /* pointer slot */
 extern float *FE_FadeAddP;              /* pointer slot -> 0x0010089c */
 extern float *limeLastTouchScreenX;     /* pointer slot */
 extern float *limeLastTouchScreenY;     /* pointer slot */
-extern long  *SFXHandle;                /* pointer slot -> 0x001ab99c */
+extern long  SFXHandle[];               /* 0x001ab99c -- an ARRAY of sound handles.
+                                         * Every site reaches it as `ldr r3,[slot]`
+                                         * then `ldr r0,[r3,#0x68]`: the slot holds
+                                         * the ADDRESS of the array, so declaring it
+                                         * `long *` dereferenced once too many. */
 extern int    Settings[10];             /* 0x00100e34 */
-extern float *MusicVol;                 /* pointer slot -> 0x000ff830 */
+extern float MusicVol[];                /* 0x000ff830 -- an ARRAY, same correction:
+                                         * `add r1,pc` puts the array address in r1
+                                         * and the volume is `[r1 + idx*4]`. */
 
 void limePlaySound(long id, float vol, float pan, long flags);
 
@@ -4693,4 +4718,233 @@ void RenderIntroCharacterPlayer(void)
     }
 
     glPopMatrix();
+}
+
+/* ------------------------------------------------- Task_LoadGeneralData
+ *
+ * armv7 0x00023910, 788 bytes.  **Complete.**
+ *
+ * The boot loader for everything that is not a level: language, save data,
+ * sound, the three fonts, the translated text, and the first task to run. It
+ * is one straight line with two early-out branches parked at the end of the
+ * function, so the ORDER below is the game's real start-up order and can be
+ * read off directly.
+ *
+ * ## The language is chosen by whether EA shipped a terms-of-service URL
+ *
+ * `limeGetLanguage` fills `Language` from the device, and the very next thing
+ * the function does is ask for the property `TOS_URL_<lang>`. If that property
+ * is missing the code does `strcpy(Language, "EN")` and carries on. So the
+ * list of languages the game supports is not a list anywhere in the code --
+ * it is whichever `TOS_URL_*` keys exist in the property file. A device set to
+ * a language EA never shipped legal text for falls back to English, and it
+ * falls back BEFORE anything else reads `Language`, so the fallback also
+ * chooses the font tables and the text file.
+ *
+ * `compareLanguages(1)` then saves the code and reports whether it differs
+ * from the previous run. Only the changed path logs to EA's tracking; the
+ * unchanged path just prints. Both converge on `InitAllGameData`.
+ *
+ * ## The game mutes its own music if the player is already playing some
+ *
+ *      if (limeCheckForUserMusic()) Settings[2] = 0;
+ *
+ * `Settings[2]` is the music volume index -- `FrontEnd.c` plays MainMenu.mp3
+ * at `MusicVol[Settings[2]]`. Index 0 is the muted level. So a player who
+ * started their own music before launching gets the game's soundtrack turned
+ * off for them, once, at boot, and it is written into the settings rather
+ * than applied as a temporary override: it survives into the next launch.
+ *
+ * ## The three fonts, and the two things done to each after loading
+ *
+ *      GameFont       MKFONT_0.PNG + MKFONT_1.PNG   mkfont_ipad.ft2  2048^2
+ *      NameFont       NAMES_FONT.PNG                namefont.ft2      256^2
+ *      CountDownFont  COUNTDOWNFONT.PNG             countdownfont.ft2 128^2
+ *
+ * Only the game font has a second atlas -- it is the one that has to carry a
+ * translated character set. The other two pass NULL and limeCreateFONT skips
+ * the second load.
+ *
+ * Each font then gets `spacing` and `fallbackAdvance` written by hand,
+ * OVERWRITING what limeCreateFONT just put there (it sets spacing from its
+ * own argument, which is 0 in all three calls, and fallbackAdvance to the
+ * constant 8):
+ *
+ *      GameFont       spacing -4   fallbackAdvance 17
+ *      NameFont       spacing -2   fallbackAdvance  6
+ *      CountDownFont  spacing  0   fallbackAdvance 10
+ *
+ * Negative spacing is a kern-in: the game font pulls every character four
+ * units back towards the previous one.
+ *
+ * ## mkunicode.txt REPLACES the game font's code table
+ *
+ * `limeCreateFONT` builds `codes`/`codesW` from the .ft2 file. This function
+ * then loads `mkunicode.txt` and overwrites both, one glyph at a time, from a
+ * file that is plain UTF-16LE: the loop starts at byte 2, which skips the BOM,
+ * and reads two bytes per glyph. The wide table gets the whole code unit and
+ * the byte table gets its low half.
+ *
+ * That is what makes a translated build possible without touching the .ft2:
+ * the atlas keeps its glyph rectangles in file order and mkunicode.txt says
+ * which Unicode character each rectangle is. Swap the text file and the same
+ * atlas serves a different language.
+ *
+ * The name font goes the other way -- it has no unicode file, so its wide
+ * table is built by widening its byte table, and the byte table is a constant
+ * compiled into the binary: the digits, A-Z, a-z, and then
+ * `-%:;@` a pound sign, `.,!?'&[]+/\"*()#<>~`.
+ *
+ * 87 characters and a terminator, memcpy'd as a fixed 0x58 bytes. See
+ * docs/GAME-BUGS.md: the length is a literal, not the font's glyph count.
+ *
+ * ## The float that proves limeCreateFONT's signature
+ *
+ * The last argument is `0x3ea66666` for the game font and `0x3f800000` for the
+ * other two -- 0.325f and 1.0f. Those are float literals, which is what fixed
+ * `limeCreateFONT`'s last parameter from `int` to `float` in decomp/lime.
+ *
+ * ## Where the game goes next
+ *
+ *      NextTask        = 2
+ *      FE_CurrentTask  = 0, or 0x24 when CheckForUnclaimedTreasure() is true
+ *      CurrentTask     = 8
+ *
+ * so a player owed a treasure from a previous run is routed to front-end task
+ * 0x24 instead of the main menu, before the menu has drawn once.
+ *
+ * ## The on-screen joystick is placed from the button size
+ *
+ *      JSIZE             = ButtonSize
+ *      JoystickStatePosX = (int)ButtonSize
+ *      JoystickStatePosY = (int)(limeScreenHeight - ButtonSize)
+ *
+ * One button-size in from the left and one up from the bottom -- the joystick
+ * is anchored to the bottom-left corner with a margin equal to its own size,
+ * and both coordinates are truncated to whole pixels. `ButtonSize` is a float
+ * and the two positions are ints; the conversions are `vcvt.s32.f32`, so they
+ * truncate rather than round.
+ */
+
+extern GAMEFONT GameFont;               /* 0x001abb98 */
+extern GAMEFONT CountDownFont;          /* 0x001dbc50 */
+
+extern float ButtonSize;                /* 0x0014ff48 */
+
+void limeCreateFONT(const char *tex0, const char *tex1, const char *metrics,
+                    GAMEFONT *font, int spacing, int height, int width,
+                    int wide, float scale);
+void limeGetLanguage(char *dst, int len);
+const char *limeGetPropertyString(const char *key);
+void limeInitSound(void);
+int  limeCheckForUserMusic(void);
+long limeLoadSound(const char *name);
+void InitAllGameData(void);
+void Load_Tower(void);
+void Load_SettingsData(void);
+void Load_PresetButtonData(void);
+void Load_AchievementsData(void);
+void Load_Stats(void);
+void LoadTextData(const char *file);
+void CheckAllUnicodeCharsUsed(void);
+
+/* Five fixed arguments -- the callee reads r0..r3 and one stack word. Part of
+ * the EA tracking family (LogEvent / LogEventEnumEnum / ...EnumEnumString),
+ * all of which are stub territory for the port. */
+void EASDK_LogEvent(long id, long a, const char *s, long b, long c);
+
+/* The name font's character set, 87 characters and a NUL. The 0xa3 is a pound
+ * sign in Latin-1 -- the only non-ASCII code in the table, and the reason the
+ * set is a byte array and not a plain C identifier-safe string. */
+static const char NameFontCodes[] =
+    "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    "abcdefghijklmnopqrstuvwxyz"
+    "-%:;@\xa3.,!?'&[]+/\\\"*()#<>~";
+
+void Task_LoadGeneralData(void)
+{
+    char langbuf[30];                   /* sp+0x14 */
+    char tosbuf[30];                    /* sp+0x32 */
+    const uint8_t *unicode;
+    int i;
+
+    *limeDeferredDeviceSideways = 1;
+    *limeDeviceSideways = 1;
+
+    Task_LoadingScreen();
+    if (LoadingTexture)
+        limeDeleteTexture(LoadingTexture);
+
+    limeGetLanguage(Language, 10);
+    sprintf(tosbuf, "TOS_URL_%s", Language);
+    if (limeGetPropertyString(tosbuf) == 0)
+        strcpy(Language, "EN");         /* no legal text shipped: fall back */
+
+    if (compareLanguages(1)) {
+        printf("####################\n"
+               "LANGUAGE CHANGED TO:%s\n"
+               "####################", Language);
+        EASDK_LogEvent(0xc35c, 15, Language, 0, 0);
+    } else {
+        puts("####################\n"
+             "LANGUAGE NOT CHANGED\n"
+             "####################");
+    }
+
+    InitAllGameData();
+    Load_Tower();
+    Load_SaveData();
+    Load_SettingsData();
+    Load_PresetButtonData();
+    Load_AchievementsData();
+    Load_Stats();
+
+    limeInitSound();
+    if (limeCheckForUserMusic())
+        Settings[2] = 0;                /* their music wins over ours */
+
+    /* ---- game font: two atlases, and a code table from a separate file */
+    limeCreateFONT("MKFONT_0.PNG", "MKFONT_1.PNG", "mkfont_ipad.ft2",
+                   &GameFont, 0, 0x800, 0x800, 1, 0.32499999f);
+    GameFont.spacing = -4;
+    GameFont.fallbackAdvance = 17;
+
+    unicode = (const uint8_t *)limeLoadFile("mkunicode.txt");
+    for (i = 0; i < GameFont.numGlyphs; i++) {
+        const uint8_t *p = unicode + 2 + i * 2;   /* +2 skips the BOM */
+        GameFont.codesW[i] = (int16_t)(p[0] | (p[1] << 8));
+        GameFont.codes[i]  = p[0];
+    }
+    limeFree((void *)unicode);
+
+    /* ---- name font: a fixed character set, widened in place */
+    limeCreateFONT("NAMES_FONT.PNG", 0, "namefont.ft2",
+                   &NameFont, 0, 0x100, 0x100, 1, 1.0f);
+    memcpy(NameFont.codes, NameFontCodes, 0x58);
+    for (i = 0; i < NameFont.numGlyphs; i++)
+        NameFont.codesW[i] = NameFont.codes[i];
+    NameFont.spacing = -2;
+    NameFont.fallbackAdvance = 6;
+
+    SFXHandle[0x68 / 4] = limeLoadSound("Gstart");
+
+    /* ---- countdown font */
+    limeCreateFONT("COUNTDOWNFONT.PNG", 0, "countdownfont.ft2",
+                   &CountDownFont, 0, 0x80, 0x80, 1, 1.0f);
+    CountDownFont.spacing = 0;
+    CountDownFont.fallbackAdvance = 10;
+
+    sprintf(langbuf, "LANGUAGE_TEXT_%s", Language);
+    LoadTextData(limeGetPropertyString(langbuf));
+    CheckAllUnicodeCharsUsed();
+
+    NextTask = 2;
+    *FE_CurrentTask = 0;
+    if (CheckForUnclaimedTreasure())
+        *FE_CurrentTask = 0x24;
+    CurrentTask = 8;
+
+    JSIZE = ButtonSize;
+    JoystickStatePosX = (long)ButtonSize;
+    JoystickStatePosY = (long)((float)limeScreenHeight - ButtonSize);
 }
