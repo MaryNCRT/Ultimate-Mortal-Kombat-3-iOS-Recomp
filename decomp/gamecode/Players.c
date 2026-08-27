@@ -1212,3 +1212,135 @@ void AnimateFECharacters(float dt)
         *(float *)(fc + 0x5d0 + 4) = 1.0f;
     }
 }
+
+
+extern float *ShadowOffset;             /* pointer slot */
+extern float  ShadowHeightFromGround;   /* 0x00171364 */
+extern limeVECTOR3 *RenderVerts;        /* pointer slot */
+
+/* The two skinning generators are defined above. */
+void LIME_RenderMeshSingleIndexed(void *frame, void *tex, float grey,
+                                  void *arg, long flag);
+void LIME_printf(long level, const char *fmt, ...);
+void glColor4f(float r, float g, float b, float a);
+void glTranslatef(float x, float y, float z);
+void glScalef(float x, float y, float z);
+void glEnable(unsigned int cap);
+void glPushMatrix(void);
+void glPopMatrix(void);
+#define GL_DEPTH_TEST 0x0B71
+
+
+/* ---------------------------------------------------- RenderAnimatedCharacter
+ *
+ * armv7 0x0005c16c, 456 bytes.  **Complete.**
+ *
+ * Draws one fighter: the body, the optional second skin, and the shadow --
+ * three matrix-bracketed passes over the same frame record.
+ *
+ * Both frame indices are clamped the same way `IsAFrameVisible` clamps its own:
+ * negatives to zero via `bic rN, rN, rN asr #31`, then down to `count - 2`.
+ * **Minus two again**, so the last frame is unreachable here too. The frame
+ * record is at `frames + idx * 88`.
+ *
+ * ### The shadow is the mesh flattened, not a separate asset
+ *
+ *      glColor4f(0, 0, 0, 1)
+ *      glTranslatef(0, (y - ShadowOffset) * -100 + ShadowHeightFromGround, 0)
+ *      glScalef(1.0f, 0.0f, 1.0f)
+ *      LIME_RenderMeshSingleIndexed(frame, NULL, ...)
+ *
+ * **`glScalef(1, 0, 1)` collapses Y to zero** -- the same geometry, squashed
+ * onto the ground plane and painted black. There is no shadow mesh and no
+ * shadow texture; a port that goes looking for one will not find it.
+ *
+ * The height is `(y - ShadowOffset) * -100 + ShadowHeightFromGround`. The
+ * **-100** is a pool literal, not a scale anyone would guess, and it inverts
+ * the sign: a fighter further from `ShadowOffset` puts its shadow further the
+ * other way. `ShadowHeightFromGround` then lifts the whole thing off the floor
+ * so it does not z-fight with it.
+ *
+ * The shadow pass reuses the vertices the body pass generated -- there is no
+ * second skinning call -- so it is exactly the pose that was just drawn.
+ *
+ * ### The second skin, and the same per-character exception a third time
+ *
+ * The SKIN2 pass runs when `c[0x30]` points at something live and either the
+ * frame's `+0x28` flag is set **or** `frame == 365 && character == 6`.
+ *
+ * That pair is the same exception `IsAFrameVisible` carries, and this is the
+ * third function to hardcode it (`IsFrameVisible` has 12/295). It is not a
+ * visibility quirk -- character 6's frame 365 genuinely needs the second skin,
+ * and the flag in the data does not say so.
+ *
+ * SKIN2 draws with `c[0x20]` as its texture and passes 1 as the last argument
+ * where the body pass passes 0.
+ *
+ * ### A debug line that shipped
+ *
+ *      LIME_printf(0x1b, "Player SKIN %s at fr %d is VISIBLE\n", name, frame)
+ *
+ * on every visible body, every frame. Level 0x1b presumably gates it at
+ * runtime; the call is unconditional.
+ *
+ * The body colour is `(grey, grey, grey, 1)` from the caller -- one scalar for
+ * all three channels, so a fighter can only be darkened, never tinted.
+ */
+void RenderAnimatedCharacter(char *name, ANIMATEDCHARACTER *c,
+                             long frameA, long frameB, float t,
+                             float y, float grey, limeVECTOR3 *pos,
+                             void *tex, long visible)
+{
+    const long *a = (const long *)c;
+    long count = a[0];
+    long idxA = (frameA < 0) ? 0 : frameA;
+    long idxB = (frameB < 0) ? 0 : frameB;
+    void *frame;
+    long vis = (visible != 0) ? 1 : 0;
+    const long *f;
+
+    if (idxA >= count - 2) idxA = count - 2;
+    if (idxB >= count - 2) idxB = count - 2;
+
+    frame = (char *)(uintptr_t)(unsigned long)a[1]
+            + idxA * ANIMCHAR_FRAME_STRIDE;
+    f = (const long *)frame;
+
+    glColor4f(grey, grey, grey, 1.0f);
+    glEnable(GL_DEPTH_TEST);
+
+    /* ---- the body ---- */
+    glPushMatrix();
+    if (f[0x18 / 4] == 1 && vis) {
+        GenerateFrameVertsBySkinning(c, idxA, idxB, t, RenderVerts);
+        LIME_printf(0x1b, "Player SKIN %s at fr %d is VISIBLE\n",
+                    name, (int)frameA);
+        LIME_RenderMeshSingleIndexed(frame, tex, grey, pos, 0);
+    }
+    glPopMatrix();
+
+    /* ---- the second skin ---- */
+    glPushMatrix();
+    if (*(void **)(uintptr_t)(unsigned long)a[0x30 / 4] != 0 && vis) {
+        if (f[0x28 / 4] == 1 || (idxA == 365 && a[2] == 6)) {
+            GenerateFrameVertsBySkinningSKIN2(c, idxA, idxB, t, RenderVerts);
+            LIME_RenderMeshSingleIndexed(frame,
+                    (void *)(uintptr_t)(unsigned long)a[0x20 / 4],
+                    grey, pos, 1);
+        }
+    }
+    glPopMatrix();
+
+    /* ---- the shadow: the same mesh, flattened ---- */
+    glPushMatrix();
+    glColor4f(0.0f, 0.0f, 0.0f, 1.0f);
+    glTranslatef(0.0f,
+                 (y - *ShadowOffset) * -100.0f + ShadowHeightFromGround,
+                 0.0f);
+    glScalef(1.0f, 0.0f, 1.0f);         /* Y collapsed to the ground plane */
+
+    if (f[0x18 / 4] == 1 && vis)
+        LIME_RenderMeshSingleIndexed(frame, 0, grey, pos, 0);
+
+    glPopMatrix();
+}
