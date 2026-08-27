@@ -1291,3 +1291,93 @@ void resetCharacterSelection(void)
     *incomingQueueStartPtr = 0;
     *incomingQueueLenPtr   = 1;         /* one, not zero */
 }
+
+
+/* ------------------------------------------------------- Write_AchievementsData
+ *
+ * armv7 0x00015b30, 100 bytes.  **Complete.**
+ *
+ *      char buf[0x60]
+ *      memcpy(buf, achievementTracker, 0x60)
+ *      for (i = 0; i < 0x50 / 4; i++)
+ *          if (buf[i] == 4 || buf[i] == 1) buf[i] = 2
+ *      puts(banner); puts("## saving achievement tracker"); puts(banner)
+ *      limeWriteFile("achievementsdata", buf, 0x60, 0)
+ *
+ * **It saves a COPY, and it rewrites values on the way out.** States 4 and 1
+ * become 2 on disk; the live tracker keeps whatever it had. So the file is not
+ * a snapshot of memory, and round-tripping it through Load_AchievementsData
+ * does not give back what was saved.
+ *
+ * The rewrite covers only the first twenty entries -- the loop stops at 0x50 --
+ * while the copy and the write are the full 0x60. The four slots from 0x50 to
+ * 0x5c, which include the matches-won counter and Sub-Zero's clone count, go
+ * out untouched. That split is the point: the first twenty are achievement
+ * STATES, and 4 and 1 are transient ones that must not persist.
+ *
+ * Three puts around one save. All of it ships.
+ */
+void Write_AchievementsData(void)
+{
+    int buf[0x60 / 4];
+    int i;
+
+    memcpy(buf, achievementTracker, 0x60);
+
+    for (i = 0; i < 0x50 / 4; i++)      /* states only, not the counters */
+        if (buf[i] == 4 || buf[i] == 1)
+            buf[i] = 2;
+
+    puts("#############################################");
+    puts("## saving achievement tracker");
+    puts("#############################################");
+
+    limeWriteFile("achievementsdata", buf, 0x60, 0);
+}
+
+
+extern int Menu_Task_Challenge[];       /* 0x00100f18 */
+int   EASOC_FBGetFriendsNum(void);
+char *EASOC_FBGetFriendName(int index);
+
+
+/* ------------------------------------------------------------ FE_Task_Challenge
+ *
+ * armv7 0x00015c4c, 108 bytes.  **Complete.**
+ *
+ *      r = BasicMenu(Menu_Task_Challenge)
+ *      n = EASOC_FBGetFriendsNum()
+ *      if (n > 0) {
+ *          for (i = 0; i < n; i++)
+ *              printf("FRIEND NAME:%s\n", EASOC_FBGetFriendName(i))
+ *          puts("-----------")
+ *      } else {
+ *          puts("YOU HAVE NO FRIENDS!")
+ *      }
+ *      if (r == 8) PopFETaskDeferred()
+ *
+ * **The menu is drawn before the Facebook call and its result is used after
+ * it**, so the friends list is fetched on every frame this task runs, not once
+ * on entry. EASOC_FBGetFriendsNum is in the EA SDK, which this port stubs --
+ * a stub returning 0 puts the game down the "no friends" path permanently and
+ * the menu still works, which is the right shape for a stub.
+ *
+ * Every string here ships, including the one in the else branch.
+ */
+void FE_Task_Challenge(void)
+{
+    int r = BasicMenu(Menu_Task_Challenge);
+    int n = EASOC_FBGetFriendsNum();
+    int i;
+
+    if (n > 0) {
+        for (i = 0; i < n; i++)
+            printf("FRIEND NAME:%s\n", EASOC_FBGetFriendName(i));
+        puts("-----------");
+    } else {
+        puts("YOU HAVE NO FRIENDS!");
+    }
+
+    if (r == 8)
+        PopFETaskDeferred();
+}
