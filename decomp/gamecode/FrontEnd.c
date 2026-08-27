@@ -884,3 +884,41 @@ int GetNextLevel(int cur)
     }
     return cur;
 }
+
+
+extern int PendingPush;                 /* 0x001008b0 */
+
+
+/* --------------------------------------------------------- PushFETaskDeferred
+ *
+ * armv7 0x0000386c, 60 bytes.  **Complete.**
+ *
+ *      if (FE_CurrentTask == task) return          <- already there
+ *      if (FE_CurrentTask == 0x2c && task != 0) {
+ *          puts("IGNORING PUSH TASK DEFERRED!!!")
+ *          return
+ *      }
+ *      FE_FadeAdd  = -0.033333335f
+ *      PendingPush = task
+ *
+ * **Task 0x2c refuses pushes, loudly.** The message ships in the retail binary,
+ * three exclamation marks and all, which says somebody hit this during
+ * development and wanted to hear about it rather than silently swallow it.
+ *
+ * The first guard makes pushing the current task a no-op, and it comes BEFORE
+ * the 0x2c check -- so pushing 0x2c while already on 0x2c returns quietly,
+ * without the message.
+ */
+void PushFETaskDeferred(int task)
+{
+    if (FE_CurrentTask == task)
+        return;
+
+    if (FE_CurrentTask == 0x2c && task != 0) {
+        puts("IGNORING PUSH TASK DEFERRED!!!");
+        return;
+    }
+
+    FE_FadeAdd  = -0.033333335f;
+    PendingPush = task;
+}
