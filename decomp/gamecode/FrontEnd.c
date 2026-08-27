@@ -5555,3 +5555,144 @@ void FE_Task_Karnage_Summary(void)
                                          stats, 0xc);
     }
 }
+
+
+/* --------------------------------------------------------------- FE_Task_Settings
+ *
+ * armv7 0x00015638, 1272 bytes.  **Complete.**
+ *
+ * The options screen: four cells on a 2x2 page, two of which are volume
+ * steppers.
+ *
+ *      1  controls        PushFETaskDeferred(0x2f)
+ *      2  blood on/off    Settings[1] ^= 1
+ *      3  music volume    Settings[2], 0..3, wrapping
+ *      4  sound volume    Settings[3], 0..3, wrapping
+ *
+ * Both volumes share one set of four labels: `GameText(0xe2)` for level 0 and
+ * `0xde`, `0xdf`, `0xe0` for 1, 2 and 3. The level-0 string is the same "off"
+ * the social toggles use, so a single string does duty for every off state in
+ * the front end.
+ *
+ * ### The music stepper acts on the OLD value and stores the new one
+ *
+ *      v = Settings[2];
+ *      if      (v == 3) limeStopTune();
+ *      else if (v == 0) limePlayTune("MainMenu.mp3", (long)MusicVol[1], 1);
+ *      else if (v == 1) limeSetTuneVol((long)MusicVol[2]);
+ *      else if (v == 2) limeSetTuneVol((long)MusicVol[3]);
+ *      Settings[2] = (v + 1) & 3;
+ *
+ * Every branch is indexed by **v + 1** -- the level the player is stepping
+ * *to* -- while the setting itself is written afterwards. So the sound of the
+ * change and the recorded state can never disagree, and the wrap from 3 back
+ * to 0 is the one case that stops the tune instead of setting a volume.
+ *
+ * In the original this is not a switch: it is a chain of blocks each of which
+ * falls into the next comparison after **re-reading `Settings[2]`**. Since
+ * nothing writes it until the end, all the re-reads see the same value, which
+ * is why it collapses to the form above.
+ *
+ * Starting the tune from level 0 passes `1` as the third argument where
+ * `FE_Task_Main_Menu`'s music start passes `0` -- worth noting, as it is the
+ * only distinction between the two calls.
+ *
+ * ### The user's own music wins, silently
+ *
+ *      if (limeCheckForUserMusic()) { Settings[2] = 0; }
+ *
+ * checked *before* the stepper runs, so pressing the music button while the
+ * player has their own music playing does not step the volume: it forces the
+ * setting to 0 and nothing else happens. Same rule `Task_LoadGeneralData`
+ * applies once at boot, applied again here on every press.
+ *
+ * ### The sound stepper clicks at the volume it just chose
+ *
+ *      Settings[3] = (Settings[3] + 1) & 3;
+ *      if (Settings[3] != 0)
+ *          limePlaySound(SFXHandle[0x68/4], MusicVol[Settings[3]] / 100.0f, 1, 0);
+ *      Write_SettingsData();
+ *
+ * Here the index IS the new value, because the point is to demonstrate it.
+ * Level 0 plays nothing, which is the demonstration for "off". `SFXHandle[26]`
+ * is the "Gstart" click `Task_LoadGeneralData` loads, and the /100 is the same
+ * scaling every other click in the game uses.
+ *
+ * The settings are written on both stepper paths and again on Back, so
+ * stepping a volume commits immediately rather than on leaving.
+ */
+void limeSetTuneVol(long vol);
+
+void FE_Task_Settings(void)
+{
+    long choice, back;
+    long musicLabel, sfxLabel;
+
+    limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0234375f, 1.0f, 0.703125f, col);
+
+    choice = drawPage2x2BigForSettings();
+
+    limeDrawFONT(GameFont, GameText(0x118), (float)FE_X(152.0f),
+                 (float)FE_Y(72.0f), 1, FE_WidthScale, fontcol);
+    limeDrawFONT(GameFont, GameText(0x119), (float)FE_X(152.0f),
+                 (float)FE_Y(88.0f), 1, FE_WidthScale, fontcol);
+    limeDrawFONT(GameFont, GameText(0xdc), (float)FE_X(152.0f),
+                 (float)FE_Y(208.0f), 1, FE_WidthScale, fontcol);
+
+    musicLabel = (Settings[2] == 3) ? 0xe0
+               : (Settings[2] == 2) ? 0xdf
+               : (Settings[2] == 1) ? 0xde : 0xe2;
+    limeDrawFONT(GameFont, GameText(musicLabel), (float)FE_X(152.0f),
+                 (float)FE_Y(224.0f), 1, FE_WidthScale, fontcol);
+
+    limeDrawFONT(GameFont, GameText(0xdd), (float)FE_X(320.0f),
+                 (float)FE_Y(208.0f), 1, FE_WidthScale, fontcol);
+
+    sfxLabel = (Settings[3] == 3) ? 0xe0
+             : (Settings[3] == 2) ? 0xdf
+             : (Settings[3] == 1) ? 0xde : 0xe2;
+    limeDrawFONT(GameFont, GameText(sfxLabel), (float)FE_X(320.0f),
+                 (float)FE_Y(224.0f), 1, FE_WidthScale, fontcol);
+
+    back = DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1);
+
+    limeDrawFONT(GameFont, GameText(7), (float)FE_X(423.0f),
+                 (float)FE_Y(296.0f), 1, FE_WidthScale, fontcol);
+
+    if (choice == 1) {
+        PushFETaskDeferred(0x2f);
+    } else if (choice == 2) {
+        Settings[1] ^= 1;
+    } else if (choice == 3) {
+        if (limeCheckForUserMusic()) {
+            Settings[2] = 0;
+        } else {
+            long v = Settings[2];
+
+            if (v == 3)
+                limeStopTune();
+            else if (v == 0)
+                limePlayTune("MainMenu.mp3", (long)MusicVol[1], 1);
+            else if (v == 1)
+                limeSetTuneVol((long)MusicVol[2]);
+            else if (v == 2)
+                limeSetTuneVol((long)MusicVol[3]);
+
+            Settings[2] = (int)((v + 1) & 3);
+            Write_SettingsData();
+        }
+    } else if (choice == 4) {
+        Settings[3] = (Settings[3] + 1) & 3;
+        if (Settings[3] != 0)
+            limePlaySound(SFXHandle[0x68 / 4],
+                          MusicVol[Settings[3]] / 100.0f, 1.0f, 0);
+        Write_SettingsData();
+    }
+
+    if (back) {
+        PopFETaskDeferred();
+        Write_SettingsData();
+    }
+}
