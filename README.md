@@ -52,7 +52,7 @@ The long-term goals, in order:
 |---|---|
 | Understand the binary and its file formats | ✅ largely done |
 | Recover readable C source, function by function | 🔄 in progress |
-| Replace the iOS platform layer with a native PC one | ⬜ not started |
+| Replace the iOS platform layer with a native PC one | 🔄 started — window, GL context and asset loading run on Windows and Linux; no audio, no input mapping |
 | Widescreen, gamepad support, modding | ⬜ planned |
 | **Local two-player on one machine** | ⬜ planned — [the iPad build has it](docs/IPAD-BUILD.md) |
 | Restore hidden and unreachable content | ⬜ after a playable build |

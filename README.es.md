@@ -54,7 +54,7 @@ Los objetivos a largo plazo, en orden:
 |---|---|
 | Entender el binario y sus formatos de archivo | ✅ en gran parte hecho |
 | Recuperar C legible, función a función | 🔄 en curso |
-| Sustituir la capa de plataforma iOS por una nativa de PC | ⬜ sin empezar |
+| Sustituir la capa de plataforma iOS por una nativa de PC | 🔄 empezada — ventana, contexto GL y carga de assets funcionan en Windows y Linux; sin audio ni mapeo de mando |
 | Widescreen, soporte de mando, mods | ⬜ planeado |
 | **Dos jugadores locales en una máquina** | ⬜ planeado — [la build de iPad lo trae](docs/IPAD-BUILD.md) |
 | Restaurar contenido oculto e inalcanzable | ⬜ tras tener build jugable |
