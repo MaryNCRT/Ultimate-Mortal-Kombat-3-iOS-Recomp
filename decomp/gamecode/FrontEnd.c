@@ -1985,3 +1985,171 @@ int drawPage2x2BigForSettings(void)
     Settings[3] = saved;
     return r;
 }
+
+
+extern float FESlideOffset;             /* 0x000ff844 */
+extern long  FESlideDir;                /* 0x000ff848, -1 / 0 / 1 */
+extern long  FESlideNextTask;           /* 0x000ff84c */
+extern float limeFPSScaleFactor;        /* 0x00171acc */
+
+
+
+/* ---------------------------------------------------------- MaintainFESlide
+ *
+ * armv7 0x0000551c, 224 bytes.  **Complete.**
+ *
+ * Advances the front-end slide transition one frame. `FESlideDir` is a
+ * three-state: 1 slides out, -1 slides back, anything else does nothing.
+ *
+ *      dir ==  1:  offset += 0.1 / limeFPSScaleFactor
+ *                  if (offset >= 1.0f) {
+ *                      offset = 1.0f
+ *                      dir    = -1
+ *                      FESlideNextTask == -1 ? PopFETask() : PushFETask(it)
+ *                  }
+ *
+ *      dir == -1:  offset += -0.1 / limeFPSScaleFactor
+ *                  if (!(offset > 0.0f)) offset = 0.0f
+ *
+ * **The step is 0.1 divided by the frame-rate scale, and it is computed in
+ * DOUBLE precision** -- the offset is widened with `vcvt.f64.f32`, the divide
+ * and add are `.f64`, and only the result is narrowed back. At 30 fps the slide
+ * takes ten frames; at any other rate it takes whatever keeps the wall-clock
+ * duration the same. This is one of the few places in the tree that is already
+ * frame-rate independent, so a 60 fps port must not "fix" it.
+ *
+ * The two literals are exact: +0.1 and -0.1 as doubles, in separate pool
+ * entries. Neither is derived from the other by negation at run time.
+ *
+ * The task switch happens at the far end of the slide-out, not at the start:
+ * the screen is fully covered before the new task is pushed, and `dir` is set
+ * to -1 in the same breath so the next frame begins sliding back.
+ *
+ * **The negative test is `> 0`, not `>= 0`.** So an offset of exactly zero is
+ * rewritten with zero -- harmless -- and the branch that skips the clamp is
+ * taken only for a strictly positive value.
+ */
+void MaintainFESlide(void)
+{
+    if (FESlideDir == -1) {
+        FESlideOffset = (float)((double)FESlideOffset
+                                + -0.1 / (double)limeFPSScaleFactor);
+        if (!(FESlideOffset > 0.0f))
+            FESlideOffset = 0.0f;
+        return;
+    }
+
+    if (FESlideDir != 1)
+        return;
+
+    FESlideOffset = (float)((double)FESlideOffset
+                            + 0.1 / (double)limeFPSScaleFactor);
+
+    if (FESlideOffset >= 1.0f) {
+        FESlideOffset = 1.0f;
+        FESlideDir    = -1;
+
+        if (FESlideNextTask == -1)
+            PopFETask();
+        else
+            PushFETask((int)FESlideNextTask);
+    }
+}
+
+
+/* `_TowerRand` -- 0x001014d0, **four rows of 22** entries: the index is
+ * `22 * row + column`, the column walks by +/-1 and wraps between 0 and 0x15.
+ *
+ * `_OpponentTowerList` -- 0x0014fcb4 through a pointer slot, **44 bytes** a
+ * row: eleven words. */
+#define TOWERRAND_ROW     22
+#define TOWERLIST_STRIDE  44
+
+extern long  TowerRand[];               /* 0x001014d0 */
+extern long *OpponentTowerList;         /* pointer slot -> 0x0014fcb4 */
+
+long limeRand(void);
+void Write_Tower(void);
+
+
+/* -------------------------------------------------------------- PopulateTower
+ *
+ * armv7 0x0000a5cc, 228 bytes.  **Complete.**
+ *
+ * Builds the four arcade ladders. Each row of `_OpponentTowerList` holds eleven
+ * opponents and the rows are filled with **6, 7, 8 and 9 random ones
+ * respectively, followed always by characters 24 and 25**:
+ *
+ *      row 0:  6 random, then 24, 25       (words 0..5, 6, 7)
+ *      row 1:  7 random, then 24, 25       (words 0..6, 7, 8)
+ *      row 2:  8 random, then 24, 25
+ *      row 3:  9 random, then 24, 25       (words 0..8, 9, 10 -- the row is full)
+ *
+ * The last row uses all eleven words exactly, which is where the 44-byte stride
+ * comes from. The two fixed opponents are written after the loop, at four
+ * offsets that look unrelated until you line them up against each row length:
+ * 0x18, 0x48, 0x78, 0xa8 are word 6 of row 0, word 7 of row 1, word 8 of row 2
+ * and word 9 of row 3.
+ *
+ * **So the last two fights of every ladder are always the same two characters,
+ * and they are never drawn from the random pool.**
+ *
+ * ### How the random ones are picked
+ *
+ * Not by rolling once per slot. One `limeRand()` picks a starting column
+ * (`& 7`), another picks a direction (+1 or -1), and the row then WALKS the
+ * TowerRand table from there, wrapping between column 0 and column 0x15. The
+ * table row advances by one per ladder, `(row + 1) & 3`, from a start that is
+ * itself `limeRand() & 3`.
+ *
+ * That means a ladder is a contiguous run through a hand-authored table, read
+ * forwards or backwards -- not a random draw. Whatever ordering constraints the
+ * designers put in TowerRand survive, which is the whole point and is lost
+ * immediately by a port that "simplifies" this to picking each slot at random.
+ *
+ * The direction is re-rolled per ladder; the starting column is not -- `r6`
+ * holds one `limeRand()` result reused across all four rows, masked to 3 bits
+ * each time. It prints `populating tower!` once and calls `Write_Tower` at the
+ * end, so the result is persisted.
+ */
+void PopulateTower(void)
+{
+    long row = limeRand() & 3;          /* the TowerRand row to start from */
+    long seed;
+    long ladder;
+
+    puts("populating tower!");
+
+    for (ladder = 6; ladder != 10; ladder++) {
+        long *dst = OpponentTowerList + (ladder - 6) * (TOWERLIST_STRIDE / 4);
+        long step, col, i;
+
+        seed = limeRand();
+        step = (limeRand() & 1) ? -1 : 1;
+        col  = seed & 7;
+
+        for (i = 0; i < ladder; i++) {
+            dst[i] = TowerRand[row * TOWERRAND_ROW + col];
+
+            col += step;
+            if (col < 0)
+                col = 0x15;             /* wrap at the bottom */
+            else if (col > 0x15)
+                col = 0;                /* and at the top */
+        }
+
+        row = (row + 1) & 3;
+    }
+
+    /* The two fixed opponents, one word past each ladder random run. */
+    OpponentTowerList[0x18 / 4] = 24;
+    OpponentTowerList[0x48 / 4] = 24;
+    OpponentTowerList[0x78 / 4] = 24;
+    OpponentTowerList[0xa8 / 4] = 24;
+    OpponentTowerList[0x1c / 4] = 25;
+    OpponentTowerList[0x4c / 4] = 25;
+    OpponentTowerList[0x7c / 4] = 25;
+    OpponentTowerList[0xac / 4] = 25;
+
+    Write_Tower();
+}

@@ -640,3 +640,85 @@ long usprintf(char *dst, const char *fmt, ...)
     g_usprintfSemaphore = 0;
     return 0;
 }
+
+
+extern char  *LanguageTextData;         /* 0x003857dc */
+extern char **LanguageTextPtrs;         /* 0x003857d8 */
+
+long  limeFileSize(const char *name);
+void *limeLoadFile(const char *name);
+void *limeMalloc(const char *tag, long size);
+void  limeFree(void *p);
+
+
+/* --------------------------------------------------------------- LoadTextData
+ *
+ * armv7 0x000a7804, 216 bytes.  **Complete.**
+ *
+ * Loads the language string table. The file is a small header followed by
+ * length-prefixed UTF-16 strings:
+ *
+ *      +0  int16   header size, SUBTRACTED from the file size to get the payload
+ *      +6  int16   how many strings
+ *      +8          each string: uint16 byte-length, then that many bytes
+ *
+ * Two allocations, both tagged: `"languagedata"` for the payload and
+ * `"languagetextptrs"` for `count` pointers. Then
+ *
+ *      printf("Num Text strings Loading: %d\n", count)
+ *
+ * **Every string is rewritten with a UTF-16LE BOM in front of it.** The
+ * destination cursor advances by `2 + len` while the source advances by
+ * `2 + len` as well -- two bytes of length prefix in, two bytes of BOM out --
+ * so the two stay in step by coincidence of the same number, not by design.
+ * A zero-length string still gets its BOM and still costs two bytes.
+ *
+ * That is the third place the FF FE prefix appears: limeUC writes it, getToken
+ * skips it, and this loader bakes it into every string the game ships. Anything
+ * reading `LanguageTextPtrs[i]` gets a pointer AT the BOM, not past it.
+ *
+ * The size of the payload allocation is `fileSize - header[0]`, which is the
+ * file minus its own header field -- not minus the eight bytes actually
+ * consumed before the first string. The two differ unless header[0] is 8, and
+ * nothing here says it is.
+ *
+ * The raw file is freed at the end; the payload it was copied into is not.
+ */
+void LoadTextData(const char *file)
+{
+    long size = limeFileSize(file);
+    const unsigned char *data = (const unsigned char *)limeLoadFile(file);
+    const unsigned char *src;
+    char *dst;
+    long count, i;
+
+    count = (short)(data[6] | (data[7] << 8));
+
+    LanguageTextData = (char *)limeMalloc("languagedata",
+                                          size - (short)(data[0] | (data[1] << 8)));
+    LanguageTextPtrs = (char **)limeMalloc("languagetextptrs", count * 4);
+
+    printf("Num Text strings Loading: %d\n", (int)count);
+
+    src = data + 8;
+    dst = LanguageTextData;
+
+    for (i = 0; i < count; i++) {
+        long len = src[0] | (src[1] << 8);
+        long k;
+
+        src += 2;
+
+        LanguageTextPtrs[i] = dst;
+        dst[0] = (char)0xFF;            /* the BOM, again */
+        dst[1] = (char)0xFE;
+
+        for (k = 0; k < len; k++)
+            dst[2 + k] = (char)src[k];
+
+        src += len;
+        dst += len + 2;
+    }
+
+    limeFree((void *)data);
+}
