@@ -1344,3 +1344,188 @@ void RenderAnimatedCharacter(char *name, ANIMATEDCHARACTER *c,
 
     glPopMatrix();
 }
+
+
+/* ### The animation history rings, and they tile PLAYER exactly
+ *
+ * This function establishes a block of PLAYER that nothing else had named.
+ * Three parallel 64-entry rings, indexed by `cursor & 0x3f`, laid end to end:
+ *
+ *      +0x018  long  frame[64]          64 * 4   = 256 bytes -> +0x118
+ *      +0x118  float pos[64][3]         64 * 12  = 768 bytes -> +0x418
+ *      +0x418  long  flag[64]           64 * 4   = 256 bytes -> +0x518
+ *      +0x518  long  cursor             the write position
+ *      +0x51c  long  frameA             the two frames being blended
+ *      +0x520  long  frameB
+ *      +0x524  float t                  and the blend factor
+ *
+ * Every boundary lands exactly on the next field, so the layout is not
+ * inferred -- the three sizes have to be 64 entries for +0x518 to be where the
+ * cursor is. `-1` in a frame slot means "not yet written".
+ */
+#define ANIMHIST_ENTRIES  64
+
+/* IsLiaProblem and IsOstrichProblem are defined above. */
+void LerpVector3(const float *a, const float *b, float t, float *out);
+
+
+/* -------------------------------------------------------- PlayerAutoSmoothAnims
+ *
+ * armv7 0x0005bb44, 656 bytes.  **Complete.**
+ *
+ * Interpolates the fighter's pose between recorded history frames, so the
+ * animation plays back smoothly at a rate the source frames do not have.
+ * Called every frame from `AnimateFECharacters`,
+ * `UpdateIntroCharacterPlayers` and `RenderAnimatedCharacter`'s callers, each
+ * of which borrows `_AnimSmoothWindowSize` around the call.
+ *
+ * Each call first records the present: current frame, current position and the
+ * flag at +0x540 go into the three rings at `cursor & 0x3f`.
+ *
+ * ### It plays back DELAYED, by exactly the smoothing window
+ *
+ * The sample point is `cursor - AnimSmoothWindowSize`, not `cursor`. So the
+ * pose drawn is the one from `window` frames ago -- 40 frames back in the front
+ * end, 20 in the intro. That latency is not a side effect of smoothing; it is
+ * how the function can see both sides of a frame change before deciding how to
+ * blend across it.
+ *
+ * ### Finding the run
+ *
+ * From the sample point it walks **backwards up to 31 entries** and **forwards
+ * up to 63** while the recorded frame id stays the same, which brackets the run
+ * of identical frames the sample sits inside. The midpoint of that run is
+ *
+ *      mid = back + (runLength + 1) * 0.5f
+ *
+ * and which half the sample falls in decides the direction of the blend:
+ *
+ *      first half:   t = 0.5f + 0.5f * (sample - back) / ((run + 1) * 0.5f)
+ *                    LerpVector3(posBefore, posNow, t, p->pos)
+ *
+ *      second half:  t = 0.5f * (sample - mid) / (forward - mid)
+ *                    LerpVector3(posNow, posAfter, t, p->pos)
+ *
+ * So the pose eases from the previous frame's position into the current one
+ * across the first half of a held frame, and out towards the next across the
+ * second. The two `t` ranges meet at 0.5 in the middle -- the first arm ends at
+ * 1.0 and the second begins at 0.0, which is why the source vectors differ
+ * between the arms rather than the factor being continuous.
+ *
+ * ### Four ways to refuse to smooth
+ *
+ * The blend is skipped and both frames set to the same value -- a hard cut --
+ * when any of:
+ *
+ *      the run is longer than the window will reach (`0x3f - window < back`,
+ *          or the forward run is shorter than the window)
+ *      the character is 16 and its frame is between 35 and 41
+ *      `IsLiaProblem(p)` or `IsOstrichProblem(p)`
+ *      any of the 64 frame slots still holds -1 -- the ring is not full yet
+ *
+ * The last one is what stops a freshly loaded character being interpolated
+ * against garbage, and the -1 scan runs over **all 64** entries every call, not
+ * just the ones in the window.
+ *
+ * **The Lia and Ostrich checks run even on the smoothing path**, after the
+ * blend has already been written, and overwrite it with a hard cut. So those
+ * two functions have the last word.
+ *
+ * The 35..41 range is written as one unsigned compare (`frame - 0x23 <= 6`),
+ * the same folding that appears in `RunGameEvents`.
+ */
+void PlayerAutoSmoothAnims(PLAYER *p)
+{
+    long *w = (long *)p;
+    long  cursor = w[0x518 / 4];
+    long  window = AnimSmoothWindowSize;
+    long *frame  = &w[0x018 / 4];               /* the three rings */
+    float *pos   = (float *)&w[0x118 / 4];
+    long *flag   = &w[0x418 / 4];
+    long  sample = cursor - window;
+    long  ring   = sample & 0x3f;
+    long  held, back, fwd, k;
+    long  anyEmpty = 0;
+    int   hardCut;
+    float posBefore[3], posNow[3], posAfter[3];
+    long  frameBefore, frameAfter;
+    float mid, t;
+
+    frame[cursor & 0x3f] = w[0x14 / 4];
+    pos[(cursor & 0x3f) * 3 + 0] = ((float *)&w[8 / 4])[0];
+    pos[(cursor & 0x3f) * 3 + 1] = ((float *)&w[8 / 4])[1];
+    pos[(cursor & 0x3f) * 3 + 2] = ((float *)&w[8 / 4])[2];
+    flag[cursor & 0x3f] = w[0x540 / 4];
+
+    for (k = 0; k < ANIMHIST_ENTRIES; k++)      /* all 64, every call */
+        if (frame[k] == -1)
+            anyEmpty = 1;
+
+    held = frame[ring];
+
+    back = 0;
+    for (k = sample - 1; frame[k & 0x3f] == held && back < 0x1f; k--)
+        back++;
+    frameBefore = frame[k & 0x3f];
+    posBefore[0] = pos[(k & 0x3f) * 3 + 0];
+    posBefore[1] = pos[(k & 0x3f) * 3 + 1];
+    posBefore[2] = pos[(k & 0x3f) * 3 + 2];
+
+    fwd = 0;
+    {
+        long j;
+        for (j = sample + 1; frame[j & 0x3f] == held && fwd < 0x3f; j++)
+            fwd++;
+        frameAfter = frame[j & 0x3f];
+        posAfter[0] = pos[(j & 0x3f) * 3 + 0];
+        posAfter[1] = pos[(j & 0x3f) * 3 + 1];
+        posAfter[2] = pos[(j & 0x3f) * 3 + 2];
+
+        posNow[0] = ((float *)&w[8 / 4])[0];
+        posNow[1] = ((float *)&w[8 / 4])[1];
+        posNow[2] = ((float *)&w[8 / 4])[2];
+
+        hardCut = (0x3f - window >= back) ? (fwd >= window) : 1;
+
+        if (w[0] == 0x10 && (unsigned long)(w[0x14 / 4] - 0x23) <= 6) {
+            w[0x524 / 4] = 0;
+            w[0x51c / 4] = w[0x14 / 4];
+            w[0x520 / 4] = w[0x14 / 4];
+            hardCut = 1;
+        } else if (!hardCut) {
+            mid = (float)back + ((float)(back + 1 + fwd) + 1.0f) * 0.5f;
+
+            if (mid > (float)sample) {          /* the first half */
+                t = 0.5f + 0.5f * ((float)sample - (float)back)
+                                / (mid - (float)back);
+                w[0x51c / 4] = frameBefore;
+                w[0x520 / 4] = held;
+                ((float *)w)[0x524 / 4] = t;
+                LerpVector3(posBefore, posNow, t, (float *)&w[8 / 4]);
+            } else {                            /* and the second */
+                t = 0.5f * ((float)sample - mid) / ((float)j - mid);
+                w[0x520 / 4] = frameAfter;
+                w[0x51c / 4] = held;
+                ((float *)w)[0x524 / 4] = t;
+                LerpVector3(posNow, posAfter, t, (float *)&w[8 / 4]);
+            }
+            cursor = w[0x518 / 4];
+        }
+    }
+
+    w[0x518 / 4] = cursor + 1;
+
+    /* These two get the last word, even after a blend has been written. */
+    if (IsLiaProblem(p) || IsOstrichProblem(p)) {
+        w[0x51c / 4] = w[0x14 / 4];
+        w[0x520 / 4] = w[0x14 / 4];
+        w[0x524 / 4] = 0;
+        return;
+    }
+
+    if (hardCut || anyEmpty) {
+        w[0x51c / 4] = held;
+        w[0x520 / 4] = held;
+        w[0x524 / 4] = 0;
+    }
+}
