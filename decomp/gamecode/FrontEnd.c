@@ -2901,3 +2901,127 @@ void FE_Task_Multiplayer_Disconnected(void)
         PopFETaskDeferredSelected(0x29a);       /* 666 */
     }
 }
+
+
+extern float  FEObjPos[3];              /* 0x000ff948 */
+extern float  FECamPos[3];              /* 0x000ff954 */
+extern float *CameraLookAt;             /* pointer slot -> 0x0014fa80 */
+extern float  VortexSpin;               /* 0x0010174c */
+extern float  VortexScale;              /* 0x00101754 */
+extern float  TowerBGMatrix[16];        /* 0x0018ed80 */
+extern void  *Vortex1Texture;           /* 0x00183e7c */
+extern void  *Vortex2Texture;           /* 0x00183e80 */
+extern void  *MeshSet_VORTEX1;          /* 0x00183d30 */
+extern void  *MeshSet_VORTEX2;
+extern void  *MeshSet_VORTEX3;
+extern void  *MeshSet_VORTEX4;
+extern void  *MeshSet_VORTEX5;
+
+void LIMEDS_Set3dMode(void);
+void limeEnableDepthTest(void);
+void limeEnableDepthWrites(void);
+void limeDisableDepthTest(void);
+void limeDisableDepthWrites(void);
+void limeEnableAlphaBlending_Basic(void);
+void glPushMatrix(void);
+void glScalef(float x, float y, float z);
+void SetToUseCamera(void);
+void limeEnableAlphaBlending_Additive(void);
+void RotMatrixY(float *m, float angle);
+void RenderAMesh(int a, int b, float *pos, float *m, int flip,
+                 void *t0, void *t1, void *ms, long n);
+
+
+/* ------------------------------------------------------------- DrawVortex3D
+ *
+ * armv7 0x000078d8, 580 bytes.  **Complete.**
+ *
+ * The tower background: **five nested vortex meshes, all spinning at different
+ * rates around Y**, drawn additively with no depth.
+ *
+ *      VortexSpin += 0.01 / limeFPSScaleFactor     <- frame-rate independent
+ *
+ *      layer 1   VORTEX1  Vortex1Texture   spin * 1.0
+ *      layer 2   VORTEX2  Vortex2Texture   spin * 1.1
+ *      layer 3   VORTEX3  Vortex1Texture   spin * 1.2
+ *      layer 4   VORTEX4  Vortex2Texture   spin * 1.3
+ *      layer 5   VORTEX5  Vortex1Texture   spin * 1.4
+ *
+ * Five multipliers, four of them double-precision literals in the pool, and the
+ * two textures alternate. The staggered rates are the whole effect -- give them
+ * all the same multiplier and the five shells lock together into one shape.
+ *
+ * The camera is placed by hand first: `FEObjPos` and `FECamPos` are both zeroed
+ * and `CameraLookAt` is set to `FECamPos` with **+1.0 on Y**, so the view looks
+ * slightly up from the origin. `LIMEDS_Set3dMode` and `SetToUseCamera` bracket
+ * that.
+ *
+ * Depth test and depth writes are enabled and then immediately **disabled**
+ * again before the draws -- four calls where two would do. Transcribed; the net
+ * state is what matters and it is depth off, additive on.
+ *
+ * ### glPushMatrix with no glPopMatrix
+ *
+ * There is exactly one `glPushMatrix` in this function and **no matching pop**
+ * -- confirmed by counting both across the whole disassembly, not by reading
+ * past the end. On a screen redrawn every frame that walks the GL matrix stack
+ * until it overflows, after which the push silently fails and `glScalef`
+ * compounds onto whatever is current instead.
+ *
+ * It is invisible in the shipped game for one reason: `_VortexScale` is
+ * **exactly 1.0**, so the scale that leaks is the identity and compounding it
+ * changes nothing. Any port that gives that global a different value inherits a
+ * vortex that grows or shrinks without bound.
+ *
+ * Transcribed as written, with the pop left out, because adding one changes
+ * behaviour in a way nothing here justifies -- but a port should add it
+ * deliberately and say so.
+ *
+ * Blending is restored to basic on the way out; the depth state is not.
+ */
+void DrawVortex3D(void)
+{
+    FEObjPos[0] = FEObjPos[1] = FEObjPos[2] = 0.0f;
+    FECamPos[0] = FECamPos[1] = FECamPos[2] = 0.0f;
+
+    LIMEDS_Set3dMode();
+    limeEnableDepthTest();
+    limeEnableDepthWrites();
+
+    VortexSpin = (float)((double)VortexSpin
+                         + 0.01 / (double)limeFPSScaleFactor);
+
+    CameraLookAt[0] = FECamPos[0];
+    CameraLookAt[2] = FECamPos[2];
+    CameraLookAt[1] = FECamPos[1] + 1.0f;
+
+    SetToUseCamera();
+    limeEnableAlphaBlending_Additive();
+    limeDisableDepthTest();
+    limeDisableDepthWrites();
+
+    glPushMatrix();                     /* never popped -- see above */
+    glScalef(VortexScale, VortexScale, VortexScale);
+
+    RotMatrixY(TowerBGMatrix, VortexSpin);
+    RenderAMesh(0, 0, FEObjPos, TowerBGMatrix, 0,
+                Vortex1Texture, 0, MeshSet_VORTEX1, 0);
+
+    RotMatrixY(TowerBGMatrix, (float)((double)VortexSpin * 1.1));
+    RenderAMesh(0, 0, FEObjPos, TowerBGMatrix, 0,
+                Vortex2Texture, 0, MeshSet_VORTEX2, 0);
+
+    RotMatrixY(TowerBGMatrix, (float)((double)VortexSpin * 1.2));
+    RenderAMesh(0, 0, FEObjPos, TowerBGMatrix, 0,
+                Vortex1Texture, 0, MeshSet_VORTEX3, 0);
+
+    RotMatrixY(TowerBGMatrix, (float)((double)VortexSpin * 1.3));
+    RenderAMesh(0, 0, FEObjPos, TowerBGMatrix, 0,
+                Vortex2Texture, 0, MeshSet_VORTEX4, 0);
+
+    RotMatrixY(TowerBGMatrix, (float)((double)VortexSpin * 1.4));
+    RenderAMesh(0, 0, FEObjPos, TowerBGMatrix, 0,
+                Vortex1Texture, 0, MeshSet_VORTEX5, 0);
+
+    limeEnableAlphaBlending_Basic();
+}
