@@ -60,7 +60,13 @@ extern int RenderSettings[2];           /* 0x001ab678, two words */
  * 0x000f357c holding 0x0038c1fc, which is exactly where other.c independently
  * places `G`. Only the one field this file reads is named. */
 typedef struct GAMESTATE {
-    uint8_t _pad000[0x44e];
+    uint8_t _pad000[0x368];
+    /* The two health BARS, and they are the health scaled by 1.66 -- see
+     * ResetFightData, which writes 166/83/41 beside health 100/50/25 and
+     * computes the survival one as `Health[0] * 166 / 100`. */
+    long    healthBar1;                 /* 0x368 */
+    long    healthBar2;                 /* 0x36c */
+    uint8_t _pad370[0x44e - 0x370];
     int16_t field44e;                   /* 0x44e  ldrsh, normalised to 0 or 1 */
 } GAMESTATE;
 extern GAMESTATE *G;                    /* 0x0038c1fc */
@@ -5777,4 +5783,222 @@ void Task_GameInit(void)
         puts("\n#############################\n"
              "TREASURE PLAY IN DARK KOBAT MODE!");
     }
+}
+
+
+/* ------------------------------------------------------------- ResetFightData
+ *
+ * armv7 0x0002270c, 1364 bytes.  **Complete.**
+ *
+ * Puts every per-fight global back to its starting value. Most of it is a flat
+ * list of zeroes; the interesting parts are the two places where it is not.
+ *
+ * ### G+0x368 and G+0x36c are health x 1.66
+ *
+ * Every kode branch writes a pair of numbers into the game state alongside the
+ * health it sets:
+ *
+ *      health 100 -> 0xa6 = 166
+ *      health  50 -> 0x53 =  83
+ *      health  25 -> 0x29 =  41
+ *
+ * and the survival branch computes its one directly:
+ *
+ *      G->healthBar1 = Health[0] * 166 / 100
+ *
+ * 166, 83 and 41.5-truncated-to-41. **The two words are the health scaled by
+ * 1.66**, which is the bar length -- 100 health drawn across 166 units. Five
+ * independently written constants and one open-coded multiply all agreeing is
+ * what settles it; from any one branch alone they are just numbers.
+ *
+ * ### Survival carries health between fights, and rescales it
+ *
+ *      SurvivalHealth = Health[0]          // whatever the last fight left
+ *      if (SurvivalStage > 0 || Round != 0)
+ *          G->healthBar1 = Health[0] * 166 / 100;
+ *      else
+ *          SurvivalHealth = Health[0] = 100;
+ *
+ * `Health[0]` is read **before** it is set, so it is the carry-over. Only the
+ * very first round of the very first stage resets it. Note the bar is rescaled
+ * from the carried health but `Health[0]` itself is left alone -- the fight
+ * starts with the bar already short.
+ *
+ * ### Four handicap kodes, which are really two
+ *
+ *      0x13   both players to 1 health          (one hit kills)
+ *      0x0d   100 against 50
+ *      0x0e   100 against 25
+ *      0x0f   100 against 50   -- identical to 0x0d in every branch
+ *      0x10   100 against 25   -- 0x0e with the two sides SWAPPED
+ *
+ * Which player gets the short bar is decided by two network predicates:
+ *
+ *      0x0d, 0x0e, 0x0f    player 1 gets the big bar when
+ *                          isParent() != isParentBasedOnSpeed()
+ *      0x10                player 1 gets the big bar when
+ *                          isParent() == isParentBasedOnSpeed()
+ *
+ * So `0x0d` and `0x0f` are byte-for-byte the same handicap under two different
+ * kodes, and `0x10` is `0x0e` with the sides reversed. Whether the reversal is
+ * the point of the kode or a slip is not established -- what is established is
+ * that it is the only one of the four whose side rule differs.
+ *
+ * Using two predicates rather than one is how both machines in a network game
+ * reach the same answer without exchanging anything: `isParent` is the session
+ * role and `isParentBasedOnSpeed` is derived from the measured link, and their
+ * agreement or disagreement is a value both ends compute identically.
+ *
+ * ### The babality bounce table
+ *
+ *      BabalityVel[0..7]    = 0
+ *      BabalityHeight[0..7] = { 288, 256, 272, 256, 288, 272, 256, 288 }
+ *
+ * Eight entries each, written out one store at a time and deliberately out of
+ * order in the original. Three distinct heights in a repeating pattern -- the
+ * bounce is authored, not simulated.
+ */
+extern long  RunBar[2];                 /* 0x0014fa6c */
+extern long  FlawlessCounter;           /* 0x0014fb48 */
+extern long  FlawlessMessage;           /* 0x0014fb4c */
+extern long  DangerMessage[2];          /* 0x0014e23c */
+extern long  RoundMessage;              /* 0x0014e250 */
+extern long  lightsOn;                  /* 0x0010decc */
+extern uint8_t WinnerMessage[2];        /* 0x0014faa8, two BYTES */
+extern long  RoundHasEnded;             /* 0x0014e248 */
+extern long  FinishHimHer;              /* 0x0014e24c */
+extern long  RoundHasEndedStatsUpdated; /* 0x0014e244 */
+extern long  DoneSmashEffect;           /* 0x0010ded4 */
+extern float BabalityVel[8];            /* 0x001f4104 */
+extern float BabalityHeight[8];         /* 0x001f4124 */
+extern long  MercyMessage;              /* 0x0014fb40 */
+extern long  MercyMessageCounter;       /* 0x0014fb44 */
+extern long  BabalityMessageG;          /* 0x0014fb28 */
+extern long  AnimalityMessageG;         /* 0x0014fb2c */
+extern long  FatalityMessageG;          /* 0x0014fb30 */
+extern long  FriendshipMessageG;        /* 0x0014fb34 */
+extern long  AnimalityMessageCounter;   /* 0x0014fb38 */
+extern long  FatalityMessageCounter;    /* 0x0014fb3c */
+extern long  DoingStageFatal;           /* 0x0010dee0 */
+extern long  DoingStageFatalBringForward;   /* 0x0010dee4 */
+extern long  sindelFlying;              /* 0x0014dff8 */
+extern long  DoingSKDeath;              /* 0x0010deb8 */
+extern long  SKDeathMessageOffset;      /* 0x0010debc */
+extern long  opponentPerformedMercy;    /* 0x0010dea4 */
+extern long *SurvivalStageP2;           /* pointer slot -> 0x000ff980 */
+
+void checkIfKode(void);
+int  isParent(void);
+int  isParentBasedOnSpeed(void);
+
+/* The kode handicaps. `p1Big` says which side gets the long bar; the bar
+ * lengths are the health scaled by 1.66, which is why they arrive as a pair. */
+static void SetKodeHandicap(long bigHp, long bigBar,
+                            long smallHp, long smallBar, int p1Big)
+{
+    if (p1Big) {
+        G->healthBar1 = bigBar;
+        Health[0]     = (int)bigHp;
+        G->healthBar2 = smallBar;
+        Health[1]     = (int)smallHp;
+    } else {
+        G->healthBar1 = smallBar;
+        Health[0]     = (int)smallHp;
+        G->healthBar2 = bigBar;
+        Health[1]     = (int)bigHp;
+    }
+}
+
+void ResetFightData(void)
+{
+    long i;
+
+    if (GameMode == 4) {
+        /* Survival: Health[0] is read BEFORE it is set -- the carry-over. */
+        *SurvivalHealth = Health[0];
+
+        if (*SurvivalStageP2 > 0 || Round != 0)
+            G->healthBar1 = Health[0] * 166 / 100;
+        else
+            *SurvivalHealth = Health[0] = 100;
+    } else {
+        Health[0] = 100;
+    }
+
+    RunBar[0] = 100;
+    RunBar[1] = 100;
+    Health[1] = 100;
+    BGSceneFrame[0] = 0.0f;
+    BGSceneFrame[1] = 0.0f;
+
+    checkIfKode();
+
+    if (*theKode == 0x13) {
+        Health[0] = 1;
+        Health[1] = 1;
+        G->healthBar1 = 1;
+        G->healthBar2 = 1;
+    } else if (*theKode == 0x0d) {
+        SetKodeHandicap(100, 0xa6, 50, 0x53,
+                        isParent() != isParentBasedOnSpeed());
+    } else if (*theKode == 0x0e) {
+        SetKodeHandicap(100, 0xa6, 25, 0x29,
+                        isParent() != isParentBasedOnSpeed());
+    } else if (*theKode == 0x0f) {
+        SetKodeHandicap(100, 0xa6, 50, 0x53,
+                        isParent() != isParentBasedOnSpeed());
+    } else if (*theKode == 0x10) {
+        /* The one whose side rule is inverted -- see the header. */
+        SetKodeHandicap(100, 0xa6, 25, 0x29,
+                        isParent() == isParentBasedOnSpeed());
+    }
+
+    FlawlessCounter  = 0;
+    FlawlessMessage  = 0;
+    DangerMessage[0] = 0;
+    DangerMessage[1] = 0;
+    RoundMessage     = 0;
+    lightsOn         = 0;
+
+    GameTime     = 99.0f;
+    ClockTens    = 9;
+    ClockSingles = 9;
+
+    RoundSummaryTime = 0;
+
+    WinnerMessage[0] = 0;
+    WinnerMessage[1] = 0;
+
+    RoundHasEnded             = 0;
+    FinishHimHer              = 0;
+    RoundHasEndedStatsUpdated = 0;
+    DoneSmashEffect           = 0;
+
+    for (i = 0; i < 8; i++)
+        BabalityVel[i] = 0.0f;
+
+    BabalityHeight[0] = 288.0f;
+    BabalityHeight[1] = 256.0f;
+    BabalityHeight[2] = 272.0f;
+    BabalityHeight[3] = 256.0f;
+    BabalityHeight[4] = 288.0f;
+    BabalityHeight[5] = 272.0f;
+    BabalityHeight[6] = 256.0f;
+    BabalityHeight[7] = 288.0f;
+
+    MercyMessage            = 0;
+    MercyMessageCounter     = 0;
+    BabalityMessageG        = 0;
+    AnimalityMessageG       = 0;
+    FatalityMessageG        = 0;
+    FriendshipMessageG      = 0;
+    AnimalityMessageCounter = 0;
+    FatalityMessageCounter  = 0;
+
+    DoingStageFatal             = 0;
+    DoingStageFatalBringForward = 0;
+    sindelFlying                = 0;
+    DoingSKDeath                = 0;
+    SKDeathMessageOffset        = 0;
+    opponentPerformedMercy      = 0;
 }
