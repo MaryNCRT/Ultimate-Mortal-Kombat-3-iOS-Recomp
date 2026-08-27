@@ -130,7 +130,7 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ## Progreso general
 
 ```
-███████████████████░░░░░░░░░░░░░░░░░░░░░  48,34%
+███████████████████░░░░░░░░░░░░░░░░░░░░░  48,40%
 ```
 
 | Área | Peso | Hecho | |
@@ -139,12 +139,12 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 | Herramientas y el oráculo de verificación | 8% | 100% | `██████████` |
 | Especificaciones de los formatos de assets | 8% | 100% | `██████████` |
 | `lime/common` — núcleo del motor (109 fn) | 12% | **100%** | `██████████` |
-| `gamecode` — lógica de juego (291 fn) | 18% | 81,10% (236) | `████████░░` |
+| `gamecode` — lógica de juego (291 fn) | 18% | 81,44% (237) | `████████░░` |
 | `gamecode/logic` — motor de combate (2.172 fn) | 28% | 0,14% (3) | `░░░░░░░░░░` |
 | Capa de plataforma PC nativa (161 fn a reescribir) | 17% | 10% | `█░░░░░░░░░` |
 | Stubs del EA SDK (~1.412 fn) | 5% | 0% | `░░░░░░░░░░` |
 
-**48,34% del esfuerzo total estimado. Todavía no hay nada jugable.**
+**48,40% del esfuerzo total estimado. Todavía no hay nada jugable.**
 
 **Las tres filas del medio se cuentan; el resto son estimaciones.**
 `tools/progress.py` lee el árbol en cada ejecución para `lime/common`,
