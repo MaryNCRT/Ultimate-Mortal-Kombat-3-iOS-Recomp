@@ -39,7 +39,11 @@ def written():
                 continue
             m = re.match(r"^[A-Za-z_][A-Za-z0-9_ \t\*]*?([A-Za-z_]\w*)\s*\(", line)
             if m:
+                # Both forms -- see the same fix in tools/progress.py. `plain`
+                # strips leading underscores off the symbol, so a definition
+                # that keeps them would never match.
                 done.add(m.group(1))
+                done.add(m.group(1).lstrip("_"))
     return done
 
 

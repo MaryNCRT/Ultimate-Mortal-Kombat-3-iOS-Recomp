@@ -89,8 +89,17 @@ def defined_functions(root):
                 continue
             text = io.open(os.path.join(dirpath, fn),
                            encoding="utf-8", errors="ignore").read()
-            names |= set(re.findall(
-                r'^[A-Za-z_][\w \*]*?\**\s*(\w+)\s*\([^;]*\)\s*\{', text, re.M))
+            for n in re.findall(
+                    r'^[A-Za-z_][\w \*]*?\**\s*(\w+)\s*\([^;]*\)\s*\{',
+                    text, re.M):
+                # Both forms. `plain_name` strips leading underscores off the
+                # SYMBOL, so a C definition that keeps them -- as
+                # `__GLOBAL__I_InGameLevelSelect` must, because that is its real
+                # name -- would never match and the function would be counted as
+                # outstanding forever. One function, silently undercounted, in a
+                # tool whose whole job is not to be silently wrong.
+                names.add(n)
+                names.add(n.lstrip("_"))
     return names
 
 
