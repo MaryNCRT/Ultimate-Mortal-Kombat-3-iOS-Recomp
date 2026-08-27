@@ -1640,3 +1640,63 @@ void Task_FEInit(void)
             break;
     }
 }
+
+
+typedef struct MESHSETINFO MESHSETINFO;
+void LIME_FreeMeshSet(void *set);
+
+/* The front end's own meshsets, sixteen of them, consecutive from 0x00183d1c
+ * at four bytes apart -- one pointer each. */
+extern void *MeshSet_VS_BRICK;
+extern void *MeshSet_SINGLEBRICK;
+extern void *MeshSet_PLAYERFACE;
+extern void *MeshSet_OPPONENTFACE;
+extern void *MeshSet_FLOOR;
+extern void *MeshSet_VORTEX1;
+extern void *MeshSet_VORTEX2;
+extern void *MeshSet_VORTEX3;
+extern void *MeshSet_VORTEX4;
+extern void *MeshSet_VORTEX5;
+extern void *MeshSet_SPIRAL;
+extern void *MeshSet_LIGHTNING1;
+extern void *MeshSet_LIGHTNING2;
+extern void *MeshSet_LIGHTNING3;
+extern void *MeshSet_LIGHTNING4;
+extern void *MeshSet_LIGHTNING5;
+
+
+/* ---------------------------------------------------------- DestroyFEMeshSets
+ *
+ * armv7 0x0001b114, 232 bytes.  **Complete.**
+ *
+ * Sixteen calls to LIME_FreeMeshSet, one per front-end meshset, written out
+ * rather than looped -- and the globals ARE consecutive, four bytes apart from
+ * 0x00183d1c, so a loop was available and the compiler was not asked for one.
+ *
+ * **None of the pointers is cleared afterwards.** Every one is loaded, passed,
+ * and left holding its freed address. So calling this twice is a double free
+ * unless something else nulls them, and nothing in this function does.
+ *
+ * That is transcribed as written rather than made safe. A port that adds the
+ * clears changes what a second call does, and if the game relies on this being
+ * called exactly once, the clears hide a bug rather than fixing one.
+ */
+void DestroyFEMeshSets(void)
+{
+    LIME_FreeMeshSet(MeshSet_VS_BRICK);
+    LIME_FreeMeshSet(MeshSet_SINGLEBRICK);
+    LIME_FreeMeshSet(MeshSet_PLAYERFACE);
+    LIME_FreeMeshSet(MeshSet_OPPONENTFACE);
+    LIME_FreeMeshSet(MeshSet_FLOOR);
+    LIME_FreeMeshSet(MeshSet_VORTEX1);
+    LIME_FreeMeshSet(MeshSet_VORTEX2);
+    LIME_FreeMeshSet(MeshSet_VORTEX3);
+    LIME_FreeMeshSet(MeshSet_VORTEX4);
+    LIME_FreeMeshSet(MeshSet_VORTEX5);
+    LIME_FreeMeshSet(MeshSet_SPIRAL);
+    LIME_FreeMeshSet(MeshSet_LIGHTNING1);
+    LIME_FreeMeshSet(MeshSet_LIGHTNING2);
+    LIME_FreeMeshSet(MeshSet_LIGHTNING3);
+    LIME_FreeMeshSet(MeshSet_LIGHTNING4);
+    LIME_FreeMeshSet(MeshSet_LIGHTNING5);
+}
