@@ -2539,3 +2539,110 @@ void Task_LoadSplashScreen(void)
 
     SplashCount++;
 }
+
+
+/* `GameObjects` and `limeScreenWidth` are declared above. */
+extern long  AverageFPSCount;           /* 0x0014e1d0 */
+extern float AverageFPS;                /* 0x0014e1d4 */
+extern float DisplayAverageFPS;         /* 0x0014e1d8 */
+extern long  ToggleDebug;               /* 0x00150588 */
+extern long  AIOn;                      /* 0x0014e1f4 */
+extern long  SpeedNormal;               /* 0x0014e1f8 */
+extern long  JoystickState;             /* 0x0014febc */
+extern float *limeFPS;                  /* pointer slot */
+extern long  *limeRenderedPolyCount;    /* pointer slot */
+extern void  *NameFont;                 /* 0x001c3bf4 */
+extern float  fontcol[];                /* 0x0014f9f0 */
+extern char   str[];                    /* 0x001f3cac, the shared scratch buffer */
+
+int  sprintf(char *dst, const char *fmt, ...);
+void limeDrawFONT(void *font, const char *text, float x, float y,
+                  long align, float scale, const float *colour);
+
+
+/* -------------------------------------------------------------- ShowDebugInfo
+ *
+ * armv7 0x0001db84, 572 bytes.  **Complete.**
+ *
+ * The developer overlay, and it shipped: poly count, joystick bits, AI mode and
+ * game speed drawn over the fight in `_NameFont`.
+ *
+ * ### The FPS average runs even when the overlay is off
+ *
+ *      AverageFPS += limeFPS
+ *      if (++AverageFPSCount == 10) {
+ *          DisplayAverageFPS = AverageFPS / 10
+ *          AverageFPSCount = 0
+ *          AverageFPS = 0
+ *      }
+ *      if (!ToggleDebug) return
+ *
+ * The accumulation happens **before** the `ToggleDebug` check, so
+ * `_DisplayAverageFPS` is correct the moment the overlay is switched on rather
+ * than needing ten frames to settle. That ordering is the only reason the
+ * number is not garbage on the first frame.
+ *
+ * The whole function returns immediately if `_GameObjects` is null -- so the
+ * average does not accumulate outside a fight either.
+ *
+ * **Ten frames, hardcoded**, and the divisor is the `vmov.f32 s12, #10.0`
+ * immediate rather than a constant anywhere in the data.
+ *
+ * ### What it draws
+ *
+ *      "Poly Count %d  Joy: %d"    at FE_Y(96),  left,  size 8
+ *      "AI: Human vs Human"        at FE_Y(112)          AIOn == 0
+ *      "AI: Human vs CPU"                                AIOn == 1
+ *      "AI: CPU vs CPU"                                  AIOn == 2
+ *      "Speed: Normal"             at FE_Y(96),  right   SpeedNormal != 0
+ *      "Speed: Slow-mo"                                  SpeedNormal == 0
+ *
+ * The two speed lines are right-aligned (`align` 2) at
+ * `limeScreenWidth - 8`, and **-8 is a raw pixel inset with no scaler on it** --
+ * the same shape as the leaderboard's unscaled left margin and the dial's
+ * unscaled P2 radius. Three separate places where one dimension of a pair is
+ * scaled and the other is not.
+ *
+ * `_str` at 0x001f3cac is a shared scratch buffer and `sprintf` is unbounded,
+ * which is normal for this tree.
+ */
+void ShowDebugInfo(void)
+{
+    if (GameObjects == 0)
+        return;
+
+    AverageFPSCount++;
+    AverageFPS += *limeFPS;
+
+    if (AverageFPSCount == 10) {
+        DisplayAverageFPS = AverageFPS / 10.0f;
+        AverageFPSCount   = 0;
+        AverageFPS        = 0.0f;
+    }
+
+    if (ToggleDebug == 0)
+        return;                         /* the average has already been kept */
+
+    sprintf(str, "Poly Count %d  Joy: %d",
+            (int)*limeRenderedPolyCount, (int)JoystickState);
+    limeDrawFONT(NameFont, str, 8.0f, (float)FE_Y(96.0f), 0, 1.0f, fontcol);
+
+    if (AIOn == 2)
+        limeDrawFONT(NameFont, "AI: CPU vs CPU", 8.0f, (float)FE_Y(112.0f),
+                     0, 1.0f, fontcol);
+    else if (AIOn == 1)
+        limeDrawFONT(NameFont, "AI: Human vs CPU", 8.0f, (float)FE_Y(112.0f),
+                     0, 1.0f, fontcol);
+    else
+        limeDrawFONT(NameFont, "AI: Human vs Human", 8.0f, (float)FE_Y(112.0f),
+                     0, 1.0f, fontcol);
+
+    if (SpeedNormal != 0)
+        limeDrawFONT(NameFont, "Speed: Normal",
+                     (float)(limeScreenWidth - 8), (float)FE_Y(96.0f),
+                     2, 1.0f, fontcol);
+    else
+        limeDrawFONT(NameFont, "Speed: Slow-mo",
+                     (float)(limeScreenWidth - 8), (float)FE_Y(96.0f),
+                     2, 1.0f, fontcol);
+}
