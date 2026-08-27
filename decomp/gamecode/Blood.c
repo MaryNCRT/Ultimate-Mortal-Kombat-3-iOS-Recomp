@@ -184,3 +184,169 @@ void PlayFatalityVoice(void)
     else
         limePlayTune("Fatal2.mp3", vol, mercy);
 }
+
+
+extern int   Settings[10];              /* 0x00100e34 */
+extern float *MusicVol;                 /* pointer slot -> 0x000ff830 */
+extern long  *PLAYER1MODEL;             /* pointer slot -> 0x0014e1b4 */
+extern long  *PLAYER2MODEL;             /* pointer slot */
+
+typedef struct Mk3Obj_t Mk3Obj_t;
+
+void ArcadePosTo3dPos(Mk3Obj_t *obj, float *out, const signed char *who);
+void CalcShakeOffset(long magnitude);
+long get_tsound(long id);
+void limePlaySound(long id, float vol, float pan, long flags);
+void limeSetVibrate(void);
+
+
+/* ------------------------------------------------------------- RunGameEvents
+ *
+ * armv7 0x000730c4, 484 bytes.  **Complete.**
+ *
+ * Runs the sixteen-slot event pool once a frame. A slot with `active == 0` or a
+ * negative type is skipped; a type above 12 is skipped unless it is exactly 13.
+ *
+ * ### Types 0..12: blood, and which colour depends on the MODEL
+ *
+ * The position comes from `ArcadePosTo3dPos(obj, &event[0x0c], NULL)` and the
+ * direction from `obj->flags & 0x10` -- **+1 or -1**, the same flag bit that
+ * chooses the sign of the X offset in that conversion.
+ *
+ * The colour is chosen from the fighter's model id, read through
+ * `PLAYER1MODEL` or `PLAYER2MODEL` depending on a signed byte at `obj + 0xd`:
+ *
+ *      model 7, 8 or 14   ->  DoBlackBlood
+ *      model 11 or 19     ->  DoGreenBlood
+ *      anything else      ->  DoBlood
+ *
+ * Those five ids are the robots and the reptilian characters, and they are
+ * hardcoded here rather than carried in the player definition. The `7` and `8`
+ * arrive as a range test (`(unsigned)(model - 7) <= 1`), which is the compiler
+ * folding two comparisons, not a range in the data.
+ *
+ * All three are called with `z + 1.5f` -- the spray starts above the hit.
+ *
+ * **`Settings[0]` gates the blood entirely.** With it clear the event still
+ * ages and still expires; nothing is drawn. So a port must not skip the
+ * decrement along with the drawing.
+ *
+ * The hit sound is `get_tsound(0x22)` at `MusicVol[Settings[3]] / 100.0f`, and
+ * only when `Settings[3]` is non-zero -- the same volume-index-into-a-float-
+ * table that `PlayFatalityVoice` uses.
+ *
+ * ### Type 7 nudges the position first
+ *
+ *      x -= 0.765625f
+ *      z -= 1.59375f
+ *
+ * then falls into the ordinary blood path. Two odd literals, both exact in
+ * binary (49/64 and 51/32), so they were typed as decimals that happen to be
+ * representable rather than tuned by ear.
+ *
+ * ### Type 13 is the screen shake
+ *
+ * A three-frame oscillator:
+ *
+ *      if (++event[0x2c] == 3) {
+ *          event[0x2c] = 0;
+ *          event[0x28]--;              <- shakes remaining
+ *          event[0x24] = -event[0x24]; <- flip the offset
+ *      }
+ *      if (shakes remaining == 0) { CalcShakeOffset(0); event->active = 0; }
+ *      else { CalcShakeOffset(event[0x24]); if (Settings[1]) limeSetVibrate(); }
+ *
+ * **The magnitude is negated, not recomputed**, so the shake alternates around
+ * zero at exactly one third of the frame rate and ends by calling
+ * `CalcShakeOffset(0)` -- it always leaves the camera centred rather than
+ * wherever the last flip put it.
+ *
+ * `Settings[1]` is the vibration toggle, and it is checked per shake frame
+ * rather than once.
+ *
+ * ### Expiry
+ *
+ * Every non-shake type decrements `event[0x24]` and frees the slot when it goes
+ * **below** zero -- so a lifetime of 0 still runs one more frame.
+ */
+void RunGameEvents(void)
+{
+    GAMEEVENT *e = GameEvents;
+    long *w;
+
+    for (;;) {
+        w = (long *)e;
+
+        if (w[0] == 0)
+            goto next;
+
+        if (w[1] < 0)
+            goto next;
+
+        if (w[1] > 12) {
+            if (w[1] != 13)
+                goto next;
+
+            /* the screen shake */
+            w[0x2c / 4]++;
+            if (w[0x2c / 4] == 3) {
+                w[0x2c / 4] = 0;
+                w[0x28 / 4]--;
+                w[0x24 / 4] = -w[0x24 / 4];
+            }
+
+            if (w[0x28 / 4] == 0) {
+                CalcShakeOffset(0);
+                w[0] = 0;               /* always ends centred */
+            } else {
+                CalcShakeOffset(w[0x24 / 4]);
+                if (Settings[1] != 0)
+                    limeSetVibrate();
+            }
+            goto next;
+        }
+
+        {
+            Mk3Obj_t *obj = (Mk3Obj_t *)(uintptr_t)(unsigned long)w[2];
+            float *pos = (float *)&w[0x0c / 4];
+            long dir = (((const unsigned short *)obj)[5] & 0x10) ? 1 : -1;
+            long model;
+
+            ArcadePosTo3dPos(obj, pos, 0);
+
+            if (w[1] == 7) {
+                pos[0] -= 0.765625f;    /* 49/64, exact */
+                pos[2] -= 1.59375f;     /* 51/32, exact */
+            }
+
+            if (Settings[0] == 0)
+                goto expire;            /* the event still ages */
+
+            model = (((const signed char *)obj)[0xd] == 0)
+                    ? *PLAYER1MODEL : *PLAYER2MODEL;
+
+            if (model == 14 || (unsigned long)(model - 7) <= 1)
+                DoBlackBlood(pos[0], pos[1], pos[2] + 1.5f, dir);
+            else if (model == 19 || model == 11)
+                DoGreenBlood(pos[0], pos[1], pos[2] + 1.5f, dir);
+            else
+                DoBlood(pos[0], pos[1], pos[2] + 1.5f, dir);
+
+            if (Settings[3] != 0) {
+                long s = get_tsound(0x22);
+                if (s != -1)
+                    limePlaySound(s, MusicVol[Settings[3]] / 100.0f, 1.0f, 0);
+            }
+        }
+
+    expire:
+        w[0x24 / 4]--;
+        if (w[0x24 / 4] < 0)
+            w[0] = 0;                   /* below zero, not at it */
+
+    next:
+        if (e == &GameEvents[GAME_EVENT_SLOTS - 1])
+            return;
+        e++;
+    }
+}
