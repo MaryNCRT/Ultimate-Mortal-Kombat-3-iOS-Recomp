@@ -193,7 +193,7 @@ void PreloadGameCharacters(const EPLAYER *list, long arg)
 #define FE_CHARACTER_STRIDE 0x668
 
 typedef struct ANIMATEDCHARACTER ANIMATEDCHARACTER;
-void FreeAnimatedCharacter(ANIMATEDCHARACTER *c);
+int  FreeAnimatedCharacter(ANIMATEDCHARACTER *c);
 void LIME_FreeScene(void *scene);
 
 extern char TheFECharacters[FE_CHARACTER_SLOTS][FE_CHARACTER_STRIDE];  /* 0x0020e634 */
@@ -575,4 +575,97 @@ void GenerateFrameVertsBySkinningSKIN2(ANIMATEDCHARACTER *c, long a, long b,
     DrawSkinnedMesh2(*(SKININFO **)w[0x30 / 4], 0, 0, 0, out,
                      RenderUVs, RenderRGBs,
                      ((const long *)w[4 / 4])[2], 0);
+}
+
+
+void limeFree(void *p);
+
+
+#define ANIM_ENTRY_STRIDE 0x58
+
+void  LIME_FreeSkin(void *skin);
+void  LIME_FreeBones(void *bones);
+void  LIME_FreeMeshSetTextures(void *set);
+void  LIME_FreeScene(void *scene);
+int   LIME_SceneExists(void *scene);
+
+
+/* ------------------------------------------------------- FreeAnimatedCharacter
+ *
+ * armv7 0x0005bf08, 240 bytes.  **Complete.**
+ *
+ * Two loops' worth of frees, and three details make it worth reading rather
+ * than skimming.
+ *
+ * **The per-entry loop runs n-1 times, not n.** `subs r3, #1; cmp r3, r6; bne`
+ * -- so the LAST entry of the array is never processed, and when n == 1 the
+ * loop is skipped entirely by the `cmp r3, #1; beq` at the top. Whatever the
+ * final entry is, it is not owned by this character.
+ *
+ * **Four of the six per-entry frees happen only on entry ZERO.** +0x1c, +0x20,
+ * +0x2c and +0x30 are guarded by `cbnz r6` on the loop index; +0x24 and +0x34
+ * are freed for every entry. So two of the pointers are shared across entries
+ * and only the first one owns them.
+ *
+ * **The entry base is re-read from `c->[4]` after every free.** Not cached in a
+ * register across the calls, which is transcribed as written: limeFree is
+ * allowed to move it.
+ *
+ * The scene is freed only if LIME_SceneExists agrees -- reference counting, the
+ * same the loader does on the way in -- and its meshset textures go first.
+ *
+ * Returns 1 unconditionally. No caller in this tree checks it.
+ */
+int FreeAnimatedCharacter(ANIMATEDCHARACTER *c)
+{
+    char  *base = (char *)c;
+    long   n    = *(const long *)base;
+    long   i;
+
+    for (i = 0; n != 1 && i < n - 1; i++) {
+        char *e;
+
+        e = *(char **)(base + 4) + i * ANIM_ENTRY_STRIDE;
+        if (*(void **)(e + 0x24)) limeFree(*(void **)(e + 0x24));
+
+        if (i == 0) {                   /* entry zero owns these two */
+            e = *(char **)(base + 4) + i * ANIM_ENTRY_STRIDE;
+            if (*(void **)(e + 0x1c)) limeFree(*(void **)(e + 0x1c));
+            e = *(char **)(base + 4) + i * ANIM_ENTRY_STRIDE;
+            if (*(void **)(e + 0x20)) limeFree(*(void **)(e + 0x20));
+        }
+
+        e = *(char **)(base + 4) + i * ANIM_ENTRY_STRIDE;
+        if (*(void **)(e + 0x34)) limeFree(*(void **)(e + 0x34));
+
+        if (i == 0) {                   /* and these two */
+            e = *(char **)(base + 4) + i * ANIM_ENTRY_STRIDE;
+            if (*(void **)(e + 0x2c)) limeFree(*(void **)(e + 0x2c));
+            e = *(char **)(base + 4) + i * ANIM_ENTRY_STRIDE;
+            if (*(void **)(e + 0x30)) limeFree(*(void **)(e + 0x30));
+        }
+    }
+
+    if (*(void **)(base + 0x2c)) limeFree(*(void **)(base + 0x2c));
+    LIME_FreeSkin(*(void **)(base + 0x30));
+    LIME_FreeBones(*(void **)(base + 0x34));
+    limeFree(*(void **)(base + 0x38));
+    limeFree(*(void **)(base + 4));
+
+    /* six textures, each only if present */
+    if (*(TEXTURE **)(base + 0x14)) limeDeleteTexture(*(TEXTURE **)(base + 0x14));
+    if (*(TEXTURE **)(base + 0x18)) limeDeleteTexture(*(TEXTURE **)(base + 0x18));
+    if (*(TEXTURE **)(base + 0x1c)) limeDeleteTexture(*(TEXTURE **)(base + 0x1c));
+    if (*(TEXTURE **)(base + 0x20)) limeDeleteTexture(*(TEXTURE **)(base + 0x20));
+    if (*(TEXTURE **)(base + 0x24)) limeDeleteTexture(*(TEXTURE **)(base + 0x24));
+    if (*(TEXTURE **)(base + 0x28)) limeDeleteTexture(*(TEXTURE **)(base + 0x28));
+
+    if (LIME_SceneExists(*(void **)(base + 0x10))) {
+        LIME_FreeMeshSetTextures(
+            *(void **)(*(char **)(base + 0x10) + 0x80));
+        LIME_FreeScene(*(void **)(base + 0x10));
+    }
+
+    limeFree(c);
+    return 1;                           /* always; nothing checks it */
 }
