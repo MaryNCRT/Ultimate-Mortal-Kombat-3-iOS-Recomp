@@ -3222,3 +3222,135 @@ void RenderExtras(void)
         }
     }
 }
+
+
+extern long   GamePaused;               /* 0x0014e1fc */
+extern long   PauseMenuAreYouSure;      /* 0x0014e260 */
+extern long   DidIntroThisFrame;        /* 0x0010dec4 */
+extern float *HUD_Scale;                /* pointer slot */
+extern float *FE_FadeAddP;              /* pointer slot -> 0x0010089c */
+extern float *limeLastTouchScreenX;     /* pointer slot */
+extern float *limeLastTouchScreenY;     /* pointer slot */
+extern long  *SFXHandle;                /* pointer slot -> 0x001ab99c */
+extern int    Settings[10];             /* 0x00100e34 */
+extern float *MusicVol;                 /* pointer slot -> 0x000ff830 */
+
+void limePlaySound(long id, float vol, float pan, long flags);
+
+void sendPause(long state);
+void EASDK_LogEventEnumEnumString(long id, long a, const char *s1,
+                                  long b, const char *s2);
+
+
+/* ----------------------------------------------------------- TogglePauseMenu
+ *
+ * armv7 0x0001e134, 664 bytes.  **Complete.**
+ *
+ * Two hot corners at the top of the screen, tested on **touch release**:
+ *
+ *      top RIGHT   x > limeScreenWidth - HUD_Scale * 80,  y < HUD_Scale * 64
+ *                  -> GamePaused = 1, PauseMenuAreYouSure = 0
+ *                  -> logs "INGAME MENU" / "PAUSE BUTTON"
+ *
+ *      top LEFT    x < HUD_Scale * 80,                    y < HUD_Scale * 64
+ *                  -> GamePaused = 2
+ *                  -> logs "INGAME MENU" / "MOVES INFO"
+ *
+ * So **the pause menu and the moves list are two different values of the same
+ * flag**, 1 and 2, reached from opposite corners of the same 80x64 shape. Both
+ * corners are scaled by `HUD_Scale`, both dimensions -- unlike the three
+ * unscaled insets recorded in issue #22.
+ *
+ * ### The event id is 50016, and that matches the captured log
+ *
+ *      EASDK_LogEventEnumEnumString(0xc360, 15, "INGAME MENU", 15, "MOVES INFO")
+ *
+ * 0xc360 is 50016. The log lines quoted in issue #5 -- `LOGGING (50016):
+ * INGAME MENU, MOVES INFO` -- are emitted from exactly here, which pins the
+ * capture to this function and confirms the two strings are literals rather
+ * than anything computed.
+ *
+ * ### Three guards before either corner counts
+ *
+ *      FE_FadeAdd != 0                 no input during a screen fade
+ *      limeTouchScreenX[0] != -1       only a RELEASE counts, never a hold
+ *      DidIntroThisFrame               swallowed on the intro frame
+ *
+ * The fade guard is the same one `drawPage2x1Wide` and
+ * `drawPage2x2BigForSettings` use, and it is re-tested **after** the pause
+ * branch as well -- so opening the pause menu cannot also trigger the moves
+ * list in the same frame.
+ *
+ * The click sound is `SFXHandle[0x1a]` at `MusicVol[Settings[3]] / 100`, the
+ * same one `TouchAreaWH` plays on release.
+ *
+ * ### sendPause is called three times
+ *
+ * In `GameMode == 1` the state goes out **three times in a row** -- and the
+ * first call's argument is whatever was already in r0, not `GamePaused`; only
+ * the second and third read the global. Transcribed as written. Three sends for
+ * one state change is what an unreliable link gets instead of an ack, and the
+ * stale first argument suggests it was written that way rather than looped.
+ */
+void TogglePauseMenu(void)
+{
+    float lx, ly;
+
+    if (*FE_FadeAddP != 0.0f)
+        return;
+    if (limeTouchScreenX[0] != -1.0f)
+        return;
+
+    lx = limeLastTouchScreenX[0];
+
+    if (lx != -1.0f
+        && lx > (float)limeScreenWidth - *HUD_Scale * 80.0f
+        && (ly = limeLastTouchScreenY[0]) < *HUD_Scale * 64.0f
+        && DidIntroThisFrame == 0) {
+
+        if (Settings[3] != 0)
+            limePlaySound(SFXHandle[0x68 / 4],
+                          MusicVol[Settings[3]] / 100.0f, 1.0f, 0);
+
+        GamePaused          = 1;
+        PauseMenuAreYouSure = 0;
+
+        if (GameMode == 1) {
+            sendPause(0);               /* r0 is stale here */
+            sendPause(GamePaused);
+            sendPause(GamePaused);
+        }
+
+        EASDK_LogEventEnumEnumString(0xc360, 15, "INGAME MENU",
+                                     15, "PAUSE BUTTON");
+
+        if (*FE_FadeAddP != 0.0f)
+            return;
+        if (limeTouchScreenX[0] != -1.0f)
+            return;
+    }
+
+    lx = limeLastTouchScreenX[0];
+    if (lx == -1.0f)
+        return;
+    if (lx >= *HUD_Scale * 80.0f)
+        return;
+    if (limeLastTouchScreenY[0] >= *HUD_Scale * 64.0f)
+        return;
+    if (DidIntroThisFrame != 0)
+        return;
+
+    if (Settings[3] != 0)
+        limePlaySound(SFXHandle[0x68 / 4],
+                      MusicVol[Settings[3]] / 100.0f, 1.0f, 0);
+
+    GamePaused = 2;                     /* the moves list, not the menu */
+
+    if (GameMode == 1) {
+        sendPause(0);
+        sendPause(GamePaused);
+        sendPause(GamePaused);
+    }
+
+    EASDK_LogEventEnumEnumString(0xc360, 15, "INGAME MENU", 15, "MOVES INFO");
+}
