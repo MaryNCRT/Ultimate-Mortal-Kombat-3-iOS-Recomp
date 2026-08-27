@@ -3574,3 +3574,158 @@ long DrawAnimAsSprite(long x, long y, float scale, long ax,
 
     return idx;
 }
+
+
+/* `_Level_Info` -- 0x0014e8d4, **244 bytes** a level. The compiler builds that
+ * stride as `(n*64 - n*4 + n) << 2`, which is 61 << 2.
+ *
+ * Eight of its fields are established here, and they come in **two sets of
+ * four** -- one per value of `_CurrentScene`:
+ *
+ *      scene 0            other scenes        what it is
+ *      +0x24              +0x58               left player limit   ("lx2")
+ *      +0x28              +0x5c               right player limit  ("rx2")
+ *      +0x2c              +0x60               left camera margin
+ *      +0x30              +0x64               right camera margin
+ *
+ * All eight are floats, and the debug sliders below name them. */
+#define LEVELINFO_STRIDE  244
+
+/* `Level_Info` is declared above as char[]; the eight fields here are floats
+ * inside it. `G` is declared above as GAMESTATE *. */
+extern long   CurrentScene;             /* 0x0014e29c */
+extern long   blast_state;              /* 0x0014df94 */
+extern float  CamLeftLimit;             /* 0x001f44a8 */
+extern float  CamRightLimit;            /* 0x001f44ac */
+extern long  *UpperLowerTxt;            /* 0x0015107c */
+extern float  ShadowHeightFromGround;   /* 0x00171364 */
+
+void ClearDebugWindow(void);
+void LIME_printf(long level, const char *fmt, ...);
+void LIME_Slider(long a, float *value, const char *label, float lo,
+                 float hi, long step, long b);
+void LightPlayers(void);
+
+
+/* ------------------------------------------------------- MaintainLevelScenes
+ *
+ * armv7 0x0001d844, 832 bytes.  **Complete.**
+ *
+ * Applies the current level's camera and player limits, then puts a row of
+ * debug sliders on screen for them.
+ *
+ * ### Every arena has two halves, and `_CurrentScene` picks one
+ *
+ * The limits are read from **two separate sets of four fields** in
+ * `_Level_Info`, chosen by whether `_CurrentScene` is zero. The debug labels
+ * for the second set are literally the first set's with a `2` appended --
+ * `"lx2"`, `"rx2"`, `"left cam margin2"`, `"right cam margin2"`.
+ *
+ * And the function prints `_UpperLowerTxt[CurrentScene]`, which names the two
+ * states outright. **So a stage is not one space: it is an upper and a lower,
+ * with independent camera bounds**, and `_CurrentScene` is which one the fight
+ * is in. That is the Pit, the Subway and the Bell Tower -- the arenas with a
+ * drop -- and it is why a port that treats a stage as a single camera volume
+ * will get the limits wrong on exactly those.
+ *
+ * ### How the limits are derived
+ *
+ *      RoundParam[0] = (long)Level_Info[lvl].leftPlayerLimit
+ *      RoundParam[1] = (long)Level_Info[lvl].rightPlayerLimit
+ *      CamLeftLimit  =  (float)RoundParam[0] + leftCamMargin
+ *      CamRightLimit =  (float)RoundParam[1] - rightCamMargin
+ *      G[0xb0]       = RoundParam[0]
+ *      G[0xb4]       = RoundParam[1] - 399
+ *
+ * The player limits are **truncated to int and then widened back to float**
+ * before the margins are added, so the camera bound is quantised to whole units
+ * even though the source field is a float. That rounding is visible only at the
+ * edges of a stage and is easy to lose.
+ *
+ * The **399** is `0x18c + 3` -- written as two subtractions, not one constant.
+ *
+ * ### `blast_state` gates the whole thing
+ *
+ *      1 or 2   reset: CurrentScene = 0, RoundParam[9] = 0,
+ *               ShadowOffset = 0, and fall through
+ *      3        blast_state++ and fall through
+ *      other    straight to the limits
+ *
+ * So the "blast" -- whatever knocks a fighter between the two halves -- resets
+ * the scene and the shadow origin on its way through, and state 3 self-advances
+ * every frame it is in.
+ *
+ * ### The sliders shipped
+ *
+ * Five `LIME_Slider` calls with their ranges, all live in the retail binary:
+ *
+ *      left playerlimit           -1280 .. 1280, step 6
+ *      right playerlimit          -1024 .. 1280
+ *      left cam margin             -300 .. 300
+ *      right cam margin            -300 .. 300
+ *      Shadow HeightFrom Ground      -4 .. 300
+ *
+ * The last one is `_ShadowHeightFromGround`, the same global
+ * `RenderAnimatedCharacter` adds to the flattened shadow's height -- so the
+ * developers tuned it live, and its slider range says they expected it small
+ * and possibly negative.
+ *
+ * Ends with `LightPlayers()`.
+ */
+void MaintainLevelScenes(void)
+{
+    long lvl;
+    float *info;
+    long *rp;
+    long base;
+
+    if (blast_state == 1 || blast_state == 2) {
+        CurrentScene = 0;
+        ((long *)RoundParam)[0x24 / 4] = 0;
+        ShadowOffset = 0.0f;    /* an integer zero store; same bit pattern */
+    } else if (blast_state == 3) {
+        blast_state++;
+    }
+
+    lvl  = *LevelSelectPtr;
+    info = (float *)&Level_Info[lvl * LEVELINFO_STRIDE];
+    rp   = (long *)RoundParam;
+    base = (CurrentScene == 0) ? 0x24 : 0x58;
+
+    rp[0] = (long)info[base / 4];
+    rp[1] = (long)info[(base + 4) / 4];
+
+    CamLeftLimit  = (float)rp[0] + info[(base + 8) / 4];
+    CamRightLimit = (float)rp[1] - info[(base + 12) / 4];
+
+    ((long *)G)[0xb0 / 4] = rp[0];
+    ((long *)G)[0xb4 / 4] = rp[1] - 0x18c - 3;   /* 399, as two subtractions */
+
+    ClearDebugWindow();
+    LIME_printf(0, "");
+    LIME_printf(0, "", UpperLowerTxt[CurrentScene]);
+    LIME_printf(0, "");
+
+    if (CurrentScene == 0) {
+        LIME_Slider(0, &info[0x24 / 4], "left playerlimit",
+                    -1280.0f, 1280.0f, 6, 0);
+        LIME_Slider(0, &info[0x28 / 4], "right playerlimit",
+                    -1024.0f, 1280.0f, 6, 0);
+        LIME_Slider(0, &info[0x2c / 4], "left cam margin",
+                    -300.0f, 300.0f, 6, 0);
+        LIME_Slider(0, &info[0x30 / 4], "right cam margin",
+                    -300.0f, 300.0f, 6, 0);
+    } else {
+        LIME_Slider(0, &info[0x58 / 4], "lx2",  -1024.0f, 1280.0f, 6, 0);
+        LIME_Slider(0, &info[0x5c / 4], "rx2",  -1024.0f, 1280.0f, 6, 0);
+        LIME_Slider(0, &info[0x60 / 4], "left cam margin2",
+                    -300.0f, 300.0f, 6, 0);
+        LIME_Slider(0, &info[0x64 / 4], "right cam margin2",
+                    -300.0f, 300.0f, 6, 0);
+    }
+
+    LIME_Slider(0, &ShadowHeightFromGround, "Shadow HeightFrom Ground",
+                -4.0f, 300.0f, 6, 0);
+
+    LightPlayers();
+}
