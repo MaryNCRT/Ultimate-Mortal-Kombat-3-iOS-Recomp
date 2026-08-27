@@ -7,20 +7,30 @@ Read this, then [METHODOLOGY.md](METHODOLOGY.md). Everything else is reference.
 
 ## Where the project actually stands
 
-**32% of the total estimated effort. Nothing is playable.** The arithmetic is in
-the [README](../README.md#overall-progress) and the weights are a judgement
-call; the completion figures are measured.
+**44.32% of the total estimated effort. Nothing is playable.** The arithmetic is
+in the [README](../README.md#overall-progress) and the weights are a judgement
+call; the completion figures are measured by `tools/progress.py` on every run.
 
 | | |
 |---|---|
 | Asset formats | **100%** — solved, demonstrated, animating |
 | `lime/common` | **109 of 109** written, **all nine files verified** |
-| Native executable | **exists**, draws textured lit geometry |
-| `gamecode` + fight logic | 2,463 functions, essentially untouched |
-| Platform layer | target measured (77 GL entry points), barely written |
+| Native executable | **exists**, draws all 18 arenas with a skinned animated fighter |
+| `gamecode` | **171 of 291** — the current front |
+| `gamecode/logic` (fight engine) | 3 of 2,172 — essentially untouched |
+| Platform layer | window, GL context and asset loading on Windows and Linux; no audio, no input mapping |
 
-The shape of the project is that it has **a great deal of verified knowledge and
-not much code**. Closing that gap is the work.
+The shape of the project is still that it has **more verified knowledge than
+code**, but less lopsidedly than it was: `lime/common` is finished and
+`gamecode` is past halfway. The fight engine is the mountain that remains.
+
+**If you are picking this up mid-stream, the front is `gamecode`.** Work
+smallest-function-first through `python tools/pending.py`; the small ones keep
+turning up the constants and struct offsets the big ones then need. The bar for
+landing one is in the ["Next up"](PROGRESS.md#next-up) section of PROGRESS.md
+and is not negotiable: `check.sh` at **zero errors and zero warnings** in
+`decomp/gamecode`, `symcheck` at zero unknown callees, figures republished with
+`tools/sync_figures.py`.
 
 ---
 
@@ -93,60 +103,69 @@ protects nothing and costs the project its only visible evidence.
 
 ## What to do next, in order
 
-### 1. `lime/common` is done — verify it
+### 1. Finish `gamecode` — this is the front
 
-**The specific work order for this is [ENCARGO.md](ENCARGO.md).**
+**171 of 291.** Nine files under `decomp/gamecode/`. Run
+`python tools/pending.py 40` for what is left, size-ordered.
 
-**This is the bottleneck for everything downstream.** No engine means nothing
-for the platform layer to drive; no platform layer means no playable build.
+**Work smallest-first.** This has been repeatedly worth it: the small functions
+keep turning up the constants, strides and struct offsets the large ones then
+need, and going in size order means you never block on an unknown. `checkIfKode`
+(136 bytes) answered a question `resetKodeSelector` had left open; `getToken`
+(156 bytes) caught a misread jump table in `initArguments`; `limeUC` (184 bytes)
+explained why `getToken` starts at `s + 2`.
 
-Method, which is now routine and fast:
+The tail is six functions that alone come to roughly 55 KB of Thumb —
+`GameInit_LoadABit` 11,700 B, `DrawHUD` 11,536 B, `FE_Task_About_Help` 10,360 B,
+`MovesList` 8,796 B, `AddNewGameEvents` 6,644 B, `UpdateInGamePauseMenu`
+5,720 B. Budget for them separately; they are not more of the same.
 
-```bash
-python tools/disasm.py OUTPUT/armv6/UMK3.armv6 <mangled_symbol>
-```
+**The bar for landing one is not negotiable:** `bash tools/check.sh` at **zero
+errors and zero warnings in `decomp/gamecode`** (the 13 `unused parameter`
+warnings elsewhere are pre-existing), `python tools/symcheck.py <file>
+work/symbols.txt` at zero unknown callees, then `python tools/sync_figures.py`
+to republish the figures, then commit. A warning tolerated once becomes noise
+that hides the next real one.
 
-Disassemble **by name, never by a bare `0x...` address** — a numeric target
-makes `disasm` assume Thumb, and the armv6 slice is ARM throughout, so it
-silently produces garbage rather than erroring. That bug cost a tool a rewrite.
+Write each function into its file with the armv7 address, the byte size, and
+**what it confirms or contradicts**. That last part is where the value has
+consistently been.
 
-Order by size; the small ones are accessors and wrappers and go in minutes.
-`limeFont.cpp` (0/6) and `DS_DebugWin.c` (0/7) are untouched. `Events.cpp` has
-15 left including the big `LIME_LoadEvents` and `LIME_UpdateEvents`.
+### 2. Then `gamecode/logic`
 
-Write each one into `decomp/lime/<File>.c` with the armv6 address, the byte
-size, and **what it confirms or contradicts**. That last part is where the value
-has consistently been.
+3 of 2,172, and the real mountain. Everything learned in `gamecode` about
+`PLAYER` (stride 0x5f0), `ANIMATEDCHARACTER` (character id at +8, frames at
++4 with an 88-byte stride) and the two frame tables feeds straight into it.
+`moves_data.x` already names **92 `t_` handlers and 90 `q_` predicates** — see
+[X-TABLES.md](X-TABLES.md) and [issue #1](../../issues/1).
 
-### 2. Grow the vertical slice as you go
+This is the part the verification oracle cannot reach, so the standard of
+evidence has to come from somewhere else: MAME observation and the binary's own
+symbol table, never leaked source.
 
-`runtime/` builds and runs. Each newly decompiled function can now be tested by
-drawing rather than in a harness — which is the entire reason it was built
-before the decompilation was finished.
-
-The SDL2 backend now sits beside `win32_gl.c` and is what CMake picks anywhere
-that is not Windows, so the slice builds and runs on Linux — verified there
-against a generated `.meshset`, since the game data is not in the repository.
-`-DUMK3_BACKEND=sdl2` selects it on Windows too.
-
-The next step there is wiring `tools/pose.py`'s skinning into the C side so
-characters animate natively.
-
-### 3. Then the platform layer
+### 3. The platform layer
 
 229 functions, of which **56 are a vendored MIT copy of zoul/Finch** and need no
 reverse engineering. The GL target is measured, not guessed: **77 entry points**,
 all ES 1.1 fixed function, three texture units, no shaders anywhere. See
 [LIME-ENGINE.md](LIME-ENGINE.md).
 
-### 4. `gamecode` last
+What exists today: window creation and a GL context on Windows (`win32_gl.c`)
+and everywhere else (`sdl_gl.c`, selected by CMake, or `-DUMK3_BACKEND=sdl2` to
+force it on Windows), plus the asset readers under `runtime/lime/`. **No audio
+at all, and no input mapping.** Those are the gaps.
 
-2,463 functions and the real mountain. `moves_data.x` already names **92 `t_`
-handlers and 90 `q_` predicates**, which is a substantial head start on what
-those functions are — see [X-TABLES.md](X-TABLES.md) and
-[issue #1](../../issues/1).
+### 4. Renderer fixes whose causes are now known
 
----
+Not open searches any more — each has a named function behind it:
+
+- [#20](../../issues/20) a mirrored fighter needs `glCullFace(GL_FRONT)` to go
+  with its negative X scale. `runtime/demo.c` enables culling and never calls
+  `glCullFace`, which is correct only while one fighter is drawn.
+- [#17](../../issues/17) the second background layer — `RenderLevelBG`,
+  `MaintainLevelScenes` and `AnimateBG` are the three functions that settle it,
+  all still pending.
+- [#19](../../issues/19) Graveyard's floor gap.
 
 ## Things that will bite you
 
@@ -200,9 +219,18 @@ those functions are — see [X-TABLES.md](X-TABLES.md) and
 - **`word0` of a bone record** is not the child count. Meaning unknown, and
   nothing needs it.
 - **Is the hidden roster reachable?** Noob Saibot, Human Smoke and Classic
-  Sub-Zero ship complete with portraits and a `HIDDENPORTRAIT.PNG` exists, but
-  the select-screen logic is in `FrontEnd.cpp` and is not decompiled. See
+  Sub-Zero ship complete with portraits and a `HIDDENPORTRAIT.PNG` exists. The
+  select-screen logic is in `FrontEnd.cpp`, now 66 of 126 — but the two
+  functions that would answer this, `drawCharacterSelection` (3,116 B) and
+  `FE_Task_Character_Select` (1,152 B), are both still pending. See
   [HIDDEN-CONTENT.md](HIDDEN-CONTENT.md).
+
+  Two adjacent things are already known and narrow it. `LoadFrontEndCharacters`
+  loads **character 23 as character 0** while keeping 23's own id, and
+  `TheFECharacters` has **25 slots**. And `checkIfKode` compares six words of
+  `KodeSelector` against a `-1`-terminated `_kodes` table at `0x00176c04`,
+  publishing the matched entry's payload in `_theKode` — so the kode system is
+  fully mapped even though what each kode unlocks is not.
 
 ---
 
