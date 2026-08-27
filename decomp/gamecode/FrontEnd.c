@@ -3105,3 +3105,109 @@ void DrawMainMenu(int c1, int c2, int c3, int c4, int c5)
                         (float)((double)FE_WidthScale * 1.3),
                         &mmfontcol[c5 * 4], 0.015f);
 }
+
+
+extern float *darkcol;                  /* pointer slot */
+
+long limeGetStringWidth(void *font, const char *text);
+
+
+/* -------------------------------------------------------------- BasicMenuMod
+ *
+ * armv7 0x00004ad0, 616 bytes.  **Complete.**
+ *
+ * A vertical list menu. `items` is a `-1`-terminated array of `GameText` ids
+ * and `disabled` is a parallel array of flags. Returns the index of the item
+ * released on, or 0.
+ *
+ * The list is centred: entries are 32 units apart and the block starts at
+ *
+ *      y = limeScreenHeight / 2  -  (count * 16) * FE_HeightScale
+ *
+ * so `count * 16` is half of `count * 32` -- the block straddles the midpoint
+ * rather than starting at it, the same construction `DrawOptionAsText` uses.
+ *
+ * **The walk starts at index 1, not 0.** `items[0]` is only tested for the -1
+ * terminator; its text is never drawn. So the caller's first slot is a header
+ * or a count, and a one-entry array draws nothing.
+ *
+ * ### The hit band is the text's own width
+ *
+ *      horizontally   centre - w/2  ..  centre + w/2
+ *      vertically     y + (off - 6) * scale  ..  y + (off + 22) * scale
+ *
+ * where `w` is what `limeGetStringWidth` returned for that entry. So a short
+ * label has a small target and a long one a large one -- the touch area is not
+ * a fixed row. The vertical band is 28 units against a 32-unit pitch, leaving a
+ * 4-unit dead gap between neighbours, and it starts 6 units **above** the draw
+ * position.
+ *
+ * Only a release counts: the test requires `limeLastTouchScreenX[0] == -1`.
+ *
+ * ### Disabled entries are drawn grey and are still selectable
+ *
+ * `disabled[i] != 0` sends the draw down a separate path that uses `_darkcol`
+ * instead of `_fontcol` -- and that path then **rejoins the common tail, which
+ * includes the hit test**. There is no second check. So a greyed-out item
+ * returns its own index when released on, exactly like an enabled one.
+ *
+ * Transcribed as written. Whether callers guard against it elsewhere is not
+ * established here; what is established is that this function does not.
+ *
+ * `GameText` is called **twice per entry** -- once to measure and once to draw
+ * -- with the first result discarded after `limeGetStringWidth`. The same
+ * redundancy `DrawOptionAsText` has three of.
+ */
+long BasicMenuMod(const long *items, const long *disabled)
+{
+    long count, i, off;
+    long selected = 0;
+    float y;
+
+    if (items[0] == -1)
+        return 0;
+
+    for (count = 1; items[count] != -1; count++)
+        ;
+
+    y = (float)(*limeScreenHeight / 2)
+        - (float)(count * 16) * FE_HeightScale;
+
+    if (count <= 0)
+        return 0;
+
+    for (i = 1, off = 0x20; i < count; i++, off += 0x20) {
+        const char *text = GameText(items[i]);
+        long w = limeGetStringWidth(GameFont, text);
+        const float *colour = (disabled[i] != 0) ? darkcol : fontcol;
+        float cx, tx, ty;
+
+        limeDrawFONT(GameFont, GameText(items[i]),
+                     (float)(*limeScreenWidth / 2),
+                     y + (float)off * FE_HeightScale,
+                     1, FE_WidthScale, colour);
+
+        /* the hit test runs for disabled entries too -- see above */
+        if (limeLastTouchScreenX[0] != -1.0f)
+            continue;
+
+        cx = (float)(*limeScreenWidth / 2);
+        tx = limeTouchScreenX[0];
+
+        if (tx < cx + (float)w * -0.5f)
+            continue;
+        if (tx > cx + (float)w * 0.5f)
+            continue;
+
+        ty = limeTouchScreenY[0];
+
+        if (ty < (float)(off - 6) * FE_HeightScale + y)
+            continue;
+        if (ty > (float)(off + 0x16) * FE_HeightScale + y)
+            continue;
+
+        selected = i;
+    }
+
+    return selected;
+}
