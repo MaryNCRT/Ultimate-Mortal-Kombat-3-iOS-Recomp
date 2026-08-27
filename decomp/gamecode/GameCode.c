@@ -653,3 +653,99 @@ void SaveUnclaimedTreasure(long treasure)
     v = LastDestiny;
     limeWriteFile("unclaimedtreasure_lastdestiny", &v, 4, 0);
 }
+
+
+#define LEVEL_INFO_STRIDE  0xf4
+#define LEVEL_INFO_SLOTS   16
+#define TOWER_TIERS        4
+#define TOWER_PER_TIER     11
+
+extern char  Level_Info[];              /* 0x0014e8d4 */
+extern int   TowerData[];               /* the table Load_Tower fills */
+void  limeFree(void *p);
+void *limeLoadFile(const char *name);
+void *limeLoadSaveFile(const char *name);
+
+
+/* ------------------------------------------------------------- LoadBGExtents
+ *
+ * armv7 0x00023264, 76 bytes.  **Complete.**
+ *
+ * Reads BGEXTENTS.BIN and scatters eight words per level into `_Level_Info`,
+ * from file offsets +4..+0x20 to entry offsets 0x24, 0x28, 0x58, 0x5c, 0x2c,
+ * 0x30, 0x60 and 0x64 -- **not in order**, so the file's layout and the
+ * struct's are different and the mapping is the whole content of this function.
+ *
+ * **It independently confirms two numbers from GetNextLevel.** The entry stride
+ * is 0xf4 -- 244, which GetNextLevel builds out of shifts -- and the walk stops
+ * at Level_Info + 0xf40, which is 16 entries. Two functions in different files,
+ * neither citing the other.
+ *
+ * The source cursor advances with a pre-indexed `ldr r2, [r3, #0x20]!`, so the
+ * file record is 0x20 bytes and its first word is never read.
+ *
+ * A missing file is silent: `cbz r0` returns without touching Level_Info, so
+ * whatever it already held stays.
+ */
+void LoadBGExtents(void)
+{
+    const long *src = (const long *)limeLoadFile("BGEXTENTS.BIN");
+    int i;
+
+    if (src == 0)
+        return;                         /* silent: Level_Info keeps its values */
+
+    for (i = 0; i < LEVEL_INFO_SLOTS; i++) {
+        long *e = (long *)(Level_Info + (long)i * LEVEL_INFO_STRIDE);
+
+        e[0x24 / 4] = src[1];
+        e[0x28 / 4] = src[2];
+        e[0x58 / 4] = src[3];
+        e[0x5c / 4] = src[4];
+        e[0x2c / 4] = src[5];
+        e[0x30 / 4] = src[6];
+        e[0x60 / 4] = src[7];
+        e[0x64 / 4] = src[8];
+        src += 0x20 / 4;                /* the record, first word unread */
+    }
+    limeFree((void *)src);
+}
+
+
+/* ----------------------------------------------------------------- Load_Tower
+ *
+ * armv7 0x00023314, 92 bytes.  **Complete.**
+ *
+ * Four tiers of eleven entries, read from "towerdata" and **clamped on the way
+ * in**: anything below 0 or above 0x19 becomes 1, not 0 and not a rejection of
+ * the file.
+ *
+ *      if (v < 0 || v > 25) v = 1
+ *
+ * So a corrupt save produces a playable tower rather than an empty one, and the
+ * clamp is per entry -- one bad value does not discard the rest.
+ *
+ * The destination stride is 44 bytes per tier, built as `i*12 - i` shifted, and
+ * the source advances 0x2c per tier, so the file and the table have the same
+ * shape. A missing file leaves the table untouched.
+ */
+void Load_Tower(void)
+{
+    const long *src = (const long *)limeLoadSaveFile("towerdata");
+    int tier, i;
+
+    if (src == 0)
+        return;
+
+    for (tier = 0; tier < TOWER_TIERS; tier++) {
+        for (i = 0; i < TOWER_PER_TIER; i++) {
+            long v = src[i];
+
+            if (v < 0 || v > 0x19)
+                v = 1;                  /* clamped, not rejected */
+            TowerData[tier * TOWER_PER_TIER + i] = (int)v;
+        }
+        src += 0x2c / 4;
+    }
+    limeFree((void *)src);
+}
