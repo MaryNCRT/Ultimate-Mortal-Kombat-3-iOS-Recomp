@@ -76,6 +76,46 @@ of an app that shipped on a 2011 iPhone, wasted.
 
 ---
 
+## `DrawVortex3D` pushes a matrix it never pops
+
+`DrawVortex3D` (armv7 `0x000078d8`) contains exactly **one `glPushMatrix` and
+zero `glPopMatrix`** — counted across the whole disassembly of the function, not
+inferred from reading up to the return.
+
+```c
+glPushMatrix();                     /* never popped */
+glScalef(VortexScale, VortexScale, VortexScale);
+... five RenderAMesh calls ...
+limeEnableAlphaBlending_Basic();
+```
+
+This is the tower background, redrawn every frame while that screen is up. The
+GL ES 1.1 modelview stack is only guaranteed to be 16 deep, so within a second
+of gameplay the push starts failing with `GL_STACK_OVERFLOW`, and from then on
+`glScalef` multiplies onto whatever matrix is current instead of onto a fresh
+copy.
+
+### Why nobody ever saw it
+
+`_VortexScale` (0x00101754) is **exactly 1.0**. The matrix that leaks is the
+identity, and compounding the identity changes nothing. The bug is real,
+reachable and permanent, and it is invisible for the single reason that the one
+value it would corrupt happens to be the neutral one.
+
+### What the port should do
+
+Add the `glPopMatrix`. But add it **deliberately**, and record that the original
+did not have it — because a port that also gives `_VortexScale` a non-1.0 value
+without adding the pop gets a vortex that grows or shrinks without bound, and
+the cause would be very hard to find from the symptom.
+
+Note this is the opposite discipline from `RenderAMesh` and `RenderPlayer`,
+which both restore `glCullFace(GL_BACK)` unconditionally on the way out and
+match every push with a pop. The engine's own drawing code is careful; this
+front-end screen is not.
+
+---
+
 ## Method
 
 Both findings came from the same approach: take every name the data references
