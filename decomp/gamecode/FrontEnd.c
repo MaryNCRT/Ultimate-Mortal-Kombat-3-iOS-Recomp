@@ -5876,3 +5876,198 @@ void FE_Task_Achievements(void)
         PopFETaskDeferred();
     }
 }
+
+
+/* ------------------------------------------------------------------ FE_Task_Stats
+ *
+ * armv7 0x0000e39c, 1336 bytes.  **Complete.**
+ *
+ * The statistics screen: two pages of seven rows, over the same two spotlights
+ * `FE_Task_Karnage_Summary` draws.
+ *
+ * ### The completion percentage adds up to exactly 100
+ *
+ *      completion = 0
+ *      for each of 10 TreasureGained[]      if set: += 3.7
+ *      for each of 23 EndingsGained[]       if set: += 1.0   (and count them)
+ *      for each of 20 achievementTracker[]  if set: += 2.0
+ *      Stats[10] = min((long)completion, 100)
+ *
+ * 10 x 3.7 = 37, 23 x 1 = 23, 20 x 2 = 40. **Thirty-seven plus twenty-three
+ * plus forty is one hundred**, so the clamp at the end can never fire on a
+ * legitimate save -- the odd-looking 3.7 is exactly what makes ten treasures
+ * carry 37% of the total. The clamp exists for a corrupt or hand-edited save,
+ * not for the game.
+ *
+ * The treasure weight is a **double** in the constant pool and the running
+ * total is a float, so each of the ten additions round-trips float -> double
+ * -> float. The endings and achievements are added as plain floats. Three
+ * different additions in one accumulator, which is the kind of thing that
+ * makes an exact 100 worth checking rather than assuming.
+ *
+ * `Stats[9]` gets the endings count on the way past -- one loop doing two jobs.
+ *
+ * ### The favourite character is a linear max over 23 counters
+ *
+ *      Stats[11] = -1
+ *      best = 0
+ *      for (i = 0; i < 23; i++)
+ *          if (Stats[15 + i] > best) { Stats[11] = i; best = Stats[15 + i]; }
+ *
+ * Strictly greater, so ties keep the earliest character, and a save with every
+ * counter at zero leaves `Stats[11]` at **-1**, which row 11 below tests for.
+ * The 23 counters start at `Stats + 0x3c` and are indexed into
+ * `CharacterNames` -- so this is the per-character play count.
+ *
+ * ### The seven rows, and the four that are not just a number
+ *
+ *      row 11   "%s : %s"  or "%s :"    the favourite character, or nothing
+ *      row 12   "%s : %d"  Stats[12] / Stats[14]
+ *      row 13   "%s : %d"  Stats[13] / Stats[14]
+ *      other    "%s : %d"  StatsNames[row] and Stats[row]
+ *
+ * Rows 12 and 13 are averages over the same denominator, and **both are
+ * guarded**: a zero `Stats[14]` prints 0 rather than dividing. The division is
+ * a call to `___divsi3` -- this binary has no hardware integer divide.
+ *
+ * Row 11 with `Stats[11] == -1` switches to a format with no value at all
+ * (`"%s :"`), so a fresh save shows the label and an empty right-hand side
+ * instead of a wrong name.
+ *
+ * ### The row Y cancels the page out of its own arithmetic
+ *
+ *      y = 32 - page * 168 + slot,   slot starting at (page * 7 + 1) * 24
+ *                                    and stepping by 24
+ *
+ * `(page * 7 + 1) * 24` is `page * 168 + 24`, so the `- page * 168` deletes it
+ * again and every page draws its rows at y = 56, 80, 104, ... The page term is
+ * computed, carried through two multiplies and subtracted off. Transcribed as
+ * written; a port can simply use `56 + 24 * row`.
+ *
+ * ### Two pages, toggled by XOR
+ *
+ *      if (DrawButtonNew(&BUTTON_NEXTSTATS, ...)) StatsPage ^= 1;
+ *
+ * so there is no clamping and no wrap logic -- there are exactly two pages by
+ * construction, and the button is always live.
+ */
+/* `Stats` is read as words here; `STATW` (defined further up this file, byte
+ * offset in, word out) is the spelling this file already uses for that. */
+
+extern long  StatsNames[];              /* 0x00100fdc */
+extern long  StatsPage;                 /* 0x00100fd8 */
+extern long  EndingsGained[23];         /* 0x00101088 */
+extern const char *CharacterNames[];    /* pointer slot -> 0x0014fe54 */
+extern BUTTONNEW BUTTON_NEXTSTATS;      /* 0x001007f8 */
+
+void FE_Task_Stats(void)
+{
+    float completion;
+    long  best, endings;
+    long  i, row, slot;
+
+    /* --- the favourite character: index of the largest of 23 counters */
+    STATW(0x2c) = -1;
+    best = 0;
+    for (i = 0; i < 23; i++) {
+        if (STATW(0x3c + i * 4) > best) {
+            STATW(0x2c) = i;
+            best = STATW(0x3c + i * 4);
+        }
+    }
+
+    /* --- the completion percentage */
+    STATW(0x28) = 0;
+    completion = 0.0f;
+    for (i = 0; i < 10; i++)
+        if (TreasureGained[i])
+            completion = (float)((double)completion + 3.7);
+
+    endings = 0;
+    for (i = 0; i < 23; i++)
+        if (EndingsGained[i]) {
+            endings++;
+            completion = completion + 1.0f;
+        }
+    STATW(0x24) = endings;
+
+    for (i = 0; i < 20; i++)
+        if (achievementTracker[i])
+            completion = completion + 2.0f;
+
+    STATW(0x28) = (long)completion;
+    if (STATW(0x28) > 100)
+        STATW(0x28) = 100;          /* unreachable on a sane save */
+
+    /* --- the screen */
+    limeDrawSprite((TEXTURE *)MetalScreenTexture, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0f, 1.0f, 1.0f, col);
+
+    limeEnableAlphaBlending_Additive();
+
+    DrawAnimAsSprite(0, 0, FE_WidthScale, 0x80,
+                     0x80, (long)(uintptr_t)SpotlightTextures,
+                     (const char *)&spotlight_SpriteDef, spotlight_Anim,
+                     0, (long)*GameCounter,
+                     0, spotlight_Anim[0] - 1, 1, col);
+
+    DrawAnimAsSprite((long)((float)*limeScreenWidth
+                            + -128.0f * FE_WidthScale),
+                     0, FE_WidthScale, 0x80,
+                     0x80, (long)(uintptr_t)SpotlightTextures,
+                     (const char *)&spotlight_SpriteDef, spotlight_Anim,
+                     1, (long)*GameCounter,
+                     0, spotlight_Anim[0] - 1, 1, col);
+
+    limeEnableAlphaBlending_Basic();
+
+    /* --- seven rows for this page */
+    slot = (StatsPage * 7 + 1) * 24;
+
+    for (row = StatsPage * 7; row < (StatsPage + 1) * 7; row++) {
+        long y;
+
+        if (row == 11) {
+            if (STATW(0x2c) == -1)
+                usprintf(strBuf, UC("%s :"),
+                         GameTextNoHeader(StatsNames[11]));
+            else
+                usprintf(strBuf, UC("%s : %s"),
+                         GameTextNoHeader(StatsNames[11]),
+                         UC(CharacterNames[STATW(0x2c)]));
+        } else if (row == 12) {
+            long v = STATW(0x38) ? STATW(0x30) / STATW(0x38) : 0;
+
+            usprintf(strBuf, UC("%s : %d"),
+                     GameTextNoHeader(StatsNames[12]), v);
+        } else if (row == 13) {
+            long v = STATW(0x38) ? STATW(0x34) / STATW(0x38) : 0;
+
+            usprintf(strBuf, UC("%s : %d"),
+                     GameTextNoHeader(StatsNames[13]), v);
+        } else {
+            usprintf(strBuf, UC("%s : %d"),
+                     GameTextNoHeader(StatsNames[row]), STATW(row * 4));
+        }
+
+        y = 32 - StatsPage * 168 + slot;
+        slot += 24;
+
+        limeDrawFONT(GameFont, limeUC(strBuf),
+                     (float)(*limeScreenWidth / 2), (float)FE_Y((float)y),
+                     1, FE_WidthScale, fontcol);
+    }
+
+    if (DrawButtonNew(&BUTTON_NEXTSTATS, 0x39, 0x130, 1))
+        StatsPage ^= 1;
+
+    limeDrawFONT(GameFont, GameText(8), (float)FE_X(57.0f),
+                 (float)FE_Y(296.0f), 1, FE_WidthScale, fontcol);
+
+    if (DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1))
+        PopFETaskDeferred();
+
+    limeDrawFONT(GameFont, GameText(9), (float)FE_X(423.0f),
+                 (float)FE_Y(296.0f), 1, FE_WidthScale, fontcol);
+}
