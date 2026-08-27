@@ -500,3 +500,79 @@ long CreateFramesWeWantFromFIDs(long *out, EPLAYER who, const long *fids)
     out[n] = -1;                        /* always, even for an empty input */
     return n;
 }
+
+
+typedef struct limeVECTOR3 limeVECTOR3;
+
+
+typedef struct limeVECTOR2 limeVECTOR2;
+typedef struct SKININFO SKININFO;
+typedef struct BONESINFO BONESINFO;
+
+extern limeVECTOR2   *RenderUVs;        /* slot -> 0x003498c8 */
+extern unsigned char *RenderRGBs;       /* slot -> 0x00366d88 */
+
+void GenerateMatrices(char *dst, BONESINFO *bones, long a, long b, float t,
+                      long arg);
+void DrawSkinnedMesh2(SKININFO *skin, unsigned a, unsigned b, long c,
+                      limeVECTOR3 *out, limeVECTOR2 *uv, unsigned char *rgb,
+                      long d, long e);
+
+
+/* ------------------------------------- GenerateFrameVertsBySkinning / ...SKIN2
+ *
+ * armv7 0x0005c118 and 0x0005c0d8, 84 and 64 bytes.  **Complete.**
+ *
+ * Two thin wrappers over DrawSkinnedMesh2, sharing the same three globals --
+ * `_RenderUVs` and `_RenderRGBs` for the output arrays -- and differing in one
+ * thing: **the plain version poses the skeleton first and SKIN2 does not.**
+ *
+ *      GenerateFrameVertsBySkinning:
+ *          GenerateMatrices(c->[0x3c], c->[0x34], a, b, t, c->[0x40])
+ *          DrawSkinnedMesh2(c->[0x30], 0, 0, 0, out, RenderUVs, RenderRGBs,
+ *                           c->[4][0], 0)
+ *
+ *      GenerateFrameVertsBySkinningSKIN2:
+ *          DrawSkinnedMesh2(*(c->[0x30]), 0, 0, 0, out, RenderUVs, RenderRGBs,
+ *                           c->[4][2], 0)
+ *
+ * Two differences beyond that, and both are easy to read past:
+ *
+ *  - SKIN2 **dereferences** +0x30 one level further (`ldr r3, [r0,#0x30]` then
+ *    `ldr r2, [r3]`) where the plain one passes it straight through. So +0x30
+ *    holds a pointer to a pointer for the second skin and a pointer for the
+ *    first, or the two skins live at different depths of the same field.
+ *
+ *  - the eighth argument comes from `c->[4][0]` in one and `c->[4][2]` in the
+ *    other -- offsets 0 and 8 of the same sub-structure.
+ *
+ * A port that shares one body between them has to keep both differences, and
+ * neither is visible from the names.
+ */
+void GenerateFrameVertsBySkinning(ANIMATEDCHARACTER *c, long a, long b,
+                                  float t, limeVECTOR3 *out)
+{
+    char **w = (char **)c;
+    const long *n = (const long *)c;
+
+    GenerateMatrices(w[0x3c / 4], (BONESINFO *)w[0x34 / 4], a, b, t,
+                     n[0x40 / 4]);
+
+    DrawSkinnedMesh2((SKININFO *)w[0x30 / 4], 0, 0, 0, out,
+                     RenderUVs, RenderRGBs,
+                     ((const long *)w[4 / 4])[0], 0);
+}
+
+void GenerateFrameVertsBySkinningSKIN2(ANIMATEDCHARACTER *c, long a, long b,
+                                       float t, limeVECTOR3 *out)
+{
+    char **w = (char **)c;
+
+    (void)a;
+    (void)b;
+    (void)t;                            /* no pose: SKIN2 skips GenerateMatrices */
+
+    DrawSkinnedMesh2(*(SKININFO **)w[0x30 / 4], 0, 0, 0, out,
+                     RenderUVs, RenderRGBs,
+                     ((const long *)w[4 / 4])[2], 0);
+}
