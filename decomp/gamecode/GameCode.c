@@ -1730,3 +1730,101 @@ void ArcadePosTo3dPos(Mk3Obj_t *obj, float *out, const signed char *who)
     ((long *)out)[1] = PlayerZPos.w;
     out[2] = (float)(-o[3]) / s + def[0x0c / 4];
 }
+
+
+extern long **IntroLists;               /* 0x0014e008 */
+extern long  *SizeofIntroLists;         /* 0x0014e070 */
+extern float  IntroCount;               /* 0x0014e1c4 */
+extern float  IntroCount2;              /* 0x0014e1c8 */
+extern long   IntroFrame1;              /* 0x0014f908 */
+extern long   IntroFrame2;              /* 0x0014f90c */
+extern long   AnimSmoothWindowSize;     /* 0x00171368 */
+extern long   Character1;               /* 0x000ff988 */
+extern long   Character2;               /* 0x000ff98c */
+extern char   Players[];                /* 0x001fa4d4 */
+
+void PlayerAutoSmoothAnims(void *p);
+
+
+/* ------------------------------------------------ UpdateIntroCharacterPlayers
+ *
+ * armv7 0x00021970, 316 bytes.  **Complete.**
+ *
+ * Steps both fighters through their intro animation, one player at a time and
+ * each from its own counter and its own list:
+ *
+ *      player 1:  IntroCount  -> IntroLists[Character1] -> IntroFrame1
+ *      player 2:  IntroCount2 -> IntroLists[Character2] -> IntroFrame2
+ *
+ * Each half is skipped entirely if that player has no loaded character
+ * (`+0x04` of the PLAYER, and `+0x5f4` for the second -- 0x5f0 plus the same
+ * four, confirming the player stride from a third function).
+ *
+ * ### The frame is only overwritten when the list agrees
+ *
+ *      if (count < entries && list[count] != -1)
+ *          IntroFrameN = list[count];
+ *      player->frame = IntroFrameN;
+ *
+ * A count past the end of the list, or a -1 in it, leaves `IntroFrameN`
+ * **holding its previous value** and the player is set to that. So the
+ * animation freezes on its last good frame rather than snapping to zero or
+ * reading past the array -- and the sticky global is what makes that work.
+ * Clamping the index instead would look equivalent and is not: it would replay
+ * the last entry rather than hold whatever was last accepted.
+ *
+ * The counters are floats converted with `vcvt.s32.f32`, so they advance
+ * fractionally somewhere else and are truncated here.
+ *
+ * The entry count is `SizeofIntroLists[who] / 4` with the signed-division
+ * rounding transcribed as emitted, the same shape `AnimateFECharacters` uses.
+ *
+ * ### The smoothing window is borrowed again, at a different value
+ *
+ * `_AnimSmoothWindowSize` is saved, set to **0x14** and restored -- twenty,
+ * where `AnimateFECharacters` uses forty for the same global. So intros smooth
+ * over half the window the menus do, and both leave the game's own value
+ * untouched.
+ */
+void UpdateIntroCharacterPlayers(void)
+{
+    long saved = AnimSmoothWindowSize;
+    long *p1 = (long *)Players;
+    long *p2 = (long *)(Players + 0x5f0);
+
+    AnimSmoothWindowSize = 0x14;        /* 20, not the 40 the front end uses */
+
+    if (p1[1] != 0) {                   /* +0x04, a loaded character */
+        long i = (long)IntroCount;
+        const long *list = IntroLists[Character1];
+        long n = SizeofIntroLists[Character1];
+
+        if (n < 0)
+            n += 3;
+        n >>= 2;
+
+        if (i < n && list[i] != -1)
+            IntroFrame1 = list[i];      /* otherwise it keeps its old value */
+
+        p1[0x14 / 4] = IntroFrame1;
+        PlayerAutoSmoothAnims(p1);
+    }
+
+    if (p2[1] != 0) {                   /* +0x5f4 */
+        long i = (long)IntroCount2;
+        const long *list = IntroLists[Character2];
+        long n = SizeofIntroLists[Character2];
+
+        if (n < 0)
+            n += 3;
+        n >>= 2;
+
+        if (i < n && list[i] != -1)
+            IntroFrame2 = list[i];
+
+        p2[0x14 / 4] = IntroFrame2;     /* Players + 0x604 */
+        PlayerAutoSmoothAnims(p2);
+    }
+
+    AnimSmoothWindowSize = saved;
+}
