@@ -1948,15 +1948,155 @@ the word it holds does -- safe in a way chasing a real symbol is not, because no
 variable is being read, only a relocation followed. It named the four hidden-
 roster flags the moment it was switched on.
 
+## `gamecode` 246 of 291 (84.54%)
+
+Forty-five left. This block was the front-end task functions plus the two
+boot-time builders, and the pattern held: the small functions keep settling
+questions the big ones could not.
+
+### Seven types were wrong, and the call sites are what proved it
+
+None of these was findable from inside the function that declared them. Each
+was settled by reading a caller.
+
+| Declared | Actually | What proved it |
+|---|---|---|
+| `limeCreateFONT(..., int arg8)` | `float scale` | `Task_LoadGeneralData` passes `0x3ea66666` and `0x3f800000` -- 0.325f and 1.0f |
+| `long *SFXHandle` | `long SFXHandle[]` | the slot holds the array's ADDRESS; `long *` dereferenced once too many |
+| `float *MusicVol` | `float MusicVol[]` | same |
+| `void *NameFont` | the FONT itself | every site does `add r0, pc` and passes the address |
+| `long *exitTimeout`, `long *KontinueTime` | `float *` | the stored words are `0x44160000` and `0x419ffdf4` -- 600.0f and 19.999001f |
+| `EASDK_LogEventEnumEnumStringNum(..., float n)` | `long n` | `vstr` after a `vcvt.s32.f32`; the callee `ldr`s it into `numberWithInt:` |
+| `EASDK_LogEvent(..., long c)` | `const char *s2` | `FE_Task_Main_Menu` passes `"OPTIONS"`, `"PLAY"`, `"MORE GAMES"` |
+
+`LIME_Slider` went the other way. `decomp/lime/DS_DebugWin.c` could see it took
+seven arguments and said plainly that what they meant was not established,
+because the values only pass through it. `RenderFECharacters` makes seven calls
+in a row with names and ranges, and settles the whole signature.
+
+### G+0x368 and G+0x36c are the health bars, at 1.66 units per point
+
+`ResetFightData` writes a pair of numbers beside every health it sets:
+
+```
+health 100 -> 166      health 50 -> 83      health 25 -> 41
+```
+
+and the survival branch computes its own openly as `Health[0] * 166 / 100`.
+Five constants written separately and one open-coded multiply all agreeing is
+what makes it a fact. From any single branch they are just numbers.
+
+### The completion percentage adds up to exactly 100
+
+`FE_Task_Stats`:
+
+```
+10 treasures x 3.7  +  23 endings x 1  +  20 achievements x 2
+     = 37           +       23         +        40            = 100
+```
+
+The odd-looking 3.7 is exactly what makes ten treasures carry 37% of the total,
+and it is a **double** in the constant pool while the accumulator is a float, so
+each of the ten additions round-trips. The clamp to 100 at the end cannot fire
+on a legitimate save; it is there for a hand-edited one.
+
+### Four handicap kodes that are really two
+
+`ResetFightData` again. `0x0d` and `0x0f` are identical branch for branch, and
+`0x10` is `0x0e` with the two sides swapped. Which player gets the short bar is
+decided by `isParent() != isParentBasedOnSpeed()` for three of them and by
+`isParent() == isParentBasedOnSpeed()` for `0x10` alone.
+
+Two predicates rather than one is how both machines in a network game reach the
+same answer without exchanging anything: their agreement is a value both ends
+compute identically.
+
+### `gamecode/logic` is reached through a function pointer
+
+`mk3_init`'s third argument is a slot holding `0x0001c675`, and `0x0001c674` is
+`FrameID_GetBBox` with the Thumb bit set. The fight logic does not call the
+bounding-box lookup -- it is handed it at init. That boundary being a function
+pointer already is good news for the port, and it is worth knowing before
+[issue #1](../../issues/1) is attacked.
+
+### Twenty-six characters, confirmed a third time
+
+`Task_FEDestroy` walks `CharacterVSTexture` from 1 to 25 after doing 0 by hand,
+and the array is `0x68` bytes -- 26 pointers. `Players.c` had measured 26 from
+the gap between symbols and from `AnimateFECharacters` comparing after its body.
+Three unrelated places agreeing is what turned a reading into a fact.
+
+The same function measures `FireLogo` (10), `TowerPortraitTexture` (28) and
+`SpotlightTextures` (2) the same way, and leaves one open question: sound
+handles 1, 2, 3 and 26 are never released. Handle 26 is the "Gstart" click
+`Task_LoadGeneralData` loads at boot.
+
+### Dead code, and code that was half-removed
+
+- **`FE_Task_Main_Menu` carries a complete level-cycler** guarded by `sel == 5`.
+  `sel` is only ever -1, 0, 1, 2, 3 or 4. It is transcribed and marked rather
+  than dropped, because it is the only place in the front end that walks
+  `Level_Info` looking for a free slot -- and it contains a second dead branch
+  inside the first.
+- **The Facebook feed post is gone but its remains are live.** Both summary
+  screens still format the message text every frame into a buffer nothing
+  reads -- a kilobyte of stack in the survival one -- and both still set
+  `feedPosted`. Karnage sets it unconditionally; survival sets it only when the
+  stage is not positive. The inconsistency is the evidence that the feature came
+  out piecemeal. See [GAME-BUGS.md](GAME-BUGS.md).
+
+### Two new entries in GAME-BUGS.md
+
+- the name font's character table is copied with a **hard-coded** `0x58` into an
+  allocation sized by the `.ft2` file;
+- the loading screen's percentage buffer is eight bytes and the clamp only
+  guards the top end, so a negative percentage would format twelve characters
+  over the line count sitting next to it.
+
+### Smaller things worth not re-deriving
+
+- **The loading bar is 52 steps.** `Task_GameInit`'s percentage is
+  `GI_LoadCount * 100 / 52`, derived from an expectation about
+  `GameInit_LoadABit` rather than from its progress -- which is why state 2
+  redraws at a literal 100 before deleting the texture.
+- **Twenty-five intro frames run back to back** at the end of `Task_GameInit`,
+  before the first drawn frame. A visible load cost and a place a port can stop
+  early.
+- **`TrainingData` is `character * 288 + category * 96 + move * 24`** and the
+  notation string is at `base - 12 + Settings[4] * 4` -- so an entry is the move
+  name plus its notation written three times, one per button layout. Training
+  mode's own strings are compiled-in English: it is not translated.
+- **`ACHIEVEMENTDESCR + 0x04` is a second GameText id**, the description line.
+  `achievements.c` had left it unread.
+- **The achievement page arrows disable with 2, not 0**, because the same number
+  divides the label colour: `1.0f / enabled`. Zero would have divided by zero.
+- **`Task_LoadGeneralData` chooses the language by whether a `TOS_URL_<lang>`
+  property exists**, falling back to `"EN"` before anything else reads it. The
+  supported-language list is not in the code at all.
+- **`mkunicode.txt` replaces the game font's code table** after `limeCreateFONT`
+  built it from the `.ft2`: plain UTF-16LE, BOM skipped, one code unit per glyph.
+  That is what makes a translation possible without touching the atlas.
+- **The game mutes its own music if the player is already playing some**, once at
+  boot and again on every press of the music setting, and it writes the setting
+  rather than overriding it -- so it survives into the next launch.
+- **`FE_Task_Continue_Screen` counts down at -1/60 per frame divided by
+  `limeFPSScaleFactor`**, so it is wall-clock seconds; `QuitAsLose` starts it at
+  19.999001f, so "ten seconds" is twenty. Declining **rebuilds the tower**, so a
+  refused continue cannot be resumed by going back in.
+- **`FE_Task_Multiplayer_Summary` sends its keep-alive on `sendInd % 60 == 22`**
+  -- offset 22, not 0, so it cannot collide with anything firing on a round
+  multiple of 60. Its menu packet is sent three times in a row, written out
+  three times with no loop.
+
 ## Next up
 
-**Finish `gamecode`.** 171 of 291, and it is the current front. `lime/common` is
-**complete at 109/109** and verified against the oracle, so the engine is no
-longer the bottleneck it was; what is left of the game layer is what stands
-between here and a build that boots into a menu.
+**Finish `gamecode`.** 246 of 291. `lime/common` is **complete at 109/109** and
+verified against the oracle, so the engine is no longer the bottleneck; what is
+left of the game layer is what stands between here and a build that boots into
+a menu.
 
-The remaining 120 functions are not the small ones. The tail is six functions
-that alone come to roughly 55 KB of Thumb:
+The forty-five that remain are the big ones. Six alone come to roughly 55 KB of
+Thumb:
 
 | Function | Bytes |
 |---|---|
@@ -1967,27 +2107,35 @@ that alone come to roughly 55 KB of Thumb:
 | `AddNewGameEvents` | 6,644 |
 | `UpdateInGamePauseMenu` | 5,720 |
 
+and the next tier -- `FE_Task_About_About`, `DrawMoveListIcons`, `DrawControls`,
+`TrackCam`, `MaintainParticles`, `RenderLevelBG` -- is 1.5 to 1.9 KB each.
+
 The method is unchanged and works: disassemble by name through
 `tools/annotate.py`, read every branch before writing anything, land each
 function with `check.sh` at zero errors **and** zero warnings in
 `decomp/gamecode`, `symcheck` at zero unknown callees, then republish the
 figures with `tools/sync_figures.py`. Smallest first has been the right order --
 the small ones keep turning up the constants and struct offsets the big ones
-then need.
+then need, and this block is the clearest evidence of that yet: seven wrong type
+declarations were all corrected from call sites, not from the functions that
+declared them.
 
 Then, in order:
 
 1. **`gamecode/logic`** -- 2,172 functions, the real mountain, with 92 named
    `t_` handlers already recovered as a head start
    ([issue #1](../../issues/1)). Everything learned in `gamecode` about
-   PLAYER, ANIMATEDCHARACTER and the frame tables feeds straight into it.
+   PLAYER, ANIMATEDCHARACTER, the frame tables and now the `FrameID_GetBBox`
+   callback feeds straight into it.
 2. **The platform layer.** 229 functions, of which 56 are a vendored MIT copy of
    zoul/Finch needing no reverse engineering. The GL target is measured:
    [77 entry points](LIME-ENGINE.md), ES 1.1 fixed function, no shaders.
-3. **Renderer fixes now that their causes are known** --
+3. **Renderer and layout fixes now that their causes are known** --
    [#20](../../issues/20) the mirrored-fighter cull face,
    [#17](../../issues/17) the second background layer,
-   [#19](../../issues/19) Graveyard's floor gap.
+   [#19](../../issues/19) Graveyard's floor gap,
+   [#24](../../issues/24) `InitAllGameData` and the unscaled 48px centre gap,
+   [#25](../../issues/25) three front-end layout quirks.
 4. **`moves_data.x` / `frames.x` extraction** ([issue #11](../../issues/11)).
 5. **Restoring hidden content** -- explicitly after a playable build.
 
