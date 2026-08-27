@@ -1046,3 +1046,110 @@ void Reset_PresetButtonData(void)
     memcpy(CustomButtonsPos5, DEFAULT_CustomButtonsPos5, 0x78);
     memcpy(CustomButtonsPos6, DEFAULT_CustomButtonsPos6, 0x78);
 }
+
+
+extern int  Settings[10];               /* 0x00100e34 */
+extern int *limeScreenHeight;           /* pointer slot -> 0x00171af0 */
+int  limeCheckForUserMusic(void);
+
+
+/* ----------------------------------------------------------- Write_SettingsData
+ *
+ * armv7 0x0001295c, 76 bytes.  **Complete.**
+ *
+ *      puts("######### writing settings data")
+ *      limeWriteFile("settingsdata", Settings, 0x28, 0)
+ *      printf("Settings[%d] = %d\n", 0, Settings[0])
+ *      for (i = 1; i < 10; i++)
+ *          printf("Settings[%d] = %d\n", i, Settings[i])
+ *
+ * **Eleven lines of console output every time settings are saved**, and all of
+ * it ships. The first printf is peeled out of the loop by the compiler, and
+ * both it and the loop resolve to the SAME format string at 0x000ff3a8 -- the
+ * two PC-relative loads differ but land on one address.
+ *
+ * 0x28 is 40 bytes, ten words, which is what makes the loop bound of 10 the
+ * whole array rather than a prefix of it.
+ */
+void Write_SettingsData(void)
+{
+    int i;
+
+    puts("######### writing settings data");
+    limeWriteFile("settingsdata", Settings, 0x28, 0);
+
+    printf("Settings[%d] = %d\n", 0, Settings[0]);
+    for (i = 1; i < 10; i++)
+        printf("Settings[%d] = %d\n", i, Settings[i]);
+}
+
+
+/* ----------------------------------------------------------- ResetSettingsData
+ *
+ * armv7 0x00015494, 76 bytes.  **Complete.**
+ *
+ * Ten defaults, and one of them is conditional:
+ *
+ *      Settings[0] = 1     Settings[5] = 0
+ *      Settings[1] = 0     Settings[6] = 100
+ *      Settings[2] = 3     Settings[7] = 1
+ *      Settings[3] = 3     Settings[8] = 1
+ *      Settings[4] = 5     Settings[9] = 1
+ *
+ *      if (limeCheckForUserMusic()) Settings[2] = 0
+ *
+ * **Settings[2] is written twice**: 3 first, then 0 if the device has the
+ * user's own music playing. So the default is on and the presence of user music
+ * turns it off -- the game's music setting deferring to whatever the phone was
+ * already doing, which is the iOS convention of the period.
+ *
+ * The 100 is built as `5 + 0x5f` from the constant already in the register, not
+ * loaded as a literal.
+ */
+void ResetSettingsData(void)
+{
+    puts("########### resetting settings data!");
+
+    Settings[0] = 1;
+    Settings[1] = 0;
+    Settings[2] = 3;
+
+    if (limeCheckForUserMusic())
+        Settings[2] = 0;                /* the phone was already playing */
+
+    Settings[4] = 5;
+    Settings[3] = 3;
+    Settings[5] = 0;
+    Settings[6] = 100;                  /* built as 5 + 0x5f */
+    Settings[7] = 1;
+    Settings[8] = 1;
+    Settings[9] = 1;
+}
+
+
+/* -------------------------------------------------------------- getMenuStartPos
+ *
+ * armv7 0x00003004, 96 bytes.  **Complete.**
+ *
+ *      return (int)( (float)(limeScreenHeight / 2)
+ *                    + (-16.0f * getScale()) * getMenuItemNum(menu) )
+ *
+ * Centres a menu vertically: start at the middle of the screen and move UP
+ * sixteen scaled units per item, so a longer menu starts higher and stays
+ * centred.
+ *
+ * The -16 is a `vmov.f32 s12, #-1.6e+01` immediate, and getScale is the width
+ * ratio against 480 -- so the spacing follows the screen's WIDTH while the
+ * starting point follows its height. That mismatch is in the original.
+ *
+ * The halving is `add r3, r3, r3, lsr #31` then `asrs #1`, which is signed
+ * division by two rounding toward zero. It matters only for a negative screen
+ * height, which cannot happen, and it is transcribed because it is free.
+ */
+int getMenuStartPos(const int *menu)
+{
+    float mid  = (float)(*limeScreenHeight / 2);
+    float step = -16.0f * getScale();
+
+    return (int)(mid + step * (float)getMenuItemNum(menu));
+}

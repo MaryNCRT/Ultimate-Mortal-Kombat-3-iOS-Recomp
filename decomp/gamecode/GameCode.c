@@ -615,3 +615,41 @@ void GameCodeMain(void)
     limeFinish();
     heartbeatUpdate();
 }
+
+
+
+extern int PLAYER1MODEL;                /* 0x0014e1b4 */
+extern int LastDestiny;                 /* 0x0014e210 */
+
+
+/* ------------------------------------------------------- SaveUnclaimedTreasure
+ *
+ * armv7 0x00023838, 78 bytes.  **Complete.**
+ *
+ * Three separate four-byte files rather than one record:
+ *
+ *      "unclaimedtreasure"              <- the argument
+ *      "unclaimedtreasure_playedas"     <- _PLAYER1MODEL
+ *      "unclaimedtreasure_lastdestiny"  <- _LastDestiny
+ *
+ * Each write spills its value to the same stack slot with a pre-indexed
+ * `str r3, [r1, #-0x4]!` and hands limeWriteFile the address, so the four bytes
+ * on disk are the raw int in the device's byte order.
+ *
+ * **Three files means three chances to be left half-written.** A port that
+ * merges them into one record changes the recovery behaviour of a save that is
+ * interrupted, which is exactly the kind of thing this data exists to survive.
+ */
+void SaveUnclaimedTreasure(long treasure)
+{
+    long v;
+
+    v = treasure;
+    limeWriteFile("unclaimedtreasure", &v, 4, 0);
+
+    v = PLAYER1MODEL;
+    limeWriteFile("unclaimedtreasure_playedas", &v, 4, 0);
+
+    v = LastDestiny;
+    limeWriteFile("unclaimedtreasure_lastdestiny", &v, 4, 0);
+}
