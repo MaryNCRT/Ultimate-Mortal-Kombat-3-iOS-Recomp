@@ -5501,3 +5501,280 @@ void InitAllGameData(void)
     memcpy(DEFAULT_CustomButtonsPos5, CustomButtonsPos5, 0x78);
     memcpy(DEFAULT_CustomButtonsPos6, CustomButtonsPos6, 0x78);
 }
+
+
+/* ---------------------------------------------------------------- Task_GameInit
+ *
+ * armv7 0x0002e6f4, 1232 bytes.  **Complete.**
+ *
+ * The task that builds a fight. It is a three-state machine driven by
+ * `GameInitState`, and it runs once a frame like every other task -- the
+ * loading is spread across frames so the loading screen keeps animating.
+ *
+ *      state 0   first frame: clear the players, reset the event system,
+ *                GameInitState = 1
+ *      state 1   one slice of loading per frame, then GameInitState = 2
+ *      state 2   finish the loading screen, GameInitState = 0, and fall
+ *                through into the fight setup
+ *
+ * **The fight setup is only reached from state 2** (or from an out-of-range
+ * state), so states 0 and 1 return early and the long tail below runs exactly
+ * once per fight.
+ *
+ * ### The loading bar is 52 steps
+ *
+ *      Task_LoadingScreen_DRAWSCREEN(1, GI_LoadCount * 100 / 52)
+ *      done = GameInit_LoadABit(GI_LoadCount)
+ *      GI_LoadCount++
+ *
+ * The division is the usual reciprocal multiply -- magic `0x4ec4ec4f` with a
+ * shift of 36, which is exactly `1/52`. So `GameInit_LoadABit` is expected to
+ * take **52 calls**, and the percentage is derived from that expectation
+ * rather than from the function's own progress: if it finishes early the bar
+ * never reaches 100 on its own, which is why state 2 redraws it at a literal
+ * 100 before deleting the texture.
+ *
+ * ### Sixteen player slots, one word each
+ *
+ *      for (i = 0; i < 16; i++) ((long *)(Players + i * 0x5f0))[1] = 0;
+ *
+ * 0x5f00 / 0x5f0 = 16, which is the fourth independent confirmation of the
+ * 0x5f0 PLAYER stride. Only `+0x04` is cleared -- the rest of each slot is
+ * left as it was.
+ *
+ * ### Wins needed, by mode
+ *
+ *      mode 2 (training)   0, and no intro at all
+ *      mode 4 (survival)   1
+ *      mode 3 (karnage)    0, and KarnageScore = 0
+ *      everything else     2
+ *
+ * Training is the only mode that clears `DoIntro`; every other mode sets it
+ * and then runs **twenty-five frames of `AnimateIntroCharacterPlayers1Frame`
+ * back to back** before returning, to settle the intro animation before the
+ * first drawn frame. That is a visible cost at load time and a place a port
+ * could stop early.
+ *
+ * ### Kode 0x13 in versus starts the match one round from the end
+ *
+ *      if (GameMode == 1 && theKode == 0x13) {
+ *          RoundWins[0] = RoundWins[1] = WinsNeeded - 1;
+ *          H[0] = H[1] = 1;
+ *      }
+ *
+ * Both players at match point and both at one health: a one-hit-kill round.
+ *
+ * ### A treasure played in mode 5 rewrites the kode
+ *
+ *      if (GameMode == 5 && TreasurePlayed == 10) {
+ *          theKode = TreasurePlayed - 9;      // 1
+ *          puts("TREASURE PLAY IN DARK KOBAT MODE!");
+ *      }
+ *
+ * `TreasurePlayed - 9` for a value the branch has already established is 10 --
+ * so it is the constant 1 written as arithmetic, which suggests the branch was
+ * once a range.
+ *
+ * ### Two identical debug prints
+ *
+ * `"ACTIVE EVENTS:%ld"` is printed before `LIME_KillAllEvents` and again after
+ * `LIME_InitEventsManager`, from two separate copies of the same string, and
+ * `dumpMem` walks `mpSpriteList` and `mpEventQueue` on every entry into state
+ * 0. All of it is live in the shipped build.
+ */
+extern long  *InGameLevelSelect;        /* pointer slot -> 0x000ff7f4 */
+extern long  *LevelSelectP;             /* pointer slot -> 0x000ff7f8 */
+extern long   MoveListPage;             /* 0x00150eb4 */
+extern long   SnapCam;                  /* 0x00150e90 */
+extern long   GameInitState;            /* 0x00150e84 */
+extern long   GI_LoadCount;             /* 0x00151088 */
+extern long  *MKEventQueue;             /* pointer slot */
+extern long  *lastTimestamp;            /* pointer slot */
+extern long   ScorpionFade;             /* 0x0010df04 */
+extern long   ScorpionFadeAdd;          /* 0x0010df08 */
+extern long   ScorpionFlash;            /* 0x0010df0c */
+extern long   ClockTens;                /* 0x0014fa50 */
+extern long   ClockSingles;             /* 0x0014fa54 */
+extern long   RoundSummaryTime;         /* 0x0014e220 */
+extern long   RoundSummary;             /* 0x0014e224 */
+extern long   Round;                    /* 0x0014e228 */
+extern long   RoundWins[2];             /* 0x0014e22c */
+extern long   FightMessage;             /* 0x0014e258 */
+extern long   FightMessageTimer;        /* 0x0014e25c */
+extern long   DontQuitAfterFade;        /* 0x0014e254 */
+extern long   DoSmokesEarthFatal;       /* 0x0010defc */
+extern long   DoSmokeEarthFatalSFX;     /* 0x0010df00 */
+extern long   DoIntro;                  /* 0x0014e1c0 */
+extern long   WinsNeeded;               /* 0x0014e234 */
+extern long   KarnageScore;             /* 0x0014df88 */
+extern long  *theKode;                  /* pointer slot -> 0x0010ded0 */
+extern long  *H;                        /* pointer slot */
+extern long  *TrainingCatagoryP;        /* pointer slot -> 0x0017809c */
+
+void mk3_dizzy(void);
+
+void limeMemoryReport(const char *label);
+void InitVarEdit(void);
+long LIME_CountActiveEvents(void);
+void LIME_KillAllEvents(void);
+void ResetFightData(void);
+void heartbeatSetIncoming(long n);
+void preprocessPostloadKode(void);
+long GameInit_LoadABit(long step);
+
+void Task_GameInit(void)
+{
+    long i;
+
+    *InGameLevelSelect = *LevelSelectP;
+    MoveListPage   = 0;
+    LockCamera     = 0;
+    OverrideCamera = 0;
+    SnapCam        = 1;
+    AllowCameraTracking();
+    DidIntroThisFrame = 0;
+
+    if (GameInitState == 1) {
+        long done;
+
+        Task_LoadingScreen_DRAWSCREEN(1, GI_LoadCount * 100 / 52);
+        done = GameInit_LoadABit(GI_LoadCount);
+        GI_LoadCount++;
+        if (done)
+            GameInitState = 2;
+        return;
+    }
+
+    if (GameInitState == 2) {
+        Task_LoadingScreen_DRAWSCREEN(1, 100);
+        DeleteLoadingScreenTexture();
+        GameInitState = 0;
+        /* falls through to the fight setup */
+    } else if (GameInitState == 0) {
+        for (i = 0; i < 16; i++)
+            ((long *)(Players + i * 0x5f0))[1] = 0;
+
+        limeMemoryReport("Start OF Game Init Memory report");
+        InitVarEdit();
+        GI_LoadCount = 0;
+        Task_LoadingScreen_DRAWSCREEN(1, 0);
+        GameInitState = 1;
+        GameObjects = 0;
+        clearSpriteListsAndEvents();
+        *MKEventQueue = 0;
+        IsInFinishing = 0;
+
+        printf("#########################\nACTIVE EVENTS:%ld\n"
+               "###########################\n", LIME_CountActiveEvents());
+        LIME_KillAllEvents();
+        LIME_InitEventsManager();
+        printf("#########################\nACTIVE EVENTS:%ld\n"
+               "###########################\n", LIME_CountActiveEvents());
+
+        dumpMem(mpSpriteList, 0x140, 0x20);
+        dumpMem(mpEventQueue, 0x1b0, 0x20);
+        return;
+    }
+
+    /* ---- the fight setup, reached from state 2 (or an out-of-range state) */
+    CurrentTask    = 6;
+    FrameCount     = 0.0f;
+    *lastTimestamp = 0;
+
+    if (GameMode == 1) {
+        CurrentTask = 6 + 8;            /* 14 */
+        syncGame(1);
+    } else if (Settings[2] != 0) {
+        limePlayTune((const char *)(uintptr_t)LevelMusic[*LevelSelectP],
+                     (long)MusicVol[Settings[2]], 1);
+    }
+
+    FE_Fade      = 0.0f;
+    *FE_FadeAddP = 0.033333335f;        /* fade IN, note the sign */
+    ScorpionFade    = 0;
+    ScorpionFadeAdd = 0;
+    ScorpionFlash   = 0;
+
+    if (GameMode == 2 && *TrainingCatagoryP == 2)
+        mk3_dizzy();
+
+    CalcShakeOffset(0);
+
+    GameTime     = 99.0f;
+    ClockTens    = 9;
+    ClockSingles = 9;
+
+    RoundSummaryTime = 0;
+    RoundSummary     = 2;
+    Round            = 0;
+    RoundWins[0]     = 0;
+    RoundWins[1]     = 0;
+
+    FightMessage      = 0;
+    FightMessageTimer = 0;
+    DontQuitAfterFade = 0;
+
+    DoSmokesEarthFatal   = 0;
+    DoSmokeEarthFatalSFX = 0;
+
+    if (GameMode == 4)
+        Health[0] = *SurvivalHealth;
+
+    ResetFightData();
+
+    if (GameMode == 2) {
+        DoIntro         = 0;
+        IntroCount      = 0.0f;
+        IntroCount2     = 0.0f;
+        IntroCountTimer = 0.0f;
+        IntroCamCount   = 0;
+        WinsNeeded      = GameMode;     /* 2, from the register the test used */
+    } else {
+        DoIntro         = 1;
+        IntroCount      = 0.0f;
+        IntroCount2     = 0.0f;
+        IntroCountTimer = 0.0f;
+        IntroCamCount   = 0;
+
+        if (GameMode == 4) {
+            WinsNeeded = 1;
+        } else {
+            WinsNeeded = 2;
+            if (GameMode == 3) {
+                WinsNeeded   = 0;
+                KarnageScore = 0;
+            }
+        }
+    }
+
+    timeInGame = 0.0f;
+    DeleteLoadingScreenTexture();
+    limeMemoryReport("End of GAME Init Memory report");
+
+    heartbeatSetIncoming(3);
+    heartbeatUpdate();
+
+    /* Twenty-five frames of intro animation, run back to back. */
+    AnimateIntroCharacterPlayers1Frame(1);
+    for (i = 1; i < 25; i++)
+        AnimateIntroCharacterPlayers1Frame(1);
+
+    preprocessPostloadKode();
+    puts("########## TASK_GAME_INIT: 10");
+
+    if (GameMode == 1 && *theKode == 0x13) {
+        RoundWins[0] = WinsNeeded - 1;
+        RoundWins[1] = WinsNeeded - 1;
+        H[0] = 1;
+        H[1] = 1;
+    }
+
+    printf("GameMode = %d, TreasurePlayed = %d\n",
+           (int)GameMode, (int)*TreasurePlayed);
+
+    if (GameMode == 5 && *TreasurePlayed == 10) {
+        *theKode = *TreasurePlayed - 9;
+        puts("\n#############################\n"
+             "TREASURE PLAY IN DARK KOBAT MODE!");
+    }
+}
