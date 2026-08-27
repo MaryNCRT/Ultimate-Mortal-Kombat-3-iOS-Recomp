@@ -14,7 +14,15 @@
  * where LIME_SetSceneTextures walks the same shape. Declared rather than
  * included: gamecode has no header of its own yet and one file should not
  * invent the project's include graph. */
-typedef struct TEXTURE TEXTURE;
+/* Completed from decomp/lime/lime.h, which settles the two fields gamecode
+ * looks at. +0x40 is the GL texture name, and it is how the loading screen
+ * asks "has this reached the GPU yet". */
+typedef struct TEXTURE {
+    uint8_t  _pad00[0x40];
+    unsigned name;               /* 0x40  the GL texture name */
+    uint8_t  _pad44[0x0c];
+    int      field50;            /* 0x50 */
+} TEXTURE;
 typedef struct TEXTURETOLOAD {
     const char *name;            /* 0x00  NULL ends the list */
     TEXTURE   **dest;            /* 0x04  where the handle goes */
@@ -4391,8 +4399,16 @@ extern long   defeatedBySK;             /* 0x0010deb4 */
 extern long   lastWinStreak;            /* 0x0014e1ac */
 extern long   points;                   /* 0x0014e1b0 */
 extern float  timeInGame;               /* 0x0014e1e0 */
-extern long  *KontinueTime;             /* pointer slot -> 0x000ff960 */
-extern long  *exitTimeout;              /* pointer slot -> 0x00182c80 */
+extern float *KontinueTime;             /* pointer slot -> 0x000ff960 -- a FLOAT.
+                                         * The store is a raw word from the pool
+                                         * (0x419ffdf4), which says nothing on its
+                                         * own; the countdown that reads it is what
+                                         * types it. */
+extern float *exitTimeout;              /* pointer slot -> 0x00182c80 -- also a
+                                         * FLOAT: the value stored is 0x44160000,
+                                         * which is 600.0f, not the integer 600.
+                                         * This header always said 600.0f; the C
+                                         * under it stored 600 and was wrong. */
 extern long   WaitForOpponent;          /* 0x0010df18 */
 extern long   FadeMusicOut;             /* 0x0010dee8 */
 /* Both are pointer slots to arrays of C strings. */
@@ -4409,8 +4425,13 @@ void UpdateStats(void);
 int  achievementsUnlock(int id);
 void sendQuit(void);
 void Write_AchievementsData(void);
+/* The last argument is a LONG, not a float. The call site stores it with
+ * `vstr s14, [sp]` after a `vcvt.s32.f32`, so the word on the stack is an
+ * integer that happens to have been computed in a VFP register; the callee
+ * loads it with a plain `ldr` and hands it to `numberWithInt:`. Typed float,
+ * the clean C converted the integer back to a float and logged nonsense. */
 void EASDK_LogEventEnumEnumStringNum(long id, long a, const char *s,
-                                     long b, float n);
+                                     long b, long n);
 
 
 /* ---------------------------------------------------------------- QuitAsLose
@@ -4486,7 +4507,7 @@ void QuitAsLose(void)
                 15, getStageName(Stage));
         EASDK_LogEventEnumEnumStringNum(0x754f, 15,
                 DestinyNames[Destiny],
-                7, (float)(long)timeInGame);
+                7, (long)timeInGame);
         printf("%f", (double)timeInGame);
     }
 
@@ -4512,7 +4533,7 @@ void QuitAsLose(void)
     case 3:
         *FE_FadeAddP = -0.033333335f;
         PushFETask(0x27);
-        *exitTimeout = 600;
+        *exitTimeout = 600.0f;
         break;
 
     case 4:
@@ -4524,7 +4545,7 @@ void QuitAsLose(void)
         *DisplaySurvivalStage = *SurvivalStageP;
         *SurvivalStageP       = 0;
         Write_SaveData();
-        *exitTimeout = 600;
+        *exitTimeout = 600.0f;
         break;
 
     case 5:
@@ -4547,7 +4568,8 @@ void QuitAsLose(void)
         winStreak     = 0;
         points        = lastWinStreak;
         *FE_FadeAddP    = -0.033333335f;
-        *KontinueTime = 0x419ffdf4;     /* 19.999001f, as in InitKodeScreen */
+        *KontinueTime = 19.999001f;     /* the same odd literal InitKodeScreen
+                                         * writes into KodeTime */
         PushFETask(0x1d);
         Player1Wins = 0;
         UpdateStats();
@@ -4947,4 +4969,533 @@ void Task_LoadGeneralData(void)
     JSIZE = ButtonSize;
     JoystickStatePosX = (long)ButtonSize;
     JoystickStatePosY = (long)((float)limeScreenHeight - ButtonSize);
+}
+
+/* ----------------------------------------------------------------- QuitAsWin
+ *
+ * armv7 0x000265d4, 1020 bytes.  **Complete.**
+ *
+ * The mirror of `QuitAsLose` above, and the two are worth reading together:
+ * they share a shape, the same fade constant, and the same per-mode exits, but
+ * the win path carries the whole arcade ladder inside it.
+ *
+ * ### The ladder ends when the stage passes Destiny + 8
+ *
+ *      Stage++
+ *      if (Stage >= Destiny + 8) { ...tower cleared... }
+ *
+ * `Destiny` is which of the four towers is being played, and it is also the
+ * OFFSET that makes each tower longer than the last: tower 0 ends after 8
+ * fights, tower 3 after 11. One field doing two jobs, which is why `Destiny`
+ * is reset to **-1** and not to 0 when the tower is cleared -- 0 is a real
+ * tower and -1 is the "no tower" value the front end tests for.
+ *
+ * Clearing a tower does five things in order: unlocks achievement 0 if the
+ * player never lost a round on tower 3, sets this tower's bit in
+ * `achievementTracker[0x54/4]` and unlocks achievement 1 once all four bits
+ * are set, arms an unclaimed treasure, pushes front-end task 0x24 (the same
+ * task `Task_LoadGeneralData` routes to at boot when a treasure is owed), and
+ * clears `GameStarted`, `Destiny` and `Stage`.
+ *
+ * `TreasureSelected` is set to **-1**, not to a treasure: the value is chosen
+ * later, on the screen that awards it. `SaveUnclaimedTreasure(1)` is what
+ * makes it survive a quit.
+ *
+ * ### Playing as character 5 five times in a row unlocks achievement 13
+ *
+ *      if (PLAYER1MODEL == 5 && ++winningStryk == 5) achievementsUnlock(13);
+ *
+ * The test is `== 5`, not `>= 5`, so the achievement fires on exactly the
+ * fifth win and never again in that run -- and `QuitAsLose` zeroes
+ * `winningStryk`, so it is five consecutive wins as that character. This is
+ * checked on two separate paths (the arcade tail and the survival tail),
+ * written out twice in the original.
+ *
+ * ### Survival
+ *
+ *      survivalWinStreak++, Player1Wins = 1, (*SurvivalStageP)++
+ *      if (survivalWinStreak > 19) { achievementsUnlock(19); Write_AchievementsData(); }
+ *      Write_SaveData()
+ *      Character2 = TowerRand[abs(limeRand()) % 22]
+ *
+ * Twenty survival wins unlock achievement 19. The next opponent is drawn from
+ * `TowerRand`, the same 22-entry shuffle table `PopulateTower` uses, so
+ * survival can repeat an opponent -- there is no exclusion, just a fresh draw.
+ *
+ * **`abs()` before the modulo, not after.** `limeRand` returns a signed value
+ * and the code negates it when negative *before* dividing, so the index is
+ * always in 0..21. Taking `% 22` of a negative first would have given a
+ * negative index and read off the front of the table.
+ *
+ * ### Survival writes the save file twice
+ *
+ * The survival branch calls `Write_SaveData()`, and the common tail below it
+ * calls `Write_SaveData()` again because the mode is not 1. Harmless, but it
+ * is two full writes of the save file on every survival win, and the port
+ * should not copy the second one into a build that writes to slower storage.
+ *
+ * ### The arcade logging, and what it says about the analytics
+ *
+ *      EASDK_LogEventEnumEnumString(0x7554, 15, DestinyNames[Destiny],
+ *                                   15, getLayoutName(Settings[4], Settings[5]))
+ *      EASDK_LogEventEnumEnumString(0x754e, 15, DestinyNamesWin[Destiny],
+ *                                   15, getStageName(Stage))
+ *      EASDK_LogEventEnumEnumStringNum(0x754f, 15, DestinyNames[Destiny],
+ *                                      7, (long)timeInGame)
+ *      printf("time spent:%f\n", (double)timeInGame)
+ *
+ * `0x754e` is the SAME event id the loss path uses -- the two are told apart
+ * by the string, `DestinyNamesWin[Destiny]` here against `DestinyNamesLoss`
+ * there, not by the id. EA also logs the button layout on a win and not on a
+ * loss, so the layout data set is biased towards players who were winning.
+ */
+extern const char **DestinyNamesWin;    /* pointer slot -> 0x00176838 */
+extern long  *TreasureSelected;         /* pointer slot */
+extern long  *playerLostRound;          /* pointer slot -> 0x000ff8b8 */
+extern long   survivalWinStreak;        /* 0x0014e1ec */
+extern long   TowerRand[];              /* pointer slot -> 0x001014d0 */
+extern int    achievementTracker[24];   /* 0x00379c60, see achievements.c */
+
+const char *getLayoutName(int buttons, int custom);
+
+void QuitAsWin(void)
+{
+    *JustWon = 1;
+
+    if (GameMode == 0) {
+        EASDK_LogEventEnumEnumString(0x7554, 15,
+                DestinyNames[Destiny],
+                15, getLayoutName(Settings[4], Settings[5]));
+        EASDK_LogEventEnumEnumString(0x754e, 15,
+                DestinyNamesWin[Destiny],
+                15, getStageName(Stage));
+        EASDK_LogEventEnumEnumStringNum(0x754f, 15,
+                DestinyNames[Destiny],
+                7, (long)timeInGame);
+        printf("time spent:%f\n", (double)timeInGame);
+    }
+
+    switch (GameMode) {
+    case 1:
+        PushFETask(0x28);
+        WaitForOpponent = 1;
+        if (isParentBasedOnSpeed())
+            sendQuit();
+        if (*FE_FadeAddP == 0.0f) {
+            *FE_FadeAddP = -0.033333335f;
+            UpdateStats();
+        }
+        break;
+
+    case 2:
+        *FE_FadeAddP = -0.033333335f;
+        break;
+
+    case 3:
+        *FE_FadeAddP = -0.033333335f;
+        *exitTimeout = 600.0f;
+        PushFETask(0x27);
+        break;
+
+    case 4:
+        if (*FE_FadeAddP == 0.0f) {
+            long r;
+
+            survivalWinStreak++;
+            Player1Wins = 1;
+            (*SurvivalStageP)++;
+
+            if (survivalWinStreak > 19) {
+                achievementsUnlock(0x13);
+                Write_AchievementsData();
+            }
+
+            Write_SaveData();
+            r = limeRand();
+            if (r < 0)
+                r = -r;
+            *FE_FadeAddP = -0.033333335f;
+            Character2 = TowerRand[r % 22];
+
+            if (PLAYER1MODEL == 5 && ++winningStryk == 5)
+                achievementsUnlock(0xd);
+        }
+        break;
+
+    case 5:
+        *FE_FadeAddP = -0.033333335f;
+        *FE_TaskStackPointer = 0;
+        *FE_CurrentTask = 0;
+        Player1Wins = 1;
+        UpdateStats();
+        break;
+
+    default:
+        /* Arcade (0) and mode 6 share this tail; only arcade counts the win
+         * towards the streak. */
+        if (GameMode != 6)
+            winStreak++;
+
+        if (PLAYER1MODEL == 5 && ++winningStryk == 5)
+            achievementsUnlock(0xd);
+
+        if (*FE_FadeAddP == 0.0f) {
+            Player1Wins = 1;
+
+            if (GameMode != 6) {
+                Stage++;
+                if (Stage >= Destiny + 8) {
+                    /* Tower cleared. */
+                    if (Destiny == 3 && *playerLostRound == 0)
+                        achievementsUnlock(0);
+
+                    achievementTracker[0x54 / 4] |= 1 << Destiny;
+                    if (achievementTracker[0x54 / 4] == 0xf)
+                        achievementsUnlock(1);
+
+                    *TreasureSelected = -1;
+                    SaveUnclaimedTreasure(1);
+                    PushFETask(0x24);
+                    GameStarted = 0;
+                    Destiny = -1;
+                    Stage = 0;
+                }
+            }
+
+            *FE_FadeAddP = -0.033333335f;
+            UpdateStats();
+        }
+        break;
+    }
+
+    if (GameMode != 1)
+        Write_SaveData();
+    Write_AchievementsData();
+    if (Settings[2])
+        FadeMusicOut = 1;
+}
+
+/* ------------------------------------------- Task_LoadingScreen_DRAWSCREEN
+ *
+ * armv7 0x0001d178, 844 bytes.  **Complete.**
+ *
+ * One frame of the loading screen: the background, one piece of advice, the
+ * word "LOADING" and the percentage. `Task_LoadingScreen` calls it; the
+ * prototype above this file's `Task_LoadingScreen` has been there since that
+ * function landed.
+ *
+ * ### The background is drawn only once the texture has reached the GPU
+ *
+ *      if (LoadingTexture && LoadingTexture->name)
+ *          limeDrawSprite(LoadingTexture, 0, 0, w, h, 0, 0, 1.0f, 0.75f, col);
+ *
+ * `TEXTURE+0x40` is the GL texture name, so the second half of that test is
+ * "and it has actually been uploaded". A texture object that exists but has
+ * not been given to GL draws nothing rather than drawing garbage -- which
+ * matters here specifically, because this is the one screen that runs while
+ * other textures are still being uploaded.
+ *
+ * **The V range stops at 0.75.** The image is 3/4 of its texture's height:
+ * a 4:3 background in a square power-of-two atlas. A widescreen port that
+ * replaces this art has to keep the same 0.75, or change it here as well.
+ *
+ * ### Which advice is shown
+ *
+ *      if (DrawRandomKode == 0 && Stage > 1)   drawKodeTip(randomKode)
+ *      else if (Stage == 0)                    GameText(0x369)
+ *      else if (Stage == 1)                    GameText(0x365)
+ *      else                                    GameText(TipToDisplay + 0x365)
+ *
+ * **The flag reads inverted**: `DrawRandomKode` being SET is what suppresses
+ * the kode tip, not what asks for it. Zero plus a stage past the first two is
+ * what draws it. Whatever the name meant originally, the test in the binary
+ * is the one above.
+ *
+ * Stages 0 and 1 get fixed strings -- the first two fights of a ladder, where
+ * the player is most likely new -- and everything after that gets one of a
+ * rotating set indexed by `TipToDisplay`, which is why the tips only start
+ * varying once the player is past the opening.
+ *
+ * The chosen string is wrapped to `limeScreenWidth - 32` by
+ * `CreateWrappedTextArrays` into `HelpSpiltText`, 256 bytes a line, and drawn
+ * centred (`align 1`) at y = (line*16 + 132) * FE_HeightScale.
+ *
+ * ### Everything else is anchored to the far corner
+ *
+ *      "LOADING"   x = 8   * FE_WidthScale     align 0 (left)
+ *      "%d%%"      x = w - 16 * FE_WidthScale  align 2 (right)
+ *      both        y = h - 24 * FE_HeightScale
+ *
+ * The two share a baseline and sit at opposite ends of it. Note the y is
+ * `limeScreenHeight - 24 * FE_HeightScale` and NOT `(h - 24) * scale`: the
+ * screen height is used raw and only the inset is scaled, so the text stays
+ * the same distance off the bottom edge on any screen. Getting that grouping
+ * wrong is the classic way a port ends up with text off the bottom of the
+ * display.
+ *
+ * ### The percentage is clamped, and the font is checked twice
+ *
+ *      sprintf(buf, "%d%%", percent >= 100 ? 100 : percent)
+ *
+ * so a caller that overshoots still shows 100%%, never 103%%.
+ *
+ * Both text draws are guarded by `GameFont.numGlyphs != 0` -- separately, with
+ * the guard re-read between them. This function runs before
+ * `Task_LoadGeneralData` has built the font, so on the very first loading
+ * screen the guard is false and only the background is drawn. That is the
+ * whole reason the check exists.
+ */
+extern char   HelpSpiltText[];          /* 0x00182c84, 256 bytes a line */
+extern float  FE_WidthScale;            /* 0x000ff9b8 */
+extern float  FE_HeightScale;           /* 0x000ff9bc */
+
+const char *GameText(long id);
+void drawKodeTip(long index);
+long CreateWrappedTextArrays(const char *text, char *out, long *lines,
+                             long maxWidth, void *font, float scale);
+
+void Task_LoadingScreen_DRAWSCREEN(long a, long percent)
+{
+    /* The original's is EIGHT bytes -- sp+0x20, with `lines` immediately
+     * after it at sp+0x28. That is exactly enough for "100%" and it is only
+     * enough because the clamp below guards the top end. A NEGATIVE percent
+     * is not clamped and formats up to 12 characters, straight over `lines`.
+     * Sixteen here: identical for every value the game passes, and not a
+     * stack overwrite for the ones it does not. See docs/GAME-BUGS.md. */
+    char buf[16];                       /* sp+0x20, widened deliberately */
+    long lines;                         /* sp+0x28 */
+    long i;
+
+    SetupFEScale();
+    limeSet2DDrawing();
+    limeEnableAlphaBlending_Basic();
+
+    if (LoadingTexture != 0 && LoadingTexture->name != 0)
+        limeDrawSprite(LoadingTexture, 0.0f, 0.0f,
+                       (float)limeScreenWidth, (float)limeScreenHeight,
+                       0.0f, 0.0f, 1.0f, 0.75f, col);
+
+    if (a != 0) {
+        const char *text;
+
+        if (DrawRandomKode == 0 && Stage > 1) {
+            drawKodeTip(randomKode);
+        } else {
+            if (Stage == 0)
+                text = GameText(0x369);
+            else if (Stage == 1)
+                text = GameText(0x365);
+            else
+                text = GameText(TipToDisplay + 0x365);
+
+            CreateWrappedTextArrays(text, HelpSpiltText, &lines,
+                                    limeScreenWidth - 0x20,
+                                    &GameFont, FE_WidthScale);
+
+            for (i = 0; i < lines; i++)
+                limeDrawFONT(&GameFont, limeUC(&HelpSpiltText[i * 256]),
+                             (float)(limeScreenWidth / 2),
+                             (float)(i * 16 + 0x84) * FE_HeightScale,
+                             1, FE_WidthScale, fontcol);
+        }
+    }
+
+    if (GameFont.numGlyphs != 0)
+        limeDrawFONT(&GameFont, GameText(0x13),
+                     8.0f * FE_WidthScale,
+                     (float)limeScreenHeight + -24.0f * FE_HeightScale,
+                     0, FE_WidthScale, fontcol);
+
+    sprintf(buf, "%d%%", (int)(percent >= 100 ? 100 : percent));
+
+    if (GameFont.numGlyphs != 0)
+        limeDrawFONT(&GameFont, buf,
+                     (float)limeScreenWidth + -16.0f * FE_WidthScale,
+                     (float)limeScreenHeight + -24.0f * FE_HeightScale,
+                     2, FE_WidthScale, fontcol);
+}
+
+
+/* ----------------------------------------------------------- InitAllGameData
+ *
+ * armv7 0x00021224, 1044 bytes.  **Complete.**
+ *
+ * Despite the name this function does exactly one thing: it lays out every
+ * on-screen touch button, for every control scheme, from the screen size.
+ * `Task_LoadGeneralData` calls it once at boot and reads `ButtonSize` straight
+ * afterwards to place the joystick, so the two have to be read together.
+ *
+ * ### Everything comes from one ratio
+ *
+ *      k = limeScreenWidth / 640.0f      the design width
+ *      B = k * ButtonSize                the one-player button
+ *      C = B * 0.66666698f               the two-player button, 2/3 as big
+ *
+ * 640 is the layout the art was authored for; `k` is what carries it to any
+ * other width. **Only the width feeds the scale** -- the height is used for
+ * positions but never for scaling, so a taller screen gets the same button
+ * size and more empty space, and a wider one gets bigger buttons.
+ *
+ * ### ButtonSize is rewritten in place, so this must run exactly once
+ *
+ *      ButtonSize = C / 0.66666698f      ( == B, up to one rounding )
+ *
+ * The global it read is the global it overwrites. Called twice, every button
+ * would be scaled twice. Nothing else calls it -- `Task_LoadGeneralData` is
+ * the only caller -- but a port that adds a "resolution changed" path cannot
+ * simply call this again: it has to restore the design-time `ButtonSize`
+ * first. Note also the round trip through 2/3 and back rather than just
+ * keeping `B`; the two agree to within a float rounding, and the code stores
+ * the round-tripped one.
+ *
+ * ### The layouts
+ *
+ * Every array is 120 bytes: six records of five words, of which this function
+ * writes three -- x, y and size -- and leaves the last two alone. The
+ * one-player arrays step in units of B from the bottom-right corner:
+ *
+ *      x: SW-0.5B, SW-1.5B, SW-2.5B      y: SH-0.5B, SH-1.5B
+ *
+ *      ButtonsPos4   4 buttons   a 2x2 block in the corner
+ *      ButtonsPos5   5 buttons   the block plus one to its left
+ *      ButtonsPos6   6 buttons   a 3x2 block
+ *
+ * `CustomButtonsPos4/5/6` get exactly the same values -- they are the player's
+ * editable copy -- and are then copied into `DEFAULT_CustomButtonsPos4/5/6`,
+ * which is what "reset controls" restores. **All three copies are 120 bytes**,
+ * including the four- and five-button ones, so the unused records travel too.
+ *
+ * The two-player arrays split the screen. Player 2 (`_2`) works leftwards from
+ * the right edge exactly as above but in units of C. Player 1 (`_1`) works
+ * leftwards from
+ *
+ *      M = (limeScreenWidth / 2) - 0.5f * C
+ *
+ * and then subtracts a **flat 48 pixels** before stepping. That 48 is the only
+ * number here that is not scaled by anything -- on a 640-wide screen it is
+ * 48px of dead space either side of the centre line, and on a 2048-wide one it
+ * is still 48px. For a widescreen port it is the first constant to revisit.
+ *
+ * ### The same value computed twice
+ *
+ * `M - C - 48 - C` and `(M - 2C) - 48` both appear, for what is arithmetically
+ * one number, and both are truncated to int separately. They can differ by one
+ * unit when the float rounding falls badly. Both are kept below rather than
+ * folded into one, because folding them would be a change and not a
+ * transcription.
+ */
+
+/* The records are the same 20-byte BUTTONPOS_STRIDE entries the touch code
+ * above walks: word 0 x, word 1 y, word 2 size, word 4 the button id. This
+ * function writes the first three and never touches the id -- that comes from
+ * the preset data. Every array is 120 bytes, six records, however many the
+ * layout actually uses. */
+extern long ButtonsPosP2_1[];           /* 0x0014ff4c  2P mode, player 1 */
+extern long ButtonsPosP2_2[];           /* 0x0014ffc4  2P mode, player 2 */
+extern long ButtonsPos6P2_1[];          /* 0x0015003c  2P six-button, player 1 */
+extern long ButtonsPos6P2_2[];          /* 0x001500b4  2P six-button, player 2 */
+extern long CustomButtonsPos4[];        /* 0x00150294 */
+extern long CustomButtonsPos5[];        /* 0x0015030c */
+extern long CustomButtonsPos6[];        /* 0x00150384 */
+extern long DEFAULT_CustomButtonsPos4[];        /* 0x001503fc */
+extern long DEFAULT_CustomButtonsPos5[];        /* 0x00150474 */
+extern long DEFAULT_CustomButtonsPos6[];        /* 0x001504ec */
+
+static void SetButton(long *a, int n, long x, long y, long size)
+{
+    a[n * (BUTTONPOS_STRIDE / 4) + 0] = x;
+    a[n * (BUTTONPOS_STRIDE / 4) + 1] = y;
+    a[n * (BUTTONPOS_STRIDE / 4) + 2] = size;
+}
+
+void InitAllGameData(void)
+{
+    float SW = (float)limeScreenWidth;
+    float SH = (float)limeScreenHeight;
+    float halfW = (float)(limeScreenWidth / 2);
+    float B = (SW / 640.0f) * ButtonSize;
+    float C = B * 0.66666698f;
+    float M = halfW + C * -0.5f;
+
+    /* Two-player geometry, in units of C. */
+    long px1 = (long)((M - 48.0f) - C);
+    long px2 = (long)(((M - C) - 48.0f) - C);
+    long px2b = (long)((M + C * -2.0f) - 48.0f);   /* the same number, again */
+    long px3 = (long)(((M + C * -2.0f) - 48.0f) - C);
+    long py1 = (long)(SH + C * -0.5f);
+    long py2 = (long)((SH + C * -0.5f) - C);
+    long py3 = (long)((SH + C * -0.5f) + C * -2.0f);
+    long qx1 = (long)(SW + C * -0.5f);
+    long qx2 = (long)((SW + C * -0.5f) - C);
+    long qx3 = (long)(C * -2.0f + (SW + C * -0.5f));
+    long sz2 = (long)C;
+
+    long bx1, bx2, bx3, by1, by2, sz1;
+    int i;
+
+    SetButton(ButtonsPosP2_1, 0, px1, py1, sz2);
+    SetButton(ButtonsPosP2_1, 1, px2, py1, sz2);
+    SetButton(ButtonsPosP2_1, 2, px2, py2, sz2);
+    SetButton(ButtonsPosP2_1, 3, px1, py2, sz2);
+    SetButton(ButtonsPosP2_1, 4, px3, py1, sz2);
+
+    SetButton(ButtonsPosP2_2, 0, qx1, py2, sz2);
+    SetButton(ButtonsPosP2_2, 1, qx2, py2, sz2);
+    SetButton(ButtonsPosP2_2, 2, qx2, py3, sz2);
+    SetButton(ButtonsPosP2_2, 3, qx1, py3, sz2);
+    SetButton(ButtonsPosP2_2, 4, qx3, py3, sz2);
+
+    SetButton(ButtonsPos6P2_1, 0, px1,  py1, sz2);
+    SetButton(ButtonsPos6P2_1, 1, px2,  py1, sz2);
+    SetButton(ButtonsPos6P2_1, 2, px1,  py2, sz2);
+    SetButton(ButtonsPos6P2_1, 3, px2,  py2, sz2);
+    SetButton(ButtonsPos6P2_1, 4, px3,  py1, sz2);
+    SetButton(ButtonsPos6P2_1, 5, px2b, py3, sz2);
+
+    SetButton(ButtonsPos6P2_2, 0, qx1, py2, sz2);
+    SetButton(ButtonsPos6P2_2, 1, qx2, py2, sz2);
+    SetButton(ButtonsPos6P2_2, 2, qx1, py3, sz2);
+    SetButton(ButtonsPos6P2_2, 3, qx2, py3, sz2);
+    SetButton(ButtonsPos6P2_2, 4, qx1, py1, sz2);
+    SetButton(ButtonsPos6P2_2, 5, qx3, py3, sz2);
+
+    /* One-player geometry, in units of B -- and the write-back. */
+    bx1 = (long)(SW + B * -0.5f);
+    by1 = (long)(SH + B * -0.5f);
+    bx2 = (long)((SW + B * -0.5f) - B);
+    by2 = (long)((SH + B * -0.5f) - B);
+    bx3 = (long)((SW + B * -0.5f) + B * -2.0f);
+    sz1 = (long)B;
+
+    ButtonSize = C / 0.66666698f;
+
+    /* The 2x2 corner block is identical in all three one-player layouts. */
+    for (i = 0; i < 3; i++) {
+        long *fixed  = (i == 0) ? ButtonsPos4
+                     : (i == 1) ? ButtonsPos5 : ButtonsPos6;
+        long *custom = (i == 0) ? CustomButtonsPos4
+                     : (i == 1) ? CustomButtonsPos5 : CustomButtonsPos6;
+
+        SetButton(fixed,  0, bx1, by1, sz1);
+        SetButton(fixed,  1, bx2, by1, sz1);
+        SetButton(fixed,  2, bx2, by2, sz1);
+        SetButton(fixed,  3, bx1, by2, sz1);
+        SetButton(custom, 0, bx1, by1, sz1);
+        SetButton(custom, 1, bx2, by1, sz1);
+        SetButton(custom, 2, bx2, by2, sz1);
+        SetButton(custom, 3, bx1, by2, sz1);
+    }
+
+    SetButton(ButtonsPos5, 4, bx3, by1, sz1);
+    SetButton(CustomButtonsPos5, 4, bx3, by1, sz1);
+
+    SetButton(ButtonsPos6, 4, bx3, by1, sz1);
+    SetButton(CustomButtonsPos6, 4, bx3, by1, sz1);
+    SetButton(ButtonsPos6, 5, bx3, by2, sz1);
+    SetButton(CustomButtonsPos6, 5, bx3, by2, sz1);
+
+    /* Every copy is 120 bytes -- six records -- whatever the layout uses. */
+    memcpy(DEFAULT_CustomButtonsPos4, CustomButtonsPos4, 0x78);
+    memcpy(DEFAULT_CustomButtonsPos5, CustomButtonsPos5, 0x78);
+    memcpy(DEFAULT_CustomButtonsPos6, CustomButtonsPos6, 0x78);
 }

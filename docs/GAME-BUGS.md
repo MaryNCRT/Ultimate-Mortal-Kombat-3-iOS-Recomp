@@ -244,3 +244,36 @@ for (i = 0; i < NameFont.numGlyphs; i++)
 
 Copy `min(sizeof NameFontCodes, NameFont.numGlyphs)` bytes, and say something
 when the font is short rather than quietly drawing the wrong glyphs.
+
+---
+
+## The loading screen's percentage buffer only fits a positive number
+
+`Task_LoadingScreen_DRAWSCREEN` (armv7 `0x0001d178`) formats the progress
+number into an **eight-byte** stack buffer at `sp+0x20`, with the line count it
+uses immediately after it at `sp+0x28`:
+
+```
+ldr     r2, [sp, #0x1c]     ; percent
+add     r0, sp, #0x20       ; the buffer
+cmp     r2, #0x64
+it      ge
+movge   r2, #0x64           ; clamped at the TOP only
+blx     _sprintf            ; "%d%%"
+```
+
+Eight bytes is exactly enough for `"100%"`. The clamp guards the top end and
+nothing guards the bottom: a negative percentage formats as up to twelve
+characters and writes straight over the line count that the same function has
+already used, and past it.
+
+Whether a caller can pass a negative value is not established — the two callers
+found so far compute a ratio of bytes loaded. It is a latent bug, and it is one
+line of stack away from the kind of corruption that presents as an unrelated
+crash much later.
+
+### What the port should do
+
+`decomp/gamecode/GameCode.c` declares the buffer as sixteen bytes and says why
+in a comment. That is identical for every value the game actually passes and
+not a stack overwrite for the ones it does not.
