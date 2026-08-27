@@ -2653,3 +2653,174 @@ long TouchAreaWH(int x, int y, int w, int h)
 
     return r;
 }
+
+
+long limeGetStringWidthUCNoHeader(void *font, const char *text);
+
+
+/* ---------------------------------------------------- CreateWrappedTextArrays
+ *
+ * armv7 0x00003338, 612 bytes.  **Complete.**
+ *
+ * The word wrapper. Splits `text` into fixed 256-byte lines in `out` and
+ * reports how many it produced. **The 256-byte stride is the same one
+ * `DrawOptionAsText` walks `ButtonSplitText2` with** -- two functions, one
+ * layout.
+ *
+ * It handles two encodings and picks between them by looking at the first byte:
+ * `0xFF` followed by `0xFE` is the UTF-16LE BOM that `limeUC` writes and
+ * `LoadTextData` bakes into every shipped string; anything else is bytes.
+ *
+ * ### Width is measured one character at a time, not per line
+ *
+ *      w = limeGetStringWidth(font, &line[col])      <- from HERE to the NUL
+ *      total += w * scale
+ *      if (total > maxWidth) break the line
+ *
+ * The measured slice starts at the character just written and the terminator
+ * was written immediately after it, so each call measures exactly one glyph and
+ * the total is accumulated. Measuring the whole line each pass would be
+ * quadratic; this is linear, and it is why `total` is reset rather than
+ * recomputed after a break.
+ *
+ * The UTF-16 branch uses **`limeGetStringWidthUCNoHeader`** -- the variant that
+ * does not expect a BOM -- because the slice it hands over starts mid-string
+ * and has no header of its own.
+ *
+ * ### Where it is allowed to break
+ *
+ * A break position is remembered when either:
+ *
+ *      the character is `' '` or `'|'`            (ASCII, or UTF-16 high byte 0)
+ *      the UTF-16 high byte is above 0x4d
+ *
+ * The second is the interesting one. High bytes above 0x4d are the CJK and
+ * Hangul blocks, and there **any** character is a legal break point -- which is
+ * correct for languages that do not put spaces between words, and is the whole
+ * reason the test is on the high byte rather than on the character. Latin text
+ * still breaks only at spaces and pipes.
+ *
+ * `'|'` is also a hard break: on hitting one the line is cut there whether or
+ * not it was full.
+ *
+ * ### Line count
+ *
+ * `*lines` ends at `lastLineIndex + 1`, and **an empty string reports 1**, not
+ * 0 -- the increment happens on every exit path. A caller that loops
+ * `for (i = 0; i < lines; i++)` therefore always draws at least one line, which
+ * for an empty string is an empty one.
+ */
+long CreateWrappedTextArrays(const char *text, char *out, long *lines,
+                             long maxWidth, void *font, float scale)
+{
+    long line = 0;
+    long col = 0;
+    long i;
+    long breakAt = -1;                  /* index in `text` */
+    long breakCol = 0;                  /* column in the current line */
+    float total = 0.0f;
+    int utf16;
+
+    *lines = 0;
+
+    if (text[0] == 0) {
+        *lines = 1;                     /* empty still counts as one line */
+        return 0;
+    }
+
+    utf16 = ((unsigned char)text[0] == 0xFF
+             && (signed char)text[1] == (signed char)0xFE);
+
+    if (!utf16) {
+        for (i = 0; text[i] != 0; ) {
+            char *dst = &out[line * 256];
+            char ch;
+
+            dst[col] = text[i];
+            dst[col + 1] = 0;
+            ch = dst[col];
+
+            if (ch == '|' || ch == ' ') {
+                breakAt  = i;
+                breakCol = col;
+            }
+
+            total += (float)limeGetStringWidth(font, &dst[col]) * scale;
+
+            if (total > (float)maxWidth) {
+                out[line * 256 + breakCol] = 0;
+                i    = breakAt + 1;
+                col  = 0;
+                line++;
+                total = 0.0f;
+                continue;
+            }
+
+            if (dst[col] == '|') {      /* a hard break */
+                out[line * 256 + breakCol] = 0;
+                i    = breakAt + 1;
+                col  = 0;
+                line++;
+                total = 0.0f;
+                continue;
+            }
+
+            i++;
+            col++;
+        }
+    } else {
+        const char *s = text + 1;       /* past the 0xFF; units are read at s+k */
+
+        for (i = 2; text[i] != 0; ) {
+            char *dst = &out[line * 256];
+            long hi;
+
+            if (s[i] == 0)
+                break;
+
+            dst[col]     = text[i];     /* the low byte  */
+            dst[col + 1] = s[i];        /* and the high  */
+            dst[col + 2] = 0;           /* 16-bit terminator */
+            dst[col + 3] = 0;
+
+            hi = (signed char)dst[col + 1];
+
+            if ((signed char)dst[col] == '|' || (signed char)dst[col] == ' ') {
+                if (hi == 0) {
+                    breakAt  = i;
+                    breakCol = col;
+                } else if (hi > 0x4d) {
+                    breakAt  = i;
+                    breakCol = col;
+                }
+            } else if (hi > 0x4d) {     /* CJK: break anywhere */
+                breakAt  = i;
+                breakCol = col;
+            }
+
+            total += (float)limeGetStringWidthUCNoHeader(font, &dst[col])
+                     * scale;
+
+            if (total > (float)maxWidth
+                || ((signed char)dst[col] == '|' && dst[col + 1] == 0)) {
+                if (breakAt != -1) {
+                    out[line * 256 + breakCol]     = 0;
+                    out[line * 256 + breakCol + 1] = 0;
+                    i = ((signed char)s[breakAt] <= 0x4d)
+                        ? breakAt : breakAt - 2;
+                }
+                line++;
+                breakAt = -1;
+                col   = 0;
+                total = 0.0f;
+                continue;
+            }
+
+            i   += 2;
+            col += 2;
+        }
+    }
+
+    *lines = line + 1;
+    return 0;
+}
