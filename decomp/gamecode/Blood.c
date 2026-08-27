@@ -134,3 +134,53 @@ GAMEEVENT *GetNewEvent(long type)
     }
     return 0;
 }
+
+
+extern int Settings[10];                /* 0x00100e34 */
+
+
+extern long *MercyMessage;              /* pointer slot -> 0x0014fb40 */
+extern float *MusicVol;                 /* pointer slot -> 0x000ff830 */
+long limeRand(void);
+void limeStopTune(void);
+void limePlayTune(const char *file, long vol, long arg);
+
+
+/* --------------------------------------------------------- PlayFatalityVoice
+ *
+ * armv7 0x00072f58, 116 bytes.  **Complete.**
+ *
+ *      m = *MercyMessage
+ *      if (m == 0 && Settings[2] == 0) return       <- nothing to do
+ *      limeStopTune()
+ *      if (limeRand() & 1) limePlayTune("Fatal1.mp3", vol, m)
+ *      else                limePlayTune("Fatal2.mp3", vol, m)
+ *
+ *      vol = (long)MusicVol[Settings[2]]
+ *
+ * **The volume is a float TABLE indexed by the music setting**, converted to an
+ * int with `vcvt.s32.f32` at the call. Settings[2] is the same slot
+ * ResetSettingsData writes twice -- 3 by default, 0 when the phone already had
+ * music playing -- so index 0 of MusicVol is the muted level and the guard
+ * above means the voice is skipped entirely in that case unless a mercy message
+ * is pending.
+ *
+ * The coin flip is `limeRand() & 1`, one bit, so the two clips are equally
+ * likely. `_MercyMessage` is passed through to limePlayTune untouched.
+ */
+void PlayFatalityVoice(void)
+{
+    long mercy = *MercyMessage;
+    long vol;
+
+    if (mercy == 0 && Settings[2] == 0)
+        return;
+
+    limeStopTune();
+    vol = (long)MusicVol[Settings[2]];
+
+    if (limeRand() & 1)
+        limePlayTune("Fatal1.mp3", vol, mercy);
+    else
+        limePlayTune("Fatal2.mp3", vol, mercy);
+}

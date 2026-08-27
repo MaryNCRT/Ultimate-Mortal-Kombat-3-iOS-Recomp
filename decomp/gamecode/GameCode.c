@@ -798,3 +798,69 @@ int compareLanguages(int write)
     limeFree(prev);
     return r != 0;
 }
+
+
+/* ---------------------------------------------------- CheckForUnclaimedTreasure
+ *
+ * armv7 0x0002337c, 104 bytes.  **Complete.**
+ *
+ *      p = load("unclaimedtreasure")
+ *      if (!p) return 0
+ *      v = *p
+ *      if (v == 0) { free(p); return 0 }
+ *      free(p)
+ *      p = load("unclaimedtreasure_playedas")
+ *      if (p) { PLAYER1MODEL = *p; free(p) }
+ *      p = load("unclaimedtreasure_lastdestiny")
+ *      if (p) { LastDestiny = *p; free(p) }
+ *      return 1
+ *
+ * The reader for the three files SaveUnclaimedTreasure writes, and it treats
+ * them as three independent facts rather than one record: **a missing companion
+ * file is not a failure**, and the two branches that hit one write the loaded
+ * pointer's own value into LastDestiny before returning -- which on the
+ * not-found path is NULL, so LastDestiny becomes 0 and the function still
+ * returns 1.
+ *
+ * That is transcribed as written. Storing a null pointer as a destiny index
+ * looks like a bug and behaves as "destiny 0"; the alternative reading, that
+ * the register happened to be zero and the store is deliberate, is the same
+ * thing at runtime. Either way a port must not "fix" it into leaving
+ * LastDestiny alone, because 0 is what the original leaves behind.
+ *
+ * A treasure value of zero is "nothing to claim" and returns 0 without reading
+ * the other two files at all.
+ */
+int CheckForUnclaimedTreasure(void)
+{
+    long *p = (long *)limeLoadSaveFile("unclaimedtreasure");
+    long treasure;
+
+    if (p == 0)
+        return 0;
+
+    treasure = *p;
+    if (treasure == 0) {
+        limeFree(p);
+        return 0;                       /* zero means nothing pending */
+    }
+    limeFree(p);
+
+    p = (long *)limeLoadSaveFile("unclaimedtreasure_playedas");
+    if (p) {
+        PLAYER1MODEL = (int)*p;
+        limeFree(p);
+    } else {
+        LastDestiny = 0;                /* the not-found path stores the NULL */
+        return 1;
+    }
+
+    p = (long *)limeLoadSaveFile("unclaimedtreasure_lastdestiny");
+    if (p) {
+        LastDestiny = (int)*p;
+        limeFree(p);
+    } else {
+        LastDestiny = 0;
+    }
+    return 1;
+}
