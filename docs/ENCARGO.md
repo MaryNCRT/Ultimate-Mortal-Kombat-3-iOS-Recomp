@@ -21,9 +21,10 @@ visible, and `--only`, `--list` and a magenta clear colour are how a missing
 surface gets told apart from a dark one.
 
 Three things are open and written up rather than guessed at:
-[#17](../../issues/17) the second background layer, [#18](../../issues/18) the
-global gating `LIME_RenderScene`'s opaque branch, [#19](../../issues/19)
-Graveyard's floor gap.
+[#17](../../issues/17) the second background layer, [#20](../../issues/20) the
+cull face a mirrored fighter needs, [#19](../../issues/19) Graveyard's floor
+gap. The global gating `LIME_RenderScene`'s opaque branch is no longer among
+them -- `HUDANIM_Render` writes it, for one draw call, and #18 is closed.
 
 ---
 

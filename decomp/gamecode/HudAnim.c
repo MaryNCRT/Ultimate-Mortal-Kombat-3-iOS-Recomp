@@ -161,3 +161,116 @@ void HUDANIM_Update(void)
     if (TheHud.timer >= limit)
         TheHud.anim = 0;
 }
+
+
+extern void **MeshSet_FIGHT;            /* pointer slot -> 0x00183d5c */
+extern long  *SceneRenderAlwaysTrans;   /* pointer slot -> 0x00171760 */
+extern float  finishsize;               /* 0x00175184 */
+
+extern void *Fight_MeshAndTexture;      /* 0x00174eec */
+extern void *Finishher_MeshAndTexture;  /* 0x00174ff4 */
+extern void *Finishim_MeshAndTexture;   /* 0x001750fc */
+extern void *HSceneTextures;            /* 0x006bc0a0 */
+
+extern long GameMode;                   /* 0x0014faa4 */
+
+void LIMEDS_SetCameraOrientation(float ex, float ey, float ez,
+                                 float tx, float ty, float tz,
+                                 float ux, float uy, float uz);
+void LIME_SetSceneTextures(void *meshset, void *src, void *dst);
+void LIME_RenderSceneOverrideTextures(void *scene, void *textures, long frame);
+void limeDisableDepthTest(void);
+void limeDisableDepthWrites(void);
+void limeEnableDepthTest(void);
+void limeEnableDepthWrites(void);
+void glPushMatrix(void);
+void glPopMatrix(void);
+void glRotatef(float a, float x, float y, float z);
+void glScalef(float x, float y, float z);
+
+
+/* ------------------------------------------------------------ HUDANIM_Render
+ *
+ * armv7 0x0007dc90, 308 bytes.  **Complete.**
+ *
+ * Draws the "FIGHT" / "FINISH HIM" / "FINISH HER" overlay.
+ *
+ * ### The camera is three literal vectors
+ *
+ *      eye    (0, -5, 0)        __ZZ14HUDANIM_RendervE4C.11
+ *      target (0,  0, 0)        __ZZ14HUDANIM_RendervE4C.10
+ *      up     (0,  0, 1)        __ZZ14HUDANIM_RendervE4C.12
+ *
+ * Five units back along -Y, looking at the origin, Z up. That is a complete,
+ * self-contained camera for the overlay and it does not depend on the game
+ * camera at all -- **the orientation is set before the early-outs**, so even a
+ * frame that draws nothing still moves the camera.
+ *
+ * ### It answers who writes SceneRenderAlwaysTrans
+ *
+ *      SceneRenderAlwaysTrans = 1
+ *      LIME_RenderSceneOverrideTextures(*Scene_FIGHT, HSceneTextures, timer)
+ *      SceneRenderAlwaysTrans = 0
+ *
+ * That flag was an open question in decomp/lime/RenderScene.c -- the renderer
+ * reads it and nothing found so far set it. **This is the writer**, and it is
+ * the only kind of writer that matters: it raises the flag for one draw call
+ * and lowers it immediately. So "always transparent" is not a mode the game
+ * sits in; it is a property of the HUD overlay scene and nothing else.
+ *
+ * The animation timer is converted from its float to an int right at the call
+ * (`vcvt.s32.f32`), which is the frame index into the FIGHT scene.
+ *
+ * ### An uninitialised register on an unknown animation
+ *
+ * The mesh is chosen by `TheHud.anim`: 1 FIGHT, 2 FINISH-HIM, 3 FINISH-HER.
+ * Zero returns early. **Any other value falls through to the draw with the mesh
+ * register never written** -- the compiler emitted no default. It cannot happen
+ * as long as only HUDANIM_TriggerAnim writes the field, which is why it does
+ * not crash; it is still worth a bounds check in a port rather than a faithful
+ * copy of the omission.
+ *
+ * Depth test and depth writes are both off for the overlay and both restored.
+ * The 90-degree X rotation stands the flat sign up to face the camera.
+ */
+void HUDANIM_Render(void)
+{
+    void *mesh = 0;                     /* the original leaves this unset */
+    float s;
+
+    LIMEDS_SetCameraOrientation(0.0f, -5.0f, 0.0f,   /* eye    */
+                                0.0f,  0.0f, 0.0f,   /* target */
+                                0.0f,  0.0f, 1.0f);  /* up     */
+
+    if (GameMode == 2)
+        return;
+    if (TheHud.active == 0 || TheHud.anim == 0)
+        return;
+
+    if (TheHud.anim == 2)
+        mesh = &Finishim_MeshAndTexture;
+    else if (TheHud.anim == 3)
+        mesh = &Finishher_MeshAndTexture;
+    else if (TheHud.anim == 1)
+        mesh = &Fight_MeshAndTexture;
+    /* no default -- see above */
+
+    glPushMatrix();
+    limeDisableDepthTest();
+    limeDisableDepthWrites();
+
+    glRotatef(90.0f, 1.0f, 0.0f, 0.0f);
+    s = finishsize;
+    glScalef(s, s, s);
+
+    LIME_SetSceneTextures(*MeshSet_FIGHT, mesh, &HSceneTextures);
+
+    *SceneRenderAlwaysTrans = 1;
+    LIME_RenderSceneOverrideTextures(*Scene_FIGHT, &HSceneTextures,
+                                     (long)TheHud.timer);
+    *SceneRenderAlwaysTrans = 0;
+
+    glPopMatrix();
+    limeEnableDepthTest();
+    limeEnableDepthWrites();
+}

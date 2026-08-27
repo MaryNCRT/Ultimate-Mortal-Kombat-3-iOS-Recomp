@@ -57,10 +57,10 @@ Current state of the project. Written so that someone can pick it up with no pri
 ## Overall progress
 
 ```
-█████████████████░░░░░░░░░░░░░░░░░░░░░░░  43.08%
+██████████████████░░░░░░░░░░░░░░░░░░░░░░  44.32%
 ```
 
-**43.08% of the total estimated effort. Nothing is playable yet.**
+**44.32% of the total estimated effort. Nothing is playable yet.**
 
 Weights are our judgement of how much of the total each area represents. The
 three decompilation figures are **measured from the tree** by
@@ -79,7 +79,7 @@ done; the second says the fight engine has barely been touched.
 | Tooling and the verification oracle | 8% | 100% | `██████████` |
 | Asset format specifications | 8% | 100% | `██████████` |
 | `lime/common` — engine core (109 fn) | 12% | **100%** | `██████████` |
-| `gamecode` — game logic (291 fn) | 18% | 51.89% (151) | `█████░░░░░` |
+| `gamecode` — game logic (291 fn) | 18% | 58.76% (171) | `██████░░░░` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | 0.14% (3) | `░░░░░░░░░░` |
 | Native PC platform layer (161 fn to rewrite) | 17% | 10% | `█░░░░░░░░░` |
 | EA SDK stubs (~1,412 fn) | 5% | 0% | `░░░░░░░░░░` |
@@ -1842,30 +1842,46 @@ a fatality cancel its own particle swarm by group without tracking slots.
 
 ## Next up
 
-**Finish `lime/common`.** 69 of 109, and the bottleneck for everything: no
-engine means nothing for the platform layer to drive, and no platform layer
-means no playable build. `limeFont.cpp` (0/6) and `DS_DebugWin.c` (0/7) are
-untouched; `Events.cpp` has 15 left including `LIME_LoadEvents` and
-`LIME_UpdateEvents`.
+**Finish `gamecode`.** 171 of 291, and it is the current front. `lime/common` is
+**complete at 109/109** and verified against the oracle, so the engine is no
+longer the bottleneck it was; what is left of the game layer is what stands
+between here and a build that boots into a menu.
 
-The method is routine now — disassemble from the armv6 slice **by name, never
-by a bare address** — and the small functions go in minutes.
+The remaining 120 functions are not the small ones. The tail is six functions
+that alone come to roughly 55 KB of Thumb:
+
+| Function | Bytes |
+|---|---|
+| `GameInit_LoadABit` | 11,700 |
+| `DrawHUD` | 11,536 |
+| `FE_Task_About_Help` | 10,360 |
+| `MovesList` | 8,796 |
+| `AddNewGameEvents` | 6,644 |
+| `UpdateInGamePauseMenu` | 5,720 |
+
+The method is unchanged and works: disassemble by name through
+`tools/annotate.py`, read every branch before writing anything, land each
+function with `check.sh` at zero errors **and** zero warnings in
+`decomp/gamecode`, `symcheck` at zero unknown callees, then republish the
+figures with `tools/sync_figures.py`. Smallest first has been the right order --
+the small ones keep turning up the constants and struct offsets the big ones
+then need.
 
 Then, in order:
 
-1. **Grow the vertical slice** alongside it. The SDL2 backend is written; what
-   remains there is `tools/pose.py`'s skinning moved into C so characters
-   animate natively.
+1. **`gamecode/logic`** -- 2,172 functions, the real mountain, with 92 named
+   `t_` handlers already recovered as a head start
+   ([issue #1](../../issues/1)). Everything learned in `gamecode` about
+   PLAYER, ANIMATEDCHARACTER and the frame tables feeds straight into it.
 2. **The platform layer.** 229 functions, of which 56 are a vendored MIT copy of
    zoul/Finch needing no reverse engineering. The GL target is measured:
    [77 entry points](LIME-ENGINE.md), ES 1.1 fixed function, no shaders.
-3. **`moves_data.x` / `frames.x` extraction** ([issue #11](../../issues/11)).
-4. **`gamecode`** last — 2,463 functions, the real mountain, with 92 named `t_`
-   handlers already recovered as a head start ([issue #1](../../issues/1)).
-5. **Restoring hidden content** — explicitly after a playable build.
-
-The specific work order is in **[ENCARGO.md](ENCARGO.md)**; full orientation for
-anyone arriving cold is in [HANDOFF.md](HANDOFF.md).
+3. **Renderer fixes now that their causes are known** --
+   [#20](../../issues/20) the mirrored-fighter cull face,
+   [#17](../../issues/17) the second background layer,
+   [#19](../../issues/19) Graveyard's floor gap.
+4. **`moves_data.x` / `frames.x` extraction** ([issue #11](../../issues/11)).
+5. **Restoring hidden content** -- explicitly after a playable build.
 
 ### Known technical debt
 
@@ -1933,6 +1949,113 @@ they match the addresses worked out by hand.
 
 Anything decompiled before this commit that leaned on a `(near)` label deserves
 a second look.
+
+## `gamecode` 171 of 291 (58.76%)
+
+Twenty-eight more functions since the halfway mark, across nine files. The
+findings that change what a port has to do, rather than just filling in a name:
+
+### The UTF-16 pipeline, all four halves
+
+`getToken`, `initArguments`, `usprintf` and `limeUC` turn out to be one system,
+and none of them is readable alone.
+
+`usprintf` runs `processString` **twice** with `initArguments` between:
+
+    n = processString(dst, fmt, len, 1, &varargs)   <- collects tokens
+    initArguments(n, &varargs)                      <- pulls the values
+    processString(dst, fmt, len, 0, &varargs)       <- emits
+
+That `n` is the loop bound `initArguments` needed and could not explain on its
+own. `getToken` produces the type numbers `initArguments` dispatches on, and
+`f` produces type 4 -- **which caught a real error in this tree**: the `tbb`
+table `{3, 3, 20, 14}` is not in address order, and reading it as though it
+were swapped the halfword case with the eight-byte one. Type 4 is the double,
+arriving as a register pair under the soft-float ABI. Corrected, with the table
+written out so nobody re-derives it wrong.
+
+`limeUC` explains the last loose end. It converts nothing -- it copies a string
+that is **already UTF-16LE** and prefixes the BOM `FF FE`. That is why
+`getToken` starts scanning at `s + 2`. `LoadTextData` bakes the same prefix into
+every shipped language string, so anything reading `LanguageTextPtrs[i]` gets a
+pointer **at** the BOM, not past it.
+
+### The arcade ladder is walked, not rolled
+
+`PopulateTower` builds the four ladders as 6, 7, 8 and 9 random opponents
+followed **always** by characters 24 and 25. The last row uses all eleven words
+of its 44-byte stride exactly, which is where that stride comes from.
+
+The random ones are not drawn per slot. One `limeRand()` picks a starting
+column, another picks a direction, and the row then **walks** `_TowerRand`
+forwards or backwards with wraparound between columns 0 and 0x15. Whatever
+ordering the designers put into that table survives -- and is lost immediately
+by a port that simplifies this to picking each slot at random.
+
+### Mirroring is two operations, and we do one
+
+`RenderAMesh` mirrors player 2 with a negative X scale **and** `glCullFace(GL_FRONT)`,
+restoring `GL_BACK` unconditionally on the way out. `runtime/demo.c` enables
+culling and never calls `glCullFace`, relying on the GL default. Correct today
+because the demo draws one fighter; wrong the moment it draws two. Filed as
+issue #20 rather than fixed here, because it belongs with the renderer work.
+
+### `_SceneRenderAlwaysTrans` -- answered
+
+`HUDANIM_Render` is the writer, and the only one. It raises the flag for exactly
+one draw call -- the FIGHT / FINISH HIM / FINISH HER overlay -- and lowers it
+immediately. So it is a property of that scene, never a mode the game sits in,
+and it does not touch stage or fighter geometry. Issue #18 closed.
+
+Its camera is three literal vectors independent of the game camera: eye
+`(0, -5, 0)`, target `(0, 0, 0)`, up `(0, 0, 1)`. The orientation is set
+**before** every early-out, so a frame that draws nothing still moves it.
+
+### Smaller things worth not re-deriving
+
+- **Two frame tables.** `FrameID_GetBBox` falls back from `_FrameInfo2` to
+  `_FrameInfo` when the first record height is zero. `fid == -1` is not a frame
+  at all -- it builds a 400x200 box from `_Camera` and `_WorldScaleAdjust`.
+- **7244 turns up three times**, from three directions: the guard in
+  `FrameID_GetBBox`, the fill count in `LoadAllFramesTXT`, and 7245 in
+  `ClearAnimRemapTables`. The table has 7245 slots and the loader fills 7244 of
+  them. The difference is recorded, not smoothed.
+- **`KodeSelector` is ten words**, and `checkIfKode` compares indices 0-2 and
+  7-9 -- exactly the six `resetKodeSelector` clears. The four-word gap that was
+  an open question in that function comment is answered: they are not part of a
+  kode.
+- **`achievementsUnlock` writes one of three values**, not a boolean. `Settings[7]`
+  at zero unlocks silently and returns 0; with the achievements screen already
+  open it writes 4 instead of 1, deliberately keeping the entry out of the count
+  `areAchievementsViewing` makes. The two only make sense read together. Its
+  forward declaration said `void`; it returns `int`.
+- **Per-character frame exceptions.** `IsAFrameVisible` hides frame 290 for
+  character 3 and forces frame 365 for character 6; `IsFrameVisible` hides 295
+  for character 12. None is derivable from data. `Load1Character` is where the
+  character id at `+8` of an ANIMATEDCHARACTER is written.
+- **`drawPage2x2BigForSettings` lies to its own button**: it saves `Settings[3]`,
+  writes zero over it, draws, and restores. Drop the save/restore and it
+  corrupts the setting; drop the zeroing and it draws the wrong thing.
+- **`MaintainFESlide` is already frame-rate independent** -- `0.1 / limeFPSScaleFactor`
+  computed in double precision. A 60 fps port must not "fix" it.
+- **`drawSingleButton` samples V backwards** (v0 0.5, v1 0.25) and U across one
+  eighth: the button atlas is eight wide and sampled bottom-to-top.
+- **`Error()` never returns.** It ends in a branch to its own address, which is
+  what makes `LoadAllFramesTXT`'s apparent fall-through past a failed load
+  unreachable rather than a crash.
+
+### A bug in our own tooling
+
+`tools/annotate.py` tracked a register literal from `ldr rN, [pc, ...]` and
+never cleared it, so a register reloaded by anything else still carried the old
+value and the next `add rN, pc` resolved against it -- printing a confident
+`_KodeSelector+0x8 (near)` for an address that is really `_KodeSelectorParticle`.
+A wrong name is worse than no name: it reads like an answer.
+
+It now clears every instruction destination register and follows a literal across
+`mov rD, rS`, closing the gap its own docstring described as open. Anything
+decompiled before that commit which leaned on a `(near)` label deserves a second
+look.
 
 ## Toolchain
 
