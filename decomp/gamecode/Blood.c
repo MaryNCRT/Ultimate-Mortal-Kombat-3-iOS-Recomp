@@ -52,3 +52,85 @@ void InitGameEvents(void)
     for (i = 0; i < GAME_EVENT_SLOTS; i++)
         GameEvents[i].active = 0;
 }
+
+
+void AddParticles(long type, float x, float y, float z, float speed, long arg);
+
+
+/* ------------------------------------------------- DoBlood / Green / Black
+ *
+ * armv7 0x00073078, 0x0007302c and 0x00072fe0, 76 bytes each.  **Complete.**
+ *
+ * Three identical functions that differ in ONE constant: the particle type,
+ * 2 for red, 4 for green and 6 for black. Everything else -- the 60.0f speed,
+ * the pass-through of x, y, z and the caller's count, and the loop -- is the
+ * same in all three, and the compiler emitted three copies rather than sharing
+ * a body.
+ *
+ * **Each of them calls AddParticles EIGHTY times.** One call before the loop,
+ * then the loop runs its counter from 1 up to 0x50 emitting one per pass, and
+ * every call gets the same arguments. So `count` is not how many particles come
+ * out; it is passed to each of eighty bursts.
+ *
+ * That is worth stating because it is the kind of thing a port "optimises" into
+ * a single call with a multiplied count, and the two are not the same: whatever
+ * AddParticles does with randomness happens eighty times here.
+ */
+static void DoBloodOfType(long type, float x, float y, float z, long count)
+{
+    long i;
+
+    AddParticles(type, x, y, z, 60.0f, count);
+    for (i = 1; i != 0x50; i++)
+        AddParticles(type, x, y, z, 60.0f, count);
+}
+
+void DoBlood(float x, float y, float z, long count)
+{
+    DoBloodOfType(2, x, y, z, count);
+}
+
+void DoGreenBlood(float x, float y, float z, long count)
+{
+    DoBloodOfType(4, x, y, z, count);
+}
+
+void DoBlackBlood(float x, float y, float z, long count)
+{
+    DoBloodOfType(6, x, y, z, count);
+}
+
+
+/* ---------------------------------------------------------------- GetNewEvent
+ *
+ * armv7 0x00072eec, 68 bytes.  **Complete.**
+ *
+ * Finds the first free slot -- first word zero -- in the same sixteen-entry
+ * pool InitGameEvents clears, and returns NULL when they are all taken. The
+ * walk ends at base + 0x5dc, which is entry 15 at stride 0x64.
+ *
+ * On a hit it writes the type at +4, marks the slot live with 1 at +0, and
+ * clears **+0x24 through +0x60** -- sixteen words -- leaving +8 through +0x20
+ * untouched. So a reused slot inherits whatever those held.
+ *
+ * That asymmetry is transcribed as written. Clearing the whole entry would be
+ * tidier and would erase fields the game may be relying on surviving.
+ */
+GAMEEVENT *GetNewEvent(long type)
+{
+    int i, k;
+
+    for (i = 0; i < GAME_EVENT_SLOTS; i++) {
+        long *e = (long *)&GameEvents[i];
+
+        if (e[0] != 0)
+            continue;
+
+        e[1] = type;                    /* +0x04 */
+        e[0] = 1;                       /* +0x00, live */
+        for (k = 0x24; k <= 0x60; k += 4)
+            e[k / 4] = 0;
+        return &GameEvents[i];
+    }
+    return 0;
+}
