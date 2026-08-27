@@ -191,3 +191,78 @@ void UnLoadSoundList(SOUNDENTRY *list)
         list->id = -1;
     }
 }
+
+
+/* `_SoundListUniqueHandle` -- 0x0038b8b0, one word each. The names table and
+ * its 32-byte stride are already declared above. */
+extern long  SoundListUniqueHandle[];
+
+long limeLoadSound(const char *name);
+int  strcmp(const char *a, const char *b);
+char *strcpy(char *d, const char *s);
+
+
+/* ------------------------------------------------------------- LoadSoundList
+ *
+ * armv7 0x000a8210, 196 bytes.  **Complete.**
+ *
+ * Walks a `{name, handle}` list, eight bytes an entry, loading each sound once
+ * and sharing the handle with every later entry that names the same file.
+ *
+ * Two terminators, and they are not the same:
+ *
+ *      strcmp(name, <a literal>) == 0   ->  RETURN, the list is over
+ *      name[0] == 0                     ->  skip this entry, keep going
+ *
+ * So an empty string is a hole in the list, not the end of it. Only the
+ * sentinel string ends the walk.
+ *
+ * ### The loop break is written as a poisoned counter
+ *
+ * On a name that is already in the unique table it does not branch out. It sets
+ * the loop counter to `2 * count` and lets the loop condition fail:
+ *
+ *      i = 2 * count;  i++;  if (i < count) continue;
+ *      if (count == i) load;               <- now false
+ *
+ * The second test is what actually distinguishes "ran to the end without a
+ * match" from "found one", and it only works because the poisoned value can
+ * never equal `count`. Rewriting this as a `break` is safe; rewriting it as a
+ * flag that happens to be set on both paths is not, and the shape is recorded
+ * so nobody has to work that out twice.
+ *
+ * A new sound is loaded, its handle written back into the caller entry, and
+ * both the name and the handle appended to the unique table -- the name with
+ * `strcpy` into a 32-byte slot, unbounded.
+ */
+void LoadSoundList(SOUNDENTRY *list)
+{
+    for (;;) {
+        const char *name = list->name;
+        long i;
+
+        if (strcmp(name, "") == 0)      /* the sentinel string */
+            return;
+
+        if (name[0] != 0) {
+            for (i = 0; i < SoundListUniqueCounter; i++) {
+                if (strcmp(name,
+                           &SoundListUniqueNames[i * SOUND_UNIQUE_NAME_STRIDE]) == 0) {
+                    list->id = SoundListUniqueHandle[i];
+                    break;              /* the poisoned counter, see above */
+                }
+            }
+
+            if (i == SoundListUniqueCounter) {
+                list->id = limeLoadSound(name);
+                strcpy(&SoundListUniqueNames[SoundListUniqueCounter
+                                             * SOUND_UNIQUE_NAME_STRIDE],
+                       list->name);
+                SoundListUniqueHandle[SoundListUniqueCounter] = list->id;
+                SoundListUniqueCounter++;
+            }
+        }
+
+        list++;
+    }
+}

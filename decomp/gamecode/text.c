@@ -565,3 +565,78 @@ char *limeUC(const char *s)
 
     return usprintfBuffers[UCPtr];      /* re-read, not the cached pointer */
 }
+
+
+/* `_listOfTokens` is sixteen entries: usprintf clears 0xc0 bytes at a stride of
+ * 0xc. `_g_usprintfSemaphore` -- 0x00178078. */
+#define TOKEN_SLOTS  16
+
+extern long g_usprintfSemaphore;        /* 0x00178078 */
+
+int  puts(const char *s);
+
+long strLenUnicode(const char *s);
+long processString(char *dst, const char *fmt, long len, long pass,
+                   const long *args);
+
+
+/* ----------------------------------------------------------------- usprintf
+ *
+ * armv7 0x000a7754, 176 bytes.  **Complete.**
+ *
+ * The UTF-16 printf. Two passes over the format string with the marshaller
+ * between them:
+ *
+ *      n = processString(dst, fmt, len, 1, &varargs)    <- pass 1, collects
+ *      initArguments(n, &varargs)                       <- pulls the values
+ *      processString(dst, fmt, len, 0, &varargs)        <- pass 2, emits
+ *
+ * **The token count comes out of pass one and goes straight into
+ * initArguments** -- that is the `count` argument whose loop bound was
+ * otherwise unexplained. The three functions getToken, initArguments and
+ * processString are all halves of this one.
+ *
+ * Sixteen token slots, cleared two words at a time before pass one: the type
+ * and the value, not `value2`. So a slot whose previous use was a double keeps
+ * the high half of it.
+ *
+ * ### The semaphore that cannot clear
+ *
+ * On entry, while `g_usprintfSemaphore` is non-zero it prints
+ *
+ *      \n<<< Waiting for g_usprintfSemaphore! >>>
+ *
+ * and re-reads it, forever. Nothing in this function releases it and there is
+ * no yield in the loop, so on a single thread this is a hang that spams the
+ * console rather than a wait. It only ever means something if usprintf can be
+ * re-entered -- from an interrupt, or from a second thread -- and it is
+ * transcribed as the spin it is.
+ *
+ * Returns 0 always.
+ */
+long usprintf(char *dst, const char *fmt, ...)
+{
+    /* The varargs are pushed as a block by the prologue -- `push {r1, r2, r3}`
+     * before the frame -- so `args` is that block, read as words. */
+    const long *args = (const long *)((const char *)&fmt + sizeof fmt);
+    long len, n;
+    int i;
+
+    while (g_usprintfSemaphore != 0)
+        puts("\n<<< Waiting for g_usprintfSemaphore! >>>");
+
+    g_usprintfSemaphore = 1;
+
+    for (i = 0; i < TOKEN_SLOTS; i++) {
+        listOfTokens[i].type       = 0;
+        listOfTokens[i].value.word = 0;     /* value2 deliberately untouched */
+    }
+
+    len = strLenUnicode(fmt);
+    n   = processString(dst, fmt, len, 1, args);
+    initArguments(n, args);
+    processString(dst, fmt, len, 0, args);
+
+    g_usprintfSemaphore = 0;
+    return 0;
+}

@@ -1416,3 +1416,87 @@ void drawSingleButton(int x, int y, long tint)
                    (float)FE_W(64.0f),    (float)FE_H(64.0f),
                    0.0f, 0.5f, 0.125f, 0.25f, &colour[0].w);
 }
+
+
+extern float TestScale;                 /* 0x0014e268 */
+extern float RenderMeshAlphaOverRide;   /* 0x0014e238 */
+
+typedef struct limeVECTOR3  limeVECTOR3;
+typedef struct limeMATRIX44 limeMATRIX44;
+typedef struct MESHSETINFO  MESHSETINFO;
+
+void LIMEDS_SetObjectOrientation(limeMATRIX44 *m, limeVECTOR3 *pos);
+void LIME_RenderMesh(MESHSETINFO *ms, long n, TEXTURE *t0, TEXTURE *t1,
+                     long flags);
+void glPushMatrix(void);
+void glPopMatrix(void);
+void glScalef(float x, float y, float z);
+void glEnable(unsigned int cap);
+void glCullFace(unsigned int mode);
+void glColor4f(float r, float g, float b, float a);
+
+#define GL_FRONT      0x0404
+#define GL_BACK       0x0405
+#define GL_CULL_FACE  0x0B44
+
+
+/* ----------------------------------------------------------------- RenderAMesh
+ *
+ * armv7 0x000250c4, 164 bytes.  **Complete.**
+ *
+ * The generic one-mesh draw, and the two things in it worth carrying across are
+ * both about mirroring and both easy to get wrong:
+ *
+ *      flip == 0:  glScalef( TestScale, TestScale, TestScale)
+ *                  glCullFace(GL_BACK)
+ *
+ *      flip != 0:  glScalef(-TestScale, TestScale, TestScale)
+ *                  glCullFace(GL_FRONT)
+ *
+ * **A negative X scale reverses triangle winding, so the cull face has to flip
+ * with it.** The game does exactly that, and it does it by culling the FRONT
+ * face rather than by reordering anything. A port that mirrors the matrix and
+ * leaves the cull alone loses every front-facing triangle of the mirrored
+ * fighter and keeps the back ones -- which looks like the model turning inside
+ * out, not like a missing flag.
+ *
+ * The negation is `eor r0, r1, #0x80000000`, the sign bit flipped in the
+ * integer domain, so it is exact for every value including zero.
+ *
+ * **`glCullFace(GL_BACK)` is issued again on the way out, unconditionally.** So
+ * the flipped state never leaks to the next draw, and nothing else has to
+ * remember to restore it. Both `glPushMatrix` calls are matched by pops.
+ *
+ * The colour is white with alpha from `_RenderMeshAlphaOverRide` -- a global,
+ * not an argument, so every mesh drawn through here shares one fade value.
+ *
+ * The two int arguments in r0 and r1 are never read.
+ */
+void RenderAMesh(int unused0, int unused1, limeVECTOR3 *pos, limeMATRIX44 *m,
+                 int flip, TEXTURE *t0, TEXTURE *t1, MESHSETINFO *ms, long n)
+{
+    (void)unused0;
+    (void)unused1;
+
+    glPushMatrix();
+
+    if (flip) {
+        glScalef(-TestScale, TestScale, TestScale);
+        glEnable(GL_CULL_FACE);
+        glCullFace(GL_FRONT);           /* the winding is reversed */
+    } else {
+        glScalef(TestScale, TestScale, TestScale);
+        glEnable(GL_CULL_FACE);
+        glCullFace(GL_BACK);
+    }
+
+    LIMEDS_SetObjectOrientation(m, pos);
+    glColor4f(1.0f, 1.0f, 1.0f, RenderMeshAlphaOverRide);
+
+    glPushMatrix();
+    LIME_RenderMesh(ms, n, t0, t1, 0);
+    glPopMatrix();
+
+    glPopMatrix();
+    glCullFace(GL_BACK);                /* always restored */
+}
