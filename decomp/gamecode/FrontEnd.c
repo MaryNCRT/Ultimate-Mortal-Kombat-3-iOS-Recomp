@@ -2824,3 +2824,80 @@ long CreateWrappedTextArrays(const char *text, char *out, long *lines,
     *lines = line + 1;
     return 0;
 }
+
+
+extern long  mpLobbyCurrentPage;        /* 0x000ff8e0 */
+extern void **FEBackground;             /* pointer slot */
+extern float *col;                      /* pointer slot -> 0x0014fa00 */
+extern float *fontcol;                  /* pointer slot */
+typedef struct TEXTURE TEXTURE;
+
+void limeDrawSprite(TEXTURE *tex, float x, float y, float w, float h,
+                    float u0, float v0, float u1, float v1,
+                    const float *colour);
+
+const char *GameText(long id);
+void PopFETaskDeferredSelected(long task);
+
+
+/* --------------------------------------------- FE_Task_Multiplayer_Disconnected
+ *
+ * armv7 0x00007344, 420 bytes.  **Complete.**
+ *
+ * The "connection lost" screen. Clears `_mpLobbyCurrentPage`, draws the
+ * front-end backdrop full-screen, the message, and one button.
+ *
+ *      limeDrawSprite(*FEBackground, 0, 0, screenW, screenH,
+ *                     0, 0.0234375f, 1.0f, 0.703125f, col)
+ *
+ * The V pair is 3/128 to 90/128 -- another inset window into a texture larger
+ * than the part shown, the same shape `Task_LoadSplashScreen` uses.
+ *
+ * The message is `GameText(0xc4)` centred on the screen midpoint minus 20; the
+ * halving is the signed `(w + (w >>> 31)) >> 1` the compiler emits, transcribed
+ * rather than written `/ 2`.
+ *
+ * ### The two arms of the button test are the same draw
+ *
+ * `DrawButtonNew(BUTTON_1X3_3, 0xed, 0xe6, 1)` gates on the usual
+ * `FE_FadeAdd == 0`, and **both outcomes draw the identical label** --
+ * `GameText(0xc3)` at `FE_X(235)`, `FE_Y(222)`, same font, same colour, same
+ * scale. The only difference is what happens after: the pressed path
+ * additionally does
+ *
+ *      GameMode = 0
+ *      PopFETaskDeferredSelected(0x29a)
+ *
+ * So the label is drawn either way and the compiler emitted two full copies of
+ * the call rather than sharing it. Transcribed as one draw plus the tail,
+ * because writing it twice would suggest a difference that is not there.
+ *
+ * `0x29a` is 666 -- the task id to return to.
+ */
+void FE_Task_Multiplayer_Disconnected(void)
+{
+    int pressed;
+
+    mpLobbyCurrentPage = 0;
+
+    limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0234375f, 1.0f, 0.703125f, col);
+
+    limeDrawFONT(GameFont, GameText(0xc4),
+                 (float)(*limeScreenWidth / 2),
+                 (float)(*limeScreenHeight / 2 - 0x14),
+                 1, FE_WidthScale, col);
+
+    pressed = DrawButtonNew(BUTTON_1X3_3, 0xed, 0xe6, 1)
+              && FE_FadeAdd == 0.0f;
+
+    limeDrawFONT(GameFont, GameText(0xc3),
+                 (float)FE_X(235.0f), (float)FE_Y(222.0f),
+                 1, FE_WidthScale, fontcol);
+
+    if (pressed) {
+        GameMode = 0;
+        PopFETaskDeferredSelected(0x29a);       /* 666 */
+    }
+}
