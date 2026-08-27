@@ -576,8 +576,11 @@ extern long g_usprintfSemaphore;        /* 0x00178078 */
 int  puts(const char *s);
 
 long strLenUnicode(const char *s);
-long processString(char *dst, const char *fmt, long len, long pass,
-                   const long *args);
+/* r0 dst, r1 fmt, r2 len, r3 args, and the pass flag is the first STACK
+ * argument -- read as a byte at sp+0x24. The pass flag comes last, not before
+ * the argument block. */
+long processString(char *dst, const char *fmt, long len, const long *args,
+                   int pass);
 
 
 /* ----------------------------------------------------------------- usprintf
@@ -633,9 +636,9 @@ long usprintf(char *dst, const char *fmt, ...)
     }
 
     len = strLenUnicode(fmt);
-    n   = processString(dst, fmt, len, 1, args);
+    n   = processString(dst, fmt, len, args, 1);
     initArguments(n, args);
-    processString(dst, fmt, len, 0, args);
+    processString(dst, fmt, len, args, 0);
 
     g_usprintfSemaphore = 0;
     return 0;
@@ -721,4 +724,148 @@ void LoadTextData(const char *file)
     }
 
     limeFree((void *)data);
+}
+
+
+/* `putUnicodeChar` and `copyFloat` are declared above. copyFloat takes a
+ * double, which under this soft-float ABI is the register PAIR the call site
+ * loads with `ldm r1, {r1, r2}` -- the two words of a type-4 token. */
+long copyUnicodeString(char *dst, const char *src);
+long copyInt(char *dst, long v);
+
+
+/* -------------------------------------------------------------- processString
+ *
+ * armv7 0x000a7600, 340 bytes.  **Complete.**
+ *
+ * The body of `usprintf`, run twice over the same format string: `pass != 0`
+ * collects the tokens, `pass == 0` emits the result. It is one function with
+ * two jobs and the flag is the only thing separating them.
+ *
+ *      pass 1:  walk, call getToken on every '%', record each token's TYPE in
+ *               listOfTokens[index], count them, and write nothing
+ *      pass 0:  walk, and for each token emit its VALUE through copyInt /
+ *               copyFloat / copyUnicodeString; everything else goes through
+ *               putUnicodeChar
+ *
+ * Returns the token count, which is what `usprintf` hands to `initArguments`.
+ *
+ * ### The cursor is rebased, not advanced
+ *
+ * The scan is `base + i`, and after a token it does **`base = foundToken.at;
+ * i = 2`** rather than adding to `i`. `foundToken.at` is where getToken left
+ * off -- on the type character -- so this resumes two bytes past it. Written as
+ * an advancing index it looks like a reset bug; it is not, and the base moves
+ * with it.
+ *
+ * ### An escape without a digit gets the next index automatically
+ *
+ * `getToken` leaves `index` at -1 when the escape carried no `1`-`8` digit.
+ * This function then substitutes a running counter, so `%d%d%d` numbers itself
+ * 0, 1, 2 while `#3d` addresses slot 2 explicitly. **The counter advances on
+ * every token either way**, explicit or not, so mixing the two forms shifts
+ * the implicit ones.
+ *
+ * ### Two arguments it never reads
+ *
+ * `len` and the varargs pointer arrive in r2 and r3 and are not touched. The
+ * walk ends on the 16-bit NUL from `decodeLHWord`, not on the length, and the
+ * values come from `listOfTokens` rather than from the block -- `initArguments`
+ * has already moved them there between the two passes.
+ *
+ * ### The duplicate-slot diagnostic
+ *
+ * In pass 1, if the slot a token names already has a type, it prints
+ *
+ *      WRONG ARGUMENT! TOKEN #%d
+ *
+ * and **still counts the token and still advances**. So two escapes addressing
+ * the same index inflate the count `initArguments` will loop to, and the second
+ * type is discarded rather than overwriting the first.
+ *
+ * Both passes finish with `putUnicodeChar(dst, 0)` -- the terminator is written
+ * even on the collecting pass, where `dst` has not moved.
+ */
+long processString(char *dst, const char *fmt, long len, const long *args,
+                   int pass)
+{
+    const char *base = fmt;
+    long i = 0;
+    long count = 0;
+    long autoIndex = 0;
+
+    (void)len;                          /* r2, never read */
+    (void)args;                         /* r3, never read */
+
+    for (;;) {
+        const char *p = base + i;
+        uint32_t c = decodeLHWord(p);
+        long idx;
+
+        if (c == 0)
+            break;
+
+        if (c != '%') {
+            if (!pass)
+                dst += putUnicodeChar(dst, c);
+            i += 2;
+            continue;
+        }
+
+        if (getToken(p) == 0) {         /* a '%' that starts no token */
+            i += 2;
+            if (pass)
+                continue;
+
+            switch (foundToken.type) {
+            case 2:
+                dst += copyInt(dst,
+                               listOfTokens[foundToken.index].value.word);
+                break;
+            case 4: {
+                /* ldm r1, {r1, r2}: the two words ARE the double. */
+                union { struct { long lo, hi; } w; double d; } u;
+                u.w.lo = listOfTokens[foundToken.index].value.word;
+                u.w.hi = listOfTokens[foundToken.index].value2;
+                dst += copyFloat(dst, u.d);
+                break;
+            }
+            case 1:
+                dst += copyUnicodeString(dst,
+                        (const char *)(uintptr_t)(unsigned long)
+                            listOfTokens[foundToken.index].value.word);
+                break;
+            default:
+                break;
+            }
+            continue;
+        }
+
+        /* a real token */
+        idx  = foundToken.index;
+        base = foundToken.at;           /* rebase, and i restarts at 2 */
+
+        if (idx == -1) {
+            idx = autoIndex;
+            foundToken.index = idx;
+        }
+
+        if (pass) {
+            if (listOfTokens[foundToken.index].type != 0) {
+                printf("WRONG ARGUMENT! TOKEN #%d\n", (int)foundToken.index);
+                count++;
+                i = 2;
+                autoIndex++;
+                continue;               /* the type is NOT overwritten */
+            }
+            listOfTokens[foundToken.index].type = foundToken.type;
+        }
+
+        count++;
+        i = 2;
+        autoIndex++;
+    }
+
+    putUnicodeChar(dst, 0);             /* written on both passes */
+    return count;
 }
