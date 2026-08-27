@@ -749,3 +749,52 @@ void Load_Tower(void)
     }
     limeFree((void *)src);
 }
+
+
+extern char Language[10];               /* 0x001ab980 */
+int strcmp(const char *a, const char *b);
+
+
+/* ------------------------------------------------------------ compareLanguages
+ *
+ * armv7 0x0002389c, 92 bytes.  **Complete.**
+ *
+ *      p = limeLoadSaveFile("previouslanguage")
+ *      if (!p) {
+ *          if (!write) return 1
+ *          limeWriteFile("previouslanguage", Language, 10, 0)
+ *          return 1
+ *      }
+ *      if (write) limeWriteFile("previouslanguage", Language, 10, 0)
+ *      r = strcmp(p, Language)
+ *      limeFree(p)
+ *      return r != 0
+ *
+ * **No previous file means "changed", not "unknown".** Both no-file paths
+ * return 1, so a first run behaves as if the language had just been switched --
+ * which is what makes whatever depends on this rebuild its text on install.
+ *
+ * The write is 10 bytes, a literal, so the language code is a fixed-width field
+ * and not a C string of whatever length. `strcmp` still reads it as one.
+ *
+ * The argument only controls whether the current language is SAVED; the
+ * comparison happens either way.
+ */
+int compareLanguages(int write)
+{
+    char *prev = (char *)limeLoadSaveFile("previouslanguage");
+    int r;
+
+    if (prev == 0) {
+        if (write)
+            limeWriteFile("previouslanguage", Language, 10, 0);
+        return 1;                       /* no file: treat as changed */
+    }
+
+    if (write)
+        limeWriteFile("previouslanguage", Language, 10, 0);
+
+    r = strcmp(prev, Language);
+    limeFree(prev);
+    return r != 0;
+}
