@@ -1562,3 +1562,81 @@ int drawPage1x3Small(void)
 
     return r;
 }
+
+
+#define FE_INIT_STEPS  86
+
+extern int   FEInitState;               /* 0x001017a8 */
+extern int   FE_LoadCount;              /* 0x001017ac */
+extern float FE_Fade;                   /* 0x00100898 */
+void Task_LoadingScreen_DRAWSCREEN(long a, long percent);
+void DeleteLoadingScreenTexture(void);
+int  FEInit_LoadABit(long step);
+
+
+/* --------------------------------------------------------------- Task_FEInit
+ *
+ * armv7 0x00004a14, 148 bytes.  **Complete. A three-state machine, one step per
+ * frame.**
+ *
+ *      state 0: FE_LoadCount = 0
+ *               Task_LoadingScreen_DRAWSCREEN(0, 0)
+ *               state = 1
+ *
+ *      state 1: Task_LoadingScreen_DRAWSCREEN(0, FE_LoadCount * 100 / 86)
+ *               done = FEInit_LoadABit(FE_LoadCount)
+ *               FE_LoadCount++
+ *               if (done) state = 2
+ *
+ *      state 2: Task_LoadingScreen_DRAWSCREEN(0, 100)
+ *               DeleteLoadingScreenTexture()
+ *               state = 0
+ *               CurrentTask = 3
+ *               FE_Fade = 0
+ *               FE_FadeAdd = +0.033333335f
+ *
+ * **The loading bar is a percentage of 86 steps**, and 86 is a literal folded
+ * into a reciprocal multiply -- `100*n` times 0x2fa0be83 shifted right 36. That
+ * magic is not the minimal one a textbook would pick, so it is worth saying it
+ * was checked rather than assumed: it agrees with `100*n/86` at n = 1, 43, 85
+ * and 86, including the exact 50 and the exact 100.
+ *
+ * The bar therefore reaches 100% only if FEInit_LoadABit reports done on step
+ * 86 or later; finishing early jumps straight to state 2, which draws 100
+ * itself. So the percentage cannot stall short of the end.
+ *
+ * **FE_FadeAdd is +1/30 here where every Pop and Push sets -1/30.** Same
+ * magnitude, opposite sign: those fade OUT of a screen, this fades IN to one.
+ */
+void Task_FEInit(void)
+{
+    switch (FEInitState) {
+        case 0:
+            FE_LoadCount = 0;
+            Task_LoadingScreen_DRAWSCREEN(0, 0);
+            FEInitState = 1;
+            break;
+
+        case 1:
+            Task_LoadingScreen_DRAWSCREEN(0, FE_LoadCount * 100 / FE_INIT_STEPS);
+            if (FEInit_LoadABit(FE_LoadCount)) {
+                FE_LoadCount++;
+                FEInitState = 2;
+            } else {
+                FE_LoadCount++;
+            }
+            break;
+
+        case 2:
+            Task_LoadingScreen_DRAWSCREEN(0, 100);
+            DeleteLoadingScreenTexture();
+            FEInitState = 0;
+            CurrentTask = 3;
+            FE_Fade    = 0.0f;
+            FE_FadeAdd = 0.033333335f;   /* +1/30: this one fades IN */
+            break;
+
+        default:
+            break;
+    }
+}
