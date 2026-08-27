@@ -2162,3 +2162,119 @@ void Write_SaveData(void)
         limeWriteFile("survival", survival, 0xc, 0);
     }
 }
+
+
+extern long *SurvivalCharacter1;        /* pointer slot -> 0x000ff9?? */
+
+void *limeLoadSaveFile(const char *name);
+void  Reset_SaveData(void);
+
+
+/* -------------------------------------------------------------- Load_SaveData
+ *
+ * armv7 0x00023648, 464 bytes.  **Complete.**
+ *
+ * Reads `savedata` back into the globals `Write_SaveData` copied out of, then
+ * validates every one of them.
+ *
+ * ### The checksum is verified, and failing it wipes the save
+ *
+ * The same plain sum is recomputed while reading and compared against +0xa8;
+ * a mismatch calls **`Reset_SaveData()`** and the fields are then re-validated
+ * on top of the reset values. So a corrupt save is not rejected -- it is
+ * silently replaced, and the game continues.
+ *
+ * ### The clamps encode the ladder lengths
+ *
+ *      Destiny     > 3 -> 0,  < 0 -> 0
+ *      Character1  outside [0, 0x17] -> 1
+ *      Stage       clamped to at most Destiny + 8
+ *
+ * **`Destiny + 8` is exactly the ladder length.** `PopulateTower` fills the
+ * four ladders with 6, 7, 8 and 9 random opponents plus the two fixed bosses --
+ * 8, 9, 10 and 11 fights for Destiny 0 through 3. Two functions written from
+ * opposite ends of the save agree on the number without either stating it.
+ *
+ * Character 0x17 is 23, the slot `LoadFrontEndCharacters` loads as character 0.
+ * The out-of-range fallback is **1**, not 0.
+ *
+ * ### The survival file is read asymmetrically
+ *
+ * `Write_SaveData` writes `{SurvivalStage, Character1, SurvivalHealth}`; this
+ * reads `{SurvivalStage, SurvivalCharacter1, SurvivalHealth}`. The middle word
+ * goes out of one global and comes back into a different one. Whether that is
+ * deliberate is not established here -- it is transcribed because a port that
+ * "fixes" it changes which character a resumed survival run uses.
+ *
+ * Health is clamped to (0, 100]: zero or negative and anything above 100 both
+ * become 100, so a corrupt file resumes at full health rather than dead.
+ *
+ * Both files are freed after use. A missing `savedata` skips straight past
+ * everything, including the survival load.
+ */
+void Load_SaveData(void)
+{
+    long *save = (long *)limeLoadSaveFile("savedata");
+    long *surv;
+    long sum, i, v;
+
+    if (save == 0)
+        return;
+
+    GameStarted = save[0x00 / 4];
+    Destiny     = save[0x04 / 4];
+    Stage       = save[0x08 / 4];
+    Character1  = save[0x0c / 4];
+    *ClassicSubZeroUnlocked = save[0x10 / 4];
+    *ErmacUnlocked          = save[0x14 / 4];
+    *MileenaUnlocked        = save[0x18 / 4];
+    *JadeUnlocked           = save[0x1c / 4];
+    winStreak   = save[0x48 / 4];
+
+    sum = save[0x00 / 4] + save[0x04 / 4] + save[0x08 / 4] + save[0x0c / 4]
+        + save[0x10 / 4] + save[0x14 / 4] + save[0x18 / 4] + save[0x1c / 4]
+        + save[0x48 / 4];
+
+    for (i = 0; i < 10; i++) {
+        TreasureGained[i] = save[0x20 / 4 + i];
+        sum += save[0x20 / 4 + i];
+    }
+    for (i = 0; i < 23; i++) {
+        EndingsGained[i] = save[0x4c / 4 + i];
+        sum += save[0x4c / 4 + i];
+    }
+
+    if (sum != save[0xa8 / 4])
+        Reset_SaveData();               /* silently replaced, not rejected */
+
+    if (Destiny > 3)
+        Destiny = 0;
+    else if (Destiny < 0)
+        Destiny = 0;
+
+    if (Character1 < 0 || Character1 > 0x17)
+        Character1 = 1;                 /* the fallback is 1, not 0 */
+
+    if (Destiny + 8 <= Stage)
+        Stage = Destiny + 8;            /* the ladder length */
+
+    limeFree(save);
+
+    surv = (long *)limeLoadSaveFile("survival");
+    if (surv == 0)
+        return;
+
+    *SurvivalStage = surv[0];
+
+    v = surv[1];
+    *SurvivalCharacter1 = v;            /* written from Character1, read here */
+    if (v < 0 || v > 0x17)
+        *SurvivalCharacter1 = 1;
+
+    v = surv[2];
+    *SurvivalHealth = v;
+    if (v <= 0 || v > 100)
+        *SurvivalHealth = 100;
+
+    limeFree(surv);
+}
