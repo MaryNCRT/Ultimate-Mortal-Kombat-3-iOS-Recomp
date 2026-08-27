@@ -379,3 +379,77 @@ void checkIfKode(void)
         k++;                            /* ldr r3, [r4, #0x20]! */
     }
 }
+
+
+extern long *LevelSelect;               /* pointer slot -> 0x000ff7f8 */
+extern long *requestedLevel;            /* pointer slot -> 0x0010deb0 */
+
+extern long GameMode;                   /* 0x0014faa4 */
+
+void sendLevelPacket(void);
+int  isParent(void);
+
+
+/* ---------------------------------------------------- preprocessPreloadKode
+ *
+ * armv7 0x000a030c, 308 bytes.  **Complete.**
+ *
+ * Turns an entered kode into a level choice. A `tbb` on `theKode - 3` covers
+ * ten values and each one writes a different level index into `_LevelSelect`,
+ * then sends it to the other player:
+ *
+ *      theKode   3   4   5   6   7   8   9  10  11  12
+ *      level     1  10   0   4   8   9   2   3   5  11
+ *
+ * **The mapping is not the identity and not monotonic**, and there is no
+ * formula behind it -- it is a hand-written table and the only way to have it
+ * is to copy it. Kodes 0, 1, 2 and anything above 12 fall through and select
+ * nothing.
+ *
+ * The tbb table itself is `{13, 21, 29, 37, 45, 53, 61, 69, 77, 85}`, evenly
+ * spaced by 8 halfwords, so the ten cases are sixteen bytes apart and in
+ * address order here -- unlike `initArguments`, where reading the table as
+ * ordered was wrong.
+ *
+ * **Every case calls `sendLevelPacket()`**, including in single player where
+ * there is nobody to send to.
+ *
+ * ### The multiplayer default
+ *
+ * Afterwards, if `GameMode == 1` and `isParent()`, the parent overwrites
+ * whatever the kode chose with `_requestedLevel` and sends that instead,
+ * printing
+ *
+ *      MP:KODE NOT ENTERED
+ *
+ * So in a two-player match the host has the last word on the arena regardless
+ * of what the guest typed, and the message says exactly that -- it is not an
+ * error, it is the host asserting its own choice. Anything replacing the
+ * transport has to keep that ordering: kode first, host override second.
+ */
+void preprocessPreloadKode(void)
+{
+    switch (*theKode) {
+    case  3: *LevelSelect =  1; sendLevelPacket(); break;
+    case  4: *LevelSelect = 10; sendLevelPacket(); break;
+    case  5: *LevelSelect =  0; sendLevelPacket(); break;
+    case  6: *LevelSelect =  4; sendLevelPacket(); break;
+    case  7: *LevelSelect =  8; sendLevelPacket(); break;
+    case  8: *LevelSelect =  9; sendLevelPacket(); break;
+    case  9: *LevelSelect =  2; sendLevelPacket(); break;
+    case 10: *LevelSelect =  3; sendLevelPacket(); break;
+    case 11: *LevelSelect =  5; sendLevelPacket(); break;
+    case 12: *LevelSelect = 11; sendLevelPacket(); break;
+    default: break;                     /* no level selected */
+    }
+
+    if (GameMode != 1)
+        return;
+
+    if (!isParent())
+        return;
+
+    *LevelSelect = *requestedLevel;     /* the host has the last word */
+    sendLevelPacket();
+    puts("MP:KODE NOT ENTERED");
+}

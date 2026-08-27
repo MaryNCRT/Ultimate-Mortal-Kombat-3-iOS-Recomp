@@ -264,10 +264,16 @@ void GameCodeDestroy(void)
  * Empty, and it takes an argument it never reads. The name and the signature
  * are all that survive of a button-remapping hook; whatever it did lives in the
  * settings code now.
+ *
+ * **It returns its argument, and something depends on that.** `bx lr` leaves r0
+ * exactly as it arrived, and `GetArcadeJoyBits` below tail-calls this and
+ * returns immediately -- so the value that reaches its caller is the bits it
+ * passed in. Declared as returning `long` for that reason: writing it `void`
+ * compiles and hides the only thing this stub still does.
  */
-void RemapKicksPunches(long arg)
+long RemapKicksPunches(long arg)
 {
-    (void)arg;
+    return arg;                         /* bx lr -- r0 is untouched */
 }
 
 
@@ -1295,8 +1301,13 @@ extern union { float f; long w; } PlayerZPos;   /* 0x00150e88 */
  * So the test is vestigial: whichever way it goes, the divisor is the same.
  * It is transcribed as the single divisor it really is, with the flag noted
  * here, because writing an `if` whose arms are identical would be inventing a
- * distinction the machine does not make. Whatever the source said, this binary
- * divides by 64.0 either way.
+ * distinction the machine does not make.
+ *
+ * **Why it is there is now known.** `ArcadePosTo3dPos` below is the same
+ * function with the player offsets kept, and there the very same
+ * `flags & 0x10` chooses the SIGN of the X offset -- subtract when set, add
+ * when clear. Drop the offset term and the test has nothing left to select.
+ * The dead branch here is the scar of that function, not a compiler artefact.
  */
 void ArcadePosTo3dPosNO_OFFSETS(Mk3Obj_t *obj, float *out)
 {
@@ -1499,4 +1510,223 @@ void RenderAMesh(int unused0, int unused1, limeVECTOR3 *pos, limeMATRIX44 *m,
 
     glPopMatrix();
     glCullFace(GL_BACK);                /* always restored */
+}
+
+
+/* The joystick bit alphabet, as far as this function establishes it:
+ *
+ *      0x0004  left            0x0800  "toward the opponent"
+ *      0x0008  right           0x1000  "away from the opponent"
+ *      0x0080  a button, tested against the PREVIOUS frame
+ *      0x2000  set while IsInFinishing and the caller flag is set
+ *
+ * 0x800 and 0x1000 are FACING-RELATIVE and 4 and 8 are absolute. Translating
+ * between the two is what the tail of this function does. */
+#define JOY_LEFT     0x0004
+#define JOY_RIGHT    0x0008
+#define JOY_TOWARD   0x0800
+#define JOY_AWAY     0x1000
+#define JOY_FINISH   0x2000
+
+typedef struct MKMOVE {
+    long unused;                        /* 0x00 */
+    long mask;                          /* 0x04  the bit pattern to match */
+    long index;                         /* 0x08  into _VeteranMoves */
+} MKMOVE;
+
+#define MKMOVE_SLOTS  0x4c              /* 76 */
+
+extern MKMOVE VeteranMoves[];           /* 0x0015059c, also 12 bytes an entry */
+extern long   LastJoyBitsIn;            /* 0x00150cc0 */
+/* `IsInFinishing` and `RemapKicksPunches` are declared above. */
+
+
+/* --------------------------------------------------------- GetArcadeJoyBits
+ *
+ * armv7 0x0001b7a4, 272 bytes.  **Complete.**
+ *
+ * Matches the current joystick state against a 76-entry move table and returns
+ * the arcade bit pattern for whatever it found.
+ *
+ * ### Facing-relative directions are converted on the way OUT, not in
+ *
+ * The table stores `JOY_TOWARD` / `JOY_AWAY`; the game wants `JOY_LEFT` /
+ * `JOY_RIGHT`. The tail does the swap and it is a genuine mirror:
+ *
+ *      facing != 0:   AWAY -> RIGHT,  TOWARD -> LEFT
+ *      facing == 0:   AWAY -> LEFT,   TOWARD -> RIGHT
+ *
+ * then clears both relative bits. **Both arms then re-test `0x800` on the
+ * value they are building, not on the original** -- so a pattern holding both
+ * TOWARD and AWAY comes out with both LEFT and RIGHT set rather than one.
+ * Transcribed as written; it is reachable only from a table entry that sets
+ * both, and whether any does is not established here.
+ *
+ * ### The 0x80 button is edge-detected against the previous frame
+ *
+ * `_LastJoyBitsIn` is read and immediately overwritten with this frame's bits,
+ * and the match then uses `~previous & current & 0x80` -- the rising edge, not
+ * the level. Only entries whose mask has a relative direction bit take that
+ * path; the rest compare the raw bits with `0x1800` masked off.
+ *
+ * That edge is why `_LastJoyBitsIn` must be updated **once per call and before
+ * anything else**: a port that refreshes it after the scan, or twice, changes
+ * which frame a button counts on.
+ *
+ * ### An assertion that hangs
+ *
+ * On a match it looks the move up in `_VeteranMoves` and checks the entry
+ * agrees with its own index:
+ *
+ *      if (VeteranMoves[idx].index != idx) for (;;) ;
+ *
+ * A branch to its own address, the same shape `Error()` uses. It shipped in
+ * retail, so it is a table-consistency assertion nobody expected to fire. A
+ * port should make it loud rather than silent -- but it must not be dropped,
+ * because reaching it means the move tables are wrong.
+ *
+ * `0xcf` in a mask is a sentinel: it ends the scan with a tail call to
+ * `RemapKicksPunches` on the accumulated bits instead of a table lookup.
+ * Falling off the end of the 76 entries returns 0.
+ */
+long GetArcadeJoyBits(long bits, MKMOVE *moves, long facing, long finishFlag)
+{
+    long prev = LastJoyBitsIn;
+    long notPrev;
+    long inFinish;
+    long cur, probe, out, idx, mask;
+    long i;
+
+    LastJoyBitsIn = bits;               /* before anything else */
+    notPrev = ~prev;
+    inFinish = IsInFinishing ? ((finishFlag != 0) ? 1 : 0) : 0;
+
+    cur = bits;
+
+    for (i = 0; i < MKMOVE_SLOTS; i++, moves++) {
+        out = inFinish ? (cur | JOY_FINISH) : cur;
+        mask = moves->mask;
+
+        if ((mask & (JOY_TOWARD | JOY_AWAY)) == 0) {
+            probe = cur & ~(JOY_TOWARD | JOY_AWAY);
+        } else {
+            probe = cur & ~(JOY_LEFT | JOY_RIGHT);
+            if (cur & JOY_TOWARD) {
+                long edge = notPrev & 0x80 & bits;   /* the rising edge */
+                probe = (cur & ~0x8c) | edge;
+                cur   = (cur & ~0x80) | edge;
+            }
+        }
+
+        if (probe == mask || cur == mask)
+            break;                      /* matched */
+
+        if (mask == 0xcf)
+            return RemapKicksPunches(out);
+
+        cur = bits;
+    }
+
+    if (i == MKMOVE_SLOTS)
+        return 0;
+
+    idx = moves->index;
+    if (VeteranMoves[idx].index != idx)
+        for (;;)                        /* b to its own address */
+            ;
+
+    mask = VeteranMoves[idx].mask;
+    if ((mask & (JOY_TOWARD | JOY_AWAY)) == 0)
+        return mask;
+
+    probe = mask & ~(JOY_LEFT | JOY_RIGHT);
+
+    if (facing != 0) {
+        if (mask  & JOY_AWAY)   probe |= JOY_RIGHT;
+        if (probe & JOY_TOWARD) probe |= JOY_LEFT;
+    } else {
+        if (mask  & JOY_AWAY)   probe |= JOY_LEFT;
+        if (probe & JOY_TOWARD) probe |= JOY_RIGHT;
+    }
+
+    return probe & ~(JOY_TOWARD | JOY_AWAY);
+}
+
+
+#define ARCADE_POS_RAW  0x4e20          /* 20000 -- the "no offsets at all" frame */
+
+
+/* ---------------------------------------------------------- ArcadePosTo3dPos
+ *
+ * armv7 0x0001c464, 304 bytes.  **Complete.**
+ *
+ * The full version of the conversion `ArcadePosTo3dPosNO_OFFSETS` does without
+ * the player offsets. Same core arithmetic:
+ *
+ *      out->x = obj->x / WorldScaleAdjust  -/+ def->xOffset
+ *      out->y = PlayerZPos
+ *      out->z = -obj->y / WorldScaleAdjust  +  def->height
+ *
+ * ### The flag bit that was vestigial there is load-bearing here
+ *
+ * `obj->flags & 0x10` chooses the SIGN of the X offset -- subtract when set,
+ * add when clear -- and nothing else differs between the two arms. In
+ * `NO_OFFSETS` the same test survives with both arms resolving to the same
+ * literal-pool entry, which read as a branch that does not branch.
+ *
+ * Together they explain each other: the two functions share a shape, the
+ * offset term was dropped from the NO_OFFSETS variant, and the test that
+ * selected its sign was left behind with nothing to select. So the dead branch
+ * there is not a compiler artefact -- it is the scar of this function.
+ *
+ * ### Three ways to reach a PLAYERDEF, and a sentinel
+ *
+ *      frame == 20000        no def at all: raw divide, no offsets, no height
+ *      third argument NULL   def = PlayerDefs[FrameRemapTable[frame]]
+ *      otherwise             def = PlayerDefs[*(signed char *)arg]
+ *
+ * The third argument is a pointer to a single SIGNED byte holding a character
+ * index -- not the index itself. A negative byte indexes backwards off the
+ * front of the table, and nothing guards it.
+ *
+ * **A frame above 7243 returns without writing anything**, leaving the caller
+ * vector holding whatever it did before. Note 7243, one below the 7244 that
+ * bounds `LoadAllFramesTXT` and one below the `> 7244` that `FrameID_GetBBox`
+ * rejects on -- three related limits, three different numbers. They are
+ * recorded as they are rather than reconciled.
+ *
+ * `PlayerZPos` is copied as a word here too, never through the FPU.
+ */
+void ArcadePosTo3dPos(Mk3Obj_t *obj, float *out, const signed char *who)
+{
+    const short *o = (const short *)obj;
+    long frame = o[4];                          /* +8, signed */
+    float s = WorldScaleAdjust;
+    const float *def;
+    long idx;
+
+    if (frame == ARCADE_POS_RAW) {              /* the sentinel: no offsets */
+        out[0] = (float)o[2] / s;
+        ((long *)out)[1] = PlayerZPos.w;
+        out[2] = (float)(-o[3]) / s;
+        return;
+    }
+
+    if (frame > 0x1c4b)                         /* 7243 -- nothing is written */
+        return;
+
+    if (who == 0)
+        idx = FrameRemapTable[frame * 2];       /* stride 8, first word */
+    else
+        idx = *who;                             /* a signed byte, not an index arg */
+
+    def = (const float *)(PlayerDefs + idx * PLAYERDEF_STRIDE);
+
+    if (((const unsigned short *)obj)[5] & 0x10)        /* +0x0a */
+        out[0] = (float)o[2] / s - def[0x08 / 4];
+    else
+        out[0] = (float)o[2] / s + def[0x08 / 4];
+
+    ((long *)out)[1] = PlayerZPos.w;
+    out[2] = (float)(-o[3]) / s + def[0x0c / 4];
 }
