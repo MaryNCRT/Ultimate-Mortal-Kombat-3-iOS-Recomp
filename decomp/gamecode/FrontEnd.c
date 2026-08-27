@@ -3347,3 +3347,106 @@ long DrawButtonNew(BUTTONNEW *b, int x, int y, int interactive)
 
     return r;
 }
+
+
+/* The three live arrays are declared above as char[0x78]; these are their
+ * snapshots, restored on cancel. */
+extern char CancelCustomButtonsPos4[0x78];
+extern char CancelCustomButtonsPos5[0x78];
+extern char CancelCustomButtonsPos6[0x78];
+extern long *P2Controls;                /* pointer slot */
+extern long *ButtonEditModePtr;         /* 0x00100f84 */
+extern BUTTONNEW BUTTON_SAVE;           /* 0x00100848 */
+extern BUTTONNEW BUTTON_CANCEL;         /* 0x0010085c */
+
+void EditButtons(void);
+void DrawControls(void);
+void Write_PresetButtonData(void);
+void Write_SettingsData(void);
+void PopFETaskDeferred(void);
+
+
+/* ------------------------------------------------------- FE_Task_Button_Edit
+ *
+ * armv7 0x0001529c, 504 bytes.  **Complete.**
+ *
+ * The button-layout editor screen: backdrop, `EditButtons()` for the dragging,
+ * `DrawControls()` for the preview, and a Save and a Cancel button.
+ *
+ *      DrawButtonNew(&BUTTON_SAVE,   0x26,  0x10, 1)   label GameText(0x57)
+ *      DrawButtonNew(&BUTTON_CANCEL, 0x1ba, 0x10, 1)   label GameText(0x58)
+ *
+ * The Save label is left-aligned at `FE_X(16)` and the Cancel label
+ * right-aligned (align 2) at `FE_X(472)`, both at `FE_Y(8)`.
+ *
+ * **`*P2Controls` is cleared on every frame of this screen**, before
+ * `DrawControls`, so the preview always shows the player-one layout no matter
+ * which player's controls are being edited.
+ *
+ * ### Cancel restores from a snapshot, in three parallel arrays
+ *
+ *      for (row = 0; row != 0x78; row += 0x14)
+ *          for (k = 0; k < 0x14; k += 4) {
+ *              CustomButtonsPos4[row+k] = CancelCustomButtonsPos4[row+k];
+ *              CustomButtonsPos5[row+k] = CancelCustomButtonsPos5[row+k];
+ *              CustomButtonsPos6[row+k] = CancelCustomButtonsPos6[row+k];
+ *          }
+ *
+ * 0x78 bytes in rows of 0x14 is **six rows of five words**, and there are three
+ * such arrays -- one per control scheme, the 4, 5 and 6 in the names being the
+ * button counts `GetReal6ButtonJoyBits` dispatches on. So cancelling restores
+ * all three layouts, not just the one being edited, from a snapshot something
+ * else takes on the way in.
+ *
+ * `_ButtonEditMode` is zeroed on the cancel path only.
+ *
+ * Save writes both `Write_PresetButtonData()` and `Write_SettingsData()`. Both
+ * paths then `PopFETaskDeferred()`, and **the two are not exclusive** -- the
+ * cancel test runs first and pops, then the save test runs and can pop again.
+ * A frame in which both buttons report a release pops the task twice.
+ */
+void FE_Task_Button_Edit(void)
+{
+    long save, cancel;
+    long row, k;
+
+    limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0234375f, 1.0f, 0.703125f, col);
+
+    EditButtons();
+    *P2Controls = 0;                    /* always the player-one preview */
+    DrawControls();
+
+    save = DrawButtonNew(&BUTTON_SAVE, 0x26, 0x10, 1);
+    limeDrawFONT(GameFont, GameText(0x57),
+                 (float)FE_X(16.0f), (float)FE_Y(8.0f),
+                 0, FE_WidthScale, fontcol);
+
+    cancel = DrawButtonNew(&BUTTON_CANCEL, 0x1ba, 0x10, 1);
+    limeDrawFONT(GameFont, GameText(0x58),
+                 (float)FE_X(472.0f), (float)FE_Y(8.0f),
+                 2, FE_WidthScale, fontcol);
+
+    if (cancel) {
+        *ButtonEditModePtr = 0;
+
+        for (row = 0; row != 0x78; row += 0x14) {
+            for (k = 0; k < 0x14; k += 4) {
+                *(long *)&CustomButtonsPos4[row + k] =
+                    *(const long *)&CancelCustomButtonsPos4[row + k];
+                *(long *)&CustomButtonsPos5[row + k] =
+                    *(const long *)&CancelCustomButtonsPos5[row + k];
+                *(long *)&CustomButtonsPos6[row + k] =
+                    *(const long *)&CancelCustomButtonsPos6[row + k];
+            }
+        }
+        PopFETaskDeferred();
+    }
+
+    if (save) {                         /* not an else -- see above */
+        Write_PresetButtonData();
+        Write_SettingsData();
+        PopFETaskDeferred();
+    }
+}
