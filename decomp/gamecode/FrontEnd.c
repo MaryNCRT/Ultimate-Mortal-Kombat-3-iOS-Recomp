@@ -3688,3 +3688,135 @@ long BasicMenuWithWidth(const long *items, int width)
 
     return selected;
 }
+
+
+extern long  tickerLoaded;              /* 0x001008a8 */
+extern long  displayTicker;             /* 0x001008a0 */
+extern long  hideTicker;                /* 0x001008a4 */
+extern float tickeroff;                 /* 0x000ff8d4 */
+
+void *EASDK_GetLoadedTicker(long i);
+const char *EASDK_GetTickerMsg(void);
+const char *EASDK_GetTickerUrl(void *t);
+long  EASDK_GetTickerId(void *t);
+void  EASDK_LogEventEnumEnum(long id, long a, long b, long c);
+void  limeLoadURLInternal(const char *url);
+
+
+/* ----------------------------------------------------------------- DrawTicker
+ *
+ * armv7 0x0001892c, 744 bytes.  **Complete.**
+ *
+ * EA's scrolling news bar across the top of the front end. Does nothing unless
+ * `_tickerLoaded` is set.
+ *
+ *      limeFillRect(0, (displayTicker - 24) * FE_HeightScale,
+ *                   limeScreenWidth, 24 * FE_HeightScale,
+ *                   0, 0, 0, 0.6f)
+ *
+ * -- a black bar at 60%, 24 units tall, whose Y is driven entirely by
+ * `_displayTicker`.
+ *
+ * ### The slide is a counter from 0 to 23
+ *
+ *      hideTicker  ->  if (displayTicker > 0)    displayTicker--
+ *      otherwise   ->  if (displayTicker <= 23)  displayTicker++
+ *
+ * At 0 the bar sits at `-24 * scale`, entirely above the screen; at 23 it is
+ * one unit short of flush. **It never reaches 24**, so the bar always hangs a
+ * scaled unit above its resting place -- the `<=` on a 23 bound rather than a
+ * `<` on 24.
+ *
+ * ### The scroll is two pixels a frame, unscaled
+ *
+ *      tickeroff -= 2.0f
+ *      if (tickeroff < -(totalWidth + limeScreenWidth + 64 * FE_WidthScale))
+ *          tickeroff = 0
+ *
+ * **Not divided by `limeFPSScaleFactor`**, unlike `MaintainFESlide` and
+ * `Task_MultiplayerSync`. So this is the third frame-rate-dependent counter in
+ * the tree, alongside `AnimateBG`'s background frame: a 60 fps port scrolls the
+ * news twice as fast unless it is changed on purpose.
+ *
+ * The wrap point accounts for the full run of messages **plus a whole screen
+ * width**, so the last message is completely off the left edge before the first
+ * one reappears -- there is no visible seam and no second copy drawn.
+ *
+ * ### Messages are laid end to end with a 64-unit gap
+ *
+ * Each message is drawn at `limeScreenWidth + tickeroff + x`, where `x`
+ * accumulates `messageWidth + 64 * FE_WidthScale`. The messages come from
+ * `EASDK_GetLoadedTicker(i)` until it returns NULL, so the count is whatever
+ * the server sent.
+ *
+ * ### A message with a URL is tappable, and opens it in-app
+ *
+ *      if (url[0] != 0 && released && inside the message's own box) {
+ *          limeLoadURLInternal(url);
+ *          printf(..., url);
+ *          EASDK_LogEventEnumEnum(0x753c, 16, EASDK_GetTickerId(t), 0);
+ *      }
+ *
+ * The hit box is the message's measured width at its current scrolled
+ * position -- so the target moves with the text -- and vertically anything
+ * between 0 and `displayTicker * FE_HeightScale`. `0x753c` is 30012.
+ *
+ * `limeUC` is called twice per message, once to draw and once to measure.
+ */
+void DrawTicker(void)
+{
+    long i = 0;
+    float x = 0.0f;
+    void *t;
+
+    if (tickerLoaded == 0)
+        return;
+
+    limeFillRect(0.0f, (float)(displayTicker - 0x18) * FE_HeightScale,
+                 (float)*limeScreenWidth, 24.0f * FE_HeightScale,
+                 0.0f, 0.0f, 0.0f, 0.6f);
+
+    for (t = EASDK_GetLoadedTicker(i); t != 0;
+         t = EASDK_GetLoadedTicker(i)) {
+        const char *msg = EASDK_GetTickerMsg();
+        const char *url;
+        float left = (float)*limeScreenWidth + tickeroff + x;
+        float w;
+
+        limeDrawFONT(GameFont, limeUC(msg), left,
+                     (float)(displayTicker - 0x15) * FE_HeightScale,
+                     0, FE_WidthScale, fontcol);
+
+        w = (float)limeGetStringWidth(GameFont, limeUC(msg)) * FE_WidthScale;
+
+        url = EASDK_GetTickerUrl(t);
+
+        if (url[0] != 0 && limeLastTouchScreenX[0] == -1.0f) {
+            float tx = limeTouchScreenX[0];
+            float ty = limeTouchScreenY[0];
+
+            if (tx > left && tx < left + w
+                && ty < (float)displayTicker * FE_HeightScale
+                && ty > 0.0f) {
+                limeLoadURLInternal(url);
+                printf("%s", url);
+                EASDK_LogEventEnumEnum(0x753c, 16, EASDK_GetTickerId(t), 0);
+            }
+        }
+
+        i++;
+        x += w + 64.0f * FE_WidthScale;
+    }
+
+    tickeroff -= 2.0f;                  /* not frame-rate scaled */
+    if (tickeroff < -(x + (float)*limeScreenWidth + 64.0f * FE_WidthScale))
+        tickeroff = 0.0f;
+
+    if (hideTicker != 0) {
+        if (displayTicker > 0)
+            displayTicker--;
+    } else {
+        if (displayTicker <= 0x17)      /* never reaches 24 */
+            displayTicker++;
+    }
+}
