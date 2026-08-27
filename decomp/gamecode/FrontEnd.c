@@ -5358,3 +5358,200 @@ void FE_Task_Main_Menu(void)
         LevelSelect = cur;
     }
 }
+
+
+/* ------------------------------------------------------- FE_Task_Karnage_Summary
+ *
+ * armv7 0x0000ffbc, 1208 bytes.  **Complete.**
+ *
+ * The score screen after a Karnage run: two animated spotlights, the score,
+ * and an exit button that is held back until EA's leaderboard has accepted the
+ * post.
+ *
+ * ### Two spotlights from one animation, the right one mirrored
+ *
+ *      DrawAnimAsSprite(0, 0, FE_WidthScale, 128, 128, SpotlightTextures,
+ *                       &spotlight_SpriteDef, spotlight_Anim,
+ *                       0, GameCounter, 0, spotlight_Anim[0] - 1, 1, col)
+ *      ...the same again at x = limeScreenWidth - 128 * FE_WidthScale,
+ *         with mirror = 1
+ *
+ * One animation, played twice at the two edges, the second flipped. The frame
+ * range is `0 .. spotlight_Anim[0] - 1`, read out of the table's own first
+ * word, so the animation length is data and not a constant here.
+ *
+ * ### The username handshake is a four-state machine in a global
+ *
+ *      userNameEntryViewed == 0  -> set it to 1, PushFETaskDeferred(0x2e)
+ *                          == 2  -> printf, EASOC_MayhemSetUserName(ourName), ++
+ *                          == 3  -> once !MayhemIsPending: MayhemReset(), ++
+ *
+ * State 1 is not handled here at all -- that is task 0x2e's, the name-entry
+ * screen, which presumably moves 1 -> 2 when the player confirms. So the two
+ * halves of the handshake live in different functions and communicate only
+ * through this counter. It never resets: state 4 is terminal for the session.
+ *
+ * The whole branch is gated on `EASDK_ConnectedToNetwork() && Settings[8]` --
+ * `Settings[8]` being the social toggle `FE_Task_Manage_Social_Features` owns.
+ *
+ * ### A formatted string that nothing reads
+ *
+ *      feedPosted = 1;
+ *      usprintf(<128 bytes of stack>, GameTextNoHeader(0x120), KarnageScore);
+ *
+ * The buffer at `sp+0x40` is written and never read -- no later instruction
+ * touches it. Together with `feedPosted = 1` set unconditionally on the line
+ * before, this is the remains of a Facebook feed post: the text is still built
+ * every frame and the flag still claims it went out, but the posting itself is
+ * gone. The port can drop both; they are recorded here so the removal is a
+ * decision and not an oversight.
+ *
+ * ### The exit button waits for the leaderboard
+ *
+ *      ready = !EASDK_ConnectedToNetwork() || EASOC_MayhemIsReady();
+ *
+ * Offline counts as ready -- there is nothing to wait for. While not ready and
+ * `exitTimeout > 0`, the button is not drawn at all; instead the timeout runs
+ * down by `1.0f / limeFPSScaleFactor` per frame and, once it is **below 540**,
+ * `GameText(0x13)` blinks with a period of 256 units, shown while
+ * `(int)exitTimeout % 256 > 128`. Above 540 nothing is shown, so the wait is
+ * silent for its first stretch and only starts flashing when it has gone on
+ * long enough to look stuck.
+ *
+ * The modulo is written out with the usual sign correction -- `(t + (t>>31 >>>
+ * 24)) & 0xff` minus the same correction -- even though `exitTimeout` cannot
+ * be negative here, because the compiler could not know that.
+ *
+ * ### Posting the score happens on the way out, not on arrival
+ *
+ *      PopAllFETasksDeferred(0);
+ *      if (connected && Settings[8] && MayhemIsReady())
+ *          EASOC_MayhemPostStatWithData("shaokahn_med", KarnageScore, stats, 12)
+ *
+ * so the score reaches EA only when the player leaves the screen, and only if
+ * all three conditions still hold at that moment. `"shaokahn_med"` is the
+ * leaderboard key, and 12 is the size of the `stats` blob that rides along.
+ */
+extern void **spotlight_SpriteDef;      /* pointer slot */
+extern long  *spotlight_Anim;           /* pointer slot -> 0x00175608 */
+extern float *GameCounter;              /* pointer slot */
+extern long  *KarnageScore;             /* pointer slot -> 0x0014df88 */
+extern long   stats[];                  /* 0x00100fc8 */
+extern char   ourName[];                /* 0x00183d6c */
+extern long   userNameEntryViewed;      /* 0x000ff8f0 */
+extern long   feedPosted;               /* 0x00100e30 */
+extern float  exitTimeout;              /* 0x00182c80 */
+extern BUTTONNEW BUTTON_EXITBIG;        /* 0x001007d0 */
+
+long DrawAnimAsSprite(long x, long y, float scale, long ax,
+                      long ay, long unused,
+                      const char *frames, const long *table,
+                      long mirror, long modulus,
+                      long first, long last, long wrap,
+                      const float *colour);   /* GameCode.c spells the colour
+                                               * `long *`; this file spells the
+                                               * same four words `float *`. */
+int  EASOC_MayhemIsReady(void);
+int  EASOC_MayhemIsPending(void);
+void EASOC_MayhemTest(long a);
+void EASOC_MayhemSetUserName(const char *name);
+void EASOC_MayhemPostStatWithData(const char *key, long value,
+                                  const long *data, long size);
+int  printf(const char *fmt, ...);
+
+void FE_Task_Karnage_Summary(void)
+{
+    char feedText[128];                 /* sp+0x40 -- written, never read */
+    long ready, exiting;
+
+    limeDrawSprite((TEXTURE *)MetalScreenTexture, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0f, 1.0f, 1.0f, col);
+
+    limeEnableAlphaBlending_Additive();
+
+    DrawAnimAsSprite(0, 0, FE_WidthScale, 0x80,
+                     0x80, (long)(uintptr_t)SpotlightTextures,
+                     (const char *)&spotlight_SpriteDef, spotlight_Anim,
+                     0, (long)*GameCounter,
+                     0, spotlight_Anim[0] - 1, 1,
+                     col);
+
+    DrawAnimAsSprite((long)((float)*limeScreenWidth
+                            + -128.0f * FE_WidthScale),
+                     0, FE_WidthScale, 0x80,
+                     0x80, (long)(uintptr_t)SpotlightTextures,
+                     (const char *)&spotlight_SpriteDef, spotlight_Anim,
+                     1, (long)*GameCounter,
+                     0, spotlight_Anim[0] - 1, 1,
+                     col);
+
+    limeEnableAlphaBlending_Basic();
+
+    if (EASDK_ConnectedToNetwork() && Settings[8]) {
+        EASOC_MayhemTest(1);
+        if (EASOC_MayhemNeedsUserName()) {
+            if (userNameEntryViewed == 0) {
+                userNameEntryViewed = 1;
+                PushFETaskDeferred(0x2e);
+            } else if (userNameEntryViewed == 2) {
+                printf("SUBMITTING NEW NAME: %s!\n", ourName);
+                EASOC_MayhemSetUserName(ourName);
+                userNameEntryViewed++;
+            } else if (userNameEntryViewed == 3) {
+                if (!EASOC_MayhemIsPending()) {
+                    EASOC_MayhemReset();
+                    userNameEntryViewed++;
+                }
+            }
+        }
+    }
+
+    limeDrawFONT(GameFont, GameText(0x11f),
+                 (float)(*limeScreenWidth / 2), (float)FE_Y(160.0f),
+                 1, FE_WidthScale, fontcol);
+
+    usprintf(strBuf, UC("%s: %d"), GameTextNoHeader(0x121), *KarnageScore);
+    limeDrawFONT(GameFont, limeUC(strBuf),
+                 (float)(*limeScreenWidth / 2), (float)FE_Y(180.0f),
+                 1, FE_WidthScale, fontcol);
+
+    feedPosted = 1;
+    usprintf(feedText, GameTextNoHeader(0x120), *KarnageScore);
+
+    ready = !EASDK_ConnectedToNetwork() || EASOC_MayhemIsReady();
+
+    exiting = -1;
+
+    if (!ready && exitTimeout > 0.0f) {
+        exitTimeout = exitTimeout + -1.0f / limeFPSScaleFactor;
+        if (exitTimeout < 0.0f)
+            exitTimeout = 0.0f;
+
+        {
+            long t = (long)exitTimeout;
+
+            if (t < 0x21c) {
+                long corr = (t >> 31) >> 24;    /* 255 when negative, else 0 */
+                if ((((t + corr) & 0xff) - corr) > 0x80)
+                    limeDrawFONT(GameFont, GameText(0x13),
+                                 (float)(*limeScreenWidth / 2),
+                                 (float)FE_Y(200.0f),
+                                 1, FE_WidthScale, fontcol);
+            }
+        }
+    } else {
+        exiting = DrawButtonNew(&BUTTON_EXITBIG, 0x1a7, 0x130, 1) ? 0 : -1;
+
+        limeDrawFONT(GameFont, GameText(9), (float)FE_X(423.0f),
+                     (float)FE_Y(296.0f), 1, FE_WidthScale, fontcol);
+    }
+
+    if (FE_FadeAdd == 0.0f && exiting == 0) {
+        PopAllFETasksDeferred(0);
+
+        if (EASDK_ConnectedToNetwork() && Settings[8] && EASOC_MayhemIsReady())
+            EASOC_MayhemPostStatWithData("shaokahn_med", *KarnageScore,
+                                         stats, 0xc);
+    }
+}
