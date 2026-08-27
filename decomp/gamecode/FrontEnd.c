@@ -4989,3 +4989,138 @@ void FE_Task_Multiplayer_Summary(void)
         startDebug = 1;
     }
 }
+
+
+/* ------------------------------------------------------ FE_Task_Continue_Screen
+ *
+ * armv7 0x0000a6b0, 1188 bytes.  **Complete.**
+ *
+ * "CONTINUE?" with a ten-second countdown. Two hand-drawn touch areas rather
+ * than `BUTTONNEW` objects, a black fill under two sprite halves, and a number
+ * that counts down in real time.
+ *
+ * ### The countdown is in seconds, per frame, from a double literal
+ *
+ *      KontinueTime += -0.016666666666666666 / limeFPSScaleFactor
+ *      if (KontinueTime <= 0.0f) KontinueTime = 0.0f
+ *
+ * **-1/60 exactly**, computed in double precision and stored back as a float.
+ * `limeFPSScaleFactor` divides it, so the countdown is wall-clock seconds and
+ * not frames -- a slower device counts down at the same rate. `QuitAsLose`
+ * starts it at 19.999001f, so the "ten seconds" is really twenty.
+ *
+ * The number shown is `(long)KontinueTime + 1`, so it reads 20 down to 1 and
+ * then the string switches to a literal `"0"` rather than formatting it -- the
+ * `+1` would have shown 1 for the whole of the last second otherwise.
+ *
+ * ### The two buttons are `TouchAreaWH`, not `DrawButtonNew`
+ *
+ *      yes  at (0x10,  0xb8) size 0xd0 x 0x66
+ *      no   at (0x100, 0xb8) size 0xd0 x 0x66
+ *
+ * `TouchAreaWH` returns 2 for "finger down inside" and 1 for "released
+ * inside", and the 2 case draws an 11-pixel red highlight over the area. So
+ * the pressed state here is drawn by the screen, not by a button object --
+ * this is the older of the two UI conventions in the front end, and the one
+ * `FE_Task_About_Usage_Sharing_Confirm` half-reverts to.
+ *
+ * ### "No" also fires when the clock runs out
+ *
+ *      if (no == 1 || KontinueTime == 0.0f) { if (FE_FadeAdd == 0) action = 2; }
+ *
+ * One condition, two causes: releasing on "no", or the timer reaching zero.
+ * They are the same code path, which is why letting the clock run out lands
+ * you in exactly the state declining would have.
+ *
+ *      action 1 (continue)  PushFETaskDeferred(0x1b), then log 0x754a
+ *      action 2 (give up)   PopAllFETasksDeferred(0), GameStarted = 0,
+ *                           PopulateTower(), Destiny = -1, Stage = 0,
+ *                           Write_SaveData()
+ *
+ * Giving up **rebuilds the tower** rather than just leaving it: `PopulateTower`
+ * reshuffles the ladder, so the run you declined cannot be resumed by going
+ * back in. `Destiny = -1` is the "no tower" value, the same one `QuitAsWin`
+ * writes when a tower is cleared.
+ *
+ * Both actions are gated on `FE_FadeAdd == 0.0f` -- a press during a fade does
+ * nothing, as everywhere else in the front end.
+ */
+extern float KontinueTime;              /* 0x000ff960 */
+extern const char **DestinyNames;       /* pointer slot -> 0x00176760 */
+
+int  sprintf(char *dst, const char *fmt, ...);
+
+const char *getStageName(long stage);
+void EASDK_LogEventEnumEnumString(long id, long a, const char *s1,
+                                  long b, const char *s2);
+
+void FE_Task_Continue_Screen(void)
+{
+    long yes, no, action;
+
+    limeFillRect(0.0f, 0.0f,
+                 (float)*limeScreenWidth, (float)*limeScreenHeight,
+                 0.0f, 0.0f, 0.0f, 1.0f);
+
+    limeDrawSprite((TEXTURE *)GameOverTopTexture, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0f, 1.0f, 0.75f, col);
+
+    limeDrawSprite((TEXTURE *)GameOverBottomTexture,
+                   0.0f, (float)FE_Y(143.0f),
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0f, 1.0f, 0.75f, col);
+
+    limeDrawFONT(GameFont, GameText(0x51), (float)FE_X(120.0f),
+                 (float)FE_Y(208.0f), 1, FE_WidthScale, fontcol);
+    limeDrawFONT(GameFont, GameText(0x52), (float)FE_X(120.0f),
+                 (float)FE_Y(224.0f), 1, FE_WidthScale, fontcol);
+    limeDrawFONT(GameFont, GameText(0x5b), (float)FE_X(360.0f),
+                 (float)FE_Y(224.0f), 1, FE_WidthScale, fontcol);
+
+    KontinueTime = (float)((double)KontinueTime
+                           + -0.016666666666666666 / (double)limeFPSScaleFactor);
+    if (KontinueTime <= 0.0f)
+        KontinueTime = 0.0f;
+
+    action = 0;
+
+    yes = TouchAreaWH(0x10, 0xb8, 0xd0, 0x66);
+    if (yes == 2) {
+        DrawRedHighlight(0x10, 0xb8, 0xd0, 0x66, 0xb);
+    } else if (yes == 1) {
+        if (FE_FadeAdd == 0.0f)
+            action = 1;
+    }
+
+    no = TouchAreaWH(0x100, 0xb8, 0xd0, 0x66);
+    if (no == 2)
+        DrawRedHighlight(0x100, 0xb8, 0xd0, 0x66, 0xb);
+
+    if (no == 1 || KontinueTime == 0.0f) {
+        if (FE_FadeAdd == 0.0f)
+            action = 2;
+    }
+
+    if (KontinueTime != 0.0f) {
+        sprintf(strBuf, "%d", (int)((long)KontinueTime + 1));
+        limeDrawFONT(GameFont, strBuf, (float)FE_X(120.0f),
+                     (float)FE_Y(240.0f), 1, FE_WidthScale, fontcol);
+    } else {
+        limeDrawFONT(GameFont, "0", (float)FE_X(120.0f),
+                     (float)FE_Y(240.0f), 1, FE_WidthScale, fontcol);
+    }
+
+    if (action == 1) {
+        PushFETaskDeferred(0x1b);
+        EASDK_LogEventEnumEnumString(0x754a, 15, DestinyNames[Destiny],
+                                     15, getStageName(Stage));
+    } else if (action == 2) {
+        PopAllFETasksDeferred(0);
+        GameStarted = 0;
+        PopulateTower();
+        Destiny = -1;
+        Stage = 0;
+        Write_SaveData();
+    }
+}
