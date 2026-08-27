@@ -1885,3 +1885,40 @@ void InitKodeScreen(void)
     KodeTime    = 19.999001f;           /* 0x419ffdf4 exactly */
     KodeSuccess = 0;
 }
+
+
+/* `_BUTTON_1X2_1D` 0x00100514 and `_BUTTON_1X2_2D` 0x00100528 -- two BUTTONNEW
+ * records twenty bytes apart. DrawButtonNew takes one by reference. */
+extern int BUTTON_1X2_1D[];
+extern int BUTTON_1X2_2D[];
+
+
+/* ---------------------------------------------------------- drawPage2x1Wide
+ *
+ * armv7 0x000074e8, 112 bytes.  **Complete.**
+ *
+ * Two full-width buttons stacked, both at x + 0xf0, at y + 0x3c and y + 0xa0.
+ * Returns which one was pressed: 1 for the top, 2 for the bottom, 0 for
+ * neither.
+ *
+ * **A press only counts while `FE_FadeAdd` is exactly zero.** Both returns are
+ * gated on it, so every press that lands during a screen fade is discarded --
+ * not queued, not deferred. FE_FadeAdd is the per-frame fade step the front end
+ * sets to -0.033333335f when it starts fading out, and zero when it is done.
+ *
+ * That gate is the whole reason this returns anything at all, and a port that
+ * drops it gets a menu that accepts input through its own transitions.
+ */
+int drawPage2x1Wide(int x, int y)
+{
+    int cx = x + 0xf0;
+    int r  = 0;
+
+    if (DrawButtonNew(BUTTON_1X2_1D, cx, y + 0x3c, 1) && FE_FadeAdd == 0.0f)
+        r = 1;
+
+    if (DrawButtonNew(BUTTON_1X2_2D, cx, y + 0xa0, 1) && FE_FadeAdd == 0.0f)
+        r = 2;
+
+    return r;
+}

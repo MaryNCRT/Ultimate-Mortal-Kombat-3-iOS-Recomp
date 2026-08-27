@@ -669,3 +669,72 @@ int FreeAnimatedCharacter(ANIMATEDCHARACTER *c)
     limeFree(c);
     return 1;                           /* always; nothing checks it */
 }
+
+
+/* An ANIMATEDCHARACTER as far as IsAFrameVisible reaches. The frame stride is
+ * 88 bytes and the compiler spells it out rather than multiplying:
+ * `r1*12 - r1` shifted left three, which is 88. */
+#define ANIMCHAR_FRAME_STRIDE  88
+
+/* ----------------------------------------------------------- IsAFrameVisible
+ *
+ * armv7 0x0005b9dc, 120 bytes.  **Complete.**
+ *
+ * Whether one frame of one character may be drawn. Three things decide it, and
+ * two of them are hardcoded per-character hacks:
+ *
+ *      character 3, frame 290   ->  NEVER visible
+ *      character 6, frame 365   ->  ALWAYS visible
+ *      otherwise                ->  read the frame own flags
+ *
+ * `c[2]` -- offset +8 -- is the character id. That was already established by
+ * IsFrameVisible above, which special-cases character 12 and frame 295 for a
+ * different purpose. **Three separate per-character frame exceptions across the
+ * two functions**: 3/290, 6/365 and 12/295. None of them is derivable from
+ * data; they are patches somebody made late and they have to be carried across.
+ *
+ * The general path clamps the frame id twice over: negatives to zero
+ * (`bic r3, r1, r1, asr #31`), and anything past `c[0] - 2` down to that. Note
+ * **minus two**, not minus one -- the last frame is not reachable here at all.
+ *
+ * Then, of the frame record at `c[1] + idx * 88`:
+ *
+ *      +0x18 == 1                          ->  visible
+ *      else if *(void**)c[0x30/4] == NULL  ->  not visible
+ *      else                                ->  visible if +0x28 == 1
+ *
+ * So the second flag is only consulted when the pointer at +0x30 has something
+ * behind it -- a second table that may not be loaded.
+ */
+int IsAFrameVisible(ANIMATEDCHARACTER *c, long frame)
+{
+    const long *a = (const long *)c;
+    long count = a[0];
+    /* The fields at +4 and +0x30 are POINTERS in a 32-bit image, and `long` is
+     * how the rest of this file reaches a record it has no struct for. The
+     * uintptr_t hop is what keeps that honest on a 64-bit host; it is not a
+     * reinterpretation of the data. */
+    const char *frames = (const char *)(uintptr_t)(unsigned long)a[1];
+    long id = a[2];
+    long idx;
+    const long *f;
+
+    if (frame == 290 && id == 3)
+        return 0;                       /* the hack, first */
+    if (frame == 365 && id == 6)
+        return 1;
+
+    idx = (frame < 0) ? 0 : frame;      /* bic rN, rN, rN asr #31 */
+    if (idx >= count - 2)
+        idx = count - 2;
+
+    f = (const long *)(frames + idx * ANIMCHAR_FRAME_STRIDE);
+
+    if (f[0x18 / 4] == 1)
+        return 1;
+
+    if (*(void **)(uintptr_t)(unsigned long)a[0x30 / 4] == 0)
+        return 0;
+
+    return f[0x28 / 4] == 1;
+}

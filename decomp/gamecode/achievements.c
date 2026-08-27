@@ -66,7 +66,9 @@ int areAchievementsViewing(void)
 }
 
 
-void achievementsUnlock(int id);
+/* Returns non-zero when the caller should pop a banner -- see the definition
+ * below. This was declared `void` before that function was read. */
+int achievementsUnlock(int id);
 
 
 /* ------------------------------------------ achievementsIncreaseSubzeroXerox
@@ -252,4 +254,128 @@ const char *getStageName(int tier, int index)
     }
     puts("DEFAULT @getStageName!!!");
     return DestinationNovice[index];    /* the same table as case 0 */
+}
+
+
+extern int Settings[10];                /* 0x00100e34 */
+
+/* `_achievementsDescr` -- 0x0017684c, sixteen bytes an entry. Only +0xc is
+ * touched here and it is cleared on every unlock; what it holds is not
+ * established by this function. */
+typedef struct ACHIEVEMENTDESCR {
+    long pad[3];                        /* 0x00 .. 0x08 */
+    long timer;                         /* 0x0c, zeroed on unlock */
+} ACHIEVEMENTDESCR;
+
+extern ACHIEVEMENTDESCR achievementsDescr[];    /* 0x0017684c */
+
+
+/* -------------------------------------------------------- achievementsUnlock
+ *
+ * armv7 0x000a0854, 136 bytes.  **Complete.**
+ *
+ * Marks achievement `id` unlocked. The value written into the tracker is
+ * **not a boolean -- it is one of three**, and which one depends on
+ * `Settings[7]` and on whether the achievements screen is open right now:
+ *
+ *      Settings[7] == 0                  ->  tracker = 2, return 0
+ *      Settings[7] != 0, screen open     ->  tracker = 4, return 1
+ *      Settings[7] != 0, screen closed   ->  tracker = 1, return 1
+ *
+ * The return value is what the caller uses to decide whether to pop a banner,
+ * and it is zero in the first case -- so `Settings[7]` is the notifications
+ * toggle, unlocking silently when it is off.
+ *
+ * **1 is the value areAchievementsViewing counts.** That function scans the
+ * tracker for entries equal to 1, so an achievement unlocked while the screen
+ * is already open gets 4 instead, deliberately keeping it out of that count.
+ * The two functions only make sense read together.
+ *
+ * Every path clears `achievementsDescr[id].timer`, and an id above 0x13 (19) is
+ * rejected -- four short of the 24 slots the tracker really has, which is the
+ * gap slot 23 Sub-Zero clone counter lives in. So the tail of the tracker is
+ * not reachable through this function.
+ *
+ * An already-unlocked achievement returns 0 and changes nothing.
+ */
+int achievementsUnlock(int id)
+{
+    if (Settings[7] == 0) {
+        if (id > 0x13 || achievementTracker[id] != 0)
+            return 0;
+
+        achievementTracker[id]      = 2;
+        achievementsDescr[id].timer = 0;
+        return 0;
+    }
+
+    if (id > 0x13 || achievementTracker[id] != 0)
+        return 0;
+
+    achievementTracker[id]      = areAchievementsViewing() ? 4 : 1;
+    achievementsDescr[id].timer = 0;
+    return 1;
+}
+
+
+/* `_kodes` -- 0x00176c04, 32 bytes an entry, terminated by -1 in word 0.
+ * Six words compared, word 6 unread here, word 7 the payload. */
+typedef struct KODE {
+    long seq[6];                        /* 0x00 .. 0x14 */
+    long unused;                        /* 0x18, never read by checkIfKode */
+    long value;                         /* 0x1c */
+} KODE;
+
+extern KODE  kodes[];                   /* 0x00176c04 */
+extern int   KodeSelector[10];          /* 0x000ff8f8 */
+/* `theKode` is already declared above as the pointer-slot idiom this file uses:
+ * the slot holds 0x0010ded0 and the value lives behind it. */
+
+int  puts(const char *s);
+int  printf(const char *fmt, ...);
+
+
+/* --------------------------------------------------------------- checkIfKode
+ *
+ * armv7 0x000a04a8, 136 bytes.  **Complete.**
+ *
+ * Walks `_kodes` comparing each entry six words against the player dial
+ * positions, and on a match publishes that entry payload in `_theKode`.
+ *
+ * **The six words it reads are KodeSelector[0..2] and KodeSelector[7..9]** --
+ * indices 0, 1, 2, 7, 8, 9, skipping four in the middle. Those are exactly the
+ * six words `resetKodeSelector` clears, and that function comment had the gap
+ * recorded as an open question. It is answered: the six that are reset are the
+ * six that are compared, and the four in between are not part of a kode.
+ *
+ * Three functions now agree on this array. InitKodeScreen clears ten words,
+ * resetKodeSelector clears six of them, and this one reads those same six.
+ *
+ * **It does not stop at the first match.** The loop runs to the terminator
+ * either way, so with two entries sharing a sequence the LAST one wins. It also
+ * prints on every hit:
+ *
+ *      CHECKING KODE
+ *      KODE OK:%d
+ *
+ * Both survive in the retail binary.
+ */
+void checkIfKode(void)
+{
+    KODE *k = kodes;
+
+    puts("CHECKING KODE");
+
+    while (k->seq[0] != -1) {
+        if (k->seq[0] == KodeSelector[0] &&
+            k->seq[1] == KodeSelector[1] &&
+            k->seq[2] == KodeSelector[2] &&
+            k->seq[3] == KodeSelector[7] &&
+            k->seq[4] == KodeSelector[8] &&
+            k->seq[5] == KodeSelector[9]) {
+            *theKode = k->value;
+            printf("KODE OK:%d\n", (int)*theKode);
+        }
+        k++;                            /* ldr r3, [r4, #0x20]! */
+    }
 }

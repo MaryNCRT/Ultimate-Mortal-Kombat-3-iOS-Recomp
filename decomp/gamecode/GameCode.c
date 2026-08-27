@@ -1194,3 +1194,45 @@ void dumpMem(char *p, int len, int perline)
 
     puts("\n################################################");
 }
+
+
+extern float FE_Fade;                   /* 0x00100898 */
+extern int   limeScreenWidth;           /* 0x00171aec */
+extern int   limeScreenHeight;          /* 0x00171af0 */
+
+void limeEnableAlphaBlending_Basic(void);
+void limeSet2DDrawing(void);
+void limeFillRect(float x, float y, float w, float h,
+                  float r, float g, float b, float a);
+
+
+/* --------------------------------------------------------- IntroRender2dBits
+ *
+ * armv7 0x0001d7cc, 120 bytes.  **Complete.**
+ *
+ * The intro fade overlay, and that is all it is: a full-screen black quad at
+ * alpha `1 - FE_Fade`, drawn in 2D with basic alpha blending.
+ *
+ *      if (FE_Fade == 1.0f) return         <- fully faded in, nothing to darken
+ *      limeFillRect(0, 0, w, h, 0, 0, 0, 1 - FE_Fade)
+ *
+ * The early-out and the subtraction agree with each other: at FE_Fade == 1 the
+ * alpha would be zero, so the test is not an approximation of "close enough",
+ * it is the exact point where the quad stops mattering.
+ *
+ * `_limeScreenWidth` and `_limeScreenHeight` are ints and are converted with
+ * `vcvt.f32.s32` at the call. The name "2dBits" suggests more than one overlay;
+ * there is only this one.
+ */
+void IntroRender2dBits(void)
+{
+    limeEnableAlphaBlending_Basic();
+    limeSet2DDrawing();
+
+    if (FE_Fade == 1.0f)
+        return;
+
+    limeFillRect(0.0f, 0.0f,
+                 (float)limeScreenWidth, (float)limeScreenHeight,
+                 0.0f, 0.0f, 0.0f, 1.0f - FE_Fade);
+}
