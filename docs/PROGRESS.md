@@ -33,7 +33,8 @@ Current state of the project. Written so that someone can pick it up with no pri
 >   [png.c](../runtime/lime/png.c) decodes them with its own DEFLATE; fifteen
 >   files across all three colour types are byte-identical to an independent
 >   reference decoder.
-> - **`gamecode` is 87 of 291**, up from 35, with three new files -- `HudAnim.c`,
+> - **`gamecode` is 102 of 291 -- 35%**, up from 35 functions at the start of
+>   this stretch, with three new files -- `HudAnim.c`,
 >   `Blood.c` and the front end's static-init pair. Several of the new bodies
 >   carry behaviour a tidier rewrite would lose: `Error()` never returns,
 >   `getRandomLevel`'s distribution is deliberately uneven, `ClearAnimRemapTables`
@@ -56,10 +57,10 @@ Current state of the project. Written so that someone can pick it up with no pri
 ## Overall progress
 
 ```
-████████████████░░░░░░░░░░░░░░░░░░░░░░░░  39.55%
+████████████████░░░░░░░░░░░░░░░░░░░░░░░░  40.05%
 ```
 
-**39.55% of the total estimated effort. Nothing is playable yet.**
+**40.05% of the total estimated effort. Nothing is playable yet.**
 
 Weights are our judgement of how much of the total each area represents. The
 three decompilation figures are **measured from the tree** by
@@ -78,7 +79,7 @@ done; the second says the fight engine has barely been touched.
 | Tooling and the verification oracle | 8% | 100% | `██████████` |
 | Asset format specifications | 8% | 100% | `██████████` |
 | `lime/common` — engine core (109 fn) | 12% | **100%** | `██████████` |
-| `gamecode` — game logic (291 fn) | 18% | 32.30% (94) | `███░░░░░░░` |
+| `gamecode` — game logic (291 fn) | 18% | 35.05% (102) | `████░░░░░░` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | 0.14% (3) | `░░░░░░░░░░` |
 | Native PC platform layer (161 fn to rewrite) | 17% | 10% | `█░░░░░░░░░` |
 | EA SDK stubs (~1,412 fn) | 5% | 0% | `░░░░░░░░░░` |

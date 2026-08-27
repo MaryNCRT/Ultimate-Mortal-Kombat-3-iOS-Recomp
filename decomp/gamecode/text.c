@@ -253,3 +253,37 @@ char *UC(const char *s)
     convertAsciiStringToUnicode(usprintfBuffers[UCPtr], s);
     return usprintfBuffers[UCPtr];
 }
+
+
+
+
+/* ----------------------------------------------------------- copyUnicodeString
+ *
+ * armv7 0x000a745c, 80 bytes.  **Complete.**
+ *
+ * Copies a UTF-16LE string, terminator NOT included, and returns the byte
+ * count. The loop condition goes through `decodeLHWord`, so the terminator is
+ * a two-byte zero read as a little-endian halfword rather than a byte test --
+ * which is why a character whose low byte is zero does not end the string.
+ *
+ * **Both pointers are null-checked and the result is 0 for either.** The guard
+ * is built branchlessly out of `rsbs`/`ite`, which is why it does not look like
+ * a guard; what it computes is `if (!dst || !src) return 0`.
+ *
+ * The returned count excludes the terminator and the destination never receives
+ * one. Callers that want a terminated string write it themselves.
+ */
+long copyUnicodeString(char *dst, const char *src)
+{
+    long n = 0;
+
+    if (dst == 0 || src == 0)
+        return 0;
+
+    while (decodeLHWord(src + n) != 0) {
+        dst[n]     = src[n];
+        dst[n + 1] = src[n + 1];
+        n += 2;
+    }
+    return n;                           /* no terminator is written */
+}

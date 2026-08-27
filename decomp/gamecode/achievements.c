@@ -148,3 +148,66 @@ void achievementsIncreaseMatchesWon(void)
     else if (n == 100)
         achievementsUnlock(8);
 }
+
+
+/* --------------------------------------------------------------- getLayoutName
+ *
+ * armv7 0x000a0234, 48 bytes.  **Complete.**
+ *
+ * Six strings from two arguments: the button count picks 4, 5 or anything else
+ * (which means 6), and the flag picks CUSTOM or PRESET.
+ *
+ * The default is SIX, not an error -- `cmp 4 / cmp 5 / fall through` -- so a
+ * count of 7 returns the six-button name. Transcribed as written; validating
+ * the count here would reject inputs the original accepts.
+ */
+const char *getLayoutName(int buttons, int custom)
+{
+    if (buttons == 4)
+        return custom ? "CUSTOM_LAYOUT_4_BUTTONS" : "PRESET_LAYOUT_4_BUTTONS";
+    if (buttons == 5)
+        return custom ? "CUSTOM_LAYOUT_5_BUTTONS" : "PRESET_LAYOUT_5_BUTTONS";
+    return custom ? "CUSTOM_LAYOUT_6_BUTTONS" : "PRESET_LAYOUT_6_BUTTONS";
+}
+
+
+extern short *H;                        /* pointer slot -> 0x0038c674 */
+extern int   *theKode;                  /* pointer slot -> 0x0010ded0 */
+
+
+/* ------------------------------------------------------ preprocessPostloadKode
+ *
+ * armv7 0x000a02cc, 56 bytes.  **Complete.**
+ *
+ * Clears three HALFWORDS in `H` -- +0x18, +0x1a and +0x1c -- and then sets
+ * exactly one of them from the active kode:
+ *
+ *      kode == 2     -> +0x18
+ *      kode == 0x12  -> +0x1a
+ *      kode == 0     -> +0x1c
+ *      anything else -> none of them
+ *
+ * **Zero is a kode, not the absence of one.** The `cbnz r3` at the end returns
+ * without setting anything for any value other than 0, 2 and 0x12, so kode 0
+ * has its own flag rather than meaning "no kode selected". A port that treats 0
+ * as empty loses whatever +0x1c enables.
+ *
+ * The clear order is +0x18, +0x1c, +0x1a -- not sequential. It makes no
+ * difference and it is transcribed as written.
+ */
+void preprocessPostloadKode(void)
+{
+    int kode;
+
+    H[0x18 / 2] = 0;
+    H[0x1c / 2] = 0;
+    H[0x1a / 2] = 0;
+
+    kode = *theKode;
+    if (kode == 2)
+        H[0x18 / 2] = 1;
+    else if (kode == 0x12)
+        H[0x1a / 2] = 1;
+    else if (kode == 0)
+        H[0x1c / 2] = 1;
+}

@@ -30,7 +30,7 @@ typedef int HUDANIM;
 typedef struct HUD {
     int     active;                 /* 0x00  zero means there is no HUD yet */
     HUDANIM anim;                   /* 0x04  the animation to play */
-    int     timer;                  /* 0x08  reset to 0 when one is triggered */
+    float   timer;                  /* 0x08  a FLOAT -- see HUDANIM_Update */
 } HUD;
 
 extern HUD TheHud;                          /* 0x00371458 */
@@ -58,7 +58,7 @@ void HUDANIM_TriggerAnim(HUDANIM anim)
         return;                     /* cbz r3 */
 
     TheHud.anim  = anim;
-    TheHud.timer = 0;
+    TheHud.timer = 0.0f;
 }
 
 
@@ -117,4 +117,47 @@ void HUDANIM_Init(void)
 
     TheHud.active = 1;
     TheHud.anim   = 0;
+}
+
+
+extern void **Scene_FIGHT;              /* pointer slot -> 0x00183d60 */
+
+
+/* ------------------------------------------------------------ HUDANIM_Update
+ *
+ * armv7 0x0007dbf4, 68 bytes.  **Complete.**
+ *
+ *      if (!TheHud.active) return
+ *      if (!TheHud.anim)   return
+ *      TheHud.timer += 1.0f
+ *      if (TheHud.timer >= (float)(Scene_FIGHT->count2 - 2))
+ *          TheHud.anim = 0
+ *
+ * **The timer at +8 is a FLOAT.** `vldr s12, [r2, #8]`, `vadd.f32` with the
+ * immediate 1.0, `vstr` back. This file had it as an int, which compiles, runs,
+ * and is wrong: the comparison against the scene length is a float compare
+ * (`vcmpe.f32`), and an integer timer would still terminate but by a different
+ * rule.
+ *
+ * The length comes from the FIGHT scene's own `+0x44`, which
+ * decomp/lime/lime.h names `count2` -- the modulus LIME_TriggerEventsFromScene
+ * uses. **Minus two**, so the animation is cleared two frames before the scene
+ * would wrap, not at the end.
+ *
+ * That -2 is the kind of constant a port drops as an off-by-one. It is not one.
+ */
+void HUDANIM_Update(void)
+{
+    float limit;
+
+    if (TheHud.active == 0)
+        return;
+    if (TheHud.anim == 0)
+        return;
+
+    TheHud.timer += 1.0f;
+
+    limit = (float)(((const long *)*Scene_FIGHT)[0x44 / 4] - 2);
+    if (TheHud.timer >= limit)
+        TheHud.anim = 0;
 }
