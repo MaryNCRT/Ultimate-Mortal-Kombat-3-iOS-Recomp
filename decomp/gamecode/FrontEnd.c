@@ -3025,3 +3025,83 @@ void DrawVortex3D(void)
 
     limeEnableAlphaBlending_Basic();
 }
+
+
+extern void *FENew1Texture;             /* 0x00183d7c */
+extern float mmfontcol[];               /* 0x000ff854, sixteen bytes an entry */
+
+void limeDrawFONTAtAngle(void *font, const char *text, float x, float y,
+                         long align, float scale, const float *colour,
+                         float angle);
+
+
+/* --------------------------------------------------------------- DrawMainMenu
+ *
+ * armv7 0x00018c14, 612 bytes.  **Complete.**
+ *
+ * The five main-menu entries, each drawn at its own position, scale and
+ * **slight rotation**. The five arguments are colour indices, one per entry,
+ * into `_mmfontcol` at a sixteen-byte stride -- so the caller passes which of
+ * several colours each line should use, and highlighting is done by changing
+ * an index rather than by drawing anything extra.
+ *
+ *      entry   text        x     y     scale   angle (radians)
+ *      1       GameText(4)   170    24    1.4    -0.021
+ *      2       GameText(10)  218   104    1.6    -0.0021
+ *      3       GameText(6)   190   180    1.3     0.008
+ *      4       GameText(5)   190   250    1.3     0.023
+ *      5       GameText(213) 167   290    1.3     0.015
+ *
+ * **Every line is tilted, and no two by the same amount.** The angles run from
+ * -0.021 to +0.023 radians -- between one and one and a half degrees -- and
+ * they alternate sign down the list. That hand-placed jitter is what makes the
+ * menu look drawn rather than laid out, and it is invisible in a screenshot
+ * unless you know to look for it. A port that draws these upright loses the
+ * entire character of the screen for the sake of five float literals.
+ *
+ * Entries 3, 4 and 5 share the 1.3 scale, which is loaded once into `d8` at the
+ * top and reused; entries 1 and 2 each load their own. All five scales are
+ * doubles multiplied by `FE_WidthScale` and narrowed at the call.
+ *
+ * Entries 3 and 4 also share their X, held in a register across both draws.
+ *
+ * The backdrop is `_FENew1Texture` at `FE_X(0)`, `FE_Y(-32)`, `FE_W(256)`,
+ * `FE_H(384)` with UVs `(0, 0)` to `(0.5, 0.75)` -- the left half and top three
+ * quarters of the texture. The -32 puts it above the top of the screen.
+ */
+void DrawMainMenu(int c1, int c2, int c3, int c4, int c5)
+{
+    void *font;
+
+    limeDrawSprite((TEXTURE *)FENew1Texture,
+                   (float)FE_X(0.0f), (float)FE_Y(-32.0f),
+                   (float)FE_W(256.0f), (float)FE_H(384.0f),
+                   0.0f, 0.0f, 0.5f, 0.75f, col);
+
+    font = GameFont;
+
+    limeDrawFONTAtAngle(font, GameText(4),
+                        (float)FE_X(170.0f), (float)FE_Y(24.0f), 2,
+                        (float)((double)FE_WidthScale * 1.4),
+                        &mmfontcol[c1 * 4], -0.021f);
+
+    limeDrawFONTAtAngle(font, GameText(10),
+                        (float)FE_X(218.0f), (float)FE_Y(104.0f), 2,
+                        (float)((double)FE_WidthScale * 1.6),
+                        &mmfontcol[c2 * 4], -0.0021f);
+
+    limeDrawFONTAtAngle(font, GameText(6),
+                        (float)FE_X(190.0f), (float)FE_Y(180.0f), 2,
+                        (float)((double)FE_WidthScale * 1.3),
+                        &mmfontcol[c3 * 4], 0.008f);
+
+    limeDrawFONTAtAngle(font, GameText(5),
+                        (float)FE_X(190.0f), (float)FE_Y(250.0f), 2,
+                        (float)((double)FE_WidthScale * 1.3),
+                        &mmfontcol[c4 * 4], 0.023f);
+
+    limeDrawFONTAtAngle(font, GameText(213),
+                        (float)FE_X(167.0f), (float)FE_Y(290.0f), 2,
+                        (float)((double)FE_WidthScale * 1.3),
+                        &mmfontcol[c5 * 4], 0.015f);
+}
