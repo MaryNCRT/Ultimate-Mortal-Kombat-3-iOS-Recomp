@@ -22,18 +22,28 @@
  *
  * ## About the shadow
  *
- * **The shadow here is not the engine's.** The binary has a shadow FLAG --
- * `clear_shadow_bit` clears bit 0x10 of a per-object flags word, and
- * `_ShadowOffset` and `_ShadowHeightFromGround` are real globals -- but there
- * is no shadow renderer anywhere in the symbol table, and no mesh named SHADOW
- * in any of the shipped meshsets. So what the original did with those three
- * symbols is not established.
+ * **This was a guess, and the guess turned out to be right.** This comment used
+ * to say there was no shadow renderer anywhere in the symbol table and that
+ * what the original did with `_ShadowOffset` and `_ShadowHeightFromGround` was
+ * not established. Both halves are now wrong.
  *
- * What this draws instead is the character flattened onto the ground plane in
- * black: the cheap projected shadow a 2011 mobile fighter would plausibly have
- * used, positioned with the two globals' names in mind. It is dressing, it is
- * labelled as dressing, and it should be replaced the moment somebody finds
- * what actually reads those globals.
+ * `RenderAnimatedCharacter` (armv7 0x0005c16c, decompiled in
+ * decomp/gamecode/Players.c) is the shadow renderer, and it does exactly what
+ * this demo does: takes the vertices the body pass just skinned, paints them
+ * black, and flattens them with `glScalef(1, 0, 1)`. There is no shadow mesh
+ * because there was never meant to be one.
+ *
+ * What it does differently, and what this demo should be changed to match:
+ *
+ *      glTranslatef(0, (y - ShadowOffset) * -100 + ShadowHeightFromGround, 0)
+ *
+ * -- so the height is not a fixed lift off the floor. It scales with the
+ * fighter's distance from `_ShadowOffset` by **-100**, inverting the sign, and
+ * only then adds `_ShadowHeightFromGround`. SHADOW_LIFT below is the stand-in
+ * for that second term and there is no stand-in at all for the first.
+ *
+ * Left as it is for now because the demo has no `_ShadowOffset` value to read;
+ * fixing it belongs with the rest of the renderer work.
  */
 #include "platform/platform.h"
 #include "platform/gl.h"
@@ -890,8 +900,11 @@ static void character_draw(int as_shadow, float ground_y)
     glEnableClientState(GL_VERTEX_ARRAY);
 
     if (as_shadow) {
-        /* NOT the engine's shadow -- see the file header. The character is
-         * squashed onto the ground plane and drawn flat black, blended. */
+        /* The character squashed onto the ground plane and drawn flat black.
+         * This IS what the engine does -- see the file header and
+         * RenderAnimatedCharacter -- except that the original draws it opaque
+         * with glColor4f(0,0,0,1) and no blending, where this blends at 0.45.
+         * The height rule also differs; both are noted in the header. */
         glDisable(GL_TEXTURE_2D);
         glDisableClientState(GL_TEXTURE_COORD_ARRAY);
         glDisableClientState(GL_COLOR_ARRAY);
