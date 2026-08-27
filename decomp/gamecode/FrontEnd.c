@@ -2381,3 +2381,181 @@ void DrawRedHighlight(int x, int y, int w, int h, int thick)
 {
     DrawHighlight(x, y, w, h, thick, 1.0f, 0.0f, 0.0f);
 }
+
+
+extern float FE_WidthScale;             /* 0x000ff9b8 */
+extern float FE_HeightScale;            /* 0x000ff9bc */
+extern void *GameFont;                  /* pointer slot -> 0x001abb98 */
+/* `limeScreenWidth` and `limeScreenHeight` are declared above, in the
+ * pointer-slot spelling this file uses throughout. */
+
+void limeDrawFONT(void *font, const char *text, float x, float y,
+                  long align, float scale, const float *colour);
+int  snprintf(char *buf, size_t n, const char *fmt, ...);
+
+
+/* ---------------------------------------- FE_DrawLeaderBoardEntriesCallback
+ *
+ * armv7 0x00013d2c, 320 bytes.  **Complete.**
+ *
+ * Draws one leaderboard row: the rank and name on the left, the score on the
+ * right, both in **red** -- the static colour constant is `(1, 0, 0, 1)`.
+ *
+ *      snprintf(buf, 64, "%d. %s", offset + rank, name)
+ *      limeDrawFONT(GameFont, buf, 60, y, 0, FE_WidthScale, red)
+ *
+ *      snprintf(buf, 64, "%d", score)
+ *      limeDrawFONT(GameFont, buf, limeScreenWidth - 60 * FE_WidthScale,
+ *                   y, 2, FE_WidthScale, red)
+ *
+ * ### Both edges are inset by the same 60, from opposite directions
+ *
+ * The left column sits at a bare `60` and the right at
+ * `limeScreenWidth + FE_WidthScale * -60`. The two constants are separate pool
+ * entries, +60 and -60, not one negated at run time. **Only the right one is
+ * scaled**: the left x is passed as a raw 60 with no `FE_WidthScale` anywhere
+ * near it, so the two margins stop matching as soon as the scale is not 1.
+ * Transcribed as written -- it is the kind of asymmetry that looks like a
+ * transcription slip and is not.
+ *
+ * The alignment argument differs too: 0 for the left column, **2** for the
+ * right, which is what makes the score right-justified against its edge.
+ *
+ * ### The row y
+ *
+ *      y = screenHeight / 2 + 10 + FE_HeightScale * -80
+ *            + FE_HeightScale * (rank * 16)
+ *
+ * so rows are 16 units apart before scaling, starting 80 above the midpoint
+ * plus ten. The `/ 2` is the signed halving the compiler emits
+ * (`r3 + (r3 >>> 31)` then `asr #1`), transcribed rather than written `/ 2`.
+ *
+ * The whole body is skipped when the fourth argument is zero, and the colour
+ * block is still copied to the stack first either way.
+ *
+ * The scratch buffer is 64 bytes and `snprintf` is bounded -- unlike the
+ * `sprintf` elsewhere in this tree.
+ */
+void FE_DrawLeaderBoardEntriesCallback(int rank, int offset, const char *name,
+                                       int show, int unused, int score)
+{
+    float colour[4];
+    char buf[64];
+    float y;
+
+    colour[0] = 1.0f;                   /* C.550 -- red, opaque */
+    colour[1] = 0.0f;
+    colour[2] = 0.0f;
+    colour[3] = 1.0f;
+
+    (void)unused;
+
+    if (show == 0)
+        return;
+
+    y = (float)(*limeScreenHeight / 2 + 10)
+        + FE_HeightScale * -80.0f
+        + FE_HeightScale * (float)(rank * 16);
+
+    snprintf(buf, sizeof buf, "%d. %s", offset + rank, name);
+    limeDrawFONT(GameFont, buf, 60.0f, (float)(long)y, 0,
+                 FE_WidthScale, colour);
+
+    snprintf(buf, sizeof buf, "%d", score);
+    limeDrawFONT(GameFont, buf,
+                 (float)*limeScreenWidth + FE_WidthScale * -60.0f,
+                 (float)(long)y, 2, FE_WidthScale, colour);
+}
+
+
+/* `_ButtonSplitText2` -- 0x00184f30, **256 bytes a line**: the index is
+ * `line << 8`. */
+#define SPLITTEXT_STRIDE  256
+
+extern char ButtonSplitText2[];         /* 0x00184f30 */
+
+char *limeUC(const char *s);
+long  limeGetStringWidth(void *font, const char *text);
+long  CreateWrappedTextArrays(const char *text, char *out, long *lines,
+                              long maxWidth, void *font, float scale);
+
+
+/* --------------------------------------------------------- DrawOptionAsText
+ *
+ * armv7 0x0000dd50, 352 bytes.  **Complete.**
+ *
+ * Wraps a string into `_ButtonSplitText2` and draws each line, 20 units apart,
+ * vertically centred on the block:
+ *
+ *      CreateWrappedTextArrays(text, ButtonSplitText2, &lines, maxWidth,
+ *                              GameFont, scale * FE_WidthScale)
+ *
+ *      for each line:
+ *          y = centre - (lines * 10 - 10) + lineOffset
+ *          limeDrawFONT(GameFont, limeUC(line), FE_X(x), FE_Y(y),
+ *                       1, scale * FE_WidthScale, colour)
+ *          lineOffset += 20
+ *
+ * `lines * 10 - 10` is half of `(lines - 1) * 20`, so the block straddles the
+ * centre rather than starting at it. Zero lines draws nothing and returns 0.
+ *
+ * ### The line offset is an integer parked in a float register
+ *
+ * `s18` is stepped with `vmov` to a core register, `adds #0x14`, and `vmov`
+ * back -- never with `vadd.f32` -- then read out with `vcvt.f32.s32`. It holds
+ * an INT bit pattern the whole time. Anyone reading the FP register list would
+ * take it for a float accumulator and be wrong by a factor of 10^38.
+ *
+ * ### Three limeUC calls per line, for a result that is discarded
+ *
+ * Each iteration calls `limeUC` and `limeGetStringWidth` once to draw, once to
+ * compare the scaled width against the widest seen, and **once more inside the
+ * branch to recompute the value it just compared**. The running maximum ends up
+ * in `s22` and `s22` is never read: the function returns a constant 0.
+ *
+ * That matters beyond being wasteful. `limeUC` advances the sixteen-buffer ring
+ * on every call, so **six lines exhaust it** and the earliest buffers are
+ * overwritten while the function is still running. It survives because each
+ * buffer is used immediately and never held -- but any port that starts holding
+ * a `limeUC` result across the loop breaks here first, and the redundant calls
+ * are the reason the margin is only six lines instead of sixteen.
+ *
+ * Transcribed with all three calls. Collapsing them is safe today and removes
+ * the only evidence of how tight that ring is.
+ */
+long DrawOptionAsText(const char *text, int x, float scale, int centre,
+                      const float *colour, float maxWidth)
+{
+    long lines = 0;
+    long i;
+    long lineOffset;                    /* an int, in s18 */
+    float widest = 0.0f;                /* s22 -- computed and never read */
+
+    CreateWrappedTextArrays(text, ButtonSplitText2, &lines, (long)maxWidth,
+                            GameFont, (float)centre * FE_WidthScale);
+
+    if (lines <= 0)
+        return 0;
+
+    lineOffset = 0;
+    for (i = 0; i < lines; i++) {
+        char *line = &ButtonSplitText2[i * SPLITTEXT_STRIDE];
+        float y = scale - (float)(lines * 10 - 10) + (float)lineOffset;
+        float w;
+
+        limeDrawFONT(GameFont, limeUC(line),
+                     (float)FE_X((float)x), (float)FE_Y(y),
+                     1, (float)centre * FE_WidthScale, colour);
+
+        w = (float)limeGetStringWidth(GameFont, limeUC(line))
+            * FE_WidthScale * (float)centre;
+
+        if (w > widest)                 /* recomputed inside the branch */
+            widest = (float)limeGetStringWidth(GameFont, limeUC(line))
+                     * FE_WidthScale * (float)centre;
+
+        lineOffset += 0x14;             /* 20, added as an integer */
+    }
+
+    return 0;
+}
