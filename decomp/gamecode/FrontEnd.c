@@ -2559,3 +2559,97 @@ long DrawOptionAsText(const char *text, int x, float scale, int centre,
 
     return 0;
 }
+
+
+extern float *limeTouchScreenX;         /* pointer slot -> 0x00171af4 */
+extern float *limeTouchScreenY;         /* pointer slot */
+extern float *limeLastTouchScreenX;     /* pointer slot */
+extern float *limeLastTouchScreenY;     /* pointer slot */
+extern long  *SFXHandle;                /* pointer slot */
+extern float *MusicVol;                 /* pointer slot -> 0x000ff830 */
+
+void limePlaySound(long id, float vol, float pan, long flags);
+
+
+/* ---------------------------------------------------------------- TouchAreaWH
+ *
+ * armv7 0x0000562c, 428 bytes.  **Complete.**
+ *
+ * Hit-tests a rectangle against the touch screen and returns **which kind of
+ * touch it is**, not a boolean:
+ *
+ *      2   a finger is down inside the rectangle right now
+ *      1   a finger was just LIFTED inside it
+ *      0   neither
+ *
+ * The rectangle is `FE_X(x)`, `FE_Y(y)`, `FE_W(w)`, `FE_H(h)` -- all four
+ * scaled, unlike the leaderboard's left margin.
+ *
+ * ### Only touch slot zero
+ *
+ * `limeTouchScreenX[0]` and nothing else. `CheckLeftDial` scans all ten slots;
+ * this looks at one. So a second finger anywhere on the screen cannot press a
+ * button, and the front end is single-touch by construction rather than by
+ * policy.
+ *
+ * ### The release test uses a different pair of globals
+ *
+ * A live touch is `limeTouchScreenX/Y`; `-1.0f` there means nothing is down,
+ * and only then does it consult `limeLastTouchScreenX/Y` -- where the finger
+ * was when it lifted. So the "1" result is genuinely a release event, and it
+ * fires exactly once per lift because the live array has already gone to -1.
+ *
+ * **The click sound plays only on that path.** `limePlaySound(SFXHandle[0x1a],
+ * MusicVol[Settings[3]] / 100.0f, 1.0f, 0)`, gated on `Settings[3]` -- the same
+ * volume table and the same /100 that `RunGameEvents` uses for the hit sound.
+ * A button held down is silent; releasing it clicks.
+ *
+ * The bounds tests are `>=` on the near edges and `>` on the far ones, so the
+ * rectangle is half-open and two abutting buttons cannot both claim a pixel.
+ */
+long TouchAreaWH(int x, int y, int w, int h)
+{
+    float tx = limeTouchScreenX[0];
+    float x0 = (float)FE_X((float)x);
+    long r = 0;
+
+    if (tx >= x0
+        && tx <= x0 + (float)FE_W((float)w)) {
+        float ty = limeTouchScreenY[0];
+        float y0 = (float)FE_Y((float)y);
+
+        if (ty >= y0 && ty <= y0 + (float)FE_H((float)h))
+            r = 2;                      /* held down inside */
+    }
+
+    if (tx != -1.0f)
+        return r;                       /* a live touch: nothing more to say */
+
+    /* nothing is down -- was the last one released in here? */
+    {
+        float lx = limeLastTouchScreenX[0];
+        float ly;
+        float y0;
+
+        if (x0 > lx)
+            return r;
+        if (lx > x0 + (float)FE_W((float)w))
+            return r;
+
+        ly = limeLastTouchScreenY[0];
+        y0 = (float)FE_Y((float)y);
+
+        if (ly < y0)
+            return r;
+        if (ly > y0 + (float)FE_H((float)h))
+            return r;
+
+        r++;                            /* 0 -> 1, the release */
+
+        if (Settings[3] != 0)
+            limePlaySound(SFXHandle[0x68 / 4],
+                          MusicVol[Settings[3]] / 100.0f, 1.0f, 0);
+    }
+
+    return r;
+}
