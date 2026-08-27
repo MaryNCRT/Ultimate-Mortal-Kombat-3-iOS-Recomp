@@ -334,3 +334,29 @@ void FreePreloadedCharacters(void)
 
     NumPreloadedCharacters = 0;
 }
+
+
+/* --------------------------------------------------- HavePreloadedCharacter
+ *
+ * armv7 0x0005b90c, 84 bytes.  **Complete.**
+ *
+ * Linear search of the preloaded slots for one whose first word is `who`,
+ * returning the ANIMATEDCHARACTER at +8 of that slot, or NULL.
+ *
+ * The stride is built out of shifts rather than a multiply: `i*12`, then
+ * `(i*12) << 7` for `i*1536`, then a subtract for `i*1524` -- 0x5f4, the same
+ * stride FreePreloadedCharacters walks.
+ *
+ * The compiler peeled the first comparison, which is why slot 0 is tested
+ * before the loop and the loop body starts at slot 1.
+ */
+ANIMATEDCHARACTER *HavePreloadedCharacter(EPLAYER who)
+{
+    int i;
+
+    for (i = 0; i < NumPreloadedCharacters; i++)
+        if (*(const long *)PreloadedCharacters[i] == (long)who)
+            return *(ANIMATEDCHARACTER **)(PreloadedCharacters[i] + 8);
+
+    return 0;
+}

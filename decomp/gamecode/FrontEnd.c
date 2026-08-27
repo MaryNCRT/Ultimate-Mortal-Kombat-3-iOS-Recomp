@@ -982,3 +982,67 @@ void Write_PresetButtonData(void)
     limeWriteFile("preset5data", CustomButtonsPos5, 0x78, 0);
     limeWriteFile("preset6data", CustomButtonsPos6, 0x78, 0);
 }
+
+
+extern int  FE_TaskStackPointer;        /* 0x001008ac */
+extern int  FE_CurrentTaskStack[];      /* 0x00183f30 */
+extern char DEFAULT_CustomButtonsPos4[0x78];    /* 0x001503fc */
+extern char DEFAULT_CustomButtonsPos5[0x78];    /* 0x00150474 */
+extern char DEFAULT_CustomButtonsPos6[0x78];    /* 0x001504ec */
+void  dumpStack(void);
+int   printf(const char *fmt, ...);
+
+
+/* ---------------------------------------------------------------- PopFETask
+ *
+ * armv7 0x00004e88, 72 bytes.  **Complete.**
+ *
+ *      if (!FE_TaskStackPointer) return
+ *      printf("pop fe task: %d->%d\n", stack[sp - 1], FE_CurrentTask)
+ *      dumpStack()
+ *      FE_TaskStackPointer--
+ *      FE_Special_Destroys()
+ *      FE_CurrentTask = stack[FE_TaskStackPointer]
+ *      FE_Special_Inits()
+ *      dumpStack()
+ *
+ * **The teardown runs before the task changes and the setup after**, which is
+ * the only ordering that makes FE_Special_Destroys see the task it is tearing
+ * down and FE_Special_Inits see the one it is setting up. Both read
+ * _FE_CurrentTask directly rather than taking it as an argument, so the order
+ * is load-bearing.
+ *
+ * The printf and both dumpStack calls SHIP. Front-end navigation prints a line
+ * and dumps the stack twice in the retail build.
+ */
+void PopFETask(void)
+{
+    if (FE_TaskStackPointer == 0)
+        return;
+
+    printf("pop fe task: %d->%d\n",
+           FE_CurrentTaskStack[FE_TaskStackPointer - 1], FE_CurrentTask);
+    dumpStack();
+
+    FE_TaskStackPointer--;
+    FE_Special_Destroys();                      /* still the OLD task */
+    FE_CurrentTask = FE_CurrentTaskStack[FE_TaskStackPointer];
+    FE_Special_Inits();                         /* now the NEW one */
+    dumpStack();
+}
+
+
+/* --------------------------------------------------- Reset_PresetButtonData
+ *
+ * armv7 0x00015bf4, 62 bytes.  **Complete.**
+ *
+ * Three memcpys of 0x78 bytes from the DEFAULT_ tables into the live ones. The
+ * size is the same literal Write_PresetButtonData saves, so the defaults, the
+ * live copies and the files on disk are all 120 bytes by construction.
+ */
+void Reset_PresetButtonData(void)
+{
+    memcpy(CustomButtonsPos4, DEFAULT_CustomButtonsPos4, 0x78);
+    memcpy(CustomButtonsPos5, DEFAULT_CustomButtonsPos5, 0x78);
+    memcpy(CustomButtonsPos6, DEFAULT_CustomButtonsPos6, 0x78);
+}

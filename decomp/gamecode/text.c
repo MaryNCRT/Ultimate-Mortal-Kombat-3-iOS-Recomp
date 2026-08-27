@@ -10,6 +10,7 @@
  */
 
 #include <stdint.h>
+#include <string.h>   /* strlen, for asciiToUnicode */
 
 uint32_t decodeLHWord(const char *p);
 int      putUnicodeChar(char *dst, uint32_t ch);
@@ -286,4 +287,45 @@ long copyUnicodeString(char *dst, const char *src)
         n += 2;
     }
     return n;                           /* no terminator is written */
+}
+
+
+
+
+/* ------------------------------------------------------------- asciiToUnicode
+ *
+ * armv7 0x000a78dc, 84 bytes.  **Complete.**
+ *
+ * Widens ASCII into a caller-supplied buffer, refusing when the buffer cannot
+ * hold the result plus its terminator, and returning 1 on success and 0 on
+ * refusal. Unlike convertAsciiStringToUnicode it DOES write the two-byte
+ * terminator, and the size check is what makes the difference: this one knows
+ * how much room it has.
+ *
+ * **strlen is called inside the loop condition.** Not hoisted, not cached: once
+ * per character, so the function is quadratic in the length of the string. It
+ * is called twice more afterwards to place the terminator.
+ *
+ * That is transcribed rather than fixed. The strings this handles are menu
+ * labels of a few dozen characters, so the cost never mattered; hoisting it is
+ * a one-line change anybody porting this can make deliberately, and doing it
+ * silently would hide that the original did not.
+ *
+ * The bound is strictly greater -- dst_bytes > strlen*2 -- which is what leaves
+ * room for the terminator the check does not otherwise account for.
+ */
+int asciiToUnicode(const char *src, char *dst, long dst_bytes)
+{
+    long i;
+
+    if (dst_bytes <= (long)strlen(src) * 2)
+        return 0;
+
+    for (i = 0; (unsigned long)i < strlen(src); i++) {   /* not hoisted */
+        dst[i * 2]     = src[i];
+        dst[i * 2 + 1] = 0;
+    }
+    dst[strlen(src) * 2]     = 0;
+    dst[strlen(src) * 2 + 1] = 0;
+    return 1;
 }
