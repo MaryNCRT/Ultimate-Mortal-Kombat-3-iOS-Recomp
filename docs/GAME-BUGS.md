@@ -116,6 +116,47 @@ front-end screen is not.
 
 ---
 
+## "Reset all data" clears the save in memory but never writes it
+
+`FE_Task_ResetAllDataConfirmation` (armv7 `0x00015cbc`) performs the factory
+reset as four reset/write pairs — and one reset with no write:
+
+```c
+Reset_Stats();              Write_Stats();
+Reset_SaveData();           /* nothing */
+achievementsReset();        Write_AchievementsData();
+ResetSettingsData();        Write_SettingsData();
+Reset_PresetButtonData();   Write_PresetButtonData();
+```
+
+Every other subsystem is flushed to disk immediately. `savedata` is not.
+
+### What the player sees
+
+Nothing, most of the time. The in-memory state is correct, so the game behaves
+as reset, and the next ordinary `Write_SaveData()` — end of a match, entering
+survival, a ladder advancing — persists the cleared values. The bug only bites
+if the app is killed between the reset and that next write, at which point the
+old ladder progress, win streak and unlock flags come back.
+
+That window is easy to hit on iOS, where the OS terminates backgrounded apps
+without warning, and "I reset my data and it came back" is exactly the kind of
+report that gets filed as "didn't actually tap confirm".
+
+### What the port should do
+
+Call `Write_SaveData()` after `Reset_SaveData()`. **Record that the original did
+not**, because it is a behaviour change: a port that adds the write and a save
+file that survives a reset are no longer bug-compatible, and if anyone is ever
+comparing against retail this is one of the places they will differ.
+
+The same function has a smaller asymmetry worth carrying across deliberately
+rather than by accident: it sets `*Player2NumButtons = 5` and leaves
+`Player1NumButtons` untouched, so a factory reset does not restore player one's
+control scheme.
+
+---
+
 ## Method
 
 Both findings came from the same approach: take every name the data references
