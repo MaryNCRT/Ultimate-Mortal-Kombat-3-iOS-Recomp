@@ -3820,3 +3820,107 @@ void DrawTicker(void)
             displayTicker++;
     }
 }
+
+
+extern long leaderboardsConnectionAVailable;    /* 0x00100f94 */
+extern long leaderboardsInit;                   /* 0x00100f98 */
+extern long leaderboardsInitSK;                 /* 0x00100f9c */
+extern long currentLeaderBoardPage;             /* 0x000ff8e8 */
+extern BUTTONNEW BUTTON_BACK;                   /* 0x001007bc */
+
+long EASDK_ConnectedToNetwork(void);
+void EASOC_MayhemReset(void);
+void limeModalNoInternet(void);
+void PushFETaskDeferred(int task);
+
+
+/* --------------------------------------------------- FE_Task_Select_Leaderboard
+ *
+ * armv7 0x00013e6c, 596 bytes.  **Complete.**
+ *
+ * Picks which leaderboard to open. Backdrop, two wide buttons through
+ * `drawPage2x1Wide(0, 0x1e)`, four labels, and a Back button.
+ *
+ *      GameText(0x35f)  at (240,  74)      GameText(0x361) at (240, 174)
+ *      GameText(0x360)  at (240,  90)      GameText(0x362) at (240, 190)
+ *      GameText(7)      at (423, 296)      the Back label
+ *
+ * Two labels per button, sixteen apart -- a title and a subtitle each.
+ *
+ * ### The network check happens on the press, not on entry
+ *
+ *      button 1 -> if (EASDK_ConnectedToNetwork()) PushFETaskDeferred(0x0d)
+ *                  else limeModalNoInternet()
+ *      button 2 -> if (EASDK_ConnectedToNetwork()) PushFETaskDeferred(0x32)
+ *                  else limeModalNoInternet()
+ *
+ * So the buttons are always drawn live and the "no internet" dialog only
+ * appears after a tap. Both branches then reset the same three globals --
+ * `leaderboardsInitSK`, `leaderboardsInit` and `currentLeaderBoardPage` to
+ * zero -- **but only on the connected path**. A failed tap leaves them as they
+ * were.
+ *
+ * ### And then it clobbers the availability flag anyway
+ *
+ * After the button handling, every path falls through to
+ *
+ *      leaderboardsConnectionAVailable = -1;
+ *
+ * unconditionally -- whether a button was pressed, whether the network was
+ * there, or whether nothing happened at all. So that global is reset once per
+ * frame from here and cannot carry state across frames while this screen is up.
+ *
+ * Back calls `EASOC_MayhemReset()` before `PopFETaskDeferred()`, so leaving
+ * this screen tears down the social session rather than just popping the task.
+ */
+void FE_Task_Select_Leaderboard(void)
+{
+    long choice, back;
+
+    limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0234375f, 1.0f, 0.703125f, col);
+
+    choice = drawPage2x1Wide(0, 0x1e);
+
+    limeDrawFONT(GameFont, GameText(0x35f), (float)FE_X(240.0f),
+                 (float)FE_Y(74.0f),  1, FE_WidthScale, fontcol);
+    limeDrawFONT(GameFont, GameText(0x360), (float)FE_X(240.0f),
+                 (float)FE_Y(90.0f),  1, FE_WidthScale, fontcol);
+    limeDrawFONT(GameFont, GameText(0x361), (float)FE_X(240.0f),
+                 (float)FE_Y(174.0f), 1, FE_WidthScale, fontcol);
+    limeDrawFONT(GameFont, GameText(0x362), (float)FE_X(240.0f),
+                 (float)FE_Y(190.0f), 1, FE_WidthScale, fontcol);
+
+    back = DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1);
+
+    limeDrawFONT(GameFont, GameText(7), (float)FE_X(423.0f),
+                 (float)FE_Y(296.0f), 1, FE_WidthScale, fontcol);
+
+    if (choice == 1) {
+        if (EASDK_ConnectedToNetwork()) {
+            PushFETaskDeferred(0x0d);
+            leaderboardsInitSK      = 0;
+            leaderboardsInit        = 0;
+            currentLeaderBoardPage  = 0;
+        } else {
+            limeModalNoInternet();
+        }
+    } else if (choice == 2) {
+        if (EASDK_ConnectedToNetwork()) {
+            PushFETaskDeferred(0x32);
+            leaderboardsInitSK      = 0;
+            leaderboardsInit        = 0;
+            currentLeaderBoardPage  = 0;
+        } else {
+            limeModalNoInternet();
+        }
+    }
+
+    leaderboardsConnectionAVailable = -1;   /* every path, every frame */
+
+    if (back) {
+        EASOC_MayhemReset();
+        PopFETaskDeferred();
+    }
+}
