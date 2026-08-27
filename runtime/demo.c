@@ -202,11 +202,26 @@ static float g_cam_dist = 1.0f;
  * The two distances measured off the capture -- 4.09 fighter heights with the
  * fighters close and 4.88 with them apart -- fall INSIDE [3.60, 5.55], and the
  * eye height measured there (136 to 143) sits against the 146 the binary
- * carries. Two independent numbers landing where the code says they should is
- * the check; what is NOT established is the unit the 3.60 and 5.55 are in, so
- * they are used here as multiples of the fighter's height because that is what
- * makes our measurements land inside them, and that reading is stated rather
- * than assumed.
+ * carries.
+ *
+ * **These two numbers now have the binary's own names.** `InitVarEdit`
+ * (decomp/gamecode/VarEdit.c) builds the in-game variable editor and lists them
+ * as `camzoomedin` (0x0014dfb4 = 3.5999999) and `camzoomedout` (0x0014dfb8 =
+ * 5.5500002) under a `** CAMERA ZOOM VARS **` heading -- exactly the values
+ * fitted here from the video, arrived at by a completely different route.
+ *
+ * The same table gives four more this demo does not use yet:
+ *
+ *      distzoomedin    0.69999999      the fighter separations the zoom
+ *      distzoomedout   2.1500001       interpolates BETWEEN
+ *      camheight       1.1599999       eye height
+ *      camlookatheight 0.079999998     target height
+ *
+ * So the pairing is settled -- `cam*` are camera distances and `dist*` are the
+ * separations they map from -- and `g_cam_eye` / `g_cam_pitch` below are
+ * standing in for `camheight` and `camlookatheight`. What is still open is the
+ * unit and the exact interpolation, both of which live in `TrackCam` (1,840
+ * bytes, not yet decompiled).
  *
  * The demo has one fighter and so no separation to track: --cam-zoom picks a
  * point on the line, and the default reproduces the mid-fight framing. */
