@@ -1700,3 +1700,58 @@ void DestroyFEMeshSets(void)
     LIME_FreeMeshSet(MeshSet_LIGHTNING4);
     LIME_FreeMeshSet(MeshSet_LIGHTNING5);
 }
+
+
+extern float FE_AspectRatioAdjust;      /* 0x000ff9c0 */
+extern float FE_WidthScale;             /* 0x000ff9b8 */
+extern float HUD_Scale;                 /* 0x000ff9c4 */
+extern int  *UseLOWAssetsPtr;           /* slot -> 0x0010df10 */
+
+
+/* --------------------------------------------------------------- SetupFEScale
+ *
+ * armv7 0x00002d98, 184 bytes.  **Complete.**
+ *
+ *      aspect               = (float)w / (float)h
+ *      FE_AspectRatioAdjust = 1.5f / aspect
+ *      FE_WidthScale        = (float)(w / 480.0)
+ *      FE_HeightScale       = (float)((h / 320.0) / FE_AspectRatioAdjust)
+ *      FE_YOffset           = ((float)h - (float)h / FE_AspectRatioAdjust) * 0.5f
+ *      HUD_Scale            = (FE_WidthScale >= 2.0f) ? 1.75f : 1.0f
+ *      UseLOWAssets         = (w == 480)
+ *
+ * **480 by 320 is the reference layout**, and the two divisors are doubles, not
+ * floats -- the widths and heights go through `vcvt.f64.s32` and `vdiv.f64`
+ * before being narrowed back. That is a real difference in the last bits and it
+ * is transcribed as written.
+ *
+ * `FE_AspectRatioAdjust` is 1.5 over the actual aspect, so it is 1.0 on a 3:2
+ * screen -- exactly the 480x320 the layout was drawn for -- and departs from it
+ * on anything else. FE_HeightScale divides by it and FE_YOffset centres what is
+ * left, which is letterboxing done in the layout rather than in the projection.
+ *
+ * **UseLOWAssets is set by WIDTH alone, and only for exactly 480.** Not "480 or
+ * less": a 320-wide device would get the high assets. That is what the code
+ * says.
+ *
+ * HUD_Scale steps rather than scales: 1.0 below a 2x width and 1.75 at or above
+ * it, so a Retina screen gets a bigger HUD in one jump and nothing in between.
+ */
+void SetupFEScale(void)
+{
+    int   w = *limeScreenWidth;
+    int   h = *limeScreenHeight;
+    float aspect = (float)w / (float)h;
+    float adj;
+
+    FE_AspectRatioAdjust = 1.5f / aspect;
+    adj = FE_AspectRatioAdjust;
+
+    FE_WidthScale  = (float)((double)w / 480.0);     /* double, then narrowed */
+    FE_HeightScale = (float)(((double)h / 320.0) / (double)adj);
+    FE_YOffset     = ((float)h - (float)h / adj) * 0.5f;
+
+    HUD_Scale = (FE_WidthScale >= 2.0f) ? 1.75f : 1.0f;
+
+    *UseLOWAssetsPtr = (w == 480) ? 1 : 0;           /* exactly 480, not <= */
+}
