@@ -6,6 +6,7 @@
  */
 
 #include <stdint.h>
+#include <string.h>   /* strcmp, for UnLoadSoundList */
 
 /* A table of pointers to per-character sound tables. `get_csound` indexes the
  * outer one by four and the inner by eight, so the inner entries are pairs and
@@ -126,4 +127,67 @@ long get_gsound(long group, long variant, long seed)
         seed = -seed;
     n = group_choices[group];
     return group_table[group][(n * variant + (seed % n)) * 2 + 1];
+}
+
+
+#define SOUND_UNIQUE_NAME_STRIDE 32
+
+typedef struct SOUNDENTRY {             /* 8 bytes: the walk advances by 8 */
+    const char *name;                   /* 0x00 */
+    long        id;                     /* 0x04, -1 when not loaded */
+} SOUNDENTRY;
+
+extern long  SoundListUniqueCounter;    /* 0x0017b3b0 */
+extern long  SoundListUniqueIds[];      /* the ids, one word each */
+extern char  SoundListUniqueNames[];    /* 0x003878b0, stride 32 */
+void limeDeleteSound(long id);
+
+
+/* ------------------------------------------------------------- UnLoadSoundList
+ *
+ * armv7 0x000a7f08, 148 bytes.  **Complete.**
+ *
+ *      for each entry until name == "end_of_list":
+ *          if (entry->id != -1) {
+ *              for (i = 0; i < SoundListUniqueCounter; i++)
+ *                  if (SoundListUniqueIds[i] == entry->id) {
+ *                      limeDeleteSound(entry->id)
+ *                      SoundListUniqueNames[i * 32] = 0
+ *                      SoundListUniqueIds[i] = -1
+ *                  }
+ *              entry->id = -1
+ *          }
+ *
+ * **The list ends on a STRING, not a null pointer**: every entry's name is
+ * strcmp'd against "end_of_list". So a sound list is terminated by a sentinel
+ * row, and a NULL name would crash rather than stop.
+ *
+ * **The inner loop does not break on a match.** It deletes, clears the name's
+ * first byte and sets the id to -1, and then keeps scanning -- so a duplicated
+ * id in the unique table would be deleted twice. Whether that can happen
+ * depends on how the table is built, which this function does not say; what it
+ * does say is that the original does not assume it cannot.
+ *
+ * Only the first BYTE of the 32-byte name slot is cleared, which is enough to
+ * make it an empty C string and leaves the rest as it was.
+ */
+void UnLoadSoundList(SOUNDENTRY *list)
+{
+    long i;
+
+    for (; strcmp(list->name, "end_of_list") != 0; list++) {
+        if (list->id == -1)
+            continue;
+
+        for (i = 0; i < SoundListUniqueCounter; i++) {
+            if (SoundListUniqueIds[i] != list->id)
+                continue;
+
+            limeDeleteSound(list->id);
+            SoundListUniqueNames[i * SOUND_UNIQUE_NAME_STRIDE] = 0;
+            SoundListUniqueIds[i] = -1;
+            /* no break: the original keeps scanning */
+        }
+        list->id = -1;
+    }
 }
