@@ -8864,3 +8864,293 @@ void UpdateArcadeCode(int *joy1, int *joy2)
         lastJoybits = *joy1;
     }
 }
+
+
+/* ------------------------------------------------------------------ TrackCam
+ *
+ * armv7 0x0001b8b4, 1,840 bytes.  **Complete.**
+ *
+ * The fight camera. A leaf function -- **not one call in 1,840 bytes**, just
+ * float arithmetic over named tuning globals -- called once a tick from
+ * `UpdateArcadeCode` with the two fighters' positions.
+ *
+ * There are **two cameras in here** and `NewCam` picks between them. The old
+ * one is the PSP camera and it is dead code in the shipped build unless
+ * `NewCam` is cleared; it is decompiled below because it is still reachable and
+ * because it is the simpler of the two to read against.
+ *
+ * ### The screen edges are converted once, at the top
+ *
+ *      CamLeftLimit3d  = CamLeftLimit  / WorldScaleAdjust
+ *      CamRightLimit3d = CamRightLimit / WorldScaleAdjust
+ *
+ * so the two limits are authored in arcade units and cached in world units
+ * every frame. Both cameras clamp against the `3d` pair, never the originals.
+ *
+ * ### The old camera: a spring with a speed limit
+ *
+ *      t      = (|a.x - b.x| - 1) / psp_maxdist,  clamped to [0, 1]
+ *      target = (t*a.x + midpoint*(1 - t)) * psp_scale + psp_off
+ *      CamVelX = (target - Camera.x) * 0.125,  clamped to +-mxvelx
+ *      Camera.x += CamVelX
+ *
+ * Far apart it follows **player one**; close together it slides to the
+ * midpoint. The height is a straight lerp on distance:
+ *
+ *      u = (clamp(dist, distzoomedin, distzoomedout) - distzoomedin)
+ *          / (distzoomedout - distzoomedin)
+ *      Camera.y = -((1 - u)*camzoomedin + u*camzoomedout)
+ *      Camera.z = camheight
+ *
+ * ### The new camera: distance sets the pull-back
+ *
+ *      dist = clamp(|(a.x - b.x) * 1.5| + 5.0, 6.0, 8.0)
+ *
+ * and the camera sits exactly that far behind the look-at in Y --
+ * `NewCamera.y = a.y - dist`. So **the pull-back is a clamped linear function
+ * of how far apart the fighters are**, and 6 to 8 is its whole range.
+ *
+ * The look-at tracks the midpoint but is leashed to player one:
+ *
+ *      DistInX = clamp(midpoint - a.x, -MaxDistInX, MaxDistInX)
+ *      NewCameraLookAt.x = a.x + DistInX
+ *
+ * so a fighter who runs away drags the camera only `MaxDistInX` before the
+ * other one starts leaving the frame. `swivelscale` is set to 1 and
+ * `zoomedoutweight` to 0 on entry and neither is read again here.
+ *
+ * ### Z is optional, and clamped to two different windows
+ *
+ * The third argument gates the Z work entirely. With it set:
+ *
+ *      NewCameraLookAt.z = midZ + 1.25 - SceneGroundOffset,  clamped [1.25, 2.25]
+ *      NewCamera.z       = midZ + 1.5  - SceneGroundOffset,  clamped [1.5,  2.5]
+ *
+ * Two windows a quarter apart, so the camera always looks slightly down.
+ *
+ * ### A stage fatality follows the falling player
+ *
+ * `DoingStageFatal` is `player + 1`, and its two values pick **which fighter's
+ * Z the camera follows** -- 1 takes `a.z`, anything else takes `b.z`, and both
+ * recompute the two Z values above from that one player rather than the
+ * midpoint. That is the camera riding someone down the pit.
+ *
+ * ### Jax's grow drifts the look-at
+ *
+ *      NewCameraLookAt.x += min(JaxGrowCounter, 0xaf) * 0.0075 * 1.2
+ *
+ * negated when `JaxSquashFlip` is set, so the drift goes the way the squashed
+ * fighter was facing. The counter is capped at 0xaf here while
+ * `RenderLevelPlayers` stops drawing the squashed copy at 0x108 -- **the camera
+ * stops moving before the sprite disappears**, which is presumably the point.
+ *
+ * ### Three ways the result is committed
+ *
+ *      LockCamera        nothing is written at all
+ *      IsInFinishing     Camera and CameraLookAt EASE toward their targets at
+ *                        0.125 a tick -- unless SnapCam, which jumps
+ *      otherwise         both are assigned outright
+ *
+ * and `OverrideCamera` fires only inside the finisher path, where
+ * `CamOverridePos.x` overwrites the X of both the camera and the look-at.
+ * `SnapCam` is cleared on every exit, so it is a one-shot.
+ *
+ * The direct commit writes the look-at as `x + (y - x)` -- **an ease with the
+ * weight gone**, which the compiler could not fold because it is float. It is
+ * an assignment, and it is written as one below.
+ */
+
+#define TRACKCAM_DIST_MIN     6.0f
+#define TRACKCAM_DIST_MAX     8.0f
+#define TRACKCAM_LOOK_Z_MIN   1.25f
+#define TRACKCAM_LOOK_Z_MAX   2.25f
+#define TRACKCAM_CAM_Z_MIN    1.5f
+#define TRACKCAM_CAM_Z_MAX    2.5f
+#define TRACKCAM_EASE         0.125f
+#define JAXGROW_CAM_CAP       0xaf
+
+extern float  CamLeftLimit;             /* 0x001f44a8, arcade units */
+extern float  CamRightLimit;            /* 0x001f44ac */
+extern float  CamLeftLimit3d;           /* 0x001f44b0, world units */
+extern float  CamRightLimit3d;          /* 0x001f44b4 */
+extern long   NewCam;                   /* 0x0014e1bc */
+extern float  psp_maxdist;              /* 0x0014dfa8 */
+extern float  psp_scale;                /* 0x0014dfa0 */
+extern float  psp_off;                  /* 0x0014dfa4 */
+extern float  CamVelX;                  /* 0x0014dfac */
+extern float  mxvelx;                   /* 0x0014dfb0 */
+extern float  distzoomedin;             /* 0x0014dfbc */
+extern float  distzoomedout;            /* 0x0014dfc0 */
+extern float  camzoomedin;              /* 0x0014dfb4 */
+extern float  camzoomedout;             /* 0x0014dfb8 */
+extern float  camheight;                /* 0x0014dff0 -- the compiler
+                                         * copies it with a plain word move */
+extern float  swivelscale;              /* 0x001f44a0 */
+extern float  zoomedoutweight;          /* 0x001f44a4 */
+extern float  MaxDistInX;               /* 0x00150e94 */
+extern float  DistInX;                  /* 0x001f44b8 */
+extern float  SceneGroundOffset;        /* 0x0014df8c */
+extern float  Camera[3];                /* 0x0014fa74 */
+extern float  NewCamera[3];             /* 0x0014fa8c */
+extern float  NewCameraLookAt[3];       /* 0x0014fa98 */
+extern float  CamOverridePos[3];        /* 0x001ab000 */
+extern long   SnapCam;                  /* 0x00150e90 */
+
+/* Ease one axis toward its target, or jump straight to it when SnapCam is set.
+ * The weight is the same 0.125 the old camera's spring uses. */
+static float EaseTo(float cur, float target, long snap)
+{
+    float d = target - cur;
+
+    if (!snap)
+        d = d * TRACKCAM_EASE;
+    return cur + d;
+}
+
+void TrackCam(const float *a, const float *b, long withZ)
+{
+    float dx = a[0] - b[0];
+
+    CamLeftLimit3d  = CamLeftLimit  / WorldScaleAdjust;
+    CamRightLimit3d = CamRightLimit / WorldScaleAdjust;
+
+    /* ---------------------------------------------------------- old camera */
+    if (!NewCam) {
+        float dist = (dx < 0.0f) ? -dx : dx;
+        float t, w, target, u;
+
+        t = (float)(((double)dist - 1.0) / (double)psp_maxdist);
+        w = 1.0f;
+        if (t > 1.0f) {
+            t = 1.0f;
+            w = 0.0f;
+        } else if (t < 0.0f) {
+            t = 0.0f;                   /* w stays 1: follow the midpoint */
+        } else {
+            w = w - t;
+        }
+
+        target  = (t * a[0] + (a[0] + b[0]) * 0.5f * w) * psp_scale + psp_off;
+        CamVelX = (target - Camera[0]) * TRACKCAM_EASE;
+        if (CamVelX > mxvelx)
+            CamVelX = mxvelx;
+        if (-mxvelx > CamVelX)
+            CamVelX = -mxvelx;
+        Camera[0] = Camera[0] + CamVelX;
+
+        if (dist > distzoomedout) dist = distzoomedout;
+        if (dist < distzoomedin)  dist = distzoomedin;
+        u = (dist - distzoomedin) / (distzoomedout - distzoomedin);
+
+        Camera[1] = -((1.0f - u) * camzoomedin + u * camzoomedout);
+        Camera[2] = camheight;
+        SnapCam = 0;
+        return;
+    }
+
+    /* ---------------------------------------------------------- new camera */
+    {
+        float pull, mid;
+
+        swivelscale     = 1.0f;
+        zoomedoutweight = 0.0f;
+
+        /* how far back the camera sits, straight off the fighters' spread */
+        pull = dx * 1.5f;
+        if (pull < 0.0f)
+            pull = -pull;
+        pull += 5.0f;
+        if (pull < TRACKCAM_DIST_MIN) pull = TRACKCAM_DIST_MIN;
+        if (pull > TRACKCAM_DIST_MAX) pull = TRACKCAM_DIST_MAX;
+
+        /* the look-at chases the midpoint, leashed to player one */
+        mid     = (a[0] + b[0]) * 0.5f;
+        DistInX = mid - a[0];
+        if (DistInX < -MaxDistInX) DistInX = -MaxDistInX;
+        if (MaxDistInX < DistInX)  DistInX = MaxDistInX;
+
+        NewCameraLookAt[0] = a[0] + DistInX;
+        NewCameraLookAt[1] = a[1];
+
+        if (withZ) {
+            float midz = (a[2] + b[2]) * 0.5f;
+
+            NewCameraLookAt[2] = (float)((double)midz + 1.25
+                                         - (double)SceneGroundOffset);
+        }
+        if (NewCameraLookAt[2] < TRACKCAM_LOOK_Z_MIN)
+            NewCameraLookAt[2] = TRACKCAM_LOOK_Z_MIN;
+        else if (NewCameraLookAt[2] > TRACKCAM_LOOK_Z_MAX)
+            NewCameraLookAt[2] = TRACKCAM_LOOK_Z_MAX;
+
+        /* Jax's grow drifts the look-at, the way the squashed one faced */
+        if (JaxBeingSquashed) {
+            long n = JaxGrowCounter;
+
+            if (n >= JAXGROW_CAM_CAP)
+                n = JAXGROW_CAM_CAP;
+            if (JaxSquashFlip)
+                n = -n;
+            NewCameraLookAt[0] += (float)n * 0.0075f * 1.2f;
+        }
+
+        NewCamera[0] = NewCameraLookAt[0];
+        NewCamera[1] = a[1] - pull;
+
+        if (withZ) {
+            float midz = (a[2] + b[2]) * 0.5f;
+
+            NewCamera[2] = (float)((double)midz + 1.5
+                                   - (double)SceneGroundOffset);
+        }
+        if (NewCamera[2] < TRACKCAM_CAM_Z_MIN)
+            NewCamera[2] = TRACKCAM_CAM_Z_MIN;
+        else if (NewCamera[2] > TRACKCAM_CAM_Z_MAX)
+            NewCamera[2] = TRACKCAM_CAM_Z_MAX;
+
+        /* a stage fatality rides ONE player down instead of the midpoint */
+        if (DoingStageFatal) {
+            float z = (DoingStageFatal == 1) ? a[2] : b[2];
+
+            NewCameraLookAt[2] = (float)((double)z + 1.25
+                                         - (double)SceneGroundOffset);
+            NewCamera[2]       = (float)((double)z + 1.5
+                                         - (double)SceneGroundOffset);
+        }
+
+        /* both ends clamped to the screen edges, in world units */
+        if (CamLeftLimit3d  > NewCamera[0])       NewCamera[0]       = CamLeftLimit3d;
+        if (CamRightLimit3d < NewCamera[0])       NewCamera[0]       = CamRightLimit3d;
+        if (CamLeftLimit3d  > NewCameraLookAt[0]) NewCameraLookAt[0] = CamLeftLimit3d;
+        if (CamRightLimit3d < NewCameraLookAt[0]) NewCameraLookAt[0] = CamRightLimit3d;
+    }
+
+    /* ------------------------------------------------------------- commit */
+    if (IsInFinishing) {
+        long snap = SnapCam;
+
+        if (OverrideCamera) {
+            NewCamera[0]       = CamOverridePos[0];
+            NewCameraLookAt[0] = CamOverridePos[0];
+        }
+
+        Camera[0] = EaseTo(Camera[0], NewCamera[0], snap);
+        Camera[1] = EaseTo(Camera[1], NewCamera[1], snap);
+        Camera[2] = EaseTo(Camera[2], NewCamera[2], snap);
+
+        CameraLookAt[0] = EaseTo(CameraLookAt[0], NewCameraLookAt[0], snap);
+        CameraLookAt[1] = EaseTo(CameraLookAt[1], NewCameraLookAt[1], snap);
+        CameraLookAt[2] = EaseTo(CameraLookAt[2], NewCameraLookAt[2], snap);
+    } else if (!LockCamera) {
+        Camera[0] = NewCamera[0];
+        Camera[1] = NewCamera[1];
+        Camera[2] = NewCamera[2];
+
+        /* written as x + (y - x) in the original -- an ease with no weight */
+        CameraLookAt[0] = NewCameraLookAt[0];
+        CameraLookAt[1] = NewCameraLookAt[1];
+        CameraLookAt[2] = NewCameraLookAt[2];
+    }
+
+    SnapCam = 0;                        /* a one-shot, cleared on every exit */
+}
