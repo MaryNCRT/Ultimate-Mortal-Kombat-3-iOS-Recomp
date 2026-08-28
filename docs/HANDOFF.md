@@ -285,11 +285,11 @@ explaining what did *not* work.
 
 `MovesList` landed; **gamecode is 251/291 = 85.9 -> 86.25%**.
 
-The next function in hand is **`DrawHUD`** (armv7 `0x000282dc`, 11,536 bytes),
-the largest left in gamecode. It is part-analysed and **no code is landed for
-it** -- the findings are in [DRAWHUD-NOTES.md](DRAWHUD-NOTES.md), including the
-one that changes how the fight loop has to be ported: DrawHUD runs the round
-and match state machine, not just drawing.
+`DrawHUD` landed after it (armv7 `0x000282dc`, 11,536 bytes, the largest in
+gamecode), taking **gamecode to 252/291 = 86.60%**. The finding that changes how
+the fight loop has to be ported: **`DrawHUD` runs the round and match state
+machine**, not just drawing -- `QuitAsWin`, `QuitAsLose`, `mk3_init`,
+`ResetFightData` and `InitEnduranceMatch` are all called from inside it.
 
 Two tools were added for it and both are verified:
 
