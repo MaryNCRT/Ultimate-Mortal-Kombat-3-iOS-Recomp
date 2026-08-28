@@ -8561,3 +8561,306 @@ void Task_GameDestroy(void)
 
     *opponentCharacterP = -1;
 }
+
+
+/* ----------------------------------------------------------- UpdateArcadeCode
+ *
+ * armv7 0x00021ee8, 1,516 bytes.  **Complete.**
+ *
+ * The fight tick. Not the kode entry the name suggests -- "arcade code" is the
+ * ported arcade *engine*, and this is what steps it. It calls `mk3_update`, and
+ * then `AddNewGameEvents` to drain what the step produced.
+ *
+ * ### The arcade runs at 55.93 Hz, and this is where that lives
+ *
+ *      FrameCompensation += 0.9322 / limeFPSScaleFactor;
+ *      while (FrameCompensation >= 1.0f) {
+ *          ... one arcade tick ...
+ *          FrameCompensation -= 1.0f;
+ *      }
+ *
+ * **0.9322 arcade ticks per display frame** -- 55.93 a second at sixty, which
+ * is the original cabinet's rate. The loop runs zero, one or two ticks in a
+ * frame, so the engine is already decoupled from the display and a port does
+ * not have to invent that. `SpeedNormal` changes only the constant:
+ * **0.4661 when clear, exactly half**, which is the slow-motion mode. The
+ * compiler duplicated the whole accumulate for the two constants, so the two
+ * arms look like different code and are not.
+ *
+ * ### `ToggleDebug` freezes the engine and nothing else
+ *
+ *      if (!ToggleDebug) mk3_update(joy, GameObjects);
+ *
+ * Everything after it -- the events, the HUD animation, the positions, the
+ * camera -- runs either way. So the debug freeze holds the fighters still while
+ * the presentation layer keeps ticking, which is what makes it useful and what
+ * a port has to reproduce if it keeps the toggle.
+ *
+ * ### One tick
+ *
+ *      the joystick pair            from the caller, or from the wire
+ *      mk3_update                   unless ToggleDebug
+ *      the parent's send            sendSpriteListPacket, FrameCount++
+ *      AnimateBG
+ *      AddNewGameEvents             drain what the step queued
+ *      RunGameEvents
+ *      LIME_UpdateEvents
+ *      HUDANIM_Update
+ *      ArcadePosTo3dPos x8          every object into its player slot
+ *      Player1Pos / Player2Pos      out of Players +8 and +0x5f8
+ *      RunJaxGrowCounters, and Jax's squash
+ *      PlayerAutoSmoothAnims x2
+ *      TrackCam
+ *
+ * The eight objects sit at `GameObjects[0] + i * 16` -- **a 16-byte stride**,
+ * the same one `RenderLevelPlayers` walks -- and each lands at
+ * `Players + i * 0x5f0 + 8`.
+ *
+ * ### The camera flattens during a finisher
+ *
+ * With `IsInFinishing` set and `DoingStageFatal` clear, both positions are
+ * copied to the stack and **both get the lower of the two Z values** before
+ * `TrackCam` sees them, so the camera does not tilt up when the winner is
+ * airborne over a corpse. Any other time `TrackCam` gets them unmodified --
+ * and on the network guest it gets them **swapped**, player two first, because
+ * the guest is player two.
+ *
+ * ### Jax's squash
+ *
+ * Frames 0x1b12 to 0x1b2c on either object trigger it: the whole 0x5f0-byte
+ * PLAYER is copied into `JaxSquashedPlayer`, `JaxGrowCounter` is zeroed,
+ * `JaxBeingSquashed` is set, and the live player's mirror flag is **toggled
+ * between 0 and 0x10** with the old value saved in `JaxSquashFlip`. The counter
+ * then increments every tick, and `RenderLevelPlayers` stops drawing the
+ * squashed copy once it passes 0x108.
+ *
+ * ### The network split
+ *
+ * `isParentBasedOnSpeed` decides which half a machine runs.
+ *
+ * **The parent** builds the joystick pair from its own stick and
+ * `mpOpponentJoystickInput` -- two words an entry, the second being
+ * `opponentFPS2` -- steps the engine, and sends the sprite list every tick.
+ * The joystick packet goes out **only when the bits change**, compared against
+ * `lastJoybits`, so an idle stick costs nothing on the wire.
+ *
+ * **The guest never steps the engine.** It drains every sprite list that has
+ * arrived, in a loop:
+ *
+ *      while (setNextSpritesAndEvents()) {
+ *          GameObjects[0] = &mpSpriteList[i * 160];
+ *          Player1Pos, Player2Pos memcpy'd out of the packet
+ *          MKEventQueue  memcpy'd out of the packet, 0x54 bytes
+ *          the packet's event block memset to zero
+ *          AnimateBG / AddNewGameEvents / RunGameEvents / LIME_UpdateEvents
+ *      }
+ *      if (!SpritelistReceived) GameObjects[0] = dummyObjects;
+ *
+ * so a guest that fell behind catches up by running every queued list in one
+ * display frame rather than one a frame. And a guest that has never received
+ * anything points at `dummyObjects` instead of at nothing.
+ *
+ * **0x54 is 84 bytes: a four-byte count and ten eight-byte records.** The wire
+ * carries at most ten of the events [GAME-EVENTS.md](../../docs/GAME-EVENTS.md)
+ * describes, per tick. That is the netcode's event budget and it is a hard cap.
+ * `mpEventQueue`'s stride is 216 bytes and `mpSpriteList`'s is 160.
+ *
+ * ### A debug watermark left in the shipped build
+ *
+ * The parent still prints, on every new high:
+ *
+ *      #########################
+ *      ## MAX EVENT QUEUE NUM = %d
+ *      #########################
+ *
+ * a high-water trace for exactly the ten-event budget above. It ships.
+ */
+
+#define ARCADE_TICKS_PER_FRAME   0.9322     /* 55.93 Hz at sixty */
+#define ARCADE_TICKS_SLOWMO      0.4661     /* exactly half */
+#define ARCADE_OBJECTS           8
+#define ARCADE_PLAYER_STRIDE     0x5f0
+#define ARCADE_OBJECT_STRIDE     16
+#define JAX_SQUASH_FRAME_LO      0x1b12
+#define JAX_SQUASH_FRAME_HI      0x1b2c
+#define MP_SPRITELIST_STRIDE     160
+#define MP_EVENTQUEUE_STRIDE     216
+#define MP_EVENT_BYTES           0x54       /* a count and ten records */
+
+extern long   gameCnt;                  /* 0x00150ea0 */
+extern long   SpeedNormal;              /* 0x0014e1f8 */
+extern float  FrameCompensation;        /* 0x0014e1f0 */
+extern float  FrameCount;               /* 0x0014fa60 */
+extern long   ToggleDebug;              /* 0x00150588 */
+extern long   currentMPJoystickData;    /* 0x0014e26c */
+extern long   currentMPSpriteList;      /* 0x0014e270 */
+extern long   lastSpritelistIndex;      /* 0x0010dec8 */
+extern long   lastJoybits;              /* 0x00150ea4 */
+extern long   highestQueueNum;          /* 0x00150ea8 */
+extern long   opponentFPS2;             /* 0x0014e1e4 */
+extern long   SpritelistReceived;       /* 0x0010deac */
+extern long   JaxSquashFlip;            /* 0x001ab030 */
+extern char   JaxSquashedPlayer[];      /* 0x001ab034 */
+extern long   mpOpponentJoystickInput[];/* 0x001ab970, two words an entry */
+extern char   mpSpriteList[];           /* 0x001ab680 */
+extern char   mpEventQueue[];           /* 0x001ab7c0 */
+extern char   dummyObjects[];           /* 0x0010de84 */
+
+void AnimateBG(void);
+void AddNewGameEvents(void);
+void RunGameEvents(void);
+void LIME_UpdateEvents(void);
+void HUDANIM_Update(void);
+void RunJaxGrowCounters(void);
+void TrackCam(const float *a, const float *b, long flag);
+void mk3_update(const long *joy, void **objects);
+long setNextSpritesAndEvents(void);
+void sendSpriteListPacket(void *objects, long a, long b);
+void sendJoystickInputPacket(long a, long bits);
+
+/* Frames 0x1b12..0x1b2c mean Jax has just flattened someone. `mirror` is the
+ * victim's mirror-flag offset -- 0x540 for player one, 0xb30 for player two. */
+static void CatchJaxSquash(long mirror)
+{
+    long *flag;
+
+    if (JaxBeingSquashed)
+        return;
+
+    memcpy(JaxSquashedPlayer, (char *)Players + (mirror - 0x540),
+           ARCADE_PLAYER_STRIDE);
+    JaxGrowCounter   = 0;
+    JaxBeingSquashed = 1;
+
+    flag  = (long *)((char *)Players + mirror);
+    *flag = *flag ? 0 : 0x10;
+    JaxSquashFlip = *flag;
+}
+
+void UpdateArcadeCode(int *joy1, int *joy2)
+{
+    long i;
+
+    (void)joy2;                         /* the second pointer is never read */
+
+    gameCnt++;
+
+    FrameCompensation = (float)((double)FrameCompensation
+                                + (SpeedNormal ? ARCADE_TICKS_PER_FRAME
+                                               : ARCADE_TICKS_SLOWMO)
+                                  / (double)limeFPSScaleFactor);
+
+    while (FrameCompensation >= 1.0f) {
+        long joy[2];
+        int  stepped = 1;
+
+        if (GameMode == 1 && !isParentBasedOnSpeed()) {
+            /* ---- the guest: drain every list that arrived ---- */
+            while (setNextSpritesAndEvents()) {
+                long k = currentMPSpriteList;
+                char *pkt = mpEventQueue + k * MP_EVENTQUEUE_STRIDE;
+
+                GameObjects[0] = &mpSpriteList[k * MP_SPRITELIST_STRIDE];
+                lastSpritelistIndex = k;
+
+                memcpy(Player1Pos, pkt,        12);
+                memcpy(Player2Pos, pkt + 0xc,  12);
+                memcpy(MKEventQueue, pkt + 0x18, MP_EVENT_BYTES);
+                memset(pkt + 0x18, 0, MP_EVENT_BYTES);
+
+                AnimateBG();
+                AddNewGameEvents();
+                RunGameEvents();
+                LIME_UpdateEvents();
+            }
+            if (!SpritelistReceived)
+                GameObjects[0] = dummyObjects;   /* nothing has ever arrived */
+            stepped = 0;
+        } else if (GameMode != 1 && !isParentBasedOnSpeed()) {
+            /* the caller's pair goes straight through */
+            mk3_update((const long *)joy1, GameObjects);
+        } else {
+            long k = currentMPJoystickData;
+
+            joy[0] = *joy1;
+            joy[1] = mpOpponentJoystickInput[k * 2];
+            opponentFPS2 = mpOpponentJoystickInput[k * 2 + 1];
+
+            if (!ToggleDebug)
+                mk3_update(joy, GameObjects);
+        }
+
+        if (stepped) {
+            if (GameMode == 1 && isParentBasedOnSpeed()) {
+                if (MKEventQueue[0] > highestQueueNum) {
+                    highestQueueNum = MKEventQueue[0];
+                    puts("#########################");
+                    printf("## MAX EVENT QUEUE NUM = %d\n", (int)highestQueueNum);
+                    puts("#########################");
+                }
+                sendSpriteListPacket(GameObjects[0], 0, 0);
+                FrameCount = FrameCount + 1.0f;
+            }
+
+            AnimateBG();
+            AddNewGameEvents();
+            RunGameEvents();
+            LIME_UpdateEvents();
+        }
+
+        HUDANIM_Update();
+
+        /* ---- every object's world position, into its player slot ---- */
+        if (GameObjects[0]) {
+            for (i = 0; i < ARCADE_OBJECTS; i++)
+                ArcadePosTo3dPos((Mk3Obj_t *)((char *)GameObjects[0]
+                                              + i * ARCADE_OBJECT_STRIDE),
+                                 (float *)((char *)Players
+                                           + i * ARCADE_PLAYER_STRIDE + 8), 0);
+        }
+
+        memcpy(Player1Pos, (char *)Players + 8, 12);
+        memcpy(Player2Pos, (char *)Players + 0x5f8, 12);
+        RunJaxGrowCounters();
+
+        {
+            const unsigned short *o = (const unsigned short *)GameObjects[0];
+
+            if (o[8 / 2] >= JAX_SQUASH_FRAME_LO
+                && o[8 / 2] <= JAX_SQUASH_FRAME_HI)
+                CatchJaxSquash(0x540);
+            if (o[0x18 / 2] >= JAX_SQUASH_FRAME_LO
+                && o[0x18 / 2] <= JAX_SQUASH_FRAME_HI)
+                CatchJaxSquash(0xb30);
+        }
+        JaxGrowCounter++;
+
+        PlayerAutoSmoothAnims((PLAYER *)Players);
+        PlayerAutoSmoothAnims((PLAYER *)((char *)Players + ARCADE_PLAYER_STRIDE));
+
+        /* ---- the camera ---- */
+        if (IsInFinishing && !DoingStageFatal) {
+            float a[3], b[3], z;
+
+            memcpy(a, Player1Pos, 12);
+            memcpy(b, Player2Pos, 12);
+            z = (Player1Pos[2] <= Player2Pos[2]) ? Player1Pos[2]
+                                                 : Player2Pos[2];
+            a[2] = z;                   /* both flattened to the lower Z */
+            b[2] = z;
+            TrackCam(a, b, 1);
+        } else if (GameMode == 1 && !isParentBasedOnSpeed()) {
+            TrackCam(Player2Pos, Player1Pos, 1);   /* the guest is player two */
+        } else {
+            TrackCam(Player1Pos, Player2Pos, 1);
+        }
+
+        FrameCompensation -= 1.0f;
+    }
+
+    /* ---- and the stick goes out, but only when it changed ---- */
+    if (GameMode == 1 && !isParentBasedOnSpeed() && *joy1 != lastJoybits) {
+        sendJoystickInputPacket(*joy1, *joy1);
+        lastJoybits = *joy1;
+    }
+}
