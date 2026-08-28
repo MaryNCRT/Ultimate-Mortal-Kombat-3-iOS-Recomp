@@ -6282,3 +6282,200 @@ void RenderLevelBG(void)
 
     limeEnableAlphaBlending_Basic();
 }
+
+
+/* ---------------------------------------------------------- DrawMoveListIcons
+ *
+ * armv7 0x0001e60c, 1856 bytes.  **Complete.**
+ *
+ * Draws one move's input sequence as a row of button icons. This is the
+ * function behind [issue #5](../../issues/5), and it settles the half of that
+ * issue that needed settling: **the icon alphabet**.
+ *
+ * ### The printf in issue #5 is the first line of this function
+ *
+ *      printf("%d\n", seq[0]);
+ *
+ * Unconditional, every frame, first thing. That is the source of the 10,208
+ * bare-number lines in the touchHLE log -- and it prints **only `seq[0]`**, not
+ * the whole sequence. The periodicity in the log is the screen being redrawn,
+ * not the sequence being walked, so a run of period 6 is a six-frame animation
+ * cycle in the caller, not a six-input move.
+ *
+ * That changes what the capture in issue #5 is worth: it gives the FIRST input
+ * of each move, repeated, not the input list. The list is `seq`, and the way to
+ * read it is the table below.
+ *
+ * ### The icon alphabet: a 4x4 atlas, fifteen cells used
+ *
+ * Values 1 to 15 index `MoveIconsTexture` by writing a `(u, v)` pair, each from
+ * {0, 0.25, 0.5, 0.75}, and drawing a quarter-by-quarter cell. Laid out as the
+ * atlas:
+ *
+ *          u=0     u=0.25   u=0.5   u=0.75
+ *      v=0     -       1        2       3
+ *      v=.25   4       5        9       8
+ *      v=.5   13       7        6      14
+ *      v=.75  12      11       10      15
+ *
+ * Cell (0,0) is the fallback for 0 and for anything above 22 -- so it is either
+ * blank or a "?" glyph. Row 0 reads 1, 2, 3 in order and then the ordering
+ * stops being sequential, which says the atlas was laid out by hand rather than
+ * generated.
+ *
+ * Each icon is drawn `16 x 16` design units scaled by `FE_WidthScale` and
+ * `FE_HeightScale`, two units above the row's baseline, and the cursor advances
+ * **17** units -- one unit of gap.
+ *
+ * ### Values 16 to 22 are text, not icons
+ *
+ *      16   GameTextNoHeader(0x3a8)
+ *      17   GameTextNoHeader(0x3a9)
+ *      18   "("
+ *      19   ") "
+ *      20   "/"
+ *      21   GameTextNoHeader(0x3aa)
+ *      22   GameTextNoHeader(0x3f9)
+ *
+ * So a move's notation can contain brackets and a slash -- "(x / y)" style
+ * alternatives -- and four translated words. Those seven values will never
+ * appear as button inputs in the fight engine; they are punctuation for the
+ * display. Anyone decoding a captured sequence has to split the alphabet at 15.
+ *
+ * Text advances by `limeGetStringWidth * 0.75 * FE_WidthScale` and is drawn at
+ * scale `0.75 * FE_WidthScale`, so the punctuation is three-quarter size next
+ * to the icons.
+ *
+ * ### The two directions are the same dispatch written twice
+ *
+ *      rightAlign == 0   caption first, then icons left to right from FE_X(48)
+ *      rightAlign != 0   icons first, then the caption, anchored to
+ *                        limeScreenWidth - FE_X(48) and walked BACKWARDS
+ *
+ * The sequence reads left to right on screen either way -- only the anchor and
+ * the order of the caption differ. The 22-way dispatch, the atlas coordinates
+ * and the advance are duplicated in full for the two cases; roughly two thirds
+ * of this function's 1856 bytes are that duplication.
+ *
+ * The caption is wrapped as `"(%s)  "` and skipped when `limeFontStrLen`
+ * returns 0.
+ */
+extern void *MoveIconsTexture;          /* 0x001abb70 */
+
+long limeFontStrLen(const char *s);
+long limeGetStringWidth(void *font, const char *s);
+
+/* Values 1..15 -> the atlas cell, as (v, u). Written out because the original
+ * is a 22-way jump table with one `mov` pair per case; the table is the fact,
+ * the dispatch is not. */
+static const float MoveIconUV[16][2] = {
+    { 0.00f, 0.00f },                   /* 0 and out-of-range: the blank cell */
+    { 0.00f, 0.25f },                   /* 1  */
+    { 0.00f, 0.50f },                   /* 2  */
+    { 0.00f, 0.75f },                   /* 3  */
+    { 0.25f, 0.00f },                   /* 4  */
+    { 0.25f, 0.25f },                   /* 5  */
+    { 0.50f, 0.50f },                   /* 6  */
+    { 0.50f, 0.25f },                   /* 7  */
+    { 0.25f, 0.75f },                   /* 8  */
+    { 0.25f, 0.50f },                   /* 9  */
+    { 0.75f, 0.50f },                   /* 10 */
+    { 0.75f, 0.25f },                   /* 11 */
+    { 0.75f, 0.00f },                   /* 12 */
+    { 0.50f, 0.00f },                   /* 13 */
+    { 0.50f, 0.75f },                   /* 14 */
+    { 0.75f, 0.75f }                    /* 15 */
+};
+
+/* Draw one entry and return the new cursor. The two directions differ only in
+ * where the entry lands and how text is aligned, so they share this. */
+static long DrawMoveListEntry(long value, long cursor, int right, float y,
+                              char *buf)
+{
+    const char *text = 0;
+    float       x = right ? (float)(limeScreenWidth - cursor) : (float)cursor;
+
+    if (value >= 16 && value <= 22) {
+        switch (value) {
+        case 16: text = GameTextNoHeader(0x3a8); break;
+        case 17: text = GameTextNoHeader(0x3a9); break;
+        case 21: text = GameTextNoHeader(0x3aa); break;
+        case 22: text = GameTextNoHeader(0x3f9); break;
+        case 18: usprintf(buf, UC("(")); break;
+        case 19: usprintf(buf, UC(") ")); break;
+        default: usprintf(buf, UC("/")); break;      /* 20 */
+        }
+
+        if (text != 0)
+            usprintf(buf, UC("%s "), text);
+
+        limeDrawFONT(&GameFont, limeUC(buf), x, y,
+                     right ? 2 : 0, 0.75f * FE_WidthScale, fontcol);
+
+        return cursor + (long)((double)limeGetStringWidth(&GameFont, limeUC(buf))
+                               * 0.75 * (double)FE_WidthScale);
+    }
+
+    {
+        long cell = (value >= 1 && value <= 15) ? value : 0;
+
+        /* Right-anchored icons are shifted back by their own width so the
+         * right edge sits on the cursor. */
+        limeDrawSprite((TEXTURE *)MoveIconsTexture,
+                       right ? x + FE_WidthScale * -16.0f : x,
+                       y + FE_HeightScale * -2.0f,
+                       FE_WidthScale * 16.0f,
+                       FE_HeightScale * 16.0f,
+                       MoveIconUV[cell][1], MoveIconUV[cell][0],
+                       0.25f, 0.25f, col);
+    }
+
+    return (long)((float)cursor + FE_WidthScale * 17.0f);
+}
+
+void DrawMoveListIcons(int y, const int *seq, const char *caption,
+                       int rightAlign)
+{
+    char buf[128];                      /* sp+0x18 */
+    long count = 0;
+    long cursor;
+    long i;
+
+    /* Every frame, first thing, and only seq[0]. See the header. */
+    printf("%d\n", seq[0]);
+
+    if (seq[0] != -1) {
+        do {
+            count++;
+        } while (seq[count] != -1);
+    }
+
+    cursor = (long)FE_X(48.0f);
+
+    if (rightAlign == 0) {
+        if (limeFontStrLen(caption) != 0) {
+            usprintf(buf, UC("(%s)  "), caption);
+            limeDrawFONT(&GameFont, limeUC(buf), (float)cursor, (float)y,
+                         0, 0.75f * FE_WidthScale, fontcol);
+            cursor += (long)((double)limeGetStringWidth(&GameFont, limeUC(buf))
+                             * 0.75 * (double)FE_WidthScale);
+        }
+
+        for (i = 0; i < count; i++)
+            cursor = DrawMoveListEntry(seq[i], cursor, 0, (float)y, buf);
+        return;
+    }
+
+    /* Right-anchored: the sequence is walked from the end so that it still
+     * reads left to right on screen. */
+    for (i = count - 1; i >= 0; i--)
+        cursor = DrawMoveListEntry(seq[i], cursor, 1, (float)y, buf);
+
+    if (limeFontStrLen(caption) == 0)
+        return;
+
+    usprintf(buf, UC("(%s)  "), caption);
+    limeDrawFONT(&GameFont, limeUC(buf),
+                 (float)(limeScreenWidth - cursor), (float)y,
+                 2, 0.75f * FE_WidthScale, fontcol);
+}
