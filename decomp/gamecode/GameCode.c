@@ -909,6 +909,7 @@ extern float Camera[3];                 /* 0x0014fa74 = (0.0, -600.0, 146.0) */
 extern int   ClearedZBuffer;            /* 0x001f44c8 */
 extern int  *LevelSelectPtr;            /* pointer slot -> 0x000ff7f8 */
 void LIMEDS_Set3dMode(void);
+void DoSmokesSmoke(long id1, long id2);
 void SetToUseCamera(const float *eye);
 void RenderLevelBG(void);
 void RenderLevelPlayers(void);
@@ -9153,4 +9154,244 @@ void TrackCam(const float *a, const float *b, long withZ)
     }
 
     SnapCam = 0;                        /* a one-shot, cleared on every exit */
+}
+
+
+/* ---------------------------------------------------------------- IntroRender
+ *
+ * armv7 0x00025784, 1,484 bytes.  **Complete.**
+ *
+ * The pre-fight intro: a two-shot camera move over the fighters, then a
+ * cross-fade into the gameplay camera. Runs once a frame while `DoIntro` is
+ * set, and takes itself down when it is done.
+ *
+ * ### Four keyframes, built from where the fighters actually stand
+ *
+ * The eye path and the look-at path are four `vec3` each, and their **X and Y
+ * are rewritten every frame** from the two players:
+ *
+ *      IntroPos[0].x = P2.x - 1.25      IntroLook[0] = (P2.x, P2.y)
+ *      IntroPos[1].x = P2.x + 0.25      IntroLook[1] = (P2.x, P2.y)
+ *      IntroPos[2].x = P1.x + 1.25      IntroLook[2] = (P1.x, P1.y)
+ *      IntroPos[3].x = P1.x - 0.25      IntroLook[3] = (P1.x, P1.y)
+ *
+ * so it is two shots -- 0 to 1 across player two, then 2 to 3 across player one
+ * -- and each sweeps 1.5 units past its subject. Z is never written and stays
+ * at its initialiser, 1.6 for every eye keyframe.
+ *
+ * `IntroCamCount` steps by **two**, so it is the shot index rather than the
+ * keyframe index, and at 4 the camera work is over.
+ *
+ * ### The eye's height lerps from a value in the next array
+ *
+ * The lerp reads the *from* keyframe's Z at a **constant** offset, `IntroPos +
+ * 0x50`. `IntroPos` is 0x30 bytes -- four `vec3` -- so 0x50 is thirty-two bytes
+ * past its end, and lands inside `IntroLook` on keyframe 2's Z.
+ *
+ * It is not a harmless overrun. `IntroLook[2].z` is **1.35** in the data and
+ * this function never writes any look-at Z, while every `IntroPos` Z is
+ * **1.6**. So the eye rises from 1.35 to 1.6 across each shot instead of
+ * holding 1.6. The drift is visible, it is what shipped, and a port that
+ * "fixes" the index changes how the intro looks. Written below the way the
+ * binary reads it.
+ *
+ * ### Three phases
+ *
+ *      IntroCamCount <= 2    animate the fighters a frame at a time, lerp the
+ *                            camera between the shot's two keyframes
+ *      IntroCamCount  > 2    TrackCam takes over and the intro camera
+ *                            CROSS-FADES into it on the same timer
+ *      IntroCountTimer >= 1  in phase three: pin the timer at 60, clear
+ *                            DoIntro, call EndIntro
+ *
+ * The animation catch-up is the same accumulate the fight tick uses --
+ * `IntroFrameComp += 1 / limeFPSScaleFactor` and a frame of animation per whole
+ * unit -- so the intro plays at a fixed rate whatever the display does.
+ *
+ * **The timer is only advanced in phase three.** Phases one and two read it and
+ * reset it to zero when it reaches 1.0, but nothing here increments it; that
+ * happens inside `AnimateIntroCharacterPlayers1Frame`.
+ *
+ * ### Skipping it
+ *
+ * Outside a network game, a touch ends the intro immediately -- but the test is
+ * inverted from what you would expect:
+ *
+ *      limeLastTouchScreenX == -1 && limeTouchScreenX != -1
+ *
+ * that is, **nothing was touched last frame and something is touched now**: the
+ * leading edge of a tap, not the tap itself. `DoIntro` is cleared and `EndIntro`
+ * runs. In a network game the intro cannot be skipped at all.
+ *
+ * ### The fade, and what viewing achievements does to it
+ *
+ * While `FE_FadeAdd` is non-zero the fade advances and the intro does nothing
+ * else. The step normally divides by `limeFPSScaleFactor`; while the
+ * achievements overlay is up it **multiplies** by it instead, and by a tenth:
+ *
+ *      normal          FE_Fade += FE_FadeAdd / limeFPSScaleFactor
+ *      achievements    FE_Fade += FE_FadeAdd / 10 * limeFPSScaleFactor
+ *
+ * Two different senses of the same scale factor in one function. At either end
+ * the fade clamps and clears `FE_FadeAdd`, so it is self-terminating.
+ */
+
+#define INTRO_SHOTS          2          /* IntroCamCount steps by two */
+#define INTRO_TIMER_STEP     (1.0 / 15.0)
+#define INTRO_TIMER_PARKED   60.0f
+
+extern float  IntroPlayer1PosX;         /* 0x0014f930 */
+extern float  IntroPlayer1PosZ;         /* 0x0014f934 */
+extern float  IntroPlayer2PosX;         /* 0x0014f938 */
+extern float  IntroPlayer2PosZ;         /* 0x0014f93c */
+extern long   IntroCamCount;            /* 0x0014f940 */
+extern float  IntroPos[4][3];           /* 0x0014f944, 0x30 bytes exactly */
+extern float  IntroLook[4][3];          /* 0x0014f974 */
+extern float  IntroEye[3];              /* 0x001abb80 */
+extern float  IntroAt[3];               /* 0x001abb74 */
+extern float  IntroCountTimer;          /* 0x0014e1cc */
+extern float  IntroFrameComp;           /* 0x00151068 */
+extern float  FE_Fade;                  /* pointer slot -> 0x00100898 */
+extern float *limeTouchScreenX;         /* pointer slot -> 0x00171af4 */
+
+void AnimateIntroCharacterPlayers1Frame(long a);
+void RenderIntroCharacterPlayer(void);
+void MaintainLevelScenes(void);
+void RenderLevelBG(void);
+void EndIntro(void);
+long areAchievementsViewing(void);
+void LIMEDS_Set3dMode(void);
+
+void IntroRender(void)
+{
+    float up[3];                        /* sp+0x2c, from a const (0, 0, 1) */
+    float t, w;
+    long  i, j;
+
+    up[0] = 0.0f; up[1] = 0.0f; up[2] = 1.0f;
+
+    /* the shot geometry follows the fighters every frame */
+    IntroPlayer1PosX = Player1Pos[0];
+    IntroPlayer1PosZ = Player1Pos[1];
+    IntroPlayer2PosX = Player2Pos[0];
+    IntroPlayer2PosZ = Player2Pos[1];
+
+    IntroPos[0][0] = Player2Pos[0] - 1.25f;
+    IntroPos[1][0] = Player2Pos[0] + 0.25f;
+    IntroPos[2][0] = Player1Pos[0] + 1.25f;
+    IntroPos[3][0] = Player1Pos[0] - 0.25f;
+
+    IntroLook[0][0] = Player2Pos[0]; IntroLook[0][1] = Player2Pos[1];
+    IntroLook[1][0] = Player2Pos[0]; IntroLook[1][1] = Player2Pos[1];
+    IntroLook[2][0] = Player1Pos[0]; IntroLook[2][1] = Player1Pos[1];
+    IntroLook[3][0] = Player1Pos[0]; IntroLook[3][1] = Player1Pos[1];
+
+    LIMEDS_Set3dMode();
+    limeEnableDepthTest();
+    limeEnableDepthWrites();
+
+    /* ---- the fighters animate at a fixed rate, whatever the display does ---- */
+    if (IntroCamCount <= INTRO_SHOTS) {
+        IntroFrameComp += 1.0f / limeFPSScaleFactor;
+        while (IntroFrameComp > 0.0f) {
+            IntroFrameComp -= 1.0f;
+            AnimateIntroCharacterPlayers1Frame(0);
+        }
+    }
+
+    if (IntroCountTimer >= 1.0f) {
+        IntroCamCount  += 2;            /* the shot index, not the keyframe */
+        IntroCountTimer = 0.0f;
+    }
+
+    t = IntroCountTimer;
+    w = 1.0f - t;
+
+    if (IntroCamCount <= INTRO_SHOTS) {
+        /* ---- phase one and two: lerp across the shot's two keyframes ---- */
+        i = IntroCamCount;
+        j = i + 1;
+
+        IntroEye[0] = w * IntroPos[i][0] + t * IntroPos[j][0];
+        IntroEye[1] = w * IntroPos[i][1] + t * IntroPos[j][1];
+        /* The binary computes this address as `IntroPos + 0x50`, thirty-two
+         * bytes past the end of IntroPos, and it lands here -- on keyframe
+         * two's look-at Z, which nothing ever writes. Spelled as where it
+         * lands rather than as how it is computed; see the header. */
+        IntroEye[2] = w * IntroLook[2][2] + t * IntroPos[j][2];
+
+        IntroAt[0] = w * IntroLook[i][0] + t * IntroLook[j][0];
+        IntroAt[1] = w * IntroLook[i][1] + t * IntroLook[j][1];
+        IntroAt[2] = w * IntroLook[i][2] + t * IntroLook[j][2];
+
+        IntroEye[2] += SceneGroundOffset;
+        IntroAt[2]  += SceneGroundOffset;
+
+        LIMEDS_SetCameraOrientation(IntroEye[0], IntroEye[1], IntroEye[2],
+                                    IntroAt[0],  IntroAt[1],  IntroAt[2],
+                                    up[0], up[1], up[2]);
+    } else {
+        /* ---- phase three: hand over to the gameplay camera ---- */
+        float eye[3], at[3];
+
+        TrackCam(Player1Pos, Player2Pos, 1);
+
+        t = IntroCountTimer;
+        w = 1.0f - t;
+
+        eye[0] = w * IntroEye[0] + t * Camera[0];
+        eye[1] = w * IntroEye[1] + t * Camera[1];
+        eye[2] = w * (IntroEye[2] + SceneGroundOffset) + t * Camera[2];
+        at[0]  = w * IntroAt[0]  + t * CameraLookAt[0];
+        at[1]  = w * IntroAt[1]  + t * CameraLookAt[1];
+        at[2]  = w * IntroAt[2]  + t * CameraLookAt[2];
+
+        LIMEDS_SetCameraOrientation(eye[0], eye[1], eye[2],
+                                    at[0],  at[1],  at[2],
+                                    up[0], up[1], up[2]);
+
+        IntroCountTimer = (float)((double)IntroCountTimer
+                                  + INTRO_TIMER_STEP / (double)limeFPSScaleFactor);
+        if (IntroCountTimer >= 1.0f) {
+            IntroCountTimer = INTRO_TIMER_PARKED;
+            DoIntro = 0;
+            EndIntro();
+        }
+    }
+
+    /* ---- draw, while the intro is still up ---- */
+    if (DoIntro) {
+        MaintainLevelScenes();
+        RenderLevelBG();
+        RenderIntroCharacterPlayer();
+        DoSmokesSmoke(PLAYER1MODEL, *PLAYER2MODEL);
+        MaintainParticles();
+    }
+
+    /* ---- the fade owns the frame while it is running ---- */
+    if (*FE_FadeAdd != 0.0f) {
+        if (areAchievementsViewing())
+            FE_Fade += *FE_FadeAdd / 10.0f * limeFPSScaleFactor;
+        else
+            FE_Fade += *FE_FadeAdd / limeFPSScaleFactor;
+
+        if (FE_Fade <= 0.0f) {
+            if (*FE_FadeAdd < 0.0f) {
+                FE_Fade     = 0.0f;
+                *FE_FadeAdd = 0.0f;
+            }
+        } else if (FE_Fade >= 1.0f && *FE_FadeAdd > 0.0f) {
+            FE_Fade     = 1.0f;
+            *FE_FadeAdd = 0.0f;
+        }
+        return;
+    }
+
+    /* ---- the leading edge of a tap skips it, except on the network ---- */
+    if (GameMode != 1
+        && *limeLastTouchScreenX == -1.0f
+        && *limeTouchScreenX != -1.0f) {
+        DoIntro = 0;
+        EndIntro();
+    }
 }
