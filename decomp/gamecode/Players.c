@@ -6,6 +6,8 @@
  */
 
 #include <stdint.h>
+#include <string.h>   /* memcpy, strcmp, strcpy */
+#include <stdio.h>    /* sprintf */
 
 typedef struct TEXTURE TEXTURE;
 void limeDeleteTexture(TEXTURE *tex);
@@ -520,7 +522,12 @@ extern unsigned char *RenderRGBs;       /* slot -> 0x00366d88 */
 
 void GenerateMatrices(char *dst, BONESINFO *bones, long a, long b, float t,
                       long arg);
-void DrawSkinnedMesh2(SKININFO *skin, unsigned a, unsigned b, long c,
+/* Returns a byte count. It was declared `void` here until LoadAnimatedCharacter
+ * was read and turned out to use the result -- and `mov r0, r4` does sit
+ * immediately before the epilogue at 0x00060f58. The same trap as the seven
+ * other wrong types in this project: a signature written from a call site that
+ * happened to ignore what came back. */
+long DrawSkinnedMesh2(SKININFO *skin, unsigned a, unsigned b, long c,
                       limeVECTOR3 *out, limeVECTOR2 *uv, unsigned char *rgb,
                       long d, long e);
 
@@ -1528,4 +1535,404 @@ void PlayerAutoSmoothAnims(PLAYER *p)
         w[0x520 / 4] = held;
         w[0x524 / 4] = 0;
     }
+}
+
+
+/* ----------------------------------------------------- LoadAnimatedCharacter
+ *
+ * armv7 0x0005c348, 2,468 bytes.  **Complete.**
+ *
+ * The character loader: allocates the `ANIMATEDCHARACTER`, pulls in the skin,
+ * the bones, the scene, the frame list and the lighting, builds one 88-byte
+ * record per mesh, and loads up to six textures. Everything a fighter needs to
+ * exist comes through here.
+ *
+ * ### The frame list decides what gets loaded at all
+ *
+ * `framelists/<NAME>.bin` is a flat `int16` array of **7,244 entries** -- the
+ * same 7,244 that bounds `FrameID_GetBBox`. The name is built by uppercasing
+ * the seventh argument and cutting it at the first `.`, in place, one byte at a
+ * time.
+ *
+ * Walking it fills `FrameRemapTable` in **pairs**: the owner at `[k]` and the
+ * frame at `[k + 1]`. An entry of -1 is skipped, and **bit 0x8000 marks a
+ * finisher frame**:
+ *
+ *      WantDoingFatalFrames == 0   the entry is thrown away -- the table gets
+ *                                  -1, WantFrames[id & 0x7fff] is cleared, and
+ *                                  the frame is never loaded
+ *      otherwise                   the bit is stripped and the frame is kept
+ *
+ * So the fatality animations are not in memory unless something asked for them
+ * first. That is the mechanism a port has to keep if it wants the same memory
+ * ceiling; drop it and every character costs its finishers up front.
+ *
+ * `WantFrames` is 0x1c4c = 7,244 bytes, one flag a frame, and the function
+ * sets all of them before it starts.
+ *
+ * ### `.lighting` is per-mesh colour blocks
+ *
+ * `DrawSkinnedMesh2` is called twice on the **first mesh only**, with the
+ * shared `RenderVerts` / `RenderUVs` / `RenderRGBs` scratch buffers, and both
+ * calls are used for their *return value* rather than for drawing -- they
+ * measure the two colour-buffer sizes. Those sizes are then reused for every
+ * mesh, and the file is sliced by them:
+ *
+ *      memcpy(mesh->cols,  lighting + i * (size1 + size2),         size1)
+ *      memcpy(mesh->cols2, lighting + i * (size1 + size2) + size1, size2)
+ *
+ * so `STATICLIGHTING/<name>.lighting` is an array of `size1 + size2` byte
+ * blocks, one a mesh, in mesh order. The file is freed as soon as the copy is
+ * done. See [meshset-format.md](../../OUTPUT/meshset-format.md), which
+ * documented the container without knowing what indexed it.
+ *
+ * ### A mesh below 0.5 loses its colour buffers
+ *
+ * After the copy, a mesh whose meshbase scalar is under 0.5 -- and which is not
+ * mesh 0 and not mesh 0x16d -- has both colour buffers freed and every related
+ * field zeroed. It keeps its geometry and gives up its per-vertex colour. That
+ * is a memory decision baked into the data, not the code: change the scalar in
+ * the meshbase file and the mesh keeps or loses its colours.
+ *
+ * ### The texture matrix
+ *
+ * The sixth argument is the texture base name and the fifth-to-last decides the
+ * detail level. `UseLOWAssets` picks the low column; a frame list literally
+ * named `dummyframes.txt` picks the dummy column.
+ *
+ *      field     normal                  low                    dummy
+ *      +0x14     %s_DIFFUSE_LITE.PNG     %s_DIFFUSE_LOW.PNG     DUMMY_DIFFUSE_LITE.PNG
+ *                %s_DIFFUSE.PNG          %s_DIFFUSE2_LOW.PNG    DUMMY_DIFFUSE.PNG
+ *      +0x18     %s_DIFFUSE_ICE.PNG      --                     DUMMY_DIFFUSE_ICE.PNG
+ *      +0x24     %s_DIFFUSE2_LITE.PNG    %s_DIFFUSE2.PNG        DUMMY_DIFFUSE_LITE.PNG
+ *                %s_DIFFUSE_LITE2.PNG
+ *      +0x28     %sBABY2.PVR, and if that misses, %sBABILITY2.PVR
+ *
+ * The babality texture is the only one with a **fallback name**, and the two
+ * spellings are what a port's asset extractor has to try in that order.
+ *
+ * ### Two characters get a texture nobody else does
+ *
+ *      who == 0x10    JADE_DIFFUSE_GREEN.PNG   ->  +0x1c
+ *      who == 6       SINDEL_HAIR_DIFF.PVR     ->  +0x20
+ *
+ * 16 is JADE and 6 is SINDEL in [ROSTER.md](../../docs/ROSTER.md), and these
+ * are the asset names agreeing with a table that was built from switch
+ * statements and symbol gaps. Jade's green is her invisibility tint and
+ * Sindel's is her hair, which is the only hair in the game with its own sheet.
+ *
+ * ### The struct
+ *
+ * `limeMalloc(0x44, "animatedcharacter")`, so an `ANIMATEDCHARACTER` is
+ * **68 bytes**, and the per-mesh record is **0x58 = 88**.
+ *
+ * ### All three failure paths print and then crash
+ *
+ * The struct allocation, the meshbase file and the mesh-record allocation each
+ * have a check, and each one calls `Error` and then **branches back into the
+ * normal flow with the null pointer still in hand**:
+ *
+ *      "LAC: outofmem1"            -> then writes the skin through the null
+ *      "LAC: Filenotfound"         -> then reads the header out of the null
+ *      "LAC: meshbase out of ram"  -> then fills records through the null
+ *
+ * None of them returns. So the messages are what you would see a fraction of a
+ * second before the crash, not instead of it. A port that turns them into a
+ * clean failure is changing behaviour, and should say so.
+ *
+ * ### The three trailing longs
+ *
+ * `p` gates the lite texture set, `q` gates loading the scene at all, and `r`
+ * gates the babality sheet and doubles as the last two arguments to
+ * `limeLoadTexture`. `Load1Character` passes `(a, 1, b)` and
+ * `Preload1Character` passes `(a, b, who == PLAYER1MODEL)`, which is as far as
+ * the call sites pin them down -- not far enough to name them, so they keep the
+ * prototype's letters.
+ */
+
+#define ANIMCHAR_BYTES     0x44
+#define MESHREC_BYTES      0x58
+#define FRAMELIST_ENTRIES  7244         /* 0x3898 bytes of int16 */
+#define WANTFRAMES_BYTES   0x1c4c       /* one flag a frame */
+#define FATAL_FRAME_BIT    0x8000
+#define JADE               0x10
+#define SINDEL             6
+
+extern signed char  WantFrames[];   /* 0x00295d24, WANTFRAMES_BYTES of them */
+extern long        *WantDoingFatalFrames;            /* pointer slot -> 0x0017135c */
+extern long        *UseLOWAssets;                    /* pointer slot -> 0x0010df10 */
+
+void *limeMalloc(long size, const char *tag);
+void *limeLoadTexture(const char *path, long a, long b);
+void *LIME_LoadSkin(const char *path);
+void *LIME_LoadBones(const char *path);
+void *LIME_LoadScene(const char *path, long a, const char *tex, long b);
+void  LIME_LoadMeshSetTextures(void *meshset, const char *tex);
+
+/* One 88-byte mesh record. Only the fields this function writes are named. */
+typedef struct MESHREC {
+    long   colsSize;                    /* 0x00 */
+    long   field04;                     /* 0x04  from the skin */
+    long   cols2Size;                   /* 0x08 */
+    long   field0c;                     /* 0x0c  from skin[0] */
+    uint8_t _pad10[8];                  /* 0x10 */
+    long   hasCols;                     /* 0x18 */
+    long   field1c;                     /* 0x1c  copied from mesh 0 */
+    long   field20;                     /* 0x20  copied from mesh 0 */
+    void  *cols;                        /* 0x24  animatedcharacter_cols */
+    long   hasCols2;                    /* 0x28 */
+    long   field2c;                     /* 0x2c  copied from mesh 0 */
+    long   field30;                     /* 0x30  copied from mesh 0 */
+    void  *cols2;                       /* 0x34  animatedcharacter_cols2 */
+    uint8_t _pad38[MESHREC_BYTES - 0x38];
+} MESHREC;
+
+ANIMATEDCHARACTER *LoadAnimatedCharacter(char *scene, char *skinFile,
+                                         char *bonesFile, char *lightingName,
+                                         char *meshbaseFile, char *texBase,
+                                         char *frameListName,
+                                         EPLAYER who, FRONTEND_CHARACTER *fe,
+                                         long p, long q, long r)
+{
+    char  lightingPath[0x80];           /* sp+0x38 */
+    char  name[0x80];                   /* sp+0xb8 */
+    char  framePath[0x80];              /* sp+0x138 */
+    char  texPath[0x80];                /* sp+0x1b8 */
+    ANIMATEDCHARACTER *c;
+    const short *list;
+    void  *lighting;
+    long   i, meshCount, size1 = 0, size2 = 0;
+
+    /* the frame-list name: uppercased in place and cut at the first '.' */
+    memcpy(name, frameListName, strlen(frameListName));
+    {
+        char *p = name;
+        while (*p != '.') {
+            if ((unsigned char)(*p - 'a') <= 25)
+                *p = (char)(*p - 0x20);
+            p++;
+        }
+        *p = '\0';
+    }
+
+    for (i = 0; i < WANTFRAMES_BYTES; i++)
+        WantFrames[i] = 1;
+
+    /* Four 128-byte stack buffers, at sp+0x38, +0xb8, +0x138 and +0x1b8. The
+     * original bounds none of them: the memcpy above copies strlen(frameListName)
+     * bytes into a 128-byte buffer, and these two sprintf a 128-byte name into
+     * another 128-byte buffer with a prefix. Nothing but the asset names being
+     * short keeps either inside. Kept as the original has it -- the warning gcc
+     * raises here is about the shipped code, not about this transcription. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-overflow"
+    sprintf(lightingPath, "STATICLIGHTING/%s.lighting", lightingName);
+    sprintf(framePath, "framelists/%s.bin", name);
+#pragma GCC diagnostic pop
+
+    c = (ANIMATEDCHARACTER *)limeMalloc(ANIMCHAR_BYTES, "animatedcharacter");
+    if (c == NULL)
+        Error("LAC: outofmem1\n");      /* and then carries straight on */
+
+    ((void **)c)[0x30 / 4] = LIME_LoadSkin(skinFile);
+    ((void **)c)[0x34 / 4] = LIME_LoadBones(bonesFile);
+    ((void **)c)[0x2c / 4] = limeLoadFile(framePath);
+
+    /* ---- the frame list, and the finisher-frame gate ---- */
+    list = (const short *)((void **)c)[0x2c / 4];
+    for (i = 0; i != FRAMELIST_ENTRIES; i++) {
+        if (list[i] == -1)
+            continue;
+
+        if ((unsigned short)list[i] & FATAL_FRAME_BIT) {
+            if (!*WantDoingFatalFrames) {
+                /* not wanted: drop the frame entirely */
+                ((short *)list)[i] = -1;
+                WantFrames[(unsigned short)list[i] & 0x7fff] = 0;
+                FrameRemapTable[i][0] = -1;
+                continue;
+            }
+            ((short *)list)[i] = (short)((unsigned short)list[i]
+                                         & ~FATAL_FRAME_BIT);
+        }
+        FrameRemapTable[i][0] = who;
+        FrameRemapTable[i][1] = list[i];
+    }
+
+    /* ---- scene and mesh textures ---- */
+    if ((q != 0 && fe == NULL) || (who == 9 && fe != NULL)) {
+        ((void **)c)[0x10 / 4] = LIME_LoadScene(scene, 1, texBase, 0);
+        if (((void **)c)[0x10 / 4])
+            LIME_LoadMeshSetTextures(
+                ((void ***)c)[0x10 / 4][0x80 / 4], texBase);
+    }
+
+    /* ---- the meshbase file: a header then one block a mesh ---- */
+    {
+        const long *base = (const long *)limeLoadFile(meshbaseFile);
+        const long *hdr;
+
+        if (base == NULL)
+            Error("LAC: Filenotfound\n");
+        hdr = base + 1 + ((who == 6) ? 1 : 0);
+        ((const long **)c)[0x40 / 4] = (const long *)(uintptr_t)hdr[1];
+        meshCount = hdr[0];
+        ((const long **)c)[0x3c / 4] = hdr + 2;
+        ((long *)c)[0] = meshCount;
+
+        if (fe)
+            ((long *)fe)[0x5f0 / 4] =
+                CreateFramesWeWantFromFIDs(WantedFrames, who,
+                                           (const long *)((char *)fe + 0x5f4));
+
+        ((void **)c)[1] = limeMalloc(meshCount * MESHREC_BYTES,
+                                     "animatedcharacter_meshbase");
+        if (((void **)c)[1] == NULL)
+            Error("LAC: meshbase out of ram\n");
+
+        lighting = limeLoadFile(lightingPath);
+
+        /* ---- one record a mesh ---- */
+        for (i = 0; i < meshCount; i++) {
+            MESHREC *m    = &((MESHREC *)((void **)c)[1])[i];
+            MESHREC *m0   = &((MESHREC *)((void **)c)[1])[0];
+            void   **skin = (void **)((void **)c)[0x30 / 4];
+            long     first = (i == 0);
+            const float *meshbase =
+                (const float *)((char *)((const long **)c)[0x3c / 4]
+                                + i * (long)(uintptr_t)
+                                      ((const long **)c)[0x40 / 4]);
+
+            m->field04 = ((long *)skin)[2];
+            if (skin[0] == NULL)
+                continue;
+            m->field0c = ((long **)skin)[0][2];
+
+            /* the two sizes are measured once, on mesh 0, and reused */
+            if (first) {
+                size2 = DrawSkinnedMesh2((SKININFO *)skin[0], 0, 0, 0,
+                                         RenderVerts, RenderUVs, RenderRGBs,
+                                         0, 1);
+                size1 = DrawSkinnedMesh2((SKININFO *)skin, 0, 0, 0,
+                                         RenderVerts, RenderUVs, RenderRGBs,
+                                         0, 1);
+            }
+
+            m->cols = limeMalloc(size1, "animatedcharacter_cols");
+            memcpy(m->cols, (char *)lighting + i * (size1 + size2), size1);
+
+            m->cols2 = limeMalloc(size2, "animatedcharacter_cols2");
+            memcpy(m->cols2, (char *)lighting + i * (size1 + size2) + size1,
+                   size2);
+
+            m->hasCols   = 1;
+            m->hasCols2  = 1;
+            m->colsSize  = size1;
+            m->cols2Size = size2;
+
+            if (i != 0) {
+                m->field1c = m0->field1c;
+                m->field20 = m0->field20;
+                m->field2c = m0->field2c;
+                m->field30 = m0->field30;
+
+                /* a dim mesh gives up its per-vertex colour */
+                if (*meshbase <= 0.5f && i != 0x16d) {
+                    m->hasCols = 0;
+                    m->field20 = 0;
+                    m->field1c = 0;
+                    if (m->cols)
+                        limeFree(m->cols);
+                    m->cols     = NULL;
+                    m->hasCols2 = 0;
+                    m->field30  = 0;
+                    m->field2c  = 0;
+                    if (m->cols2)
+                        limeFree(m->cols2);
+                    m->cols2 = NULL;
+                }
+            }
+        }
+
+        ((const long **)c)[0x38 / 4] = base;   /* the meshbase file is kept */
+        limeFree(lighting);                    /* the lighting file is not */
+    }
+
+    ((void **)c)[0x14 / 4] = NULL;
+    ((void **)c)[0x24 / 4] = NULL;
+    ((void **)c)[0x28 / 4] = NULL;
+
+    /* ---- the textures ---- */
+    if (fe != NULL || p != 0) {
+        int dummy = (strcmp(frameListName, "dummyframes.txt") == 0);
+
+        if (fe != NULL) {
+            if (dummy)
+                strcpy(texPath, "DUMMY_DIFFUSE_LITE.PNG");
+            else
+                sprintf(texPath, "%s_DIFFUSE2_LITE.PNG", texBase);
+            ((void **)c)[0x24 / 4] = limeLoadTexture(texPath, 0, 0);
+
+            if (((void **)c)[0x24 / 4] == NULL) {
+                if (dummy)
+                    strcpy(texPath, "DUMMY_DIFFUSE_LITE.PNG");
+                else
+                    sprintf(texPath, "%s_DIFFUSE_LITE2.PNG", texBase);
+                ((void **)c)[0x24 / 4] = limeLoadTexture(texPath, 0, 0);
+            }
+        }
+
+        if (dummy)
+            strcpy(texPath, "DUMMY_DIFFUSE_LITE.PNG");
+        else
+            sprintf(texPath, "%s_DIFFUSE_LITE.PNG", texBase);
+        ((void **)c)[0x14 / 4] = limeLoadTexture(texPath, 0, 0);
+
+        if (dummy)
+            strcpy(texPath, "DUMMY_DIFFUSE_ICE.PNG");
+        else
+            sprintf(texPath, "%s_DIFFUSE_ICE.PNG", texBase);
+        ((void **)c)[0x18 / 4] = limeLoadTexture(texPath, 0, 0);
+    } else {
+        int dummy = (strcmp(frameListName, "dummyframes.txt") == 0);
+
+        if (dummy) {
+            strcpy(texPath, "DUMMY_DIFFUSE.PNG");
+        } else if (r != 0) {
+            if (*UseLOWAssets)
+                sprintf(texPath, "%s_DIFFUSE2_LOW.PNG", texBase);
+            else
+                sprintf(texPath, "%s_DIFFUSE2.PNG", texBase);
+        } else {
+            if (*UseLOWAssets)
+                sprintf(texPath, "%s_DIFFUSE_LOW.PNG", texBase);
+            else
+                sprintf(texPath, "%s_DIFFUSE.PNG", texBase);
+        }
+        ((void **)c)[0x14 / 4] = limeLoadTexture(texPath, r, r);
+    }
+
+    /* the babality sheet is the only texture with a fallback spelling */
+    if (r != 0) {
+        if (strcmp(frameListName, "dummyframes.txt") == 0)
+            strcpy(texPath, "DUMMY_DIFFUSE_ICE.PNG");
+        else
+            sprintf(texPath, "%sBABY2.PVR", texBase);
+        ((void **)c)[0x28 / 4] = limeLoadTexture(texPath, 0, 0);
+
+        if (((void **)c)[0x28 / 4] == NULL) {
+            sprintf(texPath, "%sBABILITY2.PVR", texBase);
+            ((void **)c)[0x28 / 4] = limeLoadTexture(texPath, 0, 0);
+        }
+    } else {
+        ((void **)c)[0x28 / 4] = NULL;
+    }
+
+    /* two characters, two textures nobody else has */
+    ((void **)c)[0x1c / 4] = (who == JADE)
+        ? limeLoadTexture("JADE_DIFFUSE_GREEN.PNG", 0, 0) : NULL;
+    ((void **)c)[0x20 / 4] = (who == SINDEL)
+        ? limeLoadTexture("SINDEL_HAIR_DIFF.PVR", 0, 0) : NULL;
+
+    return c;
 }
