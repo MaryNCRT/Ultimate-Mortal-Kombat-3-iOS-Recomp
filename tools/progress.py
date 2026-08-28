@@ -89,8 +89,15 @@ def defined_functions(root):
                 continue
             text = io.open(os.path.join(dirpath, fn),
                            encoding="utf-8", errors="ignore").read()
+            # `[^;{}]` and not `[^;]`: that class spans newlines, so a
+            # greedy run starting on some earlier line could reach past a
+            # whole function body and swallow the NEXT definition inside
+            # its own match, which findall then never reports. Barring
+            # braces stops it at the first body it meets. This silently
+            # lost FE_Task_VS_Screen_Destroy and understated the one
+            # number this tool exists to publish.
             for n in re.findall(
-                    r'^[A-Za-z_][\w \*]*?\**\s*(\w+)\s*\([^;]*\)\s*\{',
+                    r'^[A-Za-z_][\w \*]*?\**\s*(\w+)\s*\([^;{}]*\)\s*\{',
                     text, re.M):
                 # Both forms. `plain_name` strips leading underscores off the
                 # SYMBOL, so a C definition that keeps them -- as
