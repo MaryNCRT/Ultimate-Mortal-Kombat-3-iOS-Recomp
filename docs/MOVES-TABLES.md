@@ -65,6 +65,14 @@ Row `k` of a section takes `GameText` id `base + k` — the ids run consecutivel
 straight through, so section 2's base is section 1's base plus section 1's
 count. Two parallel id ranges per section, roughly 0x135–0x246 and 0x24a–0x35b.
 
+**`MovesList` settles what the two ranges are.** Base A is drawn as text and
+base B is handed to `DrawMoveListIcons` as its caption, which wraps it `"(%s)  "`
+— so A is the **move's name** and B is the **parenthesised qualifier** that
+follows it. One range per column of the screen.
+
+**Section 3 is never displayed.** None of `MovesList`'s ten pages reads words 10,
+11 or 12. Fourteen characters have a section 3 and no screen shows it.
+
 **The three counts sum to the table's row count**, and `tools/moves.py` checks
 that against the symbol gaps for all 23 characters. Section 2 is seven rows for
 almost everyone, which is the size of the finisher list.
@@ -201,10 +209,13 @@ The tables were in the binary the whole time.
 - **The four text ids** (`0x3a8`, `0x3a9`, `0x3aa`, `0x3f9`) resolve through
   `GameTextNoHeader` into the language file. Reading them out needs
   `LANGUAGE_TEXT_EN` parsed, which `LoadTextData` describes.
-- **What the two id ranges are.** Every section carries two `GameText` bases
-  running in parallel. One is almost certainly the move name; what the other is
-  needs the language file read, or `MovesList` finished.
 - **What the three sections mean.** Section 2 being seven rows for twenty-one of
   twenty-three characters points at the finisher list (Fatality, Fatality 2,
   Animality, Babality, Friendship, Stage Fatality, Mercy is seven), but that is
-  a reading and not yet a fact.
+  a reading and not yet a fact. `MovesList` shows sections 1 and 2 on their own
+  pages and never shows section 3, which is consistent with 1 = specials,
+  2 = finishers, 3 = something the shipped build dropped — still a reading.
+
+Answered since this file was written: the two id ranges (above), and how the
+tables are paged on screen — see `MovesList` in
+[GameCode.c](../decomp/gamecode/GameCode.c).

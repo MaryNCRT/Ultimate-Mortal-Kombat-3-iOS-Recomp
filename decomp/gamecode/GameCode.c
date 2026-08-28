@@ -7160,3 +7160,237 @@ long GameInit_LoadABit(long step)
         return 0;
     }
 }
+
+
+/* ------------------------------------------------------------------- MovesList
+ *
+ * armv7 0x0001ed4c, 8,796 bytes.  **Complete**, with one qualification recorded
+ * at the end of this comment.
+ *
+ * The in-game Moves Info screen: ten pages of "notation on the left, move name
+ * on the right", with a button at the bottom that advances the page.
+ *
+ * The tables it displays are static data, documented in
+ * [MOVES-TABLES.md](../../docs/MOVES-TABLES.md) and readable with
+ * `tools/moves.py`. This function is how they are sliced and drawn.
+ *
+ * ### Five pages, or ten in two-player
+ *
+ *      if (DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1)) {
+ *          MoveListPage++;
+ *          MoveListPage %= (GameMode == 6) ? 10 : 5;
+ *      }
+ *
+ * Pages 0-4 are player 1's list and 5-9 player 2's, so the second half is only
+ * reachable in mode 6 -- two players on one device. Both moduli are reciprocal
+ * multiplies in the original.
+ *
+ * The button asset is `BUTTON_BACK` and it moves **forward**. There is no way
+ * back except all the way round.
+ *
+ * ### What each page shows
+ *
+ *      0, 5   Generic moves, rows 0-5      names GameTextNoHeader(row + 0x124)
+ *      1, 6   Generic moves, rows 6-11     the same base
+ *      2, 7   Generic moves, rows 12-16    the same base
+ *      3, 8   the character's section 1    from MovesListTab
+ *      4, 9   the character's section 2    from MovesListTab
+ *
+ * The shared moves are three pages of six -- `Generic_Moves` is seventeen rows,
+ * which is why the third is short -- and the character's own are two.
+ *
+ * **`MovesListTab`'s section 3 is never displayed.** Fourteen of the twenty-
+ * three characters have one (Sonya's is seven rows) and none of the ten pages
+ * reads words 10, 11 or 12 of the entry. Whatever section 3 is for, it is not
+ * this menu, and `tools/moves.py` prints it because the data is there.
+ *
+ * ### The two id ranges are the name and the qualifier
+ *
+ * Each `MovesListTab` section carries two `GameText` bases, and this function
+ * settles what they are:
+ *
+ *      GameTextNoHeader(idA + row)   drawn as text -- the move's NAME
+ *      GameTextNoHeader(idB + row)   handed to DrawMoveListIcons as its caption
+ *
+ * and `DrawMoveListIcons` wraps a caption as `"(%s)  "`. So idB is the
+ * parenthesised qualifier that follows a move name. One range per column.
+ *
+ * ### The row is drawn as a stripe, and the anchor alternates
+ *
+ *      limeFillRect(0, (y + 0x2f) * FE_HeightScale,
+ *                   limeScreenWidth, 32.0f * FE_HeightScale,
+ *                   shade, shade, shade, 0.7f)
+ *
+ * with `shade` **0.0 on even rows and 0.15 on odd** -- both bars are drawn, at
+ * the same height and the same 0.7 alpha, and the alternation is the only
+ * difference. That is the banding behind the list.
+ *
+ * The move name is drawn **right-aligned at `FE_X(432)`** at three-quarter
+ * scale, and the notation starts from `DrawMoveListIcons`'s own `FE_X(48)`.
+ *
+ * And then the surprising part: the fourth argument to `DrawMoveListIcons` --
+ * the one that anchors the notation to the right edge instead of the left --
+ * is `(row + 1) & 1`, **the same alternation as the stripe**. So consecutive
+ * rows anchor their notation at opposite ends of the screen. It is written out
+ * once and used for both, in a single `ands` before the branch, so it is not a
+ * transcription slip on this side; whether it was one in the original is not
+ * something the disassembly can say.
+ *
+ * ### The y counter doubles as the row offset
+ *
+ *      seq = table + (y << 1)
+ *
+ * `y` steps by 0x20 a row, so `y << 1` steps by 0x40 -- exactly the 64-byte row
+ * stride. One counter, two uses, no multiply. Worth knowing before anyone
+ * tidies the loop.
+ *
+ * ### The guest shows the other player's moves
+ *
+ *      if (GameMode == 1 && !isParentBasedOnSpeed())
+ *          character = PLAYER2MODEL;
+ *
+ * On the machine that is not the speed-elected parent the local player *is*
+ * player 2, so that is the list it shows.
+ *
+ * ### Ten unrolled copies, and what was read
+ *
+ * The ten pages are ten separate blocks of 690 to 830 bytes, differing only in
+ * the starting row, the section and which player. That duplication is most of
+ * the 8,796 bytes.
+ *
+ * **Pages 0 and 3 were read instruction by instruction**; the other eight were
+ * established from their distinguishing constants -- the starting row, the
+ * table symbol, the id base and the header id -- which is what differs. The
+ * shared row-drawing below is page 0's and page 3's, verified twice.
+ */
+#define MOVESLIST_ROWS_PER_PAGE 6
+#define MOVESLIST_GENERIC_ROWS  17
+#define MOVESLIST_GENERIC_NAMES 0x124
+
+extern const char *CharacterNames[];    /* pointer slot -> 0x0014fe54 */
+extern char *strBuf;                    /* pointer slot -> _str, 0x001f3cac */
+
+/* The BUTTONNEW layout is established in FrontEnd.c, at DrawButtonNew. */
+typedef struct BUTTONNEW BUTTONNEW;
+extern BUTTONNEW BUTTON_BACK;           /* 0x001007bc */
+long DrawButtonNew(BUTTONNEW *b, int x, int y, int interactive);
+
+extern long  MoveListPage;              /* 0x00150eb4 */
+extern long  Generic_Moves5[];          /* 0x001030d8 */
+extern long  Generic_Moves6[];          /* 0x00103518 */
+
+/* One of a character's three sections: how many rows, the two GameText bases,
+ * and the table for each button layout. Section 3 has no id bases, which is why
+ * the entry is 13 words and not 15. */
+typedef struct {
+    long        rows;
+    long        nameId;                 /* GameText base A */
+    long        captionId;              /* GameText base B */
+    const long *moves5;
+    const long *moves6;
+} MOVESSECTION;
+
+typedef struct {
+    MOVESSECTION section[2];
+    long         rows3;                 /* section 3 -- never displayed */
+    const long  *moves5_3;
+    const long  *moves6_3;
+} MOVESLISTENTRY;
+
+extern MOVESLISTENTRY MovesListTab[];   /* 0x0010d918, thirteen words each */
+
+void asciiToUnicode(const char *src, char *dst, long len);
+void DrawMoveListIcons(int y, const int *seq, const char *caption,
+                       int rightAlign);
+
+/* One row: a banded background, the move's name right-aligned, and its notation
+ * drawn by DrawMoveListIcons. `y` is the row's top in design units, stepping by
+ * 0x20; `row` indexes both the id ranges and, doubled, the table. */
+static void DrawMovesRow(long y, long row, const long *table,
+                         long nameId, long captionId)
+{
+    char  caption[128];                 /* sp+0x70 */
+    long  odd   = (row + 1) & 1;
+    float shade = odd ? 0.15f : 0.0f;
+
+    limeFillRect(0.0f, (float)(y + 0x2f) * FE_HeightScale,
+                 (float)limeScreenWidth, 32.0f * FE_HeightScale,
+                 shade, shade, shade, 0.7f);
+
+    limeDrawFONT(&GameFont, limeUC(GameTextNoHeader(nameId + row)),
+                 (float)FE_X(432.0f),
+                 (float)(y + 0x30) * FE_HeightScale,
+                 2, 0.75f * FE_WidthScale, fontcol);
+
+    usprintf(caption, UC("%s"), GameTextNoHeader(captionId + row));
+
+    /* `y << 1` is the 64-byte row stride, and `odd` anchors the notation at the
+     * opposite end on alternate rows -- see the header. */
+    DrawMoveListIcons((int)((float)(y + 0x40) * FE_HeightScale),
+                      (const int *)((const char *)table + (y << 1)),
+                      caption, (int)odd);
+}
+
+/* One page of the shared list; `first` is the row it starts at. */
+static void DrawGenericPage(long first)
+{
+    const long *table = (Player1NumButtons == 5) ? Generic_Moves5
+                                                 : Generic_Moves6;
+    long row;
+
+    for (row = 0; row < MOVESLIST_ROWS_PER_PAGE; row++) {
+        if (first + row >= MOVESLIST_GENERIC_ROWS)
+            break;
+        DrawMovesRow(row * 0x20, first + row, table,
+                     MOVESLIST_GENERIC_NAMES, MOVESLIST_GENERIC_NAMES);
+    }
+}
+
+/* One page of a character's own list. `section` is 0 or 1; section 2 exists in
+ * the table and is never shown here. */
+static void DrawCharacterPage(long character, long section)
+{
+    const MOVESSECTION *s = &MovesListTab[character].section[section];
+    const long *table = (Player1NumButtons == 5) ? s->moves5 : s->moves6;
+    long row;
+
+    for (row = 0; row < s->rows; row++)
+        DrawMovesRow(row * 0x20, row, table, s->nameId, s->captionId);
+}
+
+void MovesList(void)
+{
+    char title[128];                    /* sp+0x170 */
+    long character = PLAYER1MODEL;
+    long page;
+    long header;
+
+    /* On the guest of a network game the local player is player 2. */
+    if (GameMode == 1 && !isParentBasedOnSpeed())
+        character = *PLAYER2MODEL;
+
+    page   = MoveListPage;
+    header = (page == 3 || page == 4 || page == 8 || page == 9) ? 0xef : 0xee;
+
+    asciiToUnicode(CharacterNames[character], title, 0x80);
+    usprintf(strBuf, UC("%s - %s"), limeUC(title), GameTextNoHeader(header));
+    limeDrawFONT(&GameFont, strBuf, (float)(limeScreenWidth / 2),
+                 8.0f * FE_HeightScale, 1, FE_WidthScale, fontcol);
+
+    switch (page) {
+    case 0: case 5: DrawGenericPage(0);              break;
+    case 1: case 6: DrawGenericPage(6);              break;
+    case 2: case 7: DrawGenericPage(12);             break;
+    case 3: case 8: DrawCharacterPage(character, 0); break;
+    case 4: case 9: DrawCharacterPage(character, 1); break;
+    default: break;
+    }
+
+    if (DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1)) {
+        MoveListPage = MoveListPage + 1;
+        MoveListPage %= (GameMode == 6) ? 10 : 5;
+    }
+
+    limeDrawFONT(&GameFont, GameText(8), (float)FE_X(423.0f),
+                 (float)FE_Y(296.0f), 1, FE_WidthScale, fontcol);
+}
