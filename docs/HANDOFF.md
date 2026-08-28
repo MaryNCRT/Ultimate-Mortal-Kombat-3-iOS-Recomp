@@ -280,3 +280,21 @@ correct**, because the row those sessions advanced was already at 100% — close
 issues that are resolved, open issues for what you find, and record the failures
 alongside the results. Half the value in this repository is in the paragraphs
 explaining what did *not* work.
+
+## Where the work stopped (2026-08-27)
+
+`MovesList` landed; **gamecode is 251/291 = 85.9 -> 86.25%**.
+
+The next function in hand is **`DrawHUD`** (armv7 `0x000282dc`, 11,536 bytes),
+the largest left in gamecode. It is part-analysed and **no code is landed for
+it** -- the findings are in [DRAWHUD-NOTES.md](DRAWHUD-NOTES.md), including the
+one that changes how the fight loop has to be ported: DrawHUD runs the round
+and match state machine, not just drawing.
+
+Two tools were added for it and both are verified:
+
+- `tools/imports.py` names a `blx` into `__symbol_stub4` by walking the
+  indirect symbol table. `0x000f3d34` is `_sprintf`.
+- `tools/lits.py` appends the pool value to every pc-relative literal load.
+  Sprite sizes, UV extents and timer rates all live in the literal pool.
+
