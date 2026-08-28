@@ -6305,22 +6305,23 @@ void RenderLevelBG(void)
  * of each move, repeated, not the input list. The list is `seq`, and the way to
  * read it is the table below.
  *
- * ### The icon alphabet: a 4x4 atlas, fifteen cells used
+ * ### The icon alphabet: a 4x4 atlas, all sixteen cells used
  *
- * Values 1 to 15 index `MoveIconsTexture` by writing a `(u, v)` pair, each from
- * {0, 0.25, 0.5, 0.75}, and drawing a quarter-by-quarter cell. Laid out as the
- * atlas:
+ * Values 0 to 15 index `MoveIconsTexture` by writing a `(u, v)` pair, each from
+ * {0, 0.25, 0.5, 0.75}, and drawing a quarter-by-quarter cell. Sixteen values,
+ * sixteen cells, one each:
  *
  *          u=0     u=0.25   u=0.5   u=0.75
- *      v=0     -       1        2       3
+ *      v=0     0       1        2       3
  *      v=.25   4       5        9       8
  *      v=.5   13       7        6      14
  *      v=.75  12      11       10      15
  *
- * Cell (0,0) is the fallback for 0 and for anything above 22 -- so it is either
- * blank or a "?" glyph. Row 0 reads 1, 2, 3 in order and then the ordering
- * stops being sequential, which says the atlas was laid out by hand rather than
- * generated.
+ * Value 0 reaches cell (0,0) the same way an out-of-range value does -- the
+ * range check is `(unsigned)(value - 1) > 21`, so 0 wraps into the default --
+ * but 0 is a real value that appears throughout the move tables, so cell (0,0)
+ * is a real glyph and not a blank. The first row is 0, 1, 2, 3 in order and the
+ * rest is not, which says the atlas was laid out by hand.
  *
  * Each icon is drawn `16 x 16` design units scaled by `FE_WidthScale` and
  * `FE_HeightScale`, two units above the row's baseline, and the cursor advances

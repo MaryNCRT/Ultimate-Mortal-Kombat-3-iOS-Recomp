@@ -1,0 +1,141 @@
+# The move-input tables
+
+The whole roster's move notation is **static data in `__DATA` with symbols on
+it**. Nothing has to be captured, emulated or inferred: the in-game Moves Info
+screen hands `DrawMoveListIcons` a pointer straight into a table, and the tables
+are named.
+
+```bash
+python tools/moves.py work/UMK3.armv7            # all 48 tables
+python tools/moves.py work/UMK3.armv7 Scorpion   # one character
+python tools/moves.py work/UMK3.armv7 --json     # machine-readable
+```
+
+**48 tables, 673 rows.** Two per character — one for the five-button layout and
+one for the six — plus a `Generic` pair for the moves everyone shares.
+
+Twenty-three characters have tables, not twenty-four: **Noob Saibot (index 23)
+has none.** The symbols run `Generic`, then `Kano` through `Humansmoke` in
+address order, which is [the roster](ROSTER.md) 0 to 22 exactly, and then stop.
+Whatever the Moves Info screen shows for Noob Saibot, it is not coming from a
+table of his own.
+
+---
+
+## The layout
+
+```
+_Kano_Moves5    0x00103958
+_Kano_Moves6    0x00103cd8
+```
+
+Each table is an array of **64-byte rows**: sixteen `int32`, terminated by `-1`.
+`MovesList` indexes a row as `table + row * 64` and passes the row pointer as
+`DrawMoveListIcons`'s `seq` argument, which walks it to the terminator.
+
+Sixteen slots means a notation can be at most fifteen symbols long, and the
+longest that ships is nine.
+
+Which of the two tables is used comes from `Player1NumButtons`, which
+`GameInit_LoadABit` sets from `Settings[4]` — so it follows the on-screen button
+layout the player chose, not the character.
+
+---
+
+## The alphabet
+
+`DrawMoveListIcons` (armv7 `0x0001e60c`) splits the values in two, and **this is
+the part a decoder has to get right**:
+
+| value | what it draws |
+|---|---|
+| 0 – 15 | one cell of the 4×4 `MOVES_ICONS.PNG` atlas |
+| 16 | `GameTextNoHeader(0x3a8)` — a translated word |
+| 17 | `GameTextNoHeader(0x3a9)` — a translated word |
+| 18 | `"("` |
+| 19 | `") "` |
+| 20 | `"/"` |
+| 21 | `GameTextNoHeader(0x3aa)` — a translated word |
+| 22 | `GameTextNoHeader(0x3f9)` — a translated word |
+| > 22 | falls back to cell 0 |
+
+**16 and up are punctuation and words, not inputs.** A sequence like
+
+```
+17 7 18 0 3 3 0 19 16
+```
+
+is `<word 0x3a9>` `icon7` `(` `icon0` `icon3` `icon3` `icon0` `)` `<word 0x3a8>`
+— a hold-something, a bracketed direction sequence, and a release-something. The
+brackets and the two words are display furniture. Only the icons are inputs.
+
+### The atlas
+
+Values 0 to 15 map one-to-one onto the sixteen cells:
+
+| | u=0 | u=0.25 | u=0.5 | u=0.75 |
+|---|---|---|---|---|
+| **v=0** | 0 | 1 | 2 | 3 |
+| **v=0.25** | 4 | 5 | 9 | 8 |
+| **v=0.5** | 13 | 7 | 6 | 14 |
+| **v=0.75** | 12 | 11 | 10 | 15 |
+
+The first row runs 0, 1, 2, 3 and the rest does not, so the sheet was laid out
+by hand rather than generated.
+
+**Naming the sixteen cells needs one look at `MOVES_ICONS.PNG`**, which is the
+user's own asset and is not in this repo. Cut the image into sixteen and read
+them off; the mapping above then names every value in every table. That is the
+only manual step left, and it is one image.
+
+---
+
+## What this replaces
+
+[Issue #5](../../issues/5) proposed capturing the tables by running the game
+under touchHLE, reading a `printf` that fires every frame on the Moves Info
+screen, and segmenting the output by periodicity.
+
+That plan was sound when it was written, but the `printf` turns out to be the
+first line of `DrawMoveListIcons` and it prints **`seq[0]` only**:
+
+```c
+void DrawMoveListIcons(int y, const int *seq, const char *caption, int rightAlign)
+{
+    printf("%d\n", seq[0]);
+```
+
+So the log's periodicity is the screen redrawing, not the sequence being walked
+— a run of period 6 is six frames of animation in the caller, not a six-input
+move. The capture would have yielded the first input of each move, repeated.
+
+The tables were in the binary the whole time.
+
+---
+
+## Cross-checks
+
+- The **character order** in the table symbols matches
+  [the roster](ROSTER.md) exactly — `Kano`, `Sonya`, `Jax`, `NightWolf`, `SZ`,
+  `Stryker`, `Sindel`, `Sektor`, `Cyrax`, `KL`, `Kabal`, `Sheeva`, `ST`, `LK`,
+  `Smoke`, `Kitana`, `Jade`, `Mileena`, `Scorpion`, `Reptile`, `Ermac`,
+  `Classic_SZ`, `Humansmoke` — in address order.
+- **`Humansmoke` and `Classic_SZ` have their own tables**, which is the same
+  conclusion the roster reached from a different direction: the classic pair are
+  separate characters, not palette swaps.
+- The list stops at `Humansmoke` (index 22), so **Noob Saibot has no table** —
+  the one gap in an otherwise complete set, and worth knowing before anyone
+  writes a loop over 24.
+- Every value observed across all 673 rows is in `0 .. 22`, which is exactly the
+  range `DrawMoveListIcons` handles.
+
+---
+
+## Still open
+
+- **The sixteen icon names.** One look at `MOVES_ICONS.PNG`, as above.
+- **The four text ids** (`0x3a8`, `0x3a9`, `0x3aa`, `0x3f9`) resolve through
+  `GameTextNoHeader` into the language file. Reading them out needs
+  `LANGUAGE_TEXT_EN` parsed, which `LoadTextData` describes.
+- **How a row maps to a named move.** The tables are notation only; the move
+  *names* are drawn separately by `MovesList`, which is decompiled next.
