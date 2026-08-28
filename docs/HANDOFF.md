@@ -7,7 +7,7 @@ Read this, then [METHODOLOGY.md](METHODOLOGY.md). Everything else is reference.
 
 ## Where the project actually stands
 
-**48.96% of the total estimated effort. Nothing is playable.** The arithmetic is
+**49.20% of the total estimated effort. Nothing is playable.** The arithmetic is
 in the [README](../README.md#overall-progress) and the weights are a judgement
 call; the completion figures are measured by `tools/progress.py` on every run.
 
@@ -16,7 +16,7 @@ call; the completion figures are measured by `tools/progress.py` on every run.
 | Asset formats | **100%** — solved, demonstrated, animating |
 | `lime/common` | **109 of 109** written, **all nine files verified** |
 | Native executable | **exists**, draws all 18 arenas with a skinned animated fighter |
-| `gamecode` | **246 of 291** — the current front |
+| `gamecode` | **250 of 291** — the current front |
 | `gamecode/logic` (fight engine) | 3 of 2,172 — essentially untouched |
 | Platform layer | window, GL context and asset loading on Windows and Linux; no audio, no input mapping |
 
@@ -105,7 +105,7 @@ protects nothing and costs the project its only visible evidence.
 
 ### 1. Finish `gamecode` — this is the front
 
-**246 of 291.** Ten files under `decomp/gamecode/`. Run
+**250 of 291.** Ten files under `decomp/gamecode/`. Run
 `python tools/pending.py 40` for what is left, size-ordered.
 
 **Work smallest-first.** This has been repeatedly worth it: the small functions
@@ -124,13 +124,19 @@ not an int, `SFXHandle` and `MusicVol` are arrays and not pointers,
 reading a caller. Assume any signature that has never been read from a call site
 is provisional.
 
-What is left is the tail, and it is all large. Six functions alone come to
-roughly 55 KB of Thumb — `GameInit_LoadABit` 11,700 B, `DrawHUD` 11,536 B,
-`FE_Task_About_Help` 10,360 B, `MovesList` 8,796 B, `AddNewGameEvents` 6,644 B,
-`UpdateInGamePauseMenu` 5,720 B — and the next tier (`FE_Task_About_About`,
-`DrawMoveListIcons`, `DrawControls`, `TrackCam`, `MaintainParticles`,
-`RenderLevelBG`) is 1.5 to 1.9 KB each. Budget for them separately; they are not
+What is left is the tail, and it is all large. `GameInit_LoadABit` (11,700 B) is
+done and was worth the day it cost — it is the asset manifest for a fight and it
+produced [the roster table](ROSTER.md). Five remain over 5 KB: `DrawHUD`
+11,536 B, `FE_Task_About_Help` 10,360 B, `MovesList` 8,796 B, `AddNewGameEvents`
+6,644 B, `UpdateInGamePauseMenu` 5,720 B — and the next tier
+(`FE_Task_About_About`, `DrawControls`, `TrackCam`, `MaintainParticles`,
+`FE_Task_Bios`) is 1.6 to 1.9 KB each. Budget for them separately; they are not
 more of the same.
+
+**A big function is often mostly one thing repeated.** `GameInit_LoadABit` is 53
+steps of which twenty are two lines each, plus four 24-way switches that are one
+table written out four times. Find the repetition first — extract the tables
+mechanically with a script — and what is left to read by hand is small.
 
 **`tools/annotate.py` truncates at the first literal pool** inside a function,
 so for anything of this size its output stops early — and silently, which is
