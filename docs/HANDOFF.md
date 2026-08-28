@@ -304,10 +304,21 @@ Two tools were added for it and both are verified:
 **`Blood.cpp` is the first complete file in `gamecode` at 8/8**. See
 [GAME-EVENTS.md](GAME-EVENTS.md).
 
-The next largest are `FE_Task_About_Help` (10,360 B),
-`UpdateInGamePauseMenu` (5,720 B), `FE_Task_Tower` (4,696 B) and
-`RenderLevelPlayers` (4,572 B). Of those `RenderLevelPlayers` is the one a
-booting port needs.
+## Next up: RenderLevelPlayers
+
+`RenderLevelPlayers` (armv7 `0x00023ee8`, 4,572 bytes) is **read but not
+written**. It is the densest function in the project so far -- raw GL ES calls,
+magic frame ids, and PLAYER offsets three levels deep -- and it is where the
+game stops being arcade logic and becomes OpenGL.
+
+[RENDER-PLAYERS.md](RENDER-PLAYERS.md) has the whole GL transform instruction by
+instruction, the object-list layout, the PLAYER fields, the frame-id table, and
+a list of the three arms still unread. **The nine GL entry points are named
+there** -- the first time raw GL appears anywhere in this project, and what a
+port's renderer has to reproduce.
+
+After that, the largest left are `FE_Task_About_Help` (10,360 B),
+`UpdateInGamePauseMenu` (5,720 B) and `FE_Task_Tower` (4,696 B).
 
 The trap to avoid, having been walked into twice already: a `handlers.py`
 summary tells you an arm calls `get_tsound`. It does not tell you the id. Three
