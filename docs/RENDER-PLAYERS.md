@@ -4,9 +4,9 @@
 being arcade logic and becomes OpenGL. It walks the engine's object list twice
 and, for each object, builds a model matrix and hands it to `RenderPlayer`.
 
-> `RenderLevelPlayers` is **not decompiled yet**. What is on this page was read
-> from the disassembly instruction by instruction; the parts that were not read
-> are listed at the end and are not on this page.
+> `RenderLevelPlayers` is **mapped, not decompiled**. Every arm has now been
+> read; what stops it being written is set out under
+> [why it is not written yet](#why-it-is-not-written-yet).
 
 ---
 
@@ -131,26 +131,40 @@ leading byte skipped. That is the first measurement of that table's stride.
 
 ---
 
-## What is left
+## The three callees, and two of them were easy to cross
 
-Read and on this page: the prologue, the two-pass walk and its tail, the
-projectile branch, the whole GL transform, the spear selection, the frame-id
-tests, and the cleanup loop.
-
-Not yet read, and therefore not written down anywhere:
-
-| range | what is there |
+| address | function |
 |---|---|
-| `0x24cbe – 0x24f00` | the `LIME_RenderScene` arm and its debug printf |
-| `0x24fb8 – 0x250c4` | `AxeTrailDisallowed`, `JaxGrowCounter`, `JaxSquashedPlayer` — Jax's grow-and-squash fatality |
-| `0x246f6 – 0x24700` | the second `JadeStomachShaker` call |
+| `0x00023c7c` | `RenderPlayer` — the fighter, already decompiled in `GameCode.c` |
+| `0x0005f7a4` | `LIME_RenderScene` — the projectile and effect path |
+| `0x0005ee78` | `RenderDebugCube` |
 
-The three `LIME_printf` format strings the function carries are worth having
-when those arms are read, because they name the fields:
+`RenderPlayer` and `LIME_RenderScene` sit next to each other in the same arms and
+take similar argument shapes. An earlier pass over this function had them
+swapped; they are only distinguishable by resolving the call target against the
+symbol table, which is what the table above does.
 
-```
-   --projectile@%d: %s (fr%d)owned by p%d,chartype=%s
-   --projectile@%d: %s (!NOTFOUND!)owned by p%d,chartype=%s
-p%d: %s (fr%d)char=%s(p%d)
-**ph arcadeXY=%f,%f,%f, otype %d
-```
+## Jax, Jade and the axe trail
+
+- **`JaxBeingSquashed`** short-circuits the whole prologue: `glColor4f(1,1,1,1)`,
+  then `RenderPlayer(&JaxSquashedPlayer, 0, 0)` if `JaxGrowCounter <= 0x108`,
+  before rejoining the normal path.
+- **`JadeStomachShaker`** is called on both fighters, and the depth buffer is
+  cleared if *either* returns non-zero.
+- **`AxeTrailDisallowed`** is a countdown: when non-zero it is decremented and
+  the object's scene events are skipped for that frame.
+- **`DoingStageFatalBringForward`** is applied as `glTranslatef(0, that, 0)`
+  when the object's slot matches `DoingStageFatal - 1`.
+
+## Why it is not written yet
+
+The function is thirty-odd basic blocks with the cold paths placed after the
+return, and it carries about twenty live values on the stack across them —
+the pass counter, the object counter, `slot << 7`, `chr << 4`, `chr << 2`, the
+owner override pair, and a scratch matrix. Reconstructing which of those is live
+at each block entry is the whole job, and getting it wrong produces C that
+compiles, looks right, and renders the wrong thing.
+
+Every individual operation on this page was read from the disassembly. The block
+ordering has not been traced to the same standard, and this project does not
+land code that has not been.
