@@ -403,3 +403,267 @@ void AddParticles(long type, float x, float y, float z, float speed, long arg)
     p->vy = p->vy * 0.0f;
     p->vz = (float)((double)p->vz * 0.1);
 }
+
+
+/* -------------------------------------------------------- MaintainParticles
+ *
+ * armv7 0x0005b260, 1,660 bytes.  **Complete.**
+ *
+ * Walks all 512 slots once a frame: integrates whatever is alive, draws it, and
+ * frees the slot when it expires. Four behaviours, and the interesting thing is
+ * that two of them feed each other.
+ *
+ * ### The blood cycle closes here
+ *
+ * A droplet that reaches the floor **spawns a splat and dies**, and the splat is
+ * the droplet's type plus one:
+ *
+ *      2  red droplet    ->  3  red splat     NewBloodTexture
+ *      4  green droplet  ->  5  green splat   NewGreenBloodTexture
+ *      6  black droplet  ->  7  black splat   NewBlackBloodTexture
+ *
+ * via `AddParticles(type + 1, x, y, ShadowOffset + 0.05, 30.0f, 1)`. The floor
+ * is `ShadowOffset` and the splat is placed a twentieth of a unit above it.
+ *
+ * **Only one droplet in four leaves a splat** -- `limeRand() & 3` has to come
+ * out zero. The other three vanish. So `DoBlood`'s eighty bursts do not produce
+ * eighty marks on the floor, and a port that drops the test will carpet the
+ * stage.
+ *
+ * ### The four behaviours
+ *
+ * **Types 3, 5, 7 -- the splats.** No physics at all. They grow in place and
+ * fade as they grow:
+ *
+ *      size  += ((i & 3) + 1) * 0.005 / limeFPSScaleFactor
+ *      alpha  = size * -2 + 1
+ *      dies when size passes 0.5
+ *
+ * The growth rate comes off the **slot index**, `(i & 3) + 1`, so four splats
+ * landing together grow at four different rates without a random draw. Drawn
+ * with `limeDrawFaceUpSprite` -- face *up*, because a splat lies on the floor;
+ * everything else in this function is `limeDrawFaceMeSprite`.
+ *
+ * **Types 2, 4, 6 -- the droplets.** `PGrav` is *added* to the vertical velocity
+ * each frame, so `PGrav` is negative in the data. Position integrates by
+ * `v / limeFPSScaleFactor`. Alpha is `ttl / life`, which is what settles those
+ * two fields: `field04` is the life it was born with and `field08` the life it
+ * has left. Death is by hitting `ShadowOffset`, not by the timer.
+ *
+ * **Type 8 -- smoke.** `GamePaused` freezes the physics but not the draw. The
+ * horizontal velocity is **halved every frame** and the size multiplied by
+ * **1.05**, so smoke slows to a stop while it swells. Alpha is
+ * `ttl / life * 0.55` -- smoke never reaches more than 55% opaque.
+ *
+ * **Type 0 and everything else.** `BloodGravity` is *subtracted* from the
+ * vertical velocity -- the opposite sign convention to the droplets' `PGrav`,
+ * two gravity constants pulling the same way through different arithmetic.
+ * Death is by the timer. The sprite is an **animation frame chosen by fall
+ * speed**:
+ *
+ *      frame = vz * BloodVelMul + 5.5,  clamped to 0 .. 11
+ *      tex   = BloodTextures[(int)frame]
+ *
+ * twelve frames of droplet, picked by how fast it is falling, and the sprite is
+ * **mirrored by the sign of the horizontal velocity** -- `u0 = 1, u1 = -1` going
+ * one way and `u0 = 0, u1 = 1` going the other.
+ *
+ * ### A splat's size starts as whatever the slot last held
+ *
+ * `AddParticles` sets `field00` for types 2, 4, 6 and 8 only. A splat -- 3, 5 or
+ * 7 -- takes the default arm, which sets three velocities and nothing else, so
+ * its size is inherited from the previous occupant of the slot, and from
+ * uninitialised memory the first time round. `InitParticles` clears `field08`
+ * and nothing else, so there is no pass that would have zeroed it.
+ *
+ * The growth loop clamps at 0.5 immediately afterwards, which bounds the damage
+ * but does not remove it: the first frame of a splat is drawn at the inherited
+ * size. Recorded rather than fixed.
+ *
+ * ### State around the walk
+ *
+ *      limeDisableDepthWrites / limeDisableDepthTest
+ *      limeEnableAlphaBlending_Basic
+ *      glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE)
+ *      ... the walk ...
+ *      limeEnableDepthWrites / limeEnableDepthTest / limeDisableAlphaBlending
+ *
+ * The `glTexEnvf` is raw GL ES, named through the indirect symbol table like the
+ * calls in [RENDER-PLAYERS.md](../../docs/RENDER-PLAYERS.md).
+ */
+
+#define PARTICLE_FRAMES   12            /* BloodTextures, picked by fall speed */
+#define SPLAT_MAX_SIZE    0.5f
+#define SMOKE_MAX_ALPHA   0.55f
+#define GL_TEXTURE_ENV        0x2300u
+#define GL_TEXTURE_ENV_MODE   0x2200u
+#define GL_MODULATE           8448.0f
+
+extern float  BloodGravity;             /* 0x0016f74c */
+extern float  BloodSize;                /* 0x0016f744 */
+extern float  BloodVelMul;              /* 0x0016f748 */
+extern float  PGrav;                    /* 0x0016f764 -- negative in the data */
+extern float  ShadowOffset;             /* pointer slot -> 0x0014dfc8, the floor */
+extern float  limeFPSScaleFactor;       /* pointer slot -> 0x00171acc */
+extern float  FaceMeMatrix[];           /* 0x0016f700 */
+extern void **BloodTextures;            /* pointer slot -> 0x001f4460 */
+extern void **NewBloodTexture;          /* pointer slot -> 0x001f4490 */
+extern void **NewGreenBloodTexture;     /* pointer slot -> 0x001f4494 */
+extern void **NewBlackBloodTexture;     /* pointer slot -> 0x001f4498 */
+extern void **SmokeTexture;             /* pointer slot -> 0x001f449c */
+
+void limeDisableDepthWrites(void);
+void limeDisableDepthTest(void);
+void limeEnableDepthWrites(void);
+void limeEnableDepthTest(void);
+void limeEnableAlphaBlending_Basic(void);
+void limeDisableAlphaBlending(void);
+void glTexEnvf(unsigned target, unsigned pname, float param);
+void limeDrawFaceMeSprite(void *tex, const float *m, float x, float y, float z,
+                          float u0, float v0, float u1, float v1, float size,
+                          float r, float g, float b, float a);
+void limeDrawFaceUpSprite(void *tex, const float *m, float x, float y, float z,
+                          float u0, float v0, float u1, float v1, float size,
+                          float r, float g, float b, float a);
+
+void MaintainParticles(void)
+{
+    long i;
+
+    limeDisableDepthWrites();
+    limeDisableDepthTest();
+    limeEnableAlphaBlending_Basic();
+    glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+
+    for (i = 0; i != PARTICLE_COUNT; i++) {
+        PARTICLE *p = &Particles[i];
+        long      type;
+
+        if (p->field08 == 0.0f)
+            continue;                   /* a free slot */
+
+        type = p->field0c;
+
+        /* ---- 3, 5, 7: the splats. No physics; they grow and fade. ---- */
+        if (type == 5 || type == 3 || type == 7) {
+            float alpha;
+            void *tex;
+
+            p->field00 = (float)((double)p->field00
+                                 + (double)((i & 3) + 1) * 0.005
+                                   / (double)limeFPSScaleFactor);
+            if (p->field00 > SPLAT_MAX_SIZE) {
+                p->field00 = SPLAT_MAX_SIZE;
+                p->field08 = 0.0f;      /* the slot frees on the last frame */
+            }
+            alpha = p->field00 * -2.0f + 1.0f;
+
+            tex = (type == 3) ? *NewBloodTexture
+                : (type == 7) ? *NewBlackBloodTexture
+                              : *NewGreenBloodTexture;
+
+            limeDrawFaceUpSprite(tex, FaceMeMatrix,
+                                 p->field10, p->field14, p->field18,
+                                 0.0f, 0.0f, 1.0f, 1.0f,
+                                 p->field00, 1.0f, 1.0f, 1.0f, alpha);
+            continue;
+        }
+
+        /* ---- 2, 4, 6: the droplets. Die on the floor, not on the clock. ---- */
+        if (type == 4 || type == 2 || type == 6) {
+            void *tex;
+
+            p->field08 -= 1.0f / limeFPSScaleFactor;
+            if (p->field08 < 0.0f)
+                p->field08 = 0.0f;
+
+            p->vz      += PGrav / limeFPSScaleFactor;   /* PGrav is negative */
+            p->field10 += p->vx / limeFPSScaleFactor;
+            p->field14 += p->vy / limeFPSScaleFactor;
+            p->field18 += p->vz / limeFPSScaleFactor;
+
+            if (p->field18 <= ShadowOffset) {
+                /* it landed: free the slot, and one in four leaves a mark */
+                p->field08 = 0.0f;
+                if ((limeRand() & 3) == 0)
+                    AddParticles(type + 1, p->field10, p->field14,
+                                 (float)((double)ShadowOffset + 0.05),
+                                 30.0f, 1);
+                continue;
+            }
+
+            tex = (type == 2) ? *NewBloodTexture
+                : (type == 6) ? *NewBlackBloodTexture
+                              : *NewGreenBloodTexture;
+
+            limeDrawFaceMeSprite(tex, FaceMeMatrix,
+                                 p->field10, p->field14, p->field18,
+                                 0.0f, 0.0f, 1.0f, 1.0f,
+                                 p->field00, 1.0f, 1.0f, 1.0f,
+                                 p->field08 / p->field04);
+            continue;
+        }
+
+        /* ---- 8: smoke. Paused freezes the physics, not the draw. ---- */
+        if (type == 8) {
+            if (!*GamePaused) {
+                p->field08 -= 1.0f / limeFPSScaleFactor;
+                if (p->field08 < 0.0f)
+                    p->field08 = 0.0f;
+
+                p->field10 += p->vx / limeFPSScaleFactor;
+                p->field14 += p->vy / limeFPSScaleFactor;
+                p->field18 += p->vz / limeFPSScaleFactor;
+
+                p->vx      = p->vx * 0.5f;      /* slows to a stop */
+                p->field00 = p->field00 * 1.05f;/* and swells */
+            }
+
+            limeDrawFaceMeSprite(*SmokeTexture, FaceMeMatrix,
+                                 p->field10, p->field14, p->field18,
+                                 0.0f, 0.0f, 1.0f, 1.0f,
+                                 p->field00, 1.0f, 1.0f, 1.0f,
+                                 p->field08 / p->field04 * SMOKE_MAX_ALPHA);
+            continue;
+        }
+
+        /* ---- 0 and anything else: the frame-animated droplet ---- */
+        {
+            float frame, size;
+            long  mirrored;
+
+            p->field08 -= 1.0f / limeFPSScaleFactor;
+            if (p->field08 < 0.0f)
+                p->field08 = 0.0f;
+
+            /* note the sign: this one SUBTRACTS its gravity */
+            p->vz      -= BloodGravity / limeFPSScaleFactor;
+            p->field10 += p->vx / limeFPSScaleFactor;
+            p->field14 += p->vy / limeFPSScaleFactor;
+            p->field18 += p->vz / limeFPSScaleFactor;
+
+            /* the size is computed fresh and passed straight to the draw --
+             * field00 is not written on this path */
+            size = BloodSize * ((type == 0) ? 0.25f : 0.15f);
+
+            frame = p->vz * BloodVelMul + 5.5f;
+            if (frame < 0.0f)
+                frame = 0.0f;
+            if (frame > 11.0f)
+                frame = 11.0f;
+            p->field20 = frame;
+
+            mirrored = (p->vx >= 0.0f);
+
+            limeDrawFaceMeSprite(BloodTextures[(long)p->field20], FaceMeMatrix,
+                                 p->field10, p->field14, p->field18,
+                                 mirrored ? 1.0f : 0.0f, 0.0f,
+                                 mirrored ? -1.0f : 1.0f, 1.0f,
+                                 size, 1.0f, 1.0f, 1.0f, 1.0f);
+        }
+    }
+
+    limeEnableDepthWrites();
+    limeEnableDepthTest();
+    limeDisableAlphaBlending();
+}
