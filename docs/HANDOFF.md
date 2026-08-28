@@ -298,3 +298,18 @@ Two tools were added for it and both are verified:
 - `tools/lits.py` appends the pool value to every pc-relative literal load.
   Sprite sizes, UV extents and timer rates all live in the literal pool.
 
+## Next up: AddNewGameEvents
+
+`AddNewGameEvents` (armv7 `0x000732a8`, 6,644 bytes) is **mapped but not
+decompiled**. It is the last function `Blood.cpp` is missing, so landing it
+completes that file.
+
+[GAME-EVENTS.md](GAME-EVENTS.md) has the record format, the five event classes,
+the finisher names read out of the binary, and a table of exactly which arms
+still need an instruction-level read. Start from that table -- the mapping work
+is done, and `tools/handlers.py` regenerates it in one command.
+
+The trap to avoid, having been walked into twice already: a `handlers.py`
+summary tells you an arm calls `get_tsound`. It does not tell you the id. Three
+constants in `DrawHUD` were written from a summary and all three were wrong --
+the health bar's y, the danger sprite's size, and the flawless timeout.
