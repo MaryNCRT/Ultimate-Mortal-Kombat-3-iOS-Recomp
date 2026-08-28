@@ -1948,6 +1948,90 @@ the word it holds does -- safe in a way chasing a real symbol is not, because no
 variable is being read, only a relocation followed. It named the four hidden-
 roster flags the moment it was switched on.
 
+## `gamecode` 250 of 291 (85.91%)
+
+Four more, chosen to unblock open issues rather than by size, and then the
+biggest function in the module.
+
+### The roster, settled six ways
+
+`GameInit_LoadABit` contains four 24-way switches picking a per-character
+stage-death scene, and all four order the characters identically.
+`_CharacterNames` names them and runs to 26 -- exactly the
+`FE_CHARACTER_SLOTS` that `Players.c` and `Task_FEDestroy` had each measured
+from a different symbol gap.
+
+The whole table, and everything that follows from it, is in
+[ROSTER.md](ROSTER.md). The short version: **5 is Stryker, 25 is Shao Kahn**,
+so `winningStryk` and `defeatedBySK` were named for the characters they count
+and both now check out against data rather than against a guess. And **bit 7 of
+a model index is "this side is the CPU"** -- the three states `ShowDebugInfo`
+prints as Human vs Human / Human vs CPU / CPU vs CPU are literally `P1 | 0x80`
+and `P2 | 0x80` at the `mk3_init` call.
+
+### `GameInit_LoadABit` is the asset manifest for a fight
+
+11,700 bytes, 53 steps, and only step 52 returns 1. Read in order it is the
+complete list of what entering a fight loads -- ten separate steps for ten
+fatality HUD frames, which is the clearest statement of what the counter is
+for. `Task_GameInit`'s "52 steps" progress bar is a budget derived from that
+count, not a measurement of progress.
+
+It also finished the `LEVEL_INFO` map that `RenderLevelBG` started, and
+answered the last open question in [issue #17](../../issues/17): **the second
+background scene is enabled by the stage record carrying two filenames and by
+nothing else.** A two-scene stage also switches to a different pair of ground
+offsets and an 800-unit lift, which is what makes `SceneY2 = -978` an ordinary
+number rather than an outlier.
+
+### `RenderLevelBG`: the port is drawing one pass of one scene
+
+Two findings that matter more than the missing second layer:
+
+- **each scene is drawn twice**, with one argument differing -- the opaque pass
+  and the transparent pass. A stage that looks thin is more likely missing its
+  transparent pass than its second scene.
+- **the two scenes are alternatives, not layers.** `CurrentScene` picks between
+  them; both are drawn only during a blast. That is why the demo looks right on
+  some stages and empty on others.
+
+Level 1's glass is 32 additive draws of one mesh, each 40 units lower and one
+thirty-second fainter, with the position restored exactly afterwards.
+
+### `DrawMoveListIcons`: the alphabet for [issue #5](../../issues/5)
+
+Values 1 to 15 are cells of a 4x4 atlas; **16 to 22 are text** -- brackets, a
+slash and four translated words. Anyone decoding a captured input sequence has
+to split the alphabet at 15.
+
+And the `printf` that issue was built on prints **`seq[0]` only**, once per
+frame. The periodicity in the log is the screen redrawing, not the sequence
+being walked -- so the capture yields the first input of each move, repeated,
+not the input list.
+
+### Smaller things worth not re-deriving
+
+- **`LEVEL_INFO` is nearly mapped**: `+0x0c..+0x18` placement, `+0x1c`/`+0x50`
+  the two scene filenames, `+0x20`/`+0x54` their loop flags, `+0x24`/`+0x28` and
+  `+0x58`/`+0x5c` two pairs of ground offsets, and four eight-entry arrays at
+  `+0x74`, `+0x94`, `+0xb4`, `+0xd4` -- names, texture names, texture indices,
+  enable flags. `0xd4 + 32 = 0xf4`, the stride, so the flags close the record.
+- **Stryker costs three extra character loads.** Step 50 preloads Jax,
+  Nightwolf and Liu Kang whenever either fighter is character 5.
+- **Cyrax's self-destruct is loaded only when one of Kano, Cyrax or Sheeva is in
+  the fight** -- the scene is Cyrax's and the other two are who it is used on.
+- **`RealBGSceneMatrix`'s second half is computed and then overwritten** with a
+  copy of the first, in `RenderLevelBG`. `AnimateBG` computes it correctly every
+  frame, so which one a reader sees depends on the order the two run in.
+- **All four `LIME_RenderScene` calls use `BGSceneFrame[0]`** although
+  `AnimateBG` maintains two counters with independent loop flags.
+- **`FE_Task_Character_Select`**: arcade is the only mode that does not start a
+  fade on confirm -- it pushes the tower task instead, and it writes the save
+  *before* repopulating the tower, which is the order that makes an interrupted
+  new game keep the old ladder rather than half a new one.
+- **`FE_Task_Stats` scans 23 play counters**, so characters 23, 24 and 25 are
+  counted and never ranked. Noob Saibot is countable and unrankable.
+
 ## `gamecode` 246 of 291 (84.54%)
 
 Forty-five left. This block was the front-end task functions plus the two
@@ -2090,25 +2174,24 @@ handles 1, 2, 3 and 26 are never released. Handle 26 is the "Gstart" click
 
 ## Next up
 
-**Finish `gamecode`.** 246 of 291. `lime/common` is **complete at 109/109** and
+**Finish `gamecode`.** 250 of 291. `lime/common` is **complete at 109/109** and
 verified against the oracle, so the engine is no longer the bottleneck; what is
 left of the game layer is what stands between here and a build that boots into
 a menu.
 
-The forty-five that remain are the big ones. Six alone come to roughly 55 KB of
-Thumb:
+The forty-one that remain are the big ones. `GameInit_LoadABit` is done; five
+still over 5 KB:
 
 | Function | Bytes |
 |---|---|
-| `GameInit_LoadABit` | 11,700 |
 | `DrawHUD` | 11,536 |
 | `FE_Task_About_Help` | 10,360 |
 | `MovesList` | 8,796 |
 | `AddNewGameEvents` | 6,644 |
 | `UpdateInGamePauseMenu` | 5,720 |
 
-and the next tier -- `FE_Task_About_About`, `DrawMoveListIcons`, `DrawControls`,
-`TrackCam`, `MaintainParticles`, `RenderLevelBG` -- is 1.5 to 1.9 KB each.
+and the next tier -- `FE_Task_About_About`, `DrawControls`, `TrackCam`,
+`MaintainParticles`, `FE_Task_Bios` -- is 1.6 to 1.9 KB each.
 
 The method is unchanged and works: disassemble by name through
 `tools/annotate.py`, read every branch before writing anything, land each

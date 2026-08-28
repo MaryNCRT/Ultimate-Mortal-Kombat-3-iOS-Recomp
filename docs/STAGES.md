@@ -48,6 +48,24 @@ phase — the fall and then the landing.
 So the game ships **two stage fatalities**, the Lair and the Subway, each
 authored separately for every character who can be on the receiving end.
 
+**The loader agrees, and names the two stages.** `GameInit_LoadABit`
+(decomp/gamecode/GameCode.c) carries four 24-way switches that pick exactly
+these scenes:
+
+```
+LevelSelect == 4    SUBWAY_<CHARACTER>.scene   -> TrainDie1Scene / TrainDie2Scene
+LevelSelect == 11   LAIR_<CHARACTER>.scene     -> SLDie1Scene / SLDie2Scene
+```
+
+one switch per player slot per stage. Only the two loaded scenes are the
+*first* phase; the `2` variants are loaded elsewhere. In endurance the second
+slot is indexed by `LastEnduranceCharacter` rather than `Character2`, so the
+death matches whoever is on screen.
+
+Those switches are also where the [character index table](ROSTER.md) came
+from -- all four order the roster identically, and they stop at 23 because
+Motaro and Shao Kahn are not selectable.
+
 ## The finisher matrix
 
 The same `<PREFIX>_<CHARACTER>` convention covers every finisher, and counting
@@ -94,9 +112,9 @@ See [SKIN-FORMAT.md §11](SKIN-FORMAT.md) for the morph-target mechanism.
 
 ## What this leaves open
 
-- **What triggers a stage fatality.** The scenes exist and the events are
-  timed, but the input condition and the position check are game logic, in
-  `gamecode`, which is not decompiled.
+- **What triggers a stage fatality.** The scenes exist, the events are timed
+  and the loader is now decompiled -- but the input condition and the position
+  check are in `gamecode/logic`, which is not.
 - **Why `STRYKER_TAZER` covers 11 characters and `ANIMALITY` only 3.** Either
   the rest are handled by morph sequences alone, or they are incomplete. The
   scene count alone cannot tell them apart.
