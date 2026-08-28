@@ -8330,3 +8330,234 @@ void DrawControls(void)
         DrawButtonRow(ButtonsPosP2, ButtonStatesP2, buttonCol);
 
 }
+
+
+/* ------------------------------------------------------------ Task_GameDestroy
+ *
+ * armv7 0x00022c74, 1,500 bytes.  **Complete.**
+ *
+ * Tears the fight down and decides what the game does next. Most of it is a
+ * flat list -- every texture deleted, every scene freed -- and the last forty
+ * lines are the only part that thinks.
+ *
+ * ### The kode does not survive the fight
+ *
+ * `*theKode = -1` is the second thing it does, before a single texture is
+ * freed. Whatever kode was entered on the VS screen is gone the moment the
+ * fight ends; nothing carries it into the next one.
+ *
+ * ### The music is stopped only if the music is on
+ *
+ * `if (Settings[2]) limeStopTune();` — the volume setting doubles as an
+ * enable, so with music off the call is skipped rather than made against a
+ * silent mixer. `FadeMusicOut` is cleared either way.
+ *
+ * ### The layer free is gated by the level's own table
+ *
+ *      Level_Info[LevelSelect * 0xf4] + 0x74 + i    a char * a layer, i in 0..7
+ *
+ * and a layer is freed only when the first byte of its name is non-zero. So a
+ * level with four background layers frees four, and the other four slots are
+ * left alone rather than freed blind. That 0xf4 stride is **244**, which is
+ * `LEVEL_INFO_STRIDE` — the compiler builds it here as `61 * 4` out of shifts,
+ * a third independent sighting after `GetNextLevel` and the BGEXTENTS loader.
+ *
+ * ### Sixteen scenes, one shape
+ *
+ * Every scene handle is freed the same way and then zeroed:
+ *
+ *      if (h) { LIME_FreeMeshSetTextures(h->0x80); LIME_FreeScene(h); h = 0; }
+ *
+ * `BGSceneHandle`, `BGSceneHandle2`, `SZEffectScene`, `SwatEffectScene`,
+ * `SmashThruScene`, `SKEffectScene`, `CyraxSelfDestructScene`, `XeroxScene`,
+ * `BloodScene`, `PitDeathScene`, `RocksScene`, `TrainScene`, `TrainDie1Scene`,
+ * `TrainDie2Scene`, `SLDie1Scene`, `SLDie2Scene` — the same list
+ * [GAME-EVENTS.md](../../docs/GAME-EVENTS.md) named from the other end, where
+ * they are played rather than freed.
+ *
+ * `MeshSet_FIGHT` and `Scene_FIGHT` are freed last and are the only two that
+ * are not zeroed afterwards.
+ *
+ * ### Where the game goes next
+ *
+ *      GameMode == 1                NextTask = 2, and disableHeartbeat()
+ *      GameMode == 4 and JustWon    NextTask = 5, and LevelSelect advances
+ *                                   through GetNextLevel
+ *      otherwise                    NextTask = 2
+ *
+ * and `CurrentTask = 8` on every path. Then, outside a network game, a level
+ * chosen from the pause menu overrides all of it:
+ *
+ *      if (InGameLevelSelect != LevelSelect) {
+ *          LevelSelect = InGameLevelSelect;
+ *          NextTask    = 5;
+ *      }
+ *
+ * so **the in-game level select wins over the survival ladder**. Picking a
+ * stage mid-fight and then finishing the round sends you to that stage, not to
+ * the next rung.
+ *
+ * `opponentCharacter = -1` is the last thing written, which is what makes the
+ * next fight pick a fresh opponent rather than reuse this one's.
+ */
+
+extern void  *InfoTexture;              /* 0x001ab990 */
+extern void  *PauseTexture;             /* 0x001ab98c */
+extern void  *SmokeEarthTexture;        /* 0x001ab66c */
+extern void  *SmokeExplosionTexture;    /* 0x001ab670 */
+extern void  *NewGreenBloodTexture;     /* 0x001f4494 */
+extern void  *NewBlackBloodTexture;     /* 0x001f4498 */
+extern void  *CoinTPage;                /* 0x001f40d4 */
+extern void  *DangerTPage;              /* 0x001f40d0 */
+extern void  *TPages[6];                /* 0x001f40ac */
+extern void  *SZEffectScene;            /* 0x001aba48 */
+extern void  *SwatEffectScene;          /* 0x001aba4c */
+extern void  *PitDeathScene;            /* 0x001aba50 */
+extern void  *CyraxSelfDestructScene;   /* 0x001aba54 */
+extern void  *BloodScene;               /* 0x001aba58 */
+extern void  *SKEffectScene;            /* 0x001aba5c */
+extern void  *XeroxScene;               /* 0x001aba60 */
+extern void  *RocksScene;               /* 0x001aba64 */
+extern void  *TrainScene;               /* 0x001aba68 */
+extern void  *TrainDie1Scene;           /* 0x001aba6c */
+extern void  *TrainDie2Scene;           /* 0x001aba70 */
+extern void  *SLDie1Scene;              /* 0x001aba78 */
+extern void  *SLDie2Scene;              /* 0x001aba7c */
+extern long   otherPlayerPaused;        /* 0x0014e200 */
+extern long  *opponentCharacterP;       /* pointer slot -> 0x000ff998 */
+
+void UnLoadAllSounds(void);
+void limeStopTune(void);
+void HUDANIM_Destroy(void);
+void FreeLevelCharacters(void);
+void LIME_FreeMeshSet(void *meshset);
+void LIME_FreeMeshSetTextures(void *meshset);
+void LIME_FreeScene(void *scene);
+long GetNextLevel(long level);
+void disableHeartbeat(void);
+
+#define GAMEDESTROY_LAYERS   8
+#define GAMEDESTROY_BGTEX    8
+#define LEVELINFO_LAYERNAMES 0x74       /* eight char * a level, at this offset */
+
+/* Every scene is freed the same way, and every one but the last two is then
+ * zeroed. */
+static void FreeSceneHandle(void **h)
+{
+    if (*h) {
+        LIME_FreeMeshSetTextures(((void **)*h)[0x80 / 4]);
+        LIME_FreeScene(*h);
+    }
+    *h = NULL;
+}
+
+void Task_GameDestroy(void)
+{
+    long i;
+
+    FadeMusicOut = 0;
+    *theKode     = -1;                  /* the kode does not outlive the fight */
+
+    UnLoadAllSounds();
+    LIME_KillAllEvents();
+
+    if (Settings[2])
+        limeStopTune();
+
+    /* ---- every texture ---- */
+    limeDeleteTexture(*FEBits1);
+    limeDeleteTexture(PauseBGTexture);
+    limeDeleteTexture(MoveIconsTexture);
+    limeDeleteTexture(CoinTPage);
+    limeDeleteTexture(DangerTPage);
+
+    for (i = 0; i < 10; i++)
+        limeDeleteTexture(HUDFatalsTexture[i]);
+
+    FreeBloodTextures();
+
+    limeDeleteTexture(*SmokeTexture);
+    limeDeleteTexture(NewBloodTexture);
+    limeDeleteTexture(NewGreenBloodTexture);
+    limeDeleteTexture(NewBlackBloodTexture);
+    limeDeleteTexture(InfoTexture);
+    limeDeleteTexture(CancelTexture);
+    limeDeleteTexture(PauseTexture);
+    limeDeleteTexture(WhiteTexture);
+    limeDeleteTexture(SmokeStarFieldTexture);
+    limeDeleteTexture(SmokeEarthTexture);
+    limeDeleteTexture(SmokeExplosionTexture);
+
+    for (i = 0; i < 5; i++)
+        limeDeleteTexture(SpearTexture[i]);
+    for (i = 0; i < 6; i++)
+        limeDeleteTexture(TPages[i]);
+
+    limeDeleteTexture(HUDTPage);
+    limeDeleteTexture(*ButtonsTPage);
+
+    for (i = 0; i < GAMEDESTROY_BGTEX; i++)
+        limeDeleteTexture(LevelBGTexture[i]);
+
+    HUDANIM_Destroy();
+    FreeLevelCharacters();
+
+    /* ---- the background layers this level actually has ---- */
+    for (i = 0; i < GAMEDESTROY_LAYERS; i++) {
+        const char *const *names =
+            (const char *const *)(Level_Info
+                                  + *LevelSelectPtr * LEVEL_INFO_STRIDE
+                                  + LEVELINFO_LAYERNAMES);
+        if (names[i] == NULL || names[i][0] == '\0')
+            continue;                   /* the slot was never loaded */
+        LIME_FreeMeshSet(*MeshSetLayers[i]);
+    }
+
+    /* ---- every scene ---- */
+    FreeSceneHandle(&BGSceneHandle);
+    FreeSceneHandle(&BGSceneHandle2);
+    FreeSceneHandle(&SZEffectScene);
+    FreeSceneHandle(&SwatEffectScene);
+    FreeSceneHandle(&SmashThruScene);
+    FreeSceneHandle(&SKEffectScene);
+    FreeSceneHandle(&CyraxSelfDestructScene);
+    FreeSceneHandle(&XeroxScene);
+    FreeSceneHandle(&BloodScene);
+    FreeSceneHandle(&PitDeathScene);
+    FreeSceneHandle(&RocksScene);
+    FreeSceneHandle(&TrainScene);
+    FreeSceneHandle(&TrainDie1Scene);
+    FreeSceneHandle(&TrainDie2Scene);
+    FreeSceneHandle(&SLDie1Scene);
+    FreeSceneHandle(&SLDie2Scene);
+
+    /* these two are freed but not zeroed */
+    LIME_FreeMeshSet(*(void **)MeshSet_FIGHT);
+    LIME_FreeScene(*(void **)Scene_FIGHT);
+
+    /* ---- where next ---- */
+    if (GameMode == 1) {
+        NextTask    = 2;
+        CurrentTask = 8;
+        disableHeartbeat();
+    } else if (GameMode == 4 && *JustWon) {
+        NextTask         = 5;
+        CurrentTask      = 8;
+        *LevelSelectPtr  = GetNextLevel(*LevelSelectPtr);
+        *InGameLevelSelect = *LevelSelectPtr;
+    } else {
+        NextTask    = 2;
+        CurrentTask = 8;
+    }
+
+    GamePaused        = 0;
+    otherPlayerPaused = 0;
+
+    /* a stage picked from the pause menu beats the survival ladder */
+    if (GameMode != 1 && *InGameLevelSelect != *LevelSelectPtr) {
+        *LevelSelectPtr = *InGameLevelSelect;
+        NextTask        = 5;
+    }
+
+    *opponentCharacterP = -1;
+}
