@@ -8086,3 +8086,247 @@ static void RoundSummaryUpdate(void)
     mk3_set_four_button(1, Player2NumButtons != 6);
     ResetFightData();
 }
+
+
+/* ----------------------------------------------------------------- DrawControls
+ *
+ * armv7 0x0001ca44, 1,844 bytes.  **Complete.**
+ *
+ * The on-screen touch controls: a joystick and six buttons for player one, and
+ * the same again for player two when the screen is shared. `DrawHUD` calls it
+ * once a frame while the game is not paused.
+ *
+ * It does two jobs, and the first is not drawing. **It rebuilds `ButtonsPos`
+ * and `ButtonsPosP2` from the settings every frame** before drawing anything,
+ * copying six five-word records out of whichever layout table the current
+ * settings select. `HandleTouches` reads those same two arrays to decide what
+ * the player pressed, so the layout the player sees and the layout the game
+ * tests against cannot drift apart -- they are rebuilt together, from the same
+ * source, in the same frame.
+ *
+ * ### Which layout table
+ *
+ * `Settings[4]` is the button count and `Settings[5]` picks stock or custom:
+ *
+ *      Settings[5] == 0        Settings[5] != 0
+ *      4  ButtonsPos4          4  CustomButtonsPos4
+ *      5  ButtonsPos5          5  CustomButtonsPos5
+ *      6  ButtonsPos6          6  CustomButtonsPos6
+ *
+ * and when `P2Controls` is set, both halves are overwritten again from the
+ * split-screen tables -- `ButtonsPosP2_1` / `ButtonsPos6P2_1` for player one and
+ * `ButtonsPosP2_2` / `ButtonsPos6P2_2` for player two, chosen by each player's
+ * own button count. The copy is written as five passes over six records, one
+ * word per pass, which is why the loop looks inside out.
+ *
+ * ### Three alpha levels, one of them a setting
+ *
+ * The function starts by copying three RGBA constants onto its own stack:
+ *
+ *      {1, 1, 1, 0.6}   the buttons
+ *      {1, 1, 1, 0.3}   the joystick base
+ *      {1, 1, 1, 1.0}   the joystick knob
+ *
+ * and then **overwrites the first two alphas**. `Settings[6]` selects 0.5, 0.75
+ * or 1.0 for the buttons, and the joystick base gets exactly half of whatever
+ * that came out as. The knob is always opaque. So the controls-opacity setting
+ * moves two of the three and the knob stays put, which is what makes the stick
+ * readable at the lowest setting.
+ *
+ * ### The joystick
+ *
+ * Single player:
+ *
+ *      JoystickStatePosX = (long)ButtonSize
+ *      JoystickStatePosY = (long)(limeScreenHeight - ButtonSize)
+ *      JSIZE             = ButtonSize
+ *
+ * Split screen shrinks the stick to two thirds and lifts it, and puts player
+ * two's on the right half:
+ *
+ *      JSIZE  = ButtonSize * 2/3
+ *      P1     = ( ButtonSize*2/3,  limeScreenHeight - ButtonSize*4/3 )
+ *      P2     = ( ButtonSize*4/3 + limeScreenWidth/2 + 48,
+ *                 limeScreenHeight - ButtonSize*2/3 )
+ *
+ * The arithmetic runs in **double** in the original -- 2/3 is a `double`
+ * literal and the sums go through `vcvt.f64.f32` -- so a port that does it in
+ * float will land a pixel off at some resolutions.
+ *
+ * The base is drawn at `2 * JSIZE` square centred on that point, and the knob
+ * is offset by `JoyOffset[JoystickState]`:
+ *
+ *      0  (  0,   0)   centre       5  (  0,  56)   down
+ *      1  (  0, -56)   up           6  (-39,  39)   down-left
+ *      2  ( 39, -39)   up-right     7  (-56,   0)   left
+ *      3  ( 56,   0)   right        8  (-39, -39)   up-left
+ *      4  ( 39,  39)   down-right
+ *
+ * Nine entries: the centre and eight compass points on a circle of radius 56,
+ * with 39 standing in for 56/sqrt(2). The knob offsets are **not** scaled by
+ * `JSIZE` -- they are pixels, so a port that changes the stick size has to
+ * scale this table itself.
+ *
+ * ### The buttons
+ *
+ * Six records of five words each -- x, y, size, atlas cell, button id -- and a
+ * record whose id is -1 is skipped. The sprite is drawn centred:
+ *
+ *      x - size/2,  y - size/2,  size x size
+ *
+ * and the atlas cell picks the UV:
+ *
+ *      u = ((cell & 3) * 2 + (ButtonStates[id] ? 0 : 1)) * 0.125
+ *      v = (cell / 4) * 0.25
+ *
+ * so the sheet is **eight columns by four rows**, and a button's pressed and
+ * unpressed art are the two halves of one pair -- **pressed is the even
+ * column**. That pairing is why `cell & 3` indexes in twos.
+ *
+ * Player two's half is the same loop over `ButtonsPosP2` and `ButtonStatesP2`,
+ * and it only runs when `P2Controls` is set.
+ */
+
+#define DRAWCONTROLS_BUTTONS   6
+#define BUTTON_ATLAS_COLS      8            /* 0.125 of the sheet a column */
+#define BUTTON_ATLAS_ROWS      4            /* 0.25 a row */
+#define JOY_DIRECTIONS         9
+
+extern long JoyOffset[JOY_DIRECTIONS][2];   /* 0x000de09c, pixels, not scaled */
+
+/* Copy one layout table into the live one. The original writes this as five
+ * passes over six records, one word each, so a partially-written table is never
+ * left behind if a later pass picks a different source. */
+static void CopyButtonLayout(long *dst, const long *src)
+{
+    long i;
+
+    for (i = 0; i < DRAWCONTROLS_BUTTONS * (BUTTONPOS_STRIDE / 4); i++)
+        dst[i] = src[i];
+}
+
+/* One player's six buttons. `pos` is the live layout and `states` the pressed
+ * flags that go with it. */
+static void DrawButtonRow(const long *pos, const long *states,
+                          float *colour)
+{
+    long b;
+
+    for (b = 0; b < DRAWCONTROLS_BUTTONS; b++) {
+        const long *e    = &pos[b * (BUTTONPOS_STRIDE / 4)];
+        long        id   = e[4];
+        long        size, cell, u, v;
+
+        if (id == -1)
+            continue;
+
+        size = e[2];
+        cell = e[3];
+
+        /* pressed is the even column of the pair */
+        u = (cell & 3) * 2 + (states[id] ? 0 : 1);
+        v = cell / BUTTON_ATLAS_ROWS;
+
+        limeDrawSprite(*ButtonsTPage,
+                       (float)(e[0] - size / 2), (float)(e[1] - size / 2),
+                       (float)size, (float)size,
+                       (float)u / (float)BUTTON_ATLAS_COLS,
+                       (float)v / (float)BUTTON_ATLAS_ROWS,
+                       1.0f / (float)BUTTON_ATLAS_COLS,
+                       1.0f / (float)BUTTON_ATLAS_ROWS,
+                       (long *)colour);
+    }
+}
+
+/* The stick: a base at 2*JSIZE square, and a knob offset by the direction. */
+static void DrawJoystick(long x, long y, long state,
+                         float *base, float *knob)
+{
+    limeDrawSprite(*ButtonsTPage,
+                   (float)x - JSIZE, (float)y - JSIZE,
+                   JSIZE + JSIZE, JSIZE + JSIZE,
+                   0.375f, 0.5f, 0.25f, 0.5f, (long *)base);
+
+    limeDrawSprite(*ButtonsTPage,
+                   (float)(x + JoyOffset[state][0]) - JSIZE * 0.5f,
+                   (float)(y + JoyOffset[state][1]) - JSIZE * 0.5f,
+                   JSIZE, JSIZE,
+                   0.25f, 0.5f, 0.125f, 0.25f, (long *)knob);
+}
+
+void DrawControls(void)
+{
+    float buttonCol[4];                 /* sp+0x44 */
+    float joyBaseCol[4];                /* sp+0x34 */
+    float joyKnobCol[4];                /* sp+0x24 */
+    const long *src;
+
+    buttonCol[0]  = 1.0f; buttonCol[1]  = 1.0f; buttonCol[2]  = 1.0f;
+    buttonCol[3]  = 0.6f;
+    joyBaseCol[0] = 1.0f; joyBaseCol[1] = 1.0f; joyBaseCol[2] = 1.0f;
+    joyBaseCol[3] = 0.3f;
+    joyKnobCol[0] = 1.0f; joyKnobCol[1] = 1.0f; joyKnobCol[2] = 1.0f;
+    joyKnobCol[3] = 1.0f;
+
+    Player1NumButtons = Settings[4];
+
+    /* ---- rebuild the live layouts from the settings ---- */
+    if (Settings[5] == 0) {
+        src = (Settings[4] == 4) ? ButtonsPos4
+            : (Settings[4] == 5) ? ButtonsPos5
+            : (Settings[4] == 6) ? ButtonsPos6 : (const long *)0;
+    } else {
+        src = (Settings[4] == 4) ? CustomButtonsPos4
+            : (Settings[4] == 5) ? CustomButtonsPos5
+            : (Settings[4] == 6) ? CustomButtonsPos6 : (const long *)0;
+    }
+    if (src)
+        CopyButtonLayout(ButtonsPos, src);
+
+    if (P2Controls) {
+        CopyButtonLayout(ButtonsPos,
+                         (Settings[4] == 5) ? ButtonsPosP2_1 : ButtonsPos6P2_1);
+        CopyButtonLayout(ButtonsPosP2,
+                         (Player2NumButtons == 5) ? ButtonsPosP2_2
+                                                  : ButtonsPos6P2_2);
+    }
+
+    /* ---- the opacity setting moves two of the three alphas ---- */
+    buttonCol[3]  = (Settings[6] == 1) ? 0.75f
+                  : (Settings[6] == 2) ? 1.0f : 0.5f;
+    joyBaseCol[3] = buttonCol[3] * 0.5f;
+
+    /* ---- where the stick goes ---- */
+    JoystickStatePosX = (long)ButtonSize;
+    JSIZE             = ButtonSize;
+    JoystickStatePosY = (long)((float)limeScreenHeight - ButtonSize);
+
+    if (P2Controls) {
+        /* the doubles are the original's; a float port lands a pixel off */
+        double two_thirds = 0.666667;
+        float  small      = (float)((double)ButtonSize * two_thirds);
+
+        JSIZE             = small;
+        JoystickStatePosX = (long)small;
+        JoystickStatePosY = (long)((double)((float)limeScreenHeight - small)
+                                   + (double)ButtonSize * -two_thirds);
+
+        JoystickStatePosXP2 =
+            (long)((double)ButtonSize * two_thirds
+                   + (double)(small + (float)(limeScreenWidth / 2) + 48.0f));
+        JoystickStatePosYP2 = (long)((float)limeScreenHeight - small);
+    }
+
+    DrawJoystick(JoystickStatePosX, JoystickStatePosY, JoystickState,
+                 joyBaseCol, joyKnobCol);
+
+    if (P2Controls)
+        DrawJoystick(JoystickStatePosXP2, JoystickStatePosYP2, JoystickStateP2,
+                     joyBaseCol, joyKnobCol);
+
+    DrawButtonRow(ButtonsPos, ButtonStates, buttonCol);
+
+    if (P2Controls)
+        DrawButtonRow(ButtonsPosP2, ButtonStatesP2, buttonCol);
+
+}
