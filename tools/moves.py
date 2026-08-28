@@ -96,6 +96,38 @@ def move_tables(syms):
     return out
 
 
+# _MovesListTab, 0x0010d918: THIRTEEN words per character, indexed by the
+# character number (`r5 * 13` in MovesList). Three sections:
+#
+#     [0]  rows in section 1     [5]  rows in section 2     [10] rows in section 3
+#     [1]  GameText id base A    [6]  id base A             [11] Moves5
+#     [2]  GameText id base B    [7]  id base B             [12] Moves6
+#     [3]  Moves5                [8]  Moves5
+#     [4]  Moves6               [9]  Moves6
+#
+# Section 3 carries no id bases. The three counts sum to the table's row count,
+# which is what `--check` verifies against the symbol gaps.
+MOVESLISTTAB = 0x0010D918
+TAB_WORDS = 13
+
+# The order is the roster order; see docs/ROSTER.md. Generic is not in the tab.
+TAB_ORDER = [
+    "Kano", "Sonya", "Jax", "NightWolf", "SZ", "Stryker", "Sindel", "Sektor",
+    "Cyrax", "KL", "Kabal", "Sheeva", "ST", "LK", "Smoke", "Kitana", "Jade",
+    "Mileena", "Scorpion", "Reptile", "Ermac", "Classic_SZ", "Humansmoke",
+]
+
+
+def read_tab(data):
+    """character name -> [(rows, idA, idB), (rows, idA, idB), (rows, None, None)]"""
+    out = {}
+    for i, name in enumerate(TAB_ORDER):
+        w = struct.unpack_from("<%dI" % TAB_WORDS, data,
+                               MOVESLISTTAB + i * TAB_WORDS * 4 - VM_BIAS)
+        out[name] = [(w[0], w[1], w[2]), (w[5], w[6], w[7]), (w[10], None, None)]
+    return out
+
+
 def read_rows(data, start, end):
     rows = []
     for off in range(start, end, ROW_BYTES):
@@ -141,13 +173,44 @@ def main(argv):
         print()
         return
 
+    tab = read_tab(data)
+
     for name, rows in result.items():
+        base = name.rsplit("_Moves", 1)[0]
+        sections = tab.get(base)
+
         print("=== %s  (%d rows)" % (name, len(rows)))
-        for i, row in enumerate(rows):
-            print("  %2d  %-34s %s"
-                  % (i,
-                     " ".join(str(v) for v in row),
-                     " ".join(describe(v) for v in row)))
+
+        if sections is None:
+            for i, row in enumerate(rows):
+                print("  %2d  %-34s %s"
+                      % (i, " ".join(str(v) for v in row),
+                         " ".join(describe(v) for v in row)))
+            print()
+            continue
+
+        i = 0
+        for s_no, (count, id_a, id_b) in enumerate(sections, 1):
+            if count == 0:
+                continue
+            if id_a is None:
+                print("  -- section %d, %d rows (no text ids)" % (s_no, count))
+            else:
+                print("  -- section %d, %d rows, GameText 0x%x.. and 0x%x.."
+                      % (s_no, count, id_a, id_b))
+            for k in range(count):
+                if i >= len(rows):
+                    print("     (table ran out)")
+                    break
+                row = rows[i]
+                label = ("0x%x" % (id_a + k)) if id_a is not None else "-"
+                print("  %2d  %-8s %-30s %s"
+                      % (i, label, " ".join(str(v) for v in row),
+                         " ".join(describe(v) for v in row)))
+                i += 1
+        if i != len(rows):
+            print("  !! %d rows in the table, %d accounted for by MovesListTab"
+                  % (len(rows), i))
         print()
 
 

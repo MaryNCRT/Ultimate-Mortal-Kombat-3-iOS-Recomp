@@ -42,6 +42,70 @@ layout the player chose, not the character.
 
 ---
 
+## `_MovesListTab` — the index
+
+`MovesListTab` (`0x0010d918`) is **thirteen words per character**, indexed by
+the character number (`MovesList` computes `character * 13`). It splits each
+character's table into three sections:
+
+| word | contents |
+|---|---|
+| 0 | rows in section 1 |
+| 1 | `GameText` id base A for section 1 |
+| 2 | `GameText` id base B for section 1 |
+| 3, 4 | the section's Moves5 and Moves6 tables |
+| 5 – 9 | the same five for section 2 |
+| 10 | rows in section 3 |
+| 11, 12 | its Moves5 and Moves6 |
+
+Section 3 carries **no id bases**. All three sections point at the same pair of
+tables; the counts are what slices them.
+
+Row `k` of a section takes `GameText` id `base + k` — the ids run consecutively
+straight through, so section 2's base is section 1's base plus section 1's
+count. Two parallel id ranges per section, roughly 0x135–0x246 and 0x24a–0x35b.
+
+**The three counts sum to the table's row count**, and `tools/moves.py` checks
+that against the symbol gaps for all 23 characters. Section 2 is seven rows for
+almost everyone, which is the size of the finisher list.
+
+| character | rows | sections |
+|---|---:|---|
+| Kano | 14 | 7 + 7 + 0 |
+| Sonya | 19 | 5 + 7 + 7 |
+| Jax | 18 | 8 + 7 + 3 |
+| NightWolf | 17 | 5 + 7 + 5 |
+| SZ | 19 | 7 + 7 + 5 |
+| Stryker | 17 | 6 + 7 + 4 |
+| Sindel | 12 | 5 + 7 + 0 |
+| Sektor | 11 | 4 + 7 + 0 |
+| Cyrax | 13 | 6 + 7 + 0 |
+| KL | 12 | 5 + 7 + 0 |
+| Kabal | 12 | 5 + 7 + 0 |
+| Sheeva | 14 | 4 + 7 + 3 |
+| ST | 13 | 6 + 7 + 0 |
+| LK | 17 | 6 + 7 + 4 |
+| Smoke | 12 | 5 + 7 + 0 |
+| Kitana | 14 | 5 + 7 + 2 |
+| Jade | 17 | 7 + 7 + 3 |
+| Mileena | 12 | 5 + 7 + 0 |
+| Scorpion | 14 | 4 + 7 + 3 |
+| Reptile | 14 | 7 + 7 + 0 |
+| Ermac | 13 | 4 + 5 + 4 |
+| Classic_SZ | 7 | 4 + 3 + 0 |
+| Humansmoke | 8 | 4 + 4 + 0 |
+
+**319 rows across the roster**, plus `Generic`'s 17. Ermac is the only character
+whose second section is not seven.
+
+### One row nobody can see
+
+`ST_Moves6` occupies 14 rows' worth of space but `MovesListTab` accounts for
+13. The fourteenth is `17 11 18 3 3 19 16 11` — byte for byte Kano's last row.
+Leftover, and unreachable: nothing indexes it. `tools/moves.py` flags it.
+
+---
+
 ## The alphabet
 
 `DrawMoveListIcons` (armv7 `0x0001e60c`) splits the values in two, and **this is
@@ -137,5 +201,10 @@ The tables were in the binary the whole time.
 - **The four text ids** (`0x3a8`, `0x3a9`, `0x3aa`, `0x3f9`) resolve through
   `GameTextNoHeader` into the language file. Reading them out needs
   `LANGUAGE_TEXT_EN` parsed, which `LoadTextData` describes.
-- **How a row maps to a named move.** The tables are notation only; the move
-  *names* are drawn separately by `MovesList`, which is decompiled next.
+- **What the two id ranges are.** Every section carries two `GameText` bases
+  running in parallel. One is almost certainly the move name; what the other is
+  needs the language file read, or `MovesList` finished.
+- **What the three sections mean.** Section 2 being seven rows for twenty-one of
+  twenty-three characters points at the finisher list (Fatality, Fatality 2,
+  Animality, Babality, Friendship, Stage Fatality, Mercy is seven), but that is
+  a reading and not yet a fact.
