@@ -28,22 +28,27 @@ FUNCS = os.environ.get("UMK3_FUNCS",
                        "E:/MK3 PROJECT/OUTPUT/func-to-file.txt")
 
 
+# The same pattern progress.py uses, and for the same reason. Matching per
+# line called a MULTI-LINE PROTOTYPE a definition, because only its last line
+# ends in the semicolon -- that counted LoadAnimatedCharacter as written and
+# made this tool disagree with progress.py about how much was left. Requiring
+# an opening brace after the parameter list settles it, and `[^;{}]` keeps the
+# class -- which spans newlines -- from running past one body into the next
+# definition and swallowing it.
+DEFINITION = re.compile(
+    r'^[A-Za-z_][\w \*]*?\**\s*(\w+)\s*\([^;{}]*\)\s*\{', re.M)
+
+
 def written():
     done = set()
     for path in glob.glob(os.path.join(ROOT, "decomp", "**", "*.c"),
                           recursive=True):
-        for line in open(path, encoding="utf-8", errors="replace"):
-            if not line or line[0] in " \t\n#/*}":
-                continue
-            if line.rstrip().endswith(";"):        # a prototype, not a body
-                continue
-            m = re.match(r"^[A-Za-z_][A-Za-z0-9_ \t\*]*?([A-Za-z_]\w*)\s*\(", line)
-            if m:
-                # Both forms -- see the same fix in tools/progress.py. `plain`
-                # strips leading underscores off the symbol, so a definition
-                # that keeps them would never match.
-                done.add(m.group(1))
-                done.add(m.group(1).lstrip("_"))
+        text = open(path, encoding="utf-8", errors="replace").read()
+        for n in DEFINITION.findall(text):
+            # Both forms -- `plain` strips leading underscores off the symbol,
+            # so a definition that keeps them would never match.
+            done.add(n)
+            done.add(n.lstrip("_"))
     return done
 
 
