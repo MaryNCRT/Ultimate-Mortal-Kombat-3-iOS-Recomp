@@ -74,10 +74,17 @@ Not by one reading. Six, from four different directions, and they agree.
 `GameInit_LoadABit` step 52 hands the fight engine its fighters:
 
 ```c
-AIOn == 0   mk3_init(P1,        P2,        FrameID_GetBBox, 1)
-AIOn == 1   mk3_init(P1,        P2 | 0x80, FrameID_GetBBox, 1)
-AIOn == 2   mk3_init(P1 | 0x80, P2 | 0x80, FrameID_GetBBox, 1)
+AIOn == 0   mk3_init(P1,        P2,        FrameID_GetBBox, AIOn)
+AIOn == 1   mk3_init(P1,        P2 | 0x80, FrameID_GetBBox, AIOn)
+AIOn == 2   mk3_init(P1 | 0x80, P2 | 0x80, FrameID_GetBBox, AIOn)
 ```
+
+**The fourth argument is `AIOn` itself**, which this table first recorded as a
+constant `1`. It is not: `r3` is loaded from `AIOn` at `0x0002d974` for the
+switch that picks between the three calls and is never reassigned before any of
+them, so each call passes the value it just tested. `DrawHUD` does exactly the
+same thing at its own three call sites, which is what prompted the re-read.
+The `| 0x80` bits and the argument carry the same information twice.
 
 which is exactly the three states `ShowDebugInfo` prints as "Human vs Human",
 "Human vs CPU" and "CPU vs CPU". So **a model index is seven bits wide** and
@@ -122,3 +129,23 @@ The rest leave it at 0. What that value selects is not established here.
 
 See [STAGES.md](STAGES.md) for the stage scene and finisher inventory, which was
 worked out from the asset files rather than from code — the two agree.
+
+---
+
+## Game modes
+
+`GameMode` is the other index that turns up everywhere, and `DrawHUD` is where
+the six values disambiguate each other -- each mode reaches something only it
+reaches.
+
+| `GameMode` | mode | what identifies it |
+|---:|---|---|
+| 0 | **Arcade / tower** | `winStreak`; the tower-completion logging |
+| 1 | **Network** | `isParentBasedOnSpeed`, `updateMPWins`, `isParent` |
+| 2 | **Training** | the only caller of `TrainingMessages` |
+| 3 | **Karnage** | draws `KarnageScore`; the one mode that never draws player 2's plate |
+| 4 | **Survival** | `survivalWinStreak` |
+| 6 | **Two players, one device** | logged as the literal `"2 Players on 1 iPad"` |
+
+Mode 5 never appears in `DrawHUD`. `FE_Task_Character_Select` uses it, so it
+exists; what it is has not been established here.

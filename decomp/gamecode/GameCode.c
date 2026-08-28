@@ -5598,17 +5598,17 @@ extern long   GameInitState;            /* 0x00150e84 */
 extern long   GI_LoadCount;             /* 0x00151088 */
 extern long  *MKEventQueue;             /* pointer slot */
 extern long  *lastTimestamp;            /* pointer slot */
-extern long   ScorpionFade;             /* 0x0010df04 */
-extern long   ScorpionFadeAdd;          /* 0x0010df08 */
-extern long   ScorpionFlash;            /* 0x0010df0c */
+extern float  ScorpionFade;             /* 0x0010df04 */
+extern float  ScorpionFadeAdd;          /* 0x0010df08 */
+extern float  ScorpionFlash;            /* 0x0010df0c */
 extern long   ClockTens;                /* 0x0014fa50 */
 extern long   ClockSingles;             /* 0x0014fa54 */
-extern long   RoundSummaryTime;         /* 0x0014e220 */
+extern float  RoundSummaryTime;         /* 0x0014e220 */
 extern long   RoundSummary;             /* 0x0014e224 */
 extern long   Round;                    /* 0x0014e228 */
 extern long   RoundWins[2];             /* 0x0014e22c */
 extern long   FightMessage;             /* 0x0014e258 */
-extern long   FightMessageTimer;        /* 0x0014e25c */
+extern float  FightMessageTimer;        /* 0x0014e25c */
 extern long   DontQuitAfterFade;        /* 0x0014e254 */
 extern long   DoSmokesEarthFatal;       /* 0x0010defc */
 extern long   DoSmokeEarthFatalSFX;     /* 0x0010df00 */
@@ -5861,11 +5861,11 @@ void Task_GameInit(void)
  * bounce is authored, not simulated.
  */
 extern long  RunBar[2];                 /* 0x0014fa6c */
-extern long  FlawlessCounter;           /* 0x0014fb48 */
+extern float FlawlessCounter;           /* 0x0014fb48 */
 extern long  FlawlessMessage;           /* 0x0014fb4c */
 extern long  DangerMessage[2];          /* 0x0014e23c */
 extern long  RoundMessage;              /* 0x0014e250 */
-extern long  lightsOn;                  /* 0x0010decc */
+extern float lightsOn;                  /* 0x0010decc */
 extern uint8_t WinnerMessage[2];        /* 0x0014faa8, two BYTES */
 extern long  RoundHasEnded;             /* 0x0014e248 */
 extern long  FinishHimHer;              /* 0x0014e24c */
@@ -5874,7 +5874,7 @@ extern long  DoneSmashEffect;           /* 0x0010ded4 */
 extern float BabalityVel[8];            /* 0x001f4104 */
 extern float BabalityHeight[8];         /* 0x001f4124 */
 extern long  MercyMessage;              /* 0x0014fb40 */
-extern long  MercyMessageCounter;       /* 0x0014fb44 */
+extern float MercyMessageCounter;       /* 0x0014fb44 */
 extern long  BabalityMessageG;          /* 0x0014fb28 */
 extern long  AnimalityMessageG;         /* 0x0014fb2c */
 extern long  FatalityMessageG;          /* 0x0014fb30 */
@@ -5885,7 +5885,7 @@ extern long  DoingStageFatal;           /* 0x0010dee0 */
 extern long  DoingStageFatalBringForward;   /* 0x0010dee4 */
 extern long  sindelFlying;              /* 0x0014dff8 */
 extern long  DoingSKDeath;              /* 0x0010deb8 */
-extern long  SKDeathMessageOffset;      /* 0x0010debc */
+extern float SKDeathMessageOffset;      /* 0x0010debc */
 extern long  opponentPerformedMercy;    /* 0x0010dea4 */
 extern long *SurvivalStageP2;           /* pointer slot -> 0x000ff980 */
 
@@ -7393,4 +7393,696 @@ void MovesList(void)
 
     limeDrawFONT(&GameFont, GameText(8), (float)FE_X(423.0f),
                  (float)FE_Y(296.0f), 1, FE_WidthScale, fontcol);
+}
+
+
+/* --------------------------------------------------------------------- DrawHUD
+ *
+ * armv7 0x000282dc, 11,536 bytes.  **Complete.**
+ *
+ * The largest function in `gamecode`, and its name is a lie: `DrawHUD` runs the
+ * **round and match state machine**. Deciding who won the round, awarding the
+ * flawless, starting the next round, loading the next endurance opponent and
+ * ending the match all happen here, in among the health bars and the combo
+ * counter. `QuitAsWin`, `QuitAsLose`, `ResetFightData`, `mk3_init`,
+ * `InitEnduranceMatch` and `LoadGameCharacterCheckCache` are all called from
+ * inside it.
+ *
+ * Anything porting the fight loop has to know that. This is not a call you can
+ * reorder, skip a frame, or move onto a render thread.
+ *
+ * The original is one flat function: the two player halves, the two combo
+ * counters and the two round-end halves are each written out twice in full,
+ * which is most of the 11,536 bytes. They are folded into helpers here. Every
+ * constant is the original's, and where the two copies differ the difference is
+ * called out.
+ *
+ * The block layout is heavily reordered -- the `return` sits at 0x00028f12 with
+ * a dozen cold blocks after it that jump back into the body -- so the control
+ * flow below comes from tracing branches, not from reading the range in order.
+ *
+ * ### The game modes, finally pinned down
+ *
+ * Six modes disambiguate each other across this one function:
+ *
+ *      0   Arcade / tower            `winStreak`, the tower completion logging
+ *      1   Network                   `isParentBasedOnSpeed`, `updateMPWins`
+ *      2   Training                  the only caller of `TrainingMessages`
+ *      3   Karnage                   draws `KarnageScore`, and is the one mode
+ *                                    that does NOT draw player 2's plate
+ *      4   Survival                  `survivalWinStreak`
+ *      6   Two players, one device   logged as the literal "2 Players on 1 iPad"
+ *
+ * Mode 5 never appears here.
+ *
+ * ### The bars are the depleted part, drawn with a negative width
+ *
+ * `limeDrawSprite`'s last four floats are UV **extents**, not corners: the
+ * plate is 192x28 at 0.75 x 0.109375, and 192/256 and 28/256 are exactly those.
+ * The atlas is 256x256. Player 1, all times `HUD_Scale`:
+ *
+ *      plate    x 18   y 24   w  192   h 28   uv (0, 0)         ext (.75, .109375)
+ *      health   x 209  y 24   w -190*  h 20   uv (1/256, .125)  ext (1/256, 20/256)
+ *      run bar  x 81   y 44   w  -62*  h  7   uv (.125, .125)   ext (1/256, 7/256)
+ *
+ *      * scaled by (100 - Health) / 100 and (100 - RunBar) / 100
+ *
+ * The two bar widths are **negative**, so each rectangle runs leftward from its
+ * x. They do not draw the bar -- the full bar is painted into the plate -- they
+ * draw the *depleted* part over it, growing leftward from the right end. 209 is
+ * the plate's right edge (18 + 192 = 210), 190 is very nearly the bar's full
+ * width, and the source is one pixel of UV width stretched across the
+ * rectangle. Health sits in the plate's top 20 rows and the run meter in the
+ * 7 below it, which is the whole 28.
+ *
+ * Player 2 is the mirror: every x becomes `limeScreenWidth - x`, and the widths
+ * come out **positive** so they grow rightward instead. The name flips from
+ * left- to right-aligned. The coins keep a positive width and move their left
+ * edge, so 18 and 50 become -50 and -82 -- the same 32-pixel pitch measured
+ * from the other side.
+ *
+ * ### The combo counter slides in, and retracts in two stages
+ *
+ *      x = (128 - ComboSlider1[p]) * HUD_Scale                     player 1
+ *      x = limeScreenWidth - (128 - ComboSlider1[p]) * HUD_Scale    player 2
+ *      y = 108 * HUD_Scale   hit count,  GameTextNoHeader(0xb5)
+ *      y = 124 * HUD_Scale   damage,     GameTextNoHeader(0x11c)
+ *
+ * `ComboTimer`, `ComboNumber`, `ComboDamage`, `ComboSlider1` and `ComboSlider2`
+ * are all **two-element arrays**, one per player -- the second element is only
+ * ever reached as `[r3, #4]`, which is why nothing found them before. Above a
+ * timer of 60 both sliders run on together at 8 a frame; below it they retract,
+ * and `ComboSlider2` does not start until `ComboSlider1` is past 64. That
+ * stagger is the damage line trailing the hit line off the screen.
+ *
+ * ### Round end
+ *
+ * Two symmetric halves, each guarded by the same `RoundSummary == 0`, so only
+ * the first to fire in a frame counts:
+ *
+ *      Health[0] == 0  ->  player 2 takes the round
+ *      Health[1] == 0  ->  player 1 takes the round
+ *
+ * and a third path when the clock runs out, where the higher health wins and an
+ * exact tie gives the round to nobody. A timeout win at 100 health keeps the
+ * flawless streak; any other win below 100 clears it.
+ *
+ * Reaching `WinsNeeded` calls `updateMPWins()` and stops there. The match end
+ * itself is driven later, from the summary timer.
+ *
+ * ### Three kodes are implemented here
+ *
+ * - **`theKode == 1` is Blackout.** `lightsOn` counts down a frame at a time and
+ *   at zero the screen is filled solid black -- *unless* `IsInFinishing`, so the
+ *   lights come back up for the fatality. That exception is the whole point of
+ *   the kode.
+ * - **`theKode == 0x13` ends the match in one round.** In a network game the
+ *   loser's `RoundWins` is set to `WinsNeeded` and the winner's to
+ *   `WinsNeeded - 1`, so the very next test ends the match. Both halves do it,
+ *   and the coin display reads the other player's counter to match.
+ * - **`theKode == 0x11`** suppresses both plates: the bars, both names and the
+ *   clock. The coins still draw.
+ *
+ * ### Achievements, and what earns them
+ *
+ *      2     a flawless round                    modes 0 and 4
+ *      3     five flawless victories             modes 0 and 4
+ *      6     a combo above four hits             modes 0 and 4
+ *      0xe   beating Motaro (PLAYER2MODEL 24)
+ *      0x10  beating Shao Kahn (PLAYER2MODEL 25)
+ *      0x13  a survival streak above 19
+ *
+ * The two boss indices land exactly where [ROSTER.md](../../docs/ROSTER.md) put
+ * them, reached from a direction that table did not use.
+ *
+ * ### Four stats counters, named
+ *
+ *      Stats[6]    flawless victories
+ *      Stats[12]   accumulated fight time, as 99 - GameTime a round
+ *      Stats[13]   accumulated health kept
+ *      Stats[14]   rounds fought
+ *
+ * In a network game `Stats[13]` takes `Health[isParent() ? 0 : 1]`, because the
+ * local player is player 2 on the guest. Everywhere else it is `Health[0]`.
+ *
+ * ### The round banners are hardcoded English
+ *
+ * `Round` 0 to 3 select the ASCII literals `"ROUND 1"` through `"ROUND 4"` at
+ * 0x00102064, drawn straight through `limeDrawFONT` with no `GameText` lookup.
+ * Every other string in this function is translated; these four are not. A
+ * localisation gap in the original, and one a port can fix.
+ *
+ * ### `mk3_init`'s fourth argument is `AIOn`
+ *
+ * All three call sites here leave `AIOn` in r3 across the switch that chose
+ * between them, and reading `GameInit_LoadABit` again shows the identical shape
+ * -- r3 is loaded from `AIOn` at 0x0002d974 and never reassigned before any of
+ * its three calls. [ROSTER.md](../../docs/ROSTER.md) recorded that argument as
+ * a constant `1`; it is not.
+ *
+ * ### Types corrected here
+ *
+ * `ScorpionFade`, `ScorpionFadeAdd`, `ScorpionFlash`, `lightsOn`,
+ * `RoundSummaryTime` and `FightMessageTimer` were all declared `long` in this
+ * file. Every one is loaded with `vldr` and compared against a float literal.
+ * They were declared by functions that only ever assign them zero, which
+ * assigns the same bits either way -- the same trap that had seven other
+ * declarations wrong before a call site settled them.
+ */
+
+extern float  limeFPSScaleFactor;       /* pointer slot -> 0x00171acc */
+extern long   flawlessVictories;        /* 0x0014e000 */
+extern long  *Stats;                    /* pointer slot -> 0x00183c84 */
+extern long   RoundHasEnded;            /* 0x0014e248 */
+extern long   RoundHasEndedStatsUpdated;/* 0x0014e244 */
+extern long   DoingSKDeath;             /* 0x0010deb8 */
+extern float  InfoScale;                /* 0x0010de80 */
+extern float  InfoScaleAdd;             /* 0x0010de7c */
+extern char   fatal_HUDgfx_SpriteDef[]; /* pointer slot -> 0x0017b9dc */
+extern long  *fatal_HUDgfx_Anim;        /* pointer slot -> 0x0017c81c */
+extern float  ComboTimer[2];            /* 0x0014e284 */
+extern long   ComboNumber[2];           /* 0x0014e27c */
+extern long   ComboDamage[2];           /* 0x0014e274 */
+extern float  ComboSlider1[2];          /* 0x0014e28c */
+extern float  ComboSlider2[2];          /* 0x0014e294 */
+extern float *limeLastTouchScreenX;     /* pointer slot -> 0x00171b44 */
+extern float *limeTouchScreenY;         /* pointer slot -> 0x00171b1c */
+extern float *FE_FadeAdd;               /* pointer slot -> 0x0010089c */
+
+void  HUDANIM_Render(void);
+void  achievementsDraw(void);
+void  no_ai_hack(void);
+void  updateMPWins(void);
+void  InitEnduranceMatch(void);
+void  LIME_InitEventsManager(void);
+void  DumpAltCostume(char *player);
+void  LoadGameCharacterCheckCache(char *player, const char *def, long *stats);
+void  mk3_set_four_button(long player, long fourButton);
+void  DrawControls(void);
+void  TrainingMessages(void);
+int   sprintf(char *dst, const char *fmt, ...);
+
+#define HUD_ATLAS           256.0f      /* the sheet the UV extents divide by */
+#define HUD_PLATE_W         192.0f
+#define HUD_PLATE_H          28.0f
+#define HUD_COIN             32.0f
+#define COMBO_SLIDE         128.0f      /* the counters start this far off-screen */
+#define COMBO_HOLD           60.0f      /* above this the counter is still coming on */
+#define ROUND_SUMMARY_HOLD  300.0f
+#define MERCY_FRAMES         13
+#define MERCY_FIRST_FRAME  0x2c
+
+static void RoundSummaryUpdate(void);
+
+/* One player's plate, bars and name. `p` is 0 or 1: player 2 measures every x
+ * from `limeScreenWidth` and comes out with positive bar widths, which is the
+ * only difference apart from the text alignment. */
+static void DrawPlayerPlate(long p)
+{
+    float s    = *HUD_Scale;
+    float edge = p ? (float)limeScreenWidth : 0.0f;
+    float dir  = p ? -1.0f : 1.0f;
+    long  model = p ? *PLAYER2MODEL : PLAYER1MODEL;
+
+    limeDrawSprite(HUDTPage, edge + dir * 18.0f * s, 24.0f * s,
+                   dir * HUD_PLATE_W * s, HUD_PLATE_H * s,
+                   0.0f, 0.0f,
+                   HUD_PLATE_W / HUD_ATLAS, HUD_PLATE_H / HUD_ATLAS, col);
+
+    /* Both bars are the DEPLETED part drawn over the plate: a one-pixel UV
+     * column stretched across a width that runs back toward the centre. */
+    limeDrawSprite(HUDTPage, edge + dir * 209.0f * s, 24.0f * s,
+                   dir * (float)(-190 * (100 - Health[p])) / 100.0f * s,
+                   20.0f * s,
+                   1.0f / HUD_ATLAS, 0.125f,
+                   1.0f / HUD_ATLAS, 20.0f / HUD_ATLAS, col);
+
+    limeDrawSprite(HUDTPage, edge + dir * 81.0f * s, 44.0f * s,
+                   dir * (float)(-62 * (100 - RunBar[p])) / 100.0f * s,
+                   7.0f * s,
+                   0.125f, 0.125f,
+                   1.0f / HUD_ATLAS, 7.0f / HUD_ATLAS, col);
+
+    limeDrawFONT(&NameFont, CharacterNames[model],
+                 edge + dir * 24.0f * s, 27.0f * s,
+                 p ? 2 : 0, s, fontcol);
+}
+
+/* One coin a round won, 32 apart. The one-round kode reads the other player's
+ * counter, because it has just been set to WinsNeeded on the loser. */
+static void DrawRoundWinCoins(long p)
+{
+    float s    = *HUD_Scale;
+    float edge = p ? (float)limeScreenWidth : 0.0f;
+    float dir  = p ? -1.0f : 1.0f;
+    long  wins = (GameMode == 1 && *theKode == 0x13) ? RoundWins[p ^ 1]
+                                                     : RoundWins[p];
+
+    if (wins > 0)
+        limeDrawSprite(CoinTPage, edge + dir * (p ? 50.0f : 18.0f) * s,
+                       54.0f * s, HUD_COIN * s, HUD_COIN * s,
+                       0.0f, 0.0f, 1.0f, 1.0f, col);
+    if (wins > 1)
+        limeDrawSprite(CoinTPage, edge + dir * (p ? 82.0f : 50.0f) * s,
+                       54.0f * s, HUD_COIN * s, HUD_COIN * s,
+                       0.0f, 0.0f, 1.0f, 1.0f, col);
+}
+
+/* The hit count and damage lines for one player, and the slider that carries
+ * them on and off the screen. Karnage draws no text but still runs the timer. */
+static void DrawComboCounter(long p)
+{
+    float s = *HUD_Scale;
+
+    if (ComboTimer[p] <= 0.0f)
+        return;
+
+    if (ComboNumber[p] > 4 && (GameMode == 4 || GameMode == 0))
+        achievementsUnlock(6);
+
+    if (GameMode != 3) {
+        float x1 = (COMBO_SLIDE - ComboSlider1[p]) * s;
+        float x2 = (COMBO_SLIDE - ComboSlider2[p]) * s;
+
+        if (p) {
+            x1 = (float)limeScreenWidth - x1;
+            x2 = (float)limeScreenWidth - x2;
+        }
+
+        usprintf(strBuf, UC("%d %s"), ComboNumber[p], GameTextNoHeader(0xb5));
+        limeDrawFONT(&GameFont, limeUC(strBuf), x1, 108.0f * s,
+                     p ? 0 : 2, s, fontcol);
+
+        usprintf(strBuf, UC("%d %s"), ComboDamage[p], GameTextNoHeader(0x11c));
+        limeDrawFONT(&GameFont, limeUC(strBuf), x2, 124.0f * s,
+                     p ? 0 : 2, s, fontcol);
+    }
+
+    ComboTimer[p] -= 1.0f / limeFPSScaleFactor;
+
+    if (ComboTimer[p] > COMBO_HOLD) {
+        ComboSlider1[p] -= 8.0f / limeFPSScaleFactor;
+        ComboSlider2[p] -= 8.0f / limeFPSScaleFactor;
+        if (ComboSlider1[p] < 0.0f) ComboSlider1[p] = 0.0f;
+        if (ComboSlider2[p] < 0.0f) ComboSlider2[p] = 0.0f;
+    } else {
+        if (ComboTimer[p] <= 0.0f)
+            ComboTimer[p] = 0.0f;
+        /* the damage line does not follow until the hit line is half out */
+        ComboSlider1[p] += 8.0f / limeFPSScaleFactor;
+        if (ComboSlider1[p] >= 64.0f)
+            ComboSlider2[p] += 8.0f / limeFPSScaleFactor;
+    }
+}
+
+/* One half of the round-end test. `loser` is the player whose health hit zero,
+ * so the round goes to the other one. */
+static void RoundEndedAgainst(long loser)
+{
+    long winner = loser ^ 1;
+
+    if (Health[loser] != 0 || RoundSummary != 0)
+        return;
+
+    RoundSummary = 1;
+    RoundWins[winner]++;
+    Round++;
+
+    if (RoundWins[0] == WinsNeeded || RoundWins[1] == WinsNeeded) {
+        updateMPWins();
+        return;
+    }
+
+    flawlessVictories = 0;
+    *playerLostRound  = 1;
+
+    /* The one-round kode hands the match over immediately. */
+    if (GameMode == 1 && *theKode == 0x13) {
+        RoundWins[loser]  = WinsNeeded;
+        RoundWins[winner] = WinsNeeded - 1;
+        return;
+    }
+    if (GameMode == 3)
+        return;
+
+    if (Health[winner] == 100) {
+        FlawlessMessage = 1;
+        if (GameMode == 4 || GameMode == 0) {
+            Stats[6]++;
+            flawlessVictories++;
+            achievementsUnlock(2);
+            if (flawlessVictories == 5)
+                achievementsUnlock(3);
+        }
+    } else if (GameMode == 1 && isParentBasedOnSpeed()
+               && Health[1] == 0 && Health[0] == 100) {
+        /* the network half counts the host's flawless without the message */
+        Stats[6]++;
+    }
+}
+
+void DrawHUD(void)
+{
+    float s;
+
+    HUDANIM_Render();
+    limeEnableAlphaBlending_Basic();
+    limeSet2DDrawing();
+
+    /* Two full-screen overlays, both from Scorpion's lair transition. */
+    ScorpionFade += ScorpionFadeAdd / limeFPSScaleFactor;
+    if (ScorpionFade > 1.0f)
+        ScorpionFade = 1.0f;
+    if (ScorpionFade != 0.0f)
+        limeFillRect(0.0f, 0.0f, (float)limeScreenWidth, (float)limeScreenHeight,
+                     0.0f, 0.0f, 0.0f, ScorpionFade);
+
+    if (ScorpionFlash != 0.0f) {
+        ScorpionFlash += (-1.0f / 6.0f) / limeFPSScaleFactor;
+        if (ScorpionFlash <= 0.0f)
+            ScorpionFlash = 0.0f;
+        limeFillRect(0.0f, 0.0f, (float)limeScreenWidth, (float)limeScreenHeight,
+                     1.0f, 1.0f, 1.0f, 1.0f);
+    }
+
+    limeEnableAlphaBlending_Basic();
+    limeSet2DDrawing();
+    limeDisableDepthTest();
+    limeDisableDepthWrites();
+
+    /* Blackout. IsInFinishing suspends it, which is what makes the kode
+     * playable at all -- the fatality stays lit. */
+    if (*theKode == 1) {
+        if (lightsOn == 0.0f && !IsInFinishing) {
+            limeFillRect(0.0f, 0.0f, (float)limeScreenWidth,
+                         (float)limeScreenHeight, 0.0f, 0.0f, 0.0f, 1.0f);
+            goto tail;
+        }
+        lightsOn -= 1.0f / limeFPSScaleFactor;
+        if (lightsOn < 0.0f)
+            lightsOn = 0.0f;
+    }
+
+    if (!GamePaused)
+        DrawControls();
+
+    if (GameMode == 3) {
+        usprintf(strBuf, UC("%s: %d"), GameTextNoHeader(0x121), KarnageScore);
+        limeDrawFONT(&GameFont, limeUC(strBuf), FE_WidthScale * 8.0f,
+                     FE_HeightScale * 32.0f, 0, FE_WidthScale, fontcol);
+    }
+
+    /* The mercy banner cycles thirteen frames of the finisher sheet. */
+    if (MercyMessage) {
+        if (MercyMessageCounter < 13.0f)
+            DrawAnimAsSprite(limeScreenWidth / 2, limeScreenHeight / 2,
+                             FE_WidthScale * 0.5f, 0x100, 0x100,
+                             (long)(uintptr_t)HUDFatalsTexture,
+                             fatal_HUDgfx_SpriteDef, fatal_HUDgfx_Anim,
+                             0,
+                             MERCY_FIRST_FRAME
+                                 + (long)MercyMessageCounter % MERCY_FRAMES,
+                             0, fatal_HUDgfx_Anim[0] - 1, 1, col);
+
+        MercyMessageCounter += 13.0f / limeFPSScaleFactor;
+        if (MercyMessageCounter >= 30.0f) {
+            MercyMessageCounter = 0.0f;
+            MercyMessage        = 0;
+            /* the banner ducked the music; put it back */
+            if (Settings[2] != 0)
+                limePlayTune((const char *)(uintptr_t)(unsigned long)
+                                 LevelMusic[*LevelSelectPtr],
+                             (long)MusicVol[Settings[2]], 1);
+        }
+    }
+
+    if (FlawlessMessage) {
+        if (!DoingSKDeath)
+            limeDrawFONT(&GameFont, GameText(0x3a0),
+                         (float)(limeScreenWidth / 2), FE_HeightScale * 112.0f,
+                         1, FE_WidthScale, fontcol);
+        FlawlessCounter += 1.0f / limeFPSScaleFactor;
+        if (FlawlessCounter > 180.0f) {
+            FlawlessCounter = 0.0f;
+            FlawlessMessage = 0;
+        }
+    }
+
+    if (GamePaused)
+        goto tail;
+
+    s = *HUD_Scale;
+
+    /* ---- the plates ---- */
+    if (*theKode != 0x11)
+        DrawPlayerPlate(0);
+    DrawRoundWinCoins(0);
+
+    if (GameMode == 0 && winStreak > 1) {
+        usprintf(strBuf, UC("%s: %d"), GameTextNoHeader(0xb4), winStreak);
+        limeDrawFONT(&GameFont, limeUC(strBuf), s * 34.0f, s * 6.0f,
+                     0, s, fontcol);
+    } else if (GameMode == 4 && survivalWinStreak > 1) {
+        usprintf(strBuf, UC("%s: %d"), GameTextNoHeader(0xb4), survivalWinStreak);
+        limeDrawFONT(&GameFont, limeUC(strBuf), s * 34.0f, s * 6.0f,
+                     0, s, fontcol);
+    }
+
+    if (DangerMessage[0])
+        limeDrawSprite(DangerTPage, s * 18.0f, s * 86.0f, s * 64.0f, s * 16.0f,
+                       0.0f, 0.0f, 1.0f, 1.0f, col);
+
+    /* Karnage is the one mode that never shows player 2's plate. */
+    if (*theKode != 0x11 && GameMode != 3) {
+        DrawPlayerPlate(1);
+        DrawRoundWinCoins(1);
+    }
+
+    if (DangerMessage[1])
+        limeDrawSprite(DangerTPage,
+                       (float)limeScreenWidth - s * 82.0f, s * 86.0f,
+                       s * 64.0f, s * 16.0f, 0.0f, 0.0f, 1.0f, 1.0f, col);
+
+    if (GameMode == 2)
+        TrainingMessages();
+
+    /* ---- the clock ---- */
+    if (!GamePaused)
+        GameTime = (float)(ClockTens * 10 + ClockSingles);
+
+    if (GameTime <= 0.0f) {
+        /* Time out: the higher health takes the round, an exact tie neither. */
+        GameTime = 0.0f;
+        if (Health[1] > Health[0]) {
+            RoundEndedAgainst(0);
+        } else if (Health[1] < Health[0] && RoundSummary == 0) {
+            RoundSummary = 1;
+            RoundWins[0]++;
+            Round++;
+            if (Health[0] != 100)
+                flawlessVictories = 0;
+        }
+    } else if (GameMode > 1) {
+        if (!GamePaused) {
+            /* the pause button, and its slow pulse */
+            limeEnableAlphaBlending_Additive();
+            limeDrawSprite(InfoTexture, s * -4.0f, s * -7.0f,
+                           s * 36.0f, s * 36.0f, 0.0f, 0.0f, 1.0f, 1.0f, col);
+
+            InfoScaleAdd += (1.0f / 60.0f) / limeFPSScaleFactor;
+            if ((GameTime > 95.0f ? 0.75f : 4.0f) < InfoScaleAdd) {
+                InfoScale += 0.05f / limeFPSScaleFactor;
+                if (InfoScale > 1.0f) {
+                    InfoScale    = 0.0f;
+                    InfoScaleAdd = 0.0f;
+                    limeDrawSprite(PauseTexture,
+                                   (float)limeScreenWidth - s * 32.0f,
+                                   s * -7.0f, s * 36.0f, s * 36.0f,
+                                   0.0f, 0.0f, 1.0f, 1.0f, col);
+                }
+            }
+            limeEnableAlphaBlending_Basic();
+        }
+    } else if (!GamePaused && !DoIntro) {
+        timeInGame += (1.0f / 60.0f) / limeFPSScaleFactor;
+    }
+
+    sprintf(strBuf, "%d", (int)GameTime);
+    limeDrawFONT(&CountDownFont, strBuf, (float)(limeScreenWidth / 2),
+                 s * 20.0f, 1, s, fontcol);
+
+    /* ---- who won ---- */
+    if (WinnerMessage[0] || WinnerMessage[1]) {
+        RoundEndedAgainst(0);
+        RoundEndedAgainst(1);
+
+        if (GameMode != 3)
+            limeDrawFONT(&GameFont, limeUC((const char *)WinnerMessage),
+                         (float)(limeScreenWidth / 2),
+                         FE_HeightScale * 80.0f
+                             + FE_HeightScale * 320.0f * SKDeathMessageOffset,
+                         1, FE_WidthScale, fontcol);
+
+        /* Shao Kahn's death slides the banner up off the screen. */
+        if (DoingSKDeath) {
+            SKDeathMessageOffset -= (1.0f / 60.0f) / limeFPSScaleFactor;
+            if (SKDeathMessageOffset <= 0.0f)
+                SKDeathMessageOffset = 0.0f;
+        }
+    }
+
+    /* The last two of the tower. The indices are Motaro and Shao Kahn. */
+    if (GameMode == 0 && RoundWins[0] == WinsNeeded) {
+        if (*PLAYER2MODEL == 0x18) {
+            achievementsUnlock(0xe);
+        } else if (*PLAYER2MODEL == 0x19) {
+            achievementsUnlock(0x10);
+            if (!towerFinishedAndLogged) {
+                towerFinishedAndLogged = 1;
+                EASDK_LogEvent(0x3f8, 15, DestinyNames[Destiny],
+                               15, CharacterNames[PLAYER1MODEL]);
+            }
+        }
+    }
+
+    if (RoundSummary == 1) {
+        RoundSummaryUpdate();
+    } else if (RoundSummary == 2) {
+        if (FightMessage) {
+            FightMessageTimer += 1.0f / limeFPSScaleFactor;
+            if (FightMessageTimer > 180.0f) {
+                FightMessage      = 0;
+                FightMessageTimer = 0.0f;
+            }
+        } else {
+            /* the round banner, and the only untranslated strings in the file */
+            const char *banner = (Round == 0) ? "ROUND 1"
+                               : (Round == 1) ? "ROUND 2"
+                               : (Round == 2) ? "ROUND 3"
+                               : (Round == 3) ? "ROUND 4" : (const char *)0;
+            if (banner)
+                limeDrawFONT(&GameFont, banner, (float)(limeScreenWidth / 2),
+                             FE_HeightScale * 80.0f, 1, FE_WidthScale, fontcol);
+        }
+    }
+
+    DrawComboCounter(0);
+    DrawComboCounter(1);
+
+tail:
+    achievementsDraw();
+    limeEnableDepthTest();
+    limeEnableDepthWrites();
+}
+
+/* The summary timer and everything hanging off it: the tap that skips the wait,
+ * the end-of-round stats, the two ways a match can finish, and the setup for
+ * the next round. This is `DrawHUD`'s `RoundSummary == 1` arm. */
+static void RoundSummaryUpdate(void)
+{
+    /* Only the host runs the AI. */
+    if (GameMode != 1 || isParentBasedOnSpeed())
+        no_ai_hack();
+
+    if (GameMode == 4 && RoundWins[0] == WinsNeeded && survivalWinStreak > 0x13)
+        achievementsUnlock(0x13);
+
+    if (WinnerMessage[0] || WinnerMessage[1] || IsInFinishing)
+        return;
+
+    RoundSummaryTime += 1.25f / limeFPSScaleFactor;
+
+    /* A tap above the bottom band skips the rest of the wait. */
+    if (GameMode != 4 && !IsInFinishing
+        && *limeLastTouchScreenX == -1.0f
+        && *limeTouchScreenY != -1.0f
+        && *limeTouchScreenY < (float)limeScreenHeight + FE_HeightScale * -64.0f
+        && RoundSummaryTime < ROUND_SUMMARY_HOLD)
+        RoundSummaryTime = ROUND_SUMMARY_HOLD;
+
+    if (RoundSummaryTime < ROUND_SUMMARY_HOLD || !RoundHasEnded)
+        return;
+
+    if (!RoundHasEndedStatsUpdated) {
+        RoundHasEndedStatsUpdated = 1;
+        if (GameMode == 1) {
+            Stats[14]++;
+            Stats[13] += Health[isParent() ? 0 : 1];
+            Stats[12]  = (long)((float)Stats[12] + (99.0f - GameTime));
+        } else if (GameMode == 6 || GameMode == 0) {
+            Stats[14]++;
+            Stats[13] += Health[0];
+            Stats[12]  = (long)((float)Stats[12] + (99.0f - GameTime));
+        }
+    }
+
+    if (RoundWins[0] == WinsNeeded) {
+        QuitAsWin();
+        RoundSummaryTime = 0.0f;
+        if (GameMode == 6) {
+            EASDK_LogEvent(0x7559, 15, "2 Players on 1 iPad", 0, (const char *)0);
+            EASDK_LogEventEnumEnumStringNum(0x755a, 15, "2 Players on 1 iPad",
+                                            7, (long)timeInGame);
+        }
+        return;
+    }
+    if (WinsNeeded == RoundWins[1]) {
+        QuitAsLose();
+        RoundSummaryTime = 0.0f;
+        if (GameMode == 6) {
+            EASDK_LogEvent(0x7559, 15, "2 Players on 1 iPad", 0, (const char *)0);
+            EASDK_LogEventEnumEnumStringNum(0x755a, 15, "2 Players on 1 iPad",
+                                            7, (long)timeInGame);
+        }
+        return;
+    }
+
+    /* Nobody has the match yet. Fade out first, unless the fade already ran, in
+     * which case start the next round now. */
+    if (FE_Fade != 0.0f) {
+        *FE_FadeAdd       = -1.0f / 30.0f;
+        DontQuitAfterFade = 1;
+        return;
+    }
+
+    InfoScaleAdd      = 1.0f / 30.0f;
+    DontQuitAfterFade = 0;
+    RoundSummary      = 2;
+
+    LIME_InitEventsManager();
+    CamTrackToPlayer = -1;
+    IsInFinishing    = 0;
+    RoundParam[13]   = 1;
+    RoundParam[14]   = 0;
+    RoundParam[4]    = Round + 1;
+
+    if (IsEndurance) {
+        InitEnduranceMatch();
+        if (*PLAYER2MODEL != PLAYER1MODEL)
+            DumpAltCostume(Players + 0x5f0);
+        LoadGameCharacterCheckCache(Players + 0x5f0,
+                                    PlayerDefs + *PLAYER2MODEL * PLAYERDEF_STRIDE,
+                                    Stats);
+    } else {
+        ((signed char *)RoundParam)[0x18] = -1;
+    }
+
+    /* The fourth argument is AIOn, not 1 -- see the header. */
+    switch (AIOn) {
+    case 2:
+        mk3_init(PLAYER1MODEL | 0x80, *PLAYER2MODEL | 0x80,
+                 (void (*)(void))FrameID_GetBBox, AIOn);
+        break;
+    case 1:
+        mk3_init(PLAYER1MODEL, *PLAYER2MODEL | 0x80, (void (*)(void))FrameID_GetBBox, AIOn);
+        break;
+    default:
+        mk3_init(PLAYER1MODEL, *PLAYER2MODEL, (void (*)(void))FrameID_GetBBox, AIOn);
+        break;
+    }
+
+    Player1NumButtons = Settings[4];
+    mk3_set_four_button(0, Settings[4] != 6);
+    mk3_set_four_button(1, Player2NumButtons != 6);
+    ResetFightData();
 }
