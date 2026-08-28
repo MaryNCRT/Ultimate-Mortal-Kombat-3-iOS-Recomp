@@ -6134,7 +6134,6 @@ extern float  LevelBGPos[3];            /* 0x0015057c */
 extern float  GlassWindowPos[3];        /* 0x0014f9e4 */
 extern void  *MeshSet_LEVEL_01;         /* 0x001aba24 */
 extern float  IdentityMatrix[16];       /* 0x0014f9a4 */
-extern float  ShadowOffsetG;            /* 0x0014dfc8 */
 
 void limeEnableDepthTest(void);
 void limeDisableDepthTest(void);
@@ -6217,7 +6216,7 @@ void RenderLevelBG(void)
             LIME_Slider(1, &SceneY2, "Scene2Y", -1500.0f, 500.0f, 0, 0);
             LIME_Slider(1, &SceneZ2, "Scene2Z", -1500.0f, 500.0f, 0, 0);
             LIME_Slider(1, &SceneScale2, "Scene2Scale", 0.1f, 2.0f, 0, 0);
-            LIME_Slider(1, &ShadowOffsetG, "ShadowOffset", 0.0f, 20.0f, 0, 0);
+            LIME_Slider(1, &ShadowOffset, "ShadowOffset", 0.0f, 20.0f, 0, 0);
 
             if (blasting || CurrentScene == 1) {
                 LIME_PushMatrix();
@@ -6478,4 +6477,685 @@ void DrawMoveListIcons(int y, const int *seq, const char *caption,
     limeDrawFONT(&GameFont, limeUC(buf),
                  (float)(limeScreenWidth - cursor), (float)y,
                  2, 0.75f * FE_WidthScale, fontcol);
+}
+
+
+/* ------------------------------------------------------------ GameInit_LoadABit
+ *
+ * armv7 0x0002b940, **11,700 bytes** -- the largest function in `gamecode`.
+ * **Complete.**
+ *
+ * One slice of fight loading per call. `Task_GameInit` calls it with
+ * `GI_LoadCount` and stops when it returns non-zero; the body is a 53-way
+ * `tbh` on that counter, `0 .. 0x34`. **Only step 52 returns 1.** Every other
+ * step returns 0, including the ones that find nothing to do -- so a skipped
+ * step costs one frame and nothing else.
+ *
+ * It is worth reading as three things at once: the **asset manifest for a
+ * fight**, the **map of the LEVEL_INFO record**, and the **character index
+ * table**.
+ *
+ * ## The roster, settled six ways
+ *
+ * Four steps are 24-way switches picking a per-character stage-death scene, and
+ * all four order the characters identically. `_CharacterNames` (0x0014fe54, an
+ * array of `char *`) then names them, and it runs to 26 -- exactly the
+ * `FE_CHARACTER_SLOTS` that `Players.c` measured from a symbol gap and
+ * `Task_FEDestroy` measured from a texture array:
+ *
+ *       0 KANO         7 SEKTOR      14 SMOKE        21 SUB-ZERO (classic)
+ *       1 SONYA        8 CYRAX       15 KITANA       22 SMOKE (classic)
+ *       2 JAX          9 KUNG LAO    16 JADE         23 NOOB SAIBOT
+ *       3 NIGHTWOLF   10 KABAL       17 MILEENA      24 MOTARO
+ *       4 SUB-ZERO    11 SHEEVA      18 SCORPION     25 SHAO KAHN
+ *       5 STRYKER     12 SHANG TSUNG 19 REPTILE
+ *       6 SINDEL      13 LIU KANG    20 ERMAC
+ *
+ * That closes a set of loose ends across the whole tree at once:
+ *
+ *   - `defeatedBySK` in `QuitAsLose` counts losses to `PLAYER2MODEL == 25`.
+ *     **25 is Shao Kahn.** The variable was named for him and it checks out.
+ *   - `QuitAsWin` and `FE_Task_Main_Menu` count a streak in `winningStryk`,
+ *     gated on `PLAYER1MODEL == 5`. **5 is Stryker** -- the odd variable name
+ *     is the character's.
+ *   - `FE_Task_Character_Select` sets `Character2 = 0x19` for karnage and for
+ *     mode 5. That is Shao Kahn as the fixed opponent.
+ *   - the death switches stop at 23, so **Motaro and Shao Kahn have no stage
+ *     death** -- they are bosses, not selectable fighters.
+ *   - `Stats[PLAYER1MODEL + 15]++` below is the per-character play counter, and
+ *     `FE_Task_Stats` scans **23** of them starting at word 15. Characters 23,
+ *     24 and 25 are counted and never scanned, so Noob Saibot can never be your
+ *     "most played".
+ *
+ * ## The LEVEL_INFO record, mostly mapped
+ *
+ * Steps 27 to 30 and 51 read most of the 244-byte record. With the three arrays
+ * `RenderLevelBG` settles, the map is now:
+ *
+ *      +0x0c .. +0x18   SceneX, SceneY, SceneZ, SceneScale   (floats)
+ *      +0x1c            scene 1 filename        (char *)
+ *      +0x20            scene 1 loop flag
+ *      +0x24, +0x28     ground offsets, float -> int
+ *      +0x40 .. +0x4c   SceneX2, SceneY2, SceneZ2, SceneScale2
+ *      +0x50            scene 2 filename
+ *      +0x54            scene 2 loop flag
+ *      +0x58, +0x5c     ground offsets used when BOTH scenes exist
+ *      +0x74 + i*4      eight extra-layer mesh names   (char *, "" = absent)
+ *      +0x94 + i*4      eight extra-layer texture names
+ *      +0xb4 + i*4      eight texture indices
+ *      +0xd4 + i*4      eight enable flags               (0xd4 + 32 = 0xf4)
+ *
+ * **`CurrentScene` is set to 1 exactly when both `+0x1c` and `+0x50` are
+ * non-null**, and that same branch is the only thing that writes
+ * `SceneX2..SceneScale2`. So the second background layer `RenderLevelBG` draws
+ * is enabled by the stage data carrying two scene filenames and by nothing
+ * else -- which answers the last open question in
+ * [issue #17](../../issues/17).
+ *
+ * ## Two stages have per-character deaths
+ *
+ *      LevelSelect == 4    SUBWAY_<CHARACTER>.scene
+ *      LevelSelect == 11   LAIR_<CHARACTER>.scene
+ *
+ * Step 46 loads player 1's into `TrainDie1Scene` and step 47 player 2's into
+ * `TrainDie2Scene`; steps 44 and 45 do the same pair for the lair into
+ * `SLDie1Scene` and `SLDie2Scene`. In endurance the second slot comes from
+ * `LastEnduranceCharacter` rather than `Character2`, so the death matches
+ * whoever is actually on screen.
+ *
+ * Forty-eight scene files for two stages, which is why they are the two most
+ * expensive stages to enter.
+ *
+ * ## The manifest, in load order
+ *
+ *      2      FE_BUTTONS_01.PNG
+ *      3-12   FATAL_HUDGFX_0..9.PNG      ten frames, ONE PER STEP
+ *      13     MOVES_ICONS.PNG            the atlas DrawMoveListIcons indexes
+ *      14     DANGER.PNG
+ *      15     LOGO_COIN_32.PNG
+ *      16     LoadBloodTextures()
+ *      17     BLOODSPLAT1 / GREENBLOODSPLAT1 / BLACKBLOODSPLAT1 / SMOKEPARTICLE2
+ *      18     InitParticles, InitGameEvents, STARFIELD / EARTH_128 / EXPLOSION_0
+ *      19-20  SPEAR1..4, TRIDENT4
+ *      21-26  WHITE, PAUSE, INFO, X, HUD_TPAGE, PAUSEBG, BUTTONS_TPAGE
+ *      27-28  the stage's two scenes, from LEVEL_INFO
+ *      29-30  the eight extra layers' textures and meshes
+ *      31-32  FIGHT.meshset, FIGHT.scene
+ *      33-40  SHOCKWAVE2, JAXZAP8, GENERICBLOODEXPLODE, XEROX,
+ *             GENERICBODYEXPLODE, ROCKFALL, SUBWAY_TRAIN, ROCKBREAKTHROUGH
+ *      41     SK_ENDING.scene, outside endurance only
+ *      48     LoadLevelCharacters(PLAYER1MODEL, PLAYER2MODEL)
+ *      49-50  PreloadGameCharacters for endurance, and for Stryker
+ *      52     LoadAllSounds, mk3_init, and the return of 1
+ *
+ * **Ten separate steps to load ten HUD frames** is the clearest statement of
+ * what the counter is for: the work is chopped so no single frame stalls, and
+ * the 52 in `Task_GameInit`'s progress bar is a budget, not a measurement.
+ *
+ * ## Stryker drags three other characters in
+ *
+ * Step 50 fires when either fighter is character 5 and fills
+ * `StrykerCharacters` with `{ 2, 3, 13, -1 }` before preloading them -- Jax,
+ * Nightwolf and Liu Kang. They are loaded whether or not they are in the fight,
+ * so Stryker costs three extra character loads.
+ *
+ * ## Cyrax's self-destruct is loaded only when it can happen
+ *
+ *      if (either fighter is 0, 8 or 11)
+ *          CyraxSelfDestructScene = "PURPLEHAZEDEATH.scene"
+ *      else
+ *          CyraxSelfDestructScene = NULL
+ *
+ * 0, 8 and 11 are Kano, Cyrax and Sheeva. The scene is Cyrax's, so the other
+ * two are on the list as the ones it can be used against.
+ *
+ * ## The AI flag is bit 7 of the model index
+ *
+ * Step 52 hands the fight engine its fighters:
+ *
+ *      AIOn == 0   mk3_init(P1,        P2,        FrameID_GetBBox, 1)
+ *      AIOn == 1   mk3_init(P1,        P2 | 0x80, FrameID_GetBBox, 1)
+ *      AIOn == 2   mk3_init(P1 | 0x80, P2 | 0x80, FrameID_GetBBox, 1)
+ *
+ * which is exactly the three states `ShowDebugInfo` prints as "Human vs Human",
+ * "Human vs CPU" and "CPU vs CPU". **The engine is told a fighter is CPU by
+ * setting bit 7 of its character index**, so a model index is seven bits wide
+ * and the roster's 26 entries have plenty of room.
+ *
+ * Then `mk3_set_four_button(side, buttons != 6)` for each side, from
+ * `Settings[4]`: the fight engine only distinguishes six-button from
+ * everything-else.
+ *
+ * ## One number worth checking
+ *
+ *      Camera[0] = TestScale * 0.0;
+ *      Camera[1] = TestScale * -1200.0f;
+ *      Camera[2] = TestScale * 146.0f;
+ *
+ * The declaration of `Camera` further up this file records an observed
+ * `(0.0, -600.0, 146.0)`. That would need `TestScale` to be 0.5 for the Y and
+ * 1.0 for the Z, and it cannot be both. This is the write that runs at fight
+ * start; whichever of the two is wrong, they disagree.
+ */
+#define GILAB_CHARACTERS 24
+
+/* The two per-character stage-death tables. The original writes each of these
+ * out as a 24-case switch with one `LIME_LoadSceneWithTextures` per case, twice
+ * over for the two player slots -- roughly 6 KB of the function's 11.7 KB. The
+ * table is the fact; the switch is how it was typed. */
+static const char *const SubwayDeathScene[GILAB_CHARACTERS] = {
+    "SUBWAY_KANO.scene",       "SUBWAY_SONYA.scene",   "SUBWAY_JAX.scene",
+    "SUBWAY_NIGHTWOLF.scene",  "SUBWAY_SUBZERO.scene", "SUBWAY_STRYKER.scene",
+    "SUBWAY_SINDEL.scene",     "SUBWAY_SEKTOR.scene",  "SUBWAY_CYRAX.scene",
+    "SUBWAY_KUNGLAO.scene",    "SUBWAY_KABAL.scene",   "SUBWAY_SHEEVA.scene",
+    "SUBWAY_SHANGTSUNG.scene", "SUBWAY_LIUKANG.scene", "SUBWAY_SMOKE.scene",
+    "SUBWAY_KITANA.scene",     "SUBWAY_JADE.scene",    "SUBWAY_MILEENA.scene",
+    "SUBWAY_SCORPION.scene",   "SUBWAY_REPTILE.scene", "SUBWAY_ERMAC.scene",
+    "SUBWAY_OLDSUBZERO.scene", "SUBWAY_OLDSMOKE.scene","SUBWAY_NOOBSAIBOT.scene"
+};
+
+static const char *const LairDeathScene[GILAB_CHARACTERS] = {
+    "LAIR_KANO.scene",       "LAIR_SONYA.scene",   "LAIR_JAX.scene",
+    "LAIR_NIGHTWOLF.scene",  "LAIR_SUBZERO.scene", "LAIR_STRYKER.scene",
+    "LAIR_SINDEL.scene",     "LAIR_SEKTOR.scene",  "LAIR_CYRAX.scene",
+    "LAIR_KUNGLAO.scene",    "LAIR_KABAL.scene",   "LAIR_SHEEVA.scene",
+    "LAIR_SHANGTSUNG.scene", "LAIR_LIUKANG.scene", "LAIR_SMOKE.scene",
+    "LAIR_KITANA.scene",     "LAIR_JADE.scene",    "LAIR_MILEENA.scene",
+    "LAIR_SCORPION.scene",   "LAIR_REPTILE.scene", "LAIR_ERMAC.scene",
+    "LAIR_OLDSUBZERO.scene", "LAIR_OLDSMOKE.scene","LAIR_NOOBSAIBOT.scene"
+};
+
+/* Ten fatality HUD frames, one per step. */
+static const char *const FatalHudFrame[10] = {
+    "FATAL_HUDGFX_0.PNG", "FATAL_HUDGFX_1.PNG", "FATAL_HUDGFX_2.PNG",
+    "FATAL_HUDGFX_3.PNG", "FATAL_HUDGFX_4.PNG", "FATAL_HUDGFX_5.PNG",
+    "FATAL_HUDGFX_6.PNG", "FATAL_HUDGFX_7.PNG", "FATAL_HUDGFX_8.PNG",
+    "FATAL_HUDGFX_9.PNG"
+};
+
+extern void  *HUDFatalsTexture[10];
+extern void  *DangerTPage;
+extern void  *CoinTPage;
+extern void  *NewBloodTexture;          /* 0x001f4490 */
+extern void  *NewGreenBloodTexture;     /* 0x001f4494 */
+extern void  *NewBlackBloodTexture;
+extern void  *SmokeStarFieldTexture;    /* 0x001ab668 */
+extern void  *SmokeEarthTexture;        /* 0x001ab66c */
+extern void  *SmokeExplosionTexture;    /* 0x001ab670 */
+extern void  *PauseTexture;
+extern void  *InfoTexture;
+extern void  *CancelTexture;
+extern void  *HUDTPage;
+extern void  *PauseBGTexture;
+extern void  *SZEffectScene;
+extern void  *SwatEffectScene;
+extern void  *BloodScene;
+extern void  *XeroxScene;
+extern void  *PitDeathScene;            /* 0x001aba50 */
+extern void  *RocksScene;
+extern void  *TrainScene;
+extern void  *SKEffectScene;
+extern void  *TrainDie1Scene;           /* 0x001aba6c */
+extern void  *TrainDie2Scene;           /* 0x001aba70 */
+extern void  *SLDie1Scene;
+extern void  *SLDie2Scene;
+extern void  *CyraxSelfDestructScene;   /* 0x001aba54 */
+extern void  *MeshSet_FIGHT;            /* pointer slot -> 0x000f3824 */
+extern void  *Scene_FIGHT;              /* pointer slot -> 0x000f381c */
+extern long   JaxBeingSquashed;         /* 0x0010dedc */
+extern long   IsEndurance;              /* 0x0014fcb0 */
+extern long   StrykerCharacters[4];     /* 0x001ab004 */
+extern long   DifficultyList[];         /* 0x0014fc00, eleven words a row */
+extern float  Player1Pos[3];            /* 0x00150564 */
+extern float  Player2Pos[3];            /* 0x00150570 */
+extern long   towerFinishedAndLogged;   /* 0x0010de60 */
+extern long   Character2Override;       /* 0x00101798 */
+extern char   Stats_[];                 /* 0x00183c84, see FrontEnd.c */
+extern const char **kodeNames;          /* pointer slot -> 0x001770b0 */
+extern void **FEBits1;                  /* pointer slot */
+extern void **SmokeTexture;             /* pointer slot */
+
+void  preprocessPreloadKode(void);
+
+/* The slot at 0x000f33f8 holds 0x0001c675 -- FrameID_GetBBox with the Thumb
+ * bit set. mk3_init is handed the bounding-box lookup rather than calling it;
+ * see decomp/gamecode/training.c, which found the same slot. */
+extern void (*FrameID_GetBBoxPtr)(void);
+
+void *LIME_LoadScene(const char *name, long a, long b, long c);
+void *LIME_LoadSceneWithTextures(const char *name, long a);
+void *LIME_LoadMeshSet(const char *name, long a);
+void  LIME_LoadMeshSetTextures(void *ms, long a);
+void  InitParticles(void);
+void  InitGameEvents(void);
+void  LoadLevelCharacters(long p1, long p2);
+void  PreloadGameCharacters(long *list, long which);
+void  HUDANIM_Init(void);
+void  mk3_init_game(void);
+void  LoadAllSounds(void);
+void  mk3_set_four_button(long side, long four);
+void  mk3_init(long p1model, long p2model, void (*getBBox)(void), long flag);
+
+/* Return 0 to keep loading, non-zero when the last step is done. */
+long GameInit_LoadABit(long step)
+{
+    const char *rec = Level_Info + *LevelSelectP * LEVEL_INFO_STRIDE;
+    long i;
+
+    /* Steps 3..12 are ten copies of the same two lines. */
+    if (step >= 3 && step <= 12) {
+        HUDFatalsTexture[step - 3] =
+            limeLoadTexture(FatalHudFrame[step - 3], 0, 0);
+        return 0;
+    }
+
+    switch (step) {
+    case 0:
+        if (GameMode != 1)
+            return 0;
+        checkIfKode();
+        if (*theKode > 0)
+            EASDK_LogEventEnumEnumString(0x3f6, 15, kodeNames[*theKode], 15, 0);
+        preprocessPreloadKode();
+        return 0;
+
+    case 1:
+        /* In a network game only one end runs the engine's own init. */
+        if (GameMode == 1 && !isParentBasedOnSpeed())
+            return 0;
+        mk3_init_game();
+        return 0;
+
+    case 2:
+        puts("########## TASK_GAME_INIT: 1");
+        RoundParam[0x24 / 4] = 0;
+        RoundParam[0x34 / 4] = 1;
+
+        /* Four stages map to a RoundParam value; the rest leave it at 0. The
+         * original computes each from the level number it just compared
+         * against (`4 - 1`, `8 - 6`, `11 - 7`), which is why they look like
+         * arithmetic rather than constants. */
+        if (*LevelSelectP == 3)
+            RoundParam[0x24 / 4] = 1;
+        else if (*LevelSelectP == 4)
+            RoundParam[0x24 / 4] = 3;
+        else if (*LevelSelectP == 8)
+            RoundParam[0x24 / 4] = 2;
+        else if (*LevelSelectP == 11)
+            RoundParam[0x24 / 4] = 4;
+
+        if (GameMode == 5 && *TreasurePlayed == 2)
+            *LevelSelectP = 0;
+
+        *FEBits1 = limeLoadTexture("FE_BUTTONS_01.PNG", 0, 0);
+        return 0;
+
+    case 13: MoveIconsTexture = limeLoadTexture("MOVES_ICONS.PNG", 0, 0);   return 0;
+    case 14: DangerTPage      = limeLoadTexture("DANGER.PNG", 0, 0);        return 0;
+    case 15: CoinTPage        = limeLoadTexture("LOGO_COIN_32.PNG", 0, 0);  return 0;
+
+    case 16:
+        LoadBloodTextures();
+        return 0;
+
+    case 17:
+        NewBloodTexture      = limeLoadTexture("BLOODSPLAT1.PNG", 0, 1);
+        NewGreenBloodTexture = limeLoadTexture("GREENBLOODSPLAT1.PNG", 0, 1);
+        NewBlackBloodTexture = limeLoadTexture("BLACKBLOODSPLAT1.PNG", 0, 1);
+        *SmokeTexture        = limeLoadTexture("SMOKEPARTICLE2.PNG", 0, 1);
+        return 0;
+
+    case 18:
+        InitParticles();
+        InitGameEvents();
+        JaxGrowCounter   = 0;
+        JaxBeingSquashed = 0;
+        puts("########## TASK_GAME_INIT: 2");
+        SmokeStarFieldTexture = limeLoadTexture("STARFIELD.PNG", 0, 0);
+        SmokeEarthTexture     = limeLoadTexture("EARTH_128.PNG", 0, 0);
+        SmokeExplosionTexture = limeLoadTexture("EXPLOSION_0.PNG", 0, 0);
+        return 0;
+
+    case 19:
+        SpearTexture[0] = limeLoadTexture("SPEAR1.PNG", 0, 0);
+        SpearTexture[1] = limeLoadTexture("SPEAR2.PNG", 0, 0);
+        return 0;
+
+    case 20:
+        SpearTexture[2] = limeLoadTexture("SPEAR3.PNG", 0, 0);
+        SpearTexture[3] = limeLoadTexture("SPEAR4.PNG", 0, 0);
+        SpearTexture[4] = limeLoadTexture("TRIDENT4.PNG", 0, 0);
+        return 0;
+
+    case 21: WhiteTexture  = limeLoadTexture("WHITE.PNG", 0, 0);      return 0;
+    case 22: PauseTexture  = limeLoadTexture("PAUSE.PNG", 0, 0);      return 0;
+    case 23: InfoTexture   = limeLoadTexture("INFO.PNG", 0, 0);       return 0;
+    case 24: CancelTexture = limeLoadTexture("X.PNG", 0, 0);          return 0;
+    case 25: HUDTPage      = limeLoadTexture("HUD_TPAGE.PNG", 0, 0);  return 0;
+
+    case 26:
+        PauseBGTexture = limeLoadTexture("PAUSEBG.PNG", 0, 0);
+        *ButtonsTPage  = (TEXTURE *)limeLoadTexture("BUTTONS_TPAGE.PNG", 0, 0);
+        return 0;
+
+    case 27: {
+        const char *name;
+
+        BGSceneHandle2       = 0;
+        BGSceneHandle        = 0;
+        BGSceneFrame[0]      = 0.0f;
+        BGSceneFrame[1]      = 0.0f;
+        BGSceneController[2] = -1;
+        BGSceneController[5] = -1;
+
+        name = *(const char *const *)(rec + 0x1c);
+        if (name == 0)
+            return 0;
+
+        BGSceneHandle = LIME_LoadScene(name, 0, 0, 0);
+        if (BGSceneHandle != 0)
+            LIME_LoadMeshSetTextures(((void **)BGSceneHandle)[0x80 / 4], 0);
+        BGSceneLoops[0] = *(const long *)(rec + 0x20);
+        return 0;
+    }
+
+    case 28: {
+        const char *name = *(const char *const *)(rec + 0x50);
+
+        if (name == 0)
+            return 0;
+
+        BGSceneHandle2 = LIME_LoadScene(name, 0, 0, 0);
+        if (BGSceneHandle2 != 0)
+            LIME_LoadMeshSetTextures(((void **)BGSceneHandle2)[0x80 / 4], 0);
+        BGSceneLoops[1] = *(const long *)(rec + 0x54);
+        return 0;
+    }
+
+    case 29:
+        /* All eight layer textures in one step, empty names skipped. */
+        for (i = 0; i < 8; i++) {
+            const char *name = ((const char *const *)(rec + 0x94))[i];
+
+            if (name[0] != 0)
+                LevelBGTexture[i] = limeLoadTexture(name, 0, 0);
+        }
+        return 0;
+
+    case 30:
+        for (i = 0; i < 8; i++) {
+            const char *name = ((const char *const *)(rec + 0x74))[i];
+
+            if (name[0] != 0)
+                *MeshSetLayers[i] = LIME_LoadMeshSet(name, 0);
+        }
+        return 0;
+
+    case 31: MeshSet_FIGHT = LIME_LoadMeshSet("FIGHT.meshset", 0);    return 0;
+    case 32: Scene_FIGHT   = LIME_LoadScene("FIGHT.scene", 0, 0, 0);  return 0;
+
+    case 33:
+        puts("########## TASK_GAME_INIT: 3");
+        SZEffectScene = LIME_LoadSceneWithTextures("SHOCKWAVE2.scene", 1);
+        return 0;
+
+    case 34: SwatEffectScene = LIME_LoadSceneWithTextures("JAXZAP8.scene", 1);             return 0;
+    case 35: BloodScene      = LIME_LoadSceneWithTextures("GENERICBLOODEXPLODE.scene", 1); return 0;
+    case 36: XeroxScene      = LIME_LoadSceneWithTextures("XEROX.scene", 1);               return 0;
+    case 37: PitDeathScene   = LIME_LoadSceneWithTextures("GENERICBODYEXPLODE.scene", 1);  return 0;
+    case 38: RocksScene      = LIME_LoadSceneWithTextures("ROCKFALL.scene", 1);            return 0;
+    case 39: TrainScene      = LIME_LoadSceneWithTextures("SUBWAY_TRAIN.scene", 1);        return 0;
+    case 40: SmashThruScene  = LIME_LoadSceneWithTextures("ROCKBREAKTHROUGH.scene", 1);    return 0;
+
+    case 41:
+        if (IsEndurance != 0)
+            return 0;
+        SKEffectScene = LIME_LoadSceneWithTextures("SK_ENDING.scene", 0);
+        return 0;
+
+    case 42:
+        heartbeatSetIncoming(3);
+        heartbeatUpdate();
+
+        if (Destiny == -1)
+            Destiny = Destiny + 1;      /* -1 becomes 0, written as an add */
+
+        LastDestiny  = Destiny;
+        PLAYER1MODEL = Character1;
+
+        /* The per-character play counter -- and in a network game only the
+         * host counts it, so the two ends do not both credit the same fight. */
+        if (GameMode != 1 || isParent())
+            ((long *)Stats_)[PLAYER1MODEL + 15]++;
+
+        if (GameMode == 0) {
+            long who = ((const long *)OpponentTowerList)[Destiny * 11 + Stage];
+
+            Character2   = who;
+            *PLAYER2MODEL = who;
+        }
+
+        if (Character2Override != -1) {
+            Character2   = Character2Override;
+            *PLAYER2MODEL = Character2Override;
+        }
+        *PLAYER2MODEL = Character2;
+
+        HUDANIM_Init();
+
+        if (PLAYER1MODEL == 8  || *PLAYER2MODEL == 8
+            || PLAYER1MODEL == 0  || *PLAYER2MODEL == 0
+            || PLAYER1MODEL == 11 || *PLAYER2MODEL == 11)
+            CyraxSelfDestructScene =
+                LIME_LoadSceneWithTextures("PURPLEHAZEDEATH.scene", 0);
+        else
+            CyraxSelfDestructScene = 0;
+        return 0;
+
+    case 43:
+        puts("########## TASK_GAME_INIT: 4");
+        P2Controls = 0;
+        AIOn       = 1;
+
+        if (GameMode == 6) {                    /* two players, one device */
+            P2Controls  = 1;
+            AIOn        = 0;
+            IsEndurance = 0;
+        } else if (GameMode == 2) {             /* training */
+            AIOn        = 0;
+            IsEndurance = 0;
+        } else {
+            IsEndurance = 0;
+            if (GameMode == 0) {
+                IsEndurance = EnduranceTowerList[Destiny * 11 + Stage];
+                if (IsEndurance != 0) {
+                    /* Four independent draws, each masked to 0..3: the two
+                     * endurance opponents and their alternates. */
+                    girlrand  = limeRand() & 3;
+                    girlrand2 = limeRand() & 3;
+                    boyrand   = limeRand() & 3;
+                    boyrand2  = limeRand() & 3;
+                    InitEnduranceMatch();
+                    return 0;
+                }
+            }
+        }
+
+        ((char *)RoundParam)[0x18] = (char)-1;  /* a BYTE store */
+        RoundParam[0x3c / 4] = 0;
+
+        /* The last stage of a tower sets the flag and still returns 0 -- the
+         * last STAGE is not the last STEP. */
+        if (GameMode == 0 && Destiny + 7 <= Stage)
+            RoundParam[0x3c / 4] = 1;
+        return 0;
+
+    case 44:                                    /* the lair, player 1 */
+        puts("########## TASK_GAME_INIT: 5");
+        if (*LevelSelectP != 11)
+            return 0;
+        SLDie1Scene =
+            LIME_LoadSceneWithTextures(LairDeathScene[Character1], 0);
+        return 0;
+
+    case 45:                                    /* the lair, player 2 */
+        if (*LevelSelectP != 11)
+            return 0;
+        SLDie2Scene = LIME_LoadSceneWithTextures(
+            LairDeathScene[IsEndurance ? LastEnduranceCharacter : Character2],
+            0);
+        return 0;
+
+    case 46:                                    /* the subway, player 1 */
+        if (*LevelSelectP != 4)
+            return 0;
+        TrainDie1Scene =
+            LIME_LoadSceneWithTextures(SubwayDeathScene[Character1], 0);
+        return 0;
+
+    case 47:                                    /* the subway, player 2 */
+        puts("########## TASK_GAME_INIT: 6");
+        if (*LevelSelectP != 4)
+            return 0;
+        TrainDie2Scene = LIME_LoadSceneWithTextures(
+            SubwayDeathScene[IsEndurance ? LastEnduranceCharacter : Character2],
+            0);
+        return 0;
+
+    case 48:
+        puts("########## TASK_GAME_INIT: 7");
+        LoadLevelCharacters(PLAYER1MODEL, *PLAYER2MODEL);
+        return 0;
+
+    case 49:
+        puts("########## TASK_GAME_INIT: 7.05");
+        if (IsEndurance == 0)
+            return 0;
+        PreloadGameCharacters(EnduranceCharacters, 1);
+        return 0;
+
+    case 50:
+        puts("########## TASK_GAME_INIT: 7.1");
+        if (PLAYER1MODEL != 5 && *PLAYER2MODEL != 5)
+            return 0;
+        /* Stryker's moves reference Jax, Nightwolf and Liu Kang. */
+        StrykerCharacters[0] = 2;
+        StrykerCharacters[1] = 3;
+        StrykerCharacters[2] = 13;
+        StrykerCharacters[3] = -1;
+        PreloadGameCharacters(StrykerCharacters, 0);
+        return 0;
+
+    case 51:
+        puts("########## TASK_GAME_INIT: 7.2");
+        CurrentScene = 0;
+
+        RoundParam[0] = (long)*(const float *)(rec + 0x24);
+        RoundParam[1] = (long)*(const float *)(rec + 0x28);
+        SceneX     = *(const float *)(rec + 0x0c);
+        SceneY     = *(const float *)(rec + 0x10);
+        SceneZ     = *(const float *)(rec + 0x14);
+        SceneScale = *(const float *)(rec + 0x18);
+
+        InitGroundOffset  = 0;
+        SceneGroundOffset = 0.0f;
+        ShadowOffset      = 0.0f;
+
+        puts("########## TASK_GAME_INIT: 7.3");
+
+        /* Two scene filenames is the whole switch for the second layer. */
+        if (*(const long *)(rec + 0x1c) != 0
+            && *(const long *)(rec + 0x50) != 0) {
+            blast_state = 0;
+            SceneX2     = *(const float *)(rec + 0x40);
+            SceneY2     = *(const float *)(rec + 0x44);
+            SceneZ2     = *(const float *)(rec + 0x48);
+            SceneScale2 = *(const float *)(rec + 0x4c);
+
+            CurrentScene = 1;
+            ((char *)RoundParam)[0x30] = 1;     /* a BYTE store */
+            RoundParam[0x08 / 4] = 0x320;
+            InitGroundOffset     = 0x320;       /* the same 800, as an int */
+
+            SceneGroundOffset = -800.0f / WorldScaleAdjust;
+            ShadowOffset      = -800.0f / WorldScaleAdjust;
+
+            RoundParam[0] = (long)*(const float *)(rec + 0x58);
+            RoundParam[1] = (long)*(const float *)(rec + 0x5c);
+        }
+
+        puts("########## TASK_GAME_INIT: 8");
+
+        RoundParam[0x10 / 4] = 1;
+        RoundParam[0x14 / 4] = Destiny;
+        RoundParam[0x0c / 4] = DifficultyList[Destiny * 11 + Stage];
+
+        if (GameMode == 4) {                    /* survival ramps its own */
+            long d = survivalWinStreak / 4;
+
+            RoundParam[0x0c / 4] = d > 9 ? 9 : d;
+            RoundParam[0x14 / 4] = 0;
+        } else if (GameMode == 3) {             /* karnage */
+            RoundParam[0x0c / 4] = Destiny - 3;
+            RoundParam[0x14 / 4] = Destiny - 3;
+        }
+
+        Player1Pos[0] = 1.36f;
+        Player1Pos[1] = -0.44f;
+        Player1Pos[2] = -0.00062f;
+        Player2Pos[0] = 4.714375f;
+        Player2Pos[1] = -0.44f;
+        Player2Pos[2] = -0.0125f;
+
+        IsInFinishing    = 0;
+        CamTrackToPlayer = -1;
+        RoundParam[0x38 / 4] = 0;
+        RoundParam[0x34 / 4] = 1;
+        return 0;
+
+    case 52:
+        LoadAllSounds();
+
+        if (GameMode == 1 && !isParentBasedOnSpeed()) {
+            puts("INITIALIZING MP SPRITELIST AND EVENT QUEUE");
+            clearSpriteListsAndEvents();
+            dumpMem(mpSpriteList, 0x140, 0x20);
+            dumpMem(mpEventQueue, 0x1b0, 0x20);
+        }
+
+        if (isParentBasedOnSpeed())
+            AIOn = 0;
+
+        CamTrackToPlayer = -1;
+        IsInFinishing    = 0;
+        RoundParam[0x34 / 4] = 1;
+        RoundParam[0x38 / 4] = 0;
+
+        /* Bit 7 of a model index is "this side is the CPU". */
+        if (AIOn == 2)
+            mk3_init(PLAYER1MODEL | 0x80, *PLAYER2MODEL | 0x80,
+                     FrameID_GetBBoxPtr, 1);
+        else if (AIOn == 1)
+            mk3_init(PLAYER1MODEL, *PLAYER2MODEL | 0x80,
+                     FrameID_GetBBoxPtr, 1);
+        else
+            mk3_init(PLAYER1MODEL, *PLAYER2MODEL, FrameID_GetBBoxPtr, 1);
+
+        Player1NumButtons = Settings[4];
+        mk3_set_four_button(0, Player1NumButtons != 6);
+        mk3_set_four_button(1, Player2NumButtons != 6);
+
+        puts("########## TASK_GAME_INIT: 9");
+
+        Camera[0] = TestScale * 0.0f;
+        Camera[1] = TestScale * -1200.0f;
+        Camera[2] = TestScale * 146.0f;
+
+        LIME_KillAllEvents();
+        towerFinishedAndLogged = 0;
+        return 1;                       /* the only non-zero return */
+
+    default:
+        return 0;
+    }
 }
