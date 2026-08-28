@@ -3639,7 +3639,9 @@ extern float  CamRightLimit;            /* 0x001f44ac */
 extern long  *UpperLowerTxt;            /* 0x0015107c */
 extern float  ShadowHeightFromGround;   /* 0x00171364 */
 
-void ClearDebugWindow(void);
+void ClearDebugWindow(int index);   /* lime.h names the argument; this file
+                                     * had it as void until RenderLevelBG
+                                     * called it with 1 */
 void LIME_printf(long level, const char *fmt, ...);
 void LIME_Slider(long a, float *value, const char *label, float lo,
                  float hi, long step, long b);
@@ -3740,7 +3742,7 @@ void MaintainLevelScenes(void)
     ((long *)G)[0xb0 / 4] = rp[0];
     ((long *)G)[0xb4 / 4] = rp[1] - 0x18c - 3;   /* 399, as two subtractions */
 
-    ClearDebugWindow();
+    ClearDebugWindow(0);                /* window 0 -- r0 is 0 at the call */
     LIME_printf(0, "");
     LIME_printf(0, "", UpperLowerTxt[CurrentScene]);
     LIME_printf(0, "");
@@ -6001,4 +6003,282 @@ void ResetFightData(void)
     DoingSKDeath                = 0;
     SKDeathMessageOffset        = 0;
     opponentPerformedMercy      = 0;
+}
+
+
+/* -------------------------------------------------------------- RenderLevelBG
+ *
+ * armv7 0x00025168, 1564 bytes.  **Complete.**
+ *
+ * The whole stage background: two scene handles, up to eight extra mesh
+ * layers, and one special case for level 1. This answers
+ * [issue #17](../../issues/17) -- the port draws the first scene only.
+ *
+ * ### The second scene is real, and it is drawn with its own transform
+ *
+ *      scene 1   glRotatef(90, 1,0,0); glScalef(SceneScale);
+ *                glTranslatef(SceneX, SceneY, SceneZ)
+ *      scene 2   the same matrix, then
+ *                glTranslatef(SceneX2, SceneY2, SceneZ2);
+ *                glScalef(SceneScale2)
+ *
+ * Scene 2's transform is applied **inside** scene 1's push, so its offsets are
+ * relative: `SceneY2 = -978.0` puts it 978 units below the stage, in the
+ * already-rotated and already-scaled space. The port has to reproduce the
+ * nesting, not just the numbers.
+ *
+ * ### Both scenes are drawn TWICE, and the only difference is one argument
+ *
+ *      LIME_RenderScene(-1, handle, frame, frame, 0, 0, 0, **0**, 0, 0, 0)
+ *      LIME_RenderScene(-1, handle, frame, frame, 0, 0, 0, **1**, 0, 0, 0)
+ *
+ * Argument `d` is 0 then 1 -- the opaque pass and the transparent pass. Four
+ * `LIME_RenderScene` calls per frame when both handles are set. A port that
+ * draws each scene once will lose either the solid geometry or the glass,
+ * depending which pass it happens to reproduce.
+ *
+ * ### With no second scene, the first is still drawn twice
+ *
+ * `BGSceneHandle2 == 0` takes an early path that renders scene 1's two passes
+ * and then rechecks both handles -- and since the check that got it there was
+ * `handle2 == 0`, the recheck always sends it to the tail. So the shape is:
+ *
+ *      no handle       draw nothing
+ *      one handle      draw scene 1, two passes
+ *      two handles     draw scene 1 and scene 2, two passes each
+ *
+ * ### Each scene is gated on `blast_state` and `CurrentScene`
+ *
+ *      draw scene 1 if (blast_state in 1..2) || CurrentScene == 0
+ *      draw scene 2 if (blast_state in 1..2) || CurrentScene == 1
+ *
+ * `CurrentScene` picks between them when `blast_state` is 0 or above 2, and
+ * both are drawn during a blast. So the two scenes are **alternatives** most of
+ * the time and simultaneous during the transition -- which is why a port that
+ * only ever draws scene 1 looks correct on the stages where `CurrentScene` is 0
+ * and empty on the others.
+ *
+ * ### The second placement matrix is computed and then thrown away
+ *
+ *      limeMatrixMult(RealBGSceneMatrix, translate(Scene*2 * SceneScale2),
+ *                     RealBGSceneMatrix + 16);
+ *      memcpy(RealBGSceneMatrix + 16, RealBGSceneMatrix, 64);
+ *
+ * The multiply writes the second matrix and the copy immediately overwrites it
+ * with a copy of the first, so **on leaving this function the two halves of
+ * `RealBGSceneMatrix` are identical** and the `Scene*2` offsets have reached
+ * only the GL matrix stack.
+ *
+ * `AnimateBG` (above) computes the same second matrix, correctly, every frame.
+ * Which of the two a reader sees therefore depends on the order the two
+ * functions run in -- and `AnimateBG` is the one that means it. Transcribed as
+ * written; that this copy exists at all is the finding.
+ *
+ * ### All four draws use `BGSceneFrame[0]`
+ *
+ * `AnimateBG` maintains **two** frame counters, one per layer, and advances
+ * them independently with their own loop flags. Every `LIME_RenderScene` here
+ * passes `BGSceneFrame[0]`. So the second layer's counter is kept up to date
+ * and never used: scene 2 is drawn at scene 1's frame. A port that wires
+ * `BGSceneFrame[1]` to the second layer is fixing something, not transcribing
+ * it.
+ *
+ * ### Five debug sliders, still live
+ *
+ *      Scene2X, Scene2Y, Scene2Z   -1500 .. 500
+ *      Scene2Scale                   0.1 .. 2.0
+ *      ShadowOffset                    0 .. 20
+ *
+ * plus a `LIME_printf` of a divider line, every frame. The ranges are the
+ * useful part: they say what the author considered plausible, and `-1500` is
+ * what makes `SceneY2 = -978` an ordinary value rather than an outlier.
+ *
+ * ### Eight extra mesh layers per stage, from LEVEL_INFO
+ *
+ *      for (i = 0; i < 8; i++)
+ *          if (*(long *)(rec + 0xd4 + i*4) && ((char **)(rec + 0x74))[i][0])
+ *              RenderAMesh(0, 0, &LevelBGPos, IdentityMatrix, 0,
+ *                          LevelBGTexture[((long *)(rec + 0xb4))[i]],
+ *                          0, *MeshSetLayers[i], 0);
+ *
+ * That settles three arrays inside the 244-byte `LEVEL_INFO` record: **+0x74 is
+ * eight `char *` names, +0xb4 eight texture indices, +0xd4 eight enable flags**
+ * -- and `0xd4 + 8*4 = 0xf4`, exactly the stride, so the flags are the last
+ * field in the record. A layer is drawn only when its flag is set **and** its
+ * name is a non-empty string; either alone is not enough.
+ *
+ * ### Level 1 has a hand-written glass effect
+ *
+ * When `LevelSelect == 1`, layer 0 is absent and `ExtraEffects` is set, the
+ * loop is interrupted by 32 additive passes of `MeshSet_LEVEL_01`:
+ *
+ *      alpha = (1.0 + i * -0.03125) / 10.0        i = 0 .. 31
+ *      GlassWindowPos.y -= 40.0 each pass
+ *      ...then GlassWindowPos.y += 1280.0         (32 * 40, restored exactly)
+ *
+ * Thirty-two stacked translucent copies of one mesh, each 40 units lower and
+ * one thirty-second fainter, drawn additively with depth test and depth writes
+ * off. That is a volumetric shaft built out of slices -- and `-1/32` with 32
+ * iterations means the last slice has alpha `(1 - 31/32) / 10`, just above
+ * zero. `TestScale` is 0.0095 during it and 0.01 after, and the position is
+ * restored exactly, so nothing leaks into the next frame.
+ *
+ * This is the single most expensive thing in the background: 32 draw calls for
+ * one effect on one stage.
+ */
+extern void **MeshSetLayers[8];         /* 0x0014f910 -- each entry points AT
+                                         * a meshset handle, so the draw needs
+                                         * two dereferences */
+extern void  *LevelBGTexture[];         /* 0x001abb28 */
+extern float  LevelBGPos[3];            /* 0x0015057c */
+extern float  GlassWindowPos[3];        /* 0x0014f9e4 */
+extern void  *MeshSet_LEVEL_01;         /* 0x001aba24 */
+extern float  IdentityMatrix[16];       /* 0x0014f9a4 */
+extern float  ShadowOffsetG;            /* 0x0014dfc8 */
+
+void limeEnableDepthTest(void);
+void limeDisableDepthTest(void);
+void limeEnableAlphaBlending_Additive(void);
+void limeDisableDepthWrites(void);
+
+/* One extra background layer, drawn only when both its flag and its name say
+ * so. See the header for the three arrays inside LEVEL_INFO. */
+static void RenderLevelExtra(const char *rec, long i)
+{
+    RenderAMesh(0, 0, (limeVECTOR3 *)LevelBGPos,
+                (limeMATRIX44 *)IdentityMatrix, 0,
+                (TEXTURE *)LevelBGTexture[((const long *)(rec + 0xb4))[i]],
+                0,
+                (MESHSETINFO *)*MeshSetLayers[i],
+                0);
+}
+
+void RenderLevelBG(void)
+{
+    float m1[16], m2[16], m3[16];
+    long  i;
+
+    limeEnableDepthWrites();
+    limeEnableDepthTest();
+    limeEnableAlphaBlending_Basic();
+
+    /* The stage's placement matrix: rotate Z-up to Y-up, scale, translate. */
+    RotMatrixX(M_Rot90, 1.5707964f);
+    limeMatrixLoadIdentity(m1);
+    limeMatrixMult(M_Rot90, m1, m2);
+    limeScaleMatrix(m2, SceneScale);
+
+    limeMatrixLoadIdentity(m3);
+    m3[12] = SceneX;
+    m3[13] = SceneY;
+    m3[14] = SceneZ;
+    limeMatrixMult(m3, m2, RealBGSceneMatrix);
+
+    /* Computed, and overwritten on the next line. See the header. */
+    limeMatrixLoadIdentity(m3);
+    m3[12] = SceneX2 * SceneScale2;
+    m3[13] = SceneY2 * SceneScale2;
+    m3[14] = SceneZ2 * SceneScale2;
+    limeMatrixMult(RealBGSceneMatrix, m3, RealBGSceneMatrix + 16);
+
+    memcpy(RealBGSceneMatrix + 16, RealBGSceneMatrix, 0x40);
+
+    LIME_PushMatrix();
+    glRotatef(90.0f, 1.0f, 0.0f, 0.0f);
+    glScalef(SceneScale, SceneScale, SceneScale);
+    glTranslatef(SceneX, SceneY, SceneZ);
+
+    ClearDebugWindow(1);
+    glCullFace(0x405);                  /* GL_BACK */
+
+    if (BGSceneHandle != 0) {
+        if (BGSceneHandle2 == 0) {
+            /* One scene only: draw its two passes and fall to the tail. */
+            LIME_PushMatrix();
+            LIME_RenderScene(-1, BGSceneHandle, (long)BGSceneFrame[0],
+                             (long)BGSceneFrame[0], 0.0f, 0, 0, 0, 0, 0, 0);
+            LIME_RenderScene(-1, BGSceneHandle, (long)BGSceneFrame[0],
+                             (long)BGSceneFrame[0], 0.0f, 0, 0, 1, 0, 0, 0);
+            LIME_PopMatrix(1);
+        } else {
+            int blasting = (blast_state != 0 && blast_state <= 2);
+
+            if (blasting || CurrentScene == 0) {
+                LIME_PushMatrix();
+                LIME_RenderScene(-1, BGSceneHandle, (long)BGSceneFrame[0],
+                                 (long)BGSceneFrame[0], 0.0f, 0, 0, 0, 0, 0, 0);
+                LIME_RenderScene(-1, BGSceneHandle, (long)BGSceneFrame[0],
+                                 (long)BGSceneFrame[0], 0.0f, 0, 0, 1, 0, 0, 0);
+                LIME_PopMatrix(1);
+            }
+
+            LIME_printf(1, "--------------------------------------\n");
+            LIME_Slider(1, &SceneX2, "Scene2X", -1500.0f, 500.0f, 0, 0);
+            LIME_Slider(1, &SceneY2, "Scene2Y", -1500.0f, 500.0f, 0, 0);
+            LIME_Slider(1, &SceneZ2, "Scene2Z", -1500.0f, 500.0f, 0, 0);
+            LIME_Slider(1, &SceneScale2, "Scene2Scale", 0.1f, 2.0f, 0, 0);
+            LIME_Slider(1, &ShadowOffsetG, "ShadowOffset", 0.0f, 20.0f, 0, 0);
+
+            if (blasting || CurrentScene == 1) {
+                LIME_PushMatrix();
+                glTranslatef(SceneX2, SceneY2, SceneZ2);
+                glScalef(SceneScale2, SceneScale2, SceneScale2);
+                LIME_RenderScene(-1, BGSceneHandle2, (long)BGSceneFrame[0],
+                                 (long)BGSceneFrame[0], 0.0f, 0, 0, 0, 0, 0, 0);
+                LIME_RenderScene(-1, BGSceneHandle2, (long)BGSceneFrame[0],
+                                 (long)BGSceneFrame[0], 0.0f, 0, 0, 1, 0, 0, 0);
+                LIME_PopMatrix(1);
+            }
+        }
+    }
+
+    limeDisableAlphaBlending();
+    limeEnableDepthWrites();
+    LIME_PopMatrix(1);
+
+    /* ---- the eight extra layers, and level 1's glass */
+    for (i = 0; i <= 7; i++) {
+        const char *rec = Level_Info + *LevelSelectP * LEVEL_INFO_STRIDE;
+
+        if (*(const long *)(rec + 0xd4 + i * 4) != 0
+            && ((const char *const *)(rec + 0x74))[i][0] != 0)
+            RenderLevelExtra(rec, i);
+
+        /* Slot 0 on level 1 is followed by the glass, whether or not the slot
+         * itself drew anything. */
+        if (i != 0 || *LevelSelectP != 1 || ExtraEffects == 0)
+            continue;
+
+        TestScale = 0.0095f;
+        glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+        limeEnableAlphaBlending_Additive();
+        limeDisableDepthTest();
+        limeDisableDepthWrites();
+
+        {
+            long slice;
+
+            for (slice = 0; slice < 32; slice++) {
+                RenderMeshAlphaOverRide =
+                    (float)((1.0 + (double)slice * -0.03125) / 10.0);
+
+                RenderAMesh(0, 0, (limeVECTOR3 *)GlassWindowPos,
+                            (limeMATRIX44 *)IdentityMatrix, 0,
+                            (TEXTURE *)LevelBGTexture[1], 0,
+                            (MESHSETINFO *)MeshSet_LEVEL_01, 0);
+
+                GlassWindowPos[1] = GlassWindowPos[1] - 40.0f;
+            }
+        }
+
+        TestScale = 0.01f;
+        GlassWindowPos[1] = GlassWindowPos[1] + 1280.0f;   /* 32 * 40, exact */
+        RenderMeshAlphaOverRide = 1.0f;
+
+        limeEnableDepthTest();
+        limeEnableDepthWrites();
+        limeEnableAlphaBlending_Basic();
+    }
+
+    limeEnableAlphaBlending_Basic();
 }
