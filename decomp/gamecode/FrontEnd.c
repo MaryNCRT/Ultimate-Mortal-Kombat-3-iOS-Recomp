@@ -13137,3 +13137,199 @@ void FE_Task_Tower(void)
     MoveUpTower = 0.0f;
     TowerState  = 4;
 }
+
+
+/* ----------------------------------------------------------- FE_Task_About_Help
+ *
+ * armv7 0x0000b4d8, 10,360 bytes.  **Complete.** The largest function in
+ * `gamecode`, and almost all of it is one seventeen-line block written out
+ * thirty-seven times.
+ *
+ * Five pages of help text, cycled by Next. Every page is a run of wrapped
+ * `GameText` blocks stacked on a shared line counter, alternating between a
+ * heading scale and a body scale:
+ *
+ *      page 0   922  884* 885  886* 887  888  889* 890
+ *      page 1   891* 892  893* 894  895* 896
+ *      page 2   897* 898  899* 900  901* 902  903* 904
+ *      page 3   905* 907  908  909  910* 911  912  913  914
+ *      page 4   915* 916  1016 917  918* 919
+ *
+ * (`*` = drawn at the heading scale.) **906 is missing** -- page 3 goes 905, 907,
+ * 908, so either that string was dropped or a block was deleted and the ids were
+ * never closed up.
+ *
+ * ### One block, thirty-seven times
+ *
+ *      CreateWrappedTextArrays(GameText(id), HelpSpiltText, &lines,
+ *                              screenWidth - 32, GameFont, FE_WidthScale * s);
+ *      for (i = 0; i < lines; i++)
+ *          limeDrawFONT(GameFont, limeUC(&HelpSpiltText[i * 256]),
+ *                       screenWidth / 2, FE_Y((i + running) * 16 + 8),
+ *                       1, FE_WidthScale * s, fontcol);
+ *      running += lines + gap;
+ *
+ * `HelpSpiltText` is one buffer reused by every block, so each is wrapped, drawn
+ * and then overwritten -- the running line count is the only thing carried
+ * between them, and an empty block still costs a blank line. It is the same
+ * shape `FE_Task_About_About` uses, at a different pitch.
+ *
+ * ### The gap between blocks is a **half** line as often as a whole one
+ *
+ * Twenty-three of the thirty-seven blocks advance the counter by `lines + 0.5`
+ * and the rest by `lines + 1`, and the first block of a page **replaces** the
+ * counter instead of adding to it -- with its own constant: 1 on page 0, 1.5 on
+ * page 1, 0.5 on pages 2, 3 and 4. Every one of those is a separate literal in
+ * the binary. The half-line gaps are computed in double precision and the whole
+ * ones in single, which is the clearest sign these were hand-tuned one block at
+ * a time rather than generated.
+ *
+ * ### The CJK carve-out is the third different one in this file
+ *
+ *      headScale = 1.0;  bodyScale = 0.75;
+ *      if (Language is "ZH" or "KO") { headScale = 1.25; bodyScale = 1.0; }
+ *
+ * `FE_Task_Bios` distinguishes ZH and KO at 0.95, `FE_Task_About_About` singles
+ * out ZH at 0.8, and this one scales *up* for both -- three screens, three
+ * rules, none of them shared.
+ *
+ * The two `strcmp` calls are made unconditionally and the Korean one only ever
+ * re-applies the values the Chinese one would have set, so the observable rule
+ * is the one above.
+ *
+ * ### Next wraps through five pages and Back is a plain pop
+ *
+ *      HelpPage = (HelpPage + 1) % 5;
+ *
+ * with the two labels drawn after their buttons as everywhere else in this file,
+ * and the Back press falling through to draw them anyway -- the pop is deferred.
+ */
+
+#define HELP_PAGES      5
+#define HELP_PITCH      16.0f
+#define HELP_TOP        8.0f
+#define HELP_SPLIT      256
+#define HELP_HEAD_CJK   1.25f
+#define HELP_BODY_CJK   1.0f
+#define HELP_HEAD       1.0f
+#define HELP_BODY       0.75f
+
+extern long HelpPage;                   /* 0x000ff840 */
+
+/* The binary writes this out thirty-seven times; `running` is the shared line
+ * counter each copy reads and then advances by its own gap. The first block of a
+ * page REPLACES the counter rather than adding to it, which is why `keep` is a
+ * parameter and not an assumption. */
+static float Help_Block(long id, float scale, float running,
+                        double gap, int keep)
+{
+    long lines = 0;
+    long i;
+
+    CreateWrappedTextArrays(GameText(id), HelpSpiltText, &lines,
+                            *limeScreenWidth - 0x20,
+                            GameFont, FE_WidthScale * scale);
+
+    for (i = 0; i < lines; i++)
+        limeDrawFONT(GameFont, limeUC(&HelpSpiltText[i * HELP_SPLIT]),
+                     (float)(*limeScreenWidth / 2),
+                     FE_Y(((float)i + running) * HELP_PITCH + HELP_TOP),
+                     1, FE_WidthScale * scale, fontcol);
+
+    if (keep)
+        return (float)((double)lines + gap + (double)running);
+
+    return (float)((double)lines + gap);
+}
+
+void FE_Task_About_Help(void)
+{
+    float head, body, running = 0.0f;
+
+    limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0234375f, 1.0f, 0.703125f, col);
+
+    /* ---- the CJK carve-out ---- */
+    if (strcmp(Language, "ZH") == 0) {
+        head = HELP_HEAD_CJK;
+        body = HELP_BODY_CJK;
+    } else {
+        head = HELP_HEAD;
+        body = HELP_BODY;
+    }
+
+    if (strcmp(Language, "KO") == 0) {
+        head = HELP_HEAD_CJK;
+        body = HELP_BODY_CJK;
+    }
+
+    switch (HelpPage) {
+    case 0:
+        running = Help_Block(922, body, running, 1.0, 0);
+        running = Help_Block(884, head, running, 0.5, 1);
+        running = Help_Block(885, body, running, 1.0, 1);
+        running = Help_Block(886, head, running, 0.5, 1);
+        running = Help_Block(887, body, running, 0.5, 1);
+        running = Help_Block(888, body, running, 1.0, 1);
+        running = Help_Block(889, head, running, 0.5, 1);
+        Help_Block(890, body, running, 0.0, 1);
+        break;
+
+    case 1:
+        running = Help_Block(891, head, running, 1.5, 0);
+        running = Help_Block(892, body, running, 1.0, 1);
+        running = Help_Block(893, head, running, 0.5, 1);
+        running = Help_Block(894, body, running, 1.0, 1);
+        running = Help_Block(895, head, running, 0.5, 1);
+        Help_Block(896, body, running, 0.0, 1);
+        break;
+
+    case 2:
+        running = Help_Block(897, head, running, 0.5, 0);
+        running = Help_Block(898, body, running, 1.0, 1);
+        running = Help_Block(899, head, running, 0.5, 1);
+        running = Help_Block(900, body, running, 1.0, 1);
+        running = Help_Block(901, head, running, 0.5, 1);
+        running = Help_Block(902, body, running, 1.0, 1);
+        running = Help_Block(903, head, running, 0.5, 1);
+        Help_Block(904, body, running, 0.0, 1);
+        break;
+
+    case 3:
+        running = Help_Block(905, head, running, 0.5, 0);
+        running = Help_Block(907, body, running, 0.5, 1);    /* 906 is not used */
+        running = Help_Block(908, body, running, 0.5, 1);
+        running = Help_Block(909, body, running, 1.0, 1);
+        running = Help_Block(910, head, running, 0.5, 1);
+        running = Help_Block(911, body, running, 0.5, 1);
+        running = Help_Block(912, body, running, 0.5, 1);
+        running = Help_Block(913, body, running, 0.5, 1);
+        Help_Block(914, body, running, 0.0, 1);
+        break;
+
+    case 4:
+        running = Help_Block(915, head, running, 0.5, 0);
+        running = Help_Block(916, body, running, 0.5, 1);
+        running = Help_Block(1016, body, running, 0.5, 1);
+        running = Help_Block(917, body, running, 1.0, 1);
+        running = Help_Block(918, head, running, 0.5, 1);
+        Help_Block(919, body, running, 0.0, 1);
+        break;
+
+    default:
+        break;
+    }
+
+    if (DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1))
+        PopFETaskDeferred();            /* deferred: the labels still draw */
+
+    limeDrawFONT(GameFont, GameText(9),
+                 FE_X(423.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
+
+    if (DrawButtonNew(&BUTTON_NEXTSTATS, 0x39, 0x130, 1))
+        HelpPage = (HelpPage + 1) % HELP_PAGES;
+
+    limeDrawFONT(GameFont, GameText(8),
+                 FE_X(57.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
+}
