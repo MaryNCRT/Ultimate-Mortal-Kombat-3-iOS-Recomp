@@ -11427,3 +11427,278 @@ long drawCharacterSelection(long sel)
 
     return CharacterConfirmed;
 }
+
+
+/* ----------------------------------------------------------------- EditButtons
+ *
+ * armv7 0x000145d8, 3,268 bytes.  **Complete.**
+ *
+ * The on-screen control editor: drag a button, and if you drop it somewhere it
+ * is not allowed it snaps back. Three button layouts (4, 5 and 6 buttons) live
+ * in three separate arrays, and every step of this function is written out three
+ * times, once per array. That is most of the 3,268 bytes.
+ *
+ * ### Three states, decided by two globals
+ *
+ *      LastDraggingButton = DraggingButton;
+ *      if (limeTouchScreenX == -1) DraggingButton = -1;
+ *
+ *      LastDraggingButton == -1   nothing was held -> the pick-up/move sweep
+ *      DraggingButton     == -1   the finger just lifted -> validate the drop
+ *      otherwise                  still held -> the pick-up/move sweep
+ *
+ * so the first and third state run the *same* code; only the drop is different.
+ *
+ * ### Picking up and moving are one loop
+ *
+ *      for (i = 0; i < 6; i++) {
+ *          if (b[i].id == -1 || b[i].x == -1) continue;
+ *          if (limeTouchScreenX == -1) continue;
+ *          if (hypot(b[i].x - touchX, b[i].y - touchY) < ButtonSize * 0.5) {
+ *              if (held == -1) { remember b[i].x, b[i].y; held = i; }
+ *          } else if (held != i) continue;
+ *          b[held].x = (int)touchX;  b[held].y = (int)touchY;
+ *      }
+ *
+ * -- the same pass grabs the button under the finger and moves whichever button
+ * is already grabbed, so a fresh press and a continuing drag are one path. The
+ * pick-up radius is half a button, measured with a real `vsqrt.f32`.
+ *
+ * `LastButtonPosX/Y` is written at the *end* of the sweep, every frame, from the
+ * position recorded when the button was picked up. That is what the snap-back
+ * restores.
+ *
+ * ### Dropping validates against every other button and against the edges
+ *
+ *      for (i = 0; i < 6; i++) {
+ *          if (i == held || b[i].id == -1 || b[i].x == -1) continue;
+ *          if (hypot(b[i].x - b[held].x, b[i].y - b[held].y) < ButtonSize - 2)
+ *              reject = 1;
+ *      }
+ *
+ * -- note `ButtonSize - 2`, not `ButtonSize`: two buttons may sit exactly two
+ * units closer than touching before the drop is refused. Then the same four edge
+ * tests the live overlay uses, and if anything rejected:
+ *
+ *      b[held].x = LastButtonPosX;  b[held].y = LastButtonPosY;
+ *
+ * Both outcomes then fall back into the move sweep, which does nothing because
+ * the touch has already been released.
+ *
+ * ### The four bounds, and the red bands that show them
+ *
+ *      x <  FE_W(200)                    too far left
+ *      x >  screenWidth  - size / 2      too far right
+ *      y >  screenHeight - size / 2      too far down
+ *      y <  FE_H(48) + size / 2          too far up
+ *
+ * and while a button is held out of bounds the forbidden area is painted in four
+ * `limeFillRect` calls at `(1, 0, 0, 0.4)`. `FE_W(200)` is a wide left margin --
+ * on a 480-wide screen that is the left 200 units, reserved for the stick.
+ *
+ * The four bands do not all use the same transform for the same number: the top
+ * band's height uses `FE_H(48)` and the right band's origin uses **`FE_W(48)`**
+ * for what is a vertical measurement. On 4:3, where the two scales are equal,
+ * they agree; anywhere else the right band starts in the wrong place.
+ *
+ * ### Layout 6 checks one bound fewer, in one place
+ *
+ * When no button is held the code still runs a bounds check to decide whether to
+ * paint -- and for layout 6 that check is only the top edge, where layouts 4 and
+ * 5 get all four. With nothing held the result is discarded anyway (the paint
+ * needs `held != -1`), so it is dead either way.
+ */
+
+#define EB_BUTTONS      6
+#define EB_STRIDE       20
+#define EB_LEFT_MARGIN  200.0f
+#define EB_TOP_MARGIN   48.0f
+#define EB_BAND_R       1.0f
+#define EB_BAND_G       0.0f
+#define EB_BAND_B       0.0f
+#define EB_BAND_A       0.4f
+#define EB_DROP_SLACK   2.0f
+
+/* Twenty bytes an entry, six entries: the three CustomButtonsPos arrays above
+ * are declared as 0x78 bytes of blob and this is their shape. */
+typedef struct CUSTOMBUTTON {
+    long x;                             /* 0x00 */
+    long y;                             /* 0x04 */
+    long size;                          /* 0x08 */
+    long pad;                           /* 0x0c -- not read here */
+    long id;                            /* 0x10, -1 for an unused slot */
+} CUSTOMBUTTON;
+
+extern long  DraggingButton;            /* 0x00100f80 */
+extern long  LastDraggingButton;        /* 0x00100f7c */
+extern long  LastButtonPosX;            /* 0x00185d50 */
+extern long  LastButtonPosY;            /* 0x00185d54 */
+extern float *ButtonSize;               /* pointer slot -> 0x0014ff48 */
+
+/* `vsqrt.f32`, one instruction -- not a call. Declared so the C says what the
+ * instruction does. */
+float sqrtf(float x);
+
+/* The binary writes the same code out once per layout; this is the choice it
+ * makes each time, and a layout that is not 4, 5 or 6 does nothing at all. */
+static CUSTOMBUTTON *EB_Layout(long layout)
+{
+    if (layout == 4)
+        return (CUSTOMBUTTON *)CustomButtonsPos4;
+    if (layout == 5)
+        return (CUSTOMBUTTON *)CustomButtonsPos5;
+    if (layout == 6)
+        return (CUSTOMBUTTON *)CustomButtonsPos6;
+    return 0;
+}
+
+static long EB_OutOfBounds(const CUSTOMBUTTON *b)
+{
+    long half = b->size / 2;
+    long bad  = 0;
+
+    if ((float)b->x < FE_W(EB_LEFT_MARGIN))
+        bad = 1;
+    if (b->x > *limeScreenWidth - half)
+        bad = 1;
+    if (b->y > *limeScreenHeight - half)
+        bad = 1;
+    if ((float)b->y < (float)half + FE_H(EB_TOP_MARGIN))
+        bad = 1;
+
+    return bad;
+}
+
+void EditButtons(void)
+{
+    CUSTOMBUTTON *b;
+    long  layout, held, i;
+    long  pickedX, pickedY;
+    float touchX, touchY;
+    float half;
+
+    if (Settings[5] == 0)
+        return;
+
+    LastDraggingButton = DraggingButton;
+
+    touchX = *limeTouchScreenX;
+    if (touchX == -1.0f)
+        DraggingButton = -1;
+
+    /* ---- the drop: validate, and snap back if anything objects ---- */
+    if (LastDraggingButton != -1 && DraggingButton == -1) {
+        long reject = 0;
+
+        layout = Settings[4];
+        b      = EB_Layout(layout);
+        held   = LastDraggingButton;
+
+        if (b != 0) {
+            float apart = *ButtonSize - EB_DROP_SLACK;
+
+            for (i = 0; i < EB_BUTTONS; i++) {
+                float dx, dy;
+
+                if (i == held || b[i].id == -1 || b[i].x == -1)
+                    continue;
+
+                dx = (float)(b[i].x - b[held].x);
+                dy = (float)(b[i].y - b[held].y);
+
+                if (sqrtf(dx * dx + dy * dy) < apart)
+                    reject = 1;
+            }
+
+            if (EB_OutOfBounds(&b[held]))
+                reject = 1;
+
+            if (reject) {
+                b[held].x = LastButtonPosX;
+                b[held].y = LastButtonPosY;
+            }
+        }
+        /* and fall into the sweep below, which does nothing: the touch is gone */
+    }
+
+    /* ---- the sweep: pick a button up, and move whichever one is held ---- */
+    layout  = Settings[4];
+    b       = EB_Layout(layout);
+    held    = DraggingButton;
+    half    = *ButtonSize * 0.5f;
+    pickedX = LastButtonPosX;
+    pickedY = LastButtonPosY;
+    touchY  = *limeTouchScreenY;
+
+    if (b != 0) {
+        for (i = 0; i < EB_BUTTONS; i++) {
+            float dx, dy;
+
+            if (b[i].id == -1 || b[i].x == -1)
+                continue;
+
+            if (touchX == -1.0f)
+                continue;
+
+            dx = (float)b[i].x - touchX;
+            dy = (float)b[i].y - touchY;
+
+            if (sqrtf(dx * dx + dy * dy) < half) {
+                if (held == -1) {
+                    pickedX = b[i].x;       /* where it came from */
+                    pickedY = b[i].y;
+                    held    = i;
+                }
+            } else if (held != i) {
+                continue;
+            }
+
+            b[held].x = (long)touchX;
+            b[held].y = (long)touchY;
+        }
+    }
+
+    LastButtonPosY = pickedY;
+    LastButtonPosX = pickedX;
+    DraggingButton = held;
+
+    /* ---- the forbidden area, while a button is held outside it ---- */
+    if (held == -1 || b == 0)
+        return;
+
+    if (!EB_OutOfBounds(&b[held]))
+        return;
+
+    {
+        /* The bands measure against CustomButtonsPos4[0] whatever the layout --
+         * the drawing code is written once and never re-reads the array. */
+        const CUSTOMBUTTON *m = (const CUSTOMBUTTON *)CustomButtonsPos4;
+        long half2 = m[0].size / 2;
+
+        /* left */
+        limeFillRect(0.0f, 0.0f,
+                     FE_W(EB_LEFT_MARGIN), (float)*limeScreenHeight,
+                     EB_BAND_R, EB_BAND_G, EB_BAND_B, EB_BAND_A);
+
+        /* top */
+        limeFillRect(FE_W(EB_LEFT_MARGIN), 0.0f,
+                     (float)*limeScreenWidth - FE_W(EB_LEFT_MARGIN),
+                     (float)half2 + FE_H(EB_TOP_MARGIN),
+                     EB_BAND_R, EB_BAND_G, EB_BAND_B, EB_BAND_A);
+
+        /* bottom */
+        limeFillRect(FE_W(EB_LEFT_MARGIN),
+                     (float)(*limeScreenHeight - half2),
+                     (float)*limeScreenWidth - FE_W(EB_LEFT_MARGIN),
+                     (float)half2,
+                     EB_BAND_R, EB_BAND_G, EB_BAND_B, EB_BAND_A);
+
+        /* right -- FE_W where the others use FE_H; see the header */
+        limeFillRect((float)(*limeScreenWidth - half2),
+                     (float)half2 + FE_W(EB_TOP_MARGIN),
+                     (float)half2,
+                     (float)(*limeScreenHeight - m[0].size)
+                     - FE_W(EB_TOP_MARGIN),
+                     EB_BAND_R, EB_BAND_G, EB_BAND_B, EB_BAND_A);
+    }
+}
