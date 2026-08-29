@@ -4,9 +4,10 @@
 being arcade logic and becomes OpenGL. It walks the engine's object list twice
 and, for each object, builds a model matrix and hands it to `RenderPlayer`.
 
-> `RenderLevelPlayers` is **mapped, not decompiled**. Every arm has now been
-> read; what stops it being written is set out under
-> [why it is not written yet](#why-it-is-not-written-yet).
+> **Written.** `RenderLevelPlayers` is decompiled in
+> [`decomp/gamecode/GameCode.c`](../decomp/gamecode/GameCode.c); this page is
+> the map that was made first, kept because the tables on it are easier to read
+> than the code.
 
 ---
 
@@ -156,15 +157,30 @@ symbol table, which is what the table above does.
 - **`DoingStageFatalBringForward`** is applied as `glTranslatef(0, that, 0)`
   when the object's slot matches `DoingStageFatal - 1`.
 
-## Why it is not written yet
+## What the transcription added
 
-The function is thirty-odd basic blocks with the cold paths placed after the
-return, and it carries about twenty live values on the stack across them —
-the pass counter, the object counter, `slot << 7`, `chr << 4`, `chr << 2`, the
-owner override pair, and a scratch matrix. Reconstructing which of those is live
-at each block entry is the whole job, and getting it wrong produces C that
-compiles, looks right, and renders the wrong thing.
+Four things came out of writing it that the map above did not have:
 
-Every individual operation on this page was read from the disassembly. The block
-ordering has not been traced to the same standard, and this project does not
-land code that has not been.
+- **The walk is not a plain walk.** When `mk3_who_in_front()` says the far
+  fighter is second, the order is **1, 0, 2, 3, ...** — it starts at
+  `GameObjects->next`, returns to the head, and then steps *twice* to skip the
+  object it already drew.
+- **The reset covers nine slots, the sweep only eight.** `f584 = 100.0f` is
+  written for nine PLAYER records before the walk and read back for eight after
+  it, so the ninth slot's `f5ec` is never cleared. That is the original's
+  off-by-one, not a misreading of it — both counts come out of the same 0x5f0
+  stride (`0x3570` is nine, `0x2f80` is eight).
+- **Slot 3 has an unguarded debug print.** `LIME_printf(4, "**ph
+  arcadeXY=%f,%f,%f, otype %d")` runs every frame for that slot with no flag
+  around it. `LIME_printf` is an eight-byte no-op in this build, so it costs
+  three float-to-double conversions and a call.
+- **Frame id `0x758` is what starts the stage fatality.** It seeds
+  `DoSmokesEarthFatal = 0.01f`, and every threshold in `Task_GameMain`'s
+  330-tick cutaway counts up from there. The two functions are the two ends of
+  one sequence.
+
+The `axes` arm — taken whenever `LIME_Paused` is set or the frame lookup fails —
+calls `RenderAxesLines` and `RenderDebugCube`, which are respectively an empty
+function and a debug-flag-gated loader in the retail binary. So on a shipped
+device that arm draws **nothing**: the object disappears rather than falling
+back to a gizmo.
