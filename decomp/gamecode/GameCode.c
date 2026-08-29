@@ -9770,3 +9770,666 @@ void Task_GameMain(void)
     ShowDebugInfo();
     UpdateInGamePauseMenu();
 }
+
+
+/* ----------------------------------------------------------- RenderLevelPlayers
+ *
+ * armv7 0x00023ee8, 4,572 bytes.  **Complete.**
+ *
+ * Where the game stops being arcade logic and becomes OpenGL. It walks the
+ * engine's object list **twice** and, for each object, resolves an animation
+ * frame, builds a model matrix and hands it to `RenderPlayer` or
+ * `LIME_RenderScene`. [RENDER-PLAYERS.md](../../docs/RENDER-PLAYERS.md) is the
+ * map that was made of it before it was written; this is the transcription.
+ *
+ * ### The two passes, and the walk that is not a plain walk
+ *
+ * `mk3_who_in_front()` decides the order. Its complement is `startOneIn`, and
+ * when that is set the walk visits the list as **1, 0, 2, 3, ...**: it starts
+ * at `GameObjects->next`, comes back to the head after the first object, and
+ * then steps **twice** to skip the one it already drew. When it is clear the
+ * walk is the plain 0, 1, 2, ... one.
+ *
+ * `limeClearDepthBuffer()` runs on pass 0 **after the first object only**, and
+ * sets `ClearedZBuffer`. That is what lets the far fighter be drawn, the depth
+ * buffer wiped, and the near fighter drawn over it without sorting.
+ *
+ * ### The reset covers nine slots, the sweep only eight
+ *
+ * Before the walk, `p->f584 = 100.0f` for **nine** PLAYER records. After both
+ * passes, `if (p->f584 == 100.0f) p->f5ec = -1` for **eight**. The ninth slot
+ * is marked and never swept, so its `f5ec` keeps whatever the previous frame
+ * left there. Both counts are built from the same 0x5f0 stride in the binary
+ * (0x3570 is nine of them, 0x2f80 is eight), so this is the original's
+ * off-by-one and not a reading of it.
+ *
+ * ### One object, in order
+ *
+ *      LastGObj = obj                        the walk's cursor, published
+ *      side = obj->f0d & 1                   which fighter owns it
+ *      slot = (int8)obj->f0d >> 1            which PLAYER record it draws into
+ *      chr  = (int8)obj->f0c                 which character it looks like
+ *
+ * Slots 0 and 1 are the fighters; 2 and up are projectiles, and the debug
+ * `printf` calls in here name them exactly that ("projectile@%d").
+ *
+ * ### Same character on both sides: the owner is swapped, not the model
+ *
+ * When both fighters picked the same character one of them has to draw from
+ * the *other* record, or they would share one animation state. The test is
+ *
+ *      GameObjects[1].chr == GameObjects[0].chr
+ *      && GameObjects[1].chr != Players[0].anim->f08
+ *
+ * and it fires for slot 0 and for every projectile owned by side 0. The
+ * override is applied around the draw and **taken back off afterwards** --
+ * `P->anim` is saved, replaced with `Players[1].anim`, drawn, restored. The
+ * owner pointer is repointed too, at `GameObjects[1]`'s side rather than this
+ * object's.
+ *
+ * ### The frame id decides almost everything
+ *
+ *      0x4e20            no model: skip the transform, park f584 at 100
+ *      0x1b36, 0x1b37    clear the mirror bit
+ *      0x1b4e .. 0x1b67  TOGGLE the mirror bit
+ *      0x10aa            set SkipFrame86 for the duration of one RenderScene
+ *      0x1a7e .. 0x1a80  a spear, and 0x129c .. 0x129e another three
+ *      0x758             starts the stage fatality: DoSmokesEarthFatal = 0.01
+ *
+ * That last one is the other end of `Task_GameMain`'s cutaway: one animation
+ * frame kicks the 330-tick counter off its zero, and every threshold in that
+ * function follows from here.
+ *
+ * The spear ids write `SpearWhichTexture[which] = 1..5` in id order and take
+ * `which` from **flags bit 7**, not from the slot. `SpearStartPos[which]` is
+ * copied from `Players[which]`'s 3D position and `SpearEndPos[which]` from the
+ * object's -- so the spear is a line from a fighter to the object.
+ * `DrawSpear[which] = 1` is the fallback when no id matched, which is the
+ * common case; the five ids pick a texture, everything else draws the default.
+ *
+ * ### Character 24's mirror is inverted
+ *
+ *      P->f540 = obj->flags & 0x10
+ *      if (P->chr == 24) { if (P->f540) P->f540 = 1; P->f540 ^= 1; }
+ *
+ * Whatever bit the object carries, character 24 draws the other way round.
+ * `RenderIntroCharacterPlayer` already recorded that this character is the only
+ * one with a hardcoded mirror; this is the same fact from the gameplay side.
+ *
+ * ### The transform, twice
+ *
+ * The same six GL calls are emitted in two places -- once for the pass-0 model
+ * matrix and once for every projectile -- and the only difference is where the
+ * result is read back to, `f588` the first time and `f548` the second:
+ *
+ *      glMatrixMode(GL_MODELVIEW); glLoadIdentity();
+ *      glTranslatef(P->x, P->y, P->z);
+ *      glScalef(s, s, s);                  s = PlayerDefs[chr].f04 * PlayerSize
+ *      glTranslatef(PlayerDefs[chr].f10 * ±2.15, 0, PlayerDefs[chr].f14 * 0.65);
+ *      glRotatef(90, 1, 0, 0);
+ *      if (mirrored) glScalef(-1, 1, 1);
+ *
+ * `+2.15` mirrored, `-2.15` not. The `glScalef(-1,1,1)` is the mirror proper,
+ * and the cull face is flipped to match further down -- `GL_FRONT` when
+ * mirrored, `GL_BACK` otherwise, the fifth sighting of that pairing in this
+ * tree. Alongside the GL matrix a `limeMATRIX` is built for the same object:
+ * `limeScaleMatrixXYZ(m, ±s, s, s)` with the translation written straight into
+ * the fourth row, then `limeMatrixMult(M_Rot90, m, &P->f548)`. `M_Rot90` is set
+ * up once at the top with **1.57075**, which is not pi/2.
+ *
+ * ### Slot 3 gets a debug print, every frame, forever
+ *
+ *      if (slot == 3) LIME_printf(4, "**ph arcadeXY=%f,%f,%f, otype %d\n", ...)
+ *
+ * No flag guards it. `LIME_printf` is an eight-byte no-op in this build, so it
+ * costs three float-to-double conversions and a call -- but it is a live debug
+ * print that shipped.
+ *
+ * ### The debug arm swallows the fighter
+ *
+ * `axes` is set whenever `LIME_Paused` is on, and whenever the frame lookup
+ * fails (`P->f14 == -1`) -- the four `LIME_printf` variants in here are that
+ * failure being reported, two for a projectile and two for a fighter. When it
+ * is set the object goes down a different path: `ArcadePosTo3dPosNO_OFFSETS`
+ * and `RenderAxesLines`, then `RenderPlayer(P, 0, 0)` instead of
+ * `RenderPlayer(P, 0, 1)`; and when the lookup failed as well, `RenderPlayer`
+ * is not called at all.
+ *
+ * `RenderAxesLines` is an empty function in the retail binary and
+ * `RenderDebugCube` only loads a scene behind a debug flag, so on a shipped
+ * device this arm draws **nothing** and the object silently vanishes. It is
+ * still the arm a paused game takes.
+ *
+ * ### Events fire on pass 1 only, and only when the frame changed
+ *
+ *      P->f5e8 = P->f14 (or f51c for a fighter)
+ *      if (P->f5e8 != P->f5ec) { trigger; P->f5ec = P->f5e8; followMode = 1; }
+ *
+ * so a scene's events fire once per frame *change*, not once per rendered
+ * frame. Projectiles go through `LIME_TriggerEventsFromScene`; fighters go
+ * through `LIME_TriggerEventsFromSceneOffsetIfFollowing` with **eleven**
+ * arguments and three variants, chosen by the frame id:
+ *
+ *      0x1b12 .. 0x1b2c   the scene is P->anim's and the skin comes from the
+ *                         OTHER fighter, Players[slot ^ 1].f528
+ *      an override live    the scene is the override's
+ *      otherwise           the scene is P->anim's
+ *
+ * and its last argument is 1 exactly for frames 0x1b4e..0x1b67 -- the same
+ * range that toggles the mirror bit, tested a second time here.
+ *
+ * `AxeTrailDisallowed` is a countdown that suppresses the trigger entirely for
+ * character 3, and decrements once per frame while it does.
+ *
+ * ### f584 is borrowed as a scratch flag
+ *
+ * `f584` starts at 100.0 for every slot. A fighter whose events are about to
+ * fire has it set to 1.0 for the duration of the trigger and put back to 100.0
+ * afterwards; an object with frame 0x4e20 parks it at 100.0 and never moves it.
+ * So the sweep at the end reads three different things through one float: a
+ * sentinel, a re-entrancy guard, and "did this slot draw".
+ */
+
+#define RLP_RESET_SLOTS      9          /* 0x3570 / 0x5f0 */
+#define RLP_SWEEP_SLOTS      8          /* 0x2f80 / 0x5f0 -- see the header */
+#define RLP_UNSET            100.0f
+#define RLP_ROT90            1.57075f   /* not pi/2, and it is what shipped */
+#define RLP_JAX_SQUASH_MAX   0x108
+
+#define GOBJ_FRAME           0x08       /* int16  */
+#define GOBJ_FLAGS           0x0a       /* uint16 */
+#define GOBJ_CHR             0x0c       /* int8   */
+#define GOBJ_WHO             0x0d       /* int8: bit 0 side, >> 1 slot */
+#define GOBJ_FRAME2          0x0e       /* int16  */
+#define GOBJ_STRIDE          0x10
+#define GOBJ_MIRROR          0x0010     /* flags bit 4 */
+#define GOBJ_NOOWNER         0x0100     /* flags bit 8 */
+
+#define FRAME_NO_MODEL       0x4e20
+#define FRAME_SKIP86         0x10aa
+#define FRAME_STAGE_FATAL    0x0758
+#define FRAME_UNMIRROR_LO    0x1b36     /* .. 0x1b37, clears the mirror bit */
+#define FRAME_TOGGLE_LO      0x1b4e     /* .. 0x1b67, toggles it */
+#define FRAME_TOGGLE_SPAN    0x19
+#define FRAME_FOLLOW_LO      0x1b12     /* .. 0x1b2c, the other fighter's skin */
+#define FRAME_FOLLOW_SPAN    0x1a
+#define FRAME_SPEAR_LO       0x1a7e     /* .. 0x1a80 */
+#define FRAME_SPEAR_SPAN     2
+
+#define RLP_MIRROR_CHAR      24         /* the one character drawn the other way */
+#define RLP_AXETRAIL_CHAR    3
+#define RLP_DEBUG_SLOT       3          /* the slot with the unguarded printf */
+#define RLP_STAGEFATAL_SEED  0.01f
+
+#define ATTACH_STRIDE        0x1c20     /* 150 matrices of 48 bytes */
+#define ALLFRAMES_STRIDE     0x41       /* 65 bytes, one leading byte skipped */
+#define RLP_SCENE_BASE       6          /* LIME_RenderScene's first argument */
+
+extern void  *LastGObj;                 /* 0x00150eb0 */
+extern long  *SkipFrame86;              /* pointer slot -> 0x00171774 */
+extern char   AllFramesTable[];         /* pointer slot -> 0x00218cc4 */
+
+long  mk3_who_in_front(void);
+long *HavePreloadedCharacter(long who);
+void  RenderDebugCube(void);
+void  RenderAxesLines(float x, float y, float z);
+void  glLoadIdentity(void);
+void  limeGetCurrentModelMatrix(float *out);
+void  limeScaleMatrixXYZ(float *m, float sx, float sy, float sz);
+void  LIME_TriggerEventsFromSceneOffsetIfFollowing(long slot, long follow,
+                                                   void *scene, long frame,
+                                                   const float *m,
+                                                   const float *m2,
+                                                   long mirror, long one,
+                                                   void *skin, long e,
+                                                   long inToggleRange);
+
+#define RLP_NEXT(o)     (*(Mk3Obj_t **)(o))
+#define RLP_PLAYER(i)   ((long *)(Players + (long)(i) * ARCADE_PLAYER_STRIDE))
+#define RLP_PTR(x)      ((long *)(uintptr_t)(unsigned long)(x))
+#define RLP_DEF(c)      ((const float *)(PlayerDefs + (c) * PLAYERDEF_STRIDE))
+#define RLP_DEFNAME(c)  (((char *const *)(PlayerDefs \
+                          + (c) * PLAYERDEF_STRIDE))[0x18 / 4])
+
+/* The six GL calls the transform is made of, emitted in two places. `out` is
+ * where the model matrix is read back to -- f588 the first time, f548 the
+ * second -- and that is the only difference between them. The caller pops. */
+static void RenderLevelPlayers_Pose(const long *w, long chr, float s,
+                                    int withOffset, float *out)
+{
+    const float *pf  = (const float *)w;
+    const float *def = RLP_DEF(chr);
+
+    LIME_PushMatrix();
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+    glTranslatef(pf[0x5c8 / 4], pf[0x5cc / 4], pf[0x5d0 / 4]);
+    glScalef(s, s, s);
+
+    if (withOffset)
+        glTranslatef(def[0x10 / 4] * (w[0x540 / 4] ? 2.15f : -2.15f),
+                     0.0f,
+                     def[0x14 / 4] * 0.65f);
+
+    glRotatef(90.0f, 1.0f, 0.0f, 0.0f);
+
+    if (w[0x540 / 4])
+        glScalef(-1.0f, 1.0f, 1.0f);        /* the mirror proper */
+
+    limeGetCurrentModelMatrix(out);
+}
+
+void RenderLevelPlayers(void)
+{
+    float     mtx[16];                  /* sp+0x7c */
+    Mk3Obj_t *obj;
+    long      pass, n, startOneIn, followMode;
+    long      i;
+
+    if (DoingSKDeath)
+        return;
+    if (GameObjects == NULL)
+        return;
+
+    DrawSpear[0] = 0;
+    DrawSpear[1] = 0;
+
+    if (JaxBeingSquashed) {
+        glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+        if (JaxGrowCounter <= RLP_JAX_SQUASH_MAX)
+            RenderPlayer((PLAYER *)JaxSquashedPlayer, 0, 0);
+    }
+
+    RotMatrixX(M_Rot90, RLP_ROT90);
+
+    if (JadeStomachShaker((PLAYER *)RLP_PLAYER(0))
+        || JadeStomachShaker((PLAYER *)RLP_PLAYER(1)))
+        limeClearDepthBuffer();
+
+    for (i = 0; i < RLP_RESET_SLOTS; i++)
+        ((float *)RLP_PLAYER(i))[0x584 / 4] = RLP_UNSET;
+
+    startOneIn = mk3_who_in_front() ^ 1;
+    followMode = 0;
+
+    for (pass = 0; pass < 2; pass++) {
+        obj = (Mk3Obj_t *)GameObjects;
+        if (startOneIn)
+            obj = RLP_NEXT(obj);
+        n = 0;
+
+        while (obj != NULL) {
+            const unsigned char  *ob = (const unsigned char *)obj;
+            const signed char    *os = (const signed char *)obj;
+            unsigned short       *ou = (unsigned short *)obj;
+            const short          *oi = (const short *)obj;
+            const signed char    *g0 = (const signed char *)GameObjects;
+            const unsigned char  *g0u = (const unsigned char *)GameObjects;
+
+            long   slot, side, chr, frame;
+            long   axes, ovrActive, flags100;
+            long  *ovr, *owner, *w;
+            float *att, *pf;
+            float  s16;
+
+            LastGObj = obj;
+
+            side = ob[GOBJ_WHO] & 1;
+            slot = (long)os[GOBJ_WHO] >> 1;
+            chr  = os[GOBJ_CHR];
+
+            w     = RLP_PLAYER(slot);
+            pf    = (float *)w;
+            att   = AttachTransforms + slot * (ATTACH_STRIDE / 4);
+            owner = RLP_PLAYER(side);
+
+            /* ---- both fighters picked the same character ---- */
+            ovr       = NULL;
+            ovrActive = 0;
+            if ((slot == 0 || ((unsigned long)slot > 1 && side == 0))
+                && g0[GOBJ_STRIDE + GOBJ_CHR] == g0[GOBJ_CHR]
+                && g0[GOBJ_STRIDE + GOBJ_CHR]
+                   != RLP_PTR(RLP_PLAYER(0)[4 / 4])[8 / 4]) {
+                ovr       = RLP_PTR(RLP_PLAYER(1)[4 / 4]);
+                ovrActive = 1;
+                owner     = RLP_PLAYER(g0u[GOBJ_STRIDE + GOBJ_WHO] & 1);
+            }
+
+            ArcadePosTo3dPos(obj, &pf[0x5c8 / 4], &os[GOBJ_CHR]);
+
+            flags100 = ou[GOBJ_FLAGS / 2] & GOBJ_NOOWNER;
+
+            if (slot > 1) {
+                if (flags100) {
+                    /* the binary writes obj->flags straight back here -- a
+                     * dead store; the effect is skipping the line below */
+                    ou[GOBJ_FLAGS / 2] = ou[GOBJ_FLAGS / 2];
+                } else {
+                    w[4 / 4] = owner[4 / 4];
+                }
+            }
+
+            /* ---- the tint triple, from the flags' low nibble ---- */
+            w[0x534 / 4] = 0;
+            w[0x538 / 4] = 0;
+            w[0x53c / 4] = 0;
+            switch (ou[GOBJ_FLAGS / 2] & 0xf) {
+            case 1:  w[0x534 / 4] = 1; break;
+            case 2:  w[0x53c / 4] = 1; break;
+            case 4:  w[0x538 / 4] = 1; break;
+            default: break;
+            }
+
+            glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+
+            frame = ou[GOBJ_FRAME / 2];
+
+            if (frame == FRAME_NO_MODEL) {
+                /* no model: the frame lookup and P->chr are skipped entirely */
+                axes = 0;
+            } else {
+                if ((unsigned short)(frame - FRAME_UNMIRROR_LO) <= 1)
+                    ou[GOBJ_FLAGS / 2] =
+                        (unsigned short)(ou[GOBJ_FLAGS / 2] & ~GOBJ_MIRROR);
+                if ((unsigned short)(frame - FRAME_TOGGLE_LO) <= FRAME_TOGGLE_SPAN)
+                    ou[GOBJ_FLAGS / 2] =
+                        (unsigned short)(ou[GOBJ_FLAGS / 2] ^ GOBJ_MIRROR);
+
+                /* the frame goes through the object's own animation record, or
+                 * the owner's when the override is live */
+                if (w[4 / 4] != 0 && !ovrActive)
+                    w[0x14 / 4] = ((const short *)RLP_PTR(RLP_PTR(w[4 / 4])
+                                   [0x2c / 4]))[oi[GOBJ_FRAME / 2]];
+                else
+                    w[0x14 / 4] = ((const short *)RLP_PTR(RLP_PTR(owner[4 / 4])
+                                   [0x2c / 4]))[oi[GOBJ_FRAME / 2]];
+
+                w[0] = chr;
+
+                if (LIME_Paused) {
+                    axes = 1;
+                } else {
+                    const char *name =
+                        AllFramesTable + frame * ALLFRAMES_STRIDE + 1;
+
+                    axes = 1;
+                    if (w[0x14 / 4] == -1) {
+                        if (slot > 1)
+                            LIME_printf(5, "   --projectile@%d: %s (!NOTFOUND!)"
+                                           "owned by p%d,chartype=%s\n",
+                                        slot, name, side, RLP_DEFNAME(chr));
+                        else
+                            LIME_printf(5, "p%d: %s (!NOTFOUND!)char=%s",
+                                        slot, name, RLP_DEFNAME(chr));
+                    } else if (slot > 1) {
+                        LIME_printf(5, "   --projectile@%d: %s (fr%d)"
+                                       "owned by p%d,chartype=%s\n",
+                                    slot, name, w[0x14 / 4], side,
+                                    RLP_DEFNAME(chr));
+                    } else {
+                        if (slot == 1)
+                            LIME_printf(5, " ");
+                        LIME_printf(5, "p%d: %s (fr%d)char=%s(p%d)",
+                                    slot, name, w[0x14 / 4],
+                                    RLP_DEFNAME(chr), side);
+                    }
+                }
+            }
+
+            /* ---- spears, and the stage fatality's starting gun ---- */
+            if (pass == 0) {
+                long f2 = oi[GOBJ_FRAME2 / 2];
+
+                if ((unsigned short)(f2 - FRAME_SPEAR_LO) <= FRAME_SPEAR_SPAN
+                    || f2 == 0x129c || f2 == 0x129d || f2 == 0x129e) {
+                    long   which = (ou[GOBJ_FLAGS / 2] >> 7) & 1;
+                    float *sp    = (float *)RLP_PLAYER(which);
+
+                    ArcadePosTo3dPosNO_OFFSETS(obj, SpearEndPos[which]);
+                    SpearStartPos[which][0] = sp[0x5c8 / 4];
+                    SpearStartPos[which][1] = sp[0x5cc / 4];
+                    SpearStartPos[which][2] = sp[0x5d0 / 4];
+                    SpearWhichTexture[which] = 0;
+
+                    if (f2 == 0x1a7f)      SpearWhichTexture[which] = 1;
+                    else if (f2 == 0x1a80) SpearWhichTexture[which] = 2;
+                    else if (f2 == 0x129c) SpearWhichTexture[which] = 3;
+                    else if (f2 == 0x129d) SpearWhichTexture[which] = 4;
+                    else if (f2 == 0x129e) SpearWhichTexture[which] = 5;
+                    else                   DrawSpear[which] = 1;
+                }
+
+                if (f2 == FRAME_STAGE_FATAL && DoSmokesEarthFatal == 0.0f)
+                    DoSmokesEarthFatal = RLP_STAGEFATAL_SEED;
+            }
+
+            /* ---- the mirror bit, and the one character that inverts it ---- */
+            w[0x540 / 4] = ou[GOBJ_FLAGS / 2] & GOBJ_MIRROR;
+            if (w[0] == RLP_MIRROR_CHAR) {
+                if (w[0x540 / 4])
+                    w[0x540 / 4] = 1;
+                w[0x540 / 4] ^= 1;
+            }
+
+            s16 = RLP_DEF(chr)[4 / 4];
+
+            /* ---- pass 0 builds the lime matrix and the GL model matrix ---- */
+            if (pass == 0 && w[0x14 / 4] != -1) {
+                float s = s16 * PlayerSize;
+
+                limeMatrixLoadIdentity(mtx);
+                mtx[12] = pf[0x5c8 / 4];
+                mtx[13] = pf[0x5cc / 4];
+                mtx[14] = pf[0x5d0 / 4];
+
+                limeScaleMatrixXYZ(mtx, w[0x540 / 4] ? -s : s, s, s);
+                limeMatrixMult(M_Rot90, mtx, &pf[0x548 / 4]);
+
+                RenderLevelPlayers_Pose(w, chr, s,
+                                        frame != FRAME_NO_MODEL,
+                                        &pf[0x588 / 4]);
+                LIME_PopMatrix(1);
+            }
+
+            /* ---- a projectile takes its animation state from its owner ---- */
+            if (slot > 1) {
+                long *pre;
+
+                w[4 / 4] = owner[4 / 4];
+                if (w[0x534 / 4] == 0 && w[0x538 / 4] == 0 && w[0x53c / 4] == 0)
+                    w[0x528 / 4] = owner[0x528 / 4];
+                w[0x530 / 4] = owner[0x530 / 4];
+
+                pre = HavePreloadedCharacter(w[0]);
+                if (pre != NULL) {
+                    w[4 / 4]     = (long)(uintptr_t)pre;
+                    w[0x528 / 4] = pre[0x14 / 4];
+                    w[0x530 / 4] = pre[0x14 / 4];
+                    w[0x14 / 4]  = ((const short *)RLP_PTR(pre[0x2c / 4]))
+                                   [oi[GOBJ_FRAME / 2]];
+                }
+
+                w[0x51c / 4] = w[0x14 / 4];
+                w[0x520 / 4] = w[0x14 / 4];
+                w[0x524 / 4] = 0;
+            }
+
+            /* ---- draw it ---- */
+            if (axes == 0) {
+                if (pass == 0) {
+                    RenderPlayer((PLAYER *)w, 0, 1);
+                    memcpy(att, *MatrixPalette2, ATTACH_STRIDE);
+                }
+            } else if (w[0x14 / 4] == -1) {
+                /* both of these are empty in the retail binary, so nothing at
+                 * all is drawn for this object */
+                ArcadePosTo3dPosNO_OFFSETS(obj, mtx);
+                RenderAxesLines(mtx[0], mtx[1], mtx[2]);
+                axes = 0;
+            } else {
+                long saved;
+
+                ArcadePosTo3dPosNO_OFFSETS(obj, mtx);
+                RenderAxesLines(mtx[0], mtx[1], mtx[2]);
+
+                if (DoingStageFatal != 0 && DoingStageFatal - 1 == slot)
+                    glTranslatef(0.0f, DoingStageFatalBringForward, 0.0f);
+
+                saved = w[4 / 4];
+                if (ovrActive)
+                    w[4 / 4] = (long)(uintptr_t)ovr;
+                if (pass == 0) {
+                    RenderPlayer((PLAYER *)w, 0, 0);
+                    memcpy(att, *MatrixPalette2, ATTACH_STRIDE);
+                }
+                if (ovrActive)
+                    w[4 / 4] = saved;
+            }
+
+            /* ---- a projectile gets its own model matrix ---- */
+            if (slot > 1) {
+                if (frame == FRAME_NO_MODEL) {
+                    pf[0x584 / 4] = RLP_UNSET;
+                } else {
+                    RenderLevelPlayers_Pose(w, chr, s16 * PlayerSize, 1,
+                                            &pf[0x548 / 4]);
+                    if (slot == RLP_DEBUG_SLOT)
+                        LIME_printf(4, "**ph arcadeXY=%f,%f,%f, otype %d\n",
+                                    (double)pf[0x578 / 4],
+                                    (double)pf[0x57c / 4],
+                                    (double)pf[0x580 / 4], chr);
+                    LIME_PopMatrix(1);
+                }
+            }
+
+            /* ---- the debug arm: cube, matrix, scene ---- */
+            if (axes != 0) {
+                RenderDebugCube();          /* the call site passes &P->f548,
+                                             * which the callee never reads */
+                LIME_PushMatrix();
+                glMultMatrixf(&pf[0x548 / 4]);
+                glCullFace(w[0x540 / 4] ? GL_FRONT : GL_BACK);
+
+                if (slot <= 1) {
+                    *SkipFrame86 = 0;
+                    if (oi[GOBJ_FRAME / 2] == FRAME_SKIP86)
+                        *SkipFrame86 = 1;
+                    LIME_RenderScene(slot + RLP_SCENE_BASE,
+                                     RLP_PTR(RLP_PTR(owner[4 / 4])[0x10 / 4]),
+                                     w[0x51c / 4], w[0x520 / 4], pf[0x524 / 4],
+                                     0, 0, pass,
+                                     RLP_PTR(w[0x528 / 4]), w[0x52c / 4], att);
+                    *SkipFrame86 = 0;
+                } else if (flags100 == 0) {
+                    LIME_RenderScene(slot + RLP_SCENE_BASE,
+                                     RLP_PTR(RLP_PTR(owner[4 / 4])[0x10 / 4]),
+                                     w[0x14 / 4], w[0x14 / 4], 0.0f,
+                                     flags100, flags100, pass,
+                                     RLP_PTR(w[0x528 / 4]), w[0x52c / 4], att);
+                }
+                LIME_PopMatrix(1);
+            }
+
+            /* ---- pass 1 fires the scene's events, once per frame CHANGE ---- */
+            if (pass == 1) {
+                w[0x5e8 / 4] = (slot > 1) ? w[0x14 / 4] : w[0x51c / 4];
+
+                if (w[0x5e8 / 4] != w[0x5ec / 4]) {
+                    if (slot > 1) {
+                        LIME_TriggerEventsFromScene(
+                            RLP_PTR(RLP_PTR(owner[4 / 4])[0x10 / 4]),
+                            w[0x14 / 4], &pf[0x548 / 4], w[0x540 / 4],
+                            -1, 1, w[0x528 / 4], w[0x52c / 4]);
+                    } else {
+                        long mirror  = w[0x540 / 4];
+                        long fr      = ou[GOBJ_FRAME / 2];
+                        long hadFull = 0;
+                        long toggled;
+                        int  suppressed = 0;
+
+                        if (pf[0x584 / 4] == RLP_UNSET) {
+                            pf[0x584 / 4] = 1.0f;
+                            hadFull = 1;
+                        }
+
+                        toggled = ((unsigned short)(fr - FRAME_TOGGLE_LO)
+                                   <= FRAME_TOGGLE_SPAN) ? 1 : 0;
+
+                        if (w[0] == RLP_AXETRAIL_CHAR && AxeTrailDisallowed != 0) {
+                            AxeTrailDisallowed--;   /* the trail is held off */
+                            suppressed = 1;
+                        }
+
+                        if (!suppressed) {
+                            long *scene;
+                            long  skin;
+
+                            if ((unsigned short)(fr - FRAME_FOLLOW_LO)
+                                <= FRAME_FOLLOW_SPAN) {
+                                scene = RLP_PTR(RLP_PTR(w[4 / 4])[0x10 / 4]);
+                                skin  = RLP_PLAYER(slot ^ 1)[0x528 / 4];
+                            } else if (ovr != NULL) {
+                                scene = RLP_PTR(ovr[0x10 / 4]);
+                                skin  = w[0x528 / 4];
+                            } else {
+                                scene = RLP_PTR(RLP_PTR(w[4 / 4])[0x10 / 4]);
+                                skin  = w[0x528 / 4];
+                            }
+
+                            LIME_TriggerEventsFromSceneOffsetIfFollowing(
+                                slot, followMode, scene, w[0x51c / 4],
+                                &pf[0x548 / 4], &pf[0x588 / 4],
+                                mirror, 1, RLP_PTR(skin), w[0x52c / 4],
+                                toggled);
+                        }
+
+                        if (hadFull)
+                            pf[0x584 / 4] = RLP_UNSET;
+                    }
+
+                    w[0x5ec / 4] = w[0x5e8 / 4];
+                    followMode   = 1;
+                }
+
+                if (axes == 0)
+                    w[0x5ec / 4] = -1;
+            }
+
+            glCullFace(GL_BACK);
+
+            if (slot == 1) {
+                if (!LIME_Paused)
+                    LIME_printf(5, "\n");
+                followMode = slot;
+            }
+
+            /* ---- pick the next object ---- */
+            if (!startOneIn) {
+                obj = RLP_NEXT(obj);
+            } else if (n == 0) {
+                obj = (Mk3Obj_t *)GameObjects;      /* back to the head */
+            } else if (n == 1) {
+                obj = RLP_NEXT(obj);                /* the one already drawn */
+                if (obj != NULL)
+                    obj = RLP_NEXT(obj);
+            } else {
+                obj = RLP_NEXT(obj);
+            }
+
+            if (pass == 0 && n == 0) {
+                limeClearDepthBuffer();
+                ClearedZBuffer = 1;
+            }
+            if (obj == NULL)
+                break;
+            n++;
+        }
+    }
+
+    /* the reset above covered nine slots; this sweep covers eight */
+    for (i = 0; i < RLP_SWEEP_SLOTS; i++)
+        if (((const float *)RLP_PLAYER(i))[0x584 / 4] == RLP_UNSET)
+            RLP_PLAYER(i)[0x5ec / 4] = -1;
+
+    DoSmokesSmoke(PLAYER1MODEL, *PLAYER2MODEL);
+}
