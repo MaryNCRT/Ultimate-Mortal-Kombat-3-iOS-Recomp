@@ -7,7 +7,7 @@ Read this, then [METHODOLOGY.md](METHODOLOGY.md). Everything else is reference.
 
 ## Where the project actually stands
 
-**49.20% of the total estimated effort. Nothing is playable.** The arithmetic is
+**51.74% of the total estimated effort. Nothing is playable.** The arithmetic is
 in the [README](../README.md#overall-progress) and the weights are a judgement
 call; the completion figures are measured by `tools/progress.py` on every run.
 
@@ -16,21 +16,23 @@ call; the completion figures are measured by `tools/progress.py` on every run.
 | Asset formats | **100%** — solved, demonstrated, animating |
 | `lime/common` | **109 of 109** written, **all nine files verified** |
 | Native executable | **exists**, draws all 18 arenas with a skinned animated fighter |
-| `gamecode` | **250 of 291** — the current front |
+| `gamecode` | **291 of 291** — finished |
 | `gamecode/logic` (fight engine) | 3 of 2,172 — essentially untouched |
 | Platform layer | window, GL context and asset loading on Windows and Linux; no audio, no input mapping |
 
-The shape of the project is still that it has **more verified knowledge than
-code**, but less lopsidedly than it was: `lime/common` is finished and
-`gamecode` is past five-sixths. The fight engine is the mountain that remains.
+The shape of the project has changed: **two of the three code modules are
+finished.** `lime/common` is 109 of 109 and `gamecode` is 291 of 291 — every
+front-end screen, every menu, the HUD, the tower, the loaders and the whole
+network lobby. The fight engine is now the only mountain left, and it is a
+large one: 2,172 functions against the 400 written so far.
 
-**If you are picking this up mid-stream, the front is `gamecode`.** Work
-smallest-function-first through `python tools/pending.py`; the small ones keep
-turning up the constants and struct offsets the big ones then need. The bar for
-landing one is in the ["Next up"](PROGRESS.md#next-up) section of PROGRESS.md
-and is not negotiable: `check.sh` at **zero errors and zero warnings** in
-`decomp/gamecode`, `symcheck` at zero unknown callees, figures republished with
-`tools/sync_figures.py`.
+**If you are picking this up mid-stream, the front is `gamecode/logic`.** The
+method does not change — smallest-function-first through
+`python tools/pending.py`, because the small ones keep turning up the constants
+and struct offsets the big ones then need. The bar for landing one is in the
+["Next up"](PROGRESS.md#next-up) section of PROGRESS.md and is not negotiable:
+`check.sh` at **zero errors and zero warnings** in `decomp/gamecode`, `symcheck`
+at zero unknown callees, figures republished with `tools/sync_figures.py`.
 
 ---
 
@@ -103,10 +105,11 @@ protects nothing and costs the project its only visible evidence.
 
 ## What to do next, in order
 
-### 1. Finish `gamecode` — this is the front
+### 1. `gamecode` is finished — read it before starting the logic module
 
-**250 of 291.** Ten files under `decomp/gamecode/`. Run
-`python tools/pending.py 40` for what is left, size-ordered.
+**291 of 291**, ten files under `decomp/gamecode/`. Nothing is left there, but it
+is the reference for everything the fight engine will need, and the headers are
+where the hard-won facts live.
 
 **Work smallest-first.** This has been repeatedly worth it: the small functions
 keep turning up the constants, strides and struct offsets the large ones then
@@ -124,14 +127,11 @@ not an int, `SFXHandle` and `MusicVol` are arrays and not pointers,
 reading a caller. Assume any signature that has never been read from a call site
 is provisional.
 
-What is left is the tail, and it is all large. `GameInit_LoadABit` (11,700 B) is
-done and was worth the day it cost — it is the asset manifest for a fight and it
-produced [the roster table](ROSTER.md). Five remain over 5 KB: `DrawHUD`
-11,536 B, `FE_Task_About_Help` 10,360 B, `MovesList` 8,796 B, `AddNewGameEvents`
-6,644 B, `UpdateInGamePauseMenu` 5,720 B — and the next tier
-(`FE_Task_About_About`, `DrawControls`, `TrackCam`, `MaintainParticles`,
-`FE_Task_Bios`) is 1.6 to 1.9 KB each. Budget for them separately; they are not
-more of the same.
+The tail was all large and it is all landed. `GameInit_LoadABit` (11,700 B) is
+the asset manifest for a fight and produced [the roster table](ROSTER.md);
+`DrawHUD` (11,536 B) turned out to run the round and match state machine;
+`FE_Task_About_Help` (10,360 B), the largest in the front end, is one text block
+written out thirty-seven times with the spacing hand-tuned per block.
 
 **A big function is often mostly one thing repeated.** `GameInit_LoadABit` is 53
 steps of which twenty are two lines each, plus four 24-way switches that are one
@@ -256,19 +256,20 @@ Not open searches any more — each has a named function behind it:
   frame list. Layout undecoded.
 - **`word0` of a bone record** is not the child count. Meaning unknown, and
   nothing needs it.
-- **Is the hidden roster reachable?** Noob Saibot, Human Smoke and Classic
-  Sub-Zero ship complete with portraits and a `HIDDENPORTRAIT.PNG` exists. The
-  select-screen logic is in `FrontEnd.cpp`, now 66 of 126 — but the two
-  functions that would answer this, `drawCharacterSelection` (3,116 B) and
-  `FE_Task_Character_Select` (1,152 B), are both still pending. See
-  [HIDDEN-CONTENT.md](HIDDEN-CONTENT.md).
+- **The hidden roster is reachable, and this is now settled.**
+  `drawCharacterSelection` gives the exact routes:
 
-  Two adjacent things are already known and narrow it. `LoadFrontEndCharacters`
-  loads **character 23 as character 0** while keeping 23's own id, and
-  `TheFECharacters` has **25 slots**. And `checkIfKode` compares six words of
-  `KodeSelector` against a `-1`-terminated `_kodes` table at `0x00176c04`,
-  publishing the matched entry's payload in `_theKode` — so the kode system is
-  fully mapped even though what each kode unlocks is not.
+  - **Smoke** — hold on Human Smoke (cell 14) for 180 frame-rate-corrected
+    units, about three seconds. The code then turns the cell into character 22
+    and writes `limeLastTouchScreenX = -1`, *fabricating a release* so the hold
+    completes through the ordinary tap path.
+  - **Ermac, Mileena, Classic Sub-Zero** — the three ten-digit kodes in
+    `FE_Task_Enter_Kode`: `1234444321`, `2226422264` and `8183581835`, setting
+    `ErmacUnlocked`, `MileenaUnlocked` and `ClassicSubZeroUnlocked`.
+
+  Every cell is also matched against **two** tables, `CS_Layout` and
+  `CS_Layout2`, so one grid position can stand for two fighters. See
+  [HIDDEN-CONTENT.md](HIDDEN-CONTENT.md).
 
 ---
 
@@ -281,46 +282,46 @@ issues that are resolved, open issues for what you find, and record the failures
 alongside the results. Half the value in this repository is in the paragraphs
 explaining what did *not* work.
 
-## Where the work stopped (2026-08-27)
+## Where the work stopped (2026-08-29)
 
-`MovesList` landed; **gamecode is 251/291 = 85.9 -> 86.25%**.
+**`gamecode` reached 291 of 291.** The last twelve were all in `FrontEnd.cpp`:
+the endings viewer, the versus screen, the treasure and kode rows, the lobby,
+the character grid, the button editor, the tower and the help pages.
 
-`DrawHUD` landed after it (armv7 `0x000282dc`, 11,536 bytes, the largest in
-gamecode), taking **gamecode to 252/291 = 86.60%**. The finding that changes how
-the fight loop has to be ported: **`DrawHUD` runs the round and match state
-machine**, not just drawing -- `QuitAsWin`, `QuitAsLose`, `mk3_init`,
-`ResetFightData` and `InitEnduranceMatch` are all called from inside it.
+Eight declarations were corrected along the way, every one of them by finally
+reading a *caller* — which remains the single most reliable way this project
+finds its own mistakes:
 
-Two tools were added for it and both are verified:
+| symbol | was | is | what proved it |
+|---|---|---|---|
+| `limeGetStringWidth` | `long` | `float` | `vmov s10, r0` with no `vcvt` |
+| `VSWait` | `long` | `float` | `vcmpe.f32` against 30.0 |
+| `Character_SelectWait` | `long` | `float` | `vldr` + `vcmp.f32` |
+| `KodeSelectorParticle[]` | `int[]` | `float[]` | advanced by `0.05/fps` |
+| `EASDK_LogEventEnumEnum` | 4 args | 5 args | callee reads `[sp, #0x34]` |
+| `peerNames` | `[5][64]` | `[8][64]` | the symbol table's own extent |
 
-- `tools/imports.py` names a `blx` into `__symbol_stub4` by walking the
-  indirect symbol table. `0x000f3d34` is `_sprintf`.
-- `tools/lits.py` appends the pool value to every pc-relative literal load.
-  Sprite sizes, UV extents and timer rates all live in the literal pool.
+Three things worth carrying forward into the fight engine:
 
-## AddNewGameEvents landed
+- **A `= 0` store can never tell an `int` from a `float`.** Four of the six
+  corrections above were invisible until a *read* appeared. Treat any type
+  established only from stores as provisional.
+- **Debug output shipped in retail** in at least four places:
+  `printf("limeFPSScaleFactor:%f
+")` on the endings screen's hot path,
+  `printf("%d TOUCHED
+")` in the lobby, `puts("PRESSED EXIT!")` on the network
+  versus screen, and `puts("F")` / `puts("G")` inside the loader.
+- **`FE_WidthScale` and `FE_HeightScale` are interchangeable on 480x320 and only
+  there.** Four screens mix them — `FE_Task_VS_Screen` pulls the right-hand
+  portrait back by a height-scaled 256 while drawing it width-scaled,
+  `EditButtons` uses `FE_W(48)` for a vertical measurement, and
+  `FE_Task_Select_Treasure` passes `FE_WidthScale` itself as a colour component.
+  Every one of them is invisible at 4:3 and wrong at any other aspect. A
+  widescreen port has to decide each case deliberately.
 
-`AddNewGameEvents` (armv7 `0x000732a8`, 6,644 bytes) is decompiled, and
-**`Blood.cpp` is the first complete file in `gamecode` at 8/8**. See
-[GAME-EVENTS.md](GAME-EVENTS.md).
+### The front is now `gamecode/logic`
 
-## Next up: RenderLevelPlayers
-
-`RenderLevelPlayers` (armv7 `0x00023ee8`, 4,572 bytes) is **read but not
-written**. It is the densest function in the project so far -- raw GL ES calls,
-magic frame ids, and PLAYER offsets three levels deep -- and it is where the
-game stops being arcade logic and becomes OpenGL.
-
-[RENDER-PLAYERS.md](RENDER-PLAYERS.md) has the whole GL transform instruction by
-instruction, the object-list layout, the PLAYER fields, the frame-id table, and
-a list of the three arms still unread. **The nine GL entry points are named
-there** -- the first time raw GL appears anywhere in this project, and what a
-port's renderer has to reproduce.
-
-After that, the largest left are `FE_Task_About_Help` (10,360 B),
-`UpdateInGamePauseMenu` (5,720 B) and `FE_Task_Tower` (4,696 B).
-
-The trap to avoid, having been walked into twice already: a `handlers.py`
-summary tells you an arm calls `get_tsound`. It does not tell you the id. Three
-constants in `DrawHUD` were written from a summary and all three were wrong --
-the health bar's y, the danger sprite's size, and the flawless timeout.
+3 of 2,172. Everything in `decomp/gamecode/` is the reference for it, and
+`tools/pending.py` still orders the work. The plan of record is to automate the
+loop with `tools/decomp_loop.py` rather than reading 2,169 functions by hand.

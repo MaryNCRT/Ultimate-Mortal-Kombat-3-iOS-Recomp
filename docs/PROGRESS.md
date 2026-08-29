@@ -2172,64 +2172,103 @@ handles 1, 2, 3 and 26 are never released. Handle 26 is the "Gstart" click
   multiple of 60. Its menu packet is sent three times in a row, written out
   three times with no loop.
 
+## `gamecode` is 291 of 291 (100.00%)
+
+The last twelve were all `FrontEnd.cpp`: `FE_Task_Endings`, `FE_Task_VS_Screen`,
+`FE_Task_Treasure`, `FE_Task_Enter_Kode`, `FE_Task_Multiplayer`,
+`drawCharacterSelection`, `EditButtons`, `FE_Task_Select_Treasure`,
+`FE_Task_Multiplayer_Versus_Screen`, `FEInit_LoadABit`, `FE_Task_Tower` and
+`FE_Task_About_Help` -- the largest function in the module at 10,360 bytes.
+
+**Eight declarations were corrected, every one of them by reading a caller.**
+That remains the single most reliable way this project finds its own mistakes,
+and six of the eight were invisible until a *read* appeared:
+
+| symbol | was | is | what settled it |
+|---|---|---|---|
+| `limeGetStringWidth` | `long` | `float` | `vmov s10, r0` used as a float with no `vcvt` |
+| `VSWait` | `long` | `float` | `vcmpe.f32` against 30.0 |
+| `Character_SelectWait` | `long` | `float` | `vldr` + `vcmp.f32 s14, #0` |
+| `KodeSelectorParticle[]` | `int[]` | `float[]` | advanced by `0.05 / limeFPSScaleFactor` |
+| `EASDK_LogEventEnumEnum` | four args | five | the callee reads `[sp, #0x34]`, past its own 52-byte frame |
+| `peerNames` | `[5][64]` | `[8][64]` | the symbol table's extent: `_peerNamesFlags` is 0x200 bytes along |
+
+A `= 0` store can never tell an `int` from a `float`. Four of these were sitting
+behind exactly that.
+
+### The hidden roster is settled
+
+`drawCharacterSelection` and `FE_Task_Enter_Kode` between them answer the
+question [HIDDEN-CONTENT.md](HIDDEN-CONTENT.md) had left open since the roster
+work. **Smoke** is a three-second hold on Human Smoke: the code turns cell 14
+into character 22 and writes `limeLastTouchScreenX = -1`, *fabricating a release*
+so the hold completes through the ordinary tap path. **Ermac**, **Mileena** and
+**Classic Sub-Zero** are the three ten-digit kodes `1234444321`, `2226422264`
+and `8183581835`. And every highlight test matches against **two** tables --
+`CS_Layout` and `CS_Layout2` -- so one grid cell can stand for two fighters.
+
+### Debug output shipped in retail, in four places
+
+`printf("limeFPSScaleFactor:%f
+")` fires **every frame** the endings text is
+scrolling. `printf("%d TOUCHED
+")` is in the multiplayer lobby's touch path.
+`puts("PRESSED EXIT!")` is on the network versus screen. `puts("F")` and
+`puts("G")` bracket the character-model load inside `FEInit_LoadABit`.
+
+### FE_WidthScale and FE_HeightScale are interchangeable on 480x320 and only there
+
+Four screens mix them, and every case is invisible at 4:3 and wrong at any other
+aspect ratio. A widescreen port has to decide each one deliberately:
+
+- `FE_Task_VS_Screen` pulls the right-hand portrait back by a **height**-scaled
+  256 while drawing it **width**-scaled 256 wide.
+- `EditButtons` uses `FE_W(48)` for the vertical origin of its right-hand
+  forbidden band where the top band uses `FE_H(48)`.
+- `FE_Task_Select_Treasure` passes **`FE_WidthScale` itself** as the red
+  component of a `limeFillRect` -- 1.0 on a 480-wide screen and not otherwise.
+- `FE_Task_Endings` lays its text out in width units and fades it in height
+  units.
+
+### Other findings worth keeping
+
+- **`EditButtons`' four red bands always measure against `CustomButtonsPos4[0]`**
+  whatever layout is being edited, and its drop test uses `ButtonSize - 2`, so
+  two buttons may end two units closer than touching.
+- **`FE_Task_Multiplayer` calls `getNumberOfPeers()` five times a frame** and its
+  selection veto reads `peerNamesFlags[-1]` whenever nothing is selected.
+- **`FE_Task_About_Help`'s spacing was hand-tuned block by block**: twenty-three
+  of its thirty-seven blocks advance the line counter by `lines + 0.5` and the
+  rest by `lines + 1`, the half-line gaps computed in double precision and the
+  whole ones in single. `GameText` 906 is missing from the sequence.
+- **`FEInit_LoadABit` kicks the heartbeat eight times during the load** so a
+  connected peer does not time out, and its 89-case jump table is laid out
+  backwards -- highest case at the lowest address.
+
 ## Next up
 
-**Finish `gamecode`.** 250 of 291. `lime/common` is **complete at 109/109** and
-verified against the oracle, so the engine is no longer the bottleneck; what is
-left of the game layer is what stands between here and a build that boots into
-a menu.
+**`gamecode/logic` -- the fight engine.** 3 of 2,172, and the only module left.
+`lime/common` is complete at 109/109 and verified against the oracle, and
+`gamecode` is complete at 291/291, so both of the modules that stand between
+here and a build that boots into a menu are finished.
 
-The forty-one that remain are the big ones. `GameInit_LoadABit` is done; five
-still over 5 KB:
+The plan of record is to **automate the loop** rather than read 2,169 functions
+by hand: `tools/decomp_loop.py` scores the pending list by complexity and works
+smallest-first, which is the order that has paid off in every module so far.
+`tools/pending.py` still produces the list.
 
-| Function | Bytes |
-|---|---|
-| `DrawHUD` | 11,536 |
-| `FE_Task_About_Help` | 10,360 |
-| `MovesList` | 8,796 |
-| `AddNewGameEvents` | 6,644 |
-| `UpdateInGamePauseMenu` | 5,720 |
-
-and the next tier -- `FE_Task_About_About`, `DrawControls`, `TrackCam`,
-`MaintainParticles`, `FE_Task_Bios` -- is 1.6 to 1.9 KB each.
+The boundary with `gamecode` is already a function pointer: `mk3_init`'s third
+argument is `FrameID_GetBBox`, handed in at init rather than called directly.
+Any indirect call inside the logic module that takes a frame id and returns a
+box is almost certainly that callback.
 
 The method is unchanged and works: disassemble by name through
-`tools/annotate.py`, read every branch before writing anything, land each
-function with `check.sh` at zero errors **and** zero warnings in
-`decomp/gamecode`, `symcheck` at zero unknown callees, then republish the
-figures with `tools/sync_figures.py`. Smallest first has been the right order --
-the small ones keep turning up the constants and struct offsets the big ones
-then need, and this block is the clearest evidence of that yet: seven wrong type
-declarations were all corrected from call sites, not from the functions that
-declared them.
-
-Then, in order:
-
-1. **`gamecode/logic`** -- 2,172 functions, the real mountain, with 92 named
-   `t_` handlers already recovered as a head start
-   ([issue #1](../../issues/1)). Everything learned in `gamecode` about
-   PLAYER, ANIMATEDCHARACTER, the frame tables and now the `FrameID_GetBBox`
-   callback feeds straight into it.
-2. **The platform layer.** 229 functions, of which 56 are a vendored MIT copy of
-   zoul/Finch needing no reverse engineering. The GL target is measured:
-   [77 entry points](LIME-ENGINE.md), ES 1.1 fixed function, no shaders.
-3. **Renderer and layout fixes now that their causes are known** --
-   [#20](../../issues/20) the mirrored-fighter cull face,
-   [#17](../../issues/17) the second background layer,
-   [#19](../../issues/19) Graveyard's floor gap,
-   [#24](../../issues/24) `InitAllGameData` and the unscaled 48px centre gap,
-   [#25](../../issues/25) three front-end layout quirks.
-4. **`moves_data.x` / `frames.x` extraction** ([issue #11](../../issues/11)).
-5. **Restoring hidden content** -- explicitly after a playable build.
-
-### Known technical debt
-
-- `_RotVector` and `_limeMatrix3x4RotateSkin`: signatures assumed, not confirmed.
-- Import shims: 9 written of 689 resolved stubs. Only the ones each verified module needs have to exist.
-- The missing `*_LOW.PNG` textures seen in the touchHLE log are unexplained, and matter for the port's asset pipeline.
-- `ROBO1_STANDARD` and `ROBO2_STANDARD` are a different export variant across four formats. Understood, handled, but their `.scene` files remain stubs.
-
----
+`tools/annotate.py`, fall back to `tools/disasm_range.py` the moment its output
+stops where a branch says it should not, read every branch before writing
+anything, land each function with `check.sh` at zero errors **and** zero
+warnings in `decomp/gamecode`, `symcheck` at zero unknown callees, then
+republish the figures with `tools/sync_figures.py`. Smallest first has been the
+right order --
 
 ## `gamecode` past the halfway mark: 146 of 291 (50.17%)
 
