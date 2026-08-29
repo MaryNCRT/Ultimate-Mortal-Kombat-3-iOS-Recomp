@@ -2526,7 +2526,13 @@ long  CreateWrappedTextArrays(const char *text, char *out, long *lines,
  * Transcribed with all three calls. Collapsing them is safe today and removes
  * the only evidence of how tight that ring is.
  */
-long DrawOptionAsText(const char *text, int x, float scale, int centre,
+/* All four of x, y and scale arrive as FLOATS -- `vmov s20, r2` and
+ * `vmov s16, r3` in the prologue, no `vcvt` anywhere. The parameters were
+ * named and typed `int x, float scale, int centre` here, which had the y
+ * position under the name `scale` and the scale under the name `centre`.
+ * Corrected against the call sites in UpdateInGamePauseMenu, which pass
+ * 384.0f, 48.0f and 1.25f. */
+long DrawOptionAsText(const char *text, float x, float y, float scale,
                       const float *colour, float maxWidth)
 {
     long lines = 0;
@@ -2535,7 +2541,7 @@ long DrawOptionAsText(const char *text, int x, float scale, int centre,
     float widest = 0.0f;                /* s22 -- computed and never read */
 
     CreateWrappedTextArrays(text, ButtonSplitText2, &lines, (long)maxWidth,
-                            GameFont, (float)centre * FE_WidthScale);
+                            GameFont, scale * FE_WidthScale);
 
     if (lines <= 0)
         return 0;
@@ -2543,19 +2549,19 @@ long DrawOptionAsText(const char *text, int x, float scale, int centre,
     lineOffset = 0;
     for (i = 0; i < lines; i++) {
         char *line = &ButtonSplitText2[i * SPLITTEXT_STRIDE];
-        float y = scale - (float)(lines * 10 - 10) + (float)lineOffset;
+        float py = y - (float)(lines * 10 - 10) + (float)lineOffset;
         float w;
 
         limeDrawFONT(GameFont, limeUC(line),
-                     (float)FE_X((float)x), (float)FE_Y(y),
-                     1, (float)centre * FE_WidthScale, colour);
+                     FE_X(x), FE_Y(py),
+                     1, scale * FE_WidthScale, colour);
 
         w = (float)limeGetStringWidth(GameFont, limeUC(line))
-            * FE_WidthScale * (float)centre;
+            * FE_WidthScale * scale;
 
         if (w > widest)                 /* recomputed inside the branch */
             widest = (float)limeGetStringWidth(GameFont, limeUC(line))
-                     * FE_WidthScale * (float)centre;
+                     * FE_WidthScale * scale;
 
         lineOffset += 0x14;             /* 20, added as an integer */
     }
@@ -3515,7 +3521,9 @@ extern char ButtonSplitText[];          /* 0x00184730, 256 bytes a line */
  *
  * Unlike `DrawOptionAsText`, the maximum here is actually used.
  */
-long DrawOptionAsButton(const char *text, int x, int y, int scale,
+/* x, y and scale are FLOATS, for the same reason as DrawOptionAsText above:
+ * `vmov s20, r1`, `vmov s22, r2`, `vmov s16, r3`, no conversion. */
+long DrawOptionAsButton(const char *text, float x, float y, float scale,
                         const float *colour, float maxWidth)
 {
     long lines = 0;
@@ -3524,26 +3532,25 @@ long DrawOptionAsButton(const char *text, int x, int y, int scale,
     float tx, ty, edge;
 
     CreateWrappedTextArrays(text, ButtonSplitText, &lines, (long)maxWidth,
-                            GameFont, (float)scale * FE_WidthScale);
+                            GameFont, scale * FE_WidthScale);
 
     if (lines > 0) {
         lineOffset = 0;
         for (i = 0; i < lines; i++, lineOffset += 0x14) {
             char *line = &ButtonSplitText[i * 256];
-            float py = (float)y - (float)(lines * 10 - 10)
-                       + (float)lineOffset;
+            float py = y - (float)(lines * 10 - 10) + (float)lineOffset;
             float w;
 
             limeDrawFONT(GameFont, limeUC(line),
-                         (float)FE_X((float)x), (float)FE_Y(py),
-                         1, (float)scale * FE_WidthScale, colour);
+                         FE_X(x), FE_Y(py),
+                         1, scale * FE_WidthScale, colour);
 
             w = (float)limeGetStringWidth(GameFont, limeUC(line))
-                * FE_WidthScale * (float)scale;
+                * FE_WidthScale * scale;
 
             if (w > widest)             /* recomputed, as in DrawOptionAsText */
                 widest = (float)limeGetStringWidth(GameFont, limeUC(line))
-                         * FE_WidthScale * (float)scale;
+                         * FE_WidthScale * scale;
         }
     }
 
@@ -3552,23 +3559,21 @@ long DrawOptionAsButton(const char *text, int x, int y, int scale,
 
     tx = limeTouchScreenX[0];
 
-    edge = (float)FE_X((float)(x - 8)) + widest * -0.5f;
+    edge = FE_X(x - 8.0f) + widest * -0.5f;
     if (tx < edge)
         return 0;
 
-    edge = (float)FE_X((float)(x + 8)) + widest * 0.5f;
+    edge = FE_X(x + 8.0f) + widest * 0.5f;
     if (tx > edge)
         return 0;
 
     ty = limeTouchScreenY[0];
 
-    edge = (float)FE_Y((float)y - 10.0f - (float)(lines * 10 - 10));
+    edge = FE_Y(y - 10.0f - (float)(lines * 10 - 10));
     if (ty < edge)
         return 0;
 
-    edge = (float)FE_Y((float)y)
-           + (float)FE_H(30.0f)
-           + (float)FE_H((float)(lines * 10 - 10));
+    edge = FE_Y(y) + FE_H(30.0f) + FE_H((float)(lines * 10 - 10));
 
     return (ty <= edge) ? 1 : 0;
 }

@@ -1415,10 +1415,15 @@ void drawLoadingBackground(void)
  * Eight buttons across: the U extent below is exactly 1/8. */
 extern TEXTURE **ButtonsTPage;
 
-int FE_X(float x);
-int FE_Y(float y);
-int FE_W(float w);
-int FE_H(float h);
+/* These return FLOATS -- `vmul.f32` into s14 and `vmov r0, s14` on the way out,
+ * see FrontEnd.c. They were declared `int` here, which made every `(float)`
+ * cast at the call sites convert a float's bit pattern as if it were an
+ * integer. Corrected while writing UpdateInGamePauseMenu, which passes their
+ * results straight to limeDrawSprite. */
+float FE_X(float x);
+float FE_Y(float y);
+float FE_W(float w);
+float FE_H(float h);
 
 
 /* --------------------------------------------------------- drawSingleButton
@@ -1457,8 +1462,8 @@ void drawSingleButton(int x, int y, long tint)
     colour[4].w = tint;
 
     limeDrawSprite(*ButtonsTPage,
-                   (float)FE_X((float)x), (float)FE_Y((float)y),
-                   (float)FE_W(64.0f),    (float)FE_H(64.0f),
+                   FE_X((float)x), FE_Y((float)y),
+                   FE_W(64.0f),    FE_H(64.0f),
                    0.0f, 0.5f, 0.125f, 0.25f, &colour[0].w);
 }
 
@@ -2039,7 +2044,7 @@ long CheckLeftDial(int player)
     float outer2, inner2;
     long i;
 
-    JOUTERDIAL = (float)FE_W(80.0f);
+    JOUTERDIAL = FE_W(80.0f);
     if (P2Controls != 0)
         JOUTERDIAL = 96.0f;             /* unscaled, unlike the default */
 
@@ -4428,7 +4433,13 @@ extern long  *FE_TaskStackPointer, *FE_CurrentTask;
 
 extern long Player1Wins;                /* 0x0014e204 */
 
-const char *getStageName(long stage);
+/* TWO arguments: `getStageName(tier, index)`. Every call site loads r0 with
+ * `Destiny` and r1 with `Stage` before the branch, and achievements.c
+ * decompiles the callee as `getStageName(int tier, int index)`. It was
+ * declared with one argument here, which silently dropped the second at both
+ * call sites below; corrected while writing UpdateInGamePauseMenu, which makes
+ * the same call a third time. */
+const char *getStageName(long tier, long index);
 void PushFETask(int task);
 void UpdateStats(void);
 int  achievementsUnlock(int id);
@@ -4494,7 +4505,7 @@ void EASDK_LogEventEnumEnumStringNum(long id, long a, const char *s,
  * ### The arcade logging happens before the switch
  *
  *      EASDK_LogEventEnumEnumString(0x754e, 15, DestinyNamesLoss[Destiny],
- *                                   15, getStageName(Stage))
+ *                                   15, getStageName(Destiny, Stage))
  *      EASDK_LogEventEnumEnumStringNum(0x754f, 15, DestinyNames[Destiny],
  *                                      7, (long)timeInGame)
  *      printf(..., (double)timeInGame)
@@ -4513,7 +4524,7 @@ void QuitAsLose(void)
     if (GameMode == 0) {
         EASDK_LogEventEnumEnumString(0x754e, 15,
                 DestinyNamesLoss[Destiny],
-                15, getStageName(Stage));
+                15, getStageName(Destiny, Stage));
         EASDK_LogEventEnumEnumStringNum(0x754f, 15,
                 DestinyNames[Destiny],
                 7, (long)timeInGame);
@@ -5050,7 +5061,7 @@ void Task_LoadGeneralData(void)
  *      EASDK_LogEventEnumEnumString(0x7554, 15, DestinyNames[Destiny],
  *                                   15, getLayoutName(Settings[4], Settings[5]))
  *      EASDK_LogEventEnumEnumString(0x754e, 15, DestinyNamesWin[Destiny],
- *                                   15, getStageName(Stage))
+ *                                   15, getStageName(Destiny, Stage))
  *      EASDK_LogEventEnumEnumStringNum(0x754f, 15, DestinyNames[Destiny],
  *                                      7, (long)timeInGame)
  *      printf("time spent:%f\n", (double)timeInGame)
@@ -5079,7 +5090,7 @@ void QuitAsWin(void)
                 15, getLayoutName(Settings[4], Settings[5]));
         EASDK_LogEventEnumEnumString(0x754e, 15,
                 DestinyNamesWin[Destiny],
-                15, getStageName(Stage));
+                15, getStageName(Destiny, Stage));
         EASDK_LogEventEnumEnumStringNum(0x754f, 15,
                 DestinyNames[Destiny],
                 7, (long)timeInGame);
@@ -10432,4 +10443,610 @@ void RenderLevelPlayers(void)
             RLP_PLAYER(i)[0x5ec / 4] = -1;
 
     DoSmokesSmoke(PLAYER1MODEL, *PLAYER2MODEL);
+}
+
+
+/* ------------------------------------------------------ UpdateInGamePauseMenu
+ *
+ * armv7 0x00026c84, 5,720 bytes.  **Complete.**
+ *
+ * The pause menu, drawn and driven from inside `Task_GameMain`. `GamePaused`
+ * is a three-state variable, not a flag, and it selects which of three screens
+ * this function is:
+ *
+ *      0   not paused          -> TogglePauseMenu() and nothing else
+ *      1   the menu            -> six touch options
+ *      2   the moves list      -> MovesList() under a CANCEL button
+ *
+ * ### Six options, all at the same x, 56 apart
+ *
+ *      y=6    GameText(0xf9)   the heading, and option 1 -- RESUME
+ *      y=62   GameText(9)      EXIT (asks first)
+ *      y=118  "%s : %s"        control layout, from Settings[4]
+ *      y=174  "%s : %s"        the second layout line, from Settings[5]
+ *      y=230  "%s : %s"        MUSIC, from Settings[2]
+ *      y=286  "%s : %s"        SFX,   from Settings[3]
+ *
+ * all at x=384, scale 1.25, wrapped at `FE_W(186)`. **The heading is a live
+ * button** -- `GameText(0xf9)` is drawn with `DrawOptionAsButton` like the
+ * rest, so tapping the title resumes the game.
+ *
+ * ### Every option fires on RELEASE, and only on a real release
+ *
+ *      LastTouch_PauseN = Touch_PauseN;
+ *      Touch_PauseN     = DrawOptionAsButton(...);
+ *      if (LastTouch_PauseN && !Touch_PauseN && *limeTouchScreenX == -1.0f)
+ *
+ * -- the finger has to have been inside last frame, be outside now, **and** be
+ * off the screen entirely. Sliding off an option does not activate it. The
+ * highlight colour is `mmfontcol[(LastTouch + 1) * 4]`, so it lags the touch by
+ * a frame.
+ *
+ * ### The selection is carried in one variable that starts as GameMode
+ *
+ * `sl` holds `GameMode` while the network check runs, is then overwritten with
+ * 0 and set to 1..5 by whichever option was released. Option 6 does not set it
+ * -- it branches straight into its own handler -- which leaves the `sl == 6`
+ * test in the dispatcher **unreachable**. Transcribed as written.
+ *
+ * ### The click is played before the action, and only for options 1 to 5
+ *
+ *      if (Settings[3]) limePlaySound(SFXHandle[0x68/4],
+ *                                     MusicVol[Settings[3]] / 100, 1.0f, 0);
+ *
+ * `Settings[3]` is the SFX setting and doubles as the enable, the same shape
+ * `Task_GameDestroy` uses for music. Option 6 -- the SFX option itself --
+ * bypasses this and plays its click *after* changing the setting, so turning
+ * SFX on clicks and turning it off does not.
+ *
+ * ### What each option does
+ *
+ *      1  RESUME     GamePaused = 0, and three sendPause(0) on the network
+ *      2  EXIT       clears four flags, QuitAsLose(), then FIVE analytics
+ *                    events -- one for the menu and one per game mode
+ *      3  BUTTONS    Settings[4]++, wrapping 7 back to 5, then
+ *                    mk3_set_four_button for both sides
+ *      4  LAYOUT     GameMode 6: Player2NumButtons++, wrapping 7 to 5
+ *                    otherwise:  Settings[5] ^= 1
+ *      5  MUSIC      a four-state cycle; see below
+ *      6  SFX        Settings[3] = (Settings[3] + 1) & 3
+ *
+ * Options 3, 4 and 6 call `Write_SettingsData()`; option 5 calls it only on the
+ * branch that does not find user music. **Turning the music off because the
+ * device is playing its own does not persist** -- `limeCheckForUserMusic()`
+ * sets `Settings[2] = 0` and returns without saving.
+ *
+ * ### The music option changes the volume for the state it is leaving
+ *
+ *      Settings[2] == 3   limeStopTune()
+ *      Settings[2] == 0   limePlayTune(LevelMusic[LevelSelect], MusicVol[1], 1)
+ *      Settings[2] == 1   limeSetTuneVol(MusicVol[2])
+ *      Settings[2] == 2   limeSetTuneVol(MusicVol[3])
+ *      then Settings[2] = (Settings[2] + 1) & 3
+ *
+ * so the volume applied is `MusicVol[Settings[2] + 1]` -- the level it is about
+ * to move to, applied before the move. The compiler wrote this as a fall-
+ * through cascade that re-reads `Settings[2]` after each arm; since none of the
+ * calls touch it, exactly one arm runs.
+ *
+ * ### The moves list is dismissed by a corner, not a button
+ *
+ * With `GamePaused == 2` the CANCEL sprite is drawn at the top right, scaled by
+ * `HUD_Scale`, and the dismiss test is a raw rectangle rather than a hit-tested
+ * option:
+ *
+ *      last touch x > limeScreenWidth - HUD_Scale * 80
+ *      last touch y < HUD_Scale * 80
+ *
+ * on the frame the finger comes off. The sprite is 36 units square and the hit
+ * box is 80 -- more than twice the drawn size in each direction.
+ *
+ * ### The network game has two extra screens
+ *
+ * When `GameMode == 1` and `otherPlayerPaused` is set the local player gets a
+ * cut-down panel: `GameText(0x3bb)` as a label and `GameText(9)` as the only
+ * option, which arms `PauseMenuAreYouSure`. The confirm itself --
+ * `GameText(0x11b)` over `GameText(0xeb)`/`GameText(0xec)` -- appears in
+ * **four** places in the binary, once per (paused state x network) combination,
+ * each with its own copy of the "INGAME PAUSE MENU"/"EXIT" strings. They are
+ * written out here the same way, because the four are not quite identical: the
+ * two network copies call `QuitAsLose()` directly on confirm, and the two local
+ * ones set the selection and let the dispatcher do it.
+ */
+
+#define PAUSE_X              384.0f
+#define PAUSE_SCALE          1.25f
+#define PAUSE_WIDTH          186.0f
+#define PAUSE_ROW0           6.0f
+#define PAUSE_ROW_PITCH      56.0f
+#define PAUSE_CONFIRM_LABEL  48.0f
+#define PAUSE_CONFIRM_YES    176.0f
+#define PAUSE_CONFIRM_NO     240.0f
+#define PAUSE_WAIT_LABEL     112.0f
+
+#define PAUSE_PANEL_X        272.0f
+#define PAUSE_PANEL_Y        (-32.0f)
+#define PAUSE_PANEL_W        256.0f
+#define PAUSE_PANEL_H        384.0f
+
+#define CANCEL_SIZE          36.0f     /* HUD_Scale units */
+#define CANCEL_X_OFF         (-32.0f)
+#define CANCEL_Y_OFF         (-6.0f)
+#define CANCEL_HIT           80.0f     /* the hit box, more than twice the art */
+
+#define PAUSE_SFX_CLICK      (0x68 / 4)
+#define PAUSE_BUTTONS_WRAP   7         /* 7 wraps back to 5 */
+#define PAUSE_BUTTONS_LOW    5
+
+#define TXT_PAUSE_TITLE      0xf9
+#define TXT_EXIT             9
+#define TXT_LAYOUT_A         0xe4
+#define TXT_LAYOUT_B         0xe5
+#define TXT_MUSIC            0xdc
+#define TXT_SFX              0xdd
+#define TXT_VOL_LOW          0xde
+#define TXT_VOL_MED          0xdf
+#define TXT_VOL_HIGH         0xe0
+#define TXT_VOL_OFF          0xe2
+#define TXT_ARE_YOU_SURE     0x11b
+#define TXT_YES              0xeb
+#define TXT_NO               0xec
+#define TXT_OTHER_PAUSED     0x3bb
+#define TXT_BUTTONS_P1       0x3f3
+#define TXT_BUTTONS_P2       0x3f4
+#define TXT_LAYOUT_NAME      0x111
+#define TXT_LAYOUT_CUSTOM    0x122
+
+#define EV_PAUSE_MENU        0xc360
+#define EV_PAUSE_SETTING     0xc35f
+#define EV_ARCADE_QUIT       0x754d
+#define EV_TRAINING_QUIT     0x7551
+#define EV_VERSUS_QUIT       0x7557
+
+extern float  mmfontcol[];              /* pointer slot -> 0x000ff854 */
+extern char   Menu_GamePaused_Options[];/* 0x00150eb8 */
+extern long   Touch_Pause1, Touch_Pause2, Touch_Pause3;   /* 0x00151038.. */
+extern long   Touch_Pause4, Touch_Pause5, Touch_Pause6;
+extern long   LastTouch_Pause1, LastTouch_Pause2, LastTouch_Pause3;
+extern long   LastTouch_Pause4, LastTouch_Pause5, LastTouch_Pause6;
+extern const char *TrainingNames[];     /* pointer slot -> 0x00176718 */
+extern long  *TrainingCatagory;         /* pointer slot -> 0x0017809c */
+
+void  Write_SettingsData(void);
+long  DrawOptionAsText(const char *text, float x, float y, float scale,
+                       const float *colour, float maxWidth);
+long  DrawOptionAsButton(const char *text, float x, float y, float scale,
+                         const float *colour, float maxWidth);
+
+#define PAUSE_COL(last)   (&mmfontcol[((last) + 1) * 4])
+#define PAUSE_RELEASED(last, now) \
+    ((last) != 0 && (now) == 0 && *limeTouchScreenX == -1.0f)
+
+/* The panel behind every one of these screens: the right half of the 512-square
+ * page, so u is 0.5 and the extents are 0.5 by 0.75. */
+static void DrawPausePanel(void)
+{
+    limeDrawSprite((TEXTURE *)PauseBGTexture,
+                   FE_X(PAUSE_PANEL_X), FE_Y(PAUSE_PANEL_Y),
+                   FE_W(PAUSE_PANEL_W), FE_H(PAUSE_PANEL_H),
+                   0.5f, 0.0f, 0.5f, 0.75f, col);
+}
+
+/* The click every option but the SFX one plays before it acts. */
+static void PauseClick(void)
+{
+    if (Settings[3])
+        limePlaySound(SFXHandle[PAUSE_SFX_CLICK],
+                      MusicVol[Settings[3]] / 100.0f, 1.0f, 0);
+}
+
+void UpdateInGamePauseMenu(void)
+{
+    char text[256];                     /* sp+0x18, to the top of the frame */
+    long sel;                           /* the option released this frame */
+
+    /* ---- not paused ---- */
+    if (GamePaused == 0) {
+        TogglePauseMenu();
+        return;
+    }
+
+    /* ---- the moves list ---- */
+    if (GamePaused == 2) {
+        sel = GameMode;
+
+        if (GameMode == 1 && otherPlayerPaused != 0) {
+            if (PauseMenuAreYouSure != 0) {
+                /* the network confirm, drawn over the moves list */
+                DrawPausePanel();
+
+                DrawOptionAsText(GameText(TXT_ARE_YOU_SURE),
+                                 PAUSE_X, PAUSE_CONFIRM_LABEL,
+                                 PAUSE_SCALE, &mmfontcol[4],
+                                 FE_W(PAUSE_WIDTH));
+
+                LastTouch_Pause2 = Touch_Pause2;
+                Touch_Pause2 = DrawOptionAsButton(GameText(TXT_YES),
+                                                  PAUSE_X, PAUSE_CONFIRM_YES,
+                                                  PAUSE_SCALE,
+                                                  PAUSE_COL(LastTouch_Pause2),
+                                                  FE_W(PAUSE_WIDTH));
+                if (PAUSE_RELEASED(LastTouch_Pause2, Touch_Pause2))
+                    QuitAsLose();
+
+                LastTouch_Pause3 = Touch_Pause3;
+                Touch_Pause3 = DrawOptionAsButton(GameText(TXT_NO),
+                                                  PAUSE_X, PAUSE_CONFIRM_NO,
+                                                  PAUSE_SCALE,
+                                                  PAUSE_COL(LastTouch_Pause3),
+                                                  FE_W(PAUSE_WIDTH));
+                if (PAUSE_RELEASED(LastTouch_Pause3, Touch_Pause3)) {
+                    PauseMenuAreYouSure = 0;
+                    PauseClick();
+                    EASDK_LogEventEnumEnumString(EV_PAUSE_MENU, 15,
+                                                 "INGAME PAUSE MENU",
+                                                 15, "EXIT");
+                }
+                return;
+            }
+
+            /* waiting on the other player */
+            DrawPausePanel();
+
+            LastTouch_Pause2 = Touch_Pause2;
+            Touch_Pause2 = DrawOptionAsText(GameText(TXT_OTHER_PAUSED),
+                                            PAUSE_X, PAUSE_WAIT_LABEL,
+                                            PAUSE_SCALE,
+                                            PAUSE_COL(LastTouch_Pause2),
+                                            FE_W(PAUSE_WIDTH));
+
+            LastTouch_Pause4 = Touch_Pause4;
+            Touch_Pause4 = DrawOptionAsButton(GameText(TXT_EXIT),
+                                              PAUSE_X, PAUSE_CONFIRM_NO,
+                                              PAUSE_SCALE,
+                                              PAUSE_COL(LastTouch_Pause4),
+                                              FE_W(PAUSE_WIDTH));
+            if (PAUSE_RELEASED(LastTouch_Pause4, Touch_Pause4))
+                PauseMenuAreYouSure = sel;      /* GameMode, i.e. 1 */
+            return;
+        }
+
+        /* ---- CANCEL, then the list itself ---- */
+        limeEnableAlphaBlending_Additive();
+        limeDrawSprite((TEXTURE *)CancelTexture,
+                       (float)limeScreenWidth + *HUD_Scale * CANCEL_X_OFF,
+                       *HUD_Scale * CANCEL_Y_OFF,
+                       *HUD_Scale * CANCEL_SIZE, *HUD_Scale * CANCEL_SIZE,
+                       0.0f, 0.0f, 1.0f, 1.0f, col);
+        limeEnableAlphaBlending_Basic();
+        MovesList();
+
+        /* the corner is dismissed on the frame the finger comes off */
+        if (*limeLastTouchScreenX == -1.0f)
+            return;
+        if (*limeTouchScreenX != -1.0f)
+            return;
+        if (*limeLastTouchScreenX
+            <= (float)limeScreenWidth - *HUD_Scale * CANCEL_HIT)
+            return;
+        if (*HUD_Scale * CANCEL_HIT <= *limeLastTouchScreenY)
+            return;
+
+        PauseClick();
+        GamePaused = 0;
+        if (GameMode == 1) {
+            sendPause(0);
+            sendPause(0);
+            sendPause(0);
+        }
+        return;
+    }
+
+    /* ---- GamePaused == 1: the menu ---- */
+    sel = GameMode;
+
+    if (GameMode == 1 && otherPlayerPaused != 0) {
+        if (PauseMenuAreYouSure != 0) {
+            DrawPausePanel();
+
+            DrawOptionAsText(GameText(TXT_ARE_YOU_SURE),
+                             PAUSE_X, PAUSE_CONFIRM_LABEL,
+                             PAUSE_SCALE, &mmfontcol[4],
+                             FE_W(PAUSE_WIDTH));
+
+            LastTouch_Pause2 = Touch_Pause2;
+            Touch_Pause2 = DrawOptionAsButton(GameText(TXT_YES),
+                                              PAUSE_X, PAUSE_CONFIRM_YES,
+                                              PAUSE_SCALE,
+                                              PAUSE_COL(LastTouch_Pause2),
+                                              FE_W(PAUSE_WIDTH));
+            if (PAUSE_RELEASED(LastTouch_Pause2, Touch_Pause2))
+                QuitAsLose();
+
+            LastTouch_Pause3 = Touch_Pause3;
+            Touch_Pause3 = DrawOptionAsButton(GameText(TXT_NO),
+                                              PAUSE_X, PAUSE_CONFIRM_NO,
+                                              PAUSE_SCALE,
+                                              PAUSE_COL(LastTouch_Pause3),
+                                              FE_W(PAUSE_WIDTH));
+            if (PAUSE_RELEASED(LastTouch_Pause3, Touch_Pause3)) {
+                PauseMenuAreYouSure = 0;
+                PauseClick();
+                EASDK_LogEventEnumEnumString(EV_PAUSE_MENU, 15,
+                                             "INGAME PAUSE MENU", 15, "EXIT");
+            }
+            return;
+        }
+
+        DrawPausePanel();
+
+        LastTouch_Pause2 = Touch_Pause2;
+        Touch_Pause2 = DrawOptionAsText(GameText(TXT_OTHER_PAUSED),
+                                        PAUSE_X, PAUSE_WAIT_LABEL,
+                                        PAUSE_SCALE,
+                                        PAUSE_COL(LastTouch_Pause2),
+                                        FE_W(PAUSE_WIDTH));
+
+        LastTouch_Pause4 = Touch_Pause4;
+        Touch_Pause4 = DrawOptionAsButton(GameText(TXT_EXIT),
+                                          PAUSE_X, PAUSE_CONFIRM_NO,
+                                          PAUSE_SCALE,
+                                          PAUSE_COL(LastTouch_Pause4),
+                                          FE_W(PAUSE_WIDTH));
+        if (PAUSE_RELEASED(LastTouch_Pause4, Touch_Pause4))
+            PauseMenuAreYouSure = sel;
+        return;
+    }
+
+    /* ---- the two option strings the rows share ---- */
+    usprintf(Menu_GamePaused_Options + 0xc0, UC("%d"), Settings[4]);
+
+    if (GameMode == 6)
+        usprintf(Menu_GamePaused_Options + 0x100, UC("%d"), Player2NumButtons);
+    else if (Settings[5] == 0)
+        usprintf(Menu_GamePaused_Options + 0x100, UC("%s"),
+                 GameTextNoHeader(TXT_LAYOUT_CUSTOM));
+    else
+        usprintf(Menu_GamePaused_Options + 0x100, UC("%s"),
+                 GameTextNoHeader(TXT_LAYOUT_NAME));
+
+    DrawPausePanel();
+
+    /* ---- the local confirm ---- */
+    if (PauseMenuAreYouSure != 0) {
+        DrawOptionAsText(GameText(TXT_ARE_YOU_SURE),
+                         PAUSE_X, PAUSE_CONFIRM_LABEL,
+                         PAUSE_SCALE, &mmfontcol[4], FE_W(PAUSE_WIDTH));
+
+        LastTouch_Pause2 = Touch_Pause2;
+        Touch_Pause2 = DrawOptionAsButton(GameText(TXT_YES),
+                                          PAUSE_X, PAUSE_CONFIRM_YES,
+                                          PAUSE_SCALE,
+                                          PAUSE_COL(LastTouch_Pause2),
+                                          FE_W(PAUSE_WIDTH));
+        sel = PAUSE_RELEASED(LastTouch_Pause2, Touch_Pause2) ? 2 : 0;
+
+        LastTouch_Pause3 = Touch_Pause3;
+        Touch_Pause3 = DrawOptionAsButton(GameText(TXT_NO),
+                                          PAUSE_X, PAUSE_CONFIRM_NO,
+                                          PAUSE_SCALE,
+                                          PAUSE_COL(LastTouch_Pause3),
+                                          FE_W(PAUSE_WIDTH));
+        if (PAUSE_RELEASED(LastTouch_Pause3, Touch_Pause3)) {
+            PauseMenuAreYouSure = 0;
+            PauseClick();
+        }
+    } else {
+        /* ---- row 1: the heading, and it is a button ---- */
+        LastTouch_Pause1 = Touch_Pause1;
+        Touch_Pause1 = DrawOptionAsButton(GameText(TXT_PAUSE_TITLE),
+                                          PAUSE_X, PAUSE_ROW0, PAUSE_SCALE,
+                                          PAUSE_COL(LastTouch_Pause1),
+                                          FE_W(PAUSE_WIDTH));
+        sel = PAUSE_RELEASED(LastTouch_Pause1, Touch_Pause1) ? 1 : 0;
+
+        /* ---- row 2: EXIT, which arms the confirm ---- */
+        LastTouch_Pause2 = Touch_Pause2;
+        Touch_Pause2 = DrawOptionAsButton(GameText(TXT_EXIT),
+                                          PAUSE_X,
+                                          PAUSE_ROW0 + PAUSE_ROW_PITCH,
+                                          PAUSE_SCALE,
+                                          PAUSE_COL(LastTouch_Pause2),
+                                          FE_W(PAUSE_WIDTH));
+        if (PAUSE_RELEASED(LastTouch_Pause2, Touch_Pause2)) {
+            PauseClick();
+            PauseMenuAreYouSure = 1;
+        }
+
+        /* ---- row 3: the first layout line ---- */
+        LastTouch_Pause3 = Touch_Pause3;
+        if (GameMode == 6)
+            usprintf(text, UC("%s - %s : %s"),
+                     GameTextNoHeader(TXT_BUTTONS_P1),
+                     GameTextNoHeader(TXT_LAYOUT_A),
+                     Menu_GamePaused_Options + 0xc0);
+        else
+            usprintf(text, UC("%s : %s"),
+                     GameTextNoHeader(TXT_LAYOUT_A),
+                     Menu_GamePaused_Options + 0xc0);
+        Touch_Pause3 = DrawOptionAsButton(limeUC(text), PAUSE_X,
+                                          PAUSE_ROW0 + 2 * PAUSE_ROW_PITCH,
+                                          PAUSE_SCALE,
+                                          PAUSE_COL(LastTouch_Pause3),
+                                          FE_W(PAUSE_WIDTH));
+        if (PAUSE_RELEASED(LastTouch_Pause3, Touch_Pause3))
+            sel = 3;
+
+        /* ---- row 4: the second layout line ---- */
+        LastTouch_Pause4 = Touch_Pause4;
+        if (GameMode == 6)
+            usprintf(text, UC("%s - %s : %s"),
+                     GameTextNoHeader(TXT_BUTTONS_P2),
+                     GameTextNoHeader(TXT_LAYOUT_A),
+                     Menu_GamePaused_Options + 0x100);
+        else
+            usprintf(text, UC("%s : %s"),
+                     GameTextNoHeader(TXT_LAYOUT_B),
+                     Menu_GamePaused_Options + 0x100);
+        Touch_Pause4 = DrawOptionAsButton(limeUC(text), PAUSE_X,
+                                          PAUSE_ROW0 + 3 * PAUSE_ROW_PITCH,
+                                          PAUSE_SCALE,
+                                          PAUSE_COL(LastTouch_Pause4),
+                                          FE_W(PAUSE_WIDTH));
+        if (PAUSE_RELEASED(LastTouch_Pause4, Touch_Pause4))
+            sel = 4;
+
+        /* ---- row 5: MUSIC.  The fourth argument is one too many for the
+         * format and is never consumed -- it is in the binary all four ways. */
+        LastTouch_Pause5 = Touch_Pause5;
+        switch (Settings[2]) {
+        case 1:  usprintf(text, UC("%s : %s"), GameText(TXT_MUSIC),
+                          GameText(TXT_VOL_LOW),
+                          Menu_GamePaused_Options + 0x100); break;
+        case 2:  usprintf(text, UC("%s : %s"), GameText(TXT_MUSIC),
+                          GameText(TXT_VOL_MED),
+                          Menu_GamePaused_Options + 0x100); break;
+        case 3:  usprintf(text, UC("%s : %s"), GameText(TXT_MUSIC),
+                          GameText(TXT_VOL_HIGH),
+                          Menu_GamePaused_Options + 0x100); break;
+        default: usprintf(text, UC("%s : %s"), GameText(TXT_MUSIC),
+                          GameText(TXT_VOL_OFF),
+                          Menu_GamePaused_Options + 0x100); break;
+        }
+        Touch_Pause5 = DrawOptionAsButton(limeUC(text), PAUSE_X,
+                                          PAUSE_ROW0 + 4 * PAUSE_ROW_PITCH,
+                                          PAUSE_SCALE,
+                                          PAUSE_COL(LastTouch_Pause5),
+                                          FE_W(PAUSE_WIDTH));
+        if (PAUSE_RELEASED(LastTouch_Pause5, Touch_Pause5))
+            sel = 5;
+
+        /* ---- row 6: SFX, which jumps straight to its own handler ---- */
+        LastTouch_Pause6 = Touch_Pause6;
+        switch (Settings[3]) {
+        case 1:  usprintf(text, UC("%s : %s"), GameText(TXT_SFX),
+                          GameText(TXT_VOL_LOW),
+                          Menu_GamePaused_Options + 0x100); break;
+        case 2:  usprintf(text, UC("%s : %s"), GameText(TXT_SFX),
+                          GameText(TXT_VOL_MED),
+                          Menu_GamePaused_Options + 0x100); break;
+        case 3:  usprintf(text, UC("%s : %s"), GameText(TXT_SFX),
+                          GameText(TXT_VOL_HIGH),
+                          Menu_GamePaused_Options + 0x100); break;
+        default: usprintf(text, UC("%s : %s"), GameText(TXT_SFX),
+                          GameText(TXT_VOL_OFF),
+                          Menu_GamePaused_Options + 0x100); break;
+        }
+        Touch_Pause6 = DrawOptionAsButton(limeUC(text), PAUSE_X,
+                                          PAUSE_ROW0 + 5 * PAUSE_ROW_PITCH,
+                                          PAUSE_SCALE,
+                                          PAUSE_COL(LastTouch_Pause6),
+                                          FE_W(PAUSE_WIDTH));
+        if (PAUSE_RELEASED(LastTouch_Pause6, Touch_Pause6)) {
+            /* the SFX option acts here rather than through `sel`, so it plays
+             * its click AFTER the change instead of before it */
+            Settings[3] = (Settings[3] + 1) & 3;
+            if (Settings[3] != 0)
+                limePlaySound(SFXHandle[PAUSE_SFX_CLICK],
+                              MusicVol[Settings[3]] / 100.0f, 1.0f, 0);
+            Write_SettingsData();
+            EASDK_LogEventEnumEnumString(EV_PAUSE_SETTING, 15,
+                                         "INGAME PAUSE MENU", 15, "SFX");
+            return;
+        }
+    }
+
+    /* ---- act on the selection ---- */
+    if (sel == 0)
+        return;
+
+    PauseClick();
+
+    if (sel == 1) {                             /* RESUME */
+        GamePaused = 0;
+        if (GameMode == 1) {
+            sendPause(0);
+            sendPause(0);
+            sendPause(0);
+        }
+        EASDK_LogEventEnumEnumString(EV_PAUSE_MENU, 15,
+                                     "INGAME PAUSE MENU", 15, "RESUME");
+        return;
+    }
+
+    if (sel == 2) {                             /* EXIT */
+        GamePaused          = 0;
+        PauseMenuAreYouSure = 0;
+        RoundHasEnded       = 0;
+        DontQuitAfterFade   = 0;
+        QuitAsLose();
+
+        EASDK_LogEvent(EV_PAUSE_MENU, 15, "INGAME PAUSE MENU", 15, "EXIT");
+
+        if (GameMode == 0)
+            EASDK_LogEvent(EV_ARCADE_QUIT, 15, DestinyNames[Destiny],
+                           15, getStageName(Destiny, Stage));
+        else if (GameMode == 1)
+            EASDK_LogEvent(EV_VERSUS_QUIT, 0, NULL, 0, NULL);
+        else if (GameMode == 2)
+            EASDK_LogEvent(EV_TRAINING_QUIT, 15,
+                           TrainingNames[*TrainingCatagory], 0, NULL);
+        else if (GameMode == 6)
+            EASDK_LogEvent(EV_VERSUS_QUIT, 15, "2 Players on 1 iPad", 0, NULL);
+        return;
+    }
+
+    if (sel == 3) {                             /* NUMBER OF BUTTONS */
+        Settings[4]++;
+        if (Settings[4] == PAUSE_BUTTONS_WRAP)
+            Settings[4] = PAUSE_BUTTONS_LOW;
+
+        EASDK_LogEventEnumEnumString(EV_PAUSE_SETTING, 15,
+                                     "INGAME PAUSE MENU",
+                                     15, "NUMBER OF BUTTONS");
+
+        Player1NumButtons = Settings[4];
+        Write_SettingsData();
+        mk3_set_four_button(0, Player1NumButtons != 6);
+        mk3_set_four_button(1, Player2NumButtons != 6);
+        return;
+    }
+
+    if (sel == 4) {                             /* LAYOUT */
+        if (GameMode == 6) {
+            Player2NumButtons++;
+            if (Player2NumButtons == PAUSE_BUTTONS_WRAP)
+                Player2NumButtons = PAUSE_BUTTONS_LOW;
+            mk3_set_four_button(0, Player1NumButtons != 6);
+            mk3_set_four_button(1, Player2NumButtons != 6);
+        } else {
+            Settings[5] ^= 1;
+            Write_SettingsData();
+        }
+        EASDK_LogEventEnumEnumString(EV_PAUSE_SETTING, 15,
+                                     "INGAME PAUSE MENU", 15, "LAYOUT");
+        return;
+    }
+
+    if (sel == 5) {                             /* MUSIC */
+        if (limeCheckForUserMusic()) {
+            /* the device is playing its own music -- and this is NOT saved */
+            Settings[2] = 0;
+        } else {
+            switch (Settings[2]) {
+            case 3: limeStopTune(); break;
+            case 0: limePlayTune((const char *)(uintptr_t)
+                                 LevelMusic[*LevelSelectPtr],
+                                 (long)MusicVol[1], 1); break;
+            case 1: limeSetTuneVol((long)MusicVol[2]); break;
+            case 2: limeSetTuneVol((long)MusicVol[3]); break;
+            default: break;
+            }
+            Settings[2] = (Settings[2] + 1) & 3;
+            Write_SettingsData();
+        }
+        EASDK_LogEventEnumEnumString(EV_PAUSE_SETTING, 15,
+                                     "INGAME PAUSE MENU", 15, "MUSIC");
+        return;
+    }
 }
