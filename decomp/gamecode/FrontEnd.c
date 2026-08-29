@@ -9573,3 +9573,291 @@ void FE_Task_Play(void)
     DrawTicker();
     achievementsDraw();
 }
+
+
+/* ------------------------------------------------------------ FE_Task_Endings
+ *
+ * armv7 0x000117cc, 2,300 bytes.  **Complete.**
+ *
+ * The endings viewer: the winner's portrait on the left, the ending text
+ * crawling up the middle like a credit roll, and Next / Prev / Exit along the
+ * bottom. Twenty-three pages, one an ending, and only the ones the player has
+ * earned are reachable.
+ *
+ * ### It is `FE_Task_Bios` with a scroller bolted on
+ *
+ * The page turn is the same cosine slide -- `FE_WidthScale * -256` plus
+ * `fabs(cos(progress * 3.1415)) * 256 * FE_WidthScale`, the same 254x253 sprite
+ * at the same 0.01171875 / 0.992188 / 0.988281 UVs, the same swap-when-offscreen
+ * at the halfway point, the same 0.01-a-frame step over `limeFPSScaleFactor`.
+ * The three differences are the scroller, `EndingWrapDone`, and the fact that a
+ * page has to be *earned* as well as exist.
+ *
+ * ### The text is wrapped once and then only scrolled
+ *
+ *      if (!EndingWrapDone) {
+ *          CreateWrappedTextArrays(GameText(EndingsText[EndingsPage]), ...);
+ *          EndingWrapDone = 1;
+ *      }
+ *
+ * `FE_Task_Bios` re-wraps its body every single frame; this one caches it behind
+ * a flag and re-wraps only when the page actually changes. Every place that can
+ * change the page clears the flag: the entry search (but only if it had to
+ * move), Next, Prev, Exit, and the mid-slide swap. That is five clear sites for
+ * one flag, and it is why the search sets it from a local rather than writing it
+ * unconditionally -- landing on a page that was already correct must not throw
+ * the cached wrap away.
+ *
+ * ### The crawl runs on `*endingsOffsetY`, and resets when the block is spent
+ *
+ *      y = i * (FE_WidthScale * 16) + *endingsOffsetY + FE_WidthScale * 64
+ *
+ *      if (-(lines * pitch + top) < *endingsOffsetY)
+ *          *endingsOffsetY += -0.5f / limeFPSScaleFactor;
+ *      else
+ *          *endingsOffsetY = FE_HeightScale * 240;
+ *
+ * -- half a pixel a frame upward until the last line has cleared the top, then
+ * the offset snaps back to the bottom of the screen and the whole block crawls
+ * again. Nothing ends it, so an ending loops for as long as the screen is up.
+ *
+ * ### A debug `printf` survived into retail, on the hot path
+ *
+ *      printf("limeFPSScaleFactor:%f\n", limeFPSScaleFactor);
+ *
+ * It sits in the scrolling arm, so it fires **every frame** the crawl is moving
+ * -- not once, not on a state change. The string is at 0x000ff318 and the call
+ * is a real `blx` to `_printf`. Transcribed as written.
+ *
+ * ### The fade is measured in `FE_HeightScale` while the layout is in width
+ *
+ *      fadeIn    = FE_HeightScale * 64
+ *      fadeStart = screenHeight + FE_HeightScale * -40
+ *      fadeEnd   = fadeStart + FE_HeightScale * -80
+ *
+ *      y < fadeIn      a = y / fadeIn        ramp in at the top
+ *      y <= fadeEnd    a = 1
+ *      otherwise       a = (fadeStart - y) / (FE_HeightScale * 80)
+ *
+ * and a negative result is clamped to zero on both ramps. The line pitch and the
+ * top of the block are `FE_WidthScale` units, the fade thresholds are
+ * `FE_HeightScale` units, so on a non-4:3 screen the text and the fade drift out
+ * of step. The colour is a local `{1,1,1,1}` with all four components -- alpha
+ * *and* rgb -- set to the ramp, so the text darkens as well as fades.
+ *
+ * ### Both searches skip unearned pages; only one of them skips absent ones
+ *
+ *      entry / Next    while (EndingsText[p] == -1 || EndingsGained[p] == 0)
+ *      Prev            while (EndingsText[p] ==  1 || EndingsGained[p] == 0)
+ *
+ * `cmp r2, #1` at 0x00011e40, two bytes, against `cmp.w r3, #-1` at 0x0001184a
+ * and 0x00011d68 -- the backward walk tests the wrong constant. It costs
+ * nothing here: `EndingsText` is initialised to the twenty-three consecutive ids
+ * 46..68, so neither -1 nor 1 ever appears among the pages the `% 23` can reach,
+ * and both loops are governed entirely by `EndingsGained`. The -1 is not
+ * pointless either -- the array is 26 entries wide (the character count, the
+ * same as `BioText`) and its last three *are* -1; the modulo is what keeps them
+ * out of reach.
+ *
+ * Nothing bounds either loop, so a save with no endings earned would hang. The
+ * screen is only reachable from `FE_Task_Extras`, which counts them first.
+ *
+ * ### Next and Prev are hidden until a second ending exists
+ *
+ *      for (i = 0; i < 23; i++) if (EndingsGained[i]) n++;
+ *      if (n > 1) { ...Next and Prev... }
+ *
+ * -- with one ending earned there is nowhere to page to, so both buttons and
+ * both labels are skipped and Exit is the only control. (The compiler reused the
+ * loop's byte counter for the buttons' y: it leaves the loop at 0x5c and is
+ * turned into 0x130 by `adds r2, #0xd4`.)
+ */
+
+#define ENDINGS_PAGES        23
+#define ENDINGS_SLIDE        256.0f
+#define ENDINGS_HALF_PI      3.1415f     /* not pi -- as everywhere in this file */
+#define ENDINGS_STEP         0.01f
+#define ENDINGS_START        0.001f
+#define ENDINGS_SWAP_AT      0.5f
+#define ENDINGS_SCROLL       0.5f        /* pixels a frame, upward */
+#define ENDINGS_LINE_PITCH   16.0f
+#define ENDINGS_LINE_TOP     64.0f
+#define ENDINGS_SPLIT_STRIDE 256
+#define ENDINGS_RESET_Y      240.0f
+#define ENDINGS_FADE_IN      64.0f
+#define ENDINGS_FADE_TOP     40.0f
+#define ENDINGS_FADE_SPAN    80.0f
+
+extern long  EndingsPage;               /* 0x0010114c */
+extern float currentEndingProgress;     /* 0x00101150 */
+extern long  nextEndingsPage;           /* 0x00101154 */
+extern long  EndingWrapDone;            /* 0x00101158 */
+extern long  NumOfEndingsLines;         /* 0x0010115c */
+extern char  EndingsSplitText[];        /* 0x00189d58, 256 bytes a line */
+
+void FE_Task_Endings(void)
+{
+    float colour[4] = { 1.0f, 1.0f, 1.0f, 1.0f };   /* C.647 at 0x000ddf6c */
+    long  wrapDone, p, i, n;
+    float pitch, top;
+    float x;
+
+    /* ---- land on an ending that exists and has been earned ---- */
+    wrapDone = EndingWrapDone;
+    p        = EndingsPage;
+    while (EndingsText[p] == -1 || EndingsGained[p] == 0) {
+        p = (p + 1) % ENDINGS_PAGES;
+        wrapDone = 0;                   /* only a real move drops the cache */
+    }
+    EndingWrapDone = wrapDone;
+    EndingsPage    = p;
+
+    limeDrawSprite((TEXTURE *)OrangeTexture, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0f, 1.0f, 1.0f, col);
+
+    /* ---- wrap once a page, not once a frame ---- */
+    if (EndingWrapDone == 0) {
+        CreateWrappedTextArrays(GameText(EndingsText[EndingsPage]),
+                                EndingsSplitText, &NumOfEndingsLines,
+                                *limeScreenWidth / 2, GameFont, FE_WidthScale);
+        EndingWrapDone = 1;
+    }
+
+    /* ---- the portrait, slid by the page-turn cosine ---- */
+    x = (float)((double)(FE_WidthScale * -ENDINGS_SLIDE)
+                + fabs(cos((double)(currentEndingProgress * ENDINGS_HALF_PI)))
+                  * 256.0 * (double)FE_WidthScale);
+
+    limeDrawSprite((TEXTURE *)CharacterVSTexture[EndingsPage],
+                   x,
+                   (float)*limeScreenHeight + FE_HeightScale * -253.0f,
+                   FE_WidthScale * 254.0f,
+                   FE_HeightScale * 253.0f,
+                   0.0f, 0.01171875f, 0.9921875f, 0.98828125f, col);
+
+    /* ---- the crawl ---- */
+    pitch = FE_WidthScale * ENDINGS_LINE_PITCH;
+    top   = FE_WidthScale * ENDINGS_LINE_TOP;
+
+    for (i = 0; i < NumOfEndingsLines; i++) {
+        float y = (float)i * pitch + *endingsOffsetY + top;
+        float fadeIn    = FE_HeightScale * ENDINGS_FADE_IN;
+        float fadeStart = (float)*limeScreenHeight
+                          + FE_HeightScale * -ENDINGS_FADE_TOP;
+        float fadeEnd   = fadeStart + FE_HeightScale * -ENDINGS_FADE_SPAN;
+        float a;
+
+        if (y < fadeIn)
+            a = y / fadeIn;
+        else if (y <= fadeEnd)
+            a = 1.0f;                   /* skips the clamp -- it cannot be < 0 */
+        else
+            a = (fadeStart - y) / (FE_HeightScale * ENDINGS_FADE_SPAN);
+
+        if (a < 0.0f)
+            a = 0.0f;
+
+        colour[0] = a;                  /* rgb as well as alpha */
+        colour[1] = a;
+        colour[2] = a;
+        colour[3] = a;
+
+        limeDrawFONT(GameFont,
+                     limeUC(&EndingsSplitText[i * ENDINGS_SPLIT_STRIDE]),
+                     (float)(*limeScreenWidth / 2 - 0x20), y,
+                     0, FE_WidthScale, colour);
+    }
+
+    /* ---- the character's name, sliding vertically on the same cosine ---- */
+    limeDrawFONT(GameFont, CharacterNames[EndingsPage],
+                 (float)(*limeScreenWidth / 4 - 0x20),
+                 (float)((double)(FE_WidthScale * -32.0f)
+                         + fabs(cos((double)(currentEndingProgress
+                                             * ENDINGS_HALF_PI)))
+                           * 64.0 * (double)FE_WidthScale),
+                 1, FE_WidthScale, fontcol);
+
+    /* ---- advance the crawl, or send it back to the bottom ---- */
+    if (-((float)NumOfEndingsLines * pitch + top) < *endingsOffsetY) {
+        *endingsOffsetY += -ENDINGS_SCROLL / limeFPSScaleFactor;
+        printf("limeFPSScaleFactor:%f\n", limeFPSScaleFactor);   /* every frame */
+    } else {
+        *endingsOffsetY = FE_HeightScale * ENDINGS_RESET_Y;
+    }
+
+    /* ---- paging is only offered once there is somewhere to page to ---- */
+    n = 0;
+    for (i = 0; i < ENDINGS_PAGES; i++)
+        if (EndingsGained[i] != 0)
+            n++;
+
+    if (n > 1) {
+        /* ---- Next ---- */
+        if (DrawButtonNew(&BUTTON_NEXT, 0x15f, 0x130,
+                          currentEndingProgress == 0.0f)) {
+            EndingWrapDone = 0;
+            p = (EndingsPage + 1) % ENDINGS_PAGES;
+            nextEndingsPage       = p;
+            currentEndingProgress = ENDINGS_START;
+            *endingsOffsetY       = FE_HeightScale * ENDINGS_RESET_Y;
+            while (EndingsText[p] == -1 || EndingsGained[p] == 0)
+                p = (p + 1) % ENDINGS_PAGES;
+            nextEndingsPage = p;
+        }
+
+        limeDrawFONT(GameFont, GameText(8),
+                     FE_X(351.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
+
+        /* ---- Prev ---- */
+        if (DrawButtonNew(&BUTTON_PREV, 0x104, 0x130,
+                          currentEndingProgress == 0.0f)) {
+            EndingWrapDone = 0;
+            p = EndingsPage - 1;
+            nextEndingsPage = p;
+            if (p < 0) {
+                p = ENDINGS_PAGES - 1;
+                nextEndingsPage = p;
+            }
+            currentEndingProgress = ENDINGS_START;
+            *endingsOffsetY       = FE_HeightScale * ENDINGS_RESET_Y;
+
+            /* `== 1`, not `== -1` -- see the header */
+            while (EndingsText[p] == 1 || EndingsGained[p] == 0) {
+                p--;
+                if (p < 0)
+                    p = ENDINGS_PAGES - 1;
+            }
+            nextEndingsPage = p;
+        }
+
+        limeDrawFONT(GameFont, GameText(0x12),
+                     FE_X(260.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
+    }
+
+    /* ---- Exit ---- */
+    if (DrawButtonNew(&BUTTON_EXIT, 0x1ba, 0x130, 1)) {
+        PopFETaskDeferred();
+        currentEndingProgress = ENDINGS_START;
+        EndingWrapDone        = 0;
+    }
+
+    limeDrawFONT(GameFont, GameText(9),
+                 FE_X(442.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
+
+    /* ---- advance the turn, and swap the page under the cover ---- */
+    if (currentEndingProgress > 0.0f) {
+        float was = currentEndingProgress;
+        float now = was + ENDINGS_STEP / limeFPSScaleFactor;
+
+        currentEndingProgress = now;
+
+        if (was <= ENDINGS_SWAP_AT && now > ENDINGS_SWAP_AT) {
+            EndingsPage    = nextEndingsPage;
+            EndingWrapDone = 0;         /* the new page needs re-wrapping */
+        }
+
+        if (now > 1.0f)
+            currentEndingProgress = 0.0f;
+    }
+}
