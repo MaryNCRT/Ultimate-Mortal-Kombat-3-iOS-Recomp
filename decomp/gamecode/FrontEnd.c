@@ -9312,3 +9312,264 @@ void DrawTower3D(void)
     limeEnableAlphaBlending_Additive();  /* immediately undone below */
     limeEnableAlphaBlending_Basic();
 }
+
+
+/* ---------------------------------------------------------------- FE_Task_Play
+ *
+ * armv7 0x0001a464, 2,048 bytes.  **Complete.**
+ *
+ * The Play page -- the last of the four slide-overs, and the one that actually
+ * starts a game. Same shape as `FE_Task_Options`, `FE_Task_About` and
+ * `FE_Task_Extras`: the main menu still live underneath, a panel on
+ * `FESlideOffset`, and the current page's entry passed 2 idle / 1 pressed.
+ *
+ * ### Four options, and every one of them sets GameMode
+ *
+ *      y=48   GameText(0xbf)   ARCADE       GameMode = 0
+ *      y=112  GameText(0xc0)   MULTIPLAYER  GameMode = 0, and starts the session
+ *      y=176  GameText(0xc1)   SURVIVAL     GameMode = 4
+ *      y=240  "%s %s"          KARNAGE      GameMode = 3
+ *
+ * The fourth is built from two text ids joined by a space --
+ * `GameTextNoHeader(0x11d)` and `(0x11e)` -- rather than one string, and its
+ * touch globals are called `Touch_PlaySK` while the event it logs says
+ * "KARNAGE". The symbol name and the analytics disagree; the mode it sets is 3.
+ *
+ * ### Arcade branches on whether a game is already in progress
+ *
+ *      GameStarted != 0   PushFETaskDeferred(2), "ARCADE - RESUME GAME"
+ *      GameStarted == 0   newGameFlag = 1, PushFETaskDeferred(0x1b),
+ *                         "ARCADE - NEW GAME", and a second event carrying
+ *                         DestinyNames[Destiny] and getStageName(Destiny, Stage)
+ *
+ * so the resume path is a different task and logs nothing about where you are;
+ * only starting fresh records the ladder position.
+ *
+ * ### Survival does the same split on SurvivalStage
+ *
+ *      SurvivalStage != 0   GameMode = 4, PushFETaskDeferred(2) -- resume,
+ *                           and NO event is logged
+ *      SurvivalStage == 0   SurvivalHealth = 100, SurvivalStage = 0,
+ *                           survivalWinStreak = 0, PushFETaskDeferred(0x1b)
+ *
+ * `SurvivalStage = 0` on the fresh path is a store of the value that was just
+ * tested as zero -- the compiler kept the register rather than materialising a
+ * constant.
+ *
+ * ### Multiplayer starts the session from the menu
+ *
+ * `resetPeerNames()` and `startMP()` run here, before the task is even pushed,
+ * so the radio is up while the lobby screen is still sliding in.
+ *
+ * ### The `sel == 5` arm is unreachable
+ *
+ * It sets `GameMode = 6` -- two players on one device -- and pushes 0x1b. No
+ * option and no main-menu area ever produces 5: the four options give 1..4 and
+ * the menu gives -1 and 6..10. The mode is reachable elsewhere; this entry into
+ * it is not. Transcribed as written.
+ */
+
+#define PLAY_SLIDE_SPAN    240.0f
+#define PLAY_PANEL_X       272.0f
+#define PLAY_OPTION_X      384.0f
+#define PLAY_OPTION_SCALE  1.25f
+#define PLAY_OPTION_WIDTH  186.0f
+#define PLAY_ROW0          48.0f
+#define PLAY_ROW_PITCH     64.0f
+#define PLAY_TASK_RESUME   2
+#define PLAY_TASK_LOBBY    3
+#define PLAY_TASK_START    0x1b
+#define PLAY_SFX_CLICK     (0x68 / 4)
+#define PLAY_MODE_ARCADE   0
+#define PLAY_MODE_KARNAGE  3
+#define PLAY_MODE_SURVIVAL 4
+#define PLAY_MODE_TWOUP    6
+
+extern long Touch_PlayArcade;           /* 0x00100e80 */
+extern long Touch_PlayMultiPlayer;      /* 0x00100e84 */
+extern long Touch_PlaySurvival;         /* 0x00100e88 */
+extern long Touch_PlaySK;               /* 0x00100e8c */
+extern long LastTouch_PlayArcade;       /* 0x00100e70 */
+extern long LastTouch_PlayMultiPlayer;  /* 0x00100e74 */
+extern long LastTouch_PlaySurvival;     /* 0x00100e78 */
+extern long LastTouch_PlaySK;           /* 0x00100e7c */
+
+void FE_Task_Play(void)
+{
+    char text[256];                     /* sp+0x18, the karnage label */
+    long sel;
+
+    limeEnableAlphaBlending_Basic();
+    limeSet2DDrawing();
+
+    limeDrawSprite((TEXTURE *)MainMenuBGTexture, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0f, 1.0f, 0.75f, col);
+
+    DrawVortex3D();
+    limeEnableAlphaBlending_Basic();
+    limeSet2DDrawing();
+
+    Touch_MMOptions = TouchAreaWH(0, 0, 0xc4, 0x44);
+    sel = (Touch_MMOptions & 1) ? 6 : -1;
+
+    Touch_MMPlay = TouchAreaWH(0, 0x5a, 0xed, 0x34);
+    if (Touch_MMPlay & 1)
+        sel = 7;
+
+    Touch_MMHelp = TouchAreaWH(0, 0xa0, 0xd2, 0x32);
+    if (Touch_MMHelp & 1)
+        sel = 8;
+
+    Touch_MMExtra = TouchAreaWH(0, 0xd2, 0xc4, 0x3c);
+    if (Touch_MMExtra & 1)
+        sel = 9;
+
+    Touch_MMMore = TouchAreaWH(0, 0x11c, 0xa8, 0x32);
+    if (Touch_MMMore & 1)
+        sel = 0xa;
+
+    if (FESlideOffset != 0.0f)
+        DrawMainMenu(0, 0, 0, 0, 5);
+    else if ((Touch_MMOptions >> 1) != 0)
+        DrawMainMenu(2, 0, 0, 0, 5);
+    else if ((Touch_MMPlay >> 1) != 0)
+        DrawMainMenu(0, 1, 0, 0, 5);    /* the current page, pressed */
+    else if ((Touch_MMHelp >> 1) != 0)
+        DrawMainMenu(0, 0, 2, 0, 5);
+    else if ((Touch_MMExtra >> 1) != 0)
+        DrawMainMenu(0, 0, 0, 2, 5);
+    else if ((Touch_MMMore >> 1) != 0)
+        DrawMainMenu(0, 0, 0, 0, 2);
+    else
+        DrawMainMenu(0, 2, 0, 0, 5);    /* the current page, idle */
+
+    limeDrawSprite((TEXTURE *)FENew1Texture,
+                   FE_X(FESlideOffset * PLAY_SLIDE_SPAN + PLAY_PANEL_X),
+                   FE_Y(-32.0f), FE_W(256.0f), FE_H(384.0f),
+                   0.5f, 0.0f, 0.5f, 0.75f, col);
+
+    LastTouch_PlayArcade = Touch_PlayArcade;
+    Touch_PlayArcade = DrawOptionAsButton(GameText(0xbf),
+                                          FESlideOffset * PLAY_SLIDE_SPAN
+                                              + PLAY_OPTION_X,
+                                          PLAY_ROW0, PLAY_OPTION_SCALE,
+                                          &mmfontcol[(LastTouch_PlayArcade + 1) * 4],
+                                          FE_W(PLAY_OPTION_WIDTH));
+    if (LastTouch_PlayArcade != 0 && Touch_PlayArcade == 0
+        && *limeTouchScreenX == -1.0f)
+        sel = 1;
+
+    LastTouch_PlayMultiPlayer = Touch_PlayMultiPlayer;
+    Touch_PlayMultiPlayer = DrawOptionAsButton(GameText(0xc0),
+                                               FESlideOffset * PLAY_SLIDE_SPAN
+                                                   + PLAY_OPTION_X,
+                                               PLAY_ROW0 + PLAY_ROW_PITCH,
+                                               PLAY_OPTION_SCALE,
+                                               &mmfontcol[(LastTouch_PlayMultiPlayer + 1) * 4],
+                                               FE_W(PLAY_OPTION_WIDTH));
+    if (LastTouch_PlayMultiPlayer != 0 && Touch_PlayMultiPlayer == 0
+        && *limeTouchScreenX == -1.0f)
+        sel = 2;
+
+    LastTouch_PlaySurvival = Touch_PlaySurvival;
+    Touch_PlaySurvival = DrawOptionAsButton(GameText(0xc1),
+                                            FESlideOffset * PLAY_SLIDE_SPAN
+                                                + PLAY_OPTION_X,
+                                            PLAY_ROW0 + 2 * PLAY_ROW_PITCH,
+                                            PLAY_OPTION_SCALE,
+                                            &mmfontcol[(LastTouch_PlaySurvival + 1) * 4],
+                                            FE_W(PLAY_OPTION_WIDTH));
+    if (LastTouch_PlaySurvival != 0 && Touch_PlaySurvival == 0
+        && *limeTouchScreenX == -1.0f)
+        sel = 3;
+
+    LastTouch_PlaySK = Touch_PlaySK;
+    usprintf(text, UC("%s %s"),
+             GameTextNoHeader(0x11d), GameTextNoHeader(0x11e));
+    Touch_PlaySK = DrawOptionAsButton(limeUC(text),
+                                      FESlideOffset * PLAY_SLIDE_SPAN
+                                          + PLAY_OPTION_X,
+                                      PLAY_ROW0 + 3 * PLAY_ROW_PITCH,
+                                      PLAY_OPTION_SCALE,
+                                      &mmfontcol[(LastTouch_PlaySK + 1) * 4],
+                                      FE_W(PLAY_OPTION_WIDTH));
+    if (LastTouch_PlaySK != 0 && Touch_PlaySK == 0
+        && *limeTouchScreenX == -1.0f)
+        sel = 4;
+
+    MaintainFESlide();
+
+    if (FESlideOffset == 0.0f) {
+        if (sel > 0 && Settings[3] != 0)
+            limePlaySound(SFXHandle[PLAY_SFX_CLICK],
+                          MusicVol[Settings[3]] / 100.0f, 1.0f, 0);
+
+        if (sel == 1) {
+            GameMode = PLAY_MODE_ARCADE;
+            if (GameStarted != 0) {
+                PushFETaskDeferred(PLAY_TASK_RESUME);
+                EASDK_LogEvent(0xc35e, 15, "PLAY", 15, "ARCADE - RESUME GAME");
+            } else {
+                newGameFlag = sel;      /* 1, taken from the selection */
+                PushFETaskDeferred(PLAY_TASK_START);
+                EASDK_LogEvent(0xc35e, 15, "PLAY", 15, "ARCADE - NEW GAME");
+                EASDK_LogEventEnumEnumString(0x7549, 15, DestinyNames[Destiny],
+                                             15, getStageName(Destiny, Stage));
+            }
+        } else if (sel == 2) {
+            GameMode           = PLAY_MODE_ARCADE;
+            mpLobbyCurrentPage = 0;
+            lobbyInfoFade      = 0;
+            PushFETaskDeferred(PLAY_TASK_LOBBY);
+            EASDK_LogEvent(0xc35e, 15, "PLAY", 15, "MULTIPLAYER");
+            resetPeerNames();
+            startMP();                  /* the radio is up before the screen */
+        } else if (sel == 3) {
+            if (SurvivalStage != 0) {
+                GameMode = PLAY_MODE_SURVIVAL;
+                PushFETaskDeferred(PLAY_TASK_RESUME);
+            } else {
+                SurvivalHealth    = 100;
+                GameMode          = PLAY_MODE_SURVIVAL;
+                SurvivalStage     = 0;  /* already zero -- see the header */
+                survivalWinStreak = 0;
+                PushFETaskDeferred(PLAY_TASK_START);
+                EASDK_LogEvent(0xc35e, 15, "PLAY", 15, "SURVIVAL");
+            }
+        } else if (sel == 4) {
+            GameMode = PLAY_MODE_KARNAGE;
+            PushFETaskDeferred(PLAY_TASK_START);
+            EASDK_LogEvent(0xc35e, 15, "PLAY", 15, "KARNAGE");
+        } else if (sel == 5) {
+            /* UNREACHABLE -- see the header */
+            GameMode = PLAY_MODE_TWOUP;
+            PushFETaskDeferred(PLAY_TASK_START);
+        } else if (sel == 6) {
+            PopFETask();
+            FESlideDir      = 1;
+            FESlideNextTask = 5;
+        } else if (sel == 7) {
+            /* Play on Play: slide, but do not pop */
+            FESlideDir      = 1;
+            FESlideNextTask = -1;
+        } else if (sel == 8) {
+            PopFETask();
+            FESlideDir      = 1;
+            FESlideNextTask = 7;
+        } else if (sel == 9) {
+            PopFETask();
+            FESlideDir      = 1;
+            FESlideNextTask = 6;
+        } else if (sel == 0xa) {
+            puts("#########################\n"
+                 "ENTERING STORE!\n"
+                 "##########################");
+            EASDK_LogEvent(0xc35d, 15, "MAIN MENU", 15, "MORE GAMES");
+            EASDK_GetMoreGames(Language, 0);
+        }
+    }
+
+    DrawTicker();
+    achievementsDraw();
+}
