@@ -6609,3 +6609,276 @@ void FE_Task_Button_Config(void)
         PopFETaskDeferred();
     }
 }
+
+
+/* ------------------------------------------------------------------ Task_FEMain
+ *
+ * armv7 0x00004f58, 1,476 bytes.  **Complete.**
+ *
+ * The front end's per-frame task: pick the music, run whichever screen is
+ * current, advance the fade, and then -- only at the bottom of a fade-out --
+ * act on the pending push and pop the screens have been queueing.
+ *
+ * ### The screen is dispatched through a table, and one entry is special-cased
+ *
+ *      fn = FETaskFunctionList[FE_CurrentTask];
+ *      hideTicker = (fn == FE_Task_Main_Menu) ? 0 : 1;
+ *      fn();
+ *
+ * The compare is against the **function pointer**, not the task id, so the
+ * ticker is hidden by identity: any task id whose table slot holds
+ * `FE_Task_Main_Menu` shows it.
+ *
+ * ### Three tunes, chosen by task id and latched
+ *
+ *      task 0x2a or 0x1b   CharacterSelect.mp3     FETuneSelection = 1
+ *      task 0x1c           TowerScreen.mp3         FETuneSelection = 2
+ *      anything else       MainMenu.mp3            FETuneSelection = 0
+ *
+ * `FETuneSelection` is the latch: the tune is only restarted when the selection
+ * actually changes, so moving between two screens that share a tune does not
+ * cut it. Each arm is `limeStopTune()` then `limePlayTune(name,
+ * MusicVol[Settings[2]], 1)`, and the whole thing is skipped when `Settings[2]`
+ * is 0 -- **but the latch is still updated**, so turning music on while sitting
+ * on a screen does not start its tune until you leave and come back.
+ *
+ * ### The music fade divides differently here than in the fight
+ *
+ *      limeSetTuneVol(MusicVol[Settings[2]] * FE_Fade)
+ *
+ * `Task_GameMain` fades the tune with `FE_Fade * 100`; this one scales the
+ * configured volume instead, so the front end fades from whatever the setting
+ * says and the fight fades from full. `FadeMusicOut` clears itself at zero in
+ * both.
+ *
+ * ### The screen transition happens at the bottom of the fade, not at the top
+ *
+ * `PendingPush`, `PendingPop` and `PendingPopAll` are queued by the screens
+ * through `PushFETaskDeferred` and friends and are only read here, and only in
+ * the arm where `FE_Fade` has just gone `<= 0` with `FE_FadeAdd` negative --
+ * that is, on the frame the screen is fully black. That is what makes every
+ * front-end transition a fade to black, swap, fade back in; both arms end by
+ * setting `FE_FadeAdd = 1/30` to start the fade back.
+ *
+ * ### The stack has a ceiling and a special case above it
+ *
+ *      FE_TaskStackPointer < 0x200   push: save the current task, take the new
+ *      otherwise                     drop the push silently
+ *
+ * and one task is excluded by hand: with `FE_CurrentTask == 0x2c` and anything
+ * on the stack, the push is refused with `puts("IGNORING PENDING PUSH")`.
+ * Pushing task 0x2b prints `"PUSHING MP VS SCREEN"` and then pushes normally.
+ *
+ * `PendingPop` is not a count but a small enumeration: 1 pops one screen, 2
+ * pops **two**, and 0x29a tears the whole stack down and rebuilds it into the
+ * multiplayer lobby -- `PushFETask(1)`, `FE_CurrentTask = 3`,
+ * `resetPeerNames()`, `startMP()`. Every pop is bracketed by
+ * `FE_Special_Destroys()` and `FE_Special_Inits()`.
+ *
+ * ### It measures its own frame rate and never uses the answer
+ *
+ *      averageScaleFactor += limeFPSScaleFactor;
+ *      if (++averageScaleFactorCnt > 30) {
+ *          averageScaleFactorOutput = averageScaleFactor / averageScaleFactorCnt;
+ *          averageScaleFactorCnt = 0; averageScaleFactor = 0;
+ *      }
+ *
+ * A thirty-frame rolling average of the frame-time scale, written to a global
+ * nothing else in the binary reads. Debug instrumentation that shipped.
+ */
+
+#define FEMAIN_TASK_CHARSELECT_A  0x2a
+#define FEMAIN_TASK_CHARSELECT_B  0x1b
+#define FEMAIN_TASK_TOWER         0x1c
+#define FEMAIN_TASK_NO_PUSH       0x2c   /* refuses a push with a stack */
+#define FEMAIN_TASK_MP_VS         0x2b   /* announces itself on the way in */
+#define FEMAIN_TUNE_MAIN          0
+#define FEMAIN_TUNE_CHARSELECT    1
+#define FEMAIN_TUNE_TOWER         2
+#define FEMAIN_STACK_MAX          0x200
+#define FEMAIN_POP_ONE            1
+#define FEMAIN_POP_TWO            2
+#define FEMAIN_POP_TO_LOBBY       0x29a
+#define FEMAIN_LOBBY_TASK         3
+#define FEMAIN_FADE_IN_STEP       (1.0f / 30.0f)
+#define FEMAIN_AVERAGE_FRAMES     30
+
+extern long   FETuneSelection;          /* 0x000ff8f4 */
+extern long   lobbyInfoFade;            /* 0x000ff808 */
+extern float  averageScaleFactor;       /* 0x001017b0 */
+extern long   averageScaleFactorCnt;    /* 0x001017b4 */
+extern float  averageScaleFactorOutput; /* 0x001017b8 -- written, never read */
+extern void (*const FETaskFunctionList[])(void);   /* 0x0017d51c */
+
+void limeSetColourMask(long r, long g, long b, long a);
+void heartbeatUpdate(void);
+void startMP(void);
+
+/* Stop the tune and start `file` at the configured volume, if music is on.
+ * Three call sites, identical but for the file name. */
+static void FEMain_SwitchTune(const char *file)
+{
+    if (Settings[2] == 0)
+        return;
+    limeStopTune();
+    limePlayTune(file, (long)MusicVol[Settings[2]], 1);
+}
+
+void Task_FEMain(void)
+{
+    void (*fn)(void);
+    long task;
+
+    *GameCounter += 1.0f / limeFPSScaleFactor;
+
+    limeEnableAlphaBlending_Basic();
+    limeSetColourMask(1, 1, 1, 0);
+    limeSet2DDrawing();
+    limeFillRect(0.0f, 0.0f,
+                 (float)*limeScreenWidth, (float)*limeScreenHeight,
+                 0.0f, 0.0f, 0.0f, 1.0f);
+
+    /* ---- the tune, latched on FETuneSelection ---- */
+    task = FE_CurrentTask;
+    if (task == FEMAIN_TASK_CHARSELECT_A || task == FEMAIN_TASK_CHARSELECT_B) {
+        if (FETuneSelection != FEMAIN_TUNE_CHARSELECT) {
+            FETuneSelection = FEMAIN_TUNE_CHARSELECT;
+            FEMain_SwitchTune("CharacterSelect.mp3");
+        }
+    } else if (task == FEMAIN_TASK_TOWER) {
+        if (FETuneSelection != FEMAIN_TUNE_TOWER) {
+            FETuneSelection = FEMAIN_TUNE_TOWER;
+            FEMain_SwitchTune("TowerScreen.mp3");
+        }
+    } else {
+        if (FETuneSelection != FEMAIN_TUNE_MAIN) {
+            FETuneSelection = FEMAIN_TUNE_MAIN;
+            FEMain_SwitchTune("MainMenu.mp3");
+        }
+    }
+
+    /* ---- run the current screen ---- */
+    fn = FETaskFunctionList[FE_CurrentTask];
+    hideTicker = (fn == FE_Task_Main_Menu) ? 0 : 1;
+    (*fn)();                            /* the table entry, not a named call */
+
+    /* ---- the fade, and the transitions that ride the bottom of it ---- */
+    if (FE_FadeAdd != 0.0f) {
+        FE_Fade += FE_FadeAdd / limeFPSScaleFactor;
+
+        if (FE_Fade <= 0.0f) {
+            BGRandomised = 0;
+
+            if (FE_FadeAdd < 0.0f) {
+                FE_Fade    = 0.0f;
+                FE_FadeAdd = 0.0f;
+
+                if (PendingPush != -1) {
+                    puts("pending push:");
+                    dumpStack();
+
+                    if (FE_CurrentTask == FEMAIN_TASK_NO_PUSH
+                        && FE_TaskStackPointer != 0) {
+                        printf("IGNORING PENDING PUSH");
+                    } else if (FE_TaskStackPointer < FEMAIN_STACK_MAX) {
+                        FE_Special_Destroys();
+                        FE_CurrentTaskStack[FE_TaskStackPointer] = FE_CurrentTask;
+                        FE_TaskStackPointer++;
+                        FE_CurrentTask = PendingPush;
+                        if (PendingPush == FEMAIN_TASK_MP_VS)
+                            puts("PUSHING MP VS SCREEN");
+                        FE_Special_Inits();
+                    }
+
+                    PendingPush = -1;
+                    FE_FadeAdd  = FEMAIN_FADE_IN_STEP;
+                    dumpStack();
+                }
+
+                if (PendingPop != -1) {
+                    puts("pending pop:");
+                    dumpStack();
+
+                    if (PendingPop == FEMAIN_POP_ONE) {
+                        if (FE_TaskStackPointer != 0) {
+                            FE_TaskStackPointer--;
+                            FE_Special_Destroys();
+                            FE_CurrentTask =
+                                FE_CurrentTaskStack[FE_TaskStackPointer];
+                            FE_Special_Inits();
+                        }
+                    } else if (PendingPop == FEMAIN_POP_TWO) {
+                        if (FE_TaskStackPointer > 1) {
+                            FE_TaskStackPointer--;
+                            FE_Special_Destroys();
+                            FE_CurrentTask =
+                                FE_CurrentTaskStack[FE_TaskStackPointer];
+                            FE_Special_Inits();
+
+                            FE_TaskStackPointer--;
+                            FE_Special_Destroys();
+                            FE_CurrentTask =
+                                FE_CurrentTaskStack[FE_TaskStackPointer];
+                            FE_Special_Inits();
+                        }
+                    } else if (PendingPop == FEMAIN_POP_TO_LOBBY) {
+                        FE_TaskStackPointer = 0;
+                        FE_Special_Destroys();
+                        FE_CurrentTask = 0;
+                        FE_Special_Inits();
+
+                        PushFETask(1);
+                        FE_CurrentTask     = FEMAIN_LOBBY_TASK;
+                        lobbyInfoFade      = 0;
+                        mpLobbyCurrentPage = 0;
+                        resetPeerNames();
+                        startMP();
+                    }
+
+                    if (PendingPopAll != -1) {
+                        FE_TaskStackPointer = 0;
+                        FE_Special_Destroys();
+                        FE_CurrentTask = PendingPopAll;
+                        FE_Special_Inits();
+                        PendingPopAll = -1;
+                    }
+
+                    PendingPop = -1;
+                    FE_FadeAdd = FEMAIN_FADE_IN_STEP;
+                    dumpStack();
+                }
+            }
+        }
+
+        if (FE_Fade >= 1.0f && FE_FadeAdd > 0.0f) {
+            FE_Fade    = 1.0f;
+            FE_FadeAdd = 0.0f;
+        }
+
+        /* the tune rides the same fade, scaled by the configured volume */
+        if (Settings[2] != 0 && FadeMusicOut != 0) {
+            limeSetTuneVol((long)(MusicVol[Settings[2]] * FE_Fade));
+            if (FE_Fade == 0.0f)
+                FadeMusicOut = 0;
+        }
+    }
+
+    limeDisableDepthTest();
+
+    if (FE_Fade != 1.0f)
+        limeFillRect(0.0f, 0.0f,
+                     (float)*limeScreenWidth, (float)*limeScreenHeight,
+                     0.0f, 0.0f, 0.0f, 1.0f - FE_Fade);
+
+    /* ---- a thirty-frame average nothing reads ---- */
+    averageScaleFactor += limeFPSScaleFactor;
+    averageScaleFactorCnt++;
+    if (averageScaleFactorCnt > FEMAIN_AVERAGE_FRAMES) {
+        averageScaleFactorOutput =
+            averageScaleFactor / (float)averageScaleFactorCnt;
+        averageScaleFactorCnt = 0;
+        averageScaleFactor    = 0.0f;
+    }
+
+    heartbeatUpdate();
+}
