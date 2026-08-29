@@ -5611,7 +5611,10 @@ extern long   RoundWins[2];             /* 0x0014e22c */
 extern long   FightMessage;             /* 0x0014e258 */
 extern float  FightMessageTimer;        /* 0x0014e25c */
 extern long   DontQuitAfterFade;        /* 0x0014e254 */
-extern long   DoSmokesEarthFatal;       /* 0x0010defc */
+extern float  DoSmokesEarthFatal;       /* 0x0010defc -- a TICK COUNTER, not a
+                                         * flag: Task_GameMain reads it with
+                                         * vldr and thresholds it at 120, 240,
+                                         * 300 and 330. */
 extern long   DoSmokeEarthFatalSFX;     /* 0x0010df00 */
 extern long   DoIntro;                  /* 0x0014e1c0 */
 extern long   WinsNeeded;               /* 0x0014e234 */
@@ -5723,7 +5726,7 @@ void Task_GameInit(void)
     FightMessageTimer = 0;
     DontQuitAfterFade = 0;
 
-    DoSmokesEarthFatal   = 0;
+    DoSmokesEarthFatal   = 0.0f;
     DoSmokeEarthFatalSFX = 0;
 
     if (GameMode == 4)
@@ -5883,7 +5886,8 @@ extern long  FriendshipMessageG;        /* 0x0014fb34 */
 extern long  AnimalityMessageCounter;   /* 0x0014fb38 */
 extern long  FatalityMessageCounter;    /* 0x0014fb3c */
 extern long  DoingStageFatal;           /* 0x0010dee0 */
-extern long  DoingStageFatalBringForward;   /* 0x0010dee4 */
+extern float DoingStageFatalBringForward;   /* 0x0010dee4 -- a float; Task_GameMain
+                                             * walks it down to -1.2 in double */
 extern long  sindelFlying;              /* 0x0014dff8 */
 extern long  DoingSKDeath;              /* 0x0010deb8 */
 extern float SKDeathMessageOffset;      /* 0x0010debc */
@@ -5999,7 +6003,7 @@ void ResetFightData(void)
     FatalityMessageCounter  = 0;
 
     DoingStageFatal             = 0;
-    DoingStageFatalBringForward = 0;
+    DoingStageFatalBringForward = 0.0f;
     sindelFlying                = 0;
     DoingSKDeath                = 0;
     SKDeathMessageOffset        = 0;
@@ -7560,7 +7564,9 @@ extern long   DoingSKDeath;             /* 0x0010deb8 */
 extern float  InfoScale;                /* 0x0010de80 */
 extern float  InfoScaleAdd;             /* 0x0010de7c */
 extern char   fatal_HUDgfx_SpriteDef[]; /* pointer slot -> 0x0017b9dc */
-extern long  *fatal_HUDgfx_Anim;        /* pointer slot -> 0x0017c81c */
+extern long   fatal_HUDgfx_Anim[];      /* pointer slot -> 0x0017c81c; the slot
+                                         * holds the ARRAY's address, so this is
+                                         * long[], not long* */
 extern float  ComboTimer[2];            /* 0x0014e284 */
 extern long   ComboNumber[2];           /* 0x0014e27c */
 extern long   ComboDamage[2];           /* 0x0014e274 */
@@ -9394,4 +9400,373 @@ void IntroRender(void)
         DoIntro = 0;
         EndIntro();
     }
+}
+
+
+/* --------------------------------------------------------------- Task_GameMain
+ *
+ * armv7 0x0002afec, 2,288 bytes.  **Complete.**
+ *
+ * The fight's per-frame task. Everything else in this file is reached from
+ * here: input, the arcade tick, the 3D pass, the HUD, the pause menu, the
+ * stage-fatality cutaway and the fade that ends the round.
+ *
+ * ### The frame, in order
+ *
+ *      InGame = 1
+ *      a stage picked from the pause menu starts a fade-out
+ *      one hardware key can press BLOCK for both sides
+ *      FrameCount and GameCounter step by 1 / limeFPSScaleFactor
+ *      2D state: basic blend, colour mask RGB only, 2D, basic blend again
+ *      the intro, if one is running -- and NOTHING ELSE this frame
+ *      MaintainLevelScenes
+ *      the round summary swallows input, or a transfer takes it instead
+ *      GetReal6ButtonJoyBits for player one, and player two on a shared pad
+ *      UpdateArcadeCode                          <- the fight itself
+ *      DeviceRenderSettings, LightPlayers, RenderGameView
+ *      the stage-fatality cutaway, if one is running
+ *      DrawHUD
+ *      karnage scoring
+ *      the stage-fatal camera pull
+ *      the fade, and the music fade riding on it
+ *      the black overlay, ShowDebugInfo, UpdateInGamePauseMenu
+ *
+ * ### limePressed is one 64-bit mask, and bit 8 presses BLOCK for both sides
+ *
+ * The test the compiler emitted is
+ *
+ *      (limePressed[0] & 0x100) | (limePressed[1] & 0)
+ *
+ * and the second half is ANDed with zero, so it can never contribute. That is
+ * exactly what a 64-bit `limePressed & 0x100` compiles to on a 32-bit target --
+ * the high word's mask is all zeroes and the AND is emitted anyway. So
+ * `limePressed` is a **single 64-bit key bitmask**, not two independent words.
+ *
+ * When the bit is set both joy words are pre-seeded with 0x400 *before*
+ * `GetReal6ButtonJoyBits` runs, and that function ORs into whatever it finds
+ * there. 0x400 is the bit it otherwise only sets on the **rising edge** of
+ * `buttons[6]`, the special/block button -- so this key holds block down for
+ * **both players at once** and skips the edge gate. No touch control reaches
+ * it; it is a key path inherited from the Java ME build.
+ *
+ * ### The intro owns the whole frame
+ *
+ * While `DoIntro` is set the task runs `AnimateBG`, `LIME_UpdateEvents`,
+ * `IntroRender`, both `LIME_RenderEvents` passes and `IntroRender2dBits`, and
+ * then **returns** -- no input, no arcade tick, no HUD. It only falls through
+ * on the frame `IntroRender` clears `DoIntro` itself. In a network game the
+ * intro is cleared before any of that, so `GameMode == 1` never sees one.
+ *
+ * ### Three ways the frame gets its input
+ *
+ *      RoundSummary == 1     JoystickState = 0, and every button is moved to
+ *                            LastButtonStates and cleared -- so the summary
+ *                            sees releases and the fight sees nothing
+ *      G->field44e != 0      ReadControls() instead, the transfer path that
+ *                            `getTransferableFlags` reads from the other end
+ *      otherwise             nothing extra
+ *
+ * and `GetReal6ButtonJoyBits` runs afterwards in **all three** cases. Player
+ * two is only read when `P2Controls` is set, and then with `which = 1` and the
+ * object pointer advanced by one 16-byte record.
+ *
+ * `UpdateArcadeCode` is skipped entirely while `GamePaused` or `LIME_Paused` is
+ * set -- the render still runs, so a paused fight is a live picture of a frozen
+ * world. With no second pad it is called with a **null** second joy word rather
+ * than a pointer to the unused one.
+ *
+ * ### The stage fatality: a 330-tick cutaway on one float
+ *
+ * `DoSmokesEarthFatal` is a float counter, not the flag its declaration in this
+ * file suggested, and every stage of the cutaway is a threshold on it:
+ *
+ *      <= 120     nothing drawn, the counter just runs
+ *       > 120     the starfield tiles the screen, 512x512 at a time
+ *       > 120     the earth, 128x128, centred
+ *       > 240     ...and the earth shakes +-8 px, alternating on the tick's
+ *                 parity, so it is a 1-tick square wave rather than a wobble
+ *      >= 300     the earth is gone; the explosion animation and its sound
+ *      300..330   a white flash over everything, 1.0 fading to 0 across 30
+ *
+ * The explosion is driven by the same counter at **two different rates**: the
+ * frame index steps every 5 ticks and the scale grows every 7, from 2.0 by a
+ * quarter each step, and drawing stops once the 7-tick index passes 15. The
+ * frame index is passed unclamped -- `DrawAnimAsSprite` clamps it to the last
+ * frame itself, which is why nothing bounds it here.
+ *
+ * The sound fires once, on the first frame past 300, and only if `Settings[3]`
+ * is set -- the same "the volume setting doubles as an enable" shape
+ * `Task_GameDestroy` uses for music. Its volume is `MusicVol[Settings[3]]`,
+ * a table indexed by the setting rather than the setting scaled.
+ *
+ * ### Karnage refills the health bar every frame and banks the difference
+ *
+ *      KarnageScore += (100 - Health[1]) * 100
+ *      Health[0] = Health[1] = 100, and the two bar widths with them
+ *
+ * so mode 3 is not a fight that can be lost: whatever damage landed this frame
+ * becomes score at a hundred points a point, and both fighters are topped up
+ * before the next one. The multiply is built out of shifts as `n * 20 * 5`.
+ *
+ * ### Where the fade sends the game
+ *
+ * The fade itself is the same self-terminating shape `IntroRender` uses, down
+ * to the achievements overlay dividing by ten and multiplying by the scale
+ * factor instead of dividing. What is new here is the end of it:
+ *
+ *      FE_Fade hits 0 going down, and DontQuitAfterFade is clear
+ *          -> CurrentTask = 7, InGame = 0, GamePaused = 0, otherPlayerPaused = 0
+ *
+ * Task 7 is the fight's teardown. So **the fade is what ends the round** --
+ * nothing else in this function leaves the task. `DontQuitAfterFade` is the
+ * opt-out for fades that are only meant to dim the screen.
+ *
+ * Riding on the same fade, and only while `Settings[2]` and `FadeMusicOut` are
+ * both set, `limeSetTuneVol(FE_Fade * 100)` walks the music down with the
+ * picture, and `FadeMusicOut` clears itself when it lands on zero.
+ */
+
+#define GAMEMAIN_TASK_DESTROY   7           /* CurrentTask the fade hands off to */
+#define GAMEMAIN_FADE_OUT_STEP  (-1.0f / 30.0f)
+#define GAMEMAIN_KEY_BLOCK      0x100       /* bit 8 of the 64-bit limePressed */
+#define GAMEMAIN_JOY_BLOCK      0x400       /* the bit it forces into both joys */
+#define GAMEMAIN_BUTTONS        7           /* ButtonStates / LastButtonStates */
+#define MK3OBJ_STRIDE           0x10
+
+#define SMOKEEARTH_SHOW         120.0f      /* starfield and earth appear */
+#define SMOKEEARTH_SHAKE        240.0f      /* the earth starts shaking */
+#define SMOKEEARTH_BOOM         300.0f      /* explosion, sound, white flash */
+#define SMOKEEARTH_FLASH_END    330.0f
+#define SMOKEEARTH_TILE         512         /* the starfield tile, in pixels */
+#define SMOKEEARTH_SIZE         128.0f      /* the earth sprite */
+#define SMOKEEARTH_HALF         64          /* ...and half of it, as an offset */
+#define SMOKEEARTH_SHAKE_PX     8
+#define SMOKEEARTH_LAST_FRAME   15          /* of the 7-tick index */
+
+extern long   InGame;                   /* 0x0010dec0 */
+extern long   limePressed[2];           /* pointer slot -> 0x00391fcc, ONE u64 */
+extern float  GameCounter;              /* 0x0014fa5c */
+extern long   LIME_Paused;              /* 0x0014e004 */
+extern char   explosion_SpriteDef[];    /* pointer slot -> 0x0017cac8 */
+extern long   explosion_Anim[];         /* pointer slot -> 0x0017cec8 */
+
+void limeSetTuneVol(long vol);
+void UpdateInGamePauseMenu(void);
+
+/* The stage fatality's cutaway. Split out for legibility; the binary has it
+ * inline, jumping back to DrawHUD from every arm. */
+static void SmokeEarthFatalCutaway(void)
+{
+    long  x, y;
+    long  shake;
+    float t;
+
+    DoSmokesEarthFatal += 1.0f / limeFPSScaleFactor;
+    if (DoSmokesEarthFatal <= SMOKEEARTH_SHOW)
+        return;
+
+    /* ---- the starfield, tiled over the whole screen ---- */
+    limeEnableAlphaBlending_Basic();
+    limeSet2DDrawing();
+    for (y = 0; y < limeScreenHeight; y += SMOKEEARTH_TILE)
+        for (x = 0; x < limeScreenWidth; x += SMOKEEARTH_TILE)
+            limeDrawSprite((TEXTURE *)SmokeStarFieldTexture,
+                           (float)x, (float)y,
+                           (float)SMOKEEARTH_TILE, (float)SMOKEEARTH_TILE,
+                           0.0f, 0.0f, 1.0f, 1.0f, col);
+
+    if (DoSmokesEarthFatal < SMOKEEARTH_BOOM) {
+        /* ---- the earth, centred, shaking once it is past 240 ---- */
+        if (DoSmokesEarthFatal > SMOKEEARTH_SHAKE)
+            shake = ((long)DoSmokesEarthFatal & 1) ? SMOKEEARTH_SHAKE_PX
+                                                   : -SMOKEEARTH_SHAKE_PX;
+        else
+            shake = 0;
+
+        limeDrawSprite((TEXTURE *)SmokeEarthTexture,
+                       (float)(limeScreenWidth  / 2 - SMOKEEARTH_HALF + shake),
+                       (float)(limeScreenHeight / 2 - SMOKEEARTH_HALF),
+                       SMOKEEARTH_SIZE, SMOKEEARTH_SIZE,
+                       0.0f, 0.0f, 1.0f, 1.0f, col);
+    } else {
+        /* ---- the explosion, and the one-shot bang ---- */
+        if (DoSmokeEarthFatalSFX == 0 && Settings[3] != 0) {
+            long snd;
+
+            DoSmokeEarthFatalSFX = 1;
+            snd = get_tsound(1);
+            if (snd != -1)
+                limePlaySound(snd, MusicVol[Settings[3]] / 100.0f, 1.0f, 0);
+        }
+
+        limeEnableAlphaBlending_Additive();
+
+        t = DoSmokesEarthFatal - SMOKEEARTH_BOOM;
+        if ((long)(t / 7.0f) <= SMOKEEARTH_LAST_FRAME)
+            DrawAnimAsSprite(limeScreenWidth / 2, limeScreenHeight / 2,
+                             (float)(2.0 + (double)(t / 7.0f) * 0.25),
+                             0x80, 0x80,
+                             (long)(uintptr_t)&SmokeExplosionTexture,
+                             explosion_SpriteDef, explosion_Anim,
+                             0, (long)(t / 5.0f),
+                             0, explosion_Anim[0] - 1, 0, col);
+    }
+
+    /* ---- the white flash, 300 to 330 ---- */
+    if (DoSmokesEarthFatal >= SMOKEEARTH_BOOM
+        && DoSmokesEarthFatal < SMOKEEARTH_FLASH_END) {
+        limeEnableAlphaBlending_Basic();
+        limeFillRect(0.0f, 0.0f,
+                     (float)limeScreenWidth, (float)limeScreenHeight,
+                     1.0f, 1.0f, 1.0f,
+                     (SMOKEEARTH_FLASH_END - DoSmokesEarthFatal) / 30.0f);
+    }
+}
+
+void Task_GameMain(void)
+{
+    long joy[2];
+    long i;
+
+    joy[0] = 0;
+    joy[1] = 0;
+
+    InGame = 1;
+
+    /* a stage picked from the pause menu starts the fade that ends the round */
+    if (GamePaused == 0
+        && *InGameLevelSelect != *LevelSelectPtr
+        && *FE_FadeAdd == 0.0f)
+        *FE_FadeAdd = GAMEMAIN_FADE_OUT_STEP;
+
+    /* one key holds block for both sides -- see the header */
+    if (limePressed[0] & GAMEMAIN_KEY_BLOCK) {
+        joy[0] = GAMEMAIN_JOY_BLOCK;
+        joy[1] = GAMEMAIN_JOY_BLOCK;
+    }
+
+    FrameCount  += 1.0f / limeFPSScaleFactor;
+    GameCounter += 1.0f / limeFPSScaleFactor;
+
+    limeEnableAlphaBlending_Basic();
+    limeSetColourMask(1, 1, 1, 0);
+    limeSet2DDrawing();
+    limeEnableAlphaBlending_Basic();
+
+    /* ---- the intro, which owns the frame while it runs ---- */
+    if (GameMode == 1) {                     /* no intro on the network */
+        DoIntro           = 0;
+        DidIntroThisFrame = 0;
+    } else {
+        DidIntroThisFrame = 0;
+        if (DoIntro) {
+            DidIntroThisFrame = 1;
+            AnimateBG();
+            LIME_UpdateEvents();
+            IntroRender();
+            LIME_RenderEvents(0);
+            LIME_RenderEvents(1);
+            IntroRender2dBits();
+            if (DoIntro)
+                return;
+        }
+    }
+
+    MaintainLevelScenes();
+
+    /* ---- input ---- */
+    if (RoundSummary == 1) {
+        /* the summary eats the frame's input and leaves it as releases */
+        JoystickState = 0;
+        for (i = 0; i < GAMEMAIN_BUTTONS; i++) {
+            LastButtonStates[i] = ButtonStates[i];
+            ButtonStates[i]     = 0;
+        }
+    } else if (G->field44e != 0) {
+        ReadControls();
+    }
+
+    GetReal6ButtonJoyBits((int)JoystickState, (const int *)ButtonStates,
+                          (Mk3Obj_t *)GameObjects, &joy[0], 0);
+
+    if (P2Controls != 0)
+        GetReal6ButtonJoyBits((int)JoystickStateP2,
+                              (const int *)ButtonStatesP2,
+                              (Mk3Obj_t *)((char *)GameObjects + MK3OBJ_STRIDE),
+                              &joy[1], 1);
+
+    if (GamePaused == 0 && LIME_Paused == 0) {
+        if (P2Controls != 0)
+            UpdateArcadeCode((int *)&joy[0], (int *)&joy[1]);
+        else
+            UpdateArcadeCode((int *)&joy[0], NULL);
+    }
+
+    /* ---- the world ---- */
+    DeviceRenderSettings();
+    LightPlayers();
+    RenderGameView();
+
+    if (DoSmokesEarthFatal != 0.0f)
+        SmokeEarthFatalCutaway();
+
+    DrawHUD();
+
+    /* ---- karnage: top the bars up and bank what was taken off them ---- */
+    if (GameMode == 3) {
+        if (100 - Health[1] > 0)
+            KarnageScore += (100 - Health[1]) * 100;
+        Health[0]     = 100;
+        Health[1]     = 100;
+        G->healthBar1 = 100;
+        G->healthBar2 = 100;
+    }
+
+    /* ---- the stage-fatal camera pull, computed in double ---- */
+    if (DoingStageFatal) {
+        DoingStageFatalBringForward =
+            (float)((double)DoingStageFatalBringForward
+                    + -0.05 / (double)limeFPSScaleFactor);
+        if (DoingStageFatalBringForward < -1.2f)
+            DoingStageFatalBringForward = -1.2f;
+    }
+
+    /* ---- the fade, and what it ends ---- */
+    if (*FE_FadeAdd != 0.0f) {
+        if (areAchievementsViewing())
+            FE_Fade += *FE_FadeAdd / 10.0f * limeFPSScaleFactor;
+        else
+            FE_Fade += *FE_FadeAdd / limeFPSScaleFactor;
+
+        if (FE_Fade <= 0.0f) {
+            if (*FE_FadeAdd < 0.0f) {
+                FE_Fade     = 0.0f;
+                *FE_FadeAdd = 0.0f;
+                if (DontQuitAfterFade == 0) {
+                    CurrentTask       = GAMEMAIN_TASK_DESTROY;
+                    InGame            = 0;
+                    GamePaused        = 0;
+                    otherPlayerPaused = 0;
+                }
+            }
+        } else if (FE_Fade >= 1.0f && *FE_FadeAdd > 0.0f) {
+            FE_Fade     = 1.0f;
+            *FE_FadeAdd = 0.0f;
+        }
+
+        /* the music rides the same fade, if it is on and asked to */
+        if (Settings[2] && FadeMusicOut) {
+            limeSetTuneVol((long)(FE_Fade * 100.0f));
+            if (FE_Fade == 0.0f)
+                FadeMusicOut = 0;
+        }
+    }
+
+    if (FE_Fade != 1.0f)
+        limeFillRect(0.0f, 0.0f,
+                     (float)limeScreenWidth, (float)limeScreenHeight,
+                     0.0f, 0.0f, 0.0f, 1.0f - FE_Fade);
+
+    ShowDebugInfo();
+    UpdateInGamePauseMenu();
 }
