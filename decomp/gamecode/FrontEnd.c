@@ -2250,7 +2250,11 @@ void UpdateStats(void)
 }
 
 
-extern long  VSWait;                    /* 0x000ff9a0 */
+extern float VSWait;                    /* 0x000ff9a0 -- a FLOAT: FE_Task_VS_Screen
+                                         * compares it against 30.0 with `vcmpe.f32`
+                                         * and advances it by `1.0 / limeFPSScaleFactor`.
+                                         * The two `VSWait = 0` sites do not tell the
+                                         * two types apart; a real read does. */
 extern float VSScroll;                  /* 0x000ff9a4 */
 extern long  TowerState;                /* 0x000ff9ac */
 extern long  Character1;                /* 0x000ff988 */
@@ -2478,7 +2482,11 @@ void FE_DrawLeaderBoardEntriesCallback(int rank, int offset, const char *name,
 extern char ButtonSplitText2[];         /* 0x00184f30 */
 
 char *limeUC(const char *s);
-long  limeGetStringWidth(void *font, const char *text);
+/* Returns a FLOAT. `FE_Task_VS_Screen` does `vmov s10, r0` on the result and
+ * multiplies it as a float with no `vcvt` -- and decomp/lime/limeFont.c, which
+ * has the body, declares it `float` too. The `(float)` casts at the call sites
+ * below are now no-ops, and are left alone. */
+float limeGetStringWidth(void *font, const char *text);
 long  CreateWrappedTextArrays(const char *text, char *out, long *lines,
                               long maxWidth, void *font, float scale);
 
@@ -3124,7 +3132,7 @@ void DrawMainMenu(int c1, int c2, int c3, int c4, int c5)
 
 extern float *darkcol;                  /* pointer slot */
 
-long limeGetStringWidth(void *font, const char *text);
+float limeGetStringWidth(void *font, const char *text);
 
 
 /* -------------------------------------------------------------- BasicMenuMod
@@ -3193,7 +3201,7 @@ long BasicMenuMod(const long *items, const long *disabled)
 
     for (i = 1, off = 0x20; i < count; i++, off += 0x20) {
         const char *text = GameText(items[i]);
-        long w = limeGetStringWidth(GameFont, text);
+        float w = limeGetStringWidth(GameFont, text);
         const float *colour = (disabled[i] != 0) ? darkcol : fontcol;
         float cx, tx, ty;
 
@@ -3209,9 +3217,9 @@ long BasicMenuMod(const long *items, const long *disabled)
         cx = (float)(*limeScreenWidth / 2);
         tx = limeTouchScreenX[0];
 
-        if (tx < cx + (float)w * -0.5f)
+        if (tx < cx + w * -0.5f)
             continue;
-        if (tx > cx + (float)w * 0.5f)
+        if (tx > cx + w * 0.5f)
             continue;
 
         ty = limeTouchScreenY[0];
@@ -9860,4 +9868,290 @@ void FE_Task_Endings(void)
         if (now > 1.0f)
             currentEndingProgress = 0.0f;
     }
+}
+
+
+/* ----------------------------------------------------------- FE_Task_VS_Screen
+ *
+ * armv7 0x00005b74, 2,324 bytes.  **Complete.**
+ *
+ * The versus screen: the two fighters' portraits slide in from opposite edges,
+ * the VS badge sits between them, and once the fade starts the task hands over
+ * to the match. It also carries a **debug opponent picker that shipped**.
+ *
+ * ### It initialises itself lazily, in the frame that needs it
+ *
+ *      if (VSAssetsLoaded == 0) FE_Task_VS_Screen_Init();
+ *
+ * -- and then falls straight through into the same frame, rather than returning
+ * and drawing nothing. The jump lands back after the test, so the check is not
+ * repeated.
+ *
+ * ### The slide is a countdown, not a tween
+ *
+ *      if (VSWait > 30)   VSScroll += -16 / limeFPSScaleFactor;
+ *      if (VSScroll <= 0) VSScroll = 0;
+ *      VSWait += 1 / limeFPSScaleFactor;
+ *
+ * `VSWait` counts frames at the frame-rate-corrected rate, so the portraits hold
+ * off-screen for thirty frames and then close at sixteen units a frame until
+ * they hit the clamp. Player one is drawn at `-FE_WidthScale * VSScroll` and
+ * player two at `+FE_WidthScale * VSScroll` from the far edge, so they arrive
+ * together. `VSWait` keeps counting after the slide is over and nothing resets
+ * it here -- the reset is on the way out.
+ *
+ * ### Player two is drawn three different ways
+ *
+ *      Character2 == 24 or 25    the text "NO IMAGE", and no portrait at all
+ *      Character2 == Character1  CharacterVSTexture2 -- the alternate palette
+ *      otherwise                 CharacterVSTexture
+ *
+ * The mirror match is the reason `CharacterVSTexture2` exists, and the two boss
+ * slots have no versus art. Every path draws with a `u` extent of **-1**, which
+ * is what flips player two to face left.
+ *
+ * ### The right-hand portrait is positioned with the wrong scale
+ *
+ *      p1  x = 0                      - FE_WidthScale * VSScroll
+ *      p2  x = limeScreenWidth        + FE_WidthScale * VSScroll
+ *                                     + FE_HeightScale * -256
+ *
+ * and both are drawn `FE_WidthScale * 256` wide. Pulling the right edge back by
+ * a **height**-scaled 256 while the sprite is a **width**-scaled 256 lines up
+ * exactly on 480x320, where the two scales are equal, and drifts on anything
+ * else. `vldr s6, [FE_WidthScale]` and `vldr s8, [FE_HeightScale]` at
+ * 0x00005dba/0x00005dc2, and `s8` is what feeds the -256. Transcribed as
+ * written; a widescreen port has to choose, and the answer is `FE_WidthScale`.
+ *
+ * ### The Play button is drawn and its answer thrown away
+ *
+ *      DrawButtonNew(&BUTTON_PLAY, 0xf0, 0x130, 1);
+ *      r0 is overwritten by the next `movs r0, #0xa` -- GameText(10)
+ *
+ * The screen advances on a raw touch in the bottom-centre band, not on the
+ * button, so the button is decoration over a much larger target:
+ *
+ *      x in [w/2 - 64*HS, w/2 + 64*HS]   y >= screenHeight - 128*HS
+ *      -> FE_FadeAdd = -1/30, FadeMusicOut = 1
+ *
+ * ### The debug opponent picker shipped, and it is not behind a flag
+ *
+ *      SetupLockedCharacters();
+ *      sprintf(str, "<--  Debug Opponent Select: %s    -->",
+ *              CharacterNames[Character2]);
+ *
+ * drawn centred at the very top of the screen (`FE_HeightScale * 4`) **every
+ * frame**, with the two arrows live: a release inside 64 units of either end of
+ * that string, in the top `64 * FE_HeightScale` of the screen, steps
+ * `Character2` to the previous or next entry with `CharacterAvailable[] != 0`
+ * and writes `Character2Override` as well. The string is measured with
+ * `limeGetStringWidth` so the targets follow the translated text.
+ *
+ * The two hit tests are not quite each other's mirror:
+ *
+ *      "<--"   x in [left - 16*WS, left + 64*WS]    y <= 64*HS
+ *      "-->"   x in [right - 64*WS, right + 16*WS]  y <  64*HS
+ *
+ * -- `bhi` against `bpl`, one instruction apart in intent. Both are also checked
+ * in the same frame, so a touch cannot hit both but is tested against both.
+ *
+ * ### Leaving: four things, in this order, and only when the fade is settled
+ *
+ *      if (FE_FadeAdd != 0 || FE_Fade != 0) return;
+ *      CurrentTask = 4; PopFETask();
+ *      if (GameMode == 2) PopAllFETasksDeferred(0);
+ *      preprocessPreloadKode(); VSWait = 0; Write_SaveData();
+ *      if (GameMode == 0) EASDK_LogEventEnumEnumString(0x7555, 15, ...);
+ *
+ * `GameMode == 2` is training, which unwinds the whole front-end stack instead
+ * of popping one task. The analytics event fires only for mode 0, the arcade
+ * tower, and carries the difficulty and the player's character -- the same
+ * `(0x…, 15, DestinyNames[Destiny], 15, name)` shape `Blood.c` logs finishers
+ * with.
+ */
+
+#define VS_HOLD_FRAMES  30.0f
+#define VS_SLIDE_RATE   16.0f
+#define VS_PORTRAIT     256.0f
+#define VS_FADE_STEP    -0.033333335f   /* -1/30 */
+#define VS_BOSS_FIRST   24              /* 24 and 25 have no versus art */
+#define VS_ARROW_NEAR   16.0f
+#define VS_ARROW_FAR    64.0f
+#define VS_ARROW_BAND   64.0f           /* top strip the arrows answer in */
+#define VS_START_BAND   64.0f
+#define VS_START_TOP    128.0f
+#define VS_LOG_MATCH    0x7555
+
+extern long  FadeMusicOut;              /* 0x0010dee8 */
+
+void preprocessPreloadKode(void);
+int  sprintf(char *buf, const char *fmt, ...);
+
+void FE_Task_VS_Screen(void)
+{
+    float w, cx, edge;
+    long  p;
+
+    if (VSAssetsLoaded == 0)
+        FE_Task_VS_Screen_Init();       /* and carry on into this same frame */
+
+    limeDrawSprite((TEXTURE *)MetalScreenTexture, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0f, 1.0f, 1.0f, col);
+
+    limeDrawSprite((TEXTURE *)VSTexture,
+                   ((float)*limeScreenWidth + FE_WidthScale * -64.0f) * 0.5f,
+                   FE_HeightScale * 80.0f,
+                   FE_WidthScale * 64.0f,
+                   FE_HeightScale * 128.0f,
+                   0.0f, 0.0f, 1.0f, 1.0f, col);
+
+    limeEnableAlphaBlending_Additive();
+
+    DrawAnimAsSprite(0, 0, FE_WidthScale, 0x80,
+                     0x80, (long)(uintptr_t)SpotlightTextures,
+                     (const char *)&spotlight_SpriteDef, spotlight_Anim,
+                     0, (long)*GameCounter,
+                     0, spotlight_Anim[0] - 1, 1, col);
+
+    DrawAnimAsSprite((long)((float)*limeScreenWidth
+                            + FE_WidthScale * -128.0f),
+                     0, FE_WidthScale, 0x80,
+                     0x80, (long)(uintptr_t)SpotlightTextures,
+                     (const char *)&spotlight_SpriteDef, spotlight_Anim,
+                     1, (long)*GameCounter,
+                     0, spotlight_Anim[0] - 1, 1, col);
+
+    limeEnableAlphaBlending_Basic();
+
+    /* ---- player one, sliding in from the left ---- */
+    limeDrawSprite((TEXTURE *)CharacterVSTexture[Character1],
+                   0.0f - FE_WidthScale * VSScroll,
+                   (float)*limeScreenHeight + FE_HeightScale * -VS_PORTRAIT,
+                   FE_WidthScale * VS_PORTRAIT,
+                   FE_HeightScale * VS_PORTRAIT,
+                   0.0f, 0.0f, 1.0f, 1.0f, col);
+
+    /* ---- player two, mirrored, from the right ---- */
+    if ((unsigned long)(Character2 - VS_BOSS_FIRST) <= 1) {  /* 24 or 25 */
+        limeDrawFONT(GameFont, "NO IMAGE",
+                     (float)(*limeScreenWidth - 8),
+                     (float)(*limeScreenHeight / 2),
+                     2, FE_WidthScale, fontcol);
+    } else {
+        void *portrait = (Character2 == Character1)
+                         ? CharacterVSTexture2[Character2]   /* mirror match */
+                         : CharacterVSTexture[Character2];
+
+        limeDrawSprite((TEXTURE *)portrait,
+                       (float)*limeScreenWidth
+                       + FE_WidthScale * VSScroll
+                       + FE_HeightScale * -VS_PORTRAIT,  /* height-scaled -- see
+                                                          * the header */
+                       (float)*limeScreenHeight + FE_HeightScale * -VS_PORTRAIT,
+                       FE_WidthScale * VS_PORTRAIT,
+                       FE_HeightScale * VS_PORTRAIT,
+                       0.0f, 0.0f, -1.0f, 1.0f, col);      /* u extent -1 */
+    }
+
+    /* ---- the slide ---- */
+    if (VSWait > VS_HOLD_FRAMES)
+        VSScroll += -VS_SLIDE_RATE / limeFPSScaleFactor;
+
+    if (VSScroll <= 0.0f)
+        VSScroll = 0.0f;
+
+    VSWait += 1.0f / limeFPSScaleFactor;
+
+    DrawButtonNew(&BUTTON_PLAY, 0xf0, 0x130, 1);   /* answer discarded */
+
+    limeDrawFONT(GameFont, GameText(0xa),
+                 FE_X(240.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
+
+    /* ---- a release in the bottom-centre band starts the match ---- */
+    if (*limeLastTouchScreenX == -1.0f) {
+        cx = (float)(*limeScreenWidth / 2);
+
+        if (*limeTouchScreenX >= cx + FE_HeightScale * -VS_START_BAND
+            && *limeTouchScreenX <= cx + FE_HeightScale * VS_START_BAND
+            && *limeTouchScreenY >= (float)*limeScreenHeight
+                                    + FE_HeightScale * -VS_START_TOP) {
+            FE_FadeAdd   = VS_FADE_STEP;
+            FadeMusicOut = 1;
+        }
+    }
+
+    /* ---- the debug opponent picker, drawn unconditionally ---- */
+    SetupLockedCharacters();
+
+    sprintf(strBuf, "<--  Debug Opponent Select: %s    -->",
+            CharacterNames[Character2]);
+
+    limeDrawFONT(GameFont, strBuf,
+                 (float)(*limeScreenWidth / 2),
+                 FE_HeightScale * 4.0f,
+                 1, FE_WidthScale, fontcol);
+
+    w = limeGetStringWidth(GameFont, strBuf) * FE_WidthScale;
+
+    if (*limeLastTouchScreenX == -1.0f) {
+        cx = (float)(*limeScreenWidth / 2);
+
+        /* "<--" : back to the previous available character */
+        edge = cx + w * -0.5f;
+        if (*limeTouchScreenX >= edge + FE_WidthScale * -VS_ARROW_NEAR
+            && *limeTouchScreenX <= edge + FE_WidthScale * VS_ARROW_FAR
+            && *limeTouchScreenY <= FE_HeightScale * VS_ARROW_BAND) {
+
+            Character2 = Character2 - 1;
+            if (Character2 < 0)
+                Character2 = CHARACTER_SLOTS - 1;
+
+            p = Character2;
+            while (CharacterAvailable[p] == 0) {
+                p--;
+                if (p < 0)
+                    p = CHARACTER_SLOTS - 1;
+            }
+            Character2         = p;
+            Character2Override = p;
+        }
+
+        /* "-->" : on to the next one. `<` here where the other arm has `<=` */
+        edge = cx + w * 0.5f;
+        if (*limeTouchScreenX <= edge + FE_WidthScale * VS_ARROW_NEAR
+            && *limeTouchScreenX >= edge + FE_WidthScale * -VS_ARROW_FAR
+            && *limeTouchScreenY < FE_HeightScale * VS_ARROW_BAND) {
+
+            p = (Character2 + 1) % CHARACTER_SLOTS;
+            Character2 = p;
+
+            if (CharacterAvailable[p] == 0) {
+                do {
+                    p = (p + 1) % CHARACTER_SLOTS;
+                } while (CharacterAvailable[p] == 0);
+                Character2 = p;
+            }
+            Character2Override = p;
+        }
+    }
+
+    /* ---- leaving, once the fade has settled ---- */
+    if (FE_FadeAdd != 0.0f || FE_Fade != 0.0f)
+        return;
+
+    CurrentTask = 4;
+    PopFETask();
+
+    if (GameMode == 2)                  /* training unwinds the whole stack */
+        PopAllFETasksDeferred(0);
+
+    preprocessPreloadKode();
+    VSWait = 0.0f;
+    Write_SaveData();
+
+    if (GameMode == 0)
+        EASDK_LogEventEnumEnumString(VS_LOG_MATCH, 15,
+                                     DestinyNames[Destiny], 15,
+                                     CharacterNames[Character1]);
 }
