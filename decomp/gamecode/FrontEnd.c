@@ -12783,3 +12783,357 @@ int FEInit_LoadABit(long step)
         return 0;
     }
 }
+
+
+/* ---------------------------------------------------------------- FE_Task_Tower
+ *
+ * armv7 0x00008310, 4,696 bytes.  **Complete.**
+ *
+ * The tower screen: `DrawTower3D` paints the tower and the vortex, and this runs
+ * a five-state machine over the camera that flies from a pulled-back view down
+ * to the player's rung and then up it. Four flaming torches along the bottom are
+ * the difficulty picker.
+ *
+ * ### The camera is smoothed, frame-rate corrected, at 1/32 a frame
+ *
+ *      k = 1 / limeFPSScaleFactor;
+ *      FECamPos[i] = ((32 - k) * FECamPos[i] + target[i] * k) * 0.03125;
+ *
+ * -- a weighted average with the weights summing to 32 and the result divided by
+ * 32, so at `limeFPSScaleFactor == 1` it is a plain `1/32` lerp and at half the
+ * frame rate the step doubles. The x and z axes are computed in **double**
+ * precision and the y axis in single; the two outer axes also carry a per-rung
+ * bias (`Destiny * 0.3` on x, `Destiny * 0.1` on z) that the y axis does not.
+ *
+ * A state finishes when x and y are both within **0.001** of the target.
+ *
+ * ### The five states
+ *
+ *      -1  entry. GameStarted == 0: snap to TowerPulledPos, DestinyToSelect = -1,
+ *          TowerState = 0 and play the click. Otherwise hold at TowerPulledPos
+ *          for sixty frame-rate-corrected units and then go to state 1 --
+ *          unless Stage is non-zero, which jumps straight to the climb.
+ *       0  the difficulty picker: four torches, four labels, four touch bands
+ *       1  fly in to TowerSelect1TopPos, biased by Destiny
+ *       2  fly down to TowerSelect1BottomPos, biased by Stage - 1
+ *       3  wait for the fade to finish, then hand over to the match
+ *       4  the climb: TowerSelect1BottomPos biased by Stage - 2, with
+ *          MoveUpTower walking 0 -> 1 at 1/120 a frame
+ *
+ * States 1, 2 and 4 all end the same way: any release above the bottom
+ * `64 * FE_HeightScale` sets `TowerState = 3`, `FadeMusicOut = 1` and
+ * `FE_FadeAdd = -1/30`. The screen is impatient -- a tap anywhere skips the
+ * camera move.
+ *
+ * ### The picker is two taps, and the first column is the odd one
+ *
+ *      x band 74..150 * FE_WidthScale    destiny 0
+ *             150..230                   destiny 1
+ *             230..308                   destiny 2
+ *             308..386                   destiny 3
+ *
+ * A tap arms a column (`DestinyToSelect = n`) and a second tap on the same
+ * column commits it (`Destiny = n; TowerState = 1; Stage = 0`). Because
+ * `DestinyToSelect` starts at 0 after the entry state sets it to -1 and the
+ * first column's test is `DestinyToSelect == 0`, **column 0 commits on the first
+ * tap** whenever the value happens to be 0 already.
+ *
+ * Committing destiny 3 also clears `playerLostRound`; the other three do not.
+ *
+ * The click is `limePlaySound(SFXHandle[26], MusicVol[Settings[3]] / 100, 1.0f,
+ * <the Back button's return value>)` -- the fourth argument is whatever
+ * `DrawButtonNew` said about Back this frame, which is not a sound parameter.
+ *
+ * ### The torches are one ten-frame animation on a shared counter
+ *
+ *      TowerFireCount += 1 / limeFPSScaleFactor;      (every frame, every state)
+ *      frame = (long)(TowerFireCount * 0.25) % 10;
+ *
+ * so all four torches burn in step, at a quarter of the counter's rate.
+ *
+ * ### Handing over logs twice
+ *
+ *      EASDK_LogEventEnumEnumString(0x7549, 15, DestinyNames[Destiny], 15,
+ *                                   getStageName(Destiny, Stage));
+ *      EASDK_LogEventEnumEnumString(0x7555, 15, DestinyNames[Destiny], 15,
+ *                                   CharacterNames[Character1]);
+ *
+ * -- the difficulty with the arena, then the difficulty with the fighter.
+ */
+
+#define TOWER_SMOOTH_N   32.0f
+#define TOWER_SMOOTH_R   0.03125       /* 1/32 */
+#define TOWER_SETTLED    0.001
+#define TOWER_X_BIAS     0.3
+#define TOWER_Z_BIAS     0.1
+#define TOWER_ENTRY_WAIT 60.0f
+#define TOWER_CLIMB_RATE 0.008333333f  /* 1/120 */
+#define TOWER_FIRE_RATE  0.25f
+#define TOWER_FIRE_FRAMES 10
+#define TOWER_FADE_STEP  -0.033333335f
+#define TOWER_BOTTOM     64.0f
+#define TOWER_CLICK_SFX  (0x68 / 4)
+
+extern long  TowerState;                /* 0x000ff9ac */
+extern long  DestinyToSelect;           /* 0x0010175c */
+extern float TowerFireCount;            /* 0x00101760 */
+extern float TowerWait;                 /* 0x00101750 */
+extern float FECamPos[3];               /* 0x000ff954 */
+extern float TowerPulledPos[3];         /* 0x00101728 */
+extern float TowerSelect1TopPos[3];     /* 0x00101734 */
+extern float TowerSelect1BottomPos[3];  /* 0x00101740 */
+extern long  playerLostRound;           /* 0x000ff8b8 */
+
+
+/* The three axes are written out longhand in the binary, x and z in double and
+ * y in single; this is that shape with the axis-specific bias passed in. */
+static void Tower_Approach(const float *target, double xBias, double zBias,
+                           float k)
+{
+    float  weight = TOWER_SMOOTH_N - k;
+    double tx = (double)target[0] + xBias;
+    double tz = (double)target[2] + zBias;
+
+    FECamPos[0] = (float)(((double)(weight * FECamPos[0]) + tx * (double)k)
+                          * TOWER_SMOOTH_R);
+
+    /* the y axis: single precision, and no bias */
+    FECamPos[1] = (weight * FECamPos[1] + k * target[1]) * 0.03125f;
+
+    FECamPos[2] = (float)(((double)(weight * FECamPos[2]) + tz * (double)k)
+                          * TOWER_SMOOTH_R);
+}
+
+static long Tower_Settled(const float *target, double xBias)
+{
+    if (fabs((double)FECamPos[0] - ((double)target[0] + xBias)) >= TOWER_SETTLED)
+        return 0;
+
+    return fabs((double)(float)(FECamPos[1] - target[1])) < TOWER_SETTLED;
+}
+
+/* Any release above the bottom strip drops straight into the fade. */
+static long Tower_TappedToSkip(void)
+{
+    if (*limeLastTouchScreenX != -1.0f)
+        return 0;
+    if (*limeTouchScreenY == -1.0f)
+        return 0;
+
+    return *limeTouchScreenY < (float)*limeScreenHeight
+                               - FE_HeightScale * TOWER_BOTTOM;
+}
+
+static void Tower_DrawTorch(long slot, float x, float y, long text,
+                            float labelX, float labelY)
+{
+    long frame = (long)(TowerFireCount * TOWER_FIRE_RATE) % TOWER_FIRE_FRAMES;
+
+    (void)slot;
+
+    limeDrawSprite((TEXTURE *)FireLogo[frame],
+                   FE_X(x), FE_Y(y),
+                   FE_WidthScale * 64.0f, FE_HeightScale * 64.0f,
+                   0.0f, 0.0f, 1.0f, 1.0f, col);
+
+    limeDrawFONT(GameFont, GameText(text),
+                 FE_X(labelX), FE_Y(labelY), 1, FE_WidthScale, fontcol);
+}
+
+void FE_Task_Tower(void)
+{
+    float k;
+    long  back;
+
+    CharacterConfirmed = -1;
+    CharacterSelected  = -1;
+
+    DrawTower3D();
+    limeSet2DDrawing();
+    limeDisableDepthTest();
+    limeDisableDepthWrites();
+
+    k = 1.0f / limeFPSScaleFactor;
+    TowerFireCount += k;
+
+    switch (TowerState) {
+    case -1:
+        if (GameStarted == 0) {
+            FECamPos[0] = TowerPulledPos[0];
+            FECamPos[1] = TowerPulledPos[1];
+            FECamPos[2] = TowerPulledPos[2];
+
+            DestinyToSelect = -1;
+            TowerState      = 0;
+
+            if (Settings[3] != 0)
+                limePlaySound(SFXHandle[TOWER_CLICK_SFX],
+                              MusicVol[Settings[3]] / 100.0f, 1.0f, 0);
+            return;
+        }
+
+        if (Stage != 0)
+            break;                      /* straight into the climb, below */
+
+        FECamPos[0] = TowerPulledPos[0];
+        FECamPos[1] = TowerPulledPos[1];
+        FECamPos[2] = TowerPulledPos[2];
+
+        TowerWait += k;
+
+        if (TowerWait > TOWER_ENTRY_WAIT) {
+            TowerWait  = 0.0f;
+            TowerState = 1;
+        }
+        return;
+
+    case 0:
+        limeDrawFONT(GameFont, GameText(0x49),
+                     (float)(*limeScreenWidth / 2), FE_Y(8.0f),
+                     1, FE_WidthScale, fontcol);
+
+        back = DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1);
+
+        limeDrawFONT(GameFont, GameText(7),
+                     FE_X(423.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
+
+        /* one torch and one label per difficulty */
+        if (DestinyToSelect == 0)
+            Tower_DrawTorch(0, 86.0f, 176.0f, 0x53, 118.0f, 192.0f);
+        else if (DestinyToSelect == 1)
+            Tower_DrawTorch(1, 162.0f, 176.0f, 0x54, 194.0f, 192.0f);
+        else if (DestinyToSelect == 2)
+            Tower_DrawTorch(2, 240.0f, 176.0f, 0x55, 272.0f, 192.0f);
+        else if (DestinyToSelect == 3)
+            Tower_DrawTorch(3, 318.0f, 176.0f, 0x56, 350.0f, 192.0f);
+
+        if (back) {
+            PopFETaskDeferred();
+            return;
+        }
+
+        if (*limeLastTouchScreenX != -1.0f
+            || *limeTouchScreenY == -1.0f
+            || *limeTouchScreenY <= 0.0f
+            || *limeTouchScreenY >= (float)*limeScreenHeight
+                                    - FE_HeightScale * TOWER_BOTTOM)
+            return;
+
+        /* ---- four columns, two taps each ---- */
+        {
+            float tx = *limeTouchScreenX;
+            long  n;
+
+            for (n = 0; n < 4; n++) {
+                static const float lo[4] = { 74.0f, 150.0f, 230.0f, 308.0f };
+                static const float hi[4] = { 150.0f, 230.0f, 308.0f, 386.0f };
+
+                if (tx <= FE_WidthScale * lo[n]
+                    || tx >= FE_WidthScale * hi[n])
+                    continue;
+
+                if (Settings[3] != 0)
+                    limePlaySound(SFXHandle[TOWER_CLICK_SFX],
+                                  MusicVol[Settings[3]] / 100.0f, 1.0f, back);
+
+                if (DestinyToSelect == n) {
+                    Destiny   = n;
+                    TowerState = 1;
+                    Stage     = 0;
+
+                    if (n == 3)
+                        playerLostRound = 0;    /* only this one */
+                } else {
+                    DestinyToSelect = n;
+                }
+
+                tx = *limeTouchScreenX;         /* reloaded between bands */
+            }
+        }
+
+        if (TowerState == 1) {
+            EASDK_LogEventEnumEnumString(0x7549, 15, DestinyNames[Destiny],
+                                         15, getStageName(Destiny, Stage));
+            EASDK_LogEventEnumEnumString(0x7555, 15, DestinyNames[Destiny],
+                                         15, CharacterNames[Character1]);
+        }
+        return;
+
+    case 1:
+        Tower_Approach(TowerSelect1TopPos,
+                       (double)Destiny * TOWER_X_BIAS,
+                       (double)Destiny * TOWER_Z_BIAS, k);
+
+        if (Tower_Settled(TowerSelect1TopPos,
+                          (double)Destiny * TOWER_X_BIAS))
+            TowerState = 2;
+
+        if (Tower_TappedToSkip()) {
+            TowerState   = 3;
+            FadeMusicOut = 1;
+            FE_FadeAdd   = TOWER_FADE_STEP;
+        }
+        return;
+
+    case 2:
+        Tower_Approach(TowerSelect1BottomPos,
+                       (double)(Stage - 1) * TOWER_X_BIAS,
+                       (double)(Stage - 1) * TOWER_Z_BIAS, k);
+
+        if (Tower_TappedToSkip()) {
+            TowerState   = 3;
+            FadeMusicOut = 1;
+            FE_FadeAdd   = TOWER_FADE_STEP;
+        }
+        return;
+
+    case 3:
+        if (FE_FadeAdd != 0.0f || FE_Fade != 0.0f)
+            return;
+
+        GameStarted = 1;
+        TowerState  = -1;
+
+        if (GameMode == 4)
+            break;                      /* survival: handled below */
+
+        if (GameMode != 1) {
+            /* the tower's own opponent for this rung */
+            Character2 = OpponentTowerList[Destiny * 11 + Stage];
+        }
+
+        CurrentTask = 4;
+        preprocessPreloadKode();
+        LevelSelect = GetNextLevel(LevelSelect);
+
+        if (Character2 != 0x18 && Character2 != 0x19)
+            VSWait = 0.0f;
+
+        Write_SaveData();
+        return;
+
+    case 4:
+        Tower_Approach(TowerSelect1BottomPos,
+                       (double)(Stage - 2) * TOWER_X_BIAS,
+                       (double)(Stage - 2) * TOWER_Z_BIAS, k);
+
+        MoveUpTower += TOWER_CLIMB_RATE / limeFPSScaleFactor;
+
+        if (MoveUpTower > 1.0f)
+            MoveUpTower = 1.0f;
+
+        if (Tower_TappedToSkip()) {
+            TowerState   = 3;
+            FadeMusicOut = 1;
+            FE_FadeAdd   = TOWER_FADE_STEP;
+        }
+        return;
+
+    default:
+        return;
+    }
+
+    /* ---- Stage != 0 on entry, or survival on hand-over: go to the climb ---- */
+    MoveUpTower = 0.0f;
+    TowerState  = 4;
+}
