@@ -6356,7 +6356,12 @@ void FE_Task_Survival_Summary(void)
  */
 extern long  BGRandomised;              /* 0x000ff8b4 */
 extern void *SelectBGTexture;           /* 0x00183f24, an ARRAY here */
-extern long  Character_SelectWait;      /* 0x000ff8c8 */
+extern float Character_SelectWait;      /* 0x000ff8c8 -- a FLOAT.
+                                         * drawCharacterSelection reads it with
+                                         * `vldr s14` and `vcmp.f32 s14, #0`; an
+                                         * int would have been `cmp r3, #0`. The
+                                         * `= 0` stores elsewhere are the same bits
+                                         * either way and cannot tell them apart. */
 extern long  newGameFlag;               /* 0x000ff850 */
 extern long  TowerState;                /* 0x000ff9ac */
 extern BUTTONNEW BUTTON_PLAY;           /* 0x001007e4 */
@@ -11038,4 +11043,387 @@ void FE_Task_Multiplayer(void)
         restartConnectionFlag = 0;
         restartConnection();
     }
+}
+
+
+/* ------------------------------------------------------ drawCharacterSelection
+ *
+ * armv7 0x000099a0, 3,116 bytes.  **Complete.**
+ *
+ * The character grid: 7 x 4 portraits out of `CS_Layout`, the highlights over
+ * whoever is chosen, the tap handling for four different game modes, and the
+ * two 3D fighters behind it all. Returns `CharacterConfirmed`.
+ *
+ * ### Two passes over the same grid, because the highlights go on top
+ *
+ * The first pass draws every cell's portrait and its border. The second walks
+ * the identical 7 x 4 loop again and draws only the highlights and the "1"/"2"
+ * labels. One pass with the highlight inline would have put each cell's
+ * highlight under the next cell's portrait -- at 52 apart with 64-wide art the
+ * cells overlap, so the order matters.
+ *
+ *      portrait  x = FE_X(60 + col * 52)   y = FE_Y(32 + row * 63)   64 x 64
+ *      border    x = FE_X(56 + col * 52)   y = FE_Y(28 + row * 63)  128 x 128
+ *      highlight   (60 + col * 52, 32 + row * 63, 48, 60, 4)
+ *      "1"       x = FE_X(84 + col * 52)   y = FE_Y(44 + row * 63)
+ *      "2"       same x                    y = FE_Y(64 + row * 63)
+ *
+ * The border is drawn at twice the portrait's size and four units up and left
+ * of it, so the borders overlap each other heavily. Transcribed as written.
+ *
+ * ### Three portrait states, and the locked one is a different picture
+ *
+ *      CharacterAvailable[c] == 2   TowerPortraitTexture[c]    col
+ *      CharacterAvailable[c] == 1   TowerPortraitTexture[c]    midcol
+ *      anything else                TowerPortraitTexture[27]   midcol
+ *
+ * -- so slot 27 is the "?" card, and 1 is a character that exists but is shown
+ * dimmed. A cell whose `CS_Layout` entry is -1 is skipped entirely, which is how
+ * the grid leaves holes.
+ *
+ * ### Smoke is unlocked by holding on Human Smoke for three seconds
+ *
+ *      if (c == 14) {
+ *          if (the touch is inside this cell)  SmokeCounter += 1 / limeFPSScaleFactor;
+ *          else                                SmokeCounter = 0;
+ *          if (SmokeCounter > 180) {
+ *              SmokeCounter = 0;
+ *              c = 22;                         <- the cell BECOMES character 22
+ *              limeLastTouchScreenX = -1;      <- and a release is faked
+ *          }
+ *      }
+ *
+ * 180 frame-rate-corrected units is three seconds at 60fps. The counter is reset
+ * by any frame the touch is outside the cell, so the hold has to be continuous.
+ * Writing `limeLastTouchScreenX = -1` **fabricates a release**, which is exactly
+ * what the tap test below is waiting for -- so the hold ends by selecting
+ * character 22 through the ordinary path, as though it had been tapped.
+ *
+ * Its hit box is not the cell's: it runs from `FE_Y(32 + row * 63)` to
+ * `FE_Y(row * 63 + 91)` and `FE_X(60 + col * 52)` to `FE_X(col * 52 + 108)`,
+ * against the tap test's 91 and 108 measured from the same origins. The two
+ * agree on the bottom and right and differ on the top: the hold box starts at
+ * the portrait, the tap box starts four units above it.
+ *
+ * ### The tap: four modes, and one dead store
+ *
+ * Gated on `FE_FadeAdd == 0 && Character_SelectWait == 0 && sel == -1` before
+ * the cell is even considered -- so the caller passing anything but -1 disables
+ * the whole grid, which is what `pressedPlay ? 1 : -1` at the call site is for.
+ *
+ *      mode 6 (two players, one device)
+ *          nothing chosen yet   CharacterSelected = c, PlayerSelectToggle = 0
+ *          otherwise            PlayerSelectToggle ^= 1, and the toggle picks
+ *                               opponentCharacter or CharacterSelected
+ *
+ *      already on this cell     CharacterConfirmed = c
+ *
+ *      otherwise                CharacterSelected = sel;   <- dead: c is never
+ *                               CharacterSelected = c;        -1 here
+ *
+ * and in mode 1 (network) every path ends at `playerCharacter = CharacterSelected;
+ * sendCharacterPacket(CharacterSelected); isParent();` -- with `isParent()`'s
+ * answer thrown away. `FEPlayer1Offset = 4` is set on three separate paths to
+ * restart the chosen fighter's slide-in.
+ *
+ * ### The click is one of four sounds
+ *
+ *      c == 0x18   SFXHandle[25]
+ *      c == 0x16   SFXHandle[18]
+ *      c == 0x15   SFXHandle[8]
+ *      otherwise   SFXHandle[4] + c        <- a handle computed by ADDING the
+ *                                             character index to a base handle
+ *
+ * at `MusicVol[Settings[3]] / 100`, and only when `Settings[3]` is non-zero.
+ * The three special cases are the three characters whose voice clip is not in
+ * the contiguous run.
+ *
+ * ### The highlights answer to who you are on the network
+ *
+ *      mode 6      red "1" on CharacterSelected, green "2" on opponentCharacter
+ *      mode 1 parent   the same
+ *      mode 1 child    **swapped** -- green "2" on CharacterSelected, red "1"
+ *                      on opponentCharacter
+ *      other modes     red on CharacterSelected, and no label at all
+ *
+ * so each machine paints itself green and the other red only when it is the
+ * child; the parent paints itself red. Every test is against **both**
+ * `CS_Layout[row][col]` and `CS_Layout2[row][col]` -- a second 4 x 7 table at
+ * 0x001016a0 giving each cell an alternate character id, which is how one cell
+ * can stand for two fighters.
+ *
+ * ### The fighters animate on a fixed step, not on the frame time
+ *
+ *      FrameCompensationFE += 2 / limeFPSScaleFactor;
+ *      while (FrameCompensationFE > 1) {
+ *          AnimateFECharacters(1.0f);
+ *          FrameCompensationFE -= 1;
+ *      }
+ *
+ * -- the animation is always advanced by exactly 1.0, as many times as the
+ * accumulated time allows, so it never takes a variable-sized step. Two units a
+ * frame at 60fps means two animation ticks a frame.
+ *
+ * The slide-ins run the other way: `FEPlayer1Offset` starts at 4 and walks to 0
+ * at -0.2 a frame, `FEPlayer2Offset` starts at -4 and walks up to 0 at +0.2.
+ * Whichever side has nothing chosen is pinned at its start value, and
+ * `FEPlayer2Offset` is re-pinned to -4 whenever `opponentCharacter` changes.
+ */
+
+#define CS_COLS         7
+#define CS_ROWS         4
+#define CS_COL_STEP     52
+#define CS_ROW_STEP     63
+#define CS_PORTRAIT     64.0f
+#define CS_BORDER       128.0f
+#define CS_UNKNOWN      27      /* the "?" card */
+#define CS_SMOKE_CELL   14
+#define CS_SMOKE_GRANT  22
+#define CS_SMOKE_HOLD   180.0f
+#define CS_ANIM_RATE    2.0f
+#define CS_SLIDE_IN     -0.2
+#define CS_SLIDE_OUT    0.2
+#define CS_SLIDE_START  4.0f
+
+extern long  CS_Layout[CS_ROWS][CS_COLS];   /* 0x00101630 */
+extern long  CS_Layout2[CS_ROWS][CS_COLS];  /* 0x001016a0 */
+extern float *midcol;                       /* pointer slot -> 0x0014fa10 */
+extern long  lastopponentCharacter;         /* 0x0010171c */
+extern long  PlayerSelectToggle;            /* 0x00101720 */
+extern float SmokeCounter;                  /* 0x00101724 */
+extern float FrameCompensationFE;           /* 0x000ff82c */
+
+void AnimateFECharacters(float step);
+void sendCharacterPacket(long which);
+
+long drawCharacterSelection(long sel)
+{
+    long row, cx;
+
+    if (GameMode != 1 && GameMode != 6)
+        opponentCharacter = -1;
+
+    SetupLockedCharacters();
+
+    /* ---- pass one: the portraits ---- */
+    for (row = 0; row < CS_ROWS; row++) {
+        for (cx = 0; cx < CS_COLS; cx++) {
+            long c = CS_Layout[row][cx];
+            long avail;
+            const float *colour;
+            void *portrait;
+            long x = 60 + cx * CS_COL_STEP;
+            long y = 32 + row * CS_ROW_STEP;
+
+            if (c == -1)
+                continue;
+
+            avail = CharacterAvailable[c];
+
+            if (avail == 2) {
+                portrait = TowerPortraitTexture[c];
+                colour   = col;
+            } else if (avail == 1) {
+                portrait = TowerPortraitTexture[c];
+                colour   = midcol;
+            } else {
+                portrait = TowerPortraitTexture[CS_UNKNOWN];
+                colour   = midcol;
+            }
+
+            limeDrawSprite((TEXTURE *)portrait,
+                           FE_X((float)x), FE_Y((float)y),
+                           FE_WidthScale * CS_PORTRAIT,
+                           FE_HeightScale * CS_PORTRAIT,
+                           0.0f, 0.0f, 1.0f, 1.0f, colour);
+
+            limeDrawSprite((TEXTURE *)PortraitBorderTexture,
+                           FE_X((float)(cx * CS_COL_STEP + 56)),
+                           FE_Y((float)(row * CS_ROW_STEP + 28)),
+                           FE_WidthScale * CS_BORDER,
+                           FE_HeightScale * CS_BORDER,
+                           0.0f, 0.0f, 1.0f, 1.0f, col);
+
+            /* ---- hold on Human Smoke to unlock Smoke ---- */
+            if (c == CS_SMOKE_CELL) {
+                if (*limeTouchScreenY < FE_Y((float)y)
+                    || *limeTouchScreenY > FE_Y((float)(row * CS_ROW_STEP + 91))
+                    || *limeTouchScreenX < FE_X((float)x)
+                    || *limeTouchScreenX > FE_X((float)(cx * CS_COL_STEP
+                                                        + 108))) {
+                    SmokeCounter = 0.0f;
+                } else {
+                    SmokeCounter += 1.0f / limeFPSScaleFactor;
+
+                    if (SmokeCounter > CS_SMOKE_HOLD) {
+                        SmokeCounter = 0.0f;
+                        c = CS_SMOKE_GRANT;
+                        *limeLastTouchScreenX = -1.0f;  /* a faked release */
+                    }
+                }
+            }
+
+            /* ---- the tap ---- */
+            if (FE_FadeAdd != 0.0f || Character_SelectWait != 0.0f || sel != -1)
+                continue;
+
+            if (CharacterAvailable[c] == 0)
+                continue;
+
+            if (*limeLastTouchScreenX != -1.0f)
+                continue;
+
+            if (*limeTouchScreenY < FE_Y((float)y)
+                || *limeTouchScreenY > FE_Y((float)(row * CS_ROW_STEP + 91))
+                || *limeTouchScreenX < FE_X((float)x)
+                || *limeTouchScreenX > FE_X((float)(cx * CS_COL_STEP + 108)))
+                continue;
+
+            if (GameMode == 6) {
+                if (CharacterSelected == -1) {
+                    CharacterSelected  = c;
+                    PlayerSelectToggle = 0;
+                } else {
+                    PlayerSelectToggle ^= 1;
+
+                    if (PlayerSelectToggle != 0) {
+                        opponentCharacter = c;
+                    } else {
+                        if (c != CharacterSelected)
+                            FEPlayer1Offset = CS_SLIDE_START;
+                        CharacterSelected = c;
+                    }
+                }
+            } else if (CharacterSelected == c) {
+                CharacterConfirmed = c;
+
+                if (GameMode == 1) {
+                    playerCharacter = CharacterSelected;
+                    sendCharacterPacket(CharacterSelected);
+                    isParent();                 /* answer discarded */
+                } else {
+                    c = -1;
+                }
+            } else {
+                CharacterSelected = sel;        /* dead -- c is never -1 here */
+                CharacterSelected = c;
+
+                if (CharacterConfirmed == -1)
+                    FEPlayer1Offset = CS_SLIDE_START;
+
+                if (GameMode == 1) {
+                    FEPlayer1Offset = CS_SLIDE_START;
+                    playerCharacter = CharacterSelected;
+                    sendCharacterPacket(CharacterSelected);
+                    isParent();
+                }
+            }
+
+            /* ---- the click ---- */
+            if (Settings[3] == 0 || c == -1)
+                continue;
+
+            if (c == 0x18)
+                limePlaySound(SFXHandle[0x64 / 4],
+                              MusicVol[Settings[3]] / 100.0f, 1.0f, 0);
+            else if (c == 0x16)
+                limePlaySound(SFXHandle[0x48 / 4],
+                              MusicVol[Settings[3]] / 100.0f, 1.0f, 0);
+            else if (c == 0x15)
+                limePlaySound(SFXHandle[0x20 / 4],
+                              MusicVol[Settings[3]] / 100.0f, 1.0f, 0);
+            else
+                limePlaySound(SFXHandle[0x10 / 4] + c,
+                              MusicVol[Settings[3]] / 100.0f, 1.0f, 0);
+        }
+    }
+
+    /* ---- pass two: the highlights, on top ---- */
+    for (row = 0; row < CS_ROWS; row++) {
+        for (cx = 0; cx < CS_COLS; cx++) {
+            long a = CS_Layout[row][cx];
+            long b = CS_Layout2[row][cx];
+            long hx = 60 + cx * CS_COL_STEP;
+            long hy = 32 + row * CS_ROW_STEP;
+            long tx = 84 + cx * CS_COL_STEP;
+            long y1 = 44 + row * CS_ROW_STEP;
+            long y2 = 64 + row * CS_ROW_STEP;
+            long mine, theirs;
+
+            if (a == -1)
+                continue;
+
+            mine   = (CharacterSelected != -1
+                      && (CharacterSelected == a || CharacterSelected == b));
+            theirs = (opponentCharacter != -1
+                      && (opponentCharacter == a || opponentCharacter == b));
+
+            if (GameMode == 6 || (GameMode == 1 && isParent())) {
+                if (mine) {
+                    DrawRedHighlight(hx, hy, 0x30, 0x3c, 4);
+                    limeDrawFONT(GameFont, "1", FE_X((float)tx),
+                                 FE_Y((float)y1), 1, FE_WidthScale, fontcol);
+                }
+                if (theirs) {
+                    DrawGreenHighlight(hx, hy, 0x30, 0x3c, 4);
+                    limeDrawFONT(GameFont, "2", FE_X((float)tx),
+                                 FE_Y((float)y2), 1, FE_WidthScale, fontcol);
+                }
+            } else if (GameMode == 1) {
+                /* the child paints itself green -- see the header */
+                if (mine) {
+                    DrawGreenHighlight(hx, hy, 0x30, 0x3c, 4);
+                    limeDrawFONT(GameFont, "2", FE_X((float)tx),
+                                 FE_Y((float)y2), 1, FE_WidthScale, fontcol);
+                }
+                if (theirs) {
+                    DrawRedHighlight(hx, hy, 0x30, 0x3c, 4);
+                    limeDrawFONT(GameFont, "1", FE_X((float)tx),
+                                 FE_Y((float)y1), 1, FE_WidthScale, fontcol);
+                }
+            } else if (mine) {
+                DrawRedHighlight(hx, hy, 0x30, 0x3c, 4);   /* no label */
+            }
+        }
+    }
+
+    /* ---- the two fighters ---- */
+    if (lastopponentCharacter != opponentCharacter)
+        FEPlayer2Offset = -CS_SLIDE_START;
+
+    lastopponentCharacter = opponentCharacter;
+
+    FrameCompensationFE += CS_ANIM_RATE / limeFPSScaleFactor;
+
+    while (FrameCompensationFE > 1.0f) {
+        AnimateFECharacters(1.0f);      /* always exactly one step */
+        FrameCompensationFE -= 1.0f;
+    }
+
+    if (CharacterSelected == -1) {
+        FEPlayer1Offset = CS_SLIDE_START;
+    } else {
+        FEPlayer1Offset = (float)((double)FEPlayer1Offset
+                                  + CS_SLIDE_IN / (double)limeFPSScaleFactor);
+        if (FEPlayer1Offset < 0.0f)
+            FEPlayer1Offset = 0.0f;
+    }
+
+    if (opponentCharacter == -1) {
+        FEPlayer2Offset = -CS_SLIDE_START;
+    } else {
+        FEPlayer2Offset = (float)((double)FEPlayer2Offset
+                                  + CS_SLIDE_OUT / (double)limeFPSScaleFactor);
+        if (FEPlayer2Offset > 0.0f)
+            FEPlayer2Offset = 0.0f;
+    }
+
+    RenderFECharacters((GameMode != 1 && CharacterConfirmed != -1)
+                       ? CharacterConfirmed : CharacterSelected,
+                       opponentCharacter);
+
+    limeSet2DDrawing();
+    limeEnableAlphaBlending_Basic();
+
+    return CharacterConfirmed;
 }
