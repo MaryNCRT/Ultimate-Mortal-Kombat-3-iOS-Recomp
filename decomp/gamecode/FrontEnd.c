@@ -3726,7 +3726,11 @@ void *EASDK_GetLoadedTicker(long i);
 const char *EASDK_GetTickerMsg(void);
 const char *EASDK_GetTickerUrl(void *t);
 long  EASDK_GetTickerId(void *t);
-void  EASDK_LogEventEnumEnum(long id, long a, long b, long c);
+/* FIVE arguments, not four: the callee reads `[sp, #0x34]` at 0x0007f3aa, which
+ * is the first stack slot past its own 52-byte frame. Both call sites in this
+ * file write it -- `str r3, [sp]` with r3 = 0 -- so the fifth was being passed
+ * all along and only the declaration was short. */
+void  EASDK_LogEventEnumEnum(long id, long a, long b, long c, long d);
 void  limeLoadURLInternal(const char *url);
 
 
@@ -3781,7 +3785,7 @@ void  limeLoadURLInternal(const char *url);
  *      if (url[0] != 0 && released && inside the message's own box) {
  *          limeLoadURLInternal(url);
  *          printf(..., url);
- *          EASDK_LogEventEnumEnum(0x753c, 16, EASDK_GetTickerId(t), 0);
+ *          EASDK_LogEventEnumEnum(0x753c, 16, EASDK_GetTickerId(t), 0, 0);
  *      }
  *
  * The hit box is the message's measured width at its current scrolled
@@ -3827,7 +3831,7 @@ void DrawTicker(void)
                 && ty > 0.0f) {
                 limeLoadURLInternal(url);
                 printf("%s", url);
-                EASDK_LogEventEnumEnum(0x753c, 16, EASDK_GetTickerId(t), 0);
+                EASDK_LogEventEnumEnum(0x753c, 16, EASDK_GetTickerId(t), 0, 0);
             }
         }
 
@@ -10399,4 +10403,312 @@ void FE_Task_Treasure(void)
 
     if (TreasurePlayed == 5)
         CurrentTask = 4;
+}
+
+
+/* ---------------------------------------------------------- FE_Task_Enter_Kode
+ *
+ * armv7 0x0000f4a4, 2,840 bytes.  **Complete.**
+ *
+ * The Kombat Kode screen: ten digit wheels in a row, a countdown, and three
+ * kodes that unlock three characters. It is `FE_Task_Treasure`'s tile row with a
+ * different payload -- same atlas, same 48-unit pitch, same particle, same touch
+ * band -- so the two were plainly written from one another.
+ *
+ * ### Ten wheels, each cycling 0..9
+ *
+ *      KodeSelector[i] = (KodeSelector[i] + 1) % 10;
+ *      KodeSelectorParticle[i] = 0.001f;
+ *
+ * on a release inside the tile, and the *digit* is what indexes the atlas:
+ * `u = (n % 5) * 0.1875`, `v = (n / 5) * 0.375` out of the same 256x128
+ * `KodesTexture` -- five glyphs across, two down, exactly ten. The whole row is
+ * frozen once `KodeSuccess` is set: the touch test is skipped wholesale.
+ *
+ * ### The three kodes
+ *
+ *      1 2 3 4 4 4 4 3 2 1   KodeSuccess = 2   ErmacUnlocked = 1
+ *      2 2 2 6 4 2 2 2 6 4   KodeSuccess = 1   MileenaUnlocked = 1
+ *      8 1 8 3 5 8 1 8 3 5   KodeSuccess = 3   ClassicSubZeroUnlocked = 1
+ *
+ * Each is a chain of ten `cmp`/`bne`, and the compiler reused the digits it had
+ * just compared as the constants it stores -- `KodeSuccess = 2` for the first
+ * kode is literally `KodeSelector[8]`, and `ErmacUnlocked = 1` is
+ * `KodeSelector[9]`. The dispatch keys on `KodeSelector[0]` (2, then 1, then 8
+ * paired with a 1 in slot one), so one wrong digit early abandons the whole
+ * chain rather than falling through to the next kode.
+ *
+ * `KodeSuccess` then doubles as the message id: 1, 2 and 3 select `GameText`
+ * 0x5f, 0x60 and 0x61.
+ *
+ * ### The message blinks on the low nibble of the frame counter
+ *
+ *      if (((long)GameCounter & 0xf) <= 7) ...draw the message...
+ *
+ * -- eight frames on, eight frames off, straight off the free-running counter.
+ *
+ * ### The countdown runs at -1/60 a frame and the display is off by one
+ *
+ *      KodeTime += -0.0166666 / limeFPSScaleFactor;
+ *      sprintf(str, "%d", (long)KodeTime + 1);
+ *
+ * The `+ 1` is what stops the last second reading "0" for a whole second: the
+ * truncation would show 0 from 0.999 down. When `KodeTime` is exactly 0 the
+ * display is the literal string `"0"` from a separate branch, not the formatted
+ * one -- the only place in this function that draws a string constant.
+ *
+ * ### Running out logs the failure exactly once
+ *
+ *      if (KodeTime <= 0) {
+ *          if (KodeEntered == 0) {
+ *              KodeEntered = 1;
+ *              EASDK_LogEventEnumEnumString(0x3f6, 15, "Unsuccessful", 0, NULL);
+ *          }
+ *          KodeTime = 0;
+ *          if (FE_FadeAdd == 0) ...back to the tower...
+ *      }
+ *
+ * `KodeEntered` is the same latch the three success paths test, so the analytics
+ * event fires once per visit whichever way it ends. And the kode comparisons run
+ * **after** this block, on the same frame the timer expired -- a kode completed
+ * on the last frame still counts.
+ *
+ * ### Leaving is a corner, not a button
+ *
+ *      limeTouchScreenX >= screenWidth  - 64 * FE_WidthScale
+ *      limeTouchScreenY >= screenHeight - 64 * FE_HeightScale
+ *
+ * -- a 64x64 target in the bottom-right with `GameText(0xb)` drawn over it at
+ * `464, 296` in the two scales. Both that and the timeout run the same five
+ * steps: `PopAllFETasksDeferred(0)`, `GameStarted = 0`, `PopulateTower()`,
+ * `Destiny = -1`, `Stage = 0`, `Write_SaveData()`.
+ */
+
+#define KODE_WHEELS       10
+#define KODE_DIGITS       10
+#define KODE_ATLAS_COL    5
+#define KODE_CELL         48
+#define KODE_ROW_Y        140.0f
+#define KODE_BAND_TOP     124.0f
+#define KODE_BAND_BOT     204.0f
+#define KODE_U            0.1875f
+#define KODE_V            0.375f
+#define KODE_PART_STEP    0.05
+#define KODE_PART_ON      0.001f
+#define KODE_PART_MOVE    24.0f
+#define KODE_TICK         -0.016666666666666666   /* -1/60 a frame */
+#define KODE_BLINK        0xf
+#define KODE_CORNER       64.0f
+#define KODE_LOG_EVENT    0x3f6
+
+extern long KodeEntered;                /* 0x000ff820 */
+extern long MileenaUnlocked;            /* 0x000ff978 */
+extern long ClassicSubZeroUnlocked;     /* 0x000ff970 */
+
+void FE_Task_Enter_Kode(void)
+{
+    long i, x;
+
+    limeDrawSprite((TEXTURE *)MetalScreenTexture, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0f, 1.0f, 1.0f, col);
+
+    for (i = 0, x = 0; i < KODE_WHEELS; i++, x += KODE_CELL) {
+        long  n;
+        float u, v, t;
+
+        /* ---- a release on a wheel steps its digit ---- */
+        if (KodeSuccess == 0
+            && *limeLastTouchScreenX == -1.0f
+            && *limeTouchScreenY >= FE_HeightScale * KODE_BAND_TOP
+            && *limeTouchScreenY <= FE_HeightScale * KODE_BAND_BOT
+            && *limeTouchScreenX >= FE_WidthScale * (float)x
+            && *limeTouchScreenX <= FE_WidthScale * (float)(x + KODE_CELL)) {
+            KodeSelector[i] = (KodeSelector[i] + 1) % KODE_DIGITS;
+            KodeSelectorParticle[i] = KODE_PART_ON;
+        }
+
+        if (KodeSelectorParticle[i] != 0.0f) {
+            KodeSelectorParticle[i] =
+                (float)((double)KodeSelectorParticle[i]
+                        + KODE_PART_STEP / (double)limeFPSScaleFactor);
+
+            if (KodeSelectorParticle[i] >= 1.0f)
+                KodeSelectorParticle[i] = 0.0f;
+        }
+
+        /* ---- the digit, out of the same atlas the treasures use ---- */
+        n = KodeSelector[i];
+        u = (float)((double)((n % KODE_ATLAS_COL) * KODE_CELL) * 0.00390625);
+        v = (float)((double)((n / KODE_ATLAS_COL) * KODE_CELL) * 0.0078125);
+
+        limeDrawSprite((TEXTURE *)KodesTexture,
+                       FE_WidthScale * (float)x,
+                       FE_HeightScale * KODE_ROW_Y,
+                       FE_WidthScale * (float)KODE_CELL,
+                       FE_HeightScale * (float)KODE_CELL,
+                       u, v, KODE_U, KODE_V, col);
+
+        t = KodeSelectorParticle[i];
+
+        if (t != 0.0f) {
+            float part[4] = { 1.0f, 1.0f, 1.0f, 1.0f };   /* C.749 0x000ddf4c */
+
+            part[3] = 1.0f - t;
+
+            limeDrawSprite((TEXTURE *)KodesTexture,
+                           ((float)x - KODE_PART_MOVE * t) * FE_WidthScale,
+                           (KODE_ROW_Y - KODE_PART_MOVE * t) * FE_HeightScale,
+                           FE_WidthScale * ((t + 1.0f) * (float)KODE_CELL),
+                           FE_HeightScale * ((t + 1.0f) * (float)KODE_CELL),
+                           u, v, KODE_U, KODE_V, part);
+        }
+    }
+
+    limeEnableAlphaBlending_Additive();
+
+    DrawAnimAsSprite(0, 0, FE_WidthScale, 0x80,
+                     0x80, (long)(uintptr_t)SpotlightTextures,
+                     (const char *)&spotlight_SpriteDef, spotlight_Anim,
+                     0, (long)*GameCounter,
+                     0, spotlight_Anim[0] - 1, 1, col);
+
+    DrawAnimAsSprite((long)((float)*limeScreenWidth
+                            + FE_WidthScale * -128.0f),
+                     0, FE_WidthScale, 0x80,
+                     0x80, (long)(uintptr_t)SpotlightTextures,
+                     (const char *)&spotlight_SpriteDef, spotlight_Anim,
+                     1, (long)*GameCounter,
+                     0, spotlight_Anim[0] - 1, 1, col);
+
+    limeEnableAlphaBlending_Basic();
+
+    limeDrawFONT(GameFont, GameText(0x5b), (float)(*limeScreenWidth / 2),
+                 24.0f, 1, FE_WidthScale, fontcol);
+    limeDrawFONT(GameFont, GameText(0x5e), (float)(*limeScreenWidth / 2),
+                 200.0f, 1, FE_WidthScale, fontcol);
+
+    /* ---- the middle line: the unlock message, the clock, or a bare "0" ---- */
+    if (KodeSuccess != 0) {
+        if ((((long)*GameCounter) & KODE_BLINK) <= 7) {   /* eight on, eight off */
+            if (KodeSuccess == 1)
+                limeDrawFONT(GameFont, GameText(0x5f),
+                             (float)(*limeScreenWidth / 2), 240.0f,
+                             1, FE_WidthScale, fontcol);
+            else if (KodeSuccess == 2)
+                limeDrawFONT(GameFont, GameText(0x60),
+                             (float)(*limeScreenWidth / 2), 240.0f,
+                             1, FE_WidthScale, fontcol);
+            else if (KodeSuccess == 3)
+                limeDrawFONT(GameFont, GameText(0x61),
+                             (float)(*limeScreenWidth / 2), 240.0f,
+                             1, FE_WidthScale, fontcol);
+        }
+    } else if (KodeTime != 0.0f) {
+        sprintf(strBuf, "%d", (int)KodeTime + 1);
+        limeDrawFONT(GameFont, strBuf, (float)(*limeScreenWidth / 2), 240.0f,
+                     1, FE_WidthScale, fontcol);
+    } else {
+        limeDrawFONT(GameFont, "0", (float)(*limeScreenWidth / 2), 240.0f,
+                     1, FE_WidthScale, fontcol);
+    }
+
+    limeDrawFONT(GameFont, GameText(0xb),
+                 FE_WidthScale * 464.0f, FE_HeightScale * 296.0f,
+                 2, FE_WidthScale, fontcol);
+
+    /* ---- the bottom-right corner is the way out ---- */
+    if (FE_FadeAdd == 0.0f && *limeLastTouchScreenX == -1.0f
+        && *limeTouchScreenX >= (float)*limeScreenWidth
+                                + FE_WidthScale * -KODE_CORNER
+        && *limeTouchScreenY >= (float)*limeScreenHeight
+                                + FE_HeightScale * -KODE_CORNER) {
+        PopAllFETasksDeferred(0);
+        GameStarted = 0;
+        PopulateTower();
+        Destiny = -1;
+        Stage   = 0;
+        Write_SaveData();
+    }
+
+    /* ---- the clock ---- */
+    if (KodeSuccess == 0)
+        KodeTime = (float)((double)KodeTime
+                           + KODE_TICK / (double)limeFPSScaleFactor);
+
+    if (KodeTime <= 0.0f) {
+        if (KodeEntered == 0) {
+            KodeEntered = 1;
+            EASDK_LogEventEnumEnumString(KODE_LOG_EVENT, 15,
+                                         "Unsuccessful", 0, 0);
+        }
+
+        KodeTime = 0.0f;
+
+        if (FE_FadeAdd == 0.0f) {
+            PopAllFETasksDeferred(0);
+            GameStarted = 0;
+            PopulateTower();
+            Destiny = -1;
+            Stage   = 0;
+            Write_SaveData();
+        }
+        /* and the kodes are still checked, on this same frame */
+    }
+
+    /* ---- the three kodes ---- */
+    if (KodeSelector[0] == 2) {
+        if (KodeSelector[1] != 2 || KodeSelector[2] != 2
+            || KodeSelector[3] != 6 || KodeSelector[4] != 4
+            || KodeSelector[5] != 2 || KodeSelector[6] != 2
+            || KodeSelector[7] != 2 || KodeSelector[8] != 6
+            || KodeSelector[9] != 4)
+            return;
+
+        KodeSuccess     = 1;
+        MileenaUnlocked = 1;
+
+        if (KodeEntered != 0)
+            return;
+
+        KodeEntered = 1;
+        EASDK_LogEventEnumEnum(KODE_LOG_EVENT, 15, KodeSuccess, 0, 0);
+        return;
+    }
+
+    if (KodeSelector[0] == 1) {
+        if (KodeSelector[1] != 2 || KodeSelector[2] != 3
+            || KodeSelector[3] != 4 || KodeSelector[4] != 4
+            || KodeSelector[5] != 4 || KodeSelector[6] != 4
+            || KodeSelector[7] != 3 || KodeSelector[8] != 2
+            || KodeSelector[9] != 1)
+            return;
+
+        KodeSuccess   = 2;              /* the 2 the [8] compare just proved */
+        ErmacUnlocked = 1;              /* and the 1 from [9] */
+
+        if (KodeEntered != 0)
+            return;
+
+        KodeEntered = 1;
+        EASDK_LogEventEnumEnum(KODE_LOG_EVENT, 15, KodeSuccess, 0, 0);
+        return;
+    }
+
+    if (KodeSelector[0] == 8 && KodeSelector[1] == 1) {
+        if (KodeSelector[2] != 8 || KodeSelector[3] != 3
+            || KodeSelector[4] != 5 || KodeSelector[5] != 8
+            || KodeSelector[6] != 1 || KodeSelector[7] != 8
+            || KodeSelector[8] != 3 || KodeSelector[9] != 5)
+            return;
+
+        KodeSuccess            = 3;
+        ClassicSubZeroUnlocked = 1;
+
+        if (KodeEntered != 0)
+            return;
+
+        KodeEntered = 1;
+        EASDK_LogEventEnumEnum(KODE_LOG_EVENT, 15, KodeSuccess, 0, 0);
+    }
 }
