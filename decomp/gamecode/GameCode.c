@@ -6383,7 +6383,10 @@ void RenderLevelBG(void)
 extern void *MoveIconsTexture;          /* 0x001abb70 */
 
 long limeFontStrLen(const char *s);
-long limeGetStringWidth(void *font, const char *s);
+float limeGetStringWidth(void *font, const char *s);   /* a FLOAT -- see
+                                         * decomp/lime/limeFont.c, and the
+                                         * unconverted `vmov s10, r0` in
+                                         * FE_Task_VS_Screen */
 
 /* Values 1..15 -> the atlas cell, as (v, u). Written out because the original
  * is a 22-way jump table with one `mov` pair per case; the table is the fact,
