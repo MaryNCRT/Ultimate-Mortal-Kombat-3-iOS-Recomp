@@ -9073,3 +9073,242 @@ void FE_Task_About_About(void)
     limeDrawFONT(GameFont, GameText(8),
                  FE_X(57.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
 }
+
+
+/* ----------------------------------------------------------------- DrawTower3D
+ *
+ * armv7 0x00007b1c, 2,036 bytes.  **Complete.**
+ *
+ * The tower: a grid of bricks with an opponent portrait on each, the player's
+ * portrait on the current rung, and the same spinning vortex `DrawVortex3D`
+ * draws behind it.
+ *
+ * ### It is DrawVortex3D with the pop put back
+ *
+ * The first forty lines are that function verbatim -- the same clear, the same
+ * `VortexSpin += 0.01 / limeFPSScaleFactor`, the same five meshes at 1.0, 1.1,
+ * 1.2, 1.3 and 1.4 times the spin. The difference is at the end of it: this one
+ * calls `glPopMatrix()` before drawing the tower, where `DrawVortex3D` leaves
+ * the push unbalanced. So the leak that function documents is not a pattern in
+ * this file; it is specific to it, and here is the version that does it right.
+ *
+ * ### Lightning is one mesh out of five, on a coin flip
+ *
+ *      if (limeRand() & 1) {
+ *          n = abs(limeRand()) % 5;
+ *          draw MeshSet_LIGHTNING1..5 by n
+ *      }
+ *
+ * Two separate `limeRand()` calls: one decides whether, one decides which. Each
+ * arm draws at `FEObjPos` with the identity matrix, so the five meshes differ
+ * only in their own geometry.
+ *
+ * ### The grid is four columns of eight to eleven rows
+ *
+ *      for (colm = 0; colm <= 3; colm++)
+ *          for (row = 0; row < colm + 8; row++)
+ *
+ * -- so the columns get taller left to right: 8, 9, 10, 11. The cell's index
+ * into the two lists is `colm * 11 + row`, computed as `colm*16 - colm*4 -
+ * colm`, which means **the lists are laid out at the tallest column's stride**
+ * and the short columns leave gaps in them.
+ *
+ * Positions are integers scaled into the world: `FEObjPos[2] = row * 10` and
+ * `FEObjPos[0] = colm * 30`.
+ *
+ * ### Each cell is up to four meshes deep
+ *
+ *      SINGLEBRICK      always
+ *      OPPONENTFACE     y -= 0.9, portrait = OpponentTowerList[idx]
+ *      OPPONENTFACE     y -= 1.1 more, portrait 26, only when
+ *                       EnduranceTowerList[idx] is set -- the second fighter
+ *                       of an endurance match, stacked under the first
+ *      PLAYERFACE       on the current cell only
+ *
+ * and every offset is undone before the next cell, so `FEObjPos[1]` comes back
+ * to where it started. Portrait 26 is a fixed index, not a lookup: every
+ * endurance match shows the same second face.
+ *
+ * ### The player's rung is drawn one row back while the tower moves
+ *
+ *      Stage == 0   the player sits on the current cell
+ *      otherwise    FEObjPos[2] = ((row - 1) + MoveUpTower) * 10
+ *
+ * so during the climb the portrait is interpolated between the previous rung
+ * and this one by `MoveUpTower`, which is what animates the move up. At
+ * `Stage == 0` there is no previous rung to come from and the offset is skipped
+ * entirely.
+ *
+ * ### The current cell is only special once the game has started
+ *
+ *      if (row == Stage && colm == Destiny
+ *          && (GameStarted || TowerState > 1))   -> the player's cell
+ *
+ * With neither condition met the cell falls through to the ordinary path, so on
+ * a fresh save the tower draws with no player on it at all.
+ *
+ * ### It ends by turning additive blending on and then off again
+ *
+ *      limeEnableAlphaBlending_Additive();
+ *      limeEnableAlphaBlending_Basic();
+ *
+ * back to back, with nothing between them. The first call cannot affect
+ * anything; transcribed as written.
+ */
+
+#define TOWER_COLUMNS     4
+#define TOWER_BASE_ROWS   8
+#define TOWER_STRIDE      11        /* the tallest column, and the list stride */
+#define TOWER_ROW_SPACING 10
+#define TOWER_COL_SPACING 30
+#define TOWER_FACE_DROP   0.9
+#define TOWER_SECOND_DROP 1.1
+#define TOWER_ENDURANCE_PORTRAIT 26
+#define TOWER_LIGHTNINGS  5
+
+extern float *IdentityMatrix;           /* pointer slot -> 0x0014f9a4 */
+extern float  MoveUpTower;              /* 0x00101758 */
+extern long  *EnduranceTowerList;       /* pointer slot -> 0x0014fb50 */
+extern void  *MeshSet_SINGLEBRICK;      /* 0x00183d20 */
+extern void  *MeshSet_PLAYERFACE;       /* 0x00183d24 */
+extern void  *MeshSet_OPPONENTFACE;     /* 0x00183d28 */
+extern void  *MeshSet_LIGHTNING1;       /* 0x00183d48 */
+extern void  *MeshSet_LIGHTNING2;       /* 0x00183d4c */
+extern void  *MeshSet_LIGHTNING3;       /* 0x00183d50 */
+extern void  *MeshSet_LIGHTNING4;       /* 0x00183d54 */
+extern void  *MeshSet_LIGHTNING5;       /* 0x00183d58 */
+
+void glPopMatrix(void);
+
+void DrawTower3D(void)
+{
+    long colm, row, idx;
+
+    limeSet2DDrawing();
+    limeFillRect(0.0f, 0.0f,
+                 (float)*limeScreenWidth, (float)*limeScreenHeight,
+                 0.09411765f, 0.0f, 0.25098038f, 1.0f);
+
+    LIMEDS_Set3dMode();
+    limeEnableDepthTest();
+    limeEnableDepthWrites();
+
+    VortexSpin = (float)((double)VortexSpin
+                         + 0.01 / (double)limeFPSScaleFactor);
+
+    CameraLookAt[0] = FECamPos[0];
+    CameraLookAt[2] = FECamPos[2];
+    CameraLookAt[1] = FECamPos[1] + 1.0f;
+
+    SetToUseCamera(FECamPos);
+    limeEnableAlphaBlending_Additive();
+    limeDisableDepthTest();
+    limeDisableDepthWrites();
+
+    glPushMatrix();
+    glScalef(VortexScale, VortexScale, VortexScale);
+
+    RotMatrixY(TowerBGMatrix, VortexSpin);
+    RenderAMesh(0, 0, FEObjPos, TowerBGMatrix, 0,
+                Vortex1Texture, 0, MeshSet_VORTEX1, 0);
+
+    RotMatrixY(TowerBGMatrix, (float)((double)VortexSpin * 1.1));
+    RenderAMesh(0, 0, FEObjPos, TowerBGMatrix, 0,
+                Vortex2Texture, 0, MeshSet_VORTEX2, 0);
+
+    RotMatrixY(TowerBGMatrix, (float)((double)VortexSpin * 1.2));
+    RenderAMesh(0, 0, FEObjPos, TowerBGMatrix, 0,
+                Vortex1Texture, 0, MeshSet_VORTEX3, 0);
+
+    RotMatrixY(TowerBGMatrix, (float)((double)VortexSpin * 1.3));
+    RenderAMesh(0, 0, FEObjPos, TowerBGMatrix, 0,
+                Vortex2Texture, 0, MeshSet_VORTEX4, 0);
+
+    RotMatrixY(TowerBGMatrix, (float)((double)VortexSpin * 1.4));
+    RenderAMesh(0, 0, FEObjPos, TowerBGMatrix, 0,
+                Vortex1Texture, 0, MeshSet_VORTEX5, 0);
+
+    /* ---- one lightning mesh out of five, on a coin flip ---- */
+    if (limeRand() & 1) {
+        long n = limeRand();
+
+        if (n < 0)
+            n = -n;
+        n %= TOWER_LIGHTNINGS;
+
+        if (n == 0)
+            RenderAMesh(0, 0, FEObjPos, IdentityMatrix, 0,
+                        LightningTexture, 0, MeshSet_LIGHTNING1, 0);
+        else if (n == 1)
+            RenderAMesh(0, 0, FEObjPos, IdentityMatrix, 0,
+                        LightningTexture, 0, MeshSet_LIGHTNING2, 0);
+        else if (n == 2)
+            RenderAMesh(0, 0, FEObjPos, IdentityMatrix, 0,
+                        LightningTexture, 0, MeshSet_LIGHTNING3, 0);
+        else if (n == 3)
+            RenderAMesh(0, 0, FEObjPos, IdentityMatrix, 0,
+                        LightningTexture, 0, MeshSet_LIGHTNING4, 0);
+        else if (n == 4)
+            RenderAMesh(0, 0, FEObjPos, IdentityMatrix, 0,
+                        LightningTexture, 0, MeshSet_LIGHTNING5, 0);
+    }
+
+    limeEnableAlphaBlending_Basic();
+    limeEnableDepthTest();
+    limeEnableDepthWrites();
+    glPopMatrix();                      /* the pop DrawVortex3D leaves out */
+
+    RenderAMesh(0, 0, FEObjPos, IdentityMatrix, 0,
+                FloorTexture, 0, MeshSet_FLOOR, 0);
+
+    /* ---- the grid: four columns of eight to eleven ---- */
+    for (colm = 0; colm < TOWER_COLUMNS; colm++) {
+        for (row = 0; row < colm + TOWER_BASE_ROWS; row++) {
+            long isPlayerCell;
+
+            FEObjPos[2] = (float)(row  * TOWER_ROW_SPACING);
+            FEObjPos[0] = (float)(colm * TOWER_COL_SPACING);
+
+            isPlayerCell = (row == Stage && colm == Destiny
+                            && (GameStarted != 0 || TowerState > 1));
+
+            RenderAMesh(0, 0, FEObjPos, IdentityMatrix, 0,
+                        BricksTexture, 0, MeshSet_SINGLEBRICK, 0);
+
+            FEObjPos[1] = (float)((double)FEObjPos[1] - TOWER_FACE_DROP);
+
+            idx = colm * TOWER_STRIDE + row;
+
+            RenderAMesh(0, 0, FEObjPos, IdentityMatrix, 0,
+                        TowerPortraitTexture[OpponentTowerList[idx]], 0,
+                        MeshSet_OPPONENTFACE, 0);
+
+            if (EnduranceTowerList[idx] != 0) {
+                FEObjPos[1] = (float)((double)FEObjPos[1] - TOWER_SECOND_DROP);
+                RenderAMesh(0, 0, FEObjPos, IdentityMatrix, 0,
+                            TowerPortraitTexture[TOWER_ENDURANCE_PORTRAIT], 0,
+                            MeshSet_OPPONENTFACE, 0);
+                FEObjPos[1] = (float)((double)FEObjPos[1] + TOWER_SECOND_DROP);
+            }
+
+            if (isPlayerCell) {
+                if (Stage != 0)
+                    FEObjPos[2] = ((float)(row - 1) + MoveUpTower)
+                                  * (float)TOWER_ROW_SPACING;
+
+                RenderAMesh(0, 0, FEObjPos, IdentityMatrix, 0,
+                            TowerPortraitTexture[Character1], 0,
+                            MeshSet_PLAYERFACE, 0);
+            }
+
+            FEObjPos[1] = (float)((double)FEObjPos[1] + TOWER_FACE_DROP);
+        }
+    }
+
+    FEObjPos[0] = 0.0f;
+    FEObjPos[1] = 0.0f;
+    FEObjPos[2] = 0.0f;
+
+    limeEnableAlphaBlending_Additive();  /* immediately undone below */
+    limeEnableAlphaBlending_Basic();
+}
