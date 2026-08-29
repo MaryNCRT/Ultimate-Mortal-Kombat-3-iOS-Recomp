@@ -8690,3 +8690,196 @@ void FE_Task_Extras(void)
     DrawTicker();
     achievementsDraw();
 }
+
+
+/* ---------------------------------------------------------------- FE_Task_Bios
+ *
+ * armv7 0x000120c8, 1,604 bytes.  **Complete.**
+ *
+ * One character's biography: the portrait on the left, the wrapped text down
+ * the middle, and Next / Prev / Exit along the bottom. Twenty-six pages, and
+ * the ones with no text are skipped rather than shown empty.
+ *
+ * ### The page turn is a cosine, and the swap happens when the art is offscreen
+ *
+ *      x = FE_WidthScale * 256 * (fabs(cos(progress * 3.1415)) - 1)
+ *
+ * `currentBiosProgress` runs 0 to 1 at `0.01 / limeFPSScaleFactor` a frame, so
+ * the portrait slides a full 256 units to the left and back. At the halfway
+ * point the cosine is zero, the portrait is entirely off the left edge, and
+ * **that is the frame `BioPage = nextBiosPage` fires** -- the swap is hidden
+ * behind the slide. Past 1.0 the progress resets to 0 and the buttons come back
+ * (both are disabled while `currentBiosProgress != 0`).
+ *
+ * Note the constant: **3.1415, not pi**. The half-turn lands a few
+ * ten-thousandths short, which is invisible here but is the same shortened pi
+ * the rest of this tree uses.
+ *
+ * ### Empty pages are skipped in both directions, and the search wraps
+ *
+ *      Next  do { p = (p + 1) % 26; } while (BioText[p] == -1);
+ *      Prev  do { p--; if (p < 0) p = 25; } while (BioText[p] == -1);
+ *
+ * and the same search runs once at the top of the function against
+ * `BioPage` itself, so entering the screen on a blank page corrects it before
+ * anything is drawn. Nothing bounds the loop: a `BioText` that is all -1 would
+ * hang, which is safe only because the table is data.
+ *
+ * ### Chinese and Korean draw at full size, everything else at 95%
+ *
+ *      textScale = FE_WidthScale;
+ *      if (Language is neither "ZH" nor "KO") textScale *= 0.95;
+ *
+ * The compiler wrote this as two `strcmp`s feeding two registers, and on Korean
+ * it computes the 0.95 product and then discards it. The observable rule is the
+ * one above. `FE_Task_About_Usage_Sharing` makes the same distinction with
+ * different numbers, so the CJK carve-out is a house pattern rather than a
+ * one-off.
+ *
+ * ### The layout is derived from the screen, not from the front-end transform
+ *
+ *      body x   *limeScreenWidth / 2 - 32
+ *      name x   *limeScreenWidth * 3 / 4 - 32
+ *      body y   line * (textScale * 16) + textScale * 48
+ *
+ * -- all raw pixels off `limeScreenWidth`, where the three button labels below
+ * go through `FE_X` / `FE_Y` as usual. Two coordinate systems in one screen.
+ */
+
+#define BIOS_PAGES        26
+#define BIOS_SLIDE        256.0f
+#define BIOS_HALF_PI      3.1415f       /* not pi -- see the header */
+#define BIOS_STEP         0.01f
+#define BIOS_START        0.001f
+#define BIOS_SWAP_AT      0.5f
+#define BIOS_LINE_PITCH   16.0f
+#define BIOS_LINE_TOP     48.0f
+#define BIOS_SPLIT_STRIDE 256
+#define BIOS_CJK_SCALE    0.95
+
+extern long  BioText[BIOS_PAGES];       /* 0x00101014, -1 means no page */
+extern long  BioPage;                   /* 0x0010107c */
+extern long  nextBiosPage;              /* 0x00101084 */
+extern float currentBiosProgress;       /* 0x00101080 */
+extern char  BioSplitText[];            /* 0x00185d58, 256 bytes a line */
+extern BUTTONNEW BUTTON_NEXT;           /* 0x0010080c */
+extern BUTTONNEW BUTTON_PREV;           /* 0x00100820 */
+extern BUTTONNEW BUTTON_EXIT;           /* 0x00100834 */
+
+double cos(double x);
+/* vabs.f64, one instruction -- not a call. Declared so the C says what the
+ * instruction does. */
+double fabs(double x);
+
+void FE_Task_Bios(void)
+{
+    long  lines = 0;
+    long  i, p;
+    float textScale;
+    float pitch, top;
+    float x;
+
+    /* ---- the CJK carve-out ---- */
+    textScale = FE_WidthScale;
+    if (strcmp(Language, "ZH") != 0 && strcmp(Language, "KO") != 0)
+        textScale = (float)((double)FE_WidthScale * BIOS_CJK_SCALE);
+
+    /* ---- land on a page that has text ---- */
+    if (BioText[BioPage] == -1) {
+        p = BioPage;
+        do {
+            p = (p + 1) % BIOS_PAGES;
+        } while (BioText[p] == -1);
+        BioPage = p;
+    }
+
+    limeDrawSprite((TEXTURE *)OrangeTexture, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0f, 1.0f, 1.0f, col);
+
+    CreateWrappedTextArrays(GameText(BioText[BioPage]), BioSplitText, &lines,
+                            *limeScreenWidth / 2, GameFont, textScale);
+
+    /* ---- the portrait, slid by the page-turn cosine ---- */
+    x = (float)((double)(FE_WidthScale * -BIOS_SLIDE)
+                + fabs(cos((double)(currentBiosProgress * BIOS_HALF_PI)))
+                  * 256.0 * (double)FE_WidthScale);
+
+    limeDrawSprite((TEXTURE *)CharacterVSTexture[BioPage],
+                   x,
+                   (float)*limeScreenHeight + FE_HeightScale * -253.0f,
+                   FE_WidthScale * 254.0f,
+                   FE_HeightScale * 253.0f,
+                   0.0f, 0.01171875f, 0.9921875f, 0.98828125f, col);
+
+    /* ---- the body ---- */
+    pitch = textScale * BIOS_LINE_PITCH;
+    top   = textScale * BIOS_LINE_TOP;
+
+    for (i = 0; i < lines; i++)
+        limeDrawFONT(GameFont,
+                     limeUC(&BioSplitText[i * BIOS_SPLIT_STRIDE]),
+                     (float)(*limeScreenWidth / 2 - 0x20),
+                     (float)i * pitch + top,
+                     0, textScale, fontcol);
+
+    /* ---- the character's name, at the line pitch as its y ---- */
+    limeDrawFONT(GameFont, CharacterNames[BioPage],
+                 (float)(*limeScreenWidth * 3 / 4 - 0x20), pitch,
+                 1, textScale, fontcol);
+
+    /* ---- Next ---- */
+    if (DrawButtonNew(&BUTTON_NEXT, 0x15f, 0x130,
+                      currentBiosProgress == 0.0f)) {
+        p = (BioPage + 1) % BIOS_PAGES;
+        nextBiosPage        = p;
+        currentBiosProgress = BIOS_START;
+        while (BioText[p] == -1) {
+            p = (p + 1) % BIOS_PAGES;
+            nextBiosPage = p;
+        }
+    }
+
+    limeDrawFONT(GameFont, GameText(8),
+                 FE_X(351.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
+
+    /* ---- Prev ---- */
+    if (DrawButtonNew(&BUTTON_PREV, 0x104, 0x130,
+                      currentBiosProgress == 0.0f)) {
+        p = BioPage - 1;
+        if (p < 0)
+            p = BIOS_PAGES - 1;
+        nextBiosPage        = p;
+        currentBiosProgress = BIOS_START;
+        while (BioText[p] == -1) {
+            p--;
+            if (p < 0)
+                p = BIOS_PAGES - 1;
+        }
+        nextBiosPage = p;
+    }
+
+    limeDrawFONT(GameFont, GameText(0x12),
+                 FE_X(260.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
+
+    /* ---- Exit ---- */
+    if (DrawButtonNew(&BUTTON_EXIT, 0x1ba, 0x130, 1))
+        PopFETaskDeferred();
+
+    limeDrawFONT(GameFont, GameText(9),
+                 FE_X(442.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
+
+    /* ---- advance the turn, and swap the page under the cover ---- */
+    if (currentBiosProgress > 0.0f) {
+        float was = currentBiosProgress;
+        float now = was + BIOS_STEP / limeFPSScaleFactor;
+
+        currentBiosProgress = now;
+
+        if (was <= BIOS_SWAP_AT && now > BIOS_SWAP_AT)
+            BioPage = nextBiosPage;     /* while the portrait is off-screen */
+
+        if (now > 1.0f)
+            currentBiosProgress = 0.0f;
+    }
+}
