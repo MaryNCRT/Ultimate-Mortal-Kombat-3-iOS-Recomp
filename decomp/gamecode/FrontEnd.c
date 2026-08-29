@@ -7697,3 +7697,227 @@ void FE_Task_Leaderboards(void)
     if (sel == 2)
         PopFETaskDeferred();
 }
+
+
+/* ------------------------------------------------------------ FE_Task_EnterName
+ *
+ * armv7 0x00006488, 1,396 bytes.  **Complete.**
+ *
+ * The on-screen keyboard for the player's name: a grid of one-character
+ * buttons, a name box above it, and DEL and OK below.
+ *
+ * ### The keyboard's size comes from the character table, not from a count
+ *
+ *      if (ourCharacters[0] == 0) draw no keys at all
+ *      ...
+ *      ch = ourCharacters[i + 1];
+ *      i++;
+ *      } while (ch != 0);
+ *
+ * `ourCharacters` is a NUL-terminated string of the legal characters and the
+ * loop walks it to the terminator, so the keyboard is exactly as wide as that
+ * string. Each key's hit box comes out of `nameEntryButtons[i]`, a parallel
+ * array of `BUTTONNEW` at the usual twenty-byte stride, and its position is
+ * derived instead:
+ *
+ *      x = (i % 8) * 57 + 40          eight across
+ *      y = (i / 8) * 48 + 130         forty-eight down
+ *
+ * The label goes at the same x scaled by `FE_WidthScale` and at
+ * `FE_Y(row * 48 + 122)` -- eight above the button's own y, and through a
+ * different transform, so the two only line up because `FE_X` and the manual
+ * multiply are the same operation.
+ *
+ * ### The name is NUL-terminated before it is drawn, every frame
+ *
+ * `ourName[nameIndex] = 0` is the **first** thing the function does, before any
+ * drawing. So the buffer is re-terminated on every frame whether or not
+ * anything changed, and a `strcpy` into a stack copy is what actually gets
+ * drawn.
+ *
+ * ### Fifteen characters, and the cap is enforced twice
+ *
+ *      the key's enabled flag is `nameIndex != 15`
+ *      the append is guarded by `nameIndex <= 14`
+ *
+ * -- and the *whole row* dims to 0.5 when `nameIndex == 15`, re-tested inside
+ * the loop for every key rather than once outside it.
+ *
+ * ### The pressed key dims for a countdown that only OK ever sets
+ *
+ *      lastChar       which key was last pressed (i, or 100 for DEL, 200 for OK)
+ *      lastCharDelay  frames left on the dim
+ *
+ * Every key sets `lastChar` and none of them set `lastCharDelay`; **only OK
+ * does**, to 20. So a letter or DEL leaves `lastChar` pointing at itself with a
+ * delay of zero, the dim never engages, and `lastChar` is never cleared back to
+ * -1 until an OK press runs the countdown out. Transcribed as written.
+ *
+ * ### DEL and OK are both disabled by an empty name
+ *
+ * Both take `nameIndex != 0` as their enabled flag and both dim their label to
+ * 0.5 when the name is empty. OK additionally requires a non-empty name before
+ * it does anything: it bumps `userNameEntryViewed` and pops the task only
+ * inside `if (nameIndex > 0)`, so pressing a disabled OK still sets `lastChar`
+ * and starts the countdown while going nowhere.
+ *
+ * `printf("char pressed: %d\n", i)` on every keypress -- another debug line
+ * that shipped.
+ */
+
+#define EN_KEYS_ACROSS    8
+#define EN_KEY_STEP_X     57
+#define EN_KEY_ORIGIN_X   40
+#define EN_KEY_STEP_Y     48
+#define EN_KEY_ORIGIN_Y   130
+#define EN_LABEL_ORIGIN_Y 122           /* eight above the button */
+#define EN_NAME_MAX       15
+#define EN_LASTCHAR_DEL   100
+#define EN_LASTCHAR_OK    200
+#define EN_OK_DELAY       20
+
+extern BUTTONNEW nameEntryButtons[];    /* 0x0010058c, twenty bytes an entry */
+extern BUTTONNEW BUTTON_DEL;            /* 0x00100794 */
+extern char ourCharacters[];            /* 0x000ff9c8, NUL-terminated */
+extern long nameIndex;                  /* 0x000ff9e4 */
+extern long lastChar;                   /* 0x000ff9e8 */
+extern long lastCharDelay;              /* 0x000ff9ec */
+
+char *strcpy(char *dst, const char *src);
+
+void FE_Task_EnterName(void)
+{
+    float rowcol[4];                    /* sp+0x74, the C.980 literal */
+    char  name[64];                     /* sp+0x34, the strcpy target */
+    char  key[2];                       /* sp+0x86, one character and a NUL */
+    long  i;
+    char  ch;
+
+    rowcol[0] = 1.0f;
+    rowcol[1] = 1.0f;
+    rowcol[2] = 1.0f;
+    rowcol[3] = 1.0f;
+
+    ourName[nameIndex] = 0;             /* re-terminated every frame */
+
+    limeDrawSprite((TEXTURE *)MetalScreenTexture, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0f, 1.0f, 1.0f, col);
+
+    limeDrawFONT(GameFont, GameText(0xf4),
+                 (float)(long)(FE_WidthScale * 240.0f),
+                 (float)(long)(FE_HeightScale * 16.0f),
+                 1, FE_WidthScale, col);
+
+    limeDrawSprite((TEXTURE *)*FEBits1,
+                   FE_WidthScale * 76.0f, FE_HeightScale * 56.0f,
+                   FE_WidthScale * 328.0f, FE_HeightScale * 48.0f,
+                   0.0f, 0.203125f, 0.640625f, 0.09375f, col);
+
+    strcpy(name, ourName);
+    limeDrawFONT(GameFont, name,
+                 FE_WidthScale * 240.0f, FE_HeightScale * 72.0f,
+                 1, FE_WidthScale, col);
+
+    /* ---- the keyboard, as wide as ourCharacters is long ---- */
+    i  = 0;
+    ch = ourCharacters[0];
+    while (ch != 0) {
+        long colIdx, rowIdx, keyX;
+
+        rowcol[0] = 1.0f;
+        rowcol[1] = 1.0f;
+        rowcol[2] = 1.0f;
+        rowcol[3] = 1.0f;
+
+        key[0] = ch;
+        key[1] = 0;
+
+        colIdx = i % EN_KEYS_ACROSS;
+        rowIdx = i / EN_KEYS_ACROSS;
+        keyX   = colIdx * EN_KEY_STEP_X + EN_KEY_ORIGIN_X;
+
+        if (DrawButtonNew(&nameEntryButtons[i], (int)keyX,
+                          (int)(rowIdx * EN_KEY_STEP_Y + EN_KEY_ORIGIN_Y),
+                          nameIndex != EN_NAME_MAX)) {
+            printf("char pressed: %d\n", (int)i);
+            lastChar = i;
+            if (nameIndex <= EN_NAME_MAX - 1) {
+                ourName[nameIndex] = ourCharacters[i];
+                nameIndex++;
+                ourName[nameIndex] = 0;
+            }
+        }
+
+        if (nameIndex == EN_NAME_MAX) {
+            rowcol[0] = 0.5f;
+            rowcol[1] = 0.5f;
+            rowcol[2] = 0.5f;
+            rowcol[3] = 0.5f;
+        }
+
+        if (i == lastChar && lastCharDelay > 0) {
+            lastCharDelay--;
+            rowcol[0] = 0.5f;
+            rowcol[1] = 0.5f;
+            rowcol[2] = 0.5f;
+            rowcol[3] = 0.5f;
+            if (lastCharDelay == 0)
+                lastChar = -1;
+        }
+
+        limeDrawFONT(GameFont, key,
+                     (float)keyX * FE_WidthScale,
+                     FE_Y((float)(rowIdx * EN_KEY_STEP_Y + EN_LABEL_ORIGIN_Y)),
+                     1, FE_WidthScale, rowcol);
+
+        ch = ourCharacters[i + 1];
+        i++;
+    }
+
+    /* ---- DEL ---- */
+    rowcol[0] = rowcol[1] = rowcol[2] = rowcol[3] = 1.0f;
+    if (nameIndex == 0)
+        rowcol[0] = rowcol[1] = rowcol[2] = rowcol[3] = 0.5f;
+    if (lastChar == EN_LASTCHAR_DEL && lastCharDelay > 0) {
+        lastCharDelay--;
+        rowcol[0] = rowcol[1] = rowcol[2] = rowcol[3] = 0.5f;
+        if (lastCharDelay == 0)
+            lastChar = -1;
+    }
+
+    limeDrawFONT(GameFont, GameText(0xb3),
+                 FE_WidthScale * 154.0f, FE_Y(266.0f),
+                 1, FE_WidthScale, rowcol);
+
+    if (DrawButtonNew(&BUTTON_DEL, 0x9a, 0x112, nameIndex != 0)) {
+        lastChar = EN_LASTCHAR_DEL;     /* and no delay -- see the header */
+        if (nameIndex > 0)
+            nameIndex--;
+        ourName[nameIndex] = 0;
+    }
+
+    /* ---- OK ---- */
+    rowcol[0] = rowcol[1] = rowcol[2] = rowcol[3] = 1.0f;
+    if (nameIndex == 0)
+        rowcol[0] = rowcol[1] = rowcol[2] = rowcol[3] = 0.5f;
+    if (lastChar == EN_LASTCHAR_OK && lastCharDelay > 0) {
+        lastCharDelay--;
+        rowcol[0] = rowcol[1] = rowcol[2] = rowcol[3] = 0.5f;
+        if (lastCharDelay == 0)
+            lastChar = -1;
+    }
+
+    limeDrawFONT(GameFont, GameText(0xc),
+                 FE_WidthScale * 439.0f, FE_Y(266.0f),
+                 1, FE_WidthScale, rowcol);
+
+    if (DrawButtonNew(&BUTTON_OK, 0x1b7, 0x112, nameIndex != 0)) {
+        lastChar      = EN_LASTCHAR_OK;
+        lastCharDelay = EN_OK_DELAY;    /* the only place this is ever set */
+        if (nameIndex > 0) {
+            userNameEntryViewed++;
+            PopFETaskDeferred();
+        }
+    }
+}
