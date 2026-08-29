@@ -5063,7 +5063,10 @@ extern const char **DestinyNames;       /* pointer slot -> 0x00176760 */
 
 int  sprintf(char *dst, const char *fmt, ...);
 
-const char *getStageName(long stage);
+/* TWO arguments -- see the note in GameCode.c. Every call site loads r0 with
+ * Destiny and r1 with Stage; achievements.c decompiles the callee as
+ * getStageName(int tier, int index). */
+const char *getStageName(long tier, long index);
 void EASDK_LogEventEnumEnumString(long id, long a, const char *s1,
                                   long b, const char *s2);
 
@@ -5127,7 +5130,7 @@ void FE_Task_Continue_Screen(void)
     if (action == 1) {
         PushFETaskDeferred(0x1b);
         EASDK_LogEventEnumEnumString(0x754a, 15, DestinyNames[Destiny],
-                                     15, getStageName(Stage));
+                                     15, getStageName(Destiny, Stage));
     } else if (action == 2) {
         PopAllFETasksDeferred(0);
         GameStarted = 0;
@@ -6881,4 +6884,448 @@ void Task_FEMain(void)
     }
 
     heartbeatUpdate();
+}
+
+
+/* ------------------------------------------------------------- FE_Task_Options
+ *
+ * armv7 0x00019e8c, 1,496 bytes.  **Complete.**
+ *
+ * The Options page. It is drawn **on top of the main menu**, not instead of it:
+ * the same background, the same `DrawVortex3D`, and the same five main-menu
+ * touch areas are hit-tested every frame, with a sliding panel of three options
+ * over the right-hand side.
+ *
+ * ### The main menu is still live underneath
+ *
+ * `TouchAreaWH` runs for all five main-menu entries at the same coordinates
+ * `FE_Task_Main_Menu` uses, and a hit on any of them leaves this page. So the
+ * menu behind the panel is not a picture -- it is the menu, and the Options
+ * page is a slide-over.
+ *
+ * ### DrawMainMenu is called with one entry lit and the rest at zero
+ *
+ * The compiler turned `DrawMainMenu((a>>1)+k, ...)` into a chain that tests the
+ * five touch words in order and passes a constant set for whichever is held:
+ *
+ *      nothing held      (2, 0, 0, 0, 5)
+ *      Options held      (1, 0, 0, 0, 5)
+ *      Play held         (0, 2, 0, 0, 5)
+ *      Help held         (0, 0, 2, 0, 5)
+ *      Extras held       (0, 0, 0, 2, 5)
+ *      More held         (0, 0, 0, 0, 2)
+ *      mid-slide         (0, 0, 0, 0, 5)
+ *
+ * Note the idle case: the Options entry is passed **2** rather than 0, which is
+ * how it draws as the current page, and drops to 1 while it is being pressed.
+ * The other four are 0 until pressed. `FE_Task_Main_Menu` passes the same
+ * function `(touch >> 1) + 1` for all five and `+ 3` for the last; this page
+ * passes a different set, so the two screens do not share a formula.
+ *
+ * ### Everything slides on one float
+ *
+ *      panel x  = FE_X(FESlideOffset * 240 + 272)
+ *      option x = FESlideOffset * 240 + 384
+ *
+ * `FESlideOffset` is 0 when the panel is home, so the whole page is one
+ * multiply away from being off-screen, and `MaintainFESlide()` drives it. While
+ * it is non-zero nothing responds: the option handlers are skipped entirely and
+ * the ticker still draws.
+ *
+ * ### The three options, and the two that leave differently
+ *
+ *      y=80   GameText(0xc9)   SETTINGS                PushFETaskDeferred(9)
+ *      y=144  GameText(0xe3)   BUTTON CONFIG           PushFETaskDeferred(0xa)
+ *      y=208  GameText(0xca)   MANAGE SOCIAL FEATURES  PushFETaskDeferred(0xc)
+ *
+ * all at x = slide + 384, scale 1.25, wrapped at `FE_W(186)`, and all released
+ * the same way -- inside last frame, outside now, finger off the screen. The
+ * social one also sets `socialConnectionAvailable = -1` first, so the page it
+ * pushes starts by not knowing whether it has a connection.
+ *
+ * The main-menu hits leave by the slide instead: `FESlideDir = 1` and
+ * `FESlideNextTask` set to where to go. **Options itself is the exception** --
+ * pressing Options while on Options sets `FESlideNextTask = -1` and does not
+ * call `PopFETask()`, where Play, Help and Extras all pop first.
+ *
+ * ### The click is played once, before the branch, for the three panel options
+ *
+ *      if (sel > 0 && Settings[3]) limePlaySound(SFXHandle[0x68/4], ...)
+ *
+ * `sel > 0` covers 1, 2 and 3 -- the panel -- and also 5 through 9, the main
+ * menu. Only `sel == -1`, nothing pressed, is silent.
+ *
+ * ### More Games announces itself in hashes
+ *
+ * `puts("#########################\nENTERING STORE(9)!\n#####...")` before
+ * `EASDK_GetMoreGames`. `FE_Task_Main_Menu` has the same shout with `(opt 4`
+ * instead of `(9)!`, and one of the two is missing its closing hashes. Both
+ * shipped.
+ */
+
+#define FEOPT_SLIDE_SPAN      240.0f
+#define FEOPT_PANEL_X         272.0f
+#define FEOPT_OPTION_X        384.0f
+#define FEOPT_OPTION_SCALE    1.25f
+#define FEOPT_OPTION_WIDTH    186.0f
+#define FEOPT_ROW1            80.0f
+#define FEOPT_ROW2            144.0f
+#define FEOPT_ROW3            208.0f
+#define FEOPT_TASK_SETTINGS   9
+#define FEOPT_TASK_BUTTONS    0xa
+#define FEOPT_TASK_SOCIAL     0xc
+#define FEOPT_SFX_CLICK       (0x68 / 4)
+
+extern long Touch_Options1;             /* 0x00100edc */
+extern long Touch_Options2;             /* 0x00100ee0 */
+extern long Touch_Options3;             /* 0x00100ee4 */
+extern long LastTouch_Options1;         /* 0x00100ed0 */
+extern long LastTouch_Options2;         /* 0x00100ed4 */
+extern long LastTouch_Options3;         /* 0x00100ed8 */
+
+void FE_Task_Options(void)
+{
+    long sel;
+
+    limeEnableAlphaBlending_Basic();
+    limeSet2DDrawing();
+
+    limeDrawSprite((TEXTURE *)MainMenuBGTexture, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0f, 1.0f, 0.75f, col);
+
+    DrawVortex3D();
+    limeEnableAlphaBlending_Basic();
+    limeSet2DDrawing();
+
+    /* ---- the main menu underneath is still live ---- */
+    Touch_MMOptions = TouchAreaWH(0, 0, 0xc4, 0x44);
+    sel = (Touch_MMOptions & 1) ? 5 : -1;
+
+    Touch_MMPlay = TouchAreaWH(0, 0x5a, 0xed, 0x34);
+    if (Touch_MMPlay & 1)
+        sel = 6;
+
+    Touch_MMHelp = TouchAreaWH(0, 0xa0, 0xd2, 0x32);
+    if (Touch_MMHelp & 1)
+        sel = 7;
+
+    Touch_MMExtra = TouchAreaWH(0, 0xd2, 0xc4, 0x3c);
+    if (Touch_MMExtra & 1)
+        sel = 8;
+
+    Touch_MMMore = TouchAreaWH(0, 0x11c, 0xa8, 0x32);
+    if (Touch_MMMore & 1)
+        sel = 9;
+
+    /* ---- one entry lit, the rest at zero ---- */
+    if (FESlideOffset != 0.0f)
+        DrawMainMenu(0, 0, 0, 0, 5);
+    else if ((Touch_MMOptions >> 1) != 0)
+        DrawMainMenu(1, 0, 0, 0, 5);
+    else if ((Touch_MMPlay >> 1) != 0)
+        DrawMainMenu(0, 2, 0, 0, 5);
+    else if ((Touch_MMHelp >> 1) != 0)
+        DrawMainMenu(0, 0, 2, 0, 5);
+    else if ((Touch_MMExtra >> 1) != 0)
+        DrawMainMenu(0, 0, 0, 2, 5);
+    else if ((Touch_MMMore >> 1) != 0)
+        DrawMainMenu(0, 0, 0, 0, 2);
+    else
+        DrawMainMenu(2, 0, 0, 0, 5);    /* Options lit as the current page */
+
+    /* ---- the sliding panel ---- */
+    limeDrawSprite((TEXTURE *)FENew1Texture,
+                   FE_X(FESlideOffset * FEOPT_SLIDE_SPAN + FEOPT_PANEL_X),
+                   FE_Y(-32.0f), FE_W(256.0f), FE_H(384.0f),
+                   0.5f, 0.0f, 0.5f, 0.75f, col);
+
+    LastTouch_Options1 = Touch_Options1;
+    Touch_Options1 = DrawOptionAsButton(GameText(0xc9),
+                                        FESlideOffset * FEOPT_SLIDE_SPAN
+                                            + FEOPT_OPTION_X,
+                                        FEOPT_ROW1, FEOPT_OPTION_SCALE,
+                                        &mmfontcol[(LastTouch_Options1 + 1) * 4],
+                                        FE_W(FEOPT_OPTION_WIDTH));
+    if (LastTouch_Options1 != 0 && Touch_Options1 == 0
+        && *limeTouchScreenX == -1.0f)
+        sel = 1;
+
+    LastTouch_Options2 = Touch_Options2;
+    Touch_Options2 = DrawOptionAsButton(GameText(0xe3),
+                                        FESlideOffset * FEOPT_SLIDE_SPAN
+                                            + FEOPT_OPTION_X,
+                                        FEOPT_ROW2, FEOPT_OPTION_SCALE,
+                                        &mmfontcol[(LastTouch_Options2 + 1) * 4],
+                                        FE_W(FEOPT_OPTION_WIDTH));
+    if (LastTouch_Options2 != 0 && Touch_Options2 == 0
+        && *limeTouchScreenX == -1.0f)
+        sel = 2;
+
+    LastTouch_Options3 = Touch_Options3;
+    Touch_Options3 = DrawOptionAsButton(GameText(0xca),
+                                        FESlideOffset * FEOPT_SLIDE_SPAN
+                                            + FEOPT_OPTION_X,
+                                        FEOPT_ROW3, FEOPT_OPTION_SCALE,
+                                        &mmfontcol[(LastTouch_Options3 + 1) * 4],
+                                        FE_W(FEOPT_OPTION_WIDTH));
+    if (LastTouch_Options3 != 0 && Touch_Options3 == 0
+        && *limeTouchScreenX == -1.0f)
+        sel = 3;
+
+    MaintainFESlide();
+
+    /* ---- nothing responds mid-slide ---- */
+    if (FESlideOffset == 0.0f) {
+        if (sel > 0 && Settings[3] != 0)
+            limePlaySound(SFXHandle[FEOPT_SFX_CLICK],
+                          MusicVol[Settings[3]] / 100.0f, 1.0f, 0);
+
+        if (sel == 1) {
+            PushFETaskDeferred(FEOPT_TASK_SETTINGS);
+            EASDK_LogEvent(0xc35e, 15, "OPTIONS", 15, "SETTINGS");
+        } else if (sel == 2) {
+            PushFETaskDeferred(FEOPT_TASK_BUTTONS);
+            EASDK_LogEvent(0xc35e, 15, "OPTIONS", 15, "BUTTON CONFIG");
+        } else if (sel == 3) {
+            socialConnectionAvailable = -1;
+            PushFETaskDeferred(FEOPT_TASK_SOCIAL);
+            EASDK_LogEvent(0xc35e, 15, "OPTIONS", 15,
+                           "MANAGE SOCIAL FEATURES");
+        } else if (sel == 5) {
+            /* Options on Options: slide, but do not pop */
+            FESlideDir      = 1;
+            FESlideNextTask = -1;
+        } else if (sel == 6) {
+            PopFETask();
+            FESlideDir      = 1;
+            FESlideNextTask = 1;
+        } else if (sel == 7) {
+            PopFETask();
+            FESlideDir      = 1;
+            FESlideNextTask = sel;      /* 7, taken from the selection */
+        } else if (sel == 8) {
+            PopFETask();
+            FESlideDir      = 1;
+            FESlideNextTask = 6;
+        } else if (sel == 9) {
+            puts("#########################\n"
+                 "ENTERING STORE(9)!\n"
+                 "##########################");
+            EASDK_LogEvent(0xc35d, 15, "MAIN MENU", 15, "MORE GAMES");
+            EASDK_GetMoreGames(Language, 0);
+        }
+    }
+
+    DrawTicker();
+    achievementsDraw();
+}
+
+
+/* -------------------------------------------------------- FE_Task_Single_Player
+ *
+ * armv7 0x000183b0, 1,404 bytes.  **Complete.**
+ *
+ * The screen you get after losing a single-player match: two labelled halves
+ * over the game-over art, a Back button, and a fade that decides what happens
+ * next. It serves both the arcade ladder and survival, and the two differ only
+ * in what the left half does and what gets reset on the way out.
+ *
+ * ### Two touch halves, hit-tested as rectangles, not as buttons
+ *
+ *      left   (0x10,  0xb8, 0xd0, 0x66)
+ *      right  (0x100, 0xb8, 0xd0, 0x66)
+ *
+ * `TouchAreaWH` returns 0, 1 or 2: **2 means held and 1 means released**, and
+ * the two are treated differently. A 2 draws `DrawRedHighlight` over the same
+ * rectangle -- and the compiler rebuilt the x for that call out of the return
+ * value with `adds r0, #0xe` and `adds r0, #0xfe`, because 2 + 0xe is 0x10 and
+ * 2 + 0xfe is 0x100. The highlight coordinates are only correct because the
+ * held return is exactly 2.
+ *
+ * Either half clears `JustWon` on any touch, held or released.
+ *
+ * ### The left half: continue, and it means two different things
+ *
+ *      GameMode == 4 (survival)  survivalWinStreak = SurvivalStage
+ *                                Character1 = SurvivalCharacter1
+ *                                FadeMusicOut = 1, fade out
+ *      otherwise (the ladder)    Load_SaveData(), TowerState = -1,
+ *                                PushFETaskDeferred(0x1c)
+ *
+ * so survival restarts from its own saved stage and character with a music
+ * fade, and the ladder loads the save and pushes the tower screen. Both log
+ * `getStageName(Destiny, Stage)` -- event 0x754c here and 0x754d on the other
+ * half.
+ *
+ * ### The right half: quit, behind a modal
+ *
+ * `limeModalAreYouSure()` is a **blocking** system dialog -- the return is
+ * normalised to 0 or 1 and printed as `"RESULT = %d\n"`, a debug line that
+ * shipped. On yes it sets `Single_Player_NextTask = 1` and starts the fade out;
+ * on no it still logs the event and still prints.
+ *
+ * The right half also runs its handler **without setting the selection** -- it
+ * falls straight into the modal from the touch test -- which leaves the
+ * `sel == 2` arm below it unreachable. The selection only ever holds 0 or 1.
+ *
+ * ### What the fade does at the bottom
+ *
+ * Nothing below here happens until `FE_FadeAdd <= 0` and `FE_Fade == 0`: the
+ * screen has to be fully black.
+ *
+ *      Single_Player_NextTask == 0   survival only: CurrentTask = 4
+ *      otherwise, GameMode == 4      SurvivalHealth = 100, SurvivalStage = 0,
+ *                                    survivalWinStreak = 0
+ *      otherwise                     GameStarted = 0, Destiny = -1, Stage = 0,
+ *                                    Write_SaveData(), PopulateTower(),
+ *                                    newGameFlag = 1, winStreak = 0
+ *
+ * and both of the last two then empty the front-end stack, set
+ * `FE_CurrentTask = 0`, `PushFETask(0x1b)` and fade back in. So quitting out of
+ * the ladder **rewrites the save** -- `Destiny = -1` and `Stage = 0` are
+ * committed by `Write_SaveData()` before `PopulateTower()` builds a fresh
+ * ladder.
+ *
+ * ### A zero that is added to five y coordinates
+ *
+ * Every `limeDrawFONT` here adds `s16` to its y, and `s16` is loaded from a
+ * pool word that is 0. Five dead adds; transcribed away, because writing
+ * `+ 0.0f` five times would suggest the value could be something else.
+ */
+
+#define FESP_LEFT_X       0x10
+#define FESP_RIGHT_X      0x100
+#define FESP_HALF_Y       0xb8
+#define FESP_HALF_W       0xd0
+#define FESP_HALF_H       0x66
+#define FESP_HALF_THICK   0xb
+#define FESP_TOUCH_HELD   2
+#define FESP_TOUCH_TAP    1
+#define FESP_TASK_TOWER   0x1c
+#define FESP_TASK_RESTART 0x1b
+#define FESP_MODE_SURVIVAL 4
+#define FESP_FADE_STEP    (1.0f / 30.0f)
+
+extern long Single_Player_NextTask;     /* 0x00100e90 */
+extern long JustWon;                    /* 0x000ff9b0 */
+extern long SurvivalStage;              /* 0x000ff980 */
+extern long SurvivalCharacter1;         /* 0x000ff990 */
+extern long SurvivalHealth;             /* 0x000ff994 */
+extern long survivalWinStreak;          /* 0x0014e1ec */
+
+long limeModalAreYouSure(void);
+void Load_SaveData(void);
+
+void FE_Task_Single_Player(void)
+{
+    long sel = 0;
+    long back;
+    long hit;
+
+    limeFillRect(0.0f, 0.0f,
+                 (float)*limeScreenWidth, (float)*limeScreenHeight,
+                 0.0f, 0.0f, 0.0f, 1.0f);
+
+    limeDrawSprite((TEXTURE *)GameOverTopTexture, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0f, 1.0f, 0.75f, col);
+    limeDrawSprite((TEXTURE *)GameOverBottomTexture, 0.0f, FE_Y(143.0f),
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0f, 1.0f, 0.75f, col);
+
+    limeDrawFONT(GameFont, GameText(0x51),
+                 FE_X(120.0f), FE_Y(216.0f), 1, FE_WidthScale, fontcol);
+    limeDrawFONT(GameFont, GameText(0x52),
+                 FE_X(120.0f), FE_Y(232.0f), 1, FE_WidthScale, fontcol);
+    limeDrawFONT(GameFont, GameText(0x5c),
+                 FE_X(360.0f), FE_Y(216.0f), 1, FE_WidthScale, fontcol);
+    limeDrawFONT(GameFont, GameText(0x5d),
+                 FE_X(360.0f), FE_Y(232.0f), 1, FE_WidthScale, fontcol);
+
+    back = DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1);
+    limeDrawFONT(GameFont, GameText(7),
+                 FE_X(423.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
+
+    /* ---- the left half ---- */
+    hit = TouchAreaWH(FESP_LEFT_X, FESP_HALF_Y, FESP_HALF_W, FESP_HALF_H);
+    if (hit != 0) {
+        JustWon = 0;
+        if (hit == FESP_TOUCH_HELD)
+            DrawRedHighlight(FESP_LEFT_X, FESP_HALF_Y, FESP_HALF_W,
+                             FESP_HALF_H, FESP_HALF_THICK);
+        else if (hit == FESP_TOUCH_TAP && FE_FadeAdd == 0.0f)
+            sel = hit;                  /* 1 */
+    }
+
+    /* ---- the right half, which acts here rather than through `sel` ---- */
+    hit = TouchAreaWH(FESP_RIGHT_X, FESP_HALF_Y, FESP_HALF_W, FESP_HALF_H);
+    if (hit != 0) {
+        JustWon = 0;
+        if (hit == FESP_TOUCH_HELD) {
+            DrawRedHighlight(FESP_RIGHT_X, FESP_HALF_Y, FESP_HALF_W,
+                             FESP_HALF_H, FESP_HALF_THICK);
+        } else if (hit == FESP_TOUCH_TAP && FE_FadeAdd == 0.0f) {
+            int result = (limeModalAreYouSure() != 0) ? 1 : 0;
+
+            if (result) {
+                Single_Player_NextTask = 1;
+                FE_FadeAdd = -FESP_FADE_STEP;
+            }
+            printf("RESULT = %d\n", result);
+            EASDK_LogEventEnumEnumString(0x754d, 15, DestinyNames[Destiny],
+                                         15, getStageName(Destiny, Stage));
+        }
+    }
+
+    /* ---- the left half's action ---- */
+    if (sel == 1) {
+        if (GameMode == FESP_MODE_SURVIVAL) {
+            survivalWinStreak = SurvivalStage;
+            Character1        = SurvivalCharacter1;
+            FadeMusicOut      = 1;
+            FE_FadeAdd        = -FESP_FADE_STEP;
+        } else {
+            Load_SaveData();
+            TowerState = -1;
+            PushFETaskDeferred(FESP_TASK_TOWER);
+            EASDK_LogEventEnumEnumString(0x754c, 15, DestinyNames[Destiny],
+                                         15, getStageName(Destiny, Stage));
+        }
+    }
+
+    if (back != 0)
+        PopFETaskDeferred();
+
+    /* ---- nothing below here until the screen is fully black ---- */
+    if (FE_FadeAdd > 0.0f)
+        return;
+    if (FE_Fade != 0.0f)
+        return;
+
+    if (Single_Player_NextTask == 0) {
+        if (GameMode == FESP_MODE_SURVIVAL)
+            CurrentTask = GameMode;     /* 4, taken from the compare */
+        return;
+    }
+
+    if (GameMode == FESP_MODE_SURVIVAL) {
+        SurvivalHealth    = 100;
+        SurvivalStage     = 0;
+        survivalWinStreak = 0;
+    } else {
+        GameStarted = 0;
+        Destiny     = -1;
+        Stage       = 0;
+        Write_SaveData();               /* the quit is committed to the save */
+        PopulateTower();
+        newGameFlag = 1;
+        winStreak   = 0;
+    }
+
+    FE_TaskStackPointer = 0;
+    FE_CurrentTask      = 0;
+    PushFETask(FESP_TASK_RESTART);
+    FE_FadeAdd = FESP_FADE_STEP;
+    Single_Player_NextTask = 0;
 }
