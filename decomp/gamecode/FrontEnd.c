@@ -643,11 +643,17 @@ void GetCharacterOffsetPos(int index, limeVECTOR3 *out)
 }
 
 
-#define PEER_SLOTS   5
+#define PEER_SLOTS   5      /* what resetPeerNames clears -- a trip count */
+#define PEER_ROWS    8      /* what the array IS: 0x185730..0x185930 */
 #define PEER_STRIDE  0x40
 
-extern char peerNames[PEER_SLOTS][PEER_STRIDE];     /* 0x00185730 */
-extern int  peerNamesFlags[];                       /* 0x00185930 */
+/* The symbol table gives the extent: `_peerNames` runs to `_peerNamesFlags`
+ * at 0x00185930, which is 0x200 bytes -- eight rows, not the five
+ * `resetPeerNames` walks. FE_Task_Multiplayer needs seven of them (six peers
+ * a page, written one row along), so eight is the size and five is only that
+ * one loop. `_peerNamesFlags` is 0x20 bytes: eight ints. */
+extern char peerNames[PEER_ROWS][PEER_STRIDE];      /* 0x00185730 */
+extern int  peerNamesFlags[8];                      /* 0x00185930 */
 void __static_initialization_and_destruction_0(int a, int b);
 
 
@@ -10710,5 +10716,326 @@ void FE_Task_Enter_Kode(void)
 
         KodeEntered = 1;
         EASDK_LogEventEnumEnum(KODE_LOG_EVENT, 15, KodeSuccess, 0, 0);
+    }
+}
+
+
+/* --------------------------------------------------------- FE_Task_Multiplayer
+ *
+ * armv7 0x0001782c, 2,948 bytes.  **Complete.**
+ *
+ * The Bluetooth lobby: a paged list of nearby peers, a blinking "looking for
+ * players" line while the list is empty, an animated ellipsis while the radio is
+ * busy, and Prev / Next / Back along the bottom. Tapping a peer connects to it;
+ * once connected the task pushes character select and hands over.
+ *
+ * ### The list is rebuilt from the radio every frame
+ *
+ *      resetPeerNames();
+ *      updateLobbyHeartBeat();
+ *      peers = getNumberOfPeers();
+ *
+ * -- so nothing about the list persists between frames; `peerNames` is a scratch
+ * buffer that is wiped and refilled. `getNumberOfPeers()` is then called **four
+ * more times** in the same frame: once for the row count and twice each for the
+ * Next button's enable and its label. Five calls a frame into the radio layer.
+ *
+ * ### The names are written one row further along than they are terminated
+ *
+ *      peerNamesFlags[idx] = getPeerNumber(idx, peerNames[idx + 1], 64);
+ *      peerNames[idx][0x3f]  = 0;
+ *
+ * The name for peer `idx` goes into row `idx + 1`, and the byte zeroed is the
+ * last byte of row `idx` -- the row *before* the one just filled. Read as a
+ * whole it is consistent: rows 1..n hold the names, row 0 is unused, and the
+ * store caps the previous row rather than the current one. It also means the
+ * final row's last byte is never forced, so a full 64-byte name from the radio
+ * is not terminated by this code.
+ *
+ * `peerNames` is 0x185730..0x185930 -- **eight** rows of 64, not the five
+ * `resetPeerNames` clears. Six rows a page plus the one-row offset needs seven,
+ * so eight is the real size and five is only that loop's trip count.
+ *
+ * ### Six to a page, but only five can be connected to
+ *
+ *      shown = getNumberOfPeers() - mpLobbyCurrentPage * 6;
+ *      if (shown >= 6) shown = 6;
+ *      ...
+ *      if (GameMode != 1 && (unsigned)(hot - 1) <= 4)  connectToPeer(hot - 1);
+ *
+ * The sixth row of a page draws, highlights and answers a touch -- and then
+ * fails the `<= 4` test and does nothing. Transcribed as written.
+ *
+ * ### The selection is a union of two sources, and it indexes one word early
+ *
+ *      hot = (BasicMenuMod(Menu_Task_Multiplayer, peerNamesFlags) == 6) ? 6 : 0;
+ *      ...a touch inside a row sets hot = page * 6 + 1 + row...
+ *      if (peerNamesFlags[hot - 1] != 0) hot = 0;
+ *
+ * `hot` is one-based, so the veto reads `peerNamesFlags[hot - 1]` -- and when
+ * nothing is selected `hot` is 0 and that read is `peerNamesFlags[-1]`, one word
+ * before the array. It is a read, its result only ever zeroes an already-zero
+ * `hot`, and the word before is inside `peerNames`; harmless in practice and
+ * still out of bounds.
+ *
+ * The touch path also prints: `printf("%d TOUCHED\n", row)`, left in retail.
+ *
+ * ### Two blinkers, on two different clocks
+ *
+ *      mpBlinker += 0.025 / limeFPSScaleFactor;  if (> 2) -= 2;
+ *          -> "looking for players" shows while mpBlinker > 1, empty list only
+ *
+ *      workingInd++;  n = workingInd % 30;
+ *          -> "." for n <= 9, ".." for n <= 19, "..." otherwise
+ *
+ * The first is frame-rate corrected and the second is not: the ellipsis runs at
+ * whatever the frame rate happens to be. Both are drawn at the screen centre,
+ * the ellipsis at `FE_WidthScale * 1.9` and nudged ten units left.
+ *
+ * ### Pixel snapping, in three places and nowhere else
+ *
+ *      (float)(int)(FE_WidthScale * 240)
+ *      (float)(int)(FE_HeightScale * 12)
+ *      (float)(int)FE_X(240)
+ *      (float)(int)(FE_HeightScale * 80)
+ *      (float)(int)(FE_HeightScale * 36)
+ *
+ * -- a `vcvt.s32.f32` immediately followed by a `vcvt.f32.s32`, which is a round
+ * trip through integer purely to floor the value. The row pitch inside the list
+ * is *not* snapped, so the header sits on a pixel and the rows do not.
+ *
+ * ### Seven pieces of character-select state are reset every single frame
+ *
+ *      Character_SelectWait = 0;  CharacterConfirmed = -1;  CharacterSelected = -1;
+ *      opponentCharacter = -1;    playerCharacter = -1;
+ *      syncCharacters = 0;        syncCharactersOpponent = 0;
+ *
+ * unconditionally, before the connection is even tested -- and then all seven
+ * again inside the branch that actually connects. The lobby cannot be entered
+ * with stale character state, at the cost of seven stores a frame.
+ *
+ * ### Connecting is the only way out that is not the Back button
+ *
+ *      if (GameMode != 1 && isMPConnected()) {
+ *          GameMode = 1;  PushFETask(0x2a);  ...the seven resets again...
+ *          EASDK_LogEvent(0x7556, 0, 0, 0, 0);
+ *      }
+ *
+ * and Back is `endMP()` then `PopFETaskDeferred()`. The frame continues after
+ * both -- the pop is deferred and the connect falls through to the info-fade
+ * tail, so one more frame of this screen is always drawn.
+ */
+
+#define MP_PER_PAGE     6
+#define MP_ROW_PITCH    32
+#define MP_ROW_TOP      80.0f
+#define MP_HIT_ABOVE    6
+#define MP_HIT_BELOW    22
+#define MP_HIT_HALFW    120.0f
+#define MP_BLINK_RATE   0.025f
+#define MP_BLINK_WRAP   2.0f
+#define MP_WORK_PERIOD  30
+#define MP_INFO_FRAMES  0xd2    /* 210 */
+#define MP_LOG_CONNECT  0x7556
+
+extern float mpBlinker;                 /* 0x00100eb0 */
+extern long  workingInd;                /* 0x000ff810 */
+extern long  lobbyInfoTxt;              /* 0x000ff80c */
+extern long  restartConnectionFlag;     /* 0x000ff8c4 */
+extern long  Menu_Task_Multiplayer[];   /* 0x00100e94 */
+extern int   syncCharactersOpponent;    /* 0x000ff818 */
+extern BUTTONNEW BUTTON_MP_NEXT;        /* 0x00100870 */
+extern BUTTONNEW BUTTON_MP_PREV;        /* 0x00100884 */
+
+void updateLobbyHeartBeat(void);
+long getNumberOfPeers(void);
+long getPeerNumber(long index, char *out, long size);
+long isWorking(void);
+long isMPConnected(void);
+void connectToPeer(long index);
+void restartConnection(void);
+
+void FE_Task_Multiplayer(void)
+{
+    float half[4] = { 0.5f, 0.5f, 0.5f, 0.5f };   /* C.277 at 0x000ddfec */
+    long  peers, shown, hot, i, y;
+    long  back, prev, next;
+    float top;
+
+    limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0234375f, 1.0f, 0.703125f, col);
+
+    pressedPlay         = 0;
+    opponentPressedPlay = 0;
+    *otherPlayerPaused  = 0;
+    *GamePaused         = 0;
+
+    limeDrawFONT(GameFont, GameText(0x39f),
+                 (float)(int)(FE_WidthScale * 240.0f),
+                 (float)(int)(FE_HeightScale * 12.0f),
+                 1, FE_WidthScale, col);
+
+    limeDrawSprite((TEXTURE *)*FEBits3,
+                   FE_WidthScale * 6.0f, FE_HeightScale * 60.0f,
+                   FE_WidthScale * 468.0f, FE_HeightScale * 218.0f,
+                   0.0f, 0.0f, 0.9140625f, 0.42578125f, col);
+
+    resetPeerNames();
+    updateLobbyHeartBeat();
+    peers = getNumberOfPeers();
+
+    mpBlinker += MP_BLINK_RATE / limeFPSScaleFactor;
+    if (mpBlinker > MP_BLINK_WRAP)
+        mpBlinker -= MP_BLINK_WRAP;
+
+    if (peers == 0 && mpBlinker > 1.0f)
+        limeDrawFONT(GameFont, GameText(0x3a1),
+                     (float)(int)FE_X(240.0f),
+                     (float)(*limeScreenHeight / 2),
+                     1, FE_WidthScale, col);
+
+    shown = getNumberOfPeers() - mpLobbyCurrentPage * MP_PER_PAGE;
+    if (shown >= MP_PER_PAGE)
+        shown = MP_PER_PAGE;
+
+    /* ---- pull this page's names out of the radio ---- */
+    for (i = 0; i < shown; i++) {
+        long idx = mpLobbyCurrentPage * MP_PER_PAGE + i;
+
+        peerNamesFlags[idx] = getPeerNumber(idx, peerNames[idx + 1],
+                                            PEER_STRIDE);
+        peerNames[idx][PEER_STRIDE - 1] = 0;   /* the PREVIOUS row */
+    }
+
+    hot = (BasicMenuMod(Menu_Task_Multiplayer,
+                        (const long *)peerNamesFlags) == 6) ? 6 : 0;
+
+    /* ---- draw the rows, and test each for a release ---- */
+    top = (float)(int)(FE_HeightScale * MP_ROW_TOP);
+
+    for (i = 0, y = 0; i < shown; i++, y += MP_ROW_PITCH) {
+        long idx = mpLobbyCurrentPage * MP_PER_PAGE + i;
+        const float *colour = (peerNamesFlags[idx] != 0) ? darkcol : fontcol;
+
+        limeDrawFONT(GameFont, peerNames[idx + 1],
+                     (float)(*limeScreenWidth / 2),
+                     (float)y * FE_HeightScale + top,
+                     1, FE_WidthScale, colour);
+
+        if (*limeLastTouchScreenX == -1.0f) {
+            float cx = (float)(*limeScreenWidth / 2);
+
+            if (*limeTouchScreenX >= cx + FE_WidthScale * -MP_HIT_HALFW
+                && *limeTouchScreenX <= cx + FE_WidthScale * MP_HIT_HALFW
+                && *limeTouchScreenY >= (float)(y - MP_HIT_ABOVE)
+                                        * FE_HeightScale + top
+                && *limeTouchScreenY <= (float)(y + MP_HIT_BELOW)
+                                        * FE_HeightScale + top) {
+                hot = mpLobbyCurrentPage * MP_PER_PAGE + 1 + i;
+                printf("%d TOUCHED\n", (int)i);
+            }
+        }
+    }
+
+    /* ---- the busy ellipsis, on the raw frame counter ---- */
+    workingInd++;
+
+    if (isWorking() != 0 && peers > 0) {
+        long n = workingInd % MP_WORK_PERIOD;
+        const char *dots = (n <= 9) ? "." : (n <= 0x13) ? ".." : "...";
+
+        limeDrawFONT(GameFont, dots,
+                     (float)(*limeScreenWidth / 2) + FE_WidthScale * -10.0f,
+                     (float)(*limeScreenHeight / 2),
+                     0,
+                     (float)((double)FE_WidthScale * 1.9),
+                     fontcol);
+    }
+
+    /* reads peerNamesFlags[-1] when nothing is selected -- see the header */
+    if (peerNamesFlags[hot - 1] != 0)
+        hot = 0;
+
+    back = DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1);
+
+    limeDrawFONT(GameFont, GameText(7),
+                 FE_X(423.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
+
+    if (back) {
+        endMP();
+        PopFETaskDeferred();            /* deferred -- this frame carries on */
+    }
+
+    if (GameMode != 1 && (unsigned long)(hot - 1) <= 4 && isWorking() == 0) {
+        connectToPeer(hot - 1);
+        lobbyInfoFade = MP_INFO_FRAMES;
+        lobbyInfoTxt  = 1;
+    }
+
+    /* ---- Prev ---- */
+    prev = DrawButtonNew(&BUTTON_MP_PREV, 0x39, 0x130,
+                         mpLobbyCurrentPage > 0);
+
+    limeDrawFONT(GameFont, GameText(0x12), FE_X(57.0f), FE_Y(296.0f),
+                 1, FE_WidthScale,
+                 mpLobbyCurrentPage > 0 ? fontcol : half);
+
+    /* ---- Next ---- */
+    next = DrawButtonNew(&BUTTON_MP_NEXT, 0xb5, 0x130,
+                         (mpLobbyCurrentPage + 1) * MP_PER_PAGE
+                         < getNumberOfPeers());
+
+    limeDrawFONT(GameFont, GameText(8), FE_X(181.0f), FE_Y(296.0f),
+                 1, FE_WidthScale,
+                 (mpLobbyCurrentPage + 1) * MP_PER_PAGE < getNumberOfPeers()
+                 ? fontcol : half);
+
+    if (prev && mpLobbyCurrentPage > 0)
+        mpLobbyCurrentPage--;
+
+    if (next)
+        mpLobbyCurrentPage++;
+
+    /* ---- character select cannot inherit anything ---- */
+    Character_SelectWait  = 0;
+    CharacterConfirmed    = -1;
+    CharacterSelected     = -1;
+    opponentCharacter     = -1;
+    playerCharacter       = -1;
+    syncCharacters        = 0;
+    syncCharactersOpponent = 0;
+
+    if (GameMode != 1 && isMPConnected()) {
+        GameMode = 1;
+        PushFETask(0x2a);
+
+        Character_SelectWait  = 0;
+        CharacterConfirmed    = -1;
+        opponentCharacter     = -1;
+        playerCharacter       = -1;
+        CharacterSelected     = -1;
+        syncCharacters        = 0;
+        syncCharactersOpponent = 0;
+
+        EASDK_LogEvent(MP_LOG_CONNECT, 0, 0, 0, 0);
+    }
+
+    /* ---- the info line fades out over 210 frames ---- */
+    if (lobbyInfoFade > 0) {
+        lobbyInfoFade--;
+
+        if (lobbyInfoTxt == 1)
+            limeDrawFONT(GameFont, GameText(0x48),
+                         (float)(*limeScreenWidth / 2),
+                         (float)(int)(FE_HeightScale * 36.0f),
+                         lobbyInfoTxt,
+                         (float)((double)FE_HeightScale * 0.9),
+                         fontcol);
+    }
+
+    if (restartConnectionFlag) {
+        restartConnectionFlag = 0;
+        restartConnection();
     }
 }
