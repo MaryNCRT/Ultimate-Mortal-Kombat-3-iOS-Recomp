@@ -7329,3 +7329,371 @@ void FE_Task_Single_Player(void)
     FE_FadeAdd = FESP_FADE_STEP;
     Single_Player_NextTask = 0;
 }
+
+
+/* ------------------------------------------------------ FE_Task_LeaderboardsSK
+ *
+ * armv7 0x00013138, 1,540 bytes.  **Complete.**
+ *
+ * The Shao Kahn leaderboard. One page of eight entries, drawn by a callback the
+ * Mayhem backend calls back into, with Prev / Back / Next along the bottom.
+ * `FE_Task_Leaderboards` below is the same screen for a different stat and is
+ * written out separately because the two are not quite identical.
+ *
+ * ### The rows are not drawn here
+ *
+ *      EASOC_MayhemGetLeaderBoard(page, 8, period,
+ *                                 FE_DrawLeaderBoardEntriesCallback)
+ *
+ * -- the address of the callback is the fourth argument, and the backend calls
+ * it once per row. This function draws the frame, the title, the three buttons
+ * and the two arrow labels; everything between them comes from a function it
+ * never calls itself. The return is the **entry count**, or -1 while the
+ * request is still in flight.
+ *
+ * ### Waiting is drawn as a 50% duty cycle on a free-running counter
+ *
+ *      leaderboardPageCnt++;
+ *      if (leaderboardPageCnt % 128 <= 0x3f) draw GameText(0x13)
+ *
+ * so the "loading" line blinks on for 64 frames and off for 64, forever, off
+ * one counter that is never reset. The text id is computed as `entries + 0x14`
+ * with `entries` known to be -1 -- the compiler folded the constant through the
+ * failure value rather than materialising 0x13.
+ *
+ * ### Next is enabled by three different tests
+ *
+ *      entries == -1     disabled -- the request has not landed
+ *      entries <= 7      disabled -- this is the last page
+ *      period != 5       ENABLED unconditionally
+ *      period == 5       enabled only if entries > (page + 1) * 8
+ *
+ * Period 5 is the only one that gets a real bound check; every other period
+ * enables Next as soon as a full page came back, which is what lets the page
+ * number run past the end of a short board. Prev is the simple one:
+ * `page > 0`.
+ *
+ * The enable value is 1 or 2 and doubles as the label's shade -- 1.0 when
+ * enabled, 0.5 when not. `FE_Task_Achievements` derives the same shade as
+ * `1.0f / enabled`; this screen carries it in a second register instead.
+ *
+ * ### The middle button is drawn twice a frame
+ *
+ * `BUTTON_MINI_2` goes out once before the readiness test and once inside
+ * whichever arm follows, at the same coordinates, in every path. The second
+ * draw can only ever set the selection, never clear it.
+ *
+ * ### Paging does not re-request on period 5
+ *
+ * Both arrows bump `currentLeaderBoardPage` and then call
+ * `EASOC_MayhemReloadLeaderBoard` **only when `currentPeriod != 5`**, so on
+ * period 5 the page number moves and nothing is fetched -- the next frame's
+ * `GetLeaderBoard` is what picks the new page up. Both also print `"NEXT"` or
+ * `"PREV"` unconditionally, two debug lines that shipped.
+ */
+
+#define LB_STAT_SK        "shaokahn_med"
+#define LB_STAT_SURVIVAL  "survival_easy"
+#define LB_PER_PAGE       8
+#define LB_BOARD_ID       0x32
+#define LB_PERIOD_BOUNDED 5             /* the only period with a real bound */
+#define LB_BLINK_MASK     0x7f
+#define LB_BLINK_ON       0x3f
+
+extern int  Menu_Task_Leaderboards[];   /* 0x00100fa0 */
+extern long currentPeriod;              /* 0x000ff8e4 */
+extern long leaderboardPageCnt;         /* 0x000ff8ec */
+extern long currentLeaderboard;         /* 0x00100fd4 */
+
+void EASOC_MayhemGetUserStat(const char *stat);
+void EASOC_MayhemInitLeaderBoard(long board, const char *filter, long period,
+                                 long count, const char *stat);
+void EASOC_MayhemReloadLeaderBoard(long board, long period, long page,
+                                   long count, const char *stat);
+long EASOC_MayhemGetLeaderBoard(long page, long count, long period, void *cb);
+
+void FE_Task_LeaderboardsSK(void)
+{
+    float rowcol[4];                    /* sp+0x2c, the C.577 literal */
+    long  sel;
+    long  entries;
+    long  prevEnabled, nextEnabled;
+    float prevShade, nextShade;
+
+    rowcol[0] = 1.0f;
+    rowcol[1] = 1.0f;
+    rowcol[2] = 1.0f;
+    rowcol[3] = 1.0f;
+
+    limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0234375f, 1.0f, 0.703125f, col);
+    limeDrawSprite((TEXTURE *)*FEBits3,
+                   FE_X(6.0f), FE_Y(66.0f), FE_W(468.0f), FE_H(218.0f),
+                   0.0f, 0.0f, 0.9140625f, 0.42578125f, col);
+
+    limeDrawFONT(GameFont, GameText(0xcb),
+                 FE_X(240.0f), FE_Y(4.0f), 1, FE_WidthScale, rowcol);
+
+    sel = DrawButtonNew(&BUTTON_MINI_2, 0xf0, 0x12e, 1) ? 2 : 0;
+
+    limeDrawFONT(GameFont, GameText(7),
+                 FE_X(240.0f), FE_Y(294.0f), 1, FE_WidthScale, rowcol);
+
+    getMenuStartPos(Menu_Task_Leaderboards);    /* both results discarded */
+    getMenuItemNum(Menu_Task_Leaderboards);
+    EASOC_MayhemTest(0);
+
+    if (!EASOC_MayhemIsReady()) {
+        /* ---- the backend is not up: both arrows dead and dimmed ---- */
+        DrawButtonNew(&BUTTON_MINI_1, 0x52, 0x12e, 0);
+        if (DrawButtonNew(&BUTTON_MINI_2, 0xf0, 0x12e, 1))
+            sel = 2;
+        DrawButtonNew(&BUTTON_MINI_3, 0x18e, 0x12e, 0);
+
+        rowcol[0] = rowcol[1] = rowcol[2] = 0.5f;
+        limeDrawFONT(GameFont, GameText(8),
+                     (float)*limeScreenWidth - FE_WidthScale * 60.0f,
+                     FE_Y(294.0f), 2, FE_WidthScale, rowcol);
+
+        rowcol[0] = rowcol[1] = rowcol[2] = 0.5f;
+        limeDrawFONT(GameFont, GameText(0x12),
+                     FE_WidthScale * 60.0f, FE_Y(294.0f),
+                     0, FE_WidthScale, rowcol);
+
+        if (sel == 2)
+            PopFETaskDeferred();
+        return;
+    }
+
+    if (leaderboardsInitSK == 0) {
+        EASOC_MayhemGetUserStat(LB_STAT_SK);
+        leaderboardsInitSK     = 1;
+        currentLeaderBoardPage = 0;
+        currentPeriod          = 0;
+        EASOC_MayhemInitLeaderBoard(LB_BOARD_ID, "", 0,
+                                    LB_PER_PAGE, LB_STAT_SK);
+    }
+
+    entries = EASOC_MayhemGetLeaderBoard(currentLeaderBoardPage, LB_PER_PAGE,
+                                         currentPeriod,
+                                         (void *)FE_DrawLeaderBoardEntriesCallback);
+
+    if (entries == -1) {
+        leaderboardPageCnt++;
+        if ((leaderboardPageCnt % (LB_BLINK_MASK + 1)) <= LB_BLINK_ON)
+            limeDrawFONT(GameFont, GameText(entries + 0x14),
+                         (float)(*limeScreenWidth / 2),
+                         (float)(*limeScreenHeight / 2 - 6),
+                         1, FE_WidthScale, fontcol);
+        nextEnabled = 2;
+        nextShade   = 0.5f;
+    } else if (entries <= 7) {
+        nextEnabled = 2;
+        nextShade   = 0.5f;
+    } else if (currentPeriod != LB_PERIOD_BOUNDED) {
+        nextEnabled = 1;
+        nextShade   = 1.0f;
+    } else if (entries <= (currentLeaderBoardPage + 1) * LB_PER_PAGE) {
+        nextEnabled = 2;
+        nextShade   = 0.5f;
+    } else {
+        nextEnabled = 1;
+        nextShade   = 1.0f;
+    }
+
+    prevEnabled = (currentLeaderBoardPage > 0) ? 1 : 2;
+    prevShade   = (currentLeaderBoardPage > 0) ? 1.0f : 0.5f;
+
+    if (DrawButtonNew(&BUTTON_MINI_1, 0x52, 0x12e, (int)prevEnabled))
+        sel = 1;
+    if (DrawButtonNew(&BUTTON_MINI_2, 0xf0, 0x12e, 1))
+        sel = 2;
+    if (DrawButtonNew(&BUTTON_MINI_3, 0x18e, 0x12e, (int)nextEnabled))
+        sel = 3;
+
+    rowcol[0] = rowcol[1] = rowcol[2] = nextShade;
+    limeDrawFONT(GameFont, GameText(8),
+                 (float)*limeScreenWidth - FE_WidthScale * 60.0f,
+                 FE_Y(294.0f), 2, FE_WidthScale, rowcol);
+
+    rowcol[0] = rowcol[1] = rowcol[2] = prevShade;
+    limeDrawFONT(GameFont, GameText(0x12),
+                 FE_WidthScale * 60.0f, FE_Y(294.0f),
+                 0, FE_WidthScale, rowcol);
+
+    if (nextEnabled == 1 && sel == 3) {
+        currentLeaderboard = 0;
+        currentLeaderBoardPage++;
+        if (currentPeriod != LB_PERIOD_BOUNDED)
+            EASOC_MayhemReloadLeaderBoard(LB_BOARD_ID, currentPeriod,
+                                          currentLeaderBoardPage,
+                                          LB_PER_PAGE, LB_STAT_SK);
+        puts("NEXT");
+        return;
+    }
+    if (prevEnabled == 1 && sel == 1) {
+        currentLeaderboard = 0;
+        currentLeaderBoardPage--;
+        if (currentPeriod != LB_PERIOD_BOUNDED)
+            EASOC_MayhemReloadLeaderBoard(LB_BOARD_ID, currentPeriod,
+                                          currentLeaderBoardPage,
+                                          LB_PER_PAGE, LB_STAT_SK);
+        puts("PREV");
+        return;
+    }
+    if (sel == 2)
+        PopFETaskDeferred();
+}
+
+
+/* -------------------------------------------------------- FE_Task_Leaderboards
+ *
+ * armv7 0x0001373c, 1,520 bytes.  **Complete.**
+ *
+ * The survival leaderboard. The same screen as `FE_Task_LeaderboardsSK` above,
+ * compiled twice; the differences are four, and none of them are structural:
+ *
+ *      the stat is "survival_easy" rather than "shaokahn_med"
+ *      the init flag is `leaderboardsInit`, not `leaderboardsInitSK`
+ *      the first init prints "MAYHEM LEADERBOARDS INIT!"; the SK one is silent
+ *      three x coordinates are computed with FE_X / FE_W where the SK copy
+ *      multiplies by FE_WidthScale by hand
+ *
+ * The last one is worth being precise about because the values agree:
+ * `FE_X(60)` **is** `60 * FE_WidthScale`, so the two screens land in the same
+ * place; only the instructions differ. Written as each was compiled.
+ *
+ * Everything else -- the blink, the four-way Next test, period 5 not
+ * re-requesting, the middle button drawn twice -- is the same and is documented
+ * on the SK copy above.
+ */
+void FE_Task_Leaderboards(void)
+{
+    float rowcol[4];                    /* sp+0x34, the C.555 literal */
+    long  sel;
+    long  entries;
+    long  prevEnabled, nextEnabled;
+    float prevShade, nextShade;
+
+    rowcol[0] = 1.0f;
+    rowcol[1] = 1.0f;
+    rowcol[2] = 1.0f;
+    rowcol[3] = 1.0f;
+
+    limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0234375f, 1.0f, 0.703125f, col);
+    limeDrawSprite((TEXTURE *)*FEBits3,
+                   FE_X(6.0f), FE_Y(66.0f), FE_W(468.0f), FE_H(218.0f),
+                   0.0f, 0.0f, 0.9140625f, 0.42578125f, col);
+
+    limeDrawFONT(GameFont, GameText(0xcb),
+                 FE_X(240.0f), FE_Y(4.0f), 1, FE_WidthScale, rowcol);
+
+    sel = DrawButtonNew(&BUTTON_MINI_2, 0xf0, 0x12e, 1) ? 2 : 0;
+
+    limeDrawFONT(GameFont, GameText(7),
+                 FE_X(240.0f), FE_Y(294.0f), 1, FE_WidthScale, rowcol);
+
+    getMenuStartPos(Menu_Task_Leaderboards);
+    getMenuItemNum(Menu_Task_Leaderboards);
+    EASOC_MayhemTest(0);
+
+    if (!EASOC_MayhemIsReady()) {
+        DrawButtonNew(&BUTTON_MINI_1, 0x52, 0x12e, 0);
+        if (DrawButtonNew(&BUTTON_MINI_2, 0xf0, 0x12e, 1))
+            sel = 2;
+        DrawButtonNew(&BUTTON_MINI_3, 0x18e, 0x12e, 0);
+
+        rowcol[0] = rowcol[1] = rowcol[2] = 0.5f;
+        limeDrawFONT(GameFont, GameText(8),
+                     (float)*limeScreenWidth - FE_W(60.0f),
+                     FE_Y(294.0f), 2, FE_WidthScale, rowcol);
+
+        rowcol[0] = rowcol[1] = rowcol[2] = 0.5f;
+        limeDrawFONT(GameFont, GameText(0x12),
+                     FE_X(60.0f), FE_Y(294.0f), 0, FE_WidthScale, rowcol);
+
+        if (sel == 2)
+            PopFETaskDeferred();
+        return;
+    }
+
+    if (leaderboardsInit == 0) {
+        puts("MAYHEM LEADERBOARDS INIT!");
+        EASOC_MayhemGetUserStat(LB_STAT_SURVIVAL);
+        leaderboardsInit       = 1;
+        currentLeaderBoardPage = 0;
+        currentPeriod          = 0;
+        EASOC_MayhemInitLeaderBoard(LB_BOARD_ID, "", 0,
+                                    LB_PER_PAGE, LB_STAT_SURVIVAL);
+    }
+
+    entries = EASOC_MayhemGetLeaderBoard(currentLeaderBoardPage, LB_PER_PAGE,
+                                         currentPeriod,
+                                         (void *)FE_DrawLeaderBoardEntriesCallback);
+
+    if (entries == -1) {
+        leaderboardPageCnt++;
+        if ((leaderboardPageCnt % (LB_BLINK_MASK + 1)) <= LB_BLINK_ON)
+            limeDrawFONT(GameFont, GameText(entries + 0x14),
+                         (float)(*limeScreenWidth / 2),
+                         (float)(*limeScreenHeight / 2 - 6),
+                         1, FE_WidthScale, fontcol);
+        nextEnabled = 2;
+        nextShade   = 0.5f;
+    } else if (entries <= 7) {
+        nextEnabled = 2;
+        nextShade   = 0.5f;
+    } else if (currentPeriod != LB_PERIOD_BOUNDED) {
+        nextEnabled = 1;
+        nextShade   = 1.0f;
+    } else if (entries <= (currentLeaderBoardPage + 1) * LB_PER_PAGE) {
+        nextEnabled = 2;
+        nextShade   = 0.5f;
+    } else {
+        nextEnabled = 1;
+        nextShade   = 1.0f;
+    }
+
+    prevEnabled = (currentLeaderBoardPage > 0) ? 1 : 2;
+    prevShade   = (currentLeaderBoardPage > 0) ? 1.0f : 0.5f;
+
+    if (DrawButtonNew(&BUTTON_MINI_1, 0x52, 0x12e, (int)prevEnabled))
+        sel = 1;
+    if (DrawButtonNew(&BUTTON_MINI_2, 0xf0, 0x12e, 1))
+        sel = 2;
+    if (DrawButtonNew(&BUTTON_MINI_3, 0x18e, 0x12e, (int)nextEnabled))
+        sel = 3;
+
+    rowcol[0] = rowcol[1] = rowcol[2] = nextShade;
+    limeDrawFONT(GameFont, GameText(8),
+                 (float)*limeScreenWidth - FE_WidthScale * 60.0f,
+                 FE_Y(294.0f), 2, FE_WidthScale, rowcol);
+
+    rowcol[0] = rowcol[1] = rowcol[2] = prevShade;
+    limeDrawFONT(GameFont, GameText(0x12),
+                 FE_X(60.0f), FE_Y(294.0f), 0, FE_WidthScale, rowcol);
+
+    if (nextEnabled == 1 && sel == 3) {
+        currentLeaderBoardPage++;
+        if (currentPeriod != LB_PERIOD_BOUNDED)
+            EASOC_MayhemReloadLeaderBoard(LB_BOARD_ID, currentPeriod,
+                                          currentLeaderBoardPage,
+                                          LB_PER_PAGE, LB_STAT_SURVIVAL);
+        puts("NEXT");
+        return;
+    }
+    if (prevEnabled == 1 && sel == 1) {
+        currentLeaderBoardPage--;
+        if (currentPeriod != LB_PERIOD_BOUNDED)
+            EASOC_MayhemReloadLeaderBoard(LB_BOARD_ID, currentPeriod,
+                                          currentLeaderBoardPage,
+                                          LB_PER_PAGE, LB_STAT_SURVIVAL);
+        puts("PREV");
+        return;
+    }
+    if (sel == 2)
+        PopFETaskDeferred();
+}
