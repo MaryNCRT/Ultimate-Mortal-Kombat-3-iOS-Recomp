@@ -8883,3 +8883,193 @@ void FE_Task_Bios(void)
             currentBiosProgress = 0.0f;
     }
 }
+
+
+/* ---------------------------------------------------------- FE_Task_About_About
+ *
+ * armv7 0x0000ed44, 1,888 bytes.  **Complete.**
+ *
+ * Two screens in one function, selected by `AboutPage`:
+ *
+ *      0        the about text -- four blocks and the build version
+ *      1 .. 5   the credits, sixteen rows a page out of one table
+ *
+ * `Next` cycles `AboutPage` through `(AboutPage + 1) % 6`, so page 0 is in the
+ * rotation and the about text is reached by paging past the last credits page
+ * rather than by a separate entry point.
+ *
+ * ### Chinese draws at full size, everything else at 80%
+ *
+ *      cjk = (strcmp(Language, "ZH") == 0) ? 1.0f : 0.8f;
+ *
+ * and `cjk` multiplies both the text scale **and the line pitch**, so the
+ * non-Chinese layout is the Chinese one scaled about its origin. `FE_Task_Bios`
+ * makes the same distinction at 0.95 and includes Korean; this one is Chinese
+ * only, at 0.8. Two different carve-outs on two screens.
+ *
+ * ### The about page stacks four wrapped blocks on a running line count
+ *
+ *      GameText(0x3b8)  the heading, at 1.25x, line 0
+ *      GameText(0xa9)   wrapped, from line 2
+ *      GameText(0xaa)   wrapped, from wherever the previous one ended + 1
+ *      GameText(0xab)   wrapped, likewise
+ *      GameText(0xac)   one line, after all of them
+ *      "Version: %s"    two lines further down
+ *      GameText(0xad)   three lines further down
+ *
+ * Every block re-uses the same `AboutSpiltText` buffer, so each is wrapped,
+ * drawn, and then overwritten by the next -- the running line counter is the
+ * only thing carried between them. An empty block still advances the counter by
+ * one, which is why a missing paragraph leaves a blank line rather than closing
+ * up.
+ *
+ * The version comes from the bundle rather than from a constant:
+ * `usprintf(buf, UC("Version: %s"), UC(limeGetPropertyString("CFBundleVersion")))`.
+ *
+ * ### The credits table is sixteen rows a page with a per-row scale
+ *
+ *      CreditsText[AboutPage * 16 + row - 16]
+ *
+ * -- eight bytes an entry: a `GameText` id and a scale in tenths, so a row
+ * drawn at `scale10 = 14` comes out at `FE_WidthScale * 0.8 * 1.4`. An id of -1
+ * skips the row and leaves the gap, which is how the table spaces its headings.
+ * The `- 16` is what makes page 1 the first sixteen entries; page 0 never
+ * reaches this loop.
+ *
+ * Row pitch here is a flat `row * 16 * 0.8 + 32` in `FE_Y` units, and the
+ * per-row scale does not change it -- a large row overlaps its neighbours
+ * rather than pushing them down.
+ */
+
+#define ABOUTABOUT_PAGES     6
+#define ABOUTABOUT_ROWS      16
+#define ABOUTABOUT_PITCH     16
+#define ABOUTABOUT_TOP       16.0f
+#define ABOUTABOUT_CRED_TOP  32.0
+#define ABOUTABOUT_CRED_SCL  0.8
+#define ABOUTABOUT_SPLIT     256
+#define ABOUTABOUT_CJK_SCALE 0.8f
+
+/* Eight bytes an entry: a GameText id and a scale in tenths. */
+typedef struct CREDITSENTRY {
+    long id;                            /* 0x00, -1 leaves the row blank */
+    long scale10;                       /* 0x04 */
+} CREDITSENTRY;
+
+extern long AboutPage;                  /* 0x00101190 */
+extern CREDITSENTRY CreditsText[];      /* 0x00101194 */
+extern char AboutSpiltText[];           /* 0x0018dd5c, 256 bytes a line */
+extern BUTTONNEW BUTTON_NEXTSTATS;      /* 0x001007f8 */
+
+void FE_Task_About_About(void)
+{
+    char  version[256];                 /* sp+0x3c */
+    long  lines = 0;                    /* sp+0x13c */
+    long  row, i, line;
+    long  back;
+    float cjk;
+
+    cjk = (strcmp(Language, "ZH") == 0) ? 1.0f : ABOUTABOUT_CJK_SCALE;
+
+    limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0234375f, 1.0f, 0.703125f, col);
+
+    if (AboutPage != 0) {
+        /* ---- the credits, sixteen rows out of the table ---- */
+        for (row = 0; row < ABOUTABOUT_ROWS; row++) {
+            const CREDITSENTRY *e =
+                &CreditsText[AboutPage * ABOUTABOUT_ROWS + row
+                             - ABOUTABOUT_ROWS];
+
+            if (e->id == -1)
+                continue;               /* the gap that spaces the headings */
+
+            limeDrawFONT(GameFont, GameText(e->id),
+                         (float)(*limeScreenWidth / 2),
+                         FE_Y((float)((double)(row * ABOUTABOUT_PITCH)
+                                      * ABOUTABOUT_CRED_SCL
+                                      + ABOUTABOUT_CRED_TOP)),
+                         1,
+                         (float)((double)FE_WidthScale * ABOUTABOUT_CRED_SCL
+                                 * (double)e->scale10 / 10.0),
+                         fontcol);
+        }
+    } else {
+        /* ---- the about text ---- */
+        limeDrawFONT(GameFont, GameText(0x3b8),
+                     (float)(*limeScreenWidth / 2),
+                     FE_Y(ABOUTABOUT_TOP),
+                     1, FE_WidthScale * 1.25f, fontcol);
+
+        CreateWrappedTextArrays(GameText(0xa9), AboutSpiltText, &lines,
+                                *limeScreenWidth - 0x20,
+                                GameFont, FE_WidthScale * cjk);
+        for (row = 2; row < lines + 2; row++)
+            limeDrawFONT(GameFont,
+                         limeUC(&AboutSpiltText[(row - 2) * ABOUTABOUT_SPLIT]),
+                         (float)(*limeScreenWidth / 2),
+                         FE_Y((float)(row * ABOUTABOUT_PITCH) * cjk
+                              + ABOUTABOUT_TOP),
+                         1, FE_WidthScale * cjk, fontcol);
+        line = row + 1;
+
+        CreateWrappedTextArrays(GameText(0xaa), AboutSpiltText, &lines,
+                                *limeScreenWidth - 0x20,
+                                GameFont, FE_WidthScale * cjk);
+        for (i = 0; i < lines; i++)
+            limeDrawFONT(GameFont,
+                         limeUC(&AboutSpiltText[i * ABOUTABOUT_SPLIT]),
+                         (float)(*limeScreenWidth / 2),
+                         FE_Y((float)((line + i) * ABOUTABOUT_PITCH) * cjk
+                              + ABOUTABOUT_TOP),
+                         1, FE_WidthScale * cjk, fontcol);
+        line += i + 1;
+
+        CreateWrappedTextArrays(GameText(0xab), AboutSpiltText, &lines,
+                                *limeScreenWidth - 0x20,
+                                GameFont, FE_WidthScale * cjk);
+        for (i = 0; i < lines; i++)
+            limeDrawFONT(GameFont,
+                         limeUC(&AboutSpiltText[i * ABOUTABOUT_SPLIT]),
+                         (float)(*limeScreenWidth / 2),
+                         FE_Y((float)((line + i) * ABOUTABOUT_PITCH) * cjk
+                              + ABOUTABOUT_TOP),
+                         1, FE_WidthScale * cjk, fontcol);
+        line += i;
+
+        limeDrawFONT(GameFont, GameText(0xac),
+                     (float)(*limeScreenWidth / 2),
+                     FE_Y((float)(line * ABOUTABOUT_PITCH) * cjk
+                          + ABOUTABOUT_TOP),
+                     1, FE_WidthScale * cjk, fontcol);
+
+        /* the build number, out of the bundle */
+        usprintf(version, UC("Version: %s"),
+                 UC(limeGetPropertyString("CFBundleVersion")));
+        limeDrawFONT(GameFont, limeUC(version),
+                     (float)(*limeScreenWidth / 2),
+                     FE_Y((float)((line + 2) * ABOUTABOUT_PITCH) * cjk
+                          + ABOUTABOUT_TOP),
+                     1, FE_WidthScale * cjk, fontcol);
+
+        limeDrawFONT(GameFont, GameText(0xad),
+                     (float)(*limeScreenWidth / 2),
+                     FE_Y((float)((line + 3) * ABOUTABOUT_PITCH) * cjk
+                          + ABOUTABOUT_TOP),
+                     1, FE_WidthScale * cjk, fontcol);
+    }
+
+    back = DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1);
+    limeDrawFONT(GameFont, GameText(7),
+                 FE_X(423.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
+
+    if (back)
+        PopFETaskDeferred();
+
+    if (DrawButtonNew(&BUTTON_NEXTSTATS, 0x39, 0x130, 1))
+        AboutPage = (AboutPage + 1) % ABOUTABOUT_PAGES;
+
+    limeDrawFONT(GameFont, GameText(8),
+                 FE_X(57.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
+}
