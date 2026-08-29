@@ -5,12 +5,18 @@ A short, specific work order for whoever takes this on next. Read
 
 ---
 
-## The task right now: gamecode
+## The task right now: gamecode/logic
 
-**`gamecode` is 48 of 291.** That is where the effort goes. Everything below is
-context for how to do it and what the project has already paid to learn; the
-task itself is one line — pick the next function, transcribe it from the armv7
-disassembly, and do not write anything the disassembly does not say.
+**`gamecode` is finished — 291 of 291 — and `gamecode/logic` is 3 of 2,172.**
+That is where the effort goes now. Everything below is context for how to do it
+and what the project has already paid to learn; the task itself is one line —
+pick the next function, transcribe it from the armv7 disassembly, and do not
+write anything the disassembly does not say.
+
+The plan of record is to **automate the loop** rather than read 2,169 functions
+by hand: `tools/decomp_loop.py` scores the pending list by complexity and works
+smallest-first, which is the order that has paid off every time. The bar for
+landing one does not change.
 
 The renderer is no longer the bottleneck. All 18 arenas draw, textured, with
 their effects and an animated fighter in them, and the numbers that place them
@@ -72,7 +78,8 @@ tracking **is solved and never needed it.** `recomp.py` emits every import as
 call is simply available. `tests/gl_trace.c` records both sides and compares
 them. Measure, do not infer.
 
-**`gamecode` is under way: 23 of 291**, every one verified.
+**`gamecode` is finished: 291 of 291.** The table below is the state of the
+verification tests when the oracle work was written up, not the current count.
 
 | file | functions | test |
 |---|---|---|
@@ -174,7 +181,7 @@ file.
 
 ## gamecode, in more detail
 
-**`gamecode`, 291 functions, 48 written.** `SwitchQueue` is already verified and is the
+**`gamecode`, 291 functions, all 291 written.** `SwitchQueue` is already verified and is the
 proof that some of it is tractable: pure data manipulation over a ring buffer,
 no function pointers, no indirect branches. Most of the fight engine will not
 allow that, so treat `SwitchQueue` as the easy end of a hard body of code rather

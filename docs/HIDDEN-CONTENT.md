@@ -102,19 +102,59 @@ A factor of fourteen. So the character-select art for Human Smoke is
 This is the one place so far where the evidence supports the word *unfinished*
 rather than merely *hidden*. Noob Saibot, by contrast, has everything.
 
-## What is genuinely unknown
+## How they are reached — settled
 
-**Whether the character select screen exposes any of this.** That logic lives in
-`FrontEnd.cpp`, which is not decompiled, so we can state what ships and not what
-is reachable. The honest summary:
+`FrontEnd.cpp` is now fully decompiled, and the selection path is no longer a
+gap. Every one of these characters is reachable in the shipping build.
 
-- the **assets** are complete for all five
-- the **roster table** lists them
-- a **hidden-portrait** asset exists
-- the **selection path** is unread
+**Smoke: hold on Human Smoke.** `drawCharacterSelection` special-cases cell 14:
 
-Calling them "unused" would overstate it. "Present, and not yet shown to be
-reachable" is what the evidence supports.
+```c
+if (c == 14) {
+    if (the touch is inside this cell) SmokeCounter += 1 / limeFPSScaleFactor;
+    else                               SmokeCounter = 0;
+
+    if (SmokeCounter > 180) {
+        SmokeCounter = 0;
+        c = 22;                          /* the cell BECOMES character 22 */
+        *limeLastTouchScreenX = -1.0f;   /* and a release is fabricated */
+    }
+}
+```
+
+180 frame-rate-corrected units is about three seconds, and the counter is reset
+by any frame the touch leaves the cell, so the hold has to be continuous. The
+`limeLastTouchScreenX = -1` is the interesting part: it is exactly the condition
+the tap test below is waiting for, so the hold finishes by selecting character 22
+through the ordinary path, as though the cell had been tapped.
+
+Its hit box is not the cell's. The hold runs from `FE_Y(32 + row * 63)` to
+`FE_Y(row * 63 + 91)`; the tap box starts four units higher. The two agree on the
+bottom and the right and differ on the top.
+
+**Ermac, Mileena and Classic Sub-Zero: three ten-digit kodes.**
+`FE_Task_Enter_Kode` holds all three as chains of ten compares:
+
+| kode | sets |
+|---|---|
+| `1 2 3 4 4 4 4 3 2 1` | `ErmacUnlocked = 1`, `KodeSuccess = 2` |
+| `2 2 2 6 4 2 2 2 6 4` | `MileenaUnlocked = 1`, `KodeSuccess = 1` |
+| `8 1 8 3 5 8 1 8 3 5` | `ClassicSubZeroUnlocked = 1`, `KodeSuccess = 3` |
+
+`KodeSuccess` then doubles as the message id — `GameText` 0x5f, 0x60 and 0x61 —
+and the wheels freeze once it is set. The dispatch keys on `KodeSelector[0]`, so
+one wrong digit early abandons the whole chain rather than falling through to
+the next kode.
+
+**One grid cell can stand for two fighters.** Every highlight test in
+`drawCharacterSelection` matches against **both** `CS_Layout[row][col]` and a
+second 4x7 table `CS_Layout2` at `0x001016a0`, which is how the alternates share
+positions with the characters they replace.
+
+So: the assets are complete, the roster table lists them, the hidden-portrait
+asset is slot 27 (`HIDDENPORTRAIT.PNG`, drawn for any cell whose
+`CharacterAvailable` entry is neither 1 nor 2), and the selection path is read.
+Nothing here is unused.
 
 ## Rain: one string, and nothing else
 
