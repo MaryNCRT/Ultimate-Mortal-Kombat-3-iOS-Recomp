@@ -11702,3 +11702,314 @@ void EditButtons(void)
                      EB_BAND_R, EB_BAND_G, EB_BAND_B, EB_BAND_A);
     }
 }
+
+
+/* ----------------------------------------------------- FE_Task_Select_Treasure
+ *
+ * armv7 0x000109c0, 3,596 bytes.  **Complete.**
+ *
+ * The reward screen after a tower run: the same ten-tile row `FE_Task_Treasure`
+ * draws, but here you *pick* one, and how many of them are on offer depends on
+ * how far you got.
+ *
+ * ### The difficulty you finished on decides how many tiles are live
+ *
+ *      LastDestiny == 0   1 tile
+ *                 == 1   4
+ *                 == 2   9
+ *      anything else     10
+ *
+ * The other tiles are still drawn, in `semicol` / `semidarkcol` instead of
+ * `col` / `darkcol`, so the whole row is always visible and the unreachable part
+ * of it is simply dimmer.
+ *
+ * ### Slot 0 is not a treasure -- it is the ending for your character
+ *
+ * Every test that reads `TreasureGained[i]` for `i != 0` reads
+ * `EndingsGained[PLAYER1MODEL]` for `i == 0` instead, and claiming slot 0 sets
+ * that flag rather than a treasure flag. Claiming it then counts the whole
+ * endings table, and if more than 22 of the 23 are set it grants
+ * `TreasureGained[0]` as well -- the "see every ending" reward, awarded from
+ * here rather than from wherever the endings are viewed.
+ *
+ * ### Picking one fires all ten particles, not the one you picked
+ *
+ *      TreasureSelected = i;
+ *      ...grant it...
+ *      for (k = 0; k < 10; k++) KodeSelectorParticle[k] = 0.001f;
+ *
+ * `FE_Task_Treasure` kicks off only the tile that was tapped. This one lights
+ * the whole row at once.
+ *
+ * ### The particles only ever advance after something is picked
+ *
+ * While `TreasureSelected == -1` the frame goes straight from the row's tap
+ * handling to the tile draw and skips the advance entirely. Since nothing sets a
+ * particle before a pick, that costs nothing -- but it means the advance and the
+ * tap test are mutually exclusive, which is why the tile-drawing code appears
+ * twice in the binary and one of the two copies is only reached the long way
+ * round.
+ *
+ * ### The red box behind the portrait is filled with FE_WidthScale as its red
+ *
+ *      limeFillRect(WS * 212, HS * 54, WS * 52, HS * 63,
+ *                   FE_WidthScale, 0, 0, 1.0f);
+ *
+ * The colour argument is the *scale factor*, not a constant. On a 480-wide
+ * screen `FE_WidthScale` is 1.0 and the box is pure red, which is why it was
+ * never noticed; on anything wider it is brighter than full red and on anything
+ * narrower it is darker. Transcribed as written -- a port should use 1.0f.
+ *
+ * ### Leaving takes 300 units, and the destination depends on what you picked
+ *
+ *      if (TreasureSelected == -1 || everything claimed)
+ *          TreasureSelectTime += 1 / limeFPSScaleFactor;
+ *
+ *      once past 300:
+ *          picked -1, 0, 2 or 3   -> unwind to the tower, save, and stop
+ *          anything else          -> fade out into GameMode 5 with
+ *                                    TreasurePlayed = TreasureSelected + 1
+ *
+ * The clock only runs while nothing is picked *or* everything already is, so
+ * picking one of the playable treasures stops the timer and the screen waits on
+ * the fade instead. Slots 0, 2 and 3 are the ones with nothing to play.
+ *
+ * ### Three different bottom lines
+ *
+ *      all ten claimed        GameText(0x4e)
+ *      this run's lot claimed GameText(0x4d)
+ *      otherwise              GameText(0x4f) and GameText(0x50), plus
+ *                             GameText(0x4c) while nothing is picked
+ */
+
+#define ST_TILES        10
+#define ST_ATLAS_COL    5
+#define ST_CELL         48
+#define ST_ROW_Y        140.0f
+#define ST_BAND_TOP     124.0f
+#define ST_BAND_BOT     204.0f
+#define ST_U            0.1875f
+#define ST_V            0.375f
+#define ST_PART_STEP    0.05
+#define ST_PART_ON      0.001f
+#define ST_PART_MOVE    24.0f
+#define ST_ENDINGS      23
+#define ST_ALL_ENDINGS  22
+#define ST_TIMEOUT      300.0f
+#define ST_FADE_STEP    -0.033333335f
+
+extern long  *LastDestiny;              /* pointer slot -> 0x0014e210 */
+extern long  *PLAYER1MODEL;             /* pointer slot -> 0x0014e1b4 */
+extern long   TreasureSelected;         /* 0x00101160 */
+extern float  TreasureSelectTime;       /* 0x0010118c */
+
+void SaveUnclaimedTreasure(long which);
+
+void FE_Task_Select_Treasure(void)
+{
+    long  count, claimed = 0, i, x, n = 0, allDone;
+
+    if (*LastDestiny == 0)
+        count = 1;
+    else if (*LastDestiny == 1)
+        count = 4;
+    else if (*LastDestiny == 2)
+        count = 9;
+    else
+        count = ST_TILES;
+
+    limeDrawSprite((TEXTURE *)MetalScreenTexture, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0f, 1.0f, 1.0f, col);
+
+    limeEnableAlphaBlending_Additive();
+
+    DrawAnimAsSprite(0, 0, FE_WidthScale, 0x80,
+                     0x80, (long)(uintptr_t)SpotlightTextures,
+                     (const char *)&spotlight_SpriteDef, spotlight_Anim,
+                     0, (long)*GameCounter,
+                     0, spotlight_Anim[0] - 1, 1, col);
+
+    DrawAnimAsSprite((long)((float)*limeScreenWidth
+                            + FE_WidthScale * -128.0f),
+                     0, FE_WidthScale, 0x80,
+                     0x80, (long)(uintptr_t)SpotlightTextures,
+                     (const char *)&spotlight_SpriteDef, spotlight_Anim,
+                     1, (long)*GameCounter,
+                     0, spotlight_Anim[0] - 1, 1, col);
+
+    limeEnableAlphaBlending_Basic();
+
+    /* the red component is FE_WidthScale, not 1.0f -- see the header */
+    limeFillRect(FE_WidthScale * 212.0f, FE_HeightScale * 54.0f,
+                 FE_WidthScale * 52.0f, FE_HeightScale * 63.0f,
+                 FE_WidthScale, 0.0f, 0.0f, 1.0f);
+
+    limeDrawSprite((TEXTURE *)TowerPortraitTexture[Character1],
+                   FE_WidthScale * 214.0f, FE_HeightScale * 56.0f,
+                   FE_WidthScale * 64.0f, FE_HeightScale * 64.0f,
+                   0.0f, 0.0f, 1.0f, 1.0f, col);
+
+    for (i = 0, x = 0; i < ST_TILES; i++, x += ST_CELL) {
+        long  gained;
+        float u, v, t;
+        const float *colour;
+
+        gained = (i != 0) ? TreasureGained[i]
+                          : EndingsGained[*PLAYER1MODEL];
+
+        if (TreasureSelected == -1) {
+            if (gained)
+                claimed++;
+
+            /* ---- the tap, for the tiles this run actually offers ---- */
+            if (i < count && gained == 0
+                && *limeLastTouchScreenX == -1.0f
+                && *limeTouchScreenY >= FE_HeightScale * ST_BAND_TOP
+                && *limeTouchScreenY <= FE_HeightScale * ST_BAND_BOT
+                && *limeTouchScreenX >= FE_WidthScale * (float)x
+                && *limeTouchScreenX <= FE_WidthScale
+                                        * (float)(x + ST_CELL)) {
+                long k;
+
+                TreasureSelected = i;
+
+                if (i != 0) {
+                    TreasureGained[i] = 1;
+                } else {
+                    long e, seen = 0;
+
+                    EndingsGained[*PLAYER1MODEL] = 1;
+
+                    for (e = 0; e < ST_ENDINGS; e++)
+                        if (EndingsGained[e])
+                            seen++;
+
+                    if (seen > ST_ALL_ENDINGS)
+                        TreasureGained[0] = 1;   /* saw every ending */
+                }
+
+                for (k = 0; k < ST_TILES; k++)   /* the WHOLE row lights up */
+                    KodeSelectorParticle[k] = ST_PART_ON;
+            }
+        } else if (KodeSelectorParticle[i] != 0.0f) {
+            KodeSelectorParticle[i] =
+                (float)((double)KodeSelectorParticle[i]
+                        + ST_PART_STEP / (double)limeFPSScaleFactor);
+
+            if (KodeSelectorParticle[i] >= 1.0f)
+                KodeSelectorParticle[i] = 0.0f;
+        }
+
+        /* ---- the tile ---- */
+        u = (float)((double)((i % ST_ATLAS_COL) * ST_CELL) * 0.00390625);
+        v = (float)((double)((i / ST_ATLAS_COL) * ST_CELL) * 0.0078125);
+
+        colour = 0;
+
+        if (TreasureSelected == -1) {
+            if (i < count)
+                colour = gained ? darkcol : col;
+            else
+                colour = gained ? semidarkcol : semicol;
+        } else if (TreasureSelected == i) {
+            colour = col;
+        }
+
+        if (colour != 0)
+            limeDrawSprite((TEXTURE *)KodesTexture,
+                           FE_WidthScale * (float)x,
+                           FE_HeightScale * ST_ROW_Y,
+                           FE_WidthScale * (float)ST_CELL,
+                           FE_HeightScale * (float)ST_CELL,
+                           u, v, ST_U, ST_V, colour);
+
+        t = KodeSelectorParticle[i];
+
+        if (t != 0.0f) {
+            float part[4] = { 1.0f, 1.0f, 1.0f, 1.0f };   /* C.685 0x000ddf5c */
+
+            part[3] = 1.0f - t;
+
+            limeDrawSprite((TEXTURE *)KodesTexture,
+                           ((float)x - ST_PART_MOVE * t) * FE_WidthScale,
+                           (ST_ROW_Y - ST_PART_MOVE * t) * FE_HeightScale,
+                           FE_WidthScale * ((t + 1.0f) * (float)ST_CELL),
+                           FE_HeightScale * ((t + 1.0f) * (float)ST_CELL),
+                           u, v, ST_U, ST_V, part);
+        }
+    }
+
+    /* ---- has this run's whole allowance been claimed? ---- */
+    for (i = 0; i < count; i++) {
+        if (i == 0) {
+            if (EndingsGained[*PLAYER1MODEL])
+                n++;
+        } else {
+            n += TreasureGained[i];     /* a SUM, not a count */
+        }
+    }
+
+    allDone = (n == count);
+
+    if (TreasureSelected == -1 || allDone)
+        TreasureSelectTime += 1.0f / limeFPSScaleFactor;
+
+    if (TreasureSelectTime > ST_TIMEOUT) {
+        long s = TreasureSelected;
+
+        if ((unsigned long)(s + 1) <= 1 || s == 2 || s == 3) {
+            /* nothing to play: unwind to the tower */
+            PopAllFETasksDeferred(0);
+            GameStarted = 0;
+            PopulateTower();
+            Destiny = -1;
+            Stage   = 0;
+            Write_SaveData();
+            SaveUnclaimedTreasure(0);
+            TreasureSelectTime = 0.0f;
+
+            s = TreasureSelected;
+        }
+
+        if (!((unsigned long)(s + 1) <= 1 || s == 2 || s == 3)) {
+            FE_FadeAdd   = ST_FADE_STEP;
+            FadeMusicOut = 1;
+        }
+
+        if (FE_FadeAdd <= 0.0f && FE_Fade == 0.0f) {
+            Destiny = -1;
+            Stage   = 0;
+            Write_SaveData();
+            SaveUnclaimedTreasure(0);
+            TreasureSelectTime = 0.0f;
+            GameMode           = 5;
+            TreasurePlayed     = TreasureSelected + 1;
+            CurrentTask        = 4;
+        }
+    }
+
+    /* ---- the bottom line ---- */
+    if (claimed == ST_TILES) {
+        limeDrawFONT(GameFont, GameText(0x4e),
+                     (float)(*limeScreenWidth / 2), FE_HeightScale * 240.0f,
+                     1, FE_WidthScale, fontcol);
+    } else if (allDone) {
+        limeDrawFONT(GameFont, GameText(0x4d),
+                     (float)(*limeScreenWidth / 2), FE_HeightScale * 240.0f,
+                     1, FE_WidthScale, fontcol);
+    } else {
+        limeDrawFONT(GameFont, GameText(0x4f),
+                     (float)(*limeScreenWidth / 2), FE_HeightScale * 230.0f,
+                     1, FE_HeightScale, fontcol);
+        limeDrawFONT(GameFont, GameText(0x50),
+                     (float)(*limeScreenWidth / 2), FE_HeightScale * 248.0f,
+                     1, FE_HeightScale, fontcol);
+
+        if (TreasureSelected == -1)
+            limeDrawFONT(GameFont, GameText(0x4c),
+                         (float)(*limeScreenWidth / 2),
+                         FE_HeightScale * 280.0f,
+                         1, FE_HeightScale, fontcol);
+    }
+}
