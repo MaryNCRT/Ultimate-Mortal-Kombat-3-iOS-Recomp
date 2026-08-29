@@ -12013,3 +12013,351 @@ void FE_Task_Select_Treasure(void)
                          1, FE_HeightScale, fontcol);
     }
 }
+
+
+/* ------------------------------------------- FE_Task_Multiplayer_Versus_Screen
+ *
+ * armv7 0x00016410, 3,808 bytes.  **Complete.**
+ *
+ * The network versus screen: the two portraits slide in, a countdown runs, and
+ * along the bottom sits a **six-digit kode row that both machines share** -- each
+ * side owns three digits and every change is sent over the link. If the opponent
+ * pauses, the whole thing is replaced by a wrapped message and an exit target.
+ *
+ * ### Which portrait is "yours" depends on a speed test, not on who you are
+ *
+ *      if (isParentBasedOnSpeed() ? isParent() : !isParent())
+ *          left = Character1, right = Character2;
+ *      else
+ *          left = Character2, right = Character1;
+ *
+ * so the two devices agree on a left/right ordering by combining the real
+ * parent/child role with a *separate* speed-derived one. Both machines run this
+ * and land on opposite answers, which is what keeps the two screens mirrored.
+ *
+ * ### The kode row is six digits, not ten, and the gap is in the middle
+ *
+ *      for (i = 0; i <= 9; i++) {
+ *          ...draw digit i...
+ *          if (3 <= i && i <= 6) { i++; continue; }   <- skipped, four at once
+ *      }
+ *
+ * Slots 3, 4, 5 and 6 are stepped over, leaving 0, 1, 2 and 7, 8, 9: three
+ * digits at each end of the screen with the VS badge between them. The tiles use
+ * the same 256x128 `KodesTexture` atlas as `FE_Task_Enter_Kode`, at
+ * `FE_X(i * 48)` and `screenHeight - 48 * FE_HeightScale`.
+ *
+ * ### Only your own three digits answer to a touch, and the range is asymmetric
+ *
+ *      parent   i <= 4
+ *      child    i <= 5
+ *
+ * -- reached through a chain of `isParent` / `isParentBasedOnSpeed` calls that
+ * ends in two different bounds. Since the drawn slots are 0..2 and 7..9, `<= 4`
+ * is the low three and `<= 5` is also the low three; the difference never shows.
+ *
+ * A hit steps the digit `(n + 1) % 10` and sends it:
+ *
+ *      isParent()  ->  sendKodePacket(&KodeSelector[0], i)
+ *      otherwise   ->  sendKodePacket(&KodeSelector[7], i - 7)
+ *
+ * and `isParentBasedOnSpeed()` is called first to choose between two arms that
+ * do exactly the same thing. Then `checkIfKode()` and the tile's particle.
+ *
+ * ### The countdown is authoritative on one side and echoed on the other
+ *
+ *      speed-parent:  sendTimerPacket(vsScreenTimer, VSWait);
+ *                     vsScreenTimer -= 1 / limeFPSScaleFactor;
+ *                     once it passes zero: FadeMusicOut = 1,
+ *                     FE_FadeAdd = -1/30, sendMenuPacket(4)
+ *      otherwise:     vsScreenTimer -= 1 / limeFPSScaleFactor, and stop at zero
+ *
+ * so one machine owns the clock and tells the other; the other still counts
+ * locally so the display does not stutter between packets. The number shown is
+ * `snprintf(buf, 128, "%d", (int)(vsScreenTimer / 60))` at 2.5x scale.
+ *
+ * ### A paused opponent replaces the screen, and the exit is a bare rectangle
+ *
+ *      CreateWrappedTextArrays(GameText(0x3bb), MPVersusSplitText, ...);
+ *      ...one line every 16 units from FE_Y(48)...
+ *      GameText(9) at 2.5x
+ *
+ *      released, x in (FE_X(160), FE_X(320)), y > FE_Y(272)
+ *          -> puts("PRESSED EXIT!");
+ *             PopAllFETasksDeferred(0); disableHeartbeat(); endMP();
+ *             thisSessionId++; otherPlayerPaused = 0;
+ *
+ * The `puts` is in retail. The exit target is a plain coordinate box with no
+ * button behind it, and the release test here reads `limeTouchScreenX == -1`
+ * with the position taken from `limeLastTouchScreenX/Y` -- the opposite spelling
+ * from the rest of this file, which tests `limeLastTouchScreenX == -1` and reads
+ * `limeTouchScreenX`.
+ *
+ * ### Leaving into the match
+ *
+ *      once the fade has run out and neither side is paused:
+ *          CurrentTask = 4; checkIfKode(); preprocessPreloadKode();
+ *          disableHeartbeat();
+ */
+
+#define MVS_DIGITS       10
+#define MVS_SKIP_LO      3      /* slots 3..6 are stepped over */
+#define MVS_SKIP_HI      6
+#define MVS_CELL         48
+#define MVS_U            0.1875f
+#define MVS_V            0.375f
+#define MVS_PART_STEP    0.05
+#define MVS_PART_ON      0.001f
+#define MVS_PART_MOVE    24.0f
+#define MVS_HOLD_FRAMES  30.0f
+#define MVS_SLIDE_RATE   16.0f
+#define MVS_FADE_STEP    -0.033333335f
+#define MVS_BIG_TEXT     2.5f
+#define MVS_LOG_MATCH    0x7555
+
+extern long *SpritelistReceived;        /* pointer slot -> 0x0010deac */
+extern float *limeLastTouchScreenY;     /* pointer slot -> 0x00171b6c */
+extern char  MPVersusSplitText[];       /* 0x00185950, 256 bytes a line */
+
+long isHeartbeatOn(void);
+void enableHeartbeat(long seconds);
+void disableHeartbeat(void);
+void sendTimerPacket(long timer, long wait);
+void sendMenuPacket(long which);
+void sendKodePacket(const int *digits, long index);   /* KodeSelector is int[] */
+void checkIfKode(void);
+int  puts(const char *s);
+int  snprintf(char *buf, size_t n, const char *fmt, ...);
+
+void FE_Task_Multiplayer_Versus_Screen(void)
+{
+    char  timerText[128];               /* sp+0x7c */
+    long  lines = 0;                    /* sp+0x10c */
+    long  left, right, i;
+
+    /* ---- who is drawn on the left ---- */
+    if (isParentBasedOnSpeed() ? (isParent() != 0) : (isParent() == 0)) {
+        left  = Character1;
+        right = Character2;
+    } else {
+        left  = Character2;
+        right = Character1;
+    }
+
+    if (characterReported == 0) {
+        characterReported = 1;
+
+        if (Character1 >= 0)
+            EASDK_LogEventEnumEnumString(MVS_LOG_MATCH, 15,
+                                         CharacterNames[Character1], 15,
+                                         "Multiplayer");
+    }
+
+    charSelectButtonPressed = 0;
+    *SpritelistReceived     = 0;
+    syncCharactersOpponent  = 0;
+    syncCharacters          = 0;
+
+    if (*GamePaused == 0 && *otherPlayerPaused == 0 && isHeartbeatOn() == 0)
+        enableHeartbeat(5);
+
+    if (VSAssetsLoaded == 0)
+        FE_Task_VS_Screen_Init();
+
+    limeDrawSprite((TEXTURE *)MetalScreenTexture, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0f, 1.0f, 1.0f, col);
+
+    limeDrawSprite((TEXTURE *)VSTexture,
+                   FE_WidthScale * 208.0f, FE_HeightScale * 80.0f,
+                   FE_WidthScale * 64.0f, FE_HeightScale * 128.0f,
+                   0.0f, 0.0f, 1.0f, 1.0f, col);
+
+    limeEnableAlphaBlending_Additive();
+
+    if (*otherPlayerPaused == 0) {
+        DrawAnimAsSprite(0, 0, FE_WidthScale, 0x80,
+                         0x80, (long)(uintptr_t)SpotlightTextures,
+                         (const char *)&spotlight_SpriteDef, spotlight_Anim,
+                         0, (long)*GameCounter,
+                         0, spotlight_Anim[0] - 1, 1, col);
+
+        DrawAnimAsSprite((long)((float)*limeScreenWidth
+                                + FE_WidthScale * -128.0f),
+                         0, FE_WidthScale, 0x80,
+                         0x80, (long)(uintptr_t)SpotlightTextures,
+                         (const char *)&spotlight_SpriteDef, spotlight_Anim,
+                         1, (long)*GameCounter,
+                         0, spotlight_Anim[0] - 1, 1, col);
+    }
+
+    limeEnableAlphaBlending_Basic();
+
+    /* ---- the two portraits, through FE_X / FE_W / FE_H this time ---- */
+    limeDrawSprite((TEXTURE *)CharacterVSTexture[left],
+                   FE_X(0.0f - VSScroll),
+                   (float)*limeScreenHeight + FE_HeightScale * -256.0f,
+                   FE_W(256.0f), FE_H(256.0f),
+                   0.0f, 0.0f, 1.0f, 1.0f, col);
+
+    limeDrawSprite((TEXTURE *)(left == right ? CharacterVSTexture2[right]
+                                             : CharacterVSTexture[right]),
+                   FE_X(224.0f + VSScroll),
+                   (float)*limeScreenHeight + FE_HeightScale * -256.0f,
+                   FE_W(256.0f), FE_H(256.0f),
+                   0.0f, 0.0f, -1.0f, 1.0f, col);   /* mirrored */
+
+    /* ---- the shared kode row: six digits, 3..6 skipped ---- */
+    for (i = 0; i < MVS_DIGITS; i++) {
+        long  n;
+        float u, v, t;
+        long  x = i * MVS_CELL;
+
+        if (*GamePaused == 0 && *otherPlayerPaused == 0) {
+            long mine = isParent() ? (isParentBasedOnSpeed() && i <= 4)
+                                   : (i <= 5);
+
+            if (mine && *limeLastTouchScreenX == -1.0f
+                && *limeTouchScreenY >= (float)*limeScreenHeight
+                                        + FE_HeightScale * -64.0f
+                && *limeTouchScreenY <= (float)*limeScreenHeight
+                                        + FE_HeightScale * 16.0f
+                && *limeTouchScreenX >= FE_X((float)x)
+                && *limeTouchScreenX <= FE_X((float)((i + 1) * MVS_CELL))) {
+
+                KodeSelector[i] = (KodeSelector[i] + 1) % 10;
+
+                /* isParentBasedOnSpeed() is asked here and both answers
+                 * lead to the same pair of calls */
+                if (isParent())
+                    sendKodePacket(&KodeSelector[0], i);
+                else
+                    sendKodePacket(&KodeSelector[7], i - 7);
+
+                checkIfKode();
+                KodeSelectorParticle[i] = MVS_PART_ON;
+            }
+        }
+
+        if (KodeSelectorParticle[i] != 0.0f) {
+            KodeSelectorParticle[i] =
+                (float)((double)KodeSelectorParticle[i]
+                        + MVS_PART_STEP / (double)limeFPSScaleFactor);
+
+            if (KodeSelectorParticle[i] >= 1.0f)
+                KodeSelectorParticle[i] = 0.0f;
+        }
+
+        n = KodeSelector[i];
+        u = (float)((double)((n % 5) * MVS_CELL) * 0.00390625);
+        v = (float)((double)((n / 5) * MVS_CELL) * 0.0078125);
+
+        limeDrawSprite((TEXTURE *)KodesTexture,
+                       FE_X((float)x),
+                       (float)*limeScreenHeight + FE_HeightScale * -48.0f,
+                       FE_W((float)MVS_CELL), FE_H((float)MVS_CELL),
+                       u, v, MVS_U, MVS_V, col);
+
+        t = KodeSelectorParticle[i];
+
+        if (t != 0.0f) {
+            float part[4] = { 1.0f, 1.0f, 1.0f, 1.0f };  /* C.360 0x000ddfcc */
+
+            part[3] = 1.0f - t;
+
+            limeDrawSprite((TEXTURE *)KodesTexture,
+                           FE_X((float)x - MVS_PART_MOVE * t),
+                           (float)*limeScreenHeight
+                           + FE_HeightScale * -48.0f
+                           - FE_HeightScale * MVS_PART_MOVE * t,
+                           FE_W((t + 1.0f) * (float)MVS_CELL),
+                           FE_H((t + 1.0f) * (float)MVS_CELL),
+                           u, v, MVS_U, MVS_V, part);
+        }
+
+        if (i >= MVS_SKIP_LO && i <= MVS_SKIP_HI)
+            i = MVS_SKIP_HI;            /* four slots at once -- see the header */
+    }
+
+    /* ---- the slide, shared with FE_Task_VS_Screen ---- */
+    if (VSWait > MVS_HOLD_FRAMES)
+        VSScroll += -MVS_SLIDE_RATE / limeFPSScaleFactor;
+
+    if (VSScroll <= 0.0f)
+        VSScroll = 0.0f;
+
+    VSWait += 1.0f / limeFPSScaleFactor;
+
+    /* ---- handing over into the match ---- */
+    if (FE_FadeAdd == 0.0f && FE_Fade == 0.0f
+        && *otherPlayerPaused == 0 && *GamePaused == 0) {
+        CurrentTask = 4;
+        checkIfKode();
+        preprocessPreloadKode();
+        disableHeartbeat();
+    }
+
+    if (*otherPlayerPaused != 0) {
+        /* ---- the opponent paused: a wrapped message and a bare exit box ---- */
+        CreateWrappedTextArrays(GameText(0x3bb), MPVersusSplitText, &lines,
+                                *limeScreenWidth - 0x20,
+                                GameFont, FE_WidthScale);
+
+        for (i = 0; i < lines; i++)
+            limeDrawFONT(GameFont, limeUC(&MPVersusSplitText[i * 256]),
+                         (float)(*limeScreenWidth / 2),
+                         FE_Y((float)(i * 16 + 0x30)),
+                         1, FE_WidthScale, fontcol);
+
+        limeDrawFONT(GameFont, GameText(9),
+                     (float)(*limeScreenWidth / 2),
+                     (float)*limeScreenHeight + FE_HeightScale * -48.0f,
+                     1, FE_WidthScale * MVS_BIG_TEXT, fontcol);
+
+        if (*limeTouchScreenX == -1.0f
+            && *limeLastTouchScreenX > FE_X(160.0f)
+            && *limeLastTouchScreenX < FE_X(320.0f)
+            && *limeLastTouchScreenY > FE_Y(272.0f)) {
+            puts("PRESSED EXIT!");
+            PopAllFETasksDeferred(0);
+            disableHeartbeat();
+            endMP();
+            thisSessionId++;
+            *otherPlayerPaused = 0;
+        }
+
+        return;
+    }
+
+    if (*GamePaused == 0) {
+        /* ---- the clock ---- */
+        if (isParentBasedOnSpeed()) {
+            sendTimerPacket((long)vsScreenTimer, (long)VSWait);
+
+            if (vsScreenTimer > 0.0f) {
+                vsScreenTimer += -1.0f / limeFPSScaleFactor;
+
+                if (vsScreenTimer <= 0.0f) {
+                    vsScreenTimer = 0.0f;
+                    FadeMusicOut  = 1;
+                    FE_FadeAdd    = MVS_FADE_STEP;
+                    sendMenuPacket(4);
+                }
+            }
+        } else if (vsScreenTimer > 0.0f) {
+            vsScreenTimer += -1.0f / limeFPSScaleFactor;
+
+            if (vsScreenTimer < 0.0f)
+                vsScreenTimer = 0.0f;
+        }
+    }
+
+    /* ---- the number, in whole seconds ---- */
+    snprintf(timerText, sizeof timerText, "%d",
+             (int)(vsScreenTimer / 60.0f));
+
+    limeDrawFONT(GameFont, timerText,
+                 (float)(*limeScreenWidth / 2),
+                 (float)*limeScreenHeight + FE_HeightScale * -48.0f,
+                 1, FE_WidthScale * MVS_BIG_TEXT, fontcol);
+}
