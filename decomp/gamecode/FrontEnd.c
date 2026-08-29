@@ -12361,3 +12361,425 @@ void FE_Task_Multiplayer_Versus_Screen(void)
                  (float)*limeScreenHeight + FE_HeightScale * -48.0f,
                  1, FE_WidthScale * MVS_BIG_TEXT, fontcol);
 }
+
+
+/* -------------------------------------------------------------- FEInit_LoadABit
+ *
+ * armv7 0x00003958, 4,284 bytes.  **Complete.**
+ *
+ * The front end's loader, one slice at a time. The caller passes a step number
+ * and gets back 0 for "more to do" and 1 for "finished", so the whole front end
+ * can be brought in without ever blocking a frame. Eighty-nine steps, dispatched
+ * through a single `tbh [pc, r0, lsl #1]` table at 0x00003964.
+ *
+ * ### The step numbers are not in loading order
+ *
+ * Step 0 is the setup, 1..26 pull in the character models, 27..39 the voices,
+ * 40 the versus portraits, 44..70 the textures, 71..84 the meshes, 85 the music,
+ * 86 the close-out -- and **87 sends a heartbeat while 88 is the one that
+ * returns 1**. The table is walked upwards, so the order above is the order the
+ * work happens in; the switch arms are simply laid out backwards in the binary,
+ * highest case at the lowest address.
+ *
+ * Steps 41, 42 and 43 do nothing at all, and so does any step above 88. Three
+ * dead slots in the middle of the sequence.
+ *
+ * ### The heartbeat is kicked eight times during the load
+ *
+ *      heartbeatSetIncoming(9); heartbeatSend();
+ *
+ * appears at the end of steps 0, 27, 39, 50, 68, 87 and inside two others. A
+ * load that takes several seconds would otherwise let a connected peer time out,
+ * so the loader pings it between slices. Step 87 exists only to do this.
+ *
+ * ### `UseLOWAssets` picks between two files at four points
+ *
+ *      step 40   Versus_Names_LOW / Versus_Names2_LOW  vs  Versus_Names / Versus_Names2
+ *      step 48   FENEW1_LOW.PNG        vs  FENEW1.PNG
+ *      step 53   FE_GAMEOVER_BOTTOM_LOW / FE_TITLE_BG_LOW  vs  the full-size pair
+ *      step 69   FELOGO_LOW.PVR        vs  FELOGO.PVR
+ *      step 52   FE_GAMEOVER_TOP_LOW.PNG  vs  FE_GAMEOVER_TOP.PNG
+ *      step 70   CS_BG3_LOW.PNG           vs  CS_BG3.PNG
+ *
+ * -- and in step 40 the test is made **per character**, inside the loop, rather
+ * than once outside it.
+ *
+ * ### Two debug `puts` survived: "F" at step 0 and "G" at step 27
+ *
+ * Single letters, no newline, straight to stdout. They mark the two ends of the
+ * character-model load.
+ *
+ * ### The voice handles are laid out by character index plus four
+ *
+ *      SFXHandle[0]        Skdestin
+ *      SFXHandle[4 + c]    character c's voice, Kano first
+ *
+ * which is exactly the `SFXHandle[4] + c` that `drawCharacterSelection` uses to
+ * play a click. Indices 1, 2 and 3 are not written by this function.
+ */
+
+#define FELOAD_STEPS      89
+#define FELOAD_CHARACTERS 26
+#define FELOAD_HB_SECS    9
+
+extern long  *UseLOWAssets;             /* pointer slot -> 0x0010df10 */
+extern char  *Versus_Names[];           /* 0x000ffbf4 */
+extern char  *Versus_Names2[];          /* 0x000ffe74 */
+extern char  *Versus_Names_LOW[];       /* 0x00100140 */
+extern char  *Versus_Names2_LOW[];      /* 0x00100420 */
+
+long  LoadFrontEndCharacters(long which);
+void *LIME_LoadMeshSet(const char *name);
+void *limeLoadTexture(const char *name, long a, long b);
+long  limeLoadSound(const char *name);
+void  limePlayTune(const char *name, long volume, long loop);
+void  limeMemoryReport(const char *tag);
+void  EASOC_debugFunc(void);
+void  EASOC_FBInit(void);
+void  heartbeatSetIncoming(long seconds);
+void  heartbeatSend(void);
+
+static void FELoad_Ping(void)
+{
+    heartbeatSetIncoming(FELOAD_HB_SECS);
+    heartbeatSend();
+}
+
+int FEInit_LoadABit(long step)
+{
+    long i;
+
+    switch (step) {
+    case 0:
+        puts("F");
+
+        if (FE_CurrentTask == 0x2a || FE_CurrentTask == 0x1b)
+            FETuneSelection = 1;
+        else if (FE_CurrentTask == 0x1c)
+            FETuneSelection = 2;
+        else
+            FETuneSelection = 0;
+
+        EASOC_debugFunc();
+        limeMemoryReport("Start OF FRONTEND Init Memory report");
+        FELoad_Ping();
+        return 0;
+
+    /* ---- 1..26: one character model a step ---- */
+    case 1:  case 2:  case 3:  case 4:  case 5:  case 6:  case 7:
+    case 8:  case 9:  case 10: case 11: case 12: case 13:
+    case 14: case 15: case 16: case 17: case 18: case 19:
+    case 20: case 21: case 22: case 23: case 24: case 25:
+    case 26:
+        LoadFrontEndCharacters(step - 1);
+        return 0;
+
+    case 27:
+        puts("G");
+        FELoad_Ping();
+        return 0;
+
+    /* ---- 28..39: the voices, two a step ---- */
+    case 28:
+        SFXHandle[0]  = limeLoadSound("Skdestin");
+        SFXHandle[4]  = limeLoadSound("Skkano");
+        return 0;
+    case 29:
+        SFXHandle[5]  = limeLoadSound("Sksonya");
+        SFXHandle[6]  = limeLoadSound("Skjax");
+        return 0;
+    case 30:
+        SFXHandle[7]  = limeLoadSound("Sknitwlf");
+        SFXHandle[8]  = limeLoadSound("Sksubz");
+        return 0;
+    case 31:
+        SFXHandle[9]  = limeLoadSound("Skstrkr2");
+        SFXHandle[10] = limeLoadSound("Sksindel");
+        return 0;
+    case 32:
+        SFXHandle[11] = limeLoadSound("Sksector");
+        SFXHandle[12] = limeLoadSound("Skcyrax");
+        return 0;
+    case 33:
+        SFXHandle[13] = limeLoadSound("Skknglao");
+        SFXHandle[14] = limeLoadSound("Skcabal");
+        return 0;
+    case 34:
+        SFXHandle[15] = limeLoadSound("Sksheeva");
+        SFXHandle[16] = limeLoadSound("Skshang");
+        return 0;
+    case 35:
+        SFXHandle[17] = limeLoadSound("Skliukng");
+        SFXHandle[18] = limeLoadSound("Sksmoke");
+        return 0;
+    case 36:
+        SFXHandle[19] = limeLoadSound("Kitana");
+        SFXHandle[20] = limeLoadSound("Jade");
+        return 0;
+    case 37:
+        SFXHandle[21] = limeLoadSound("Malena");
+        SFXHandle[22] = limeLoadSound("Scorpion");
+        return 0;
+    case 38:
+        SFXHandle[23] = limeLoadSound("Reptile");
+        SFXHandle[24] = limeLoadSound("Skermac");
+        return 0;
+    case 39:
+        SFXHandle[25] = limeLoadSound("Skmotaro");
+        FELoad_Ping();
+        return 0;
+
+    /* ---- 40: the versus portraits, all twenty-six in one step ---- */
+    case 40:
+        for (i = 0; i < FELOAD_CHARACTERS; i++) {
+            /* the LOW test is made per character, inside the loop */
+            if (*UseLOWAssets) {
+                CharacterVSTexture[i]  = limeLoadTexture(Versus_Names_LOW[i],
+                                                         0, 0);
+                CharacterVSTexture2[i] = limeLoadTexture(Versus_Names2_LOW[i],
+                                                         0, 0);
+            } else {
+                CharacterVSTexture[i]  = limeLoadTexture(Versus_Names[i], 0, 0);
+                CharacterVSTexture2[i] = limeLoadTexture(Versus_Names2[i],
+                                                         0, 0);
+            }
+        }
+        return 0;
+
+    case 41:
+    case 42:
+    case 43:
+        return 0;                       /* three dead steps */
+
+    /* ---- 44..53: the front end's own art ---- */
+    case 44:
+        *GreenFrameTexture = limeLoadTexture("FRAMEGREEN.PNG", 0, 0);
+        *RedFrameTexture   = limeLoadTexture("FRAMERED.PNG", 0, 0);
+        return 0;
+    case 45:
+        *FBIconTexture  = limeLoadTexture("FBICON.PNG", 0, 0);
+        *FBLoginTexture = limeLoadTexture("LOGIN.PNG", 0, 0);
+        return 0;
+    case 46:
+        *FBLogoutTexture = limeLoadTexture("LOGOUT.PNG", 0, 0);
+        *FEBackground   = limeLoadTexture("FE_BG_MARBLE.PNG", 0, 0);
+        return 0;
+    case 47:
+        *FEBits1 = limeLoadTexture("FE_BUTTONS_01.PNG", 0, 0);
+        *FEBits2 = limeLoadTexture("FE_BUTTONS_02.PNG", 0, 0);
+        return 0;
+    case 48:
+        *FEBits3 = limeLoadTexture("FE_BUTTONS_03.PNG", 0, 0);
+        FENew1Texture = *UseLOWAssets
+                        ? limeLoadTexture("FENEW1_LOW.PNG", 0, 1)
+                        : limeLoadTexture("FENEW1.PNG", 0, 0);
+        return 0;
+    case 49:
+        Vortex1Texture = limeLoadTexture("VORTEX1.PNG", 0, 0);
+        Vortex2Texture = limeLoadTexture("VORTEX2.PNG", 0, 0);
+        return 0;
+    case 50:
+        LightningTexture = limeLoadTexture("LIGHTNING.PNG", 0, 0);
+        FELoad_Ping();
+        KodesTexture = limeLoadTexture("KOMBAT_KODES_TPAGE.PNG", 0, 0);
+        return 0;
+    case 51:
+        SpotlightTextures[1] = limeLoadTexture("SPOTLIGHT_1.PNG", 0, 0);
+        SpotlightTextures[0] = limeLoadTexture("SPOTLIGHT_0.PNG", 0, 0);
+        return 0;
+    case 52:
+        MetalScreenTexture = limeLoadTexture("FE_METAL_BG.PNG", 0, 0);
+        GameOverTopTexture = *UseLOWAssets
+                             ? limeLoadTexture("FE_GAMEOVER_TOP_LOW.PNG", 0, 1)
+                             : limeLoadTexture("FE_GAMEOVER_TOP.PNG", 0, 0);
+        return 0;
+    case 53:
+        GameOverBottomTexture =
+            *UseLOWAssets ? limeLoadTexture("FE_GAMEOVER_BOTTOM_LOW.PNG", 0, 1)
+                          : limeLoadTexture("FE_GAMEOVER_BOTTOM.PNG", 0, 0);
+        MainMenuBGTexture =
+            *UseLOWAssets ? limeLoadTexture("FE_TITLE_BG_LOW.PNG", 0, 1)
+                          : limeLoadTexture("FE_TITLE_BG.PNG", 0, 0);
+        return 0;
+
+    /* ---- 54..68: the tower portraits ---- */
+    case 54:
+        VSTexture              = limeLoadTexture("VS.PNG", 0, 0);
+        TowerPortraitTexture[0] = limeLoadTexture("IPADKANOPORTRAIT.PNG", 0, 0);
+        return 0;
+    case 55:
+        TowerPortraitTexture[1] = limeLoadTexture("IPADSONYAPORTRAIT.PNG", 0, 0);
+        TowerPortraitTexture[2] = limeLoadTexture("IPADJAXPORTRAIT.PNG", 0, 0);
+        return 0;
+    case 56:
+        TowerPortraitTexture[3] =
+            limeLoadTexture("IPADNIGHTWOLFPORTRAIT.PNG", 0, 0);
+        TowerPortraitTexture[4] =
+            limeLoadTexture("IPADSUBZEROPORTRAIT.PNG", 0, 0);
+        return 0;
+    case 57:
+        TowerPortraitTexture[5] =
+            limeLoadTexture("IPADSTRYKERPORTRAIT.PNG", 0, 0);
+        TowerPortraitTexture[6] =
+            limeLoadTexture("IPADSINDELPORTRAIT.PNG", 0, 0);
+        return 0;
+    case 58:
+        TowerPortraitTexture[7] =
+            limeLoadTexture("IPADSEKTORPORTRAIT.PNG", 0, 0);
+        TowerPortraitTexture[8] =
+            limeLoadTexture("IPADCYRAXPORTRAIT.PNG", 0, 0);
+        return 0;
+    case 59:
+        TowerPortraitTexture[9] =
+            limeLoadTexture("IPADKUNGLAOPORTRAIT.PNG", 0, 0);
+        TowerPortraitTexture[10] =
+            limeLoadTexture("IPADKABALPORTRAIT.PNG", 0, 0);
+        return 0;
+    case 60:
+        TowerPortraitTexture[11] =
+            limeLoadTexture("IPADSHEEVAPORTRAIT.PNG", 0, 0);
+        TowerPortraitTexture[12] =
+            limeLoadTexture("IPADSHANGTSUNGPORTRAIT.PNG", 0, 0);
+        return 0;
+    case 61:
+        TowerPortraitTexture[13] =
+            limeLoadTexture("IPADLIUKANGPORTRAIT.PNG", 0, 0);
+        TowerPortraitTexture[14] =
+            limeLoadTexture("IPADSMOKEPORTRAIT.PNG", 0, 0);
+        return 0;
+    case 62:
+        TowerPortraitTexture[15] =
+            limeLoadTexture("IPADKITANAPORTRAIT.PNG", 0, 0);
+        TowerPortraitTexture[16] =
+            limeLoadTexture("IPADJADEPORTRAIT.PNG", 0, 0);
+        return 0;
+    case 63:
+        TowerPortraitTexture[17] =
+            limeLoadTexture("IPADMILEENAPORTRAIT.PNG", 0, 0);
+        TowerPortraitTexture[18] =
+            limeLoadTexture("IPADSCORPIONPORTRAIT.PNG", 0, 0);
+        return 0;
+    case 64:
+        TowerPortraitTexture[19] =
+            limeLoadTexture("IPADREPTILEPORTRAIT.PNG", 0, 0);
+        TowerPortraitTexture[20] =
+            limeLoadTexture("IPADERMACPORTRAIT.PNG", 0, 0);
+        return 0;
+    case 65:
+        TowerPortraitTexture[21] =
+            limeLoadTexture("IPADOLDSUBZEROPORTRAIT.PNG", 0, 0);
+        TowerPortraitTexture[22] =
+            limeLoadTexture("IPADOLDSMOKEPORTRAIT.PNG", 0, 0);
+        return 0;
+    case 66:
+        TowerPortraitTexture[23] =
+            limeLoadTexture("IPADNOOBSAIBOTPORTRAIT.PNG", 0, 0);
+        TowerPortraitTexture[24] =
+            limeLoadTexture("IPADMOTAROPORTRAIT.PNG", 0, 0);
+        return 0;
+    case 67:
+        TowerPortraitTexture[25] =
+            limeLoadTexture("IPADSHAOKAHNPORTRAIT.PNG", 0, 0);
+        TowerPortraitTexture[26] =
+            limeLoadTexture("IPADENDURANCEPORTRAIT.PNG", 0, 0);
+        return 0;
+    case 68:
+        TowerPortraitTexture[27] =
+            limeLoadTexture("HIDDENPORTRAIT.PNG", 0, 0);
+        FELoad_Ping();
+        FloorTexture = limeLoadTexture("PLATFORM_CMAP.PNG", 0, 0);
+        return 0;
+
+    case 69:
+        *SmokeTexture  = limeLoadTexture("SMOKEPARTICLE2.PNG", 0, 0);
+        BricksTexture = limeLoadTexture("TWO-BRICKS_CMAP.PNG", 0, 0);
+        MainLogoTexture = *UseLOWAssets
+                          ? limeLoadTexture("FELOGO_LOW.PVR", 0, 1)
+                          : limeLoadTexture("FELOGO.PVR", 0, 0);
+        return 0;
+    case 70:
+        SelectBGTexture = *UseLOWAssets
+                          ? limeLoadTexture("CS_BG3_LOW.PNG", 0, 1)
+                          : limeLoadTexture("CS_BG3.PNG", 0, 0);
+        PortraitBorderTexture = limeLoadTexture("FE_PORTRAIT_BORDER.PNG", 0, 0);
+        return 0;
+
+    /* ---- 71..84: the meshes, and the burning logo ---- */
+    case 71:
+        *ButtonsTPage = limeLoadTexture("BUTTONS_TPAGE.PNG", 0, 0);
+        OrangeTexture = limeLoadTexture("ORANGEPORTAL.PNG", 0, 0);
+        return 0;
+    case 72:
+        FireLogo[0] = limeLoadTexture("UMK_LOGOONFIRE_000.PNG", 0, 0);
+        FireLogo[1] = limeLoadTexture("UMK_LOGOONFIRE_001.PNG", 0, 0);
+        return 0;
+    case 73:
+        FireLogo[2] = limeLoadTexture("UMK_LOGOONFIRE_002.PNG", 0, 0);
+        FireLogo[3] = limeLoadTexture("UMK_LOGOONFIRE_003.PNG", 0, 0);
+        return 0;
+    case 74:
+        FireLogo[4] = limeLoadTexture("UMK_LOGOONFIRE_004.PNG", 0, 0);
+        FireLogo[5] = limeLoadTexture("UMK_LOGOONFIRE_005.PNG", 0, 0);
+        return 0;
+    case 75:
+        FireLogo[6] = limeLoadTexture("UMK_LOGOONFIRE_006.PNG", 0, 0);
+        FireLogo[7] = limeLoadTexture("UMK_LOGOONFIRE_007.PNG", 0, 0);
+        return 0;
+    case 76:
+        FireLogo[8] = limeLoadTexture("UMK_LOGOONFIRE_008.PNG", 0, 0);
+        FireLogo[9] = limeLoadTexture("UMK_LOGOONFIRE_009.PNG", 0, 0);
+        return 0;
+    case 77:
+        MeshSet_VS_BRICK    = LIME_LoadMeshSet("VS_BRICK.meshset");
+        MeshSet_SINGLEBRICK = LIME_LoadMeshSet("SINGLEBRICK.meshset");
+        return 0;
+    case 78:
+        MeshSet_PLAYERFACE   = LIME_LoadMeshSet("PLAYERFACE.meshset");
+        MeshSet_OPPONENTFACE = LIME_LoadMeshSet("OPPONENTFACE.meshset");
+        return 0;
+    case 79:
+        MeshSet_FLOOR   = LIME_LoadMeshSet("FLOOR.meshset");
+        MeshSet_VORTEX1 = LIME_LoadMeshSet("VORTEX1.meshset");
+        return 0;
+    case 80:
+        MeshSet_VORTEX2 = LIME_LoadMeshSet("VORTEX2.meshset");
+        MeshSet_VORTEX3 = LIME_LoadMeshSet("VORTEX3.meshset");
+        return 0;
+    case 81:
+        MeshSet_VORTEX4 = LIME_LoadMeshSet("VORTEX4.meshset");
+        MeshSet_VORTEX5 = LIME_LoadMeshSet("VORTEX5.meshset");
+        return 0;
+    case 82:
+        MeshSet_SPIRAL     = LIME_LoadMeshSet("SPIRAL.meshset");
+        MeshSet_LIGHTNING1 = LIME_LoadMeshSet("LIGHTNING1.meshset");
+        return 0;
+    case 83:
+        MeshSet_LIGHTNING2 = LIME_LoadMeshSet("LIGHTNING2.meshset");
+        MeshSet_LIGHTNING3 = LIME_LoadMeshSet("LIGHTNING3.meshset");
+        return 0;
+    case 84:
+        MeshSet_LIGHTNING4 = LIME_LoadMeshSet("LIGHTNING4.meshset");
+        MeshSet_LIGHTNING5 = LIME_LoadMeshSet("LIGHTNING5.meshset");
+        return 0;
+
+    case 85:
+        if (Settings[2] != 0)
+            limePlayTune("MainMenu.mp3", (long)MusicVol[Settings[2]], 1);
+        return 0;
+
+    case 86:
+        EASOC_FBInit();
+        limeMemoryReport("END OF FRONTEND Init Memory report");
+        return 0;
+
+    case 87:
+        FELoad_Ping();                  /* this step exists only for this */
+        return 0;
+
+    case 88:
+        return 1;                       /* done */
+
+    default:
+        return 0;
+    }
+}
