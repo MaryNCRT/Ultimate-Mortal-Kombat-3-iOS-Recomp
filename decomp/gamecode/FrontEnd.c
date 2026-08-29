@@ -1847,7 +1847,11 @@ void SetupLockedCharacters(void)
 }
 
 
-extern int   KodeSelectorParticle[10];  /* 0x000ff920 */
+extern float KodeSelectorParticle[10];  /* 0x000ff920 -- FLOATS. FE_Task_Treasure
+                                         * reads them with `vldr`, compares against
+                                         * 0 and 1 with `vcmp.f32` and advances them
+                                         * by 0.05/limeFPSScaleFactor. The `= 0`
+                                         * stores here do not tell the types apart. */
 extern float KodeTime;                  /* 0x000ff964 */
 extern int   KodeSuccess;               /* 0x000ff968 */
 
@@ -10154,4 +10158,245 @@ void FE_Task_VS_Screen(void)
         EASDK_LogEventEnumEnumString(VS_LOG_MATCH, 15,
                                      DestinyNames[Destiny], 15,
                                      CharacterNames[Character1]);
+}
+
+
+/* ------------------------------------------------------------ FE_Task_Treasure
+ *
+ * armv7 0x000069fc, 2,376 bytes.  **Complete.**
+ *
+ * The treasures screen: ten tiles in a row across the middle, drawn out of one
+ * 256x128 atlas, each at one of four brightnesses depending on whether it has
+ * been earned and whether it can be played. Tapping an earned, playable tile
+ * starts it.
+ *
+ * ### Ten tiles, five to an atlas row, laid out by a running x
+ *
+ *      cell  u = (i % 5) * 0.1875     uw = 0.1875     ( 48 / 256 )
+ *            v = (i / 5) * 0.375      vh = 0.375      ( 48 / 128 )
+ *      draw  x = FE_WidthScale  * (i * 48)
+ *            y = FE_HeightScale * 140            48 x 48, both scales
+ *
+ * The x is carried in a register and advanced by 48 at the bottom of every
+ * iteration, drawn tiles and skipped ones alike, so it is exactly `i * 48` and
+ * the row never closes up. Ten tiles at 48 is 480 -- the full 4:3 width, edge to
+ * edge, with no margin.
+ *
+ * ### Four colours, and index 0, 2 and 3 are always dimmed
+ *
+ *                              earned          not earned
+ *      i == 0, 2 or 3          semicol         semidarkcol
+ *      everything else         col             darkcol
+ *
+ * -- and the same three indices are the ones the touch test never reaches, so
+ * the half-bright pair marks "this one is not yours to play". Index 3 is
+ * special-cased twice over: it skips the touch test through its own branch at
+ * 0x000072ee rather than through the `i != 0 && i != 2` guard the others use.
+ *
+ * ### The tap: a band, then the tile
+ *
+ *      release (limeLastTouchScreenX == -1)
+ *      y in [124 * FE_HeightScale, 204 * FE_HeightScale]
+ *      x in [i * 48 * FE_WidthScale, (i + 1) * 48 * FE_WidthScale]
+ *
+ * The vertical band is 80 units tall against a row of 48 drawn at 140, so it
+ * reaches 16 above the tiles and 16 below them. Horizontally the target is the
+ * tile exactly. A hit sets `selected = i + 1` -- one-based, so 0 means nothing
+ * was tapped -- and kicks the tile's particle off at 0.001.
+ *
+ * ### The particle is the tile again, expanding and fading
+ *
+ *      t += 0.05 / limeFPSScaleFactor;  if (t >= 1) t = 0;
+ *
+ *      x = (i*48 - 24t) * FE_WidthScale     w = (1 + t) * 48 * FE_WidthScale
+ *      y = (140    - 24t) * FE_HeightScale  h = (1 + t) * 48 * FE_HeightScale
+ *      colour = { 1, 1, 1, 1 - t }
+ *
+ * -- the same cell of the same atlas, growing from 48 to 96 about its centre
+ * (the -24 is half the growth) and fading out over twenty frames. `t` is per
+ * tile, in `KodeSelectorParticle[10]`, and it is *floats* there: the array is
+ * only ever written `= 0` elsewhere, which is why it looked like an `int` array
+ * until this function read one.
+ *
+ * ### What a selection does depends on which tile
+ *
+ *      1, 3, 4        nothing -- fall through to the common tail
+ *      5              GameMode = 5, TreasurePlayed = 5, start the fade out
+ *      2, 6, 7, 8, 9, 10
+ *                     GameMode = 5, TreasurePlayed = n,
+ *                     PushFETaskDeferred(0x1b),
+ *                     endurancerand1 = limeRand() & 3,
+ *                     endurancerand2 = limeRand() & 7
+ *
+ * Tiles 1, 3 and 4 are reachable -- 1 and 4 are not in the dimmed set -- and
+ * answer to nothing. The two `limeRand()` draws are what pick which endurance
+ * line-up `SetupEnduranceTreasure` will build, and they are rolled here rather
+ * than there.
+ *
+ * ### The heading counts, the tail resets the stack
+ *
+ *      shown == 0   GameText(0x3f5)      "no treasures yet"
+ *      otherwise    GameText(0x63)
+ *
+ * `shown` counts only the tiles that ran the touch test -- earned, and not one
+ * of 0, 2 or 3 -- so the heading answers "have you anything playable", not "have
+ * you anything".
+ *
+ * On the way out, once both `FE_FadeAdd` and `FE_Fade` have settled, the whole
+ * front-end stack is reset (`FE_TaskStackPointer = 0`, `FE_CurrentTask = 0`) and
+ * a `TreasurePlayed` of 5 additionally sets `CurrentTask = 4`, handing over to
+ * the match. Every other treasure goes back to task 0.
+ */
+
+#define TREASURE_TILES     10
+#define TREASURE_ATLAS_COL 5
+#define TREASURE_CELL      48
+#define TREASURE_ROW_Y     140.0f
+#define TREASURE_BAND_TOP  124.0f
+#define TREASURE_BAND_BOT  204.0f
+#define TREASURE_U         0.1875f      /* 48 / 256 */
+#define TREASURE_V         0.375f       /* 48 / 128 */
+#define TREASURE_PART_STEP 0.05
+#define TREASURE_PART_ON   0.001f
+#define TREASURE_PART_MOVE 24.0f
+#define TREASURE_FADE_STEP -0.033333335f
+
+extern float *semicol;                  /* pointer slot -> 0x0014fa30 */
+extern float *semidarkcol;              /* pointer slot -> 0x0014fa40 */
+extern long   TreasurePlayed;           /* 0x000ff8bc */
+extern long  *endurancerand1;           /* pointer slot -> 0x0014e218 */
+extern long  *endurancerand2;           /* pointer slot -> 0x0014e21c */
+
+void FE_Task_Treasure(void)
+{
+    long  i, x, shown = 0, selected = 0;
+
+    limeDrawSprite((TEXTURE *)MetalScreenTexture, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0f, 1.0f, 1.0f, col);
+
+    limeEnableAlphaBlending_Additive();
+
+    DrawAnimAsSprite(0, 0, FE_WidthScale, 0x80,
+                     0x80, (long)(uintptr_t)SpotlightTextures,
+                     (const char *)&spotlight_SpriteDef, spotlight_Anim,
+                     0, (long)*GameCounter,
+                     0, spotlight_Anim[0] - 1, 1, col);
+
+    DrawAnimAsSprite((long)((float)*limeScreenWidth
+                            + FE_WidthScale * -128.0f),
+                     0, FE_WidthScale, 0x80,
+                     0x80, (long)(uintptr_t)SpotlightTextures,
+                     (const char *)&spotlight_SpriteDef, spotlight_Anim,
+                     1, (long)*GameCounter,
+                     0, spotlight_Anim[0] - 1, 1, col);
+
+    limeEnableAlphaBlending_Basic();
+
+    for (i = 0, x = 0; i < TREASURE_TILES; i++, x += TREASURE_CELL) {
+        long         gained = TreasureGained[i];
+        long         dimmed = (i == 0 || i == 2 || i == 3);
+        const float *colour;
+        float        u, v, t;
+
+        /* ---- the tap, for the tiles that answer to one ---- */
+        if (i != 0 && i != 2 && i != 3 && gained != 0) {
+            shown++;
+
+            if (*limeLastTouchScreenX == -1.0f
+                && *limeTouchScreenY >= FE_HeightScale * TREASURE_BAND_TOP
+                && *limeTouchScreenY <= FE_HeightScale * TREASURE_BAND_BOT
+                && *limeTouchScreenX >= FE_WidthScale * (float)x
+                && *limeTouchScreenX <= FE_WidthScale
+                                        * (float)(x + TREASURE_CELL)) {
+                selected = i + 1;                   /* one-based */
+                KodeSelectorParticle[i] = TREASURE_PART_ON;
+            }
+        }
+
+        /* ---- advance this tile's particle ---- */
+        if (KodeSelectorParticle[i] != 0.0f) {
+            KodeSelectorParticle[i] =
+                (float)((double)KodeSelectorParticle[i]
+                        + TREASURE_PART_STEP / (double)limeFPSScaleFactor);
+
+            if (KodeSelectorParticle[i] >= 1.0f)
+                KodeSelectorParticle[i] = 0.0f;
+        }
+
+        /* ---- the tile ---- */
+        u = (float)((double)((i % TREASURE_ATLAS_COL) * TREASURE_CELL)
+                    * 0.00390625);      /* / 256 */
+        v = (float)((double)((i / TREASURE_ATLAS_COL) * TREASURE_CELL)
+                    * 0.0078125);       /* / 128 */
+
+        if (dimmed)
+            colour = (gained == 1) ? semicol : semidarkcol;
+        else
+            colour = (gained == 1) ? col : darkcol;
+
+        limeDrawSprite((TEXTURE *)KodesTexture,
+                       FE_WidthScale * (float)x,
+                       FE_HeightScale * TREASURE_ROW_Y,
+                       FE_WidthScale * (float)TREASURE_CELL,
+                       FE_HeightScale * (float)TREASURE_CELL,
+                       u, v, TREASURE_U, TREASURE_V, colour);
+
+        /* ---- and the same cell again, expanding out of it ---- */
+        t = KodeSelectorParticle[i];
+
+        if (t != 0.0f) {
+            float part[4] = { 1.0f, 1.0f, 1.0f, 1.0f };   /* C.769 0x000ddf3c */
+
+            part[3] = 1.0f - t;
+
+            limeDrawSprite((TEXTURE *)KodesTexture,
+                           ((float)x - TREASURE_PART_MOVE * t) * FE_WidthScale,
+                           (TREASURE_ROW_Y - TREASURE_PART_MOVE * t)
+                           * FE_HeightScale,
+                           FE_WidthScale
+                           * ((t + 1.0f) * (float)TREASURE_CELL),
+                           FE_HeightScale
+                           * ((t + 1.0f) * (float)TREASURE_CELL),
+                           u, v, TREASURE_U, TREASURE_V, part);
+        }
+    }
+
+    /* ---- the heading answers "anything playable", not "anything" ---- */
+    limeDrawFONT(GameFont, GameText(shown != 0 ? 0x63 : 0x3f5),
+                 (float)(*limeScreenWidth / 2),
+                 FE_Y(200.0f), 1, FE_WidthScale, fontcol);
+
+    if (DrawButtonNew(&BUTTON_BACK, 0xf0, 0x130, 1))
+        PopFETaskDeferred();
+
+    limeDrawFONT(GameFont, GameText(7),
+                 FE_X(240.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
+
+    /* ---- what the selection starts ---- */
+    if (selected == 5) {
+        GameMode       = selected;
+        TreasurePlayed = selected;
+        FE_FadeAdd     = TREASURE_FADE_STEP;
+        FadeMusicOut   = 1;
+        return;
+    }
+
+    if (selected != 0 && selected != 1 && selected != 3 && selected != 4) {
+        GameMode       = 5;
+        TreasurePlayed = selected;
+        PushFETaskDeferred(0x1b);
+        *endurancerand1 = limeRand() & 3;
+        *endurancerand2 = limeRand() & 7;
+    }
+
+    /* ---- and the common tail ---- */
+    if (FE_FadeAdd != 0.0f || FE_Fade != 0.0f)
+        return;
+
+    FE_TaskStackPointer = 0;
+    FE_CurrentTask      = 0;
+
+    if (TreasurePlayed == 5)
+        CurrentTask = 4;
 }
