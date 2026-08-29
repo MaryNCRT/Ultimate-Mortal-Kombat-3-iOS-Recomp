@@ -3367,7 +3367,11 @@ extern char CancelCustomButtonsPos4[0x78];
 extern char CancelCustomButtonsPos5[0x78];
 extern char CancelCustomButtonsPos6[0x78];
 extern long *P2Controls;                /* pointer slot */
-extern long *ButtonEditModePtr;         /* 0x00100f84 */
+/* A direct global, not a pointer slot: the pcrel add lands on 0x00100f84 and
+ * the store is `str r?, [r3]`, one deref. It was declared `long *` and written
+ * through as `*ButtonEditModePtr`, which is one deref too many. Corrected while
+ * writing FE_Task_Button_Config, which reads the same flag. */
+extern long ButtonEditMode;             /* 0x00100f84 */
 extern BUTTONNEW BUTTON_SAVE;           /* 0x00100848 */
 extern BUTTONNEW BUTTON_CANCEL;         /* 0x0010085c */
 
@@ -3441,7 +3445,7 @@ void FE_Task_Button_Edit(void)
                  2, FE_WidthScale, fontcol);
 
     if (cancel) {
-        *ButtonEditModePtr = 0;
+        ButtonEditMode = 0;
 
         for (row = 0; row != 0x78; row += 0x14) {
             for (k = 0; k < 0x14; k += 4) {
@@ -6433,5 +6437,175 @@ void FE_Task_Character_Select(void)
     } else if (GameMode == 6) {
         Character2 = opponentCharacter;
         FE_FadeAdd = -0.033333335f;
+    }
+}
+
+
+/* ------------------------------------------------------- FE_Task_Button_Config
+ *
+ * armv7 0x000140c0, 1,304 bytes.  **Complete.**
+ *
+ * The controls screen: a half-size preview of the on-screen pad with four
+ * toggle boxes around it, and a Back button that saves.
+ *
+ * ### It draws its background and then, sometimes, nothing else
+ *
+ * `ButtonEditMode` is checked **after** the background sprite goes out. When
+ * the button editor is up this task still paints the page behind it every frame
+ * and then returns, so the editor draws over a live background rather than a
+ * frozen one.
+ *
+ * ### Four boxes, three settings and an editor
+ *
+ *      BOXLT (0x9c, 0x59)    Settings[4]   number of buttons, 5 or 6
+ *      BOXRT (0x145, 0x59)   Settings[5]   preset layout or custom
+ *      BOXLB (0x9c, 0xe0)    Settings[6]   button opacity, three steps
+ *      BOXRB (0x145, 0xe0)   opens the button editor -- only when Settings[5]
+ *
+ * Every one is gated on `FE_FadeAdd == 0.0f`, so nothing responds mid-fade, and
+ * the selection is remembered in one local that the tail acts on. The last box
+ * exists only while `Settings[5]` is set: with a preset layout there is nothing
+ * to edit, and the same flag also chooses which of two labels is drawn under
+ * the heading and whether a fourth caption appears at all.
+ *
+ * ### Each setting wraps by clamping the ends, not by modulo
+ *
+ *      Settings[4]++;  if (n <= 4 || n > 6) n = 5;      two states, 5 and 6
+ *      Settings[5]++;  if (n <  0 || n > 1) n = 0;      two states
+ *      Settings[6]++;  if (n <  0 || n > 2) n = 0;      three states
+ *
+ * The `< 0` arms cannot fire from an increment; they are the compiler covering
+ * the signed compare it was given. Written as they stand.
+ *
+ * ### Opacity is read here and applied to a single sample button
+ *
+ *      0 -> 0.5      1 -> 0.75      anything else -> 1.0
+ *
+ * -- the same three steps `DrawControlsPreview` applies to the whole pad, read
+ * a second time here for the one 64x64 sample at (0x7c, 0xd0). That sample goes
+ * through `drawSingleButton`, whose third argument this call site is the first
+ * to pin down as a float.
+ *
+ * ### The preview's origin is computed backwards out of the scalers
+ *
+ *      DrawControlsPreview(-36, (long)(-40 - FE_YOffset / FE_HeightScale))
+ *
+ * so the y origin undoes the front end's vertical transform before the preview
+ * applies it again: `FE_Y` will multiply by `FE_HeightScale` and add
+ * `FE_YOffset`, and this pre-divides so the result lands 40 above the layout
+ * origin whatever the screen. The x origin is a flat -36 with no such
+ * correction, because `FE_X` has no offset term to undo.
+ *
+ * ### Entering the editor takes a snapshot first
+ *
+ * `PushFETaskDeferred(0x30)` is preceded by copying all three custom layouts
+ * into their `Cancel...` twins, 0x78 bytes each, written as six rows of five
+ * words rather than one flat copy. `FE_Task_Button_Edit` copies them back the
+ * other way when its Cancel button is pressed -- the two halves of one undo.
+ *
+ * ### Back saves both files
+ *
+ * `Write_PresetButtonData()` then `Write_SettingsData()` then
+ * `PopFETaskDeferred()`. The save happens on the way out and nowhere else, so a
+ * setting changed and then backed out of by any other route is not persisted.
+ */
+
+#define BTNCFG_BUTTONS_LOW    5
+#define BTNCFG_BUTTONS_HIGH   6
+#define BTNCFG_TASK_EDIT      0x30
+#define BTNCFG_LAYOUT_ROWS    0x78      /* six entries of five words */
+#define BTNCFG_LAYOUT_ROW     0x14
+
+extern BUTTONNEW BUTTON_BOXRT;          /* 0x0010049c */
+
+void DrawControlsPreview(long originX, long originY);
+void drawSingleButton(int x, int y, float alpha);
+
+void FE_Task_Button_Config(void)
+{
+    long  sel = 0;
+    long  back;
+    long  row, k;
+    float alpha;
+
+    limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0234375f, 1.0f, 0.703125f, col);
+
+    if (ButtonEditMode)
+        return;                         /* the editor draws over this */
+
+    if (DrawButtonNew(&BUTTON_BOXLT, 0x9c, 0x59, 1) && FE_FadeAdd == 0.0f)
+        sel = 1;
+    if (DrawButtonNew(&BUTTON_BOXRT, 0x145, 0x59, 1) && FE_FadeAdd == 0.0f)
+        sel = 2;
+    if (DrawButtonNew(&BUTTON_BOXLB, 0x9c, 0xe0, 1) && FE_FadeAdd == 0.0f)
+        sel = 3;
+    if (Settings[5] != 0
+        && DrawButtonNew(&BUTTON_BOXRB, 0x145, 0xe0, 1) && FE_FadeAdd == 0.0f)
+        sel = 4;
+
+    DrawControlsPreview(-36, (long)(-40.0f - FE_YOffset / FE_HeightScale));
+
+    limeDrawFONT(GameFont, GameText(0xe5),
+                 FE_X(322.0f), FE_Y(72.0f), 1, FE_WidthScale, fontcol);
+    limeDrawFONT(GameFont, GameText(Settings[5] ? 0x111 : 0x122),
+                 FE_X(322.0f), FE_Y(88.0f), 1, FE_WidthScale, fontcol);
+    limeDrawFONT(GameFont, GameText(0xe6),
+                 FE_X(153.0f), FE_Y(184.0f), 1, FE_WidthScale, fontcol);
+
+    if (Settings[6] == 0)
+        alpha = 0.5f;
+    else if (Settings[6] == 1)
+        alpha = 0.75f;
+    else
+        alpha = 1.0f;
+    drawSingleButton(0x7c, 0xd0, alpha);
+
+    if (Settings[5] != 0)
+        limeDrawFONT(GameFont, GameText(0x59),
+                     FE_X(322.0f), FE_Y(216.0f), 1, FE_WidthScale, fontcol);
+
+    back = DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1);
+    limeDrawFONT(GameFont, GameText(7),
+                 FE_X(423.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
+
+    switch (sel) {
+    case 1:
+        Settings[4]++;
+        if (Settings[4] <= 4 || Settings[4] > BTNCFG_BUTTONS_HIGH)
+            Settings[4] = BTNCFG_BUTTONS_LOW;
+        break;
+    case 2:
+        Settings[5]++;
+        if (Settings[5] < 0 || Settings[5] > 1)
+            Settings[5] = 0;
+        break;
+    case 3:
+        Settings[6]++;
+        if (Settings[6] < 0 || Settings[6] > 2)
+            Settings[6] = 0;
+        break;
+    case 4:
+        /* snapshot all three layouts so the editor's Cancel can put them back */
+        for (row = 0; row != BTNCFG_LAYOUT_ROWS; row += BTNCFG_LAYOUT_ROW)
+            for (k = 0; k < BTNCFG_LAYOUT_ROW; k += 4) {
+                *(long *)&CancelCustomButtonsPos4[row + k] =
+                    *(const long *)&CustomButtonsPos4[row + k];
+                *(long *)&CancelCustomButtonsPos5[row + k] =
+                    *(const long *)&CustomButtonsPos5[row + k];
+                *(long *)&CancelCustomButtonsPos6[row + k] =
+                    *(const long *)&CustomButtonsPos6[row + k];
+            }
+        PushFETaskDeferred(BTNCFG_TASK_EDIT);
+        break;
+    default:
+        break;
+    }
+
+    if (back) {
+        Write_PresetButtonData();
+        Write_SettingsData();
+        PopFETaskDeferred();
     }
 }
