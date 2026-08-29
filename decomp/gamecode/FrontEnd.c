@@ -8136,3 +8136,557 @@ void FE_Task_Multiplayer_Character_Select(void)
         Character2 = playerCharacter;
     }
 }
+
+
+/* --------------------------------------------------------------- FE_Task_About
+ *
+ * armv7 0x00018e78, 1,972 bytes.  **Complete.**
+ *
+ * The Help & About page. Structurally it is `FE_Task_Options` with six options
+ * instead of three: the same main-menu background, the same `DrawVortex3D`, the
+ * same five main-menu touch areas still live underneath, and the same panel
+ * sliding in on `FESlideOffset`.
+ *
+ * ### The current page is entry three, and it is lit the same way
+ *
+ *      nothing held    (0, 0, 2, 0, 5)      Help lit as the current page
+ *      Help held       (0, 0, 1, 0, 5)      and drops to 1 while pressed
+ *      Options held    (2, 0, 0, 0, 5)
+ *      Play held       (0, 2, 0, 0, 5)
+ *      Extras held     (0, 0, 0, 2, 5)
+ *      More held       (0, 0, 0, 0, 2)
+ *      mid-slide       (0, 0, 0, 0, 5)
+ *
+ * `FE_Task_Options` lights entry **one** the same way, so the rule is: the
+ * current page's entry is 2 when idle and 1 while pressed, and any other
+ * entry is 2 while pressed and 0 otherwise.
+ *
+ * ### Three of the six options are URLs built from the language code
+ *
+ *      sprintf(key, "EULA_URL_%s", Language);
+ *      limeLoadURLInternal(limeGetPropertyString(key));
+ *
+ * -- and the same shape for `PRIV_URL_%s` and `TOS_URL_%s`. The property table
+ * is keyed by language, so the legal pages are per-locale and the URL never
+ * appears in the binary; only the key format does. The buffer is a 32-byte
+ * stack local and nothing bounds the language code.
+ *
+ * ### The other three push tasks and log an event each
+ *
+ *      GameText(0xd4)  ABOUT           PushFETaskDeferred(0x14)
+ *      GameText(0xd9)  USAGE SHARING   PushFETaskDeferred(0x18)
+ *      GameText(1)     HELP            PushFETaskDeferred(0x1a)
+ *
+ * all three logging `0xc35e` with "HELP & ABOUT" and the option's own name.
+ *
+ * ### Leaving by the menu underneath
+ *
+ *      Options   PopFETask(), FESlideNextTask = 5
+ *      Play      PopFETask(), FESlideNextTask = 1
+ *      Help      no pop, FESlideNextTask = -1   <- this page
+ *      Extras    PopFETask(), FESlideNextTask = 6
+ *      More      the store, and no slide at all
+ *
+ * Pressing the current page's own entry sets the slide target to -1 without
+ * popping, exactly as `FE_Task_Options` does for Options.
+ *
+ * ### More Games shouts again
+ *
+ * `puts("#########################\nENTERING STORE (11)!\n#####...")` -- the
+ * third copy of that line in the front end, and the second with a different
+ * number in the middle. All three shipped.
+ */
+
+#define ABOUT_SLIDE_SPAN     240.0f
+#define ABOUT_PANEL_X        272.0f
+#define ABOUT_OPTION_X       384.0f
+#define ABOUT_OPTION_SCALE   1.25f
+#define ABOUT_OPTION_WIDTH   186.0f
+#define ABOUT_ROW0           8.0f
+#define ABOUT_ROW_PITCH      56.0f
+#define ABOUT_TASK_ABOUT     0x14
+#define ABOUT_TASK_USAGE     0x18
+#define ABOUT_TASK_HELP      0x1a
+#define ABOUT_SFX_CLICK      (0x68 / 4)
+#define ABOUT_URLKEY_MAX     32
+
+extern long Touch_About1, Touch_About2, Touch_About3;      /* 0x00100f58.. */
+extern long Touch_About4, Touch_About5, Touch_About6;
+extern long LastTouch_About1, LastTouch_About2, LastTouch_About3;
+extern long LastTouch_About4, LastTouch_About5, LastTouch_About6;
+
+const char *limeGetPropertyString(const char *key);
+
+/* The three legal pages: a property key built from the language code, looked
+ * up, and handed straight to the in-app browser. */
+static void FE_About_OpenURL(const char *fmt)
+{
+    char key[ABOUT_URLKEY_MAX];         /* sp+0x1a */
+
+    sprintf(key, fmt, Language);
+    limeLoadURLInternal(limeGetPropertyString(key));
+}
+
+void FE_Task_About(void)
+{
+    long sel;
+
+    limeEnableAlphaBlending_Basic();
+    limeSet2DDrawing();
+
+    limeDrawSprite((TEXTURE *)MainMenuBGTexture, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0f, 1.0f, 0.75f, col);
+
+    DrawVortex3D();
+    limeEnableAlphaBlending_Basic();
+    limeSet2DDrawing();
+
+    /* ---- the main menu underneath is still live ---- */
+    Touch_MMOptions = TouchAreaWH(0, 0, 0xc4, 0x44);
+    sel = (Touch_MMOptions & 1) ? 7 : -1;
+
+    Touch_MMPlay = TouchAreaWH(0, 0x5a, 0xed, 0x34);
+    if (Touch_MMPlay & 1)
+        sel = 8;
+
+    Touch_MMHelp = TouchAreaWH(0, 0xa0, 0xd2, 0x32);
+    if (Touch_MMHelp & 1)
+        sel = 9;
+
+    Touch_MMExtra = TouchAreaWH(0, 0xd2, 0xc4, 0x3c);
+    if (Touch_MMExtra & 1)
+        sel = 0xa;
+
+    Touch_MMMore = TouchAreaWH(0, 0x11c, 0xa8, 0x32);
+    if (Touch_MMMore & 1)
+        sel = 0xb;
+
+    if (FESlideOffset != 0.0f)
+        DrawMainMenu(0, 0, 0, 0, 5);
+    else if ((Touch_MMOptions >> 1) != 0)
+        DrawMainMenu(2, 0, 0, 0, 5);
+    else if ((Touch_MMPlay >> 1) != 0)
+        DrawMainMenu(0, 2, 0, 0, 5);
+    else if ((Touch_MMHelp >> 1) != 0)
+        DrawMainMenu(0, 0, 1, 0, 5);    /* the current page, pressed */
+    else if ((Touch_MMExtra >> 1) != 0)
+        DrawMainMenu(0, 0, 0, 2, 5);
+    else if ((Touch_MMMore >> 1) != 0)
+        DrawMainMenu(0, 0, 0, 0, 2);
+    else
+        DrawMainMenu(0, 0, 2, 0, 5);    /* the current page, idle */
+
+    /* ---- the sliding panel ---- */
+    limeDrawSprite((TEXTURE *)FENew1Texture,
+                   FE_X(FESlideOffset * ABOUT_SLIDE_SPAN + ABOUT_PANEL_X),
+                   FE_Y(-32.0f), FE_W(256.0f), FE_H(384.0f),
+                   0.5f, 0.0f, 0.5f, 0.75f, col);
+
+    LastTouch_About1 = Touch_About1;
+    Touch_About1 = DrawOptionAsButton(GameText(0xd4),
+                                      FESlideOffset * ABOUT_SLIDE_SPAN
+                                          + ABOUT_OPTION_X,
+                                      ABOUT_ROW0, ABOUT_OPTION_SCALE,
+                                      &mmfontcol[(LastTouch_About1 + 1) * 4],
+                                      FE_W(ABOUT_OPTION_WIDTH));
+    if (LastTouch_About1 != 0 && Touch_About1 == 0
+        && *limeTouchScreenX == -1.0f)
+        sel = 1;
+
+    LastTouch_About2 = Touch_About2;
+    Touch_About2 = DrawOptionAsButton(GameText(0x100),
+                                      FESlideOffset * ABOUT_SLIDE_SPAN
+                                          + ABOUT_OPTION_X,
+                                      ABOUT_ROW0 + ABOUT_ROW_PITCH,
+                                      ABOUT_OPTION_SCALE,
+                                      &mmfontcol[(LastTouch_About2 + 1) * 4],
+                                      FE_W(ABOUT_OPTION_WIDTH));
+    if (LastTouch_About2 != 0 && Touch_About2 == 0
+        && *limeTouchScreenX == -1.0f)
+        sel = 2;
+
+    LastTouch_About3 = Touch_About3;
+    Touch_About3 = DrawOptionAsButton(GameText(0xd7),
+                                      FESlideOffset * ABOUT_SLIDE_SPAN
+                                          + ABOUT_OPTION_X,
+                                      ABOUT_ROW0 + 2 * ABOUT_ROW_PITCH,
+                                      ABOUT_OPTION_SCALE,
+                                      &mmfontcol[(LastTouch_About3 + 1) * 4],
+                                      FE_W(ABOUT_OPTION_WIDTH));
+    if (LastTouch_About3 != 0 && Touch_About3 == 0
+        && *limeTouchScreenX == -1.0f)
+        sel = 3;
+
+    LastTouch_About4 = Touch_About4;
+    Touch_About4 = DrawOptionAsButton(GameText(0xd8),
+                                      FESlideOffset * ABOUT_SLIDE_SPAN
+                                          + ABOUT_OPTION_X,
+                                      ABOUT_ROW0 + 3 * ABOUT_ROW_PITCH,
+                                      ABOUT_OPTION_SCALE,
+                                      &mmfontcol[(LastTouch_About4 + 1) * 4],
+                                      FE_W(ABOUT_OPTION_WIDTH));
+    if (LastTouch_About4 != 0 && Touch_About4 == 0
+        && *limeTouchScreenX == -1.0f)
+        sel = 4;
+
+    LastTouch_About5 = Touch_About5;
+    Touch_About5 = DrawOptionAsButton(GameText(0xd9),
+                                      FESlideOffset * ABOUT_SLIDE_SPAN
+                                          + ABOUT_OPTION_X,
+                                      ABOUT_ROW0 + 4 * ABOUT_ROW_PITCH,
+                                      ABOUT_OPTION_SCALE,
+                                      &mmfontcol[(LastTouch_About5 + 1) * 4],
+                                      FE_W(ABOUT_OPTION_WIDTH));
+    if (LastTouch_About5 != 0 && Touch_About5 == 0
+        && *limeTouchScreenX == -1.0f)
+        sel = 5;
+
+    LastTouch_About6 = Touch_About6;
+    Touch_About6 = DrawOptionAsButton(GameText(1),
+                                      FESlideOffset * ABOUT_SLIDE_SPAN
+                                          + ABOUT_OPTION_X,
+                                      ABOUT_ROW0 + 5 * ABOUT_ROW_PITCH,
+                                      ABOUT_OPTION_SCALE,
+                                      &mmfontcol[(LastTouch_About6 + 1) * 4],
+                                      FE_W(ABOUT_OPTION_WIDTH));
+    if (LastTouch_About6 != 0 && Touch_About6 == 0
+        && *limeTouchScreenX == -1.0f)
+        sel = 6;
+
+    MaintainFESlide();
+
+    if (FESlideOffset == 0.0f) {
+        if (sel > 0 && Settings[3] != 0)
+            limePlaySound(SFXHandle[ABOUT_SFX_CLICK],
+                          MusicVol[Settings[3]] / 100.0f, 1.0f, 0);
+
+        if (sel == 1) {
+            PushFETaskDeferred(ABOUT_TASK_ABOUT);
+            EASDK_LogEvent(0xc35e, 15, "HELP & ABOUT", 15, "ABOUT");
+        } else if (sel == 2) {
+            FE_About_OpenURL("EULA_URL_%s");
+        } else if (sel == 3) {
+            FE_About_OpenURL("PRIV_URL_%s");
+        } else if (sel == 4) {
+            FE_About_OpenURL("TOS_URL_%s");
+        } else if (sel == 5) {
+            PushFETaskDeferred(ABOUT_TASK_USAGE);
+            EASDK_LogEvent(0xc35e, 15, "HELP & ABOUT", 15, "USAGE SHARING");
+        } else if (sel == 6) {
+            PushFETaskDeferred(ABOUT_TASK_HELP);
+            EASDK_LogEvent(0xc35e, 15, "HELP & ABOUT", 15, "HELP");
+        } else if (sel == 7) {
+            PopFETask();
+            FESlideDir      = 1;
+            FESlideNextTask = 5;
+        } else if (sel == 8) {
+            PopFETask();
+            FESlideDir      = 1;
+            FESlideNextTask = 1;
+        } else if (sel == 9) {
+            /* Help on Help: slide, but do not pop */
+            FESlideDir      = 1;
+            FESlideNextTask = -1;
+        } else if (sel == 0xa) {
+            PopFETask();
+            FESlideDir      = 1;
+            FESlideNextTask = 6;
+        } else if (sel == 0xb) {
+            puts("#########################\n"
+                 "ENTERING STORE (11)!\n"
+                 "##########################");
+            EASDK_LogEvent(0xc35d, 15, "MAIN MENU", 15, "MORE GAMES");
+            EASDK_GetMoreGames(Language, 0);
+        }
+    }
+
+    DrawTicker();
+    achievementsDraw();
+}
+
+
+/* -------------------------------------------------------------- FE_Task_Extras
+ *
+ * armv7 0x0001962c, 2,144 bytes.  **Complete.**
+ *
+ * The Extras page -- the third of the four slide-over screens, and the only one
+ * whose option list changes shape at runtime.
+ *
+ * ### Endings is drawn only if you have one, and the count is recomputed here
+ *
+ * Before the fifth option is drawn the function walks 23 entries:
+ *
+ *      for (i = 0; i < 23; i++) {
+ *          if (EndingsText[i] != -1 && EndingsGained[i] != 0) n++;
+ *          if (n > 22) TreasureGained[0] = 1;
+ *      }
+ *
+ * and the ENDINGS option only exists when `n != 0`. **The `n > 22` test is
+ * inside the loop**, so it is evaluated 23 times against a count that can only
+ * reach 23 on the last one -- and when it does, `TreasureGained[0]` is set,
+ * which is how "see every ending" unlocks the treasure. So this screen is where
+ * that achievement is actually granted: a menu page recomputes it from the save
+ * every frame it is on screen.
+ *
+ * With no endings the list is five options and TREASURE takes ENDINGS' place in
+ * the walk order, but not its y -- TREASURE is always at 288 and ENDINGS at
+ * 232, so the gap is left empty rather than closed up.
+ *
+ * ### Six options
+ *
+ *      y=8    GameText(0xcb)  LEADERBOARDS   PushFETaskDeferred(0x31)
+ *      y=64   GameText(0xcc)  ACHIEVEMENTS   PushFETaskDeferred(0x0e)
+ *      y=120  GameText(0xcd)  STATS          PushFETaskDeferred(0x0f)
+ *      y=176  GameText(0xce)  BIOS           PushFETaskDeferred(0x10)
+ *      y=232  GameText(0xcf)  ENDINGS        PushFETaskDeferred(0x11)
+ *      y=288  GameText(0xd0)  TREASURE       PushFETaskDeferred(0x12)
+ *
+ * ENDINGS also sets `*endingsOffsetY = FE_HeightScale * 240` on the way in, so
+ * the page it pushes starts scrolled one screen down.
+ *
+ * ### The current page is entry four
+ *
+ *      nothing held     (0, 0, 0, 2, 5)
+ *      Extras held      (0, 0, 0, 1, 5)
+ *
+ * -- the same rule the other two slide-overs follow, one entry to the right.
+ *
+ * ### Mid-slide it forces the selection rather than skipping the dispatch
+ *
+ *      if (FESlideOffset != 0.0f) { sel = -1; goto the second half; }
+ *
+ * `FE_Task_Options` and `FE_Task_About` guard the whole dispatch with the same
+ * test; this one sets the selection to -1 and then runs the second half of the
+ * chain anyway, where nothing matches. Same effect, different code.
+ *
+ * ### The redundant guard on ENDINGS
+ *
+ * The dispatch has `if (n != 0)` around the `sel == 5` test, using the same
+ * count. `sel` can only be 5 when the option was drawn, which already required
+ * `n != 0`, so the guard can never change the outcome.
+ */
+
+#define EXTRAS_SLIDE_SPAN    240.0f
+#define EXTRAS_PANEL_X       272.0f
+#define EXTRAS_OPTION_X      384.0f
+#define EXTRAS_OPTION_SCALE  1.25f
+#define EXTRAS_OPTION_WIDTH  186.0f
+#define EXTRAS_ROW0          8.0f
+#define EXTRAS_ROW_PITCH     56.0f
+#define EXTRAS_ENDINGS       23         /* EndingsText / EndingsGained entries */
+#define EXTRAS_ALL_ENDINGS   22         /* the > test that grants the treasure */
+#define EXTRAS_TASK_LEADERS  0x31
+#define EXTRAS_TASK_ACHIEVE  0x0e
+#define EXTRAS_TASK_STATS    0x0f
+#define EXTRAS_TASK_BIOS     0x10
+#define EXTRAS_TASK_ENDINGS  0x11
+#define EXTRAS_TASK_TREASURE 0x12
+#define EXTRAS_SFX_CLICK     (0x68 / 4)
+
+extern long Touch_Extras1, Touch_Extras2, Touch_Extras3;   /* 0x00100f00.. */
+extern long Touch_Extras4, Touch_Extras5, Touch_Extras6;
+extern long LastTouch_Extras1, LastTouch_Extras2, LastTouch_Extras3;
+extern long LastTouch_Extras4, LastTouch_Extras5, LastTouch_Extras6;
+extern long  *EndingsText;              /* pointer slot -> 0x001010e4 */
+extern float *endingsOffsetY;           /* pointer slot -> 0x0018dd58 */
+
+void FE_Task_Extras(void)
+{
+    long sel;
+    long endings;
+    long i;
+
+    limeEnableAlphaBlending_Basic();
+    limeSet2DDrawing();
+
+    limeDrawSprite((TEXTURE *)MainMenuBGTexture, 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0f, 1.0f, 0.75f, col);
+
+    DrawVortex3D();
+    limeEnableAlphaBlending_Basic();
+    limeSet2DDrawing();
+
+    Touch_MMOptions = TouchAreaWH(0, 0, 0xc4, 0x44);
+    sel = (Touch_MMOptions & 1) ? 7 : -1;
+
+    Touch_MMPlay = TouchAreaWH(0, 0x5a, 0xed, 0x34);
+    if (Touch_MMPlay & 1)
+        sel = 8;
+
+    Touch_MMHelp = TouchAreaWH(0, 0xa0, 0xd2, 0x32);
+    if (Touch_MMHelp & 1)
+        sel = 9;
+
+    Touch_MMExtra = TouchAreaWH(0, 0xd2, 0xc4, 0x3c);
+    if (Touch_MMExtra & 1)
+        sel = 0xa;
+
+    Touch_MMMore = TouchAreaWH(0, 0x11c, 0xa8, 0x32);
+    if (Touch_MMMore & 1)
+        sel = 0xb;
+
+    if (FESlideOffset != 0.0f)
+        DrawMainMenu(0, 0, 0, 0, 5);
+    else if ((Touch_MMOptions >> 1) != 0)
+        DrawMainMenu(2, 0, 0, 0, 5);
+    else if ((Touch_MMPlay >> 1) != 0)
+        DrawMainMenu(0, 2, 0, 0, 5);
+    else if ((Touch_MMHelp >> 1) != 0)
+        DrawMainMenu(0, 0, 2, 0, 5);
+    else if ((Touch_MMExtra >> 1) != 0)
+        DrawMainMenu(0, 0, 0, 1, 5);    /* the current page, pressed */
+    else if ((Touch_MMMore >> 1) != 0)
+        DrawMainMenu(0, 0, 0, 0, 2);
+    else
+        DrawMainMenu(0, 0, 0, 2, 5);    /* the current page, idle */
+
+    limeDrawSprite((TEXTURE *)FENew1Texture,
+                   FE_X(FESlideOffset * EXTRAS_SLIDE_SPAN + EXTRAS_PANEL_X),
+                   FE_Y(-32.0f), FE_W(256.0f), FE_H(384.0f),
+                   0.5f, 0.0f, 0.5f, 0.75f, col);
+
+    LastTouch_Extras1 = Touch_Extras1;
+    Touch_Extras1 = DrawOptionAsButton(GameText(0xcb),
+                                       FESlideOffset * EXTRAS_SLIDE_SPAN
+                                           + EXTRAS_OPTION_X,
+                                       EXTRAS_ROW0, EXTRAS_OPTION_SCALE,
+                                       &mmfontcol[(LastTouch_Extras1 + 1) * 4],
+                                       FE_W(EXTRAS_OPTION_WIDTH));
+    if (LastTouch_Extras1 != 0 && Touch_Extras1 == 0
+        && *limeTouchScreenX == -1.0f)
+        sel = 1;
+
+    LastTouch_Extras2 = Touch_Extras2;
+    Touch_Extras2 = DrawOptionAsButton(GameText(0xcc),
+                                       FESlideOffset * EXTRAS_SLIDE_SPAN
+                                           + EXTRAS_OPTION_X,
+                                       EXTRAS_ROW0 + EXTRAS_ROW_PITCH,
+                                       EXTRAS_OPTION_SCALE,
+                                       &mmfontcol[(LastTouch_Extras2 + 1) * 4],
+                                       FE_W(EXTRAS_OPTION_WIDTH));
+    if (LastTouch_Extras2 != 0 && Touch_Extras2 == 0
+        && *limeTouchScreenX == -1.0f)
+        sel = 2;
+
+    LastTouch_Extras3 = Touch_Extras3;
+    Touch_Extras3 = DrawOptionAsButton(GameText(0xcd),
+                                       FESlideOffset * EXTRAS_SLIDE_SPAN
+                                           + EXTRAS_OPTION_X,
+                                       EXTRAS_ROW0 + 2 * EXTRAS_ROW_PITCH,
+                                       EXTRAS_OPTION_SCALE,
+                                       &mmfontcol[(LastTouch_Extras3 + 1) * 4],
+                                       FE_W(EXTRAS_OPTION_WIDTH));
+    if (LastTouch_Extras3 != 0 && Touch_Extras3 == 0
+        && *limeTouchScreenX == -1.0f)
+        sel = 3;
+
+    LastTouch_Extras4 = Touch_Extras4;
+    Touch_Extras4 = DrawOptionAsButton(GameText(0xce),
+                                       FESlideOffset * EXTRAS_SLIDE_SPAN
+                                           + EXTRAS_OPTION_X,
+                                       EXTRAS_ROW0 + 3 * EXTRAS_ROW_PITCH,
+                                       EXTRAS_OPTION_SCALE,
+                                       &mmfontcol[(LastTouch_Extras4 + 1) * 4],
+                                       FE_W(EXTRAS_OPTION_WIDTH));
+    if (LastTouch_Extras4 != 0 && Touch_Extras4 == 0
+        && *limeTouchScreenX == -1.0f)
+        sel = 4;
+
+    /* ---- how many endings have been seen, and the treasure that grants ---- */
+    endings = 0;
+    for (i = 0; i < EXTRAS_ENDINGS; i++) {
+        if (EndingsText[i] != -1 && EndingsGained[i] != 0)
+            endings++;
+        if (endings > EXTRAS_ALL_ENDINGS)
+            TreasureGained[0] = 1;      /* tested inside the loop, as written */
+    }
+
+    if (endings != 0) {
+        LastTouch_Extras5 = Touch_Extras5;
+        Touch_Extras5 = DrawOptionAsButton(GameText(0xcf),
+                                           FESlideOffset * EXTRAS_SLIDE_SPAN
+                                               + EXTRAS_OPTION_X,
+                                           EXTRAS_ROW0 + 4 * EXTRAS_ROW_PITCH,
+                                           EXTRAS_OPTION_SCALE,
+                                           &mmfontcol[(LastTouch_Extras5 + 1) * 4],
+                                           FE_W(EXTRAS_OPTION_WIDTH));
+        if (LastTouch_Extras5 != 0 && Touch_Extras5 == 0
+            && *limeTouchScreenX == -1.0f)
+            sel = 5;
+    }
+
+    LastTouch_Extras6 = Touch_Extras6;
+    Touch_Extras6 = DrawOptionAsButton(GameText(0xd0),
+                                       FESlideOffset * EXTRAS_SLIDE_SPAN
+                                           + EXTRAS_OPTION_X,
+                                       EXTRAS_ROW0 + 5 * EXTRAS_ROW_PITCH,
+                                       EXTRAS_OPTION_SCALE,
+                                       &mmfontcol[(LastTouch_Extras6 + 1) * 4],
+                                       FE_W(EXTRAS_OPTION_WIDTH));
+    if (LastTouch_Extras6 != 0 && Touch_Extras6 == 0
+        && *limeTouchScreenX == -1.0f)
+        sel = 6;
+
+    MaintainFESlide();
+
+    /* mid-slide the selection is forced rather than the dispatch skipped */
+    if (FESlideOffset != 0.0f)
+        sel = -1;
+
+    if (FESlideOffset == 0.0f) {
+        if (sel > 0 && Settings[3] != 0)
+            limePlaySound(SFXHandle[EXTRAS_SFX_CLICK],
+                          MusicVol[Settings[3]] / 100.0f, 1.0f, 0);
+
+        if (sel == 1) {
+            PushFETaskDeferred(EXTRAS_TASK_LEADERS);
+            EASDK_LogEvent(0xc35e, 15, "EXTRAS", 15, "LEADERBOARDS");
+        } else if (sel == 2) {
+            PushFETaskDeferred(EXTRAS_TASK_ACHIEVE);
+            EASDK_LogEvent(0xc35e, 15, "EXTRAS", 15, "ACHIEVEMENTS");
+        } else if (sel == 3) {
+            PushFETaskDeferred(EXTRAS_TASK_STATS);
+            EASDK_LogEvent(0xc35e, 15, "EXTRAS", 15, "STATS");
+        } else if (sel == 4) {
+            PushFETaskDeferred(EXTRAS_TASK_BIOS);
+            EASDK_LogEvent(0xc35e, 15, "EXTRAS", 15, "BIOS");
+        }
+    }
+
+    /* the second half runs whether or not the panel is home */
+    if (endings != 0 && sel == 5) {
+        *endingsOffsetY = FE_HeightScale * 240.0f;
+        PushFETaskDeferred(EXTRAS_TASK_ENDINGS);
+        EASDK_LogEvent(0xc35e, 15, "EXTRAS", 15, "ENDINGS");
+    } else if (sel == 6) {
+        PushFETaskDeferred(EXTRAS_TASK_TREASURE);
+        EASDK_LogEvent(0xc35e, 15, "EXTRAS", 15, "TREASURE");
+    } else if (sel == 7) {
+        PopFETask();
+        FESlideDir      = 1;
+        FESlideNextTask = 5;
+    } else if (sel == 8) {
+        PopFETask();
+        FESlideDir      = 1;
+        FESlideNextTask = 1;
+    } else if (sel == 9) {
+        PopFETask();
+        FESlideDir      = 1;
+        FESlideNextTask = 7;
+    } else if (sel == 0xa) {
+        /* Extras on Extras: slide, but do not pop */
+        FESlideDir      = 1;
+        FESlideNextTask = -1;
+    } else if (sel == 0xb) {
+        puts("#########################\n"
+             "ENTERING STORE (11.1)!\n"
+             "##########################");
+        EASDK_LogEvent(0xc35d, 15, "MAIN MENU", 15, "MORE GAMES");
+        EASDK_GetMoreGames(Language, 0);
+    }
+
+    DrawTicker();
+    achievementsDraw();
+}
