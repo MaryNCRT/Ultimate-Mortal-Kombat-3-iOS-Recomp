@@ -1446,20 +1446,24 @@ float FE_H(float h);
  * from.
  *
  * The colour is a five-word local: four 1.0f copied from the function own
- * static constant, then `tint` written over the fifth. So the caller controls
- * only that last word and the RGBA above it is always white.
+ * static constant, then the caller's word written over the fifth. So the caller
+ * controls only that last word and the RGBA above it is always white.
+ *
+ * That word is the **alpha**, and it is a float. It arrives in `r2` and is
+ * stored with `str` rather than `vstr`, which is why it was typed `long` here;
+ * `FE_Task_Button_Config` is the first call site to be written and it passes
+ * 0.5, 0.75 or 1.0 straight from `Settings[6]`. Typed float now, and the union
+ * keeps the "moved as a word" reading visible.
  */
-void drawSingleButton(int x, int y, long tint)
+void drawSingleButton(int x, int y, float alpha)
 {
-    /* Four floats then one raw word -- the fifth slot is written with `str`,
-     * never as a float, so the union keeps that honest. */
     union { float f; long w; } colour[5];
 
     colour[0].f = 1.0f;                 /* __ZZ16drawSingleButtonE5C.105 */
     colour[1].f = 1.0f;
     colour[2].f = 1.0f;
     colour[3].f = 1.0f;
-    colour[4].w = tint;
+    colour[4].f = alpha;
 
     limeDrawSprite(*ButtonsTPage,
                    FE_X((float)x), FE_Y((float)y),
