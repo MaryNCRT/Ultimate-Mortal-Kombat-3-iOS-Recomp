@@ -6342,7 +6342,11 @@ extern BUTTONNEW BUTTON_PLAY;           /* 0x001007e4 */
 void EASDK_LogEventEnumEnumStringNum(long id, long a, const char *s,
                                      long b, long n);
 
-void drawCharacterSelection(long sel);
+/* Returns `CharacterConfirmed`: the last thing before its epilogue is
+ * `ldr r0, [pc, ...]` resolving to 0x000ff8cc, then `ldr r0, [r0]`. It was
+ * declared `void` here; corrected when FE_Task_Multiplayer_Character_Select
+ * turned out to use the result. */
+long drawCharacterSelection(long sel);
 int  GetNextLevel(int cur);
 
 void FE_Task_Character_Select(void)
@@ -7919,5 +7923,216 @@ void FE_Task_EnterName(void)
             userNameEntryViewed++;
             PopFETaskDeferred();
         }
+    }
+}
+
+
+/* --------------------------------------- FE_Task_Multiplayer_Character_Select
+ *
+ * armv7 0x000172f0, 1,340 bytes.  **Complete.**
+ *
+ * The network character select. `drawCharacterSelection` draws the grid and
+ * this function wraps it in the multiplayer handshake: the Back button, the
+ * Play button, and the packets that keep the two devices agreeing on who
+ * picked what.
+ *
+ * ### The selection is `CharacterConfirmed`, and it is never 10000
+ *
+ *      sel = drawCharacterSelection(pressedPlay ? 1 : -1);
+ *      ...
+ *      if (PLAY was pressed) sel = 0x2710;
+ *      ...
+ *      if (sel == 0x2710) { ... }
+ *
+ * `drawCharacterSelection` returns `CharacterConfirmed` -- it loads that global
+ * into r0 immediately before its epilogue -- so the sentinel 10000 can only
+ * come from the Play button. The comparison is the Play button's own flag
+ * routed through the same variable rather than a second one.
+ *
+ * ### The argument to the grid is 1 or -1, and the test is made twice
+ *
+ * While `pressedPlay` is clear the screen also draws `GameText(0x4a)`, and then
+ * **re-reads `pressedPlay`** to choose the grid's argument. Nothing between the
+ * two reads can change it, so the second test is redundant; it is what the
+ * compiler emitted and it is written here as one condition.
+ *
+ * ### The glow is a free-running angle
+ *
+ *      glowProgress += 0.15f;
+ *      if (glowProgress >= 6.28319f) glowProgress -= 6.28319f;
+ *
+ * Two pi, wrapped by subtraction rather than `fmodf`, so it stays exact for as
+ * long as the screen is up. 0.15 radians a frame is a full turn in about 42.
+ *
+ * ### Three packets on three different periods
+ *
+ *      sendInd % 40 == 38   doFPSExchange(), and puts("doing fps exchange")
+ *      sendInd % 30 ==  7   sendCharacterPacket(playerCharacter), if one is
+ *                           chosen, plus puts("sending character packet")
+ *      every frame          resetCountersBeforeMP()
+ *
+ * `sendInd` is bumped once a frame and never reset, so the two periods drift
+ * against each other on a 120-frame cycle. The character packet also nudges
+ * `syncCharacters` -- but only while it is between 1 and 4 -- so the counter
+ * climbs to 5 and stops.
+ *
+ * ### Both players have to press Play, and the order decides who pushes
+ *
+ *      this player presses first    pressedPlay = 1, sendPlayPacket()
+ *      the other pressed first      PushFETaskDeferred(0x2b) and
+ *                                   sendFEMenuPacket(0x2b)
+ *
+ * -- the same pair is reached from two places, so whichever device is second
+ * is the one that drives both into the versus screen.
+ *
+ * ### Back tears the session down and builds a new one, then keeps drawing
+ *
+ * The Back button pops the task, clears the five selection globals, calls
+ * `endMP()` **and then `startMP()`**, sets `GameMode = 0` and
+ * `enableHeartbeat(2)` -- and then branches back into the middle of the normal
+ * path and finishes drawing the frame. So the frame you press Back on is drawn
+ * against a session that has already been restarted.
+ *
+ * ### Who is player one depends on the connection, not on the picks
+ *
+ *      isParentBasedOnSpeed()   Character1 = playerCharacter
+ *                               Character2 = opponentCharacter
+ *      otherwise                the two the other way round
+ *
+ * so the same two picks produce a different Character1 on each device, which is
+ * how both ends agree on which side is which.
+ */
+
+#define MPCS_GLOW_STEP      0.15f
+#define MPCS_TWO_PI         6.2831902f
+#define MPCS_PLAY_SENTINEL  0x2710      /* 10000, and CharacterConfirmed never is */
+#define MPCS_PRESS_FRAMES   0x78        /* 120 */
+#define MPCS_FPS_PERIOD     40
+#define MPCS_FPS_PHASE      38
+#define MPCS_CHAR_PERIOD    30
+#define MPCS_CHAR_PHASE     7
+#define MPCS_BLINK_ON       0x3f
+#define MPCS_TASK_VERSUS    0x2b
+
+extern float glowProgress;              /* 0x00100eb4 */
+extern long  charSelectButtonPressed;   /* 0x00100eb8 */
+extern long  characterReported;         /* 0x000ff7fc */
+
+void  resetCountersBeforeMP(void);
+void  sendPlayPacket(void);
+void  sendCharacterPacket(long who);
+void  doFPSExchange(void);
+
+void FE_Task_Multiplayer_Character_Select(void)
+{
+    float dimcol[4];                    /* sp+0x20, the C.303 literal */
+    long  sel;
+    long  back;
+
+    mpLobbyCurrentPage = 0;
+
+    dimcol[0] = 0.5f;
+    dimcol[1] = 0.5f;
+    dimcol[2] = 0.5f;
+    dimcol[3] = 0.5f;
+
+    limeEnableAlphaBlending_Basic();
+    limeSet2DDrawing();
+
+    glowProgress += MPCS_GLOW_STEP;
+    if (glowProgress >= MPCS_TWO_PI)
+        glowProgress -= MPCS_TWO_PI;
+
+    limeDrawSprite((TEXTURE *)(&SelectBGTexture)[BGRandomised], 0.0f, 0.0f,
+                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   0.0f, 0.0f, 0.9375f, 0.625f, col);
+
+    *requestedLevel = getRandomLevel();
+
+    if (pressedPlay == 0)
+        limeDrawFONT(GameFont, GameText(0x4a),
+                     FE_WidthScale * 240.0f, FE_HeightScale * 8.0f,
+                     1, FE_WidthScale, fontcol);
+
+    /* the argument is re-derived from the same flag the line above tested */
+    sel = drawCharacterSelection(pressedPlay ? 1 : -1);
+
+    back = DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1);
+    limeDrawFONT(GameFont, GameText(7),
+                 FE_X(423.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
+
+    if (back) {
+        /* ---- tear the session down, start a new one, keep drawing ---- */
+        PopFETaskDeferred();
+        Character_SelectWait = 0;
+        CharacterConfirmed   = -1;
+        CharacterSelected    = -1;
+        opponentCharacter    = -1;
+        playerCharacter      = -1;
+        endMP();
+        startMP();
+        GameMode = 0;
+        enableHeartbeat(2);
+    }
+
+    if (playerCharacter != -1 && opponentCharacter != -1) {
+        /* ---- both picked: the Play button ---- */
+        if (DrawButtonNew(&BUTTON_PLAY, 0xf0, 0x130,
+                          (int)(pressedPlay <= 1 ? 1 - pressedPlay : 0))) {
+            sel = MPCS_PLAY_SENTINEL;
+            charSelectButtonPressed = MPCS_PRESS_FRAMES;
+        }
+
+        limeDrawFONT(GameFont, GameText(0xc),
+                     FE_X(240.0f), FE_Y(296.0f), 1, FE_WidthScale,
+                     pressedPlay ? dimcol : fontcol);
+
+        if (pressedPlay != 0 && (sendInd % 128) <= MPCS_BLINK_ON)
+            limeDrawFONT(GameFont, GameText(0xe),
+                         FE_WidthScale * 240.0f, FE_HeightScale * 8.0f,
+                         1, FE_WidthScale, fontcol);
+    }
+
+    if (charSelectButtonPressed > 0)
+        charSelectButtonPressed--;
+
+    if (sel == MPCS_PLAY_SENTINEL) {
+        if (opponentPressedPlay != 0) {
+            PushFETaskDeferred(MPCS_TASK_VERSUS);
+            sendFEMenuPacket(MPCS_TASK_VERSUS);
+        } else {
+            pressedPlay = 1;
+            sendPlayPacket();
+        }
+    } else if (pressedPlay != 0 && opponentPressedPlay != 0) {
+        PushFETaskDeferred(MPCS_TASK_VERSUS);
+        sendFEMenuPacket(MPCS_TASK_VERSUS);
+    }
+
+    /* ---- the handshake, on three periods off one free-running counter ---- */
+    resetCountersBeforeMP();
+    sendInd++;
+
+    if (sendInd % MPCS_FPS_PERIOD == MPCS_FPS_PHASE) {
+        doFPSExchange();
+        puts("doing fps exchange");
+    }
+    if (sendInd % MPCS_CHAR_PERIOD == MPCS_CHAR_PHASE
+        && playerCharacter != -1) {
+        sendCharacterPacket(playerCharacter);
+        if ((unsigned long)(syncCharacters - 1) <= 3)
+            syncCharacters++;
+        puts("sending character packet");
+    }
+
+    characterReported = 0;
+
+    /* the connection decides which side is player one, not the picks */
+    if (isParentBasedOnSpeed()) {
+        Character1 = playerCharacter;
+        Character2 = opponentCharacter;
+    } else {
+        Character1 = opponentCharacter;
+        Character2 = playerCharacter;
     }
 }
