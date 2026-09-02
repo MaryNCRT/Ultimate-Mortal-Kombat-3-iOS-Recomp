@@ -231,7 +231,16 @@ void limeCheckForUserMusic(void)      { }
  * both up), so it is read back and it matters. */
 static char g_language[8] = "EN";
 
-const char *limeGetLanguage(void) { return g_language; }
+/* Fills the caller's buffer; it does not return one. GameCode.c calls it as
+ * `limeGetLanguage(Language, 10)` and then builds "LANGUAGE_TEXT_%s" from what
+ * it wrote -- declared as returning a pointer, `Language` stayed empty and the
+ * key came out as "LANGUAGE_TEXT_", which Info.plist has no entry for. */
+void limeGetLanguage(char *dst, int len)
+{
+    if (dst == NULL || len <= 0)
+        return;
+    snprintf(dst, (size_t)len, "%s", g_language);
+}
 
 void lime_menu_set_language(const char *code)
 {

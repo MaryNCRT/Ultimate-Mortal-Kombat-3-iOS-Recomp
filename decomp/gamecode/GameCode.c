@@ -36,15 +36,70 @@ typedef struct TEXTURETOLOAD {
  * as its font pointer. Only the fields gamecode touches are named; lime.h has
  * the rest. (`GameFontP` further down is a different thing: the pointer SLOT
  * other translation units use to find the same object.) */
+/* The same fields as lime.h's `FONT`, and it has to stay that way:
+ * `limeCreateFONT` writes through a `FONT *` and this reads the result.
+ * Copied rather than included because GameCode.c declares a dozen lime
+ * types and functions of its own and the header collides with them --
+ * unifying those is the real fix and a larger one.
+ *
+ * It was previously written as padding plus three image offsets, which
+ * put `codesW` at 0x4c. Six pointers sit before it, four bytes each in
+ * the image and eight here, so 0x4c is not where it lands. */
 typedef struct GAMEFONT {
-    uint8_t   _pad00[0x0c];
-    int       spacing;                  /* 0x0c */
-    int       fallbackAdvance;          /* 0x10 */
-    uint8_t   _pad14[4];
-    int16_t   numGlyphs;                /* 0x18 */
-    uint8_t   _pad1a[0x2e];
-    uint8_t  *codes;                    /* 0x48  one byte per glyph */
-    int16_t  *codesW;                   /* 0x4c  the same, widened */
+    uint8_t   _pad00[4];
+    int       simple;            /* 0x04  stored INVERTED from the file flag */
+    int       glyphHeight;       /* 0x08  header byte 2 -- ONE height for every
+                                  *       glyph, which is why it is in the
+                                  *       header and not in a per-glyph array */
+    int       spacing;           /* 0x0c  added once per character by both
+                                  *       width routines -- inter-character
+                                  *       spacing, set from limeCreateFONT */
+    int       fallbackAdvance;   /* 0x10  the constant 8 */
+    /* A FLOAT. Both width routines read it with `vldr s15, [r4, #0x14]`, which
+     * reinterprets the bits -- it does not convert an integer. An earlier
+     * version of this header typed it `int` and the clean C cast it, which
+     * gives the right answer only when the caller happened to pass a small
+     * whole number. */
+    float     field14;           /* 0x14  the scale applied at measure time */
+    int16_t   numGlyphs;         /* 0x18 */
+    uint8_t   _pad1a[2];
+    /* The atlas rectangle of each glyph. limeDrawFONT settles all three by what
+     * it divides them BY on the way to limeDrawSprite: atlasU and glyphWidth are
+     * both normalised by +0x34, atlasV by +0x38. Two share a divisor, so two
+     * share an axis. */
+    int16_t  *atlasU;            /* 0x1c  x position in the atlas */
+    int16_t  *atlasV;            /* 0x20  y position in the atlas */
+    int16_t  *glyphWidth;        /* 0x24  per-glyph width, and the advance
+                                  *       limeGetStringWidth accumulates */
+    /* Optional per-glyph kerning, one SIGNED byte each, added to the width when
+     * the pointer is non-null. limeGetStringWidth is the only reader:
+     *     ldr     r3, [r4, #0x28]
+     *     cmp     r3, #0
+     *     ldrsbne r3, [r3, r0]
+     *     addne   r8, r8, r3
+     * Nothing in limeCreateFONT was seen to allocate it, so a font that does not
+     * carry kerning leaves it null and every glyph keeps its plain width. */
+    int8_t   *kerning;           /* 0x28 */
+    int       defaultAdvance;    /* 0x2c  simple fonts only */
+    uint8_t   _pad30[4];
+    /* The atlas dimensions, and they are the OPPOSITE way round from an earlier
+     * naming here. +0x34 divides the horizontal metrics and +0x38 the vertical,
+     * which is what fixes them: the divisor names the axis. */
+    float     atlasWidth;        /* 0x34 */
+    float     atlasHeight;       /* 0x38 */
+    /* Added to the width of a character that is NOT in the table, on top of
+     * the fallback advance. Only the not-found branch reads it:
+     *     ldr r3, [r4, #0x10]   ; the fallback
+     *     ldr r2, [r4, #0x3c]   ; and this
+     *     add r3, r3, r2
+     * so a font can make unknown characters wider than the plain fallback
+     * without touching the fallback itself. */
+    int       extraUnknown;      /* 0x3c */
+    uint8_t   _pad3c[12];
+    uint8_t  *codes;             /* 0x48  one byte per glyph */
+    int16_t  *codesW;            /* 0x4c  the same codes widened to 16 bits */
+    TEXTURE  *texture0;          /* 0x50 */
+    TEXTURE  *texture1;          /* 0x54 */
 } GAMEFONT;
 
 void LoadSomeTextures(TEXTURETOLOAD *list);
@@ -4470,7 +4525,12 @@ extern long   FadeMusicOut;             /* 0x0010dee8 */
 extern const char **DestinyNames;
 extern const char **DestinyNamesLoss;
 extern long  *DisplaySurvivalStage, *SurvivalStageP;
-extern long  *FE_TaskStackPointer, *FE_CurrentTask;
+/* Two words, not two pointers. FrontEnd.c declares both as plain `int` at
+ * 0x001008ac and 0x001008bc, and the symbol table agrees -- four bytes each
+ * in __DATA,__data. Written as one line with two declarators, this escaped
+ * tools/slotcheck.py, whose pattern reads a single name per line. */
+extern int  FE_TaskStackPointer;        /* 0x001008ac */
+extern int  FE_CurrentTask;             /* 0x001008bc */
 
 extern long Player1Wins;                /* 0x0014e204 */
 
@@ -4611,8 +4671,8 @@ void QuitAsLose(void)
 
     case 5:
         *FE_FadeAddP = -0.033333335f;
-        *FE_TaskStackPointer = 0;
-        *FE_CurrentTask      = 0;
+        FE_TaskStackPointer = 0;
+        FE_CurrentTask      = 0;
         Player1Wins = 0;
         UpdateStats();
         break;
@@ -5022,9 +5082,9 @@ void Task_LoadGeneralData(void)
     CheckAllUnicodeCharsUsed();
 
     NextTask = 2;
-    *FE_CurrentTask = 0;
+    FE_CurrentTask = 0;
     if (CheckForUnclaimedTreasure())
-        *FE_CurrentTask = 0x24;
+        FE_CurrentTask = 0x24;
     CurrentTask = 8;
 
     JSIZE = ButtonSize;
@@ -5185,8 +5245,8 @@ void QuitAsWin(void)
 
     case 5:
         *FE_FadeAddP = -0.033333335f;
-        *FE_TaskStackPointer = 0;
-        *FE_CurrentTask = 0;
+        FE_TaskStackPointer = 0;
+        FE_CurrentTask = 0;
         Player1Wins = 1;
         UpdateStats();
         break;

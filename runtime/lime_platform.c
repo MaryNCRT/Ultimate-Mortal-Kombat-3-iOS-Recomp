@@ -64,12 +64,26 @@ void lime_platform_set_asset_root(const char *path)
     snprintf(g_lime_asset_root, sizeof(g_lime_asset_root), "%s", path);
 }
 
+/* An iOS bundle is one flat directory: the game asks for "mkunicode.txt" and
+ * the bundle finds it wherever it sits. The extracted tree keeps most assets
+ * under res/ and a few -- mkunicode.txt, Info.plist -- beside it, so a path
+ * that is not under res/ is tried against the bundle before giving up. */
 static void resolve(const char *rel, char *out, size_t n)
 {
-    if (g_lime_asset_root[0] == '\0')
+    FILE *probe;
+
+    if (g_lime_asset_root[0] == '\0') {
         snprintf(out, n, "%s", rel);
-    else
-        snprintf(out, n, "%s/%s", g_lime_asset_root, rel);
+        return;
+    }
+
+    snprintf(out, n, "%s/%s", g_lime_asset_root, rel);
+    probe = fopen(out, "rb");
+    if (probe) {
+        fclose(probe);
+        return;
+    }
+    snprintf(out, n, "%s/../%s", g_lime_asset_root, rel);
 }
 
 
@@ -367,9 +381,14 @@ static struct {
     long  count;
 } g_last_sprite;
 
+/* Ten arguments; the tenth is the colour every caller in gamecode passes and
+ * this signature used to drop. Nothing draws here, so it is not read -- but the
+ * shape has to match or every argument after the fourth is misplaced. */
 void limeDrawSprite(TEXTURE *page, float x, float y, float w, float h,
-                    float u, float v, float du, float dv)
+                    float u, float v, float du, float dv,
+                    const float *colour)
 {
+    (void)colour;
     g_last_sprite.page = page;
     g_last_sprite.x = x;   g_last_sprite.y = y;
     g_last_sprite.w = w;   g_last_sprite.h = h;
@@ -392,10 +411,11 @@ void lime_platform_last_sprite(float *out8)
  * Shares the recorder above so a test can inspect either path. */
 void limeDrawRotSpriteFromTopLeft(TEXTURE *page, float x, float y,
                                   float w, float h, float u, float v,
-                                  float du, float dv, float angle)
+                                  float du, float dv, float angle,
+                                  const float *colour)
 {
     (void)angle;
-    limeDrawSprite(page, x, y, w, h, u, v, du, dv);
+    limeDrawSprite(page, x, y, w, h, u, v, du, dv, colour);
 }
 
 

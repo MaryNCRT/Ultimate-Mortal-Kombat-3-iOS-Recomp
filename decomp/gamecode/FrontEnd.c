@@ -2424,7 +2424,13 @@ void DrawRedHighlight(int x, int y, int w, int h, int thick)
 
 extern float FE_WidthScale;             /* 0x000ff9b8 */
 extern float FE_HeightScale;            /* 0x000ff9bc */
-extern void *GameFont;                  /* pointer slot -> 0x001abb98 */
+/* The font STRUCT, not a pointer to one: GameCode.c fills it with
+ * `limeCreateFONT(..., &GameFont, ...)`. Incomplete on purpose -- nothing
+ * here reads a field, it only hands the font to lime, and the body lives
+ * with the code that fills it. Declared `void *`, every draw call passed
+ * the struct's first eight bytes as the font pointer. */
+typedef struct GAMEFONT GAMEFONT;
+extern GAMEFONT GameFont;               /* 0x001abb98 */
 /* `limeScreenWidth` and `limeScreenHeight` are declared above, in the
  * pointer-slot spelling this file uses throughout. */
 
@@ -2497,11 +2503,11 @@ void FE_DrawLeaderBoardEntriesCallback(int rank, int offset, const char *name,
         + FE_HeightScale * (float)(rank * 16);
 
     snprintf(buf, sizeof buf, "%d. %s", offset + rank, name);
-    limeDrawFONT(GameFont, buf, 60.0f, (float)(long)y, 0,
+    limeDrawFONT(&GameFont, buf, 60.0f, (float)(long)y, 0,
                  FE_WidthScale, colour);
 
     snprintf(buf, sizeof buf, "%d", score);
-    limeDrawFONT(GameFont, buf,
+    limeDrawFONT(&GameFont, buf,
                  (float)limeScreenWidth + FE_WidthScale * -60.0f,
                  (float)(long)y, 2, FE_WidthScale, colour);
 }
@@ -2581,7 +2587,7 @@ long DrawOptionAsText(const char *text, float x, float y, float scale,
     float widest = 0.0f;                /* s22 -- computed and never read */
 
     CreateWrappedTextArrays(text, ButtonSplitText2, &lines, (long)maxWidth,
-                            GameFont, scale * FE_WidthScale);
+                            &GameFont, scale * FE_WidthScale);
 
     if (lines <= 0)
         return 0;
@@ -2592,15 +2598,15 @@ long DrawOptionAsText(const char *text, float x, float y, float scale,
         float py = y - (float)(lines * 10 - 10) + (float)lineOffset;
         float w;
 
-        limeDrawFONT(GameFont, limeUC(line),
+        limeDrawFONT(&GameFont, limeUC(line),
                      FE_X(x), FE_Y(py),
                      1, scale * FE_WidthScale, colour);
 
-        w = (float)limeGetStringWidth(GameFont, limeUC(line))
+        w = (float)limeGetStringWidth(&GameFont, limeUC(line))
             * FE_WidthScale * scale;
 
         if (w > widest)                 /* recomputed inside the branch */
-            widest = (float)limeGetStringWidth(GameFont, limeUC(line))
+            widest = (float)limeGetStringWidth(&GameFont, limeUC(line))
                      * FE_WidthScale * scale;
 
         lineOffset += 0x14;             /* 20, added as an integer */
@@ -2939,7 +2945,7 @@ void FE_Task_Multiplayer_Disconnected(void)
                    (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0234375f, 1.0f, 0.703125f, col);
 
-    limeDrawFONT(GameFont, GameText(0xc4),
+    limeDrawFONT(&GameFont, GameText(0xc4),
                  (float)(limeScreenWidth / 2),
                  (float)(limeScreenHeight / 2 - 0x14),
                  1, FE_WidthScale, col);
@@ -2947,7 +2953,7 @@ void FE_Task_Multiplayer_Disconnected(void)
     pressed = DrawButtonNew(&BUTTON_1X3_3, 0xed, 0xe6, 1)
               && FE_FadeAdd == 0.0f;
 
-    limeDrawFONT(GameFont, GameText(0xc3),
+    limeDrawFONT(&GameFont, GameText(0xc3),
                  (float)FE_X(235.0f), (float)FE_Y(222.0f),
                  1, FE_WidthScale, fontcol);
 
@@ -3133,7 +3139,7 @@ void DrawMainMenu(int c1, int c2, int c3, int c4, int c5)
                    (float)FE_W(256.0f), (float)FE_H(384.0f),
                    0.0f, 0.0f, 0.5f, 0.75f, col);
 
-    font = GameFont;
+    font = &GameFont;
 
     limeDrawFONTAtAngle(font, GameText(4),
                         (float)FE_X(170.0f), (float)FE_Y(24.0f), 2,
@@ -3233,11 +3239,11 @@ long BasicMenuMod(const long *items, const long *disabled)
 
     for (i = 1, off = 0x20; i < count; i++, off += 0x20) {
         const char *text = GameText(items[i]);
-        float w = limeGetStringWidth(GameFont, text);
+        float w = limeGetStringWidth(&GameFont, text);
         const float *colour = (disabled[i] != 0) ? darkcol : fontcol;
         float cx, tx, ty;
 
-        limeDrawFONT(GameFont, GameText(items[i]),
+        limeDrawFONT(&GameFont, GameText(items[i]),
                      (float)(limeScreenWidth / 2),
                      y + (float)off * FE_HeightScale,
                      1, FE_WidthScale, colour);
@@ -3475,12 +3481,12 @@ void FE_Task_Button_Edit(void)
     DrawControls();
 
     save = DrawButtonNew(&BUTTON_SAVE, 0x26, 0x10, 1);
-    limeDrawFONT(GameFont, GameText(0x57),
+    limeDrawFONT(&GameFont, GameText(0x57),
                  (float)FE_X(16.0f), (float)FE_Y(8.0f),
                  0, FE_WidthScale, fontcol);
 
     cancel = DrawButtonNew(&BUTTON_CANCEL, 0x1ba, 0x10, 1);
-    limeDrawFONT(GameFont, GameText(0x58),
+    limeDrawFONT(&GameFont, GameText(0x58),
                  (float)FE_X(472.0f), (float)FE_Y(8.0f),
                  2, FE_WidthScale, fontcol);
 
@@ -3576,7 +3582,7 @@ long DrawOptionAsButton(const char *text, float x, float y, float scale,
     float tx, ty, edge;
 
     CreateWrappedTextArrays(text, ButtonSplitText, &lines, (long)maxWidth,
-                            GameFont, scale * FE_WidthScale);
+                            &GameFont, scale * FE_WidthScale);
 
     if (lines > 0) {
         lineOffset = 0;
@@ -3585,15 +3591,15 @@ long DrawOptionAsButton(const char *text, float x, float y, float scale,
             float py = y - (float)(lines * 10 - 10) + (float)lineOffset;
             float w;
 
-            limeDrawFONT(GameFont, limeUC(line),
+            limeDrawFONT(&GameFont, limeUC(line),
                          FE_X(x), FE_Y(py),
                          1, scale * FE_WidthScale, colour);
 
-            w = (float)limeGetStringWidth(GameFont, limeUC(line))
+            w = (float)limeGetStringWidth(&GameFont, limeUC(line))
                 * FE_WidthScale * scale;
 
             if (w > widest)             /* recomputed, as in DrawOptionAsText */
-                widest = (float)limeGetStringWidth(GameFont, limeUC(line))
+                widest = (float)limeGetStringWidth(&GameFont, limeUC(line))
                          * FE_WidthScale * scale;
         }
     }
@@ -3716,12 +3722,12 @@ long BasicMenuWithWidth(const long *items, int width)
 
         if (i == 0) {                   /* the heading, never hit-tested */
             usprintf(buf, UC("--- %s ---"), GameTextNoHeader(items[0]));
-            limeDrawFONT(GameFont, limeUC(buf), cx, y, 1, scale, fontcol);
+            limeDrawFONT(&GameFont, limeUC(buf), cx, y, 1, scale, fontcol);
             continue;
         }
 
-        w = (float)limeGetStringWidth(GameFont, GameText(items[i]));
-        limeDrawFONT(GameFont, GameText(items[i]), cx, y, 1, scale, fontcol);
+        w = (float)limeGetStringWidth(&GameFont, GameText(items[i]));
+        limeDrawFONT(&GameFont, GameText(items[i]), cx, y, 1, scale, fontcol);
 
         if (limeLastTouchScreenX[0] != -1.0f)
             continue;
@@ -3842,11 +3848,11 @@ void DrawTicker(void)
         float left = (float)limeScreenWidth + tickeroff + x;
         float w;
 
-        limeDrawFONT(GameFont, limeUC(msg), left,
+        limeDrawFONT(&GameFont, limeUC(msg), left,
                      (float)(displayTicker - 0x15) * FE_HeightScale,
                      0, FE_WidthScale, fontcol);
 
-        w = (float)limeGetStringWidth(GameFont, limeUC(msg)) * FE_WidthScale;
+        w = (float)limeGetStringWidth(&GameFont, limeUC(msg)) * FE_WidthScale;
 
         url = EASDK_GetTickerUrl(t);
 
@@ -3942,18 +3948,18 @@ void FE_Task_Select_Leaderboard(void)
 
     choice = drawPage2x1Wide(0, 0x1e);
 
-    limeDrawFONT(GameFont, GameText(0x35f), (float)FE_X(240.0f),
+    limeDrawFONT(&GameFont, GameText(0x35f), (float)FE_X(240.0f),
                  (float)FE_Y(74.0f),  1, FE_WidthScale, fontcol);
-    limeDrawFONT(GameFont, GameText(0x360), (float)FE_X(240.0f),
+    limeDrawFONT(&GameFont, GameText(0x360), (float)FE_X(240.0f),
                  (float)FE_Y(90.0f),  1, FE_WidthScale, fontcol);
-    limeDrawFONT(GameFont, GameText(0x361), (float)FE_X(240.0f),
+    limeDrawFONT(&GameFont, GameText(0x361), (float)FE_X(240.0f),
                  (float)FE_Y(174.0f), 1, FE_WidthScale, fontcol);
-    limeDrawFONT(GameFont, GameText(0x362), (float)FE_X(240.0f),
+    limeDrawFONT(&GameFont, GameText(0x362), (float)FE_X(240.0f),
                  (float)FE_Y(190.0f), 1, FE_WidthScale, fontcol);
 
     back = DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1);
 
-    limeDrawFONT(GameFont, GameText(7), (float)FE_X(423.0f),
+    limeDrawFONT(&GameFont, GameText(7), (float)FE_X(423.0f),
                  (float)FE_Y(296.0f), 1, FE_WidthScale, fontcol);
 
     if (choice == 1) {
@@ -4052,11 +4058,11 @@ void FE_Task_About_Usage_Sharing(void)
              GameTextNoHeader(0xd9),
              GameTextNoHeader(Settings[9] != 0 ? 0xe1 : 0xe2));
 
-    limeDrawFONT(GameFont, limeUC(strBuf),
+    limeDrawFONT(&GameFont, limeUC(strBuf),
                  (float)FE_X(240.0f), (float)FE_Y(64.0f),
                  1, FE_WidthScale, fontcol);
 
-    limeDrawFONT(GameFont,
+    limeDrawFONT(&GameFont,
                  GameText(Settings[9] != 0 ? 0xaf : 0xb0),
                  240.0f * FE_WidthScale, (float)FE_Y(152.0f),
                  1, FE_WidthScale, fontcol);
@@ -4066,7 +4072,7 @@ void FE_Task_About_Usage_Sharing(void)
 
     back = DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1);
 
-    limeDrawFONT(GameFont, GameText(7),
+    limeDrawFONT(&GameFont, GameText(7),
                  (float)FE_X(423.0f), (float)FE_Y(296.0f),
                  1, FE_WidthScale, fontcol);
 
@@ -4141,11 +4147,11 @@ void FE_Task_ResetAllDataConfirmation(void)
                    (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0234375f, 1.0f, 0.703125f, col);
 
-    limeDrawFONT(GameFont, GameText(0x11c),
+    limeDrawFONT(&GameFont, GameText(0x11c),
                  (float)FE_X(240.0f), (float)FE_Y(240.0f),
                  1, FE_WidthScale, fontcol);
 
-    limeDrawFONT(GameFont, GameText(0x11b),
+    limeDrawFONT(&GameFont, GameText(0x11b),
                  (float)FE_X(240.0f), (float)FE_Y(52.0f),
                  1, FE_WidthScale, fontcol);
 
@@ -4153,17 +4159,17 @@ void FE_Task_ResetAllDataConfirmation(void)
     no  = DrawButtonNew(&BUTTON_BOXRT, 0x145, 0xa0, 1);
 
     if (no && FE_FadeAdd == 0.0f) {
-        limeDrawFONT(GameFont, GameText(0xeb), (float)FE_X(156.0f),
+        limeDrawFONT(&GameFont, GameText(0xeb), (float)FE_X(156.0f),
                      (float)FE_Y(152.0f), 1, FE_WidthScale, fontcol);
-        limeDrawFONT(GameFont, GameText(0xec), (float)FE_X(325.0f),
+        limeDrawFONT(&GameFont, GameText(0xec), (float)FE_X(325.0f),
                      (float)FE_Y(152.0f), 1, FE_WidthScale, fontcol);
         PopFETaskDeferred();
         return;
     }
 
-    limeDrawFONT(GameFont, GameText(0xeb), (float)FE_X(156.0f),
+    limeDrawFONT(&GameFont, GameText(0xeb), (float)FE_X(156.0f),
                  (float)FE_Y(152.0f), 1, FE_WidthScale, fontcol);
-    limeDrawFONT(GameFont, GameText(0xec), (float)FE_X(325.0f),
+    limeDrawFONT(&GameFont, GameText(0xec), (float)FE_X(325.0f),
                  (float)FE_Y(152.0f), 1, FE_WidthScale, fontcol);
 
     if (!yes)
@@ -4244,11 +4250,11 @@ void FE_Task_Catagory_Select(void)
 
     choice = drawPage1x3Small();
 
-    limeDrawFONT(GameFont, GameText(0xee), (float)FE_X(240.0f),
+    limeDrawFONT(&GameFont, GameText(0xee), (float)FE_X(240.0f),
                  (float)FE_Y(82.0f),  1, FE_WidthScale, fontcol);
-    limeDrawFONT(GameFont, GameText(0xef), (float)FE_X(240.0f),
+    limeDrawFONT(&GameFont, GameText(0xef), (float)FE_X(240.0f),
                  (float)FE_Y(152.0f), 1, FE_WidthScale, fontcol);
-    limeDrawFONT(GameFont, GameText(0xf2), (float)FE_X(240.0f),
+    limeDrawFONT(&GameFont, GameText(0xf2), (float)FE_X(240.0f),
                  (float)FE_Y(222.0f), 1, FE_WidthScale, fontcol);
 
     if (choice == 1 || choice == 2 || choice == 3) {
@@ -4259,7 +4265,7 @@ void FE_Task_Catagory_Select(void)
 
     back = DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1);
 
-    limeDrawFONT(GameFont, GameText(7), (float)FE_X(423.0f),
+    limeDrawFONT(&GameFont, GameText(7), (float)FE_X(423.0f),
                  (float)FE_Y(296.0f), 1, FE_WidthScale, fontcol);
 
     if (back)
@@ -4479,17 +4485,17 @@ void FE_Task_Manage_Social_Features(void)
 
     choice = drawPage2x1Wide(0, 0);
 
-    limeDrawFONT(GameFont, GameText(0xe8), (float)FE_X(240.0f),
+    limeDrawFONT(&GameFont, GameText(0xe8), (float)FE_X(240.0f),
                  (float)FE_Y(44.0f), 1, FE_WidthScale, fontcol);
 
-    limeDrawFONT(GameFont, GameText(Settings[8] ? 0xe1 : 0xe2),
+    limeDrawFONT(&GameFont, GameText(Settings[8] ? 0xe1 : 0xe2),
                  (float)FE_X(240.0f), (float)FE_Y(60.0f),
                  1, FE_WidthScale, fontcol);
 
-    limeDrawFONT(GameFont, GameText(0x396), (float)FE_X(240.0f),
+    limeDrawFONT(&GameFont, GameText(0x396), (float)FE_X(240.0f),
                  (float)FE_Y(144.0f), 1, FE_WidthScale, fontcol);
 
-    limeDrawFONT(GameFont, GameText(Settings[7] ? 0xe1 : 0xe2),
+    limeDrawFONT(&GameFont, GameText(Settings[7] ? 0xe1 : 0xe2),
                  (float)FE_X(240.0f), (float)FE_Y(160.0f),
                  1, FE_WidthScale, fontcol);
 
@@ -4504,7 +4510,7 @@ void FE_Task_Manage_Social_Features(void)
 
     back = DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1);
 
-    limeDrawFONT(GameFont, GameText(7), (float)FE_X(423.0f),
+    limeDrawFONT(&GameFont, GameText(7), (float)FE_X(423.0f),
                  (float)FE_Y(296.0f), 1, FE_WidthScale, fontcol);
 
     if (back) {
@@ -4814,7 +4820,7 @@ void FE_Task_About_Usage_Sharing_Confirm(void)
     if (FE_FadeAdd >= 0.0f) {
         const char *body;
 
-        limeDrawFONT(GameFont, GameText(Settings[9] ? 0xaf : 0xb0),
+        limeDrawFONT(&GameFont, GameText(Settings[9] ? 0xaf : 0xb0),
                      (float)FE_X(240.0f), (float)FE_Y(32.0f),
                      1, headingScale * FE_WidthScale, fontcol);
 
@@ -4822,10 +4828,10 @@ void FE_Task_About_Usage_Sharing_Confirm(void)
 
         CreateWrappedTextArrays(body, HelpSpiltText, &lines,
                                 limeScreenWidth - 0x20,
-                                GameFont, bodyScale * FE_WidthScale);
+                                &GameFont, bodyScale * FE_WidthScale);
 
         for (i = 0; i < lines; i++)
-            limeDrawFONT(GameFont, limeUC(&HelpSpiltText[i * 256]),
+            limeDrawFONT(&GameFont, limeUC(&HelpSpiltText[i * 256]),
                          (float)(limeScreenWidth / 2),
                          (float)FE_Y((float)(i * 16 + 0x48)),
                          1, bodyScale * FE_WidthScale, fontcol);
@@ -4833,7 +4839,7 @@ void FE_Task_About_Usage_Sharing_Confirm(void)
 
     back = DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1);
 
-    limeDrawFONT(GameFont, GameText(0x58), (float)FE_X(423.0f),
+    limeDrawFONT(&GameFont, GameText(0x58), (float)FE_X(423.0f),
                  (float)FE_Y(296.0f), 1, FE_WidthScale, fontcol);
 
     if (back)
@@ -4842,7 +4848,7 @@ void FE_Task_About_Usage_Sharing_Confirm(void)
     /* Drawn, and the result deliberately discarded -- see above. */
     DrawButtonNew(&BUTTON_OK, 0x39, 0x130, 1);
 
-    limeDrawFONT(GameFont, GameText(0xc), (float)FE_X(57.0f),
+    limeDrawFONT(&GameFont, GameText(0xc), (float)FE_X(57.0f),
                  (float)FE_Y(296.0f), 1, FE_WidthScale, fontcol);
 
     if (limeLastTouchScreenX[0] == -1.0f
@@ -4986,18 +4992,18 @@ void FE_Task_Multiplayer_Summary(void)
     }
 
     if (WaitForOpponent == 0 && isParent()) {
-        limeDrawFONT(GameFont, GameText(0xf7), (float)FE_X(235.0f),
+        limeDrawFONT(&GameFont, GameText(0xf7), (float)FE_X(235.0f),
                      (float)FE_Y(82.0f), 1, FE_WidthScale, fontcol);
-        limeDrawFONT(GameFont, GameText(0xc6), (float)FE_X(235.0f),
+        limeDrawFONT(&GameFont, GameText(0xc6), (float)FE_X(235.0f),
                      (float)FE_Y(152.0f), 1, FE_WidthScale, fontcol);
     } else {
-        limeDrawFONT(GameFont, GameText(0xf7), (float)FE_X(235.0f),
+        limeDrawFONT(&GameFont, GameText(0xf7), (float)FE_X(235.0f),
                      (float)FE_Y(82.0f), 1, FE_WidthScale, grey);
-        limeDrawFONT(GameFont, GameText(0xc6), (float)FE_X(235.0f),
+        limeDrawFONT(&GameFont, GameText(0xc6), (float)FE_X(235.0f),
                      (float)FE_Y(152.0f), 1, FE_WidthScale, grey);
     }
 
-    limeDrawFONT(GameFont, GameText(0xc7), (float)FE_X(235.0f),
+    limeDrawFONT(&GameFont, GameText(0xc7), (float)FE_X(235.0f),
                  (float)FE_Y(222.0f), 1, FE_WidthScale, fontcol);
 
     resetCountersBeforeMP();
@@ -5131,11 +5137,11 @@ void FE_Task_Continue_Screen(void)
                    (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0f, 1.0f, 0.75f, col);
 
-    limeDrawFONT(GameFont, GameText(0x51), (float)FE_X(120.0f),
+    limeDrawFONT(&GameFont, GameText(0x51), (float)FE_X(120.0f),
                  (float)FE_Y(208.0f), 1, FE_WidthScale, fontcol);
-    limeDrawFONT(GameFont, GameText(0x52), (float)FE_X(120.0f),
+    limeDrawFONT(&GameFont, GameText(0x52), (float)FE_X(120.0f),
                  (float)FE_Y(224.0f), 1, FE_WidthScale, fontcol);
-    limeDrawFONT(GameFont, GameText(0x5b), (float)FE_X(360.0f),
+    limeDrawFONT(&GameFont, GameText(0x5b), (float)FE_X(360.0f),
                  (float)FE_Y(224.0f), 1, FE_WidthScale, fontcol);
 
     KontinueTime = (float)((double)KontinueTime
@@ -5164,10 +5170,10 @@ void FE_Task_Continue_Screen(void)
 
     if (KontinueTime != 0.0f) {
         sprintf(strBuf, "%d", (int)((long)KontinueTime + 1));
-        limeDrawFONT(GameFont, strBuf, (float)FE_X(120.0f),
+        limeDrawFONT(&GameFont, strBuf, (float)FE_X(120.0f),
                      (float)FE_Y(240.0f), 1, FE_WidthScale, fontcol);
     } else {
-        limeDrawFONT(GameFont, "0", (float)FE_X(120.0f),
+        limeDrawFONT(&GameFont, "0", (float)FE_X(120.0f),
                      (float)FE_Y(240.0f), 1, FE_WidthScale, fontcol);
     }
 
@@ -5563,12 +5569,12 @@ void FE_Task_Karnage_Summary(void)
         }
     }
 
-    limeDrawFONT(GameFont, GameText(0x11f),
+    limeDrawFONT(&GameFont, GameText(0x11f),
                  (float)(limeScreenWidth / 2), (float)FE_Y(160.0f),
                  1, FE_WidthScale, fontcol);
 
     usprintf(strBuf, UC("%s: %d"), GameTextNoHeader(0x121), KarnageScore);
-    limeDrawFONT(GameFont, limeUC(strBuf),
+    limeDrawFONT(&GameFont, limeUC(strBuf),
                  (float)(limeScreenWidth / 2), (float)FE_Y(180.0f),
                  1, FE_WidthScale, fontcol);
 
@@ -5590,7 +5596,7 @@ void FE_Task_Karnage_Summary(void)
             if (t < 0x21c) {
                 long corr = (t >> 31) >> 24;    /* 255 when negative, else 0 */
                 if ((((t + corr) & 0xff) - corr) > 0x80)
-                    limeDrawFONT(GameFont, GameText(0x13),
+                    limeDrawFONT(&GameFont, GameText(0x13),
                                  (float)(limeScreenWidth / 2),
                                  (float)FE_Y(200.0f),
                                  1, FE_WidthScale, fontcol);
@@ -5599,7 +5605,7 @@ void FE_Task_Karnage_Summary(void)
     } else {
         exiting = DrawButtonNew(&BUTTON_EXITBIG, 0x1a7, 0x130, 1) ? 0 : -1;
 
-        limeDrawFONT(GameFont, GameText(9), (float)FE_X(423.0f),
+        limeDrawFONT(&GameFont, GameText(9), (float)FE_X(423.0f),
                      (float)FE_Y(296.0f), 1, FE_WidthScale, fontcol);
     }
 
@@ -5690,31 +5696,31 @@ void FE_Task_Settings(void)
 
     choice = drawPage2x2BigForSettings();
 
-    limeDrawFONT(GameFont, GameText(0x118), (float)FE_X(152.0f),
+    limeDrawFONT(&GameFont, GameText(0x118), (float)FE_X(152.0f),
                  (float)FE_Y(72.0f), 1, FE_WidthScale, fontcol);
-    limeDrawFONT(GameFont, GameText(0x119), (float)FE_X(152.0f),
+    limeDrawFONT(&GameFont, GameText(0x119), (float)FE_X(152.0f),
                  (float)FE_Y(88.0f), 1, FE_WidthScale, fontcol);
-    limeDrawFONT(GameFont, GameText(0xdc), (float)FE_X(152.0f),
+    limeDrawFONT(&GameFont, GameText(0xdc), (float)FE_X(152.0f),
                  (float)FE_Y(208.0f), 1, FE_WidthScale, fontcol);
 
     musicLabel = (Settings[2] == 3) ? 0xe0
                : (Settings[2] == 2) ? 0xdf
                : (Settings[2] == 1) ? 0xde : 0xe2;
-    limeDrawFONT(GameFont, GameText(musicLabel), (float)FE_X(152.0f),
+    limeDrawFONT(&GameFont, GameText(musicLabel), (float)FE_X(152.0f),
                  (float)FE_Y(224.0f), 1, FE_WidthScale, fontcol);
 
-    limeDrawFONT(GameFont, GameText(0xdd), (float)FE_X(320.0f),
+    limeDrawFONT(&GameFont, GameText(0xdd), (float)FE_X(320.0f),
                  (float)FE_Y(208.0f), 1, FE_WidthScale, fontcol);
 
     sfxLabel = (Settings[3] == 3) ? 0xe0
              : (Settings[3] == 2) ? 0xdf
              : (Settings[3] == 1) ? 0xde : 0xe2;
-    limeDrawFONT(GameFont, GameText(sfxLabel), (float)FE_X(320.0f),
+    limeDrawFONT(&GameFont, GameText(sfxLabel), (float)FE_X(320.0f),
                  (float)FE_Y(224.0f), 1, FE_WidthScale, fontcol);
 
     back = DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1);
 
-    limeDrawFONT(GameFont, GameText(7), (float)FE_X(423.0f),
+    limeDrawFONT(&GameFont, GameText(7), (float)FE_X(423.0f),
                  (float)FE_Y(296.0f), 1, FE_WidthScale, fontcol);
 
     if (choice == 1) {
@@ -5849,7 +5855,7 @@ void FE_Task_Achievements(void)
     prevEnabled = (currentAchievementPage <= 0) ? 2 : 1;
     nextEnabled = ((currentAchievementPage + 1) * 6 > 0x13) ? 2 : 1;
 
-    limeDrawFONT(GameFont, GameText(0xcc), (float)FE_X(240.0f),
+    limeDrawFONT(&GameFont, GameText(0xcc), (float)FE_X(240.0f),
                  (float)FE_Y(4.0f), 1, FE_WidthScale, rowcol);
 
     limeDrawSprite((TEXTURE *)*FEBits3,
@@ -5863,7 +5869,7 @@ void FE_Task_Achievements(void)
     if (DrawButtonNew(&BUTTON_MINI_3, 0x18e, 0x12e, (int)nextEnabled))
         sel = 3;
 
-    limeDrawFONT(GameFont, GameText(7), (float)FE_X(240.0f),
+    limeDrawFONT(&GameFont, GameText(7), (float)FE_X(240.0f),
                  (float)FE_Y(294.0f), 1, FE_WidthScale, rowcol);
 
     y = 40;
@@ -5885,15 +5891,15 @@ void FE_Task_Achievements(void)
             rowcol[1] = shade;
             rowcol[2] = shade;
 
-            limeDrawFONT(GameFont, GameText(marker),
+            limeDrawFONT(&GameFont, GameText(marker),
                          (float)FE_X(460.0f), (float)FE_Y((float)y),
                          2, 1.0499999f * FE_WidthScale, rowcol);
 
-            limeDrawFONT(GameFont, GameText(achievementsDescr[idx].id),
+            limeDrawFONT(&GameFont, GameText(achievementsDescr[idx].id),
                          (float)FE_X(20.0f), (float)FE_Y((float)y),
                          0, 1.0499999f * FE_WidthScale, rowcol);
 
-            limeDrawFONT(GameFont, GameText(achievementsDescr[idx].descr),
+            limeDrawFONT(&GameFont, GameText(achievementsDescr[idx].descr),
                          (float)FE_X(20.0f), (float)FE_Y((float)(y + 0x12)),
                          0, 0.80000001f * FE_WidthScale, rowcol);
         }
@@ -5907,7 +5913,7 @@ void FE_Task_Achievements(void)
         rowcol[0] = shade;
         rowcol[1] = shade;
         rowcol[2] = shade;
-        limeDrawFONT(GameFont, GameText(8),
+        limeDrawFONT(&GameFont, GameText(8),
                      (float)(long)FE_X(398.0f), (float)(long)FE_Y(294.0f),
                      1, FE_WidthScale, rowcol);
     }
@@ -5917,7 +5923,7 @@ void FE_Task_Achievements(void)
         rowcol[0] = shade;
         rowcol[1] = shade;
         rowcol[2] = shade;
-        limeDrawFONT(GameFont, GameText(0x12),
+        limeDrawFONT(&GameFont, GameText(0x12),
                      (float)FE_X(82.0f), (float)FE_Y(294.0f),
                      1, FE_WidthScale, rowcol);
     }
@@ -6110,7 +6116,7 @@ void FE_Task_Stats(void)
         y = 32 - StatsPage * 168 + slot;
         slot += 24;
 
-        limeDrawFONT(GameFont, limeUC(strBuf),
+        limeDrawFONT(&GameFont, limeUC(strBuf),
                      (float)(limeScreenWidth / 2), (float)FE_Y((float)y),
                      1, FE_WidthScale, fontcol);
     }
@@ -6118,13 +6124,13 @@ void FE_Task_Stats(void)
     if (DrawButtonNew(&BUTTON_NEXTSTATS, 0x39, 0x130, 1))
         StatsPage ^= 1;
 
-    limeDrawFONT(GameFont, GameText(8), (float)FE_X(57.0f),
+    limeDrawFONT(&GameFont, GameText(8), (float)FE_X(57.0f),
                  (float)FE_Y(296.0f), 1, FE_WidthScale, fontcol);
 
     if (DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1))
         PopFETaskDeferred();
 
-    limeDrawFONT(GameFont, GameText(9), (float)FE_X(423.0f),
+    limeDrawFONT(&GameFont, GameText(9), (float)FE_X(423.0f),
                  (float)FE_Y(296.0f), 1, FE_WidthScale, fontcol);
 }
 
@@ -6244,7 +6250,7 @@ void FE_Task_Survival_Summary(void)
     }
 
     /* The title -- scaled but not offset; see the header. */
-    limeDrawFONT(GameFont, GameText(0x5a),
+    limeDrawFONT(&GameFont, GameText(0x5a),
                  (float)(limeScreenWidth / 2), 160.0f * FE_HeightScale,
                  1, FE_WidthScale, fontcol);
 
@@ -6253,7 +6259,7 @@ void FE_Task_Survival_Summary(void)
     else
         usprintf(strBuf, GameTextNoHeader(0xb9), DisplaySurvivalStage);
 
-    limeDrawFONT(GameFont, limeUC(strBuf),
+    limeDrawFONT(&GameFont, limeUC(strBuf),
                  (float)(limeScreenWidth / 2), (float)FE_Y(180.0f),
                  1, FE_WidthScale, fontcol);
 
@@ -6282,7 +6288,7 @@ void FE_Task_Survival_Summary(void)
             if (t < 0x21c) {
                 long corr = (t >> 31) >> 24;
                 if ((((t + corr) & 0xff) - corr) > 0x80)
-                    limeDrawFONT(GameFont, GameText(0x13),
+                    limeDrawFONT(&GameFont, GameText(0x13),
                                  (float)(limeScreenWidth / 2),
                                  (float)FE_Y(200.0f),
                                  1, FE_WidthScale, fontcol);
@@ -6294,7 +6300,7 @@ void FE_Task_Survival_Summary(void)
         exiting = DrawButtonNew(&BUTTON_EXITBIG, 0x1a7, 0x130,
                                 (int)ready) ? 0 : -1;
 
-        limeDrawFONT(GameFont, GameText(9), (float)FE_X(423.0f),
+        limeDrawFONT(&GameFont, GameText(9), (float)FE_X(423.0f),
                      (float)FE_Y(296.0f), 1, FE_WidthScale, fontcol);
     }
 
@@ -6410,7 +6416,7 @@ void FE_Task_Character_Select(void)
                    (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0f, 0.9375f, 0.625f, col);
 
-    limeDrawFONT(GameFont, GameText(0x4a), (float)FE_X(240.0f),
+    limeDrawFONT(&GameFont, GameText(0x4a), (float)FE_X(240.0f),
                  (float)FE_Y(8.0f), 1, FE_WidthScale, fontcol);
 
     drawCharacterSelection(-1);
@@ -6418,7 +6424,7 @@ void FE_Task_Character_Select(void)
     if (FE_TaskStackPointer > 0) {
         back = DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1);
 
-        limeDrawFONT(GameFont, GameText(7), (float)FE_X(423.0f),
+        limeDrawFONT(&GameFont, GameText(7), (float)FE_X(423.0f),
                      (float)FE_Y(296.0f), 1, FE_WidthScale, fontcol);
 
         if (back) {
@@ -6448,7 +6454,7 @@ void FE_Task_Character_Select(void)
             if (DrawButtonNew(&BUTTON_PLAY, 0xf0, 0x130, 1))
                 CharacterConfirmed = CharacterSelected;
 
-            limeDrawFONT(GameFont, GameText(0xc), (float)FE_X(240.0f),
+            limeDrawFONT(&GameFont, GameText(0xc), (float)FE_X(240.0f),
                          (float)FE_Y(296.0f), 1, FE_WidthScale, fontcol);
         }
     } else {
@@ -6456,7 +6462,7 @@ void FE_Task_Character_Select(void)
             if (DrawButtonNew(&BUTTON_PLAY, 0xf0, 0x130, 1))
                 CharacterConfirmed = CharacterSelected;
 
-            limeDrawFONT(GameFont, GameText(0xc), (float)FE_X(240.0f),
+            limeDrawFONT(&GameFont, GameText(0xc), (float)FE_X(240.0f),
                          (float)FE_Y(296.0f), 1, FE_WidthScale, fontcol);
         }
     }
@@ -6603,11 +6609,11 @@ void FE_Task_Button_Config(void)
 
     DrawControlsPreview(-36, (long)(-40.0f - FE_YOffset / FE_HeightScale));
 
-    limeDrawFONT(GameFont, GameText(0xe5),
+    limeDrawFONT(&GameFont, GameText(0xe5),
                  FE_X(322.0f), FE_Y(72.0f), 1, FE_WidthScale, fontcol);
-    limeDrawFONT(GameFont, GameText(Settings[5] ? 0x111 : 0x122),
+    limeDrawFONT(&GameFont, GameText(Settings[5] ? 0x111 : 0x122),
                  FE_X(322.0f), FE_Y(88.0f), 1, FE_WidthScale, fontcol);
-    limeDrawFONT(GameFont, GameText(0xe6),
+    limeDrawFONT(&GameFont, GameText(0xe6),
                  FE_X(153.0f), FE_Y(184.0f), 1, FE_WidthScale, fontcol);
 
     if (Settings[6] == 0)
@@ -6619,11 +6625,11 @@ void FE_Task_Button_Config(void)
     drawSingleButton(0x7c, 0xd0, alpha);
 
     if (Settings[5] != 0)
-        limeDrawFONT(GameFont, GameText(0x59),
+        limeDrawFONT(&GameFont, GameText(0x59),
                      FE_X(322.0f), FE_Y(216.0f), 1, FE_WidthScale, fontcol);
 
     back = DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1);
-    limeDrawFONT(GameFont, GameText(7),
+    limeDrawFONT(&GameFont, GameText(7),
                  FE_X(423.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
 
     switch (sel) {
@@ -7287,17 +7293,17 @@ void FE_Task_Single_Player(void)
                    (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0f, 1.0f, 0.75f, col);
 
-    limeDrawFONT(GameFont, GameText(0x51),
+    limeDrawFONT(&GameFont, GameText(0x51),
                  FE_X(120.0f), FE_Y(216.0f), 1, FE_WidthScale, fontcol);
-    limeDrawFONT(GameFont, GameText(0x52),
+    limeDrawFONT(&GameFont, GameText(0x52),
                  FE_X(120.0f), FE_Y(232.0f), 1, FE_WidthScale, fontcol);
-    limeDrawFONT(GameFont, GameText(0x5c),
+    limeDrawFONT(&GameFont, GameText(0x5c),
                  FE_X(360.0f), FE_Y(216.0f), 1, FE_WidthScale, fontcol);
-    limeDrawFONT(GameFont, GameText(0x5d),
+    limeDrawFONT(&GameFont, GameText(0x5d),
                  FE_X(360.0f), FE_Y(232.0f), 1, FE_WidthScale, fontcol);
 
     back = DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1);
-    limeDrawFONT(GameFont, GameText(7),
+    limeDrawFONT(&GameFont, GameText(7),
                  FE_X(423.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
 
     /* ---- the left half ---- */
@@ -7485,12 +7491,12 @@ void FE_Task_LeaderboardsSK(void)
                    FE_X(6.0f), FE_Y(66.0f), FE_W(468.0f), FE_H(218.0f),
                    0.0f, 0.0f, 0.9140625f, 0.42578125f, col);
 
-    limeDrawFONT(GameFont, GameText(0xcb),
+    limeDrawFONT(&GameFont, GameText(0xcb),
                  FE_X(240.0f), FE_Y(4.0f), 1, FE_WidthScale, rowcol);
 
     sel = DrawButtonNew(&BUTTON_MINI_2, 0xf0, 0x12e, 1) ? 2 : 0;
 
-    limeDrawFONT(GameFont, GameText(7),
+    limeDrawFONT(&GameFont, GameText(7),
                  FE_X(240.0f), FE_Y(294.0f), 1, FE_WidthScale, rowcol);
 
     getMenuStartPos(Menu_Task_Leaderboards);    /* both results discarded */
@@ -7505,12 +7511,12 @@ void FE_Task_LeaderboardsSK(void)
         DrawButtonNew(&BUTTON_MINI_3, 0x18e, 0x12e, 0);
 
         rowcol[0] = rowcol[1] = rowcol[2] = 0.5f;
-        limeDrawFONT(GameFont, GameText(8),
+        limeDrawFONT(&GameFont, GameText(8),
                      (float)limeScreenWidth - FE_WidthScale * 60.0f,
                      FE_Y(294.0f), 2, FE_WidthScale, rowcol);
 
         rowcol[0] = rowcol[1] = rowcol[2] = 0.5f;
-        limeDrawFONT(GameFont, GameText(0x12),
+        limeDrawFONT(&GameFont, GameText(0x12),
                      FE_WidthScale * 60.0f, FE_Y(294.0f),
                      0, FE_WidthScale, rowcol);
 
@@ -7535,7 +7541,7 @@ void FE_Task_LeaderboardsSK(void)
     if (entries == -1) {
         leaderboardPageCnt++;
         if ((leaderboardPageCnt % (LB_BLINK_MASK + 1)) <= LB_BLINK_ON)
-            limeDrawFONT(GameFont, GameText(entries + 0x14),
+            limeDrawFONT(&GameFont, GameText(entries + 0x14),
                          (float)(limeScreenWidth / 2),
                          (float)(limeScreenHeight / 2 - 6),
                          1, FE_WidthScale, fontcol);
@@ -7566,12 +7572,12 @@ void FE_Task_LeaderboardsSK(void)
         sel = 3;
 
     rowcol[0] = rowcol[1] = rowcol[2] = nextShade;
-    limeDrawFONT(GameFont, GameText(8),
+    limeDrawFONT(&GameFont, GameText(8),
                  (float)limeScreenWidth - FE_WidthScale * 60.0f,
                  FE_Y(294.0f), 2, FE_WidthScale, rowcol);
 
     rowcol[0] = rowcol[1] = rowcol[2] = prevShade;
-    limeDrawFONT(GameFont, GameText(0x12),
+    limeDrawFONT(&GameFont, GameText(0x12),
                  FE_WidthScale * 60.0f, FE_Y(294.0f),
                  0, FE_WidthScale, rowcol);
 
@@ -7641,12 +7647,12 @@ void FE_Task_Leaderboards(void)
                    FE_X(6.0f), FE_Y(66.0f), FE_W(468.0f), FE_H(218.0f),
                    0.0f, 0.0f, 0.9140625f, 0.42578125f, col);
 
-    limeDrawFONT(GameFont, GameText(0xcb),
+    limeDrawFONT(&GameFont, GameText(0xcb),
                  FE_X(240.0f), FE_Y(4.0f), 1, FE_WidthScale, rowcol);
 
     sel = DrawButtonNew(&BUTTON_MINI_2, 0xf0, 0x12e, 1) ? 2 : 0;
 
-    limeDrawFONT(GameFont, GameText(7),
+    limeDrawFONT(&GameFont, GameText(7),
                  FE_X(240.0f), FE_Y(294.0f), 1, FE_WidthScale, rowcol);
 
     getMenuStartPos(Menu_Task_Leaderboards);
@@ -7660,12 +7666,12 @@ void FE_Task_Leaderboards(void)
         DrawButtonNew(&BUTTON_MINI_3, 0x18e, 0x12e, 0);
 
         rowcol[0] = rowcol[1] = rowcol[2] = 0.5f;
-        limeDrawFONT(GameFont, GameText(8),
+        limeDrawFONT(&GameFont, GameText(8),
                      (float)limeScreenWidth - FE_W(60.0f),
                      FE_Y(294.0f), 2, FE_WidthScale, rowcol);
 
         rowcol[0] = rowcol[1] = rowcol[2] = 0.5f;
-        limeDrawFONT(GameFont, GameText(0x12),
+        limeDrawFONT(&GameFont, GameText(0x12),
                      FE_X(60.0f), FE_Y(294.0f), 0, FE_WidthScale, rowcol);
 
         if (sel == 2)
@@ -7690,7 +7696,7 @@ void FE_Task_Leaderboards(void)
     if (entries == -1) {
         leaderboardPageCnt++;
         if ((leaderboardPageCnt % (LB_BLINK_MASK + 1)) <= LB_BLINK_ON)
-            limeDrawFONT(GameFont, GameText(entries + 0x14),
+            limeDrawFONT(&GameFont, GameText(entries + 0x14),
                          (float)(limeScreenWidth / 2),
                          (float)(limeScreenHeight / 2 - 6),
                          1, FE_WidthScale, fontcol);
@@ -7721,12 +7727,12 @@ void FE_Task_Leaderboards(void)
         sel = 3;
 
     rowcol[0] = rowcol[1] = rowcol[2] = nextShade;
-    limeDrawFONT(GameFont, GameText(8),
+    limeDrawFONT(&GameFont, GameText(8),
                  (float)limeScreenWidth - FE_WidthScale * 60.0f,
                  FE_Y(294.0f), 2, FE_WidthScale, rowcol);
 
     rowcol[0] = rowcol[1] = rowcol[2] = prevShade;
-    limeDrawFONT(GameFont, GameText(0x12),
+    limeDrawFONT(&GameFont, GameText(0x12),
                  FE_X(60.0f), FE_Y(294.0f), 0, FE_WidthScale, rowcol);
 
     if (nextEnabled == 1 && sel == 3) {
@@ -7857,7 +7863,7 @@ void FE_Task_EnterName(void)
                    (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0f, 1.0f, 1.0f, col);
 
-    limeDrawFONT(GameFont, GameText(0xf4),
+    limeDrawFONT(&GameFont, GameText(0xf4),
                  (float)(long)(FE_WidthScale * 240.0f),
                  (float)(long)(FE_HeightScale * 16.0f),
                  1, FE_WidthScale, col);
@@ -7868,7 +7874,7 @@ void FE_Task_EnterName(void)
                    0.0f, 0.203125f, 0.640625f, 0.09375f, col);
 
     strcpy(name, ourName);
-    limeDrawFONT(GameFont, name,
+    limeDrawFONT(&GameFont, name,
                  FE_WidthScale * 240.0f, FE_HeightScale * 72.0f,
                  1, FE_WidthScale, col);
 
@@ -7919,7 +7925,7 @@ void FE_Task_EnterName(void)
                 lastChar = -1;
         }
 
-        limeDrawFONT(GameFont, key,
+        limeDrawFONT(&GameFont, key,
                      (float)keyX * FE_WidthScale,
                      FE_Y((float)(rowIdx * EN_KEY_STEP_Y + EN_LABEL_ORIGIN_Y)),
                      1, FE_WidthScale, rowcol);
@@ -7939,7 +7945,7 @@ void FE_Task_EnterName(void)
             lastChar = -1;
     }
 
-    limeDrawFONT(GameFont, GameText(0xb3),
+    limeDrawFONT(&GameFont, GameText(0xb3),
                  FE_WidthScale * 154.0f, FE_Y(266.0f),
                  1, FE_WidthScale, rowcol);
 
@@ -7961,7 +7967,7 @@ void FE_Task_EnterName(void)
             lastChar = -1;
     }
 
-    limeDrawFONT(GameFont, GameText(0xc),
+    limeDrawFONT(&GameFont, GameText(0xc),
                  FE_WidthScale * 439.0f, FE_Y(266.0f),
                  1, FE_WidthScale, rowcol);
 
@@ -8099,7 +8105,7 @@ void FE_Task_Multiplayer_Character_Select(void)
     *requestedLevel = getRandomLevel();
 
     if (pressedPlay == 0)
-        limeDrawFONT(GameFont, GameText(0x4a),
+        limeDrawFONT(&GameFont, GameText(0x4a),
                      FE_WidthScale * 240.0f, FE_HeightScale * 8.0f,
                      1, FE_WidthScale, fontcol);
 
@@ -8107,7 +8113,7 @@ void FE_Task_Multiplayer_Character_Select(void)
     sel = drawCharacterSelection(pressedPlay ? 1 : -1);
 
     back = DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1);
-    limeDrawFONT(GameFont, GameText(7),
+    limeDrawFONT(&GameFont, GameText(7),
                  FE_X(423.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
 
     if (back) {
@@ -8132,12 +8138,12 @@ void FE_Task_Multiplayer_Character_Select(void)
             charSelectButtonPressed = MPCS_PRESS_FRAMES;
         }
 
-        limeDrawFONT(GameFont, GameText(0xc),
+        limeDrawFONT(&GameFont, GameText(0xc),
                      FE_X(240.0f), FE_Y(296.0f), 1, FE_WidthScale,
                      pressedPlay ? dimcol : fontcol);
 
         if (pressedPlay != 0 && (sendInd % 128) <= MPCS_BLINK_ON)
-            limeDrawFONT(GameFont, GameText(0xe),
+            limeDrawFONT(&GameFont, GameText(0xe),
                          FE_WidthScale * 240.0f, FE_HeightScale * 8.0f,
                          1, FE_WidthScale, fontcol);
     }
@@ -8847,7 +8853,7 @@ void FE_Task_Bios(void)
                    0.0f, 0.0f, 1.0f, 1.0f, col);
 
     CreateWrappedTextArrays(GameText(BioText[BioPage]), BioSplitText, &lines,
-                            limeScreenWidth / 2, GameFont, textScale);
+                            limeScreenWidth / 2, &GameFont, textScale);
 
     /* ---- the portrait, slid by the page-turn cosine ---- */
     x = (float)((double)(FE_WidthScale * -BIOS_SLIDE)
@@ -8866,14 +8872,14 @@ void FE_Task_Bios(void)
     top   = textScale * BIOS_LINE_TOP;
 
     for (i = 0; i < lines; i++)
-        limeDrawFONT(GameFont,
+        limeDrawFONT(&GameFont,
                      limeUC(&BioSplitText[i * BIOS_SPLIT_STRIDE]),
                      (float)(limeScreenWidth / 2 - 0x20),
                      (float)i * pitch + top,
                      0, textScale, fontcol);
 
     /* ---- the character's name, at the line pitch as its y ---- */
-    limeDrawFONT(GameFont, CharacterNames[BioPage],
+    limeDrawFONT(&GameFont, CharacterNames[BioPage],
                  (float)(limeScreenWidth * 3 / 4 - 0x20), pitch,
                  1, textScale, fontcol);
 
@@ -8889,7 +8895,7 @@ void FE_Task_Bios(void)
         }
     }
 
-    limeDrawFONT(GameFont, GameText(8),
+    limeDrawFONT(&GameFont, GameText(8),
                  FE_X(351.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
 
     /* ---- Prev ---- */
@@ -8908,14 +8914,14 @@ void FE_Task_Bios(void)
         nextBiosPage = p;
     }
 
-    limeDrawFONT(GameFont, GameText(0x12),
+    limeDrawFONT(&GameFont, GameText(0x12),
                  FE_X(260.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
 
     /* ---- Exit ---- */
     if (DrawButtonNew(&BUTTON_EXIT, 0x1ba, 0x130, 1))
         PopFETaskDeferred();
 
-    limeDrawFONT(GameFont, GameText(9),
+    limeDrawFONT(&GameFont, GameText(9),
                  FE_X(442.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
 
     /* ---- advance the turn, and swap the page under the cover ---- */
@@ -9034,7 +9040,7 @@ void FE_Task_About_About(void)
             if (e->id == -1)
                 continue;               /* the gap that spaces the headings */
 
-            limeDrawFONT(GameFont, GameText(e->id),
+            limeDrawFONT(&GameFont, GameText(e->id),
                          (float)(limeScreenWidth / 2),
                          FE_Y((float)((double)(row * ABOUTABOUT_PITCH)
                                       * ABOUTABOUT_CRED_SCL
@@ -9046,16 +9052,16 @@ void FE_Task_About_About(void)
         }
     } else {
         /* ---- the about text ---- */
-        limeDrawFONT(GameFont, GameText(0x3b8),
+        limeDrawFONT(&GameFont, GameText(0x3b8),
                      (float)(limeScreenWidth / 2),
                      FE_Y(ABOUTABOUT_TOP),
                      1, FE_WidthScale * 1.25f, fontcol);
 
         CreateWrappedTextArrays(GameText(0xa9), AboutSpiltText, &lines,
                                 limeScreenWidth - 0x20,
-                                GameFont, FE_WidthScale * cjk);
+                                &GameFont, FE_WidthScale * cjk);
         for (row = 2; row < lines + 2; row++)
-            limeDrawFONT(GameFont,
+            limeDrawFONT(&GameFont,
                          limeUC(&AboutSpiltText[(row - 2) * ABOUTABOUT_SPLIT]),
                          (float)(limeScreenWidth / 2),
                          FE_Y((float)(row * ABOUTABOUT_PITCH) * cjk
@@ -9065,9 +9071,9 @@ void FE_Task_About_About(void)
 
         CreateWrappedTextArrays(GameText(0xaa), AboutSpiltText, &lines,
                                 limeScreenWidth - 0x20,
-                                GameFont, FE_WidthScale * cjk);
+                                &GameFont, FE_WidthScale * cjk);
         for (i = 0; i < lines; i++)
-            limeDrawFONT(GameFont,
+            limeDrawFONT(&GameFont,
                          limeUC(&AboutSpiltText[i * ABOUTABOUT_SPLIT]),
                          (float)(limeScreenWidth / 2),
                          FE_Y((float)((line + i) * ABOUTABOUT_PITCH) * cjk
@@ -9077,9 +9083,9 @@ void FE_Task_About_About(void)
 
         CreateWrappedTextArrays(GameText(0xab), AboutSpiltText, &lines,
                                 limeScreenWidth - 0x20,
-                                GameFont, FE_WidthScale * cjk);
+                                &GameFont, FE_WidthScale * cjk);
         for (i = 0; i < lines; i++)
-            limeDrawFONT(GameFont,
+            limeDrawFONT(&GameFont,
                          limeUC(&AboutSpiltText[i * ABOUTABOUT_SPLIT]),
                          (float)(limeScreenWidth / 2),
                          FE_Y((float)((line + i) * ABOUTABOUT_PITCH) * cjk
@@ -9087,7 +9093,7 @@ void FE_Task_About_About(void)
                          1, FE_WidthScale * cjk, fontcol);
         line += i;
 
-        limeDrawFONT(GameFont, GameText(0xac),
+        limeDrawFONT(&GameFont, GameText(0xac),
                      (float)(limeScreenWidth / 2),
                      FE_Y((float)(line * ABOUTABOUT_PITCH) * cjk
                           + ABOUTABOUT_TOP),
@@ -9096,13 +9102,13 @@ void FE_Task_About_About(void)
         /* the build number, out of the bundle */
         usprintf(version, UC("Version: %s"),
                  UC(limeGetPropertyString("CFBundleVersion")));
-        limeDrawFONT(GameFont, limeUC(version),
+        limeDrawFONT(&GameFont, limeUC(version),
                      (float)(limeScreenWidth / 2),
                      FE_Y((float)((line + 2) * ABOUTABOUT_PITCH) * cjk
                           + ABOUTABOUT_TOP),
                      1, FE_WidthScale * cjk, fontcol);
 
-        limeDrawFONT(GameFont, GameText(0xad),
+        limeDrawFONT(&GameFont, GameText(0xad),
                      (float)(limeScreenWidth / 2),
                      FE_Y((float)((line + 3) * ABOUTABOUT_PITCH) * cjk
                           + ABOUTABOUT_TOP),
@@ -9110,7 +9116,7 @@ void FE_Task_About_About(void)
     }
 
     back = DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1);
-    limeDrawFONT(GameFont, GameText(7),
+    limeDrawFONT(&GameFont, GameText(7),
                  FE_X(423.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
 
     if (back)
@@ -9119,7 +9125,7 @@ void FE_Task_About_About(void)
     if (DrawButtonNew(&BUTTON_NEXTSTATS, 0x39, 0x130, 1))
         AboutPage = (AboutPage + 1) % ABOUTABOUT_PAGES;
 
-    limeDrawFONT(GameFont, GameText(8),
+    limeDrawFONT(&GameFont, GameText(8),
                  FE_X(57.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
 }
 
@@ -9769,7 +9775,7 @@ void FE_Task_Endings(void)
     if (EndingWrapDone == 0) {
         CreateWrappedTextArrays(GameText(EndingsText[EndingsPage]),
                                 EndingsSplitText, &NumOfEndingsLines,
-                                limeScreenWidth / 2, GameFont, FE_WidthScale);
+                                limeScreenWidth / 2, &GameFont, FE_WidthScale);
         EndingWrapDone = 1;
     }
 
@@ -9812,14 +9818,14 @@ void FE_Task_Endings(void)
         colour[2] = a;
         colour[3] = a;
 
-        limeDrawFONT(GameFont,
+        limeDrawFONT(&GameFont,
                      limeUC(&EndingsSplitText[i * ENDINGS_SPLIT_STRIDE]),
                      (float)(limeScreenWidth / 2 - 0x20), y,
                      0, FE_WidthScale, colour);
     }
 
     /* ---- the character's name, sliding vertically on the same cosine ---- */
-    limeDrawFONT(GameFont, CharacterNames[EndingsPage],
+    limeDrawFONT(&GameFont, CharacterNames[EndingsPage],
                  (float)(limeScreenWidth / 4 - 0x20),
                  (float)((double)(FE_WidthScale * -32.0f)
                          + fabs(cos((double)(currentEndingProgress
@@ -9855,7 +9861,7 @@ void FE_Task_Endings(void)
             nextEndingsPage = p;
         }
 
-        limeDrawFONT(GameFont, GameText(8),
+        limeDrawFONT(&GameFont, GameText(8),
                      FE_X(351.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
 
         /* ---- Prev ---- */
@@ -9880,7 +9886,7 @@ void FE_Task_Endings(void)
             nextEndingsPage = p;
         }
 
-        limeDrawFONT(GameFont, GameText(0x12),
+        limeDrawFONT(&GameFont, GameText(0x12),
                      FE_X(260.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
     }
 
@@ -9891,7 +9897,7 @@ void FE_Task_Endings(void)
         EndingWrapDone        = 0;
     }
 
-    limeDrawFONT(GameFont, GameText(9),
+    limeDrawFONT(&GameFont, GameText(9),
                  FE_X(442.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
 
     /* ---- advance the turn, and swap the page under the cover ---- */
@@ -10075,7 +10081,7 @@ void FE_Task_VS_Screen(void)
 
     /* ---- player two, mirrored, from the right ---- */
     if ((unsigned long)(Character2 - VS_BOSS_FIRST) <= 1) {  /* 24 or 25 */
-        limeDrawFONT(GameFont, "NO IMAGE",
+        limeDrawFONT(&GameFont, "NO IMAGE",
                      (float)(limeScreenWidth - 8),
                      (float)(limeScreenHeight / 2),
                      2, FE_WidthScale, fontcol);
@@ -10106,7 +10112,7 @@ void FE_Task_VS_Screen(void)
 
     DrawButtonNew(&BUTTON_PLAY, 0xf0, 0x130, 1);   /* answer discarded */
 
-    limeDrawFONT(GameFont, GameText(0xa),
+    limeDrawFONT(&GameFont, GameText(0xa),
                  FE_X(240.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
 
     /* ---- a release in the bottom-centre band starts the match ---- */
@@ -10128,12 +10134,12 @@ void FE_Task_VS_Screen(void)
     sprintf(strBuf, "<--  Debug Opponent Select: %s    -->",
             CharacterNames[Character2]);
 
-    limeDrawFONT(GameFont, strBuf,
+    limeDrawFONT(&GameFont, strBuf,
                  (float)(limeScreenWidth / 2),
                  FE_HeightScale * 4.0f,
                  1, FE_WidthScale, fontcol);
 
-    w = limeGetStringWidth(GameFont, strBuf) * FE_WidthScale;
+    w = limeGetStringWidth(&GameFont, strBuf) * FE_WidthScale;
 
     if (limeLastTouchScreenX[0] == -1.0f) {
         cx = (float)(limeScreenWidth / 2);
@@ -10400,14 +10406,14 @@ void FE_Task_Treasure(void)
     }
 
     /* ---- the heading answers "anything playable", not "anything" ---- */
-    limeDrawFONT(GameFont, GameText(shown != 0 ? 0x63 : 0x3f5),
+    limeDrawFONT(&GameFont, GameText(shown != 0 ? 0x63 : 0x3f5),
                  (float)(limeScreenWidth / 2),
                  FE_Y(200.0f), 1, FE_WidthScale, fontcol);
 
     if (DrawButtonNew(&BUTTON_BACK, 0xf0, 0x130, 1))
         PopFETaskDeferred();
 
-    limeDrawFONT(GameFont, GameText(7),
+    limeDrawFONT(&GameFont, GameText(7),
                  FE_X(240.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
 
     /* ---- what the selection starts ---- */
@@ -10616,37 +10622,37 @@ void FE_Task_Enter_Kode(void)
 
     limeEnableAlphaBlending_Basic();
 
-    limeDrawFONT(GameFont, GameText(0x5b), (float)(limeScreenWidth / 2),
+    limeDrawFONT(&GameFont, GameText(0x5b), (float)(limeScreenWidth / 2),
                  24.0f, 1, FE_WidthScale, fontcol);
-    limeDrawFONT(GameFont, GameText(0x5e), (float)(limeScreenWidth / 2),
+    limeDrawFONT(&GameFont, GameText(0x5e), (float)(limeScreenWidth / 2),
                  200.0f, 1, FE_WidthScale, fontcol);
 
     /* ---- the middle line: the unlock message, the clock, or a bare "0" ---- */
     if (KodeSuccess != 0) {
         if ((((long)GameCounter) & KODE_BLINK) <= 7) {   /* eight on, eight off */
             if (KodeSuccess == 1)
-                limeDrawFONT(GameFont, GameText(0x5f),
+                limeDrawFONT(&GameFont, GameText(0x5f),
                              (float)(limeScreenWidth / 2), 240.0f,
                              1, FE_WidthScale, fontcol);
             else if (KodeSuccess == 2)
-                limeDrawFONT(GameFont, GameText(0x60),
+                limeDrawFONT(&GameFont, GameText(0x60),
                              (float)(limeScreenWidth / 2), 240.0f,
                              1, FE_WidthScale, fontcol);
             else if (KodeSuccess == 3)
-                limeDrawFONT(GameFont, GameText(0x61),
+                limeDrawFONT(&GameFont, GameText(0x61),
                              (float)(limeScreenWidth / 2), 240.0f,
                              1, FE_WidthScale, fontcol);
         }
     } else if (KodeTime != 0.0f) {
         sprintf(strBuf, "%d", (int)KodeTime + 1);
-        limeDrawFONT(GameFont, strBuf, (float)(limeScreenWidth / 2), 240.0f,
+        limeDrawFONT(&GameFont, strBuf, (float)(limeScreenWidth / 2), 240.0f,
                      1, FE_WidthScale, fontcol);
     } else {
-        limeDrawFONT(GameFont, "0", (float)(limeScreenWidth / 2), 240.0f,
+        limeDrawFONT(&GameFont, "0", (float)(limeScreenWidth / 2), 240.0f,
                      1, FE_WidthScale, fontcol);
     }
 
-    limeDrawFONT(GameFont, GameText(0xb),
+    limeDrawFONT(&GameFont, GameText(0xb),
                  FE_WidthScale * 464.0f, FE_HeightScale * 296.0f,
                  2, FE_WidthScale, fontcol);
 
@@ -10898,7 +10904,7 @@ void FE_Task_Multiplayer(void)
     otherPlayerPaused  = 0;
     GamePaused         = 0;
 
-    limeDrawFONT(GameFont, GameText(0x39f),
+    limeDrawFONT(&GameFont, GameText(0x39f),
                  (float)(int)(FE_WidthScale * 240.0f),
                  (float)(int)(FE_HeightScale * 12.0f),
                  1, FE_WidthScale, col);
@@ -10917,7 +10923,7 @@ void FE_Task_Multiplayer(void)
         mpBlinker -= MP_BLINK_WRAP;
 
     if (peers == 0 && mpBlinker > 1.0f)
-        limeDrawFONT(GameFont, GameText(0x3a1),
+        limeDrawFONT(&GameFont, GameText(0x3a1),
                      (float)(int)FE_X(240.0f),
                      (float)(limeScreenHeight / 2),
                      1, FE_WidthScale, col);
@@ -10945,7 +10951,7 @@ void FE_Task_Multiplayer(void)
         long idx = mpLobbyCurrentPage * MP_PER_PAGE + i;
         const float *colour = (peerNamesFlags[idx] != 0) ? darkcol : fontcol;
 
-        limeDrawFONT(GameFont, peerNames[idx + 1],
+        limeDrawFONT(&GameFont, peerNames[idx + 1],
                      (float)(limeScreenWidth / 2),
                      (float)y * FE_HeightScale + top,
                      1, FE_WidthScale, colour);
@@ -10972,7 +10978,7 @@ void FE_Task_Multiplayer(void)
         long n = workingInd % MP_WORK_PERIOD;
         const char *dots = (n <= 9) ? "." : (n <= 0x13) ? ".." : "...";
 
-        limeDrawFONT(GameFont, dots,
+        limeDrawFONT(&GameFont, dots,
                      (float)(limeScreenWidth / 2) + FE_WidthScale * -10.0f,
                      (float)(limeScreenHeight / 2),
                      0,
@@ -10986,7 +10992,7 @@ void FE_Task_Multiplayer(void)
 
     back = DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1);
 
-    limeDrawFONT(GameFont, GameText(7),
+    limeDrawFONT(&GameFont, GameText(7),
                  FE_X(423.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
 
     if (back) {
@@ -11004,7 +11010,7 @@ void FE_Task_Multiplayer(void)
     prev = DrawButtonNew(&BUTTON_MP_PREV, 0x39, 0x130,
                          mpLobbyCurrentPage > 0);
 
-    limeDrawFONT(GameFont, GameText(0x12), FE_X(57.0f), FE_Y(296.0f),
+    limeDrawFONT(&GameFont, GameText(0x12), FE_X(57.0f), FE_Y(296.0f),
                  1, FE_WidthScale,
                  mpLobbyCurrentPage > 0 ? fontcol : half);
 
@@ -11013,7 +11019,7 @@ void FE_Task_Multiplayer(void)
                          (mpLobbyCurrentPage + 1) * MP_PER_PAGE
                          < getNumberOfPeers());
 
-    limeDrawFONT(GameFont, GameText(8), FE_X(181.0f), FE_Y(296.0f),
+    limeDrawFONT(&GameFont, GameText(8), FE_X(181.0f), FE_Y(296.0f),
                  1, FE_WidthScale,
                  (mpLobbyCurrentPage + 1) * MP_PER_PAGE < getNumberOfPeers()
                  ? fontcol : half);
@@ -11053,7 +11059,7 @@ void FE_Task_Multiplayer(void)
         lobbyInfoFade--;
 
         if (lobbyInfoTxt == 1)
-            limeDrawFONT(GameFont, GameText(0x48),
+            limeDrawFONT(&GameFont, GameText(0x48),
                          (float)(limeScreenWidth / 2),
                          (float)(int)(FE_HeightScale * 36.0f),
                          lobbyInfoTxt,
@@ -11383,24 +11389,24 @@ long drawCharacterSelection(long sel)
             if (GameMode == 6 || (GameMode == 1 && isParent())) {
                 if (mine) {
                     DrawRedHighlight(hx, hy, 0x30, 0x3c, 4);
-                    limeDrawFONT(GameFont, "1", FE_X((float)tx),
+                    limeDrawFONT(&GameFont, "1", FE_X((float)tx),
                                  FE_Y((float)y1), 1, FE_WidthScale, fontcol);
                 }
                 if (theirs) {
                     DrawGreenHighlight(hx, hy, 0x30, 0x3c, 4);
-                    limeDrawFONT(GameFont, "2", FE_X((float)tx),
+                    limeDrawFONT(&GameFont, "2", FE_X((float)tx),
                                  FE_Y((float)y2), 1, FE_WidthScale, fontcol);
                 }
             } else if (GameMode == 1) {
                 /* the child paints itself green -- see the header */
                 if (mine) {
                     DrawGreenHighlight(hx, hy, 0x30, 0x3c, 4);
-                    limeDrawFONT(GameFont, "2", FE_X((float)tx),
+                    limeDrawFONT(&GameFont, "2", FE_X((float)tx),
                                  FE_Y((float)y2), 1, FE_WidthScale, fontcol);
                 }
                 if (theirs) {
                     DrawRedHighlight(hx, hy, 0x30, 0x3c, 4);
-                    limeDrawFONT(GameFont, "1", FE_X((float)tx),
+                    limeDrawFONT(&GameFont, "1", FE_X((float)tx),
                                  FE_Y((float)y1), 1, FE_WidthScale, fontcol);
                 }
             } else if (mine) {
@@ -12013,23 +12019,23 @@ void FE_Task_Select_Treasure(void)
 
     /* ---- the bottom line ---- */
     if (claimed == ST_TILES) {
-        limeDrawFONT(GameFont, GameText(0x4e),
+        limeDrawFONT(&GameFont, GameText(0x4e),
                      (float)(limeScreenWidth / 2), FE_HeightScale * 240.0f,
                      1, FE_WidthScale, fontcol);
     } else if (allDone) {
-        limeDrawFONT(GameFont, GameText(0x4d),
+        limeDrawFONT(&GameFont, GameText(0x4d),
                      (float)(limeScreenWidth / 2), FE_HeightScale * 240.0f,
                      1, FE_WidthScale, fontcol);
     } else {
-        limeDrawFONT(GameFont, GameText(0x4f),
+        limeDrawFONT(&GameFont, GameText(0x4f),
                      (float)(limeScreenWidth / 2), FE_HeightScale * 230.0f,
                      1, FE_HeightScale, fontcol);
-        limeDrawFONT(GameFont, GameText(0x50),
+        limeDrawFONT(&GameFont, GameText(0x50),
                      (float)(limeScreenWidth / 2), FE_HeightScale * 248.0f,
                      1, FE_HeightScale, fontcol);
 
         if (TreasureSelected == -1)
-            limeDrawFONT(GameFont, GameText(0x4c),
+            limeDrawFONT(&GameFont, GameText(0x4c),
                          (float)(limeScreenWidth / 2),
                          FE_HeightScale * 280.0f,
                          1, FE_HeightScale, fontcol);
@@ -12323,15 +12329,15 @@ void FE_Task_Multiplayer_Versus_Screen(void)
         /* ---- the opponent paused: a wrapped message and a bare exit box ---- */
         CreateWrappedTextArrays(GameText(0x3bb), MPVersusSplitText, &lines,
                                 limeScreenWidth - 0x20,
-                                GameFont, FE_WidthScale);
+                                &GameFont, FE_WidthScale);
 
         for (i = 0; i < lines; i++)
-            limeDrawFONT(GameFont, limeUC(&MPVersusSplitText[i * 256]),
+            limeDrawFONT(&GameFont, limeUC(&MPVersusSplitText[i * 256]),
                          (float)(limeScreenWidth / 2),
                          FE_Y((float)(i * 16 + 0x30)),
                          1, FE_WidthScale, fontcol);
 
-        limeDrawFONT(GameFont, GameText(9),
+        limeDrawFONT(&GameFont, GameText(9),
                      (float)(limeScreenWidth / 2),
                      (float)limeScreenHeight + FE_HeightScale * -48.0f,
                      1, FE_WidthScale * MVS_BIG_TEXT, fontcol);
@@ -12378,7 +12384,7 @@ void FE_Task_Multiplayer_Versus_Screen(void)
     snprintf(timerText, sizeof timerText, "%d",
              (int)(vsScreenTimer / 60.0f));
 
-    limeDrawFONT(GameFont, timerText,
+    limeDrawFONT(&GameFont, timerText,
                  (float)(limeScreenWidth / 2),
                  (float)limeScreenHeight + FE_HeightScale * -48.0f,
                  1, FE_WidthScale * MVS_BIG_TEXT, fontcol);
@@ -12958,7 +12964,7 @@ static void Tower_DrawTorch(long slot, float x, float y, long text,
                    FE_WidthScale * 64.0f, FE_HeightScale * 64.0f,
                    0.0f, 0.0f, 1.0f, 1.0f, col);
 
-    limeDrawFONT(GameFont, GameText(text),
+    limeDrawFONT(&GameFont, GameText(text),
                  FE_X(labelX), FE_Y(labelY), 1, FE_WidthScale, fontcol);
 }
 
@@ -13010,13 +13016,13 @@ void FE_Task_Tower(void)
         return;
 
     case 0:
-        limeDrawFONT(GameFont, GameText(0x49),
+        limeDrawFONT(&GameFont, GameText(0x49),
                      (float)(limeScreenWidth / 2), FE_Y(8.0f),
                      1, FE_WidthScale, fontcol);
 
         back = DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1);
 
-        limeDrawFONT(GameFont, GameText(7),
+        limeDrawFONT(&GameFont, GameText(7),
                      FE_X(423.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
 
         /* one torch and one label per difficulty */
@@ -13250,10 +13256,10 @@ static float Help_Block(long id, float scale, float running,
 
     CreateWrappedTextArrays(GameText(id), HelpSpiltText, &lines,
                             limeScreenWidth - 0x20,
-                            GameFont, FE_WidthScale * scale);
+                            &GameFont, FE_WidthScale * scale);
 
     for (i = 0; i < lines; i++)
-        limeDrawFONT(GameFont, limeUC(&HelpSpiltText[i * HELP_SPLIT]),
+        limeDrawFONT(&GameFont, limeUC(&HelpSpiltText[i * HELP_SPLIT]),
                      (float)(limeScreenWidth / 2),
                      FE_Y(((float)i + running) * HELP_PITCH + HELP_TOP),
                      1, FE_WidthScale * scale, fontcol);
@@ -13346,12 +13352,12 @@ void FE_Task_About_Help(void)
     if (DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1))
         PopFETaskDeferred();            /* deferred: the labels still draw */
 
-    limeDrawFONT(GameFont, GameText(9),
+    limeDrawFONT(&GameFont, GameText(9),
                  FE_X(423.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
 
     if (DrawButtonNew(&BUTTON_NEXTSTATS, 0x39, 0x130, 1))
         HelpPage = (HelpPage + 1) % HELP_PAGES;
 
-    limeDrawFONT(GameFont, GameText(8),
+    limeDrawFONT(&GameFont, GameText(8),
                  FE_X(57.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
 }

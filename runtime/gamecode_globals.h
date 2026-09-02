@@ -14,11 +14,16 @@ typedef struct BARS BARS;
 typedef struct BONESINFO BONESINFO;
 typedef struct FLOAT FLOAT;
 typedef struct FRONTEND_CHARACTER FRONTEND_CHARACTER;
+typedef struct INVERTED INVERTED;
 typedef struct KANO KANO;
 typedef struct KANO_STANDARD KANO_STANDARD;
 typedef struct LocaleManager LocaleManager;
 typedef struct MESHSETINFO MESHSETINFO;
 typedef struct Mk3Obj_t Mk3Obj_t;
+typedef struct NOT NOT;
+typedef struct ONE ONE;
+typedef struct OPPOSITE OPPOSITE;
+typedef struct SIGNED SIGNED;
 typedef struct SKININFO SKININFO;
 typedef struct limeMATRIX44 limeMATRIX44;
 typedef struct limeVECTOR2 limeVECTOR2;
@@ -160,17 +165,6 @@ typedef struct GAMEEVENT {
     uint8_t rest[GAME_EVENT_STRIDE - 4];
 } GAMEEVENT;
 
-typedef struct GAMEFONT {
-    uint8_t   _pad00[0x0c];
-    int       spacing;                  /* 0x0c */
-    int       fallbackAdvance;          /* 0x10 */
-    uint8_t   _pad14[4];
-    int16_t   numGlyphs;                /* 0x18 */
-    uint8_t   _pad1a[0x2e];
-    uint8_t  *codes;                    /* 0x48  one byte per glyph */
-    int16_t  *codesW;                   /* 0x4c  the same, widened */
-} GAMEFONT;
-
 typedef struct GAMESTATE {
     uint8_t _pad000[0x368];
     /* The two health BARS, and they are the health scaled by 1.66 -- see
@@ -291,6 +285,63 @@ typedef struct TRAININGMOVE {
 
 typedef struct limeVECTOR3 { float x, y, z; } limeVECTOR3;
 
+
+typedef struct GAMEFONT {
+    uint8_t   _pad00[4];
+    int       simple;            /* 0x04  stored INVERTED from the file flag */
+    int       glyphHeight;       /* 0x08  header byte 2 -- ONE height for every
+                                  *       glyph, which is why it is in the
+                                  *       header and not in a per-glyph array */
+    int       spacing;           /* 0x0c  added once per character by both
+                                  *       width routines -- inter-character
+                                  *       spacing, set from limeCreateFONT */
+    int       fallbackAdvance;   /* 0x10  the constant 8 */
+    /* A FLOAT. Both width routines read it with `vldr s15, [r4, #0x14]`, which
+     * reinterprets the bits -- it does not convert an integer. An earlier
+     * version of this header typed it `int` and the clean C cast it, which
+     * gives the right answer only when the caller happened to pass a small
+     * whole number. */
+    float     field14;           /* 0x14  the scale applied at measure time */
+    int16_t   numGlyphs;         /* 0x18 */
+    uint8_t   _pad1a[2];
+    /* The atlas rectangle of each glyph. limeDrawFONT settles all three by what
+     * it divides them BY on the way to limeDrawSprite: atlasU and glyphWidth are
+     * both normalised by +0x34, atlasV by +0x38. Two share a divisor, so two
+     * share an axis. */
+    int16_t  *atlasU;            /* 0x1c  x position in the atlas */
+    int16_t  *atlasV;            /* 0x20  y position in the atlas */
+    int16_t  *glyphWidth;        /* 0x24  per-glyph width, and the advance
+                                  *       limeGetStringWidth accumulates */
+    /* Optional per-glyph kerning, one SIGNED byte each, added to the width when
+     * the pointer is non-null. limeGetStringWidth is the only reader:
+     *     ldr     r3, [r4, #0x28]
+     *     cmp     r3, #0
+     *     ldrsbne r3, [r3, r0]
+     *     addne   r8, r8, r3
+     * Nothing in limeCreateFONT was seen to allocate it, so a font that does not
+     * carry kerning leaves it null and every glyph keeps its plain width. */
+    int8_t   *kerning;           /* 0x28 */
+    int       defaultAdvance;    /* 0x2c  simple fonts only */
+    uint8_t   _pad30[4];
+    /* The atlas dimensions, and they are the OPPOSITE way round from an earlier
+     * naming here. +0x34 divides the horizontal metrics and +0x38 the vertical,
+     * which is what fixes them: the divisor names the axis. */
+    float     atlasWidth;        /* 0x34 */
+    float     atlasHeight;       /* 0x38 */
+    /* Added to the width of a character that is NOT in the table, on top of
+     * the fallback advance. Only the not-found branch reads it:
+     *     ldr r3, [r4, #0x10]   ; the fallback
+     *     ldr r2, [r4, #0x3c]   ; and this
+     *     add r3, r3, r2
+     * so a font can make unknown characters wider than the plain fallback
+     * without touching the fallback itself. */
+    int       extraUnknown;      /* 0x3c */
+    uint8_t   _pad3c[12];
+    uint8_t  *codes;             /* 0x48  one byte per glyph */
+    int16_t  *codesW;            /* 0x4c  the same codes widened to 16 bits */
+    TEXTURE  *texture0;          /* 0x50 */
+    TEXTURE  *texture1;          /* 0x54 */
+} GAMEFONT;
 
 typedef struct {
     MOVESSECTION section[2];
