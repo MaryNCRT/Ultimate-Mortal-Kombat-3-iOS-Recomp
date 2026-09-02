@@ -120,7 +120,8 @@ typedef struct MK3OBJ {
     uint32_t    field24;         /* 0x24  borrowed by borrow_ochar_sound and
                                   *       used as a table index */
     uint32_t    field28;         /* 0x28  bit 4 toggled by the flip_multi trio */
-    uint32_t    field2c;         /* 0x2c  receives the same OR-ed value */
+    uint32_t    field2c;         /* 0x2c  receives the same OR-ed value, and
+                                  *       is what GetFrameWidth is asked about */
     uint32_t    field30;         /* 0x30  the flag word the clearers mask */
     uint32_t    field34;         /* 0x34  the ring buffer's base */
     uint32_t    field38;         /* 0x38  the base highest_mpart_ob adds to,
@@ -130,8 +131,10 @@ typedef struct MK3OBJ {
     /* 0x44  what used to be the A10 register: the argument slot the arcade
      * loaded before a call. Three of the routines below do nothing but fill
      * it. */
-    uint32_t    a10;             /* 0x44 */
-    uint32_t    field48;         /* 0x48  shake_a11 passes it as an event */
+    uint32_t    a10;             /* 0x44  the argument slot, and where
+                                  *       get_his_a11_ani leaves the opponent */
+    uint32_t    field48;         /* 0x48  shake_a11 passes it as an event, and
+                                  *       get_his_a11_ani fetches through it */
     uint8_t     _pad4c[8];
     uint32_t    field54;         /* 0x54  where a computed word is parked */
     uint8_t     _pad58[4];
@@ -2033,10 +2036,11 @@ void fastxfer_thread(MK3OBJ *obj, MK3THREAD *thread)
  * nothing else. The note here previously said the opposite, inferred from the
  * restore before the fetch had been read, and that inference was wrong.
  *
- * So 0x54 is preserved across a call that does not touch it. Either the
- * original was written defensively or `find_part_a14` needs it unchanged from
- * before the fetch; nothing establishes which, and the save stays because it
- * is in the instruction stream.
+ * So 0x54 is preserved across a call that does not touch it, and
+ * `find_part_a14` below says why it is worth preserving: 0x54 is the repeat
+ * count that function consumes. The save defends a real quantity across a call
+ * that happens not to threaten it -- which is redundant as the code stands and
+ * is not the same as defending nothing.
  */
 void find_part_a14(MK3OBJ *obj);
 
@@ -3049,4 +3053,233 @@ void call_a0_for_him(MK3OBJ *obj)
 
     obj->field00 = saved_proc;
     obj->field08 = saved_other;
+}
+
+
+/* ------------------------------------------------------------ center_about_x
+ *
+ * armv7 0x00058438, thirty-two bytes.  **Complete.**
+ *
+ *      half = GetFrameWidth(other->field2c) >> 1      ; arithmetic
+ *      obj->field20 = half
+ *      obj->field1c -= half
+ *      other->field0e = (uint16_t)obj->field1c
+ *
+ * Half a frame width taken off a position and the result stored back as a
+ * HALFWORD into 0x0e -- the high half of the word at 0x0c. So the x this
+ * centres is the one `is_he_right` compares, reached through its top half.
+ *
+ * `GetFrameWidth` is given `other->field2c`, not the object, so 0x2c holds
+ * whatever the bounding box is asked about.
+ */
+void center_about_x(MK3OBJ *obj)
+{
+    int32_t half = (int32_t)GetFrameWidth((MK3OBJ *)(uintptr_t)obj->field08->field2c) >> 1;
+
+    obj->field20 = (uint32_t)half;
+    obj->field1c = (uint32_t)((int32_t)obj->field1c - half);
+    obj->field08->field0c = (obj->field08->field0c & 0x0000ffffu)
+                            | ((obj->field1c & 0xffffu) << 16);
+}
+
+
+/* ------------------------------------------------------------- damage_to_me
+ *
+ * armv7 0x00059650, thirty-two bytes.  **Complete.**
+ *
+ *      if (proc->field08 == 0) { obj->field34 = 0; obj->field20 = 1; }
+ *      else                    { obj->field34 = 1; obj->field20 = 0; }
+ *      bar_reducer(obj)
+ *
+ * The two slots take opposite values, and which way round depends on the
+ * fighter index being zero. So this is "which bar" -- player one against
+ * player two -- and the pair is a selector rather than two flags.
+ *
+ * Both branches form the second value from the first with a `+1` or a `-1`,
+ * which is the compiler reusing a register.
+ */
+void bar_reducer(MK3OBJ *obj);
+
+void damage_to_me(MK3OBJ *obj)
+{
+    if (obj->field00->field08 == 0) {
+        obj->field34 = 0;
+        obj->field20 = 1;
+    } else {
+        obj->field34 = 1;
+        obj->field20 = 0;
+    }
+    bar_reducer(obj);
+}
+
+
+/* ------------------------------------------------------ distance_from_ground
+ *
+ * armv7 0x00055144, thirty-two bytes.  **Complete.**
+ *
+ * `distance_off_ground` with the ground taken from G at 0xac instead of from
+ * the PROC's 0x40. Same subtraction, same two slots, same double write of
+ * 0x1c. One measures against the fighter's own ground and the other against
+ * the stage's.
+ */
+void distance_from_ground(MK3OBJ *obj)
+{
+    uint32_t ground = *(const uint32_t *)(G_BYTES + 0xac);
+    int32_t  height;
+
+    obj->field1c = ground;
+    height = (int32_t)(int16_t)obj->field08->field12;
+    obj->field24 = (uint32_t)height;
+    obj->field1c = (uint32_t)((int32_t)ground - height);
+}
+
+
+/* ------------------------------------------------------------ find_part_a14
+ *
+ * armv7 0x00055488, thirty-two bytes.  **Complete.**
+ *
+ *      if (--obj->field54 == 0) return;
+ *      do { find_part2(obj); } while (--obj->field54 != 0);
+ *
+ * 0x54 is a repeat count, decremented once before the loop and once per turn.
+ * This is what the two `find_ani_*_part_a14` wrappers are protecting when they
+ * save it across the fetch.
+ *
+ * The decrement before the test means a count of 1 does nothing and a count of
+ * 0 wraps to 0xffffffff and runs four billion times. Nothing here bounds it.
+ */
+void find_part_a14(MK3OBJ *obj)
+{
+    obj->field54 = obj->field54 - 1;
+    if (obj->field54 == 0)
+        return;
+
+    do {
+        find_part2(obj);
+        obj->field54 = obj->field54 - 1;
+    } while (obj->field54 != 0);
+}
+
+
+/* ------------------------------------------------------------- get_char_stk
+ *
+ * armv7 0x00055f88, thirty-two bytes.  **Complete.**
+ *
+ *      chr = other->field24
+ *      obj->field20 = chr                  ; overwritten two lines down
+ *      row = strike_tables[chr]
+ *      obj->field20 = row
+ *      obj->field1c = row[obj->field1c]
+ *
+ * The same two-level shape as the animation fetches, on a named table. 0x20 is
+ * written twice and the first value is not read in between -- kept, because
+ * the store is in the instruction stream.
+ */
+extern uint32_t *strike_tables[];       /* 0x00169fbc */
+
+void get_char_stk(MK3OBJ *obj)
+{
+    uint32_t  chr = obj->field08->field24;
+    uint32_t *row;
+
+    obj->field20 = chr;
+    row = strike_tables[chr];
+    obj->field20 = (uint32_t)(uintptr_t)row;
+    obj->field1c = row[obj->field1c];
+}
+
+
+/* ---------------------------------------------------------- get_his_a11_ani
+ *
+ * armv7 0x000554d8, thirty-two bytes.  **Complete.**
+ *
+ *      saved = obj->field40
+ *      obj->field40 = obj->field48
+ *      get_his_char_ani(obj)               ; reads and writes 0x40
+ *      obj->field48 = obj->field40
+ *      obj->field40 = saved
+ *      obj->a10 = proc->him                ; 0x44, the argument slot
+ *
+ * The fetch works on 0x40 and this needs it done to 0x48, so the value is
+ * moved in, fetched, and moved out. The same borrow-and-restore as
+ * `borrow_ochar_sound`, applied to a slot rather than to another object's
+ * field.
+ */
+void get_his_a11_ani(MK3OBJ *obj)
+{
+    uint32_t saved = obj->field40;
+
+    obj->field40 = obj->field48;
+    get_his_char_ani(obj);
+    obj->field48 = obj->field40;
+    obj->field40 = saved;
+    obj->a10 = obj->field00->him;
+}
+
+
+/* --------------------------------------------------------- get_his_strength
+ *
+ * armv7 0x000550c4, thirty-two bytes.  **Complete.**
+ *
+ * `get_my_strength` through three pointers instead of one: the opponent's
+ * PROC's index, into the same table at G + 0x368.
+ */
+void get_his_strength(MK3OBJ *obj)
+{
+    const MK3OBJPROC *his = obj->field00->field00->field00;
+
+    obj->field1c = *(const uint32_t *)(G_BYTES + his->field08 * 4 + 0x368);
+}
+
+
+/* ---------------------------------------------------------- get_walk_info_f
+ *
+ * armv7 0x0005531c, thirty-two bytes.  **Complete.**
+ *
+ *      obj->field24 = 1
+ *      obj->field1c = walk_forward_info
+ *      decode_walk_table(obj)
+ *      walk_flip_reverse(obj)
+ *
+ * The table base into the slot `decode_walk_table` reads it from, then the
+ * decode, then the facing flip. The 1 into 0x24 is the SUBJECT's 0x24, while
+ * the decode indexes with the OTHER object's -- two different fields at one
+ * offset, which is worth stating because the two lines sit three apart.
+ *
+ * `_walk_forward_info` is a named symbol, so this is the fourth table this
+ * file addresses by name.
+ */
+extern uint32_t walk_forward_info[];    /* 0x0016ef6c */
+
+void get_walk_info_f(MK3OBJ *obj)
+{
+    obj->field24 = 1;
+    obj->field1c = (uint32_t)(uintptr_t)walk_forward_info;
+    decode_walk_table(obj);
+    walk_flip_reverse(obj);
+}
+
+
+/* ---------------------------------------------------------------- is_he_joy
+ *
+ * armv7 0x0005507c, thirty-two bytes.  **Complete.**
+ *
+ * `am_i_joy` through the opponent, and it RETURNS the answer where `am_i_shang`
+ * only stores it. The opponent also goes into 0x1c on the way, which `am_i_joy`
+ * does not do.
+ *
+ * The `it eq` writes zero and falls through; the other path writes one. Both
+ * branches store to 0x5c and the return is a re-read of that slot rather than
+ * of the register just written.
+ */
+long is_he_joy(MK3OBJ *obj)
+{
+    MK3OBJ  *him = obj->field00->field00;
+    uint32_t flags;
+
+    obj->field1c = (uint32_t)(uintptr_t)him;
+    flags = him->field00->field10;
+    obj->field2c = flags;
+    obj->field5c = (flags & 1u) ? 1u : 0u;
+    return (long)obj->field5c;
 }
