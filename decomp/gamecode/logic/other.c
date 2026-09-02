@@ -47,7 +47,8 @@ typedef struct MK3THREAD {
     uint32_t      field08;       /* 0x08  cleared with it */
     uint8_t       _pad0c[0x98];
     uint32_t      frame;         /* 0xa4  the index into the frame array */
-    uint8_t       _pad_a8[0x54];
+    uint8_t       _pad_a8[0x50];
+    uint32_t      fieldf8;       /* 0xf8  fastxfer_thread clears it too */
     uint32_t      fieldfc;       /* 0xfc  cleared on start, set on terminate */
     uint8_t       _pad100[8];
     void         *proc;          /* 0x108 FindThreadProc and NewThreadProc
@@ -107,7 +108,8 @@ typedef struct MK3OBJ {
     uint32_t    field18;         /* 0x18  the A8 pair, cleared together */
     uint32_t    field1c;         /* 0x1c  and the high bound */
     uint32_t    field20;         /* 0x20  and the low one */
-    uint8_t     _pad24[4];
+    uint32_t    field24;         /* 0x24  borrowed by borrow_ochar_sound and
+                                  *       used as a table index */
     uint32_t    field28;         /* 0x28  bit 4 toggled by the flip_multi trio */
     uint32_t    field2c;         /* 0x2c  receives the same OR-ed value */
     uint32_t    field30;         /* 0x30  the flag word the clearers mask */
@@ -119,7 +121,8 @@ typedef struct MK3OBJ {
      * loaded before a call. Three of the routines below do nothing but fill
      * it. */
     uint32_t    a10;             /* 0x44 */
-    uint8_t     _pad48[0x0c];
+    uint32_t    field48;         /* 0x48  shake_a11 passes it as an event */
+    uint8_t     _pad4c[8];
     uint32_t    field54;         /* 0x54  where a computed word is parked */
     uint8_t     _pad58[4];
     uint32_t    field5c;         /* 0x5c  am_i_joy's isolated bit */
@@ -185,6 +188,12 @@ typedef struct SWITCHQUEUE {
  */
 typedef struct GAMESTATE GAMESTATE;
 extern GAMESTATE *G;                       /* 0x0038c1fc */
+
+/* The second global, beside G and reached the same way -- through the pointer
+ * slot at 0x000f349c, whose word is 0x0038c674 and whose symbol is `_H`. Four
+ * words of it are cleared at the end of a match; nothing else here touches it,
+ * so it is a byte array for the same reason G is. */
+extern char *H;                            /* 0x0038c674 */
 
 /* Declared further down as `GAMESTATE *G`, which is how GameCode.c spells it
  * too. The three accesses here are by byte offset because two reads and a
@@ -1633,4 +1642,361 @@ void sans_repell_3(MK3OBJ *obj)
 {
     obj->field38 = 3;
     *(uint16_t *)(G_BYTES + 0x456) = 3;
+}
+
+
+/* ================================================== four events, four shapes
+ *
+ * `MKEvent_Add(kind, a, b, c)` again. Each of these fills it from a different
+ * place and everything else is a literal, so what they establish is which
+ * argument carries what -- not what the event system does with it.
+ * ======================================================================== */
+
+void send_code_a3(MK3OBJ *obj)
+{
+    MKEvent_Add(2, 4, (long)obj->field28, 0);
+}
+
+void shake_a11(MK3OBJ *obj)
+{
+    MKEvent_Add(1, 0, (long)obj->field48, 0);
+}
+
+void tsound_func(uint32_t unused, uint32_t which)
+{
+    (void)unused;
+    MKEvent_Add(2, 0, (long)which, 0);
+}
+
+
+/* ---------------------------------------------------------- set_his_noedge
+ *
+ * armv7 0x0005715c, twenty bytes.  **Complete.**
+ *
+ * `call_for_him` with `set_noedge`. The third caller of the trampoline, and
+ * the first that passes a routine this file also defines -- which is what the
+ * mechanism is for: one flag setter, reachable for either fighter.
+ */
+void set_his_noedge(MK3OBJ *obj)
+{
+    call_for_him(obj, set_noedge);
+}
+
+
+/* -------------------------------------------------------- walk_flip_reverse
+ *
+ * armv7 0x000552c8, twenty bytes.  **Complete.**
+ *
+ *      flags = obj->field08->field28
+ *      obj->field2c = flags
+ *      if (flags & 0x10) obj->field20 = -obj->field20
+ *
+ * Bit 4 of 0x28 is the bit `flip_multi` toggles, so that bit is a facing and
+ * this negates the walk when it is set. Two functions written a batch apart
+ * meeting on one bit is the first time this file has explained itself.
+ *
+ * The `ittt ne` block is three predicated instructions, which is a load, a
+ * negate and a store -- an if with no else.
+ */
+void walk_flip_reverse(MK3OBJ *obj)
+{
+    uint32_t flags = obj->field08->field28;
+
+    obj->field2c = flags;
+    if (flags & 0x10u)
+        obj->field20 = (uint32_t)(-(int32_t)obj->field20);
+}
+
+
+/* ------------------------------------------------------------ xfer_otherguy
+ *
+ * armv7 0x00055130, twenty bytes.  **Complete.**
+ *
+ * Parks the opponent in 0x1c and hands his THREAD to the fast transfer. The
+ * PROC is loaded twice, once for each -- kept as written.
+ */
+void fastxfer_thread(MK3OBJ *obj, MK3THREAD *thread);
+
+void xfer_otherguy(MK3OBJ *obj)
+{
+    MK3OBJPROC *proc = obj->field00;
+
+    obj->field1c = (uint32_t)(uintptr_t)proc->field00;
+    fastxfer_thread(obj, proc->field00->thread);
+}
+
+
+/* ---------------------------------------------------- ReallyKillProjectile
+ *
+ * armv7 0x0005764c, twenty-four bytes.  **Complete.**
+ *
+ *      t = FindThread(proc->field08 + 0x700)
+ *      if (t) KillSThread(t)
+ *
+ * The 0x700 is added to the PROC's 0x08 before the search, so the projectile's
+ * thread is found at a fixed distance from whatever that field addresses.
+ * `KillSThread` is the restart-at-terminate call, so "really kill" is still a
+ * request the thread has to honour on its next turn.
+ */
+MK3THREAD *FindThread_at(uint32_t key);
+
+void ReallyKillProjectile(MK3OBJ *obj)
+{
+    MK3THREAD *t = FindThread_at(obj->field00->field08 + 0x700);
+
+    if (t != NULL)
+        KillSThread(t);
+}
+
+
+/* ------------------------------------------------------------ adjust_him_a0
+ *
+ * armv7 0x00057094, twenty-four bytes.  **Complete.**
+ *
+ *      obj->field20 = (int32_t)obj->field1c >> 16          ; arithmetic
+ *      obj->field1c = (int16_t)obj->field1c                ; sign-extended
+ *      adjust_him_xy(obj)
+ *
+ * A packed coordinate pair split into its two halves before the call, both
+ * signed. `create_fx` packs a pair the same way and this is the other end of
+ * it: one word travels, two numbers arrive.
+ */
+void adjust_him_a0(MK3OBJ *obj)
+{
+    uint32_t packed = obj->field1c;
+
+    obj->field20 = (uint32_t)((int32_t)packed >> 16);
+    obj->field1c = (uint32_t)(int32_t)(int16_t)packed;
+    adjust_him_xy(obj);
+}
+
+
+/* -------------------------------------------------------------- air_dragon
+ *
+ * armv7 0x00057530, twenty-four bytes.  **Complete.**
+ *
+ * Two literals -- 40 and -40 -- into the spill slots and into the call, with
+ * the PROC's slave as the object to move. The slots are written as well as
+ * passed, which is the habit and not a second use.
+ */
+void air_dragon(MK3OBJ *obj)
+{
+    obj->field1c = 0x28;                        /* 40 */
+    obj->field20 = (uint32_t)-40;
+    multi_adjust_xy_ob(obj, obj->field00->slave, 0x28, (uint32_t)-40);
+}
+
+
+/* -------------------------------------------------------------- am_i_shang
+ *
+ * armv7 0x0005790c, twenty-four bytes.  **Complete.**
+ *
+ * Bit 9 of the PROC's flag word, and the second bit of it this file names --
+ * `am_i_joy` reads bit 0. The whole word goes to 0x2c and the answer to 0x5c,
+ * and unlike `am_i_joy` this one does not return it: the caller reads the slot.
+ */
+void am_i_shang(MK3OBJ *obj)
+{
+    uint32_t flags = obj->field00->field10;
+
+    obj->field5c = 0;
+    obj->field2c = flags;
+    if (flags & 0x200u)
+        obj->field5c = 1;
+}
+
+
+/* --------------------------------------------------------------- am_i_short
+ *
+ * armv7 0x00055808, twenty-four bytes.  **Complete.**
+ *
+ *      get_my_height(obj)
+ *      obj->field5c = (obj->field20 <= 103)
+ *
+ * The height arrives in 0x20 and the comparison is `> 0x67` inverted, so 103
+ * is the threshold and short is at-or-below it. The answer goes to 0x5c, the
+ * same slot `am_i_joy` and `am_i_shang` use, and is not returned.
+ */
+void get_my_height(MK3OBJ *obj);
+
+void am_i_short(MK3OBJ *obj)
+{
+    get_my_height(obj);
+    obj->field5c = ((int32_t)obj->field20 > 0x67) ? 0u : 1u;
+}
+
+
+/* -------------------------------------------------------- boomerang_adjuster
+ *
+ * armv7 0x0005757c, twenty-four bytes.  **Complete.**
+ *
+ * Three slots filled and then the general adjuster: 72 and 32 as the pair, and
+ * the PROC's slave as the object. The 32 is computed as `72 - 40` in one
+ * instruction rather than loaded, which is the compiler and not the source.
+ */
+void boomerang_adjuster(MK3OBJ *obj)
+{
+    obj->field1c = 0x48;                        /* 72 */
+    obj->field20 = 0x48 - 0x28;                 /* 32, as the code forms it */
+    obj->field30 = obj->field00->slave;
+    adjust_xy_a5(obj);
+}
+
+
+/* ------------------------------------------------------- borrow_ochar_sound
+ *
+ * armv7 0x00057c00, twenty-four bytes.  **Complete.**
+ *
+ *      saved = other->field24
+ *      other->field24 = obj->field20
+ *      ochar_sound(obj)
+ *      other->field24 = saved
+ *
+ * The first function in this file that puts a slot back. Everything else that
+ * sets up a call leaves the value where it landed, which is why "borrow" is in
+ * the name -- it is the exception being marked.
+ *
+ * The object is re-read from 0x08 after the call rather than kept in a
+ * register. Transcribed as written: whether `ochar_sound` can move it is not
+ * established here, and assuming it cannot is how a port acquires a bug that
+ * only shows on one character.
+ */
+void ochar_sound(MK3OBJ *obj);
+
+void borrow_ochar_sound(MK3OBJ *obj)
+{
+    MK3OBJ  *other = obj->field08;
+    uint32_t saved = other->field24;
+
+    other->field24 = obj->field20;
+    ochar_sound(obj);
+    obj->field08->field24 = saved;
+}
+
+
+/* --------------------------------------------------------- center_around_me
+ *
+ * armv7 0x00057b6c, twenty-four bytes.  **Complete.**
+ *
+ *      MKEvent_Add(1, 1, (int16_t)other->field0e, proc->field08)
+ *
+ * The same event kind as `shake_a11` with a different second argument. 0x0e is
+ * read signed here and signed in `get_my_dfe`; `create_fx` takes it as the
+ * high half of a packed word, which does not contradict either.
+ */
+void center_around_me(MK3OBJ *obj)
+{
+    MKEvent_Add(1, 1, (int32_t)(int16_t)obj->field08->field0e,
+                obj->field00->field08);
+}
+
+
+/* ------------------------------------------------------- decode_walk_table
+ *
+ * armv7 0x000552dc, twenty-four bytes.  **Complete.**
+ *
+ *      base  = obj->field1c
+ *      entry = base + other->field24 * 8
+ *      obj->field1c = entry[0]
+ *      obj->field20 = entry[1] << 4
+ *
+ * A table of eight-byte entries whose base arrives in a slot and whose index
+ * is the other object's 0x24 -- the same field `borrow_ochar_sound` lends. The
+ * second word is scaled by sixteen on the way out, so it is a fixed-point
+ * quantity and the first is not.
+ */
+void decode_walk_table(MK3OBJ *obj)
+{
+    const uint32_t *entry =
+        (const uint32_t *)(uintptr_t)(obj->field1c + obj->field08->field24 * 8);
+
+    obj->field1c = entry[0];
+    obj->field20 = entry[1] << 4;
+}
+
+
+/* ----------------------------------------------------- distance_off_ground
+ *
+ * armv7 0x00055164, twenty-four bytes.  **Complete.**
+ *
+ *      ground = proc->field40
+ *      obj->field1c = ground                       ; then overwritten
+ *      obj->field24 = (int16_t)other->field12
+ *      obj->field1c = ground - that
+ *
+ * 0x1c is written twice, the first time with a value nothing reads. Kept:
+ * the store is in the instruction stream and a transcription that removes it
+ * is asserting that nothing between the two can observe it, which nothing
+ * here establishes.
+ *
+ * `ground_player` copies the same 0x40 into the same 0x12 that this subtracts,
+ * so the two are a matched pair: one sets the height, the other measures it.
+ */
+void distance_off_ground(MK3OBJ *obj)
+{
+    uint32_t ground = obj->field00->field40;
+    int32_t  height;
+
+    obj->field1c = ground;
+    height = (int32_t)(int16_t)obj->field08->field12;
+    obj->field24 = (uint32_t)height;
+    obj->field1c = (uint32_t)((int32_t)ground - height);
+}
+
+
+/* ------------------------------------------------------ end_of_match_chores
+ *
+ * armv7 0x00056ae4, twenty-four bytes.  **Complete.**
+ *
+ *      obj->field1c = 0
+ *      H[0x00] = H[0x04] = H[0x10] = H[0x14] = 0
+ *
+ * Four words of the second global cleared, in two adjacent pairs with a gap
+ * between them. The gap is 0x08 and 0x0c, which this leaves alone -- worth
+ * noting, because clearing a struct usually means clearing all of it.
+ */
+void end_of_match_chores(MK3OBJ *obj)
+{
+    obj->field1c = 0;
+    *(uint32_t *)(H + 0x00) = 0;
+    *(uint32_t *)(H + 0x04) = 0;
+    *(uint32_t *)(H + 0x10) = 0;
+    *(uint32_t *)(H + 0x14) = 0;
+}
+
+
+/* ------------------------------------------------------- face_opponent_px
+ *
+ * armv7 0x00055370, twenty-four bytes.  **Complete.**
+ *
+ *      if (!am_i_facing_him_px(obj, target)) flip_multi_px(obj, target);
+ *
+ * The chain `isp2` opens, closed. Both halves were written a batch apart --
+ * the question and the flip -- and this is the one that joins them.
+ */
+void face_opponent_px(MK3OBJ *obj, MK3OBJ *target)
+{
+    if (!am_i_facing_him_px(obj, target))
+        flip_multi_px(obj, target);
+}
+
+
+/* -------------------------------------------------------- fastxfer_thread
+ *
+ * armv7 0x00055118, twenty-four bytes.  **Complete.**
+ *
+ * `StartThreadAt` with one more field cleared -- 0xf8 as well as 0xfc, 0xa4 and
+ * 0x08 -- and the function taken out of the caller's 0x38 rather than passed.
+ * So 0x38 holds a thread entry point here, a direction mask in the stick
+ * routines and a constant in `sans_repell`: three unrelated things through one
+ * offset, which is now the clearest evidence in this file that these slots are
+ * spill space and not fields.
+ */
+void fastxfer_thread(MK3OBJ *obj, MK3THREAD *thread)
+{
+    thread->fieldfc = 0;
+    thread->frame = 0;
+    thread->fieldf8 = 0;
+    thread->field08 = 0;
+    thread->func = (MK3THREADFUNC)(uintptr_t)obj->field38;
 }
