@@ -60,7 +60,16 @@ def plain(sym):
 
 
 def main(argv):
-    limit = int(argv[1]) if len(argv) > 1 else 20
+    """pending.py [count] [--logic] [file.c]"""
+    args = [a for a in argv[1:] if not a.startswith("--")]
+    logic = "--logic" in argv
+    only = None
+    limit = 20
+    for a in args:
+        if a.endswith(".c"):
+            only = a
+        else:
+            limit = int(a)
     done = written()
 
     funcs = []
@@ -72,7 +81,11 @@ def main(argv):
 
     rows = []
     for i, (addr, sym, path) in enumerate(funcs):
-        if "/gamecode/" not in path or "/logic/" in path or "limeMP" in path:
+        if "/gamecode/" not in path or "limeMP" in path:
+            continue
+        if logic != ("/logic/" in path):
+            continue
+        if only and os.path.basename(path) != only:
             continue
         size = funcs[i + 1][0] - addr if i + 1 < len(funcs) else 0
         name = plain(sym)
@@ -81,7 +94,10 @@ def main(argv):
         rows.append((size, sym, name, os.path.basename(path)))
     rows.sort()
 
-    print("written: %d   pending in gamecode: %d\n" % (len(done), len(rows)))
+    where = "gamecode/logic" if logic else "gamecode"
+    if only:
+        where += "/" + only
+    print("written: %d   pending in %s: %d\n" % (len(done), where, len(rows)))
     for size, sym, name, src in rows[:limit]:
         print("  %5d  %-38s %-28s %s" % (size, sym, name, src))
     return 0
