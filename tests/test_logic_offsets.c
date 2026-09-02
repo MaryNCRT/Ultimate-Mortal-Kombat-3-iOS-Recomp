@@ -93,8 +93,8 @@ typedef struct IMG_OBJ {
     uint32_t field00;            /* 0x00  a PROC * in the image */
     uint32_t thread;             /* 0x04 */
     uint32_t field08;            /* 0x08  another object */
-    uint8_t  _pad0c[2];
-    uint16_t field0e;            /* 0x0e  create_fx packs it high */
+    /* 0x0c is a word and 0x0e is its high half -- one field, not two. */
+    uint32_t field0c;            /* 0x0c  is_he_right compares two */
     uint8_t  _pad10[2];
     uint16_t field12;            /* 0x12 */
     uint8_t  _pad14[4];
@@ -119,7 +119,7 @@ typedef struct IMG_OBJ {
 
 CHECK(IMG_OBJ, thread,      0x04);
 CHECK(IMG_OBJ, field08,     0x08);
-CHECK(IMG_OBJ, field0e,     0x0e);
+CHECK(IMG_OBJ, field0c,     0x0c);
 CHECK(IMG_OBJ, field12,     0x12);
 CHECK(IMG_OBJ, field18,     0x18);
 CHECK(IMG_OBJ, field1c,     0x1c);
