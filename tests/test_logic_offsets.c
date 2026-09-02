@@ -101,7 +101,7 @@ typedef struct IMG_OBJ {
     uint32_t field18;            /* 0x18 */
     uint32_t field1c;            /* 0x1c */
     uint32_t field20;            /* 0x20 */
-    uint8_t  _pad24[4];
+    uint32_t field24;            /* 0x24  borrowed, and a table index */
     uint32_t field28;            /* 0x28 */
     uint32_t field2c;            /* 0x2c */
     uint32_t field30;            /* 0x30  the flag word the clearers mask */
@@ -110,7 +110,8 @@ typedef struct IMG_OBJ {
     uint8_t  _pad3c[4];
     uint32_t field40;            /* 0x40 */
     uint32_t a10;                /* 0x44 */
-    uint8_t  _pad48[0x0c];
+    uint32_t field48;            /* 0x48  shake_a11 */
+    uint8_t  _pad4c[8];
     uint32_t field54;            /* 0x54  where a computed word is parked */
     uint8_t  _pad58[4];
     uint32_t field5c;            /* 0x5c  am_i_joy's isolated bit */
@@ -123,12 +124,14 @@ CHECK(IMG_OBJ, field12,     0x12);
 CHECK(IMG_OBJ, field18,     0x18);
 CHECK(IMG_OBJ, field1c,     0x1c);
 CHECK(IMG_OBJ, field20,     0x20);
+CHECK(IMG_OBJ, field24,     0x24);
 CHECK(IMG_OBJ, field28,     0x28);
 CHECK(IMG_OBJ, field2c,     0x2c);
 CHECK(IMG_OBJ, field38,     0x38);
 CHECK(IMG_OBJ, field40,     0x40);
 CHECK(IMG_OBJ, a10,         0x44);
 CHECK(IMG_OBJ, field30,     0x30);
+CHECK(IMG_OBJ, field48,     0x48);
 CHECK(IMG_OBJ, field54,     0x54);
 CHECK(IMG_OBJ, field5c,     0x5c);
 
@@ -145,7 +148,8 @@ typedef struct IMG_THREAD {
     uint32_t field08;            /* 0x08 */
     uint8_t  _pad0c[0x98];
     uint32_t frame;              /* 0xa4 */
-    uint8_t  _pad_a8[0x54];
+    uint8_t  _pad_a8[0x50];
+    uint32_t fieldf8;            /* 0xf8  fastxfer_thread */
     uint32_t fieldfc;            /* 0xfc */
     uint8_t  _pad100[8];
     uint32_t proc;               /* 0x108 */
@@ -154,6 +158,7 @@ typedef struct IMG_THREAD {
 CHECK(IMG_THREAD, func,    0x04);
 CHECK(IMG_THREAD, field08, 0x08);
 CHECK(IMG_THREAD, frame,   0xa4);
+CHECK(IMG_THREAD, fieldf8, 0xf8);
 CHECK(IMG_THREAD, fieldfc, 0xfc);
 CHECK(IMG_THREAD, proc,    0x108);
 
