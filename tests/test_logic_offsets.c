@@ -105,7 +105,7 @@ typedef struct IMG_OBJ {
     uint32_t field28;            /* 0x28 */
     uint32_t field2c;            /* 0x2c */
     uint32_t field30;            /* 0x30  the flag word the clearers mask */
-    uint8_t  _pad34[4];
+    uint32_t field34;            /* 0x34  the ring buffer's base */
     uint32_t field38;            /* 0x38 */
     uint8_t  _pad3c[4];
     uint32_t field40;            /* 0x40 */
@@ -127,6 +127,7 @@ CHECK(IMG_OBJ, field20,     0x20);
 CHECK(IMG_OBJ, field24,     0x24);
 CHECK(IMG_OBJ, field28,     0x28);
 CHECK(IMG_OBJ, field2c,     0x2c);
+CHECK(IMG_OBJ, field34,     0x34);
 CHECK(IMG_OBJ, field38,     0x38);
 CHECK(IMG_OBJ, field40,     0x40);
 CHECK(IMG_OBJ, a10,         0x44);
@@ -151,7 +152,8 @@ typedef struct IMG_THREAD {
     uint8_t  _pad_a8[0x50];
     uint32_t fieldf8;            /* 0xf8  fastxfer_thread */
     uint32_t fieldfc;            /* 0xfc */
-    uint8_t  _pad100[8];
+    uint8_t  _pad100[4];
+    uint32_t pid;                /* 0x104 NewThreadProcPid */
     uint32_t proc;               /* 0x108 */
 } IMG_THREAD;
 
@@ -160,6 +162,7 @@ CHECK(IMG_THREAD, field08, 0x08);
 CHECK(IMG_THREAD, frame,   0xa4);
 CHECK(IMG_THREAD, fieldf8, 0xf8);
 CHECK(IMG_THREAD, fieldfc, 0xfc);
+CHECK(IMG_THREAD, pid,     0x104);
 CHECK(IMG_THREAD, proc,    0x108);
 
 int main(void)

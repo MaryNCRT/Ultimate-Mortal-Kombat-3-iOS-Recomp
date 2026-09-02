@@ -50,7 +50,8 @@ typedef struct MK3THREAD {
     uint8_t       _pad_a8[0x50];
     uint32_t      fieldf8;       /* 0xf8  fastxfer_thread clears it too */
     uint32_t      fieldfc;       /* 0xfc  cleared on start, set on terminate */
-    uint8_t       _pad100[8];
+    uint8_t       _pad100[4];
+    uint32_t      pid;           /* 0x104 NewThreadProcPid sets it */
     void         *proc;          /* 0x108 FindThreadProc and NewThreadProc
                                   *       return it */
 } MK3THREAD;
@@ -117,8 +118,9 @@ typedef struct MK3OBJ {
     uint32_t    field28;         /* 0x28  bit 4 toggled by the flip_multi trio */
     uint32_t    field2c;         /* 0x2c  receives the same OR-ed value */
     uint32_t    field30;         /* 0x30  the flag word the clearers mask */
-    uint8_t     _pad34[4];
-    uint32_t    field38;         /* 0x38  the base highest_mpart_ob adds to */
+    uint32_t    field34;         /* 0x34  the ring buffer's base */
+    uint32_t    field38;         /* 0x38  the base highest_mpart_ob adds to,
+                                  *       and the ring buffer's head */
     uint8_t     _pad3c[4];
     uint32_t    field40;         /* 0x40  and the one lowest_mpart_ob adds to */
     /* 0x44  what used to be the A10 register: the argument slot the arcade
@@ -2139,4 +2141,290 @@ void is_he_short(MK3OBJ *obj)
 {
     get_his_height(obj);
     obj->field5c = ((int32_t)obj->field20 > 0x67) ? 0u : 1u;
+}
+
+
+/* ------------------------------------------------------------ ladderorder_a1
+ *
+ * armv7 0x00057674, twenty-four bytes.  **Complete.**
+ *
+ *      v = RoundParam[0x14]
+ *      obj->field20 = v
+ *      if (v > 3) obj->field20 = 1
+ *
+ * A clamp to 1, not to 3. Anything past the last order folds back to the
+ * first, which is what the name asks for and what a saturating clamp would
+ * not do.
+ *
+ * `_RoundParam` is the third global reached through a pointer slot in this
+ * file, after G and H; the slot is 0x000f3534 and the word it holds is
+ * 0x0038ed04.
+ */
+extern uint32_t *RoundParam;            /* 0x0038ed04 */
+
+void ladderorder_a1(MK3OBJ *obj)
+{
+    uint32_t order = ((const uint32_t *)RoundParam)[0x14 / 4];
+
+    obj->field20 = order;
+    if ((int32_t)order > 3)
+        obj->field20 = 1;
+}
+
+
+/* -------------------------------------------------------------- lower_dragon
+ *
+ * armv7 0x00057548, twenty-four bytes.  **Complete.**
+ *
+ * `air_dragon` with different numbers: 29 and 48 rather than 40 and -40, and
+ * the same slave. Both fill the slots as well as passing the values, which is
+ * the habit and not a second use.
+ */
+void lower_dragon(MK3OBJ *obj)
+{
+    obj->field1c = 0x1d;                        /* 29 */
+    obj->field20 = 0x30;                        /* 48 */
+    multi_adjust_xy_ob(obj, obj->field00->slave, 0x1d, 0x30);
+}
+
+
+/* ------------------------------------------------------- match_him_with_me_f
+ *
+ * armv7 0x000570e0, twenty-four bytes.  **Complete.**
+ *
+ * The match, then a flip. The `_f` is the flip, and the object flipped is the
+ * opponent -- `proc->field00`, the same double step the "his" functions take.
+ */
+void match_him_with_me_f(MK3OBJ *obj)
+{
+    match_him_with_me(obj);
+    flip_multi_px(obj, obj->field00->field00);
+}
+
+
+/* ------------------------------------------------------------ ochar_sound_c
+ *
+ * armv7 0x00057bb0, twenty-four bytes.  **Complete.**
+ *
+ *      MKEvent_Add(2, 3, (c << 8) + obj->field1c, 0)
+ *
+ * The caller's second argument goes in the high byte and the slot in the low,
+ * so the two are packed into one event parameter. Adding rather than ORing is
+ * what the code does; with a slot below 256 the two are the same and nothing
+ * here bounds it.
+ */
+void ochar_sound_c(MK3OBJ *obj, uint32_t c)
+{
+    MKEvent_Add(2, 3, (long)((c << 8) + obj->field1c), 0);
+}
+
+
+/* --------------------------------------------------------- previous_q_entry
+ *
+ * armv7 0x00056138, twenty-four bytes.  **Complete.**
+ *
+ *      head = obj->field38
+ *      back = head - 4
+ *      if (back < obj->field34 + 4) back = head + 0x4c
+ *      obj->field38 = back
+ *      obj->field1c = *back
+ *
+ * The ring buffer this file's header describes, walked backwards. The wrap
+ * adds 0x4c -- nineteen words -- which with the entry itself is the twenty
+ * slots the header names. The two descriptions were written from opposite ends
+ * of the same array and they agree, which is the only check either gets.
+ *
+ * The comparison is unsigned (`it lo`), so the guard is against the pointer
+ * going below the base and not against a signed underflow.
+ */
+void previous_q_entry(MK3OBJ *obj)
+{
+    uint32_t head = obj->field38;
+    uint32_t back = head - 4;
+
+    if (back < obj->field34 + 4)
+        back = head + 0x4c;
+
+    obj->field38 = back;
+    obj->field1c = *(const uint32_t *)(uintptr_t)back;
+}
+
+
+/* ------------------------------------------------------------ randu_minimum
+ *
+ * armv7 0x00058764, twenty-four bytes.  **Complete.**
+ *
+ *      randu(obj)
+ *      obj->field1c = obj->field1c - 1 + obj->field20
+ *
+ * The generator leaves its number in 0x1c and this shifts it by a minimum held
+ * in 0x20, less one. So 0x20 is the low bound and the range the generator
+ * produced is inclusive at its top.
+ */
+void randu(MK3OBJ *obj);
+
+void randu_minimum(MK3OBJ *obj)
+{
+    obj->field1c = obj->field1c - 1 + obj->field20;
+}
+
+
+/* ------------------------------------------------------------ restore_power
+ *
+ * armv7 0x00057810, twenty-four bytes.  **Complete.**
+ *
+ *      slot = obj->field30
+ *      obj->field1c = *slot
+ *      if (*slot != 0) return
+ *      *slot = 5
+ *      obj->field1c = 1
+ *      *(obj->field34) = 1
+ *
+ * The first early return in this file: a non-zero value means there is nothing
+ * to restore. The 5 and the 1 are formed as `+5` then `-4` from the zero just
+ * tested, which is a register being reused rather than two constants.
+ */
+void restore_power(MK3OBJ *obj)
+{
+    uint32_t *slot = (uint32_t *)(uintptr_t)obj->field30;
+
+    obj->field1c = *slot;
+    if (*slot != 0)
+        return;
+
+    *slot = 5;
+    obj->field1c = 1;
+    *(uint32_t *)(uintptr_t)obj->field34 = 1;
+}
+
+
+/* --------------------------------------------------------------- set_inviso
+ *
+ * armv7 0x00054f70, twenty-four bytes.  **Complete.**
+ *
+ *      clear_shadow_bit(obj)
+ *      flags = obj->field08->field30 | 0x20
+ *      obj->field54 = flags
+ *      obj->field08->field30 = flags
+ *
+ * Not the mirror of `clear_inviso`. Going invisible clears the shadow bit as
+ * well, and coming back does not restore it -- the asymmetry is in the code
+ * and is left there.
+ */
+void set_inviso(MK3OBJ *obj)
+{
+    uint32_t flags;
+
+    clear_shadow_bit(obj);
+    flags = obj->field08->field30 | MK3F_INVISO;
+    obj->field54 = flags;
+    obj->field08->field30 = flags;
+}
+
+
+/* ------------------------------------------------------------------ stop_him
+ *
+ * armv7 0x00055c20, twenty-four bytes.  **Complete.**
+ *
+ * `stop_me_player` applied to the opponent, with his 0x1c preserved across it.
+ * The fourth restore in this file, and like the others it reloads the object
+ * afterwards rather than keeping it in a register.
+ */
+void stop_him(MK3OBJ *obj)
+{
+    MK3OBJ  *him = obj->field00->field00;
+    uint32_t saved = him->field1c;
+
+    stop_me_player(him);
+    obj->field00->field00->field1c = saved;
+}
+
+
+/* -------------------------------------------------------- strike_check_a0_core
+ *
+ * armv7 0x000594b0, twenty-four bytes.  **Complete.**
+ *
+ * Fetches the strike table into 0x1c and passes it on with the caller's flag
+ * untouched. The two wrappers written earlier -- `strike_check_a0` and
+ * `strike_check_a0_test` -- differ only in that flag, and this is where it
+ * goes.
+ */
+void get_char_stk(MK3OBJ *obj);
+
+long strike_check_a0_core(MK3OBJ *obj, long test_only)
+{
+    get_char_stk(obj);
+    return strike_check_ptr(obj, obj->field1c, test_only);
+}
+
+
+/* ------------------------------------------------------------- sweep_sounds
+ *
+ * armv7 0x000580d0, twenty-four bytes.  **Complete.**
+ *
+ * A sound request with 15, then 0x1c cleared, then the group sound. The clear
+ * sits between the two calls, so it is the second one's argument being set up
+ * and not the first one's being torn down.
+ */
+void sweep_sounds(MK3OBJ *obj)
+{
+    rsnd_func((uint32_t)(uintptr_t)obj, 0xf);
+    obj->field1c = 0;
+    group_sound(obj);
+}
+
+
+/* --------------------------------------------- GetFrameWidth, GetFrameHeight
+ *
+ * armv7 0x0005841c and 0x00058468, twenty-eight bytes each.  **Complete.**
+ *
+ *      int a, b, c, d;
+ *      mk3_getbbox(obj, &d, &c, &b, &a)
+ *      return b;                       ; width
+ *      return a;                       ; height
+ *
+ * The same call with four output pointers and a different one read back. Two
+ * functions to get two numbers out of one bounding box, which is how the
+ * arcade asked for them and is kept.
+ *
+ * The four locals are named by position because that is all the pair
+ * establishes: which slot is which, not what the other two are.
+ */
+void mk3_getbbox(MK3OBJ *obj, int *p1, int *p2, int *p3, int *p4);
+
+int GetFrameWidth(MK3OBJ *obj)
+{
+    int s04 = 0, s08 = 0, s0c = 0, s10 = 0;
+
+    mk3_getbbox(obj, &s10, &s0c, &s08, &s04);
+    return s08;
+}
+
+int GetFrameHeight(MK3OBJ *obj)
+{
+    int s04 = 0, s08 = 0, s0c = 0, s10 = 0;
+
+    mk3_getbbox(obj, &s10, &s0c, &s08, &s04);
+    return s04;
+}
+
+
+/* --------------------------------------------------------- NewThreadProcPid
+ *
+ * armv7 0x00058b38, twenty-eight bytes.  **Complete.**
+ *
+ * `NewThreadProc` with one more store: the caller's third argument goes into
+ * the thread's 0x104 before the proc at 0x108 is returned. So 0x104 is the pid
+ * and this is the only routine here that sets one.
+ */
+void *NewThreadProcPid(uint32_t a, uint32_t b, uint32_t pid)
+{
+    MK3THREAD *t = NewThread();
+
+    (void)a; (void)b;
+    if (t == NULL)
+        return NULL;
+
+    t->pid = pid;
+    return t->proc;
 }
