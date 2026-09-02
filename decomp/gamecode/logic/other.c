@@ -3966,3 +3966,113 @@ void delete_slave_notproj(MK3OBJ *obj)
     obj->field00->field64 = 0;
     obj->field00->slave = 0;
 }
+
+
+/* ------------------------------------ get_rough_hypotenuse and _hypotenuse_of
+ *
+ * armv7 0x000571bc and 0x000571e8, forty-four bytes each.  **Complete.**
+ *
+ *      a = |dx|;  b = |dy|
+ *      obj->field54 = max(a, b) + min(a, b) / 2
+ *
+ * The octagonal distance approximation: no multiply and no square root, about
+ * eight per cent high on the diagonal. For deciding whether two fighters are
+ * close enough that is the right trade, and it is why the name says rough.
+ *
+ * The `+ (x >>> 31)` the compiler emits before each shift is the rounding
+ * fixup for a SIGNED divide by two. Both operands are already positive by then
+ * so it adds nothing -- and it is the reason this is written as `/ 2` rather
+ * than `>> 1`: the fixup is what says the source divided.
+ *
+ * The two differ in where the operands come from. `get_rough_hypotenuse` takes
+ * them from 0x38 and 0x54 and writes the absolute values BACK into those slots;
+ * `_of` takes them as arguments and makes them positive branchlessly with
+ * `eor`/`sub`, touching nothing but the result.
+ */
+long get_rough_hypotenuse(MK3OBJ *obj)
+{
+    int32_t a = (int32_t)obj->field38;
+    int32_t b = (int32_t)obj->field54;
+
+    if (a < 0) { a = -a; obj->field38 = (uint32_t)a; }
+    if (b < 0) { b = -b; obj->field54 = (uint32_t)b; }
+
+    obj->field54 = (uint32_t)((a < b) ? (b + a / 2) : (a + b / 2));
+    return (long)obj->field54;
+}
+
+long get_rough_hypotenuse_of(MK3OBJ *obj, int32_t dx, int32_t dy)
+{
+    int32_t a = (dx < 0) ? -dx : dx;
+    int32_t b = (dy < 0) ? -dy : dy;
+
+    obj->field54 = (uint32_t)((a >= b) ? (a + b / 2) : (b + a / 2));
+    return (long)obj->field54;
+}
+
+
+/* ------------------------------------------------------------- group_sound
+ *
+ * armv7 0x000580a4, forty-four bytes.  **Complete.**
+ *
+ *      g = ochar_voice_groups[other->field24]
+ *      if (g >= 0)
+ *          MKEvent_Add(2, 1, (g << 4) + obj->field1c, 0)
+ *
+ * A per-character voice group, and a NEGATIVE entry means the character has
+ * none -- the test is signed and the whole call is skipped. So the table is
+ * sparse by sign rather than by a sentinel value.
+ *
+ * The group is shifted by four and added to the slot, which is the same
+ * pack-two-things-in-a-word shape as `ochar_sound`, with sixteen sounds a group
+ * instead of two hundred and fifty-six a character.
+ *
+ * `_ochar_voice_groups` is the sixth named table this file reaches.
+ */
+extern int32_t ochar_voice_groups[];    /* 0x0016f55c */
+
+void group_sound(MK3OBJ *obj)
+{
+    int32_t group = ochar_voice_groups[obj->field08->field24];
+
+    if (group < 0)
+        return;
+
+    MKEvent_Add(2, 1, (long)(((uint32_t)group << 4) + obj->field1c), 0);
+}
+
+
+/* ------------------------------------------------------------------ intersect
+ *
+ * armv7 0x00055fa8, forty-four bytes.  **Complete.**
+ *
+ *      !(a->left >= b->right || a->top    >= b->bottom ||
+ *        b->left >= a->right || b->top    >= a->bottom)
+ *
+ * The standard four-comparison overlap test, and it is what establishes the
+ * box: four words at 0x00, 0x04, 0x08 and 0x0c, left top right bottom, because
+ * each is compared against the opposite field of the other box.
+ *
+ * Every comparison is `>=`, so two boxes that merely TOUCH do not intersect.
+ * On the frame two hitboxes meet exactly that is the difference between a hit
+ * and a miss, so it is stated rather than reproduced quietly.
+ */
+typedef struct MK3BOX {
+    int32_t left;                /* 0x00 */
+    int32_t top;                 /* 0x04 */
+    int32_t right;               /* 0x08 */
+    int32_t bottom;              /* 0x0c */
+} MK3BOX;
+
+long intersect(const MK3BOX *a, const MK3BOX *b)
+{
+    if (a->left >= b->right)
+        return 0;
+    if (a->top >= b->bottom)
+        return 0;
+    if (b->left >= a->right)
+        return 0;
+    if (b->top >= a->bottom)
+        return 0;
+    return 1;
+}
