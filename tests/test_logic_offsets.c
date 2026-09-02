@@ -55,7 +55,9 @@ typedef struct IMG_PROC {
     uint16_t field40;            /* 0x40 */
     uint8_t  _pad42[2];
     uint32_t p_hit;              /* 0x44 */
-    uint8_t  _pad48[0x20];
+    uint8_t  _pad48[0x0c];
+    uint32_t field54;            /* 0x54  add_combo_damage */
+    uint8_t  _pad58[0x10];
     uint32_t slave;              /* 0x68 */
 } IMG_PROC;
 
@@ -63,6 +65,7 @@ CHECK(IMG_PROC, him,     0x04);
 CHECK(IMG_PROC, field10, 0x10);
 CHECK(IMG_PROC, field40, 0x40);
 CHECK(IMG_PROC, p_hit,   0x44);
+CHECK(IMG_PROC, field54, 0x54);
 CHECK(IMG_PROC, slave,   0x68);
 
 
@@ -94,13 +97,16 @@ typedef struct IMG_OBJ {
     uint8_t  _pad24[4];
     uint32_t field28;            /* 0x28 */
     uint32_t field2c;            /* 0x2c */
-    uint8_t  _pad30[8];
+    uint32_t field30;            /* 0x30  the flag word the clearers mask */
+    uint8_t  _pad34[4];
     uint32_t field38;            /* 0x38 */
     uint8_t  _pad3c[4];
     uint32_t field40;            /* 0x40 */
     uint32_t a10;                /* 0x44 */
-    uint8_t  _pad48[0x5c];
-    uint32_t threadIndex;        /* 0xa4 */
+    uint8_t  _pad48[0x0c];
+    uint32_t field54;            /* 0x54  where a computed word is parked */
+    uint8_t  _pad58[4];
+    uint32_t field5c;            /* 0x5c  am_i_joy's isolated bit */
 } IMG_OBJ;
 
 CHECK(IMG_OBJ, thread,      0x04);
@@ -114,7 +120,34 @@ CHECK(IMG_OBJ, field2c,     0x2c);
 CHECK(IMG_OBJ, field38,     0x38);
 CHECK(IMG_OBJ, field40,     0x40);
 CHECK(IMG_OBJ, a10,         0x44);
-CHECK(IMG_OBJ, threadIndex, 0xa4);
+CHECK(IMG_OBJ, field30,     0x30);
+CHECK(IMG_OBJ, field54,     0x54);
+CHECK(IMG_OBJ, field5c,     0x5c);
+
+/* ---- MK3THREAD ----------------------------------------------------------
+ *  0x04  str r1, [r0, #4]        StartThreadAt
+ *  0x08  str r3, [r0, #8]        StartThreadAt
+ *  0xa4  str.w r3, [r0, #0xa4]   StartThreadAt, t_self_terminate
+ *  0xfc  str.w r3, [r0, #0xfc]   StartThreadAt, t_self_terminate
+ * 0x108  ldr.w r0, [r0, #0x108]  FindThreadProc, NewThreadProc
+ */
+typedef struct IMG_THREAD {
+    uint8_t  _pad00[4];
+    uint32_t func;               /* 0x04 */
+    uint32_t field08;            /* 0x08 */
+    uint8_t  _pad0c[0x98];
+    uint32_t frame;              /* 0xa4 */
+    uint8_t  _pad_a8[0x54];
+    uint32_t fieldfc;            /* 0xfc */
+    uint8_t  _pad100[8];
+    uint32_t proc;               /* 0x108 */
+} IMG_THREAD;
+
+CHECK(IMG_THREAD, func,    0x04);
+CHECK(IMG_THREAD, field08, 0x08);
+CHECK(IMG_THREAD, frame,   0xa4);
+CHECK(IMG_THREAD, fieldfc, 0xfc);
+CHECK(IMG_THREAD, proc,    0x108);
 
 int main(void)
 {

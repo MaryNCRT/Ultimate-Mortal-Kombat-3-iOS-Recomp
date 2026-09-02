@@ -24,6 +24,7 @@
  * and checked by observation against the game running in touchHLE.
  */
 
+#include <stddef.h>   /* NULL */
 #include <stdint.h>
 
 
@@ -33,8 +34,34 @@
  * Two offsets only. Everything else about this struct is unmapped and stays
  * that way -- a placeholder array would imply a size nobody has measured.
  * ------------------------------------------------------------------------ */
+/* The cooperative thread. Its fields are the ones StartThreadAt writes and
+ * t_self_terminate reads; the eight-byte array they index sits at the thread's
+ * own address and overlaps them, which is why `frame` is never small. */
+typedef void (*MK3THREADFUNC)(void);
+
+/* The thread, as its writers and readers establish it. Only the offsets that
+ * appear in this file are named. */
+typedef struct MK3THREAD {
+    uint8_t       _pad00[4];
+    MK3THREADFUNC func;          /* 0x04  what StartThreadAt puts there */
+    uint32_t      field08;       /* 0x08  cleared with it */
+    uint8_t       _pad0c[0x98];
+    uint32_t      frame;         /* 0xa4  the index into the frame array */
+    uint8_t       _pad_a8[0x54];
+    uint32_t      fieldfc;       /* 0xfc  cleared on start, set on terminate */
+    uint8_t       _pad100[8];
+    void         *proc;          /* 0x108 FindThreadProc and NewThreadProc
+                                  *       return it */
+} MK3THREAD;
+
+
+void  KillSThread(MK3THREAD *thread);
+void  StartThreadAt(MK3THREAD *thread, MK3THREADFUNC func);
+void *GetThreadFunc(MK3THREAD *thread);
+
 typedef struct MK3OBJPROC {
-    uint8_t  _pad00[4];
+    /* 0x00  another object; center_around_him reaches through it twice. */
+    struct MK3OBJ *field00;
     uint32_t him;                /* 0x04  the opponent, per f_set_a10_to_him */
     uint8_t  _pad08[8];
     uint32_t field10;            /* 0x10  isp2 ORs bit 4 into this */
@@ -42,7 +69,9 @@ typedef struct MK3OBJPROC {
     uint16_t field40;            /* 0x40  ground_player copies it out */
     uint8_t  _pad42[2];
     uint32_t p_hit;              /* 0x44  per zero_my_p_hit */
-    uint8_t  _pad48[0x20];
+    uint8_t  _pad48[0x0c];
+    uint32_t field54;            /* 0x54  add_combo_damage accumulates here */
+    uint8_t  _pad58[0x10];
     uint32_t slave;              /* 0x68  per f_set_a10_to_slave */
 } MK3OBJPROC;
 
@@ -51,7 +80,7 @@ typedef struct MK3OBJ {
     /* 0x04  the object's thread. KillProc and StartProcAt both take it out of
      * here and hand it to KillSThread / StartThreadAt, which is what makes the
      * pair the object-level spelling of the thread-level calls. */
-    void       *thread;          /* 0x04 */
+    MK3THREAD  *thread;          /* 0x04 */
     struct MK3OBJ *field08;      /* 0x08  another object: player_swpal writes
                                   *       through it and ani2 passes it on */
     uint8_t     _pad0c[6];
@@ -64,7 +93,8 @@ typedef struct MK3OBJ {
     uint8_t     _pad24[4];
     uint32_t    field28;         /* 0x28  bit 4 toggled by the flip_multi trio */
     uint32_t    field2c;         /* 0x2c  receives the same OR-ed value */
-    uint8_t     _pad30[8];
+    uint32_t    field30;         /* 0x30  the flag word the clearers mask */
+    uint8_t     _pad34[4];
     uint32_t    field38;         /* 0x38  the base highest_mpart_ob adds to */
     uint8_t     _pad3c[4];
     uint32_t    field40;         /* 0x40  and the one lowest_mpart_ob adds to */
@@ -72,8 +102,10 @@ typedef struct MK3OBJ {
      * loaded before a call. Three of the routines below do nothing but fill
      * it. */
     uint32_t    a10;             /* 0x44 */
-    uint8_t     _pad48[0x5c];
-    uint32_t    threadIndex;     /* 0xa4  scaled by 8 to index from the object */
+    uint8_t     _pad48[0x0c];
+    uint32_t    field54;         /* 0x54  where a computed word is parked */
+    uint8_t     _pad58[4];
+    uint32_t    field5c;         /* 0x5c  am_i_joy's isolated bit */
 } MK3OBJ;
 
 /* Called by isp2 and decompiled elsewhere. Declared, not defined: this file
@@ -290,46 +322,61 @@ void zero_my_p_hit(MK3OBJ *obj)
 }
 
 
-/* ------------------------------------------------------------- GetThreadFunc
+/* --------------------------------------------- GetThreadFunc and GetProcFunc
  *
- * armv7 0x000575dc, ten bytes.  **Complete.**
+ * armv7 0x000575dc and 0x000575cc, ten and sixteen bytes.  **Complete.**
  *
- *      ldr.w r3, [r0, #0xa4]
+ *      ldr.w r3, [r0, #0xa4]   ; GetProcFunc first does r0 = obj->thread
  *      lsls  r3, r3, #3        ; times eight
- *      adds  r3, r3, r0        ; from the object itself
+ *      adds  r3, r3, r0
  *      ldr   r0, [r3, #4]
  *
- * An array of eight-byte entries laid out at the object's own address, indexed
- * by 0xa4, and the function is the second word of the entry. The array
- * OVERLAPS the fields above -- entry 0 is the object's first eight bytes -- so
- * the index is never small in practice; nothing here says what its range is.
+ * An array of eight-byte entries laid out at the THREAD's own address, indexed
+ * by 0xa4, with the function in the second word. The pair is what says whose
+ * array it is: GetProcFunc loads `obj->thread` and then does exactly this on
+ * it, so the index and the array belong to the thread and GetThreadFunc's
+ * argument is one.
+ *
+ * The array overlaps the thread's own leading fields -- entry 0 is its first
+ * eight bytes -- so the index is never small. `t_self_terminate` reads entry
+ * `index + 1`, which is the frame above the running one.
  */
-void *GetThreadFunc(MK3OBJ *obj)
+void *GetThreadFunc(MK3THREAD *thread)
 {
     const uint32_t *entry =
-        (const uint32_t *)((const char *)obj + obj->threadIndex * 8);
+        (const uint32_t *)((const char *)thread + thread->frame * 8);
     return (void *)(uintptr_t)entry[1];
+}
+
+void *GetProcFunc(MK3OBJ *obj)
+{
+    return GetThreadFunc(obj->thread);
 }
 
 
 /* -------------------------------------------------- KillProc and StartProcAt
  *
- * armv7 0x00056d14 and 0x00056cd0, ten bytes each.  **Complete.**
+ * armv7 0x00056d14 and 0x00056cd0, twelve bytes each.  **Complete.**
  *
- * The object-level spelling of the two thread calls this file's header lists.
- * Each takes the thread out of the object and forwards it unchanged.
+ * The object-level spelling of the two thread calls. Each takes the thread out
+ * of the object and forwards it.
+ *
+ *      ldr r0, [r0, #4]
+ *      bl  StartThreadAt
+ *
+ * r1 is not touched, so StartProcAt's SECOND argument reaches StartThreadAt
+ * unchanged -- it is the function to start at, and it flows through. Written
+ * with one parameter this would start every thread at whatever the register
+ * happened to hold.
  */
-void KillSThread(void *thread);
-void StartThreadAt(void *thread);
-
 void KillProc(MK3OBJ *obj)
 {
     KillSThread(obj->thread);
 }
 
-void StartProcAt(MK3OBJ *obj)
+void StartProcAt(MK3OBJ *obj, MK3THREADFUNC func)
 {
-    StartThreadAt(obj->thread);
+    StartThreadAt(obj->thread, func);
 }
 
 
@@ -535,4 +582,276 @@ long strike_check_a0(MK3OBJ *obj)
 long strike_check_a0_test(MK3OBJ *obj)
 {
     return strike_check_a0_core(obj, 1);
+}
+
+
+/* ========================================================================
+ * The thread machinery.
+ *
+ * The fight engine is cooperative: each object owns a thread, a thread owns a
+ * stack of eight-byte frames, and nothing is pre-empted. These four are the
+ * whole of the start-and-stop side of it.
+ * ======================================================================== */
+
+
+
+/* ------------------------------------------------------------- StartThreadAt
+ *
+ * armv7 0x00056cac, sixteen bytes.  **Complete.**
+ *
+ * Four stores and no call: the frame index back to zero, the function, and two
+ * words cleared. Starting a thread is entirely a matter of writing to it -- the
+ * scheduler picks it up on its own next pass.
+ */
+void StartThreadAt(MK3THREAD *thread, MK3THREADFUNC func)
+{
+    thread->frame = 0;
+    thread->func = func;
+    thread->field08 = 0;
+    thread->fieldfc = 0;
+}
+
+
+/* -------------------------------------------------------------- KillSThread
+ *
+ * armv7 0x00056cbc, twenty bytes.  **Complete.**
+ *
+ * It does not kill anything. It starts the thread at `t_self_terminate`, which
+ * ends it on its own next turn -- the only way to stop a thread in a scheduler
+ * that never interrupts one.
+ */
+void t_self_terminate(void);
+
+void KillSThread(MK3THREAD *thread)
+{
+    StartThreadAt(thread, t_self_terminate);
+}
+
+
+/* --------------------------------------------------------- t_self_terminate
+ *
+ * armv7 0x00056c84, forty bytes.  **Complete.**
+ *
+ *      r2 = thread->frame + 1
+ *      if (*(thread + r2 * 8) != 0) return -3
+ *      *(thread + r2 * 8) = 0x12ff
+ *      thread->fieldfc = 0x00016462
+ *      return 0x00016462
+ *
+ * The frame ABOVE the running one. A non-zero entry there means something is
+ * still stacked on this thread and the terminate refuses with -3; otherwise it
+ * writes a marker into that slot and reports the same literal it stored.
+ *
+ * That refusal is the cooperative contract in one branch: a thread cannot be
+ * taken down while a frame sits above it, so `KillSThread` is a request and not
+ * an order.
+ *
+ * The two constants are left as constants. 0x12ff is a marker and 0x00016462
+ * is both the stored value and the return; neither is an address in any
+ * section, and nothing else in this file reads either back.
+ *
+ * Spelled with the thread as an argument although the original takes it in r0
+ * as a thread function would receive its own thread -- it is installed as one
+ * by KillSThread.
+ */
+long t_self_terminate_px(MK3THREAD *thread)
+{
+    uint32_t *above = (uint32_t *)((char *)thread + (thread->frame + 1) * 8);
+
+    if (*above != 0)
+        return -3;
+
+    *above = 0x12ff;
+    thread->fieldfc = 0x00016462u;
+    return 0x00016462;
+}
+
+
+/* ------------------------------------------- FindThreadProc and NewThreadProc
+ *
+ * armv7 0x00057664 and 0x00058b54, sixteen bytes each.  **Complete.**
+ *
+ *      bl   FindThread          ; or NewThread
+ *      cbz  r0, out
+ *      ldr  r0, [r0, #0x108]
+ *
+ * Each calls the thread-level function with its arguments untouched and turns
+ * the thread into the proc at 0x108, passing a null through. The arguments are
+ * not named here: neither wrapper reads them.
+ */
+MK3THREAD *FindThread(void);
+MK3THREAD *NewThread(void);
+
+void *FindThreadProc(void)
+{
+    MK3THREAD *t = FindThread();
+    return t ? t->proc : NULL;
+}
+
+void *NewThreadProc(void)
+{
+    MK3THREAD *t = NewThread();
+    return t ? t->proc : NULL;
+}
+
+
+/* ========================================================================
+ * The flag clearers.
+ *
+ * Three of one shape, and the shape is worth naming once:
+ *
+ *      r2 = obj->field08          ; the other object
+ *      r3 = r2->field30           ; its flag word
+ *      r3 &= ~BIT
+ *      obj->field54 = r3          ; a copy on the subject
+ *      r2->field30  = r3
+ *
+ * The copy into 0x54 is not a return value -- none of the three returns
+ * anything. It is the same habit `isp2` shows with 0x2c and `am_i_joy` with
+ * 0x2c and 0x5c: the arcade kept the word it had just computed in a slot on
+ * the object, because on the TMS34010 that is where a register spilled to.
+ * ======================================================================== */
+
+void clear_inviso(MK3OBJ *obj)
+{
+    uint32_t flags = obj->field08->field30 & ~0x20u;
+    obj->field54 = flags;
+    obj->field08->field30 = flags;
+}
+
+void clear_nocol(MK3OBJ *obj)
+{
+    uint32_t flags = obj->field08->field30 & ~0x100u;
+    obj->field54 = flags;
+    obj->field08->field30 = flags;
+}
+
+void clear_noedge(MK3OBJ *obj)
+{
+    uint32_t flags = obj->field08->field30 & ~0x400u;
+    obj->field54 = flags;
+    obj->field08->field30 = flags;
+}
+
+
+/* ------------------------------------------------------------------ am_i_joy
+ *
+ * armv7 0x00054ce0, sixteen bytes.  **Complete.**
+ *
+ * Bit 0 of the PROC's flag word, kept in two places on the way out: the whole
+ * word into 0x2c and the isolated bit into 0x5c, and the bit is also returned.
+ * `isp2` writes the same 0x2c, so that slot is where this file parks a flag
+ * word it has just read.
+ *
+ * The name says the bit distinguishes a joystick from something else; which
+ * else -- an AI, a replay, a network peer -- is not in these six instructions.
+ */
+long am_i_joy(MK3OBJ *obj)
+{
+    uint32_t flags = obj->field00->field10;
+
+    obj->field2c = flags;
+    obj->field5c = flags & 1u;
+    return (long)(flags & 1u);
+}
+
+
+/* ---------------------------------------------------------- add_combo_damage
+ *
+ * armv7 0x00057494, sixteen bytes.  **Complete.**
+ *
+ *      r3 = obj->field00         ; the PROC
+ *      r3 = r3->field00          ; an object
+ *      r2 = r3->field00          ; and ITS proc
+ *      r2->field54 += obj->field54
+ *
+ * Three loads, so the total lands on a PROC and not on an object -- 0x54
+ * exists on both. The subject's 0x54 is added into that one's. 0x54 is the same slot the
+ * flag clearers above write, which is worth stating and not resolving: two
+ * routines using one offset for different things is exactly what a spill slot
+ * looks like.
+ */
+void add_combo_damage(MK3OBJ *obj)
+{
+    MK3OBJPROC *target = obj->field00->field00->field00;
+
+    target->field54 += obj->field54;
+}
+
+
+/* ------------------------------------------------------------- adjust_xy_a5
+ *
+ * armv7 0x000570bc, sixteen bytes.  **Complete.**
+ *
+ * Reads three fields and hands them to the worker in order.
+ */
+void multi_adjust_xy_ob(MK3OBJ *obj, uint32_t a, uint32_t b, uint32_t c);
+
+void adjust_xy_a5(MK3OBJ *obj)
+{
+    multi_adjust_xy_ob(obj, obj->field30, obj->field1c, obj->field20);
+}
+
+
+/* -------------------------------------------------------- center_around_him
+ *
+ * armv7 0x00057b84, sixteen bytes.  **Complete.**
+ *
+ * Two dereferences and then the "me" version, so "him" is `obj->field00->
+ * field00`. The same double step `add_combo_damage` takes.
+ */
+void center_around_me(MK3OBJ *obj);
+
+void center_around_him(MK3OBJ *obj)
+{
+    center_around_me(obj->field00->field00);
+}
+
+
+/* -------------------------------------------------------------- center_obj_x
+ *
+ * armv7 0x00058458, sixteen bytes.  **Complete.**
+ *
+ * Writes 199 into 0x1c and then centres. 0x1c is the high bound
+ * `highest_mpart_ob` computes into, so this is setting the bound before the
+ * call rather than passing it -- the A-register habit again.
+ */
+void center_about_x(MK3OBJ *obj);
+
+void center_obj_x(MK3OBJ *obj)
+{
+    obj->field1c = 0xc7;                /* 199 */
+    center_about_x(obj);
+}
+
+
+/* --------------------------------------- take3, takeover_him, takeover_him_sr
+ *
+ * armv7 0x00058930, 0x00058954 and 0x00058948.  **Complete.**
+ *
+ * `take3` stops the opponent, disables his buttons and transfers control. The
+ * two takeover names are BYTE-FOR-BYTE identical wrappers around it -- same
+ * three instructions, no argument set up, twelve bytes each at two addresses.
+ * The compiler did not merge them and neither does this: two names that the
+ * game calls separately are two functions, whatever they contain.
+ */
+void stop_him(MK3OBJ *obj);
+void disable_his_buttons(MK3OBJ *obj);
+void xfer_otherguy(MK3OBJ *obj);
+
+void take3(MK3OBJ *obj)
+{
+    stop_him(obj);
+    disable_his_buttons(obj);
+    xfer_otherguy(obj);
+}
+
+void takeover_him(MK3OBJ *obj)
+{
+    take3(obj);
+}
+
+void takeover_him_sr(MK3OBJ *obj)
+{
+    take3(obj);
 }
