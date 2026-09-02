@@ -73,7 +73,9 @@ typedef struct MK3OBJPROC {
      * nothing here settles which. */
     struct MK3OBJ *field00;
     uint32_t him;                /* 0x04  the opponent, per f_set_a10_to_him */
-    uint8_t  _pad08[8];
+    uint32_t field08;            /* 0x08  the strength index, and what
+                                  *       lights_on_hit passes on */
+    uint8_t  _pad0c[4];
     uint32_t field10;            /* 0x10  isp2 ORs bit 4 into this */
     uint8_t  _pad14a[4];
     uint32_t field18;            /* 0x18  the action get_his_action reads and
@@ -96,7 +98,9 @@ typedef struct MK3OBJ {
     MK3THREAD  *thread;          /* 0x04 */
     struct MK3OBJ *field08;      /* 0x08  another object: player_swpal writes
                                   *       through it and ani2 passes it on */
-    uint8_t     _pad0c[6];
+    uint8_t     _pad0c[2];
+    uint16_t    field0e;         /* 0x0e  create_fx's high half */
+    uint8_t     _pad10[2];
     uint16_t    field12;         /* 0x12  a signed halfword offset; see
                                   *       highest_mpart_ob and lowest_mpart_ob */
     uint8_t     _pad14[4];
@@ -1204,4 +1208,309 @@ void multi_adjust_xy(MK3OBJ *obj)
 {
     multi_adjust_xy_ob(obj, (uint32_t)(uintptr_t)obj->field08,
                        obj->field1c, obj->field20);
+}
+
+
+/* ------------------------------------------------------------ strike_check
+ *
+ * armv7 0x000594a0, sixteen bytes.  **Complete.**
+ *
+ * The third argument is a literal zero and the second comes out of 0x1c.
+ */
+long strike_check_ptr(MK3OBJ *obj, uint32_t what, long flag);
+
+long strike_check(MK3OBJ *obj)
+{
+    return strike_check_ptr(obj, obj->field1c, 0);
+}
+
+
+/* --------------------------------------------------- Endurance_ClearStruct
+ *
+ * armv7 0x00058300, twenty bytes.  **Complete.**
+ *
+ *      rsb r0, r0, r1      ; r0 = to - from
+ *      subs r2, r2, r0     ; size -= that
+ *      memset(to, 0, size)
+ *
+ * The `blx` target is 0x000ddbb4, which is not in the function table because
+ * it is an import thunk; the symbol table has `_memset` as UNDF, which is what
+ * identifies it.
+ *
+ * The arithmetic is a total size with a leading run taken off it, so this
+ * clears the tail of a struct from a field onwards rather than the whole of
+ * it. The three parameters are named for that reading and it is a reading:
+ * only the subtraction is certain.
+ */
+void *memset(void *dst, int c, size_t n);
+
+void Endurance_ClearStruct(char *base, char *from, size_t total)
+{
+    memset(from, 0, total - (size_t)(from - base));
+}
+
+
+/* ------------------------------------------- adjust_him_x and adjust_him_xy
+ *
+ * armv7 0x0005706c and 0x00057080, twenty bytes each.  **Complete.**
+ *
+ * The same worker as `multi_adjust_xy`, with the opponent from the PROC's 0x04
+ * in the second position. The pair differ in the last argument only: the `_x`
+ * one passes a literal zero where `_xy` passes 0x20, so the fourth parameter
+ * is the Y and leaving it zero is what makes the first horizontal.
+ */
+void adjust_him_x(MK3OBJ *obj)
+{
+    multi_adjust_xy_ob(obj, obj->field00->him, obj->field1c, 0);
+}
+
+void adjust_him_xy(MK3OBJ *obj)
+{
+    multi_adjust_xy_ob(obj, obj->field00->him, obj->field1c, obj->field20);
+}
+
+
+/* -------------------------------------------------------- air_init_special
+ *
+ * armv7 0x0005891c, twenty bytes.  **Complete.**
+ */
+void stop_me_player(MK3OBJ *obj);
+
+void air_init_special(MK3OBJ *obj)
+{
+    stop_me_player(obj);
+    isp2(obj);
+}
+
+
+/* ------------------------------------------------------------- allow_moves
+ *
+ * armv7 0x000597e4, twenty bytes.  **Complete.**
+ *
+ * The other end of `isp2`, which disables the buttons and forces the state:
+ * this enables them again and returns the fighter to normal.
+ */
+void enable_all_buttons(MK3OBJ *obj);
+
+void allow_moves(MK3OBJ *obj)
+{
+    enable_all_buttons(obj);
+    back_to_normal(obj);
+}
+
+
+/* --------------------------------------------------------------- create_fx
+ *
+ * armv7 0x00058d70, twenty bytes.  **Complete.**
+ *
+ *      r1 = (other->field0e << 16) | other->field12
+ *
+ * Two halfwords packed into one word and passed as a single parameter -- the
+ * high half from 0x0e and the low from 0x12. 0x12 is the same field
+ * `highest_mpart_ob` reads as a signed offset; being the low half of a packed
+ * pair here is a use of it and not a contradiction.
+ */
+void create_fx_param(MK3OBJ *obj, uint32_t packed);
+
+void create_fx(MK3OBJ *obj)
+{
+    MK3OBJ *other = obj->field08;
+
+    create_fx_param(obj, ((uint32_t)other->field0e << 16) | other->field12);
+}
+
+
+/* ------------------------------------------------------------ dec_my_p_hit
+ *
+ * armv7 0x00054dec, twenty bytes.  **Complete.**
+ *
+ *      obj->field1c = obj            ; the object pointer itself
+ *      proc->p_hit -= 1
+ *      obj->field20 = proc->p_hit    ; re-read after the store
+ *
+ * Two spills of different kinds through one habit. 0x1c takes a pointer here
+ * and a count in `find_part2` and a bound in `highest_mpart_ob`, which is why
+ * it is a word and not a type.
+ *
+ * The re-read is in the original: it loads the PROC again rather than reusing
+ * the value it just stored. Kept, because a transcription that tidies a
+ * redundant load is one that will tidy a necessary one later.
+ */
+void dec_my_p_hit(MK3OBJ *obj)
+{
+    MK3OBJPROC *proc = obj->field00;
+
+    obj->field1c = (uint32_t)(uintptr_t)obj;
+    proc->p_hit = proc->p_hit - 1;
+    obj->field20 = obj->field00->p_hit;
+}
+
+
+/* ================================================================= the pairs
+ *
+ * Four of one shape: fetch the character's animation, then do the thing.
+ * `get_char_ani` and `get_char_ani2` leave what they find in a spill slot, so
+ * the second call takes no argument beyond the object.
+ * ========================================================================= */
+
+void get_char_ani(MK3OBJ *obj);
+void get_char_ani2(MK3OBJ *obj);
+void find_last_frame(MK3OBJ *obj);
+
+void do_first_a9_frame(MK3OBJ *obj)
+{
+    get_char_ani(obj);
+    do_next_a9_frame(obj);
+}
+
+void find_ani_last_frame(MK3OBJ *obj)
+{
+    get_char_ani(obj);
+    find_last_frame(obj);
+}
+
+void find_ani_part2(MK3OBJ *obj)
+{
+    get_char_ani(obj);
+    find_part2(obj);
+}
+
+void find_ani2_part2(MK3OBJ *obj)
+{
+    get_char_ani2(obj);
+    find_part2(obj);
+}
+
+
+/* -------------------------------------------------------- find_last_frame
+ *
+ * armv7 0x00055428, twenty bytes.  **Complete.**
+ *
+ *      cursor = obj->field40
+ *      do { obj->field40 = cursor + 4;
+ *           obj->field1c = cursor[1]; } while (cursor[1] && (cursor += 4));
+ *      obj->field40 = cursor
+ *
+ * It looks one entry AHEAD and stops on the last non-zero, which is the
+ * difference from `find_part2` next door: that one steps past the terminator,
+ * this one stops before it. The cursor is left on the last frame and the
+ * terminator is never consumed.
+ */
+void find_last_frame(MK3OBJ *obj)
+{
+    const uint32_t *cursor = (const uint32_t *)(uintptr_t)obj->field40;
+
+    for (;;) {
+        obj->field40 = (uint32_t)(uintptr_t)(cursor + 1);
+        obj->field1c = cursor[1];
+        if (cursor[1] == 0)
+            break;
+        cursor++;
+    }
+    obj->field40 = (uint32_t)(uintptr_t)cursor;
+}
+
+
+/* ---------------------------------------- get_his_dog and his_group_sound
+ *
+ * armv7 0x00057828 and 0x00057148, twenty bytes each.  **Complete.**
+ *
+ * Both are `call_for_him` with a function pointer and nothing else --
+ * `distance_off_ground` and `group_sound`. The trampoline swaps the object's
+ * 0x00 and 0x08 for the opponent's and calls through, so this is the file's
+ * third way of not writing a routine twice.
+ */
+void call_for_him(MK3OBJ *obj, void (*fn)(MK3OBJ *));
+void distance_off_ground(MK3OBJ *obj);
+void group_sound(MK3OBJ *obj);
+
+void get_his_dog(MK3OBJ *obj)
+{
+    call_for_him(obj, distance_off_ground);
+}
+
+void his_group_sound(MK3OBJ *obj)
+{
+    call_for_him(obj, group_sound);
+}
+
+
+/* ------------------------------------------------------------- get_my_dfe
+ *
+ * armv7 0x00054dc0, twenty bytes.  **Complete.**
+ *
+ * Sign-extends the other object's 0x0e into 0x28 and calls the worker. 0x0e is
+ * the halfword `create_fx` packs into the high half of its parameter; read
+ * here as SIGNED, which `create_fx` does not settle either way.
+ */
+void gdfe4(MK3OBJ *obj);
+
+void get_my_dfe(MK3OBJ *obj)
+{
+    obj->field28 = (uint32_t)(int32_t)(int16_t)obj->field08->field0e;
+    gdfe4(obj);
+}
+
+
+/* -------------------------------------------- get_strength, get_my_strength
+ *
+ * armv7 0x0005509c and 0x000550b0, twenty bytes each.  **Complete.**
+ *
+ *      get_strength(i) = (*table)[i] read at +0x368
+ *
+ * A pointer slot at 0x000f357c holds the table's address, the index is scaled
+ * by four, and the read is 0x368 further on -- so 0x368 is where the strengths
+ * begin inside whatever that structure is. `get_my_strength` supplies the
+ * index from the PROC's 0x08 and parks the answer in 0x1c.
+ */
+extern uint32_t *StrengthTable;         /* pointer slot -> 0x000f357c */
+
+uint32_t get_strength(uint32_t index)
+{
+    return *(const uint32_t *)((const char *)StrengthTable + index * 4 + 0x368);
+}
+
+void get_my_strength(MK3OBJ *obj)
+{
+    obj->field1c = get_strength(obj->field00->field08);
+}
+
+
+/* -------------------------------------------------- gso_dmawnz_insobja8
+ *
+ * armv7 0x00059c60, twenty bytes.  **Complete.**
+ *
+ * Fetches the insert object and, if there is one, copies 0x30 across into its
+ * other object's 0x2c. The null check is the whole of the error handling.
+ */
+void gso_dmawnz_insobja8(MK3OBJ *obj)
+{
+    MK3OBJ *ins = (MK3OBJ *)getobjectinsert(obj);
+
+    if (ins != NULL)
+        ins->field08->field2c = obj->field30;
+}
+
+
+/* --------------------------------------- lights_on_hit and lights_on_slam
+ *
+ * armv7 0x00057a10 and 0x000579fc, twenty bytes each.  **Complete.**
+ *
+ *      MKEvent_Add(3, 0xb, 0x18, proc->field08)      ; hit
+ *      MKEvent_Add(3, 0xb, 0x38, proc->field08)      ; slam
+ *
+ * One constant apart. Three of the four arguments are shared, so the third
+ * chooses which lighting event and the first two are the event system's own
+ * vocabulary rather than anything this file establishes.
+ */
+void MKEvent_Add(long a, long b, long c, uint32_t d);
+
+void lights_on_hit(MK3OBJ *obj)
+{
+    MKEvent_Add(3, 0xb, 0x18, obj->field00->field08);
+}
+
+void lights_on_slam(MK3OBJ *obj)
+{
+    MKEvent_Add(3, 0xb, 0x38, obj->field00->field08);
 }
