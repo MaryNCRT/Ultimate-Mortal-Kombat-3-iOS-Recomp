@@ -47,6 +47,7 @@ Reads work/func-to-file.txt, or UMK3_FUNC_TO_FILE if that is set.
 import collections
 import io
 import os
+import sys
 import re
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -153,6 +154,94 @@ def bar(pct, width=10):
     return "#" * filled + "." * (width - filled)
 
 
+
+# ---------------------------------------------------------------- publishing
+
+DOCS = ("README.md", "README.es.md", "docs/PROGRESS.md", "docs/HANDOFF.md")
+
+# The three rows this script counts. The row is found by the backticked path at
+# its head, because the two READMEs word the label differently.
+COUNTED = ("lime/common", "gamecode", "gamecode/logic")
+
+# The two block characters the bars are drawn from. `bar()` above is the
+# terminal's, in ASCII; the documents use these, so the published bars are
+# drawn separately rather than by reusing it.
+FULL, LIGHT = "\u2588", "\u2591"
+
+
+def docbar(pct, width=40):
+    """A bar in block characters, as the documents draw it."""
+    filled = int(round(pct / 100.0 * width))
+    return FULL * filled + LIGHT * (width - filled)
+
+
+def es(text):
+    """A figure in Spanish: decimal comma, thousands dot."""
+    return text.replace(",", "\x00").replace(".", ",").replace("\x00", ".")
+
+
+def publish(overall, counted):
+    """Rewrite the bar, the counted rows and the headline in the four docs.
+
+    Line by line, deliberately. A table row matched with a spanning pattern
+    once ran from one row to a pipe three thousand lines further down and took
+    the document with it; nothing here looks past the end of a line.
+    """
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    touched = []
+
+    bar_line = re.compile("^[" + FULL + LIGHT + r"]{20,}[ 	]+[0-9]+[.,][0-9]+%\s*$")
+    headline = re.compile(r"^\*\*[0-9]+[.,][0-9]+% (of the total estimated"
+                          r" effort|del esfuerzo total estimado)")
+
+    for name in DOCS:
+        path = os.path.join(root, name)
+        if not os.path.exists(path):
+            continue
+
+        spanish = name.endswith(".es.md")
+        figure = "%.2f" % overall
+        shown = es(figure) if spanish else figure
+
+        out, changed = [], False
+        for line in io.open(path, encoding="utf-8").read().split("\n"):
+            new = line
+
+            if bar_line.match(line):
+                new = "%s  %s%%" % (docbar(overall, 40), shown)
+
+            elif headline.match(line):
+                new = headline.sub(
+                    lambda m: "**%s%% %s" % (shown, m.group(1)), line)
+
+            elif line.startswith("| `"):
+                # `| label | weight | done | bar |` -- five pieces once split,
+                # the first and last empty.
+                cells = line.split("|")
+                if len(cells) == 6:
+                    key = cells[1].strip().split("`")
+                    if len(key) > 1 and key[1] in counted:
+                        done, total, pct = counted[key[1]]
+                        if pct >= 100.0:
+                            cell = "**100%**"
+                        else:
+                            f = "%.2f" % pct
+                            cell = "%s%% (%d)" % (es(f) if spanish else f, done)
+                        cells[3] = " %s " % cell
+                        cells[4] = " `%s` " % docbar(pct, 10)
+                        new = "|".join(cells)
+
+            changed = changed or new != line
+            out.append(new)
+
+        if changed:
+            io.open(path, "w", encoding="utf-8",
+                    newline="").write("\n".join(out))
+            touched.append(name)
+
+    return touched
+
+
 def main():
     if not os.path.isfile(FUNC_TO_FILE):
         raise SystemExit("func-to-file.txt not found: %s\n"
@@ -169,6 +258,7 @@ def main():
     ]
 
     pcts = {}
+    counted = {}
     for title, (done, total, by) in modules:
         print("\n  %s" % title)
         for src in sorted(by):
@@ -177,6 +267,7 @@ def main():
                 print("    %-26s %3d/%-5d" % (src, k, n))
         pct = 100.0 * done / total if total else 0.0
         pcts[title] = pct
+        counted[title] = (done, total, pct)
         print("    %-26s %3d/%-5d = %.2f%%  %s"
               % ("TOTAL", done, total, pct, bar(pct)))
 
@@ -194,6 +285,11 @@ def main():
     print("\n  overall: %.2f%%  %s" % (overall, bar(overall, 40)))
     print("  (three rows measured from the tree, five maintained by hand --"
           " see the docstring)")
+
+    if "--write" in sys.argv:
+        touched = publish(overall, counted)
+        print("\n  wrote: %s" % (", ".join(touched) if touched
+                                  else "nothing changed"))
 
 
 if __name__ == "__main__":
