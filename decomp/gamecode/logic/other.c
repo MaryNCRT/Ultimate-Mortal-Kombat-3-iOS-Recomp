@@ -56,6 +56,12 @@ typedef struct MK3THREAD {
                                   *       return it */
 } MK3THREAD;
 
+/* 268 bytes, from the stride `my_func` uses to index `_mytc`: the compiler
+ * spells it `i*4 + i*64 - i` scaled by four. The last field above is at 0x108,
+ * one word short of it, so the stride is the struct and not a gap between
+ * elements. */
+#define MK3THREAD_STRIDE  0x10c
+
 
 void  KillSThread(MK3THREAD *thread);
 void  StartThreadAt(MK3THREAD *thread, MK3THREADFUNC func);
@@ -968,18 +974,22 @@ void clear_shadow_bit(MK3OBJ *obj)
  * those two are the same pairing as (obj, obj->field08) is not established
  * here; they occupy the same argument positions and that is all.
  */
-void do_next_a9_frame_pxob(MK3OBJ *obj, MK3OBJ *a, MK3OBJ *b);
+/* Returns something: `next_anirate` branches past its own `movs r0, #0`
+ * after calling through here, so the callee's r0 is the result. What the
+ * value MEANS is not established by any caller written so far. */
+long do_next_a9_frame_pxob(MK3OBJ *obj, MK3OBJ *a, MK3OBJ *b);
 
-void do_next_a9_frame(MK3OBJ *obj)
+long do_next_a9_frame(MK3OBJ *obj)
 {
-    do_next_a9_frame_pxob(obj, obj, obj->field08);
+    return do_next_a9_frame_pxob(obj, obj, obj->field08);
 }
 
-void do_his_next_a9_frame(MK3OBJ *obj)
+long do_his_next_a9_frame(MK3OBJ *obj)
 {
     MK3OBJPROC *proc = obj->field00;
 
-    do_next_a9_frame_pxob(obj, proc->field00, (MK3OBJ *)(uintptr_t)proc->him);
+    return do_next_a9_frame_pxob(obj, proc->field00,
+                                 (MK3OBJ *)(uintptr_t)proc->him);
 }
 
 
@@ -3710,4 +3720,91 @@ void get_walk_info_b(MK3OBJ *obj)
     decode_walk_table(obj);
     obj->field20 = (uint32_t)(-(int32_t)obj->field20);
     walk_flip_reverse(obj);
+}
+
+
+/* ------------------------------------------------------------- ground_ochar
+ *
+ * armv7 0x000552a0, forty bytes.  **Complete.**
+ *
+ *      off = ochar_ground_offsets[other->field24]
+ *      obj->field1c = off
+ *      obj->field20 = G[0xac] - off
+ *      other->field12 = (uint16_t)obj->field20
+ *
+ * `ground_ochar_ob` with both intermediate values kept. That one computes the
+ * same halfword and stores only it; this leaves the offset in 0x1c and the
+ * result in 0x20 as well, so a caller can see either.
+ */
+void ground_ochar(MK3OBJ *obj)
+{
+    uint32_t off = ochar_ground_offsets[obj->field08->field24];
+
+    obj->field1c = off;
+    obj->field20 = *(const uint32_t *)(G_BYTES + 0xac) - off;
+    obj->field08->field12 = (uint16_t)obj->field20;
+}
+
+
+/* ------------------------------------------------------------------ my_func
+ *
+ * armv7 0x00057290, forty bytes.  **Complete.**
+ *
+ *      t = &mytc[proc->field08]            ; stride 268
+ *      return GetThreadFunc(t)
+ *
+ * The stride is what makes this worth writing out: `i*4 + i*64 - i`, scaled by
+ * four, is 268 -- 0x10c -- and the thread's last known field is the proc at
+ * 0x108. So the array stride is the struct size, which is the first size
+ * established for MK3THREAD rather than the first offset.
+ *
+ * The rest is `GetThreadFunc` spelled out again -- index by 0xa4, scale by
+ * eight, second word -- and the duplication is the original's, not this
+ * transcription's.
+ */
+extern MK3THREAD *mytc;                 /* pointer slot -> 0x0038ef3c */
+
+void *my_func(MK3OBJ *obj)
+{
+    MK3THREAD *t = (MK3THREAD *)((char *)mytc
+                                 + obj->field00->field08 * MK3THREAD_STRIDE);
+
+    return GetThreadFunc(t);
+}
+
+
+/* --------------------------------------------------------------- next_anirate
+ *
+ * armv7 0x0005a680, forty bytes.  **Complete.**
+ *
+ *      if (--proc->field20 > 0) return 0
+ *      proc->field20 = proc->field1c
+ *      if (*(uint32_t *)obj->field40 == 0) return 0
+ *      return do_next_a9_frame(obj)
+ *
+ * The animation clock. `init_anirate` writes the rate into 0x1c and a counter
+ * into 0x20; this decrements the counter, and when it reaches zero reloads it
+ * from the rate and advances a frame -- unless the frame list has run out,
+ * which is the same zero-terminator test `frame_a9` makes.
+ *
+ * The comparison is signed and `<= 0`, so a counter that starts at zero
+ * reloads immediately rather than running four billion times. That is the
+ * opposite of `find_part_a14`, which decrements before testing for equality
+ * and does wrap.
+ */
+long next_anirate(MK3OBJ *obj)
+{
+    MK3OBJPROC *proc = obj->field00;
+
+    proc->field20 = proc->field20 - 1;
+    if ((int32_t)proc->field20 > 0)
+        return 0;
+
+    obj->field00->field20 = obj->field00->field1c;
+    if (*(const uint32_t *)(uintptr_t)obj->field40 == 0)
+        return 0;
+
+    /* The original branches PAST its own `movs r0, #0` here, so this path
+     * returns the callee's value and the two above return zero. */
+    return do_next_a9_frame(obj);
 }
