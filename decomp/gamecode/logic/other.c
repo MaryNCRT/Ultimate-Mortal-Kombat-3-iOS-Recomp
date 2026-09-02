@@ -88,8 +88,12 @@ typedef struct MK3OBJPROC {
     uint32_t p_hit;              /* 0x44  per zero_my_p_hit */
     uint8_t  _pad48[0x0c];
     uint32_t field54;            /* 0x54  add_combo_damage accumulates here */
-    uint8_t  _pad58[0x10];
+    uint8_t  _pad58[0x0c];
+    uint32_t field64;            /* 0x64  the slave's object; delete_slave
+                                  *       hands it to KillProc */
     uint32_t slave;              /* 0x68  per f_set_a10_to_slave */
+    uint8_t  _pad6c[0x10];
+    uint16_t field7c;            /* 0x7c  the four-button gate, signed */
 } MK3OBJPROC;
 
 /* The high half of the word at 0x0c, which several routines read on its own
@@ -2017,9 +2021,15 @@ void fastxfer_thread(MK3OBJ *obj, MK3THREAD *thread)
  *      obj->field54 = saved
  *      find_part_a14(obj)
  *
- * The second and third restores in this file. Both defend 0x54 across the
- * fetch, which says the fetch writes it -- these two functions are the
- * evidence for that, since `get_char_ani` is not decompiled yet.
+ * The second and third restores in this file. What they defend against is NOT
+ * the fetch: `get_char_ani` is decompiled further down and it writes 0x40 and
+ * nothing else. The note here previously said the opposite, inferred from the
+ * restore before the fetch had been read, and that inference was wrong.
+ *
+ * So 0x54 is preserved across a call that does not touch it. Either the
+ * original was written defensively or `find_part_a14` needs it unchanged from
+ * before the fetch; nothing establishes which, and the save stays because it
+ * is in the instruction stream.
  */
 void find_part_a14(MK3OBJ *obj);
 
@@ -2427,4 +2437,266 @@ void *NewThreadProcPid(uint32_t a, uint32_t b, uint32_t pid)
 
     t->pid = pid;
     return t->proc;
+}
+
+
+/* ------------------------------------------------------------- call_for_him
+ *
+ * armv7 0x0005712c, twenty-eight bytes.  **Complete.**
+ *
+ *      save   obj->field00, obj->field08
+ *      him  = obj->field00->field00
+ *      obj->field00 = him->field00
+ *      obj->field08 = him->field08
+ *      fn(obj)
+ *      restore
+ *
+ * The trampoline the wrappers use. The callee gets the same object with the
+ * opponent's pair hung off it, which is why `set_his_noedge` is `set_noedge`
+ * with nothing else -- one flag setter serves both fighters.
+ *
+ * The only function here that restores two slots, and the only one that calls
+ * through a pointer.
+ */
+void call_for_him(MK3OBJ *obj, void (*fn)(MK3OBJ *))
+{
+    MK3OBJPROC *saved_proc  = obj->field00;
+    MK3OBJ     *saved_other = obj->field08;
+    MK3OBJ     *him         = saved_proc->field00;
+
+    obj->field00 = him->field00;
+    obj->field08 = him->field08;
+
+    fn(obj);
+
+    obj->field00 = saved_proc;
+    obj->field08 = saved_other;
+}
+
+
+/* -------------------------------------------------- ReallyKillHisProjectile
+ *
+ * armv7 0x00057630, twenty-eight bytes.  **Complete.**
+ *
+ *      key = 0x700 - proc->field08 + 1
+ *      t = FindThread(key); if (t) KillSThread(t)
+ *
+ * NOT the "him" spelling of `ReallyKillProjectile`, which adds 0x700 to the
+ * same field. This reflects about it instead. Both arithmetics are
+ * transcribed as they are; reading a symmetry into the pair would be reading.
+ */
+void ReallyKillHisProjectile(MK3OBJ *obj)
+{
+    MK3THREAD *t = FindThread_at(0x700 - obj->field00->field08 + 1);
+
+    if (t != NULL)
+        KillSThread(t);
+}
+
+
+/* -------------------------------------------------------------- away_x_vel
+ *
+ * armv7 0x00055ab0, twenty-eight bytes.  **Complete.**
+ *
+ *      if (is_he_right(obj)) obj->field1c = -obj->field1c
+ *      set_x_vel_player(obj)
+ *
+ * Away from him: negate the velocity when he is to the right, then apply it.
+ * `walk_flip_reverse` negates the same kind of quantity off a facing bit; this
+ * one asks the question instead.
+ */
+void set_x_vel_player(MK3OBJ *obj);
+
+void away_x_vel(MK3OBJ *obj)
+{
+    if (is_he_right(obj))
+        obj->field1c = (uint32_t)(-(int32_t)obj->field1c);
+    set_x_vel_player(obj);
+}
+
+
+/* -------------------------------------------------------- create_blood_proc
+ *
+ * armv7 0x0005877c, twenty-eight bytes.  **Complete.**
+ *
+ *      n = obj->field1c
+ *      if (n <= 12) { mk3_bloodevent(proc->field08, n); n = obj->field1c; }
+ *      return n
+ *
+ * The comparison is unsigned (`bhi`), so a large value skips the call rather
+ * than wrapping into it. 0x1c is re-read after the event and returned, so the
+ * event can change it -- which is why the reload is kept.
+ */
+long mk3_bloodevent(uint32_t a, uint32_t n);
+
+long create_blood_proc(MK3OBJ *obj)
+{
+    uint32_t n = obj->field1c;
+
+    if (n <= 12u) {
+        mk3_bloodevent(obj->field00->field08, n);
+        n = obj->field1c;
+    }
+    return (long)n;
+}
+
+
+/* ----------------------------------------------------------- dec_his_p_hit
+ *
+ * armv7 0x00054e00, twenty-eight bytes.  **Complete.**
+ *
+ * `dec_my_p_hit` one step further out: the opponent goes into 0x1c, HIS PROC's
+ * 0x44 is decremented, and the new value comes back into 0x20 -- re-read
+ * through all three pointers rather than kept, exactly as the "my" version
+ * re-reads through one.
+ */
+void dec_his_p_hit(MK3OBJ *obj)
+{
+    MK3OBJPROC *proc = obj->field00;
+    MK3OBJPROC *his  = proc->field00->field00;
+
+    obj->field1c = (uint32_t)(uintptr_t)proc->field00;
+    his->p_hit = his->p_hit - 1;
+    obj->field20 = obj->field00->field00->field00->p_hit;
+}
+
+
+/* ------------------------------------------------------------- delete_slave
+ *
+ * armv7 0x00056d20, twenty-eight bytes.  **Complete.**
+ *
+ *      if (proc->field64) {
+ *          KillProc(that)
+ *          proc->field64 = 0
+ *          proc->slave   = 0
+ *      }
+ *
+ * Two fields cleared, with the PROC reloaded between them. 0x68 is the slave
+ * `f_set_a10_to_slave` reads, so 0x64 holds whatever `KillProc` was given --
+ * the slave's object, since KillProc takes one and reads its thread.
+ */
+void delete_slave(MK3OBJ *obj)
+{
+    MK3OBJ *slave = (MK3OBJ *)(uintptr_t)obj->field00->field64;
+
+    if (slave == NULL)
+        return;
+
+    KillProc(slave);
+    obj->field00->field64 = 0;
+    obj->field00->slave = 0;
+}
+
+
+/* ------------------------------------------------------------- edge_pick_a0
+ *
+ * armv7 0x00057170, twenty-eight bytes.  **Complete.**
+ *
+ *      saved = obj->field1c
+ *      get_my_dfe(obj)
+ *      obj->field1c = saved
+ *      if (obj->field34 <= obj->field30) obj->field1c = -saved
+ *
+ * A restore and then a conditional negate of the restored value, comparing two
+ * slots the fetch filled. Signed (`itt le`), and the negate is of the SAVED
+ * value rather than of whatever is in the slot -- which is the same thing
+ * here, and is written the way the code writes it.
+ */
+void edge_pick_a0(MK3OBJ *obj)
+{
+    uint32_t saved = obj->field1c;
+
+    get_my_dfe(obj);
+    obj->field1c = saved;
+    if ((int32_t)obj->field34 <= (int32_t)obj->field30)
+        obj->field1c = (uint32_t)(-(int32_t)saved);
+}
+
+
+/* -------------------------------------------------------- four_button_switch
+ *
+ * armv7 0x00057274, twenty-eight bytes.  **Complete.**
+ *
+ *      if ((int16_t)proc->field7c == 0) return button;
+ *      if (button == 1) return 0;
+ *      if (button == 4) return 3;
+ *      return button;
+ *
+ * The six-button layout folded onto four. Only two buttons move -- 1 becomes 0
+ * and 4 becomes 3 -- and everything else passes through, including 0 and 5.
+ * The gate at 0x7c is read as a SIGNED halfword and tested against zero, so it
+ * is a mode flag and not a count.
+ *
+ * `mk3_set_four_button` in the front end is the other half of this switch; the
+ * stub in runtime/gamecode_stubs.c is where it currently stops.
+ */
+long four_button_switch(MK3OBJ *obj, long button)
+{
+    if ((int16_t)obj->field00->field7c == 0)
+        return button;
+    if (button == 1)
+        return 0;
+    if (button == 4)
+        return 3;
+    return button;
+}
+
+
+/* ---------------------------------------------------------------- frame_a9
+ *
+ * armv7 0x0005a664, twenty-eight bytes.  **Complete.**
+ *
+ *      do_next_a9_frame(obj)
+ *      r = 1 - *(uint32_t *)obj->field40
+ *      if (r borrowed) r = 0
+ *      obj->field5c = r
+ *
+ * The same clamped negation `is_he_left` uses, on the first word of whatever
+ * 0x40 now points at. So this reports "the frame list is exhausted": one means
+ * the word was zero.
+ */
+void frame_a9(MK3OBJ *obj)
+{
+    uint32_t r;
+
+    do_next_a9_frame(obj);
+    r = 1u - *(const uint32_t *)(uintptr_t)obj->field40;
+    if (r > 1u)
+        r = 0;
+    obj->field5c = r;
+}
+
+
+/* ============================================ the character animation tables
+ *
+ * Two named tables of pointers, indexed by a character number and then by a
+ * frame:
+ *
+ *      obj->field40 = character_anitabs1[other->field24][obj->field40]
+ *
+ * 0x40 is both the index in and the result out, which is what makes these
+ * "fetch" routines rather than getters -- the slot is advanced in place.
+ *
+ * The first index is 0x24, the same field `decode_walk_table` uses as a table
+ * index and `borrow_ochar_sound` lends: a character number.
+ * ======================================================================== */
+
+extern uint32_t *character_anitabs1[];  /* 0x0016ee34 */
+extern uint32_t *character_anitabs2[];  /* 0x0016ee9c */
+
+void get_char_ani(MK3OBJ *obj)
+{
+    obj->field40 = character_anitabs1[obj->field08->field24][obj->field40];
+}
+
+void get_char_ani2(MK3OBJ *obj)
+{
+    obj->field40 = character_anitabs2[obj->field08->field24][obj->field40];
+}
+
+void get_his_char_ani(MK3OBJ *obj)
+{
+    const MK3OBJ *him = (const MK3OBJ *)(uintptr_t)obj->field00->him;
+
+    obj->field40 = character_anitabs1[him->field24][obj->field40];
 }

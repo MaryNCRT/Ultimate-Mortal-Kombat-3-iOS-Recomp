@@ -60,8 +60,11 @@ typedef struct IMG_PROC {
     uint32_t p_hit;              /* 0x44 */
     uint8_t  _pad48[0x0c];
     uint32_t field54;            /* 0x54  add_combo_damage */
-    uint8_t  _pad58[0x10];
+    uint8_t  _pad58[0x0c];
+    uint32_t field64;            /* 0x64  the slave's object */
     uint32_t slave;              /* 0x68 */
+    uint8_t  _pad6c[0x10];
+    uint16_t field7c;            /* 0x7c  the four-button gate */
 } IMG_PROC;
 
 CHECK(IMG_PROC, him,     0x04);
@@ -71,7 +74,9 @@ CHECK(IMG_PROC, field18, 0x18);
 CHECK(IMG_PROC, field40, 0x40);
 CHECK(IMG_PROC, p_hit,   0x44);
 CHECK(IMG_PROC, field54, 0x54);
+CHECK(IMG_PROC, field64, 0x64);
 CHECK(IMG_PROC, slave,   0x68);
+CHECK(IMG_PROC, field7c, 0x7c);
 
 
 /* ---- MK3OBJ, as the image lays it out -----------------------------------
