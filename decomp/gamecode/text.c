@@ -699,7 +699,9 @@ void LoadTextData(const char *file)
 
     LanguageTextData = (char *)limeMalloc("languagedata",
                                           size - (short)(data[0] | (data[1] << 8)));
-    LanguageTextPtrs = (char **)limeMalloc("languagetextptrs", count * 4);
+    /* One pointer an entry -- four bytes in the image, eight here. */
+    LanguageTextPtrs = (char **)limeMalloc("languagetextptrs",
+                                           count * sizeof(char *));
 
     printf("Num Text strings Loading: %d\n", (int)count);
 

@@ -10,18 +10,25 @@
 
 #include <stdint.h>
 
-typedef struct ANIMATEDCHARACTER ANIMATEDCHARACTER;
 typedef struct BARS BARS;
 typedef struct BONESINFO BONESINFO;
+typedef struct FLOAT FLOAT;
 typedef struct FRONTEND_CHARACTER FRONTEND_CHARACTER;
+typedef struct KANO KANO;
+typedef struct KANO_STANDARD KANO_STANDARD;
 typedef struct LocaleManager LocaleManager;
 typedef struct MESHSETINFO MESHSETINFO;
 typedef struct Mk3Obj_t Mk3Obj_t;
-typedef struct PLAYERDEF PLAYERDEF;
 typedef struct SKININFO SKININFO;
 typedef struct limeMATRIX44 limeMATRIX44;
 typedef struct limeVECTOR2 limeVECTOR2;
 
+#ifndef ALLFRAMES_COUNT
+#define ALLFRAMES_COUNT 0x1c4c
+#endif
+#ifndef ALLFRAMES_STRIDE
+#define ALLFRAMES_STRIDE 0x41
+#endif
 #ifndef BIOS_PAGES
 #define BIOS_PAGES 26
 #endif
@@ -34,11 +41,23 @@ typedef struct limeVECTOR2 limeVECTOR2;
 #ifndef CS_ROWS
 #define CS_ROWS 4
 #endif
+#ifndef FE_CHARACTER_SLOTS
+#define FE_CHARACTER_SLOTS 26
+#endif
+#ifndef FE_CHARACTER_STRIDE
+#define FE_CHARACTER_STRIDE 0x668
+#endif
+#ifndef FRAME_REMAP_ENTRIES
+#define FRAME_REMAP_ENTRIES 7245
+#endif
 #ifndef GAME_EVENT_SLOTS
 #define GAME_EVENT_SLOTS 16
 #endif
 #ifndef GAME_EVENT_STRIDE
 #define GAME_EVENT_STRIDE 0x64
+#endif
+#ifndef JADE
+#define JADE 0x10
 #endif
 #ifndef JOY_DIRECTIONS
 #define JOY_DIRECTIONS 9
@@ -61,9 +80,43 @@ typedef struct limeVECTOR2 limeVECTOR2;
 #ifndef PRELOAD_STRIDE
 #define PRELOAD_STRIDE 0x5f4
 #endif
+#ifndef SINDEL
+#define SINDEL 6
+#endif
 #ifndef WANTFRAMES_BYTES
 #define WANTFRAMES_BYTES 0x1c4c
 #endif
+
+typedef struct ACHIEVEMENTDESCR {
+    long id;                            /* 0x00, the GameText id of the label */
+    long descr;                         /* 0x04, the GameText id of the
+                                         *       description line */
+    long pad08;                         /* 0x08 */
+    /* +0x0c is a FLOAT -- achievementsDraw runs sin() on it. achievementsUnlock
+     * clears it with an integer zero store, which is the same bit pattern, so
+     * the union keeps both honest. */
+    union { float f; long w; } timer;   /* 0x0c */
+} ACHIEVEMENTDESCR;
+
+typedef struct ANIMATEDCHARACTER {
+    long        meshCount;      /* 0x00 */
+    void       *meshes;         /* 0x04  meshCount records of 0x58 */
+    long        id;             /* 0x08  the character, for the frame gates */
+    long        field0c;        /* 0x0c  nothing reads it */
+    void       *scene;          /* 0x10 */
+    void       *diffuse;        /* 0x14 */
+    void       *diffuseIce;     /* 0x18 */
+    void       *jadeGreen;      /* 0x1c  JADE only */
+    void       *sindelHair;     /* 0x20  SINDEL only */
+    void       *diffuse2;       /* 0x24  the lite path's second sheet */
+    void       *babality;       /* 0x28  may stay NULL */
+    void       *frameList;      /* 0x2c */
+    void       *skin;           /* 0x30 */
+    void       *bones;          /* 0x34 */
+    const long *meshbase;       /* 0x38  kept so it can be freed */
+    const long *meshTable;      /* 0x3c */
+    const long *meshNames;      /* 0x40 */
+} ANIMATEDCHARACTER;            /* 0x44 = 68 bytes, the size limeMalloc asks */
 
 struct BUTTONNEW {
     long  style;                        /* 0x00, 0..8; anything else is a
@@ -94,13 +147,6 @@ typedef struct EDITVAR {
     float       step;                   /* 0x10 */
     long        type;                   /* 0x14, 0 = heading */
 } EDITVAR;
-
-typedef struct FEACHIEVEMENTDESCR {
-    long id;                            /* 0x00  GameText id of the name */
-    long descr;                         /* 0x04  GameText id of the description */
-    long pad08;                         /* 0x08 */
-    long timer;                         /* 0x0c */
-} FEACHIEVEMENTDESCR;
 
 typedef struct FOUNDTOKEN {
     long        type;                   /* 0x00  0 none, 1 's', 2 'd', 4 'f' */
@@ -135,6 +181,11 @@ typedef struct GAMESTATE {
     uint8_t _pad370[0x44e - 0x370];
     int16_t field44e;                   /* 0x44e  ldrsh, normalised to 0 or 1 */
 } GAMESTATE;
+
+typedef struct {
+    float       speed;      /* idle playback rate: 1.0f, and 0.5f for a few */
+    const long *frames;     /* frame numbers, terminated by -1 */
+} IdleSet;
 
 typedef struct KODE {
     long seq[6];                        /* 0x00 .. 0x14 */
@@ -184,6 +235,22 @@ typedef struct PARTICLE {
     float    vz;                 /* 0x2c */
 } PARTICLE;
 
+typedef struct PLAYERDEF {
+    long        id;             /* 0x00  0..25; the same as the index */
+    float       scale;          /* 0x04  multiplied by PlayerSize */
+    float       posOffsetX;     /* 0x08  added or subtracted by facing */
+    float       height;         /* 0x0c  added to Z in ArcadePosTo3dPos */
+    float       renderOffsetX;  /* 0x10  glTranslatef x, times +/-2.15 */
+    float       renderOffsetZ;  /* 0x14  glTranslatef z, times 0.65 */
+    const char *lighting;       /* 0x18  "KANO" */
+    const char *frameList;      /* 0x1c  "kanoframes.txt" */
+    const char *bones;          /* 0x20  "KANO_STANDARD.bones" */
+    const char *skin;           /* 0x24  "KANO_STANDARD.skin" */
+    const char *skinAnim;       /* 0x28  "KANO_STANDARD.skinanim" */
+    const char *texBase;        /* 0x2c  "KANO" */
+    const char *scene;          /* 0x30  "KANO_STANDARD.scene" */
+} PLAYERDEF;
+
 typedef struct SOUNDENTRY {             /* 8 bytes: the walk advances by 8 */
     const char *name;                   /* 0x00 */
     long        id;                     /* 0x04, -1 when not loaded */
@@ -216,7 +283,10 @@ typedef struct TRAININGMOVE {
     const char *notation5;              /* 0x08  the 5-button layout */
     const char *notation6;              /* 0x0c  the 6-button layout */
     long        pad10;                  /* 0x10 */
-    long        pad14;                  /* 0x14 */
+    /* 0x14 -- a pointer to the flag the move raises, or NULL. The table holds
+     * 0x0014fb30 on the fatality row and 0x0014fb2c on the animality one, which
+     * are `FatalityMessage` and `AnimalityMessage`; every other row is zero. */
+    long       *messageFlag;            /* 0x14 */
 } TRAININGMOVE;
 
 typedef struct limeVECTOR3 { float x, y, z; } limeVECTOR3;

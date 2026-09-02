@@ -36,7 +36,10 @@ typedef struct TRAININGMOVE {
     const char *notation5;              /* 0x08  the 5-button layout */
     const char *notation6;              /* 0x0c  the 6-button layout */
     long        pad10;                  /* 0x10 */
-    long        pad14;                  /* 0x14 */
+    /* 0x14 -- a pointer to the flag the move raises, or NULL. The table holds
+     * 0x0014fb30 on the fatality row and 0x0014fb2c on the animality one, which
+     * are `FatalityMessage` and `AnimalityMessage`; every other row is zero. */
+    long       *messageFlag;            /* 0x14 */
 } TRAININGMOVE;
 
 /* character-major, then category, then move */
@@ -48,18 +51,18 @@ extern long  TrainingMoveCount;         /* 0x001780a8 */
 extern long  TrainingCatagory;          /* 0x0017809c, the binary's spelling */
 
 extern int   Settings[10];              /* pointer slot -> 0x00100e34 */
-extern long *Character1;                /* pointer slot */
-extern long *PLAYER1MODEL;              /* pointer slot */
+extern long  Character1;                /* pointer slot */
+extern long  PLAYER1MODEL;              /* pointer slot */
 extern long *PLAYER2MODEL;              /* pointer slot */
-extern int  *limeScreenWidth;           /* pointer slot */
-extern float *limeFPSScaleFactor;       /* pointer slot */
+extern int   limeScreenWidth;           /* pointer slot */
+extern float  limeFPSScaleFactor;       /* pointer slot */
 extern float *fontcol;                  /* pointer slot -> 0x0014f9f0 */
 extern void  *GameFont;                 /* pointer slot -> 0x001abb98 */
 
-extern long *BabalityMessage;           /* pointer slot */
-extern long *FriendshipMessage;         /* pointer slot */
-extern long *AnimalityMessage;          /* pointer slot */
-extern long *FatalityMessage;           /* pointer slot */
+extern long  BabalityMessage;           /* pointer slot */
+extern long  FriendshipMessage;         /* pointer slot */
+extern long  AnimalityMessage;          /* pointer slot */
+extern long  FatalityMessage;           /* pointer slot */
 
 void limeDrawFONT(void *font, const char *text, float x, float y,
                   long align, float scale, const float *colour);
@@ -146,12 +149,12 @@ void TrainingMessages(void)
 
     if (TrainingGoodMessage > 0.0f) {
         limeDrawFONT(GameFont, "WELL DONE",
-                     (float)(*limeScreenWidth / 2), 66.0f,
+                     (float)(limeScreenWidth / 2), 66.0f,
                      1, 1.0f, fontcol);
 
         TrainingGoodMessage =
             (float)((double)TrainingGoodMessage
-                    + -1.0 / (double)*limeFPSScaleFactor);
+                    + -1.0 / (double)limeFPSScaleFactor);
 
         if (TrainingGoodMessage <= 0.0f) {
             const TRAININGMOVE *m;
@@ -162,50 +165,50 @@ void TrainingMessages(void)
             next = (TrainingMoveCount + 1) % TRAINING_MOVES;
             TrainingMoveCount = next;
 
-            m = &TrainingData[(*Character1 * TRAINING_CATEGORIES
+            m = &TrainingData[(Character1 * TRAINING_CATEGORIES
                                * TRAINING_MOVES)
                               + cat * TRAINING_MOVES + next];
 
             if (m->name == 0)
                 TrainingMoveCount = 0;
 
-            mk3_init(*PLAYER1MODEL, *PLAYER2MODEL, FrameID_GetBBoxPtr,
+            mk3_init(PLAYER1MODEL, *PLAYER2MODEL, FrameID_GetBBoxPtr,
                      (long)(uintptr_t)m->name);
 
             if (cat == 2)
                 mk3_dizzy();
 
             LIME_KillAllEvents();
-            *BabalityMessage   = 0;
-            *FriendshipMessage = 0;
-            *AnimalityMessage  = 0;
-            *FatalityMessage   = 0;
+            BabalityMessage   = 0;
+            FriendshipMessage = 0;
+            AnimalityMessage  = 0;
+            FatalityMessage   = 0;
         }
         return;
     }
 
     if (TrainingBadMessage > 0.0f) {
         limeDrawFONT(GameFont, "TRY AGAIN",
-                     (float)(*limeScreenWidth / 2), 66.0f,
+                     (float)(limeScreenWidth / 2), 66.0f,
                      1, 1.0f, fontcol);
 
         TrainingBadMessage =
             (float)((double)TrainingBadMessage
-                    + -1.0 / (double)*limeFPSScaleFactor);
+                    + -1.0 / (double)limeFPSScaleFactor);
 
         if (TrainingBadMessage <= 0.0f) {
             TrainingBadMessage = 0.0f;
 
-            mk3_init(*PLAYER1MODEL, *PLAYER2MODEL, FrameID_GetBBoxPtr, 0);
+            mk3_init(PLAYER1MODEL, *PLAYER2MODEL, FrameID_GetBBoxPtr, 0);
 
             if (cat == 2)
                 mk3_dizzy();
 
             LIME_KillAllEvents();
-            *BabalityMessage   = 0;
-            *FriendshipMessage = 0;
-            *AnimalityMessage  = 0;
-            *FatalityMessage   = 0;
+            BabalityMessage   = 0;
+            FriendshipMessage = 0;
+            AnimalityMessage  = 0;
+            FatalityMessage   = 0;
         }
         return;
     }
@@ -213,14 +216,14 @@ void TrainingMessages(void)
     /* The prompt: "<move name> : <notation for the current layout>". */
     {
         const TRAININGMOVE *m =
-            &TrainingData[(*Character1 * TRAINING_CATEGORIES * TRAINING_MOVES)
+            &TrainingData[(Character1 * TRAINING_CATEGORIES * TRAINING_MOVES)
                           + cat * TRAINING_MOVES + TrainingMoveCount];
         const char *const *notation = &m->name;   /* [1]..[3] by layout */
 
         sprintf(buf, "%s : %s", m->name, notation[layout - 3]);
 
         limeDrawFONT(GameFont, buf,
-                     (float)(*limeScreenWidth / 2), 66.0f,
+                     (float)(limeScreenWidth / 2), 66.0f,
                      1, 1.0f, fontcol);
     }
 }

@@ -717,7 +717,7 @@ void        AddToTranspMeshList(MESHSETINFO *meshset, const SCENENODE *node,
                                 const QSTMATRIX *qst, long a3, long a4);
 void        ClearTranspMeshList(void);
 void        glScalef(float x, float y, float z);
-SCENEINFO *LIME_LoadScene(const char *filename, int a, int b, int c);
+SCENEINFO *LIME_LoadScene(const char *filename, int a, const char *b, int c);
 void LIME_RenderMeshSingle(MESHINFO *mesh, TEXTURE *t0, TEXTURE *t1,
                            float alpha, long flags);
 void LIME_FreeSingleMesh(MESHSETINFO *set, int index);

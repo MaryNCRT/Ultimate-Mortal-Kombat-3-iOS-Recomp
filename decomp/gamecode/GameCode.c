@@ -1292,7 +1292,27 @@ typedef struct Mk3Obj_t Mk3Obj_t;
  * `_PlayerDefs` 0x00170950, **52 bytes** an entry -- the compiler spells the
  * multiply out as `(n*16 - n*4 + n) << 2`, which is 13 << 2. */
 extern long  *FrameRemapTable;          /* pointer slot -> 0x002003d4 */
-extern char  *PlayerDefs;               /* pointer slot -> 0x00170950 */
+typedef struct PLAYERDEF {
+    long        id;             /* 0x00  0..25; the same as the index */
+    float       scale;          /* 0x04  multiplied by PlayerSize */
+    float       posOffsetX;     /* 0x08  added or subtracted by facing */
+    float       height;         /* 0x0c  added to Z in ArcadePosTo3dPos */
+    float       renderOffsetX;  /* 0x10  glTranslatef x, times +/-2.15 */
+    float       renderOffsetZ;  /* 0x14  glTranslatef z, times 0.65 */
+    const char *lighting;       /* 0x18  "KANO" */
+    const char *frameList;      /* 0x1c  "kanoframes.txt" */
+    const char *bones;          /* 0x20  "KANO_STANDARD.bones" */
+    const char *skin;           /* 0x24  "KANO_STANDARD.skin" */
+    const char *skinAnim;       /* 0x28  "KANO_STANDARD.skinanim" */
+    const char *texBase;        /* 0x2c  "KANO" */
+    const char *scene;          /* 0x30  "KANO_STANDARD.scene" */
+} PLAYERDEF;
+
+/* 52 bytes an entry IN THE IMAGE, where a pointer is four bytes. Kept because
+ * the compiler spells the multiply out as `(n*16 - n*4 + n) << 2` and that is
+ * how the stride was read off in the first place. The host struct is wider and
+ * nothing should use this number to index it. */
+extern const PLAYERDEF PlayerDefs[];   /* 0x00170950, 26 entries */
 /* Moved with `ldr`/`str`, never through the FPU, so it is declared as the word
  * it is copied as. See the note in the function below. */
 extern union { float f; long w; } PlayerZPos;   /* 0x00150e88 */
@@ -1347,14 +1367,14 @@ void ArcadePosTo3dPosNO_OFFSETS(Mk3Obj_t *obj, float *out)
 {
     const short *o = (const short *)obj;
     long remap = FrameRemapTable[o[4] * 2];         /* [frame], stride 8 */
-    const float *def;
+    const PLAYERDEF *def;
 
     /* o[2] is +4, o[3] is +6, o[4] is +8 -- all int16. */
     out[0] = (float)o[2] / WorldScaleAdjust;
     ((long *)out)[1] = PlayerZPos.w;    /* word copy, not a float load */
 
-    def = (const float *)(PlayerDefs + remap * PLAYERDEF_STRIDE);
-    out[2] = (float)(-o[3]) / WorldScaleAdjust + def[0x0c / 4];
+    def = &PlayerDefs[remap];
+    out[2] = (float)(-o[3]) / WorldScaleAdjust + def->height;
 }
 
 
@@ -1745,7 +1765,7 @@ void ArcadePosTo3dPos(Mk3Obj_t *obj, float *out, const signed char *who)
     const short *o = (const short *)obj;
     long frame = o[4];                          /* +8, signed */
     float s = WorldScaleAdjust;
-    const float *def;
+    const PLAYERDEF *def;
     long idx;
 
     if (frame == ARCADE_POS_RAW) {              /* the sentinel: no offsets */
@@ -1763,15 +1783,15 @@ void ArcadePosTo3dPos(Mk3Obj_t *obj, float *out, const signed char *who)
     else
         idx = *who;                             /* a signed byte, not an index arg */
 
-    def = (const float *)(PlayerDefs + idx * PLAYERDEF_STRIDE);
+    def = &PlayerDefs[idx];
 
     if (((const unsigned short *)obj)[5] & 0x10)        /* +0x0a */
-        out[0] = (float)o[2] / s - def[0x08 / 4];
+        out[0] = (float)o[2] / s - def->posOffsetX;
     else
-        out[0] = (float)o[2] / s + def[0x08 / 4];
+        out[0] = (float)o[2] / s + def->posOffsetX;
 
     ((long *)out)[1] = PlayerZPos.w;
-    out[2] = (float)(-o[3]) / s + def[0x0c / 4];
+    out[2] = (float)(-o[3]) / s + def->height;
 }
 
 
@@ -1990,8 +2010,8 @@ extern long  JoystickStatePosYP2;       /* 0x0014fed4 */
 
 /* Ten touch slots each; -1.0f means the slot is empty. */
 #define TOUCH_SLOTS  10
-extern float *limeTouchScreenX;         /* pointer slot -> 0x00171af4 */
-extern float *limeTouchScreenY;         /* pointer slot */
+extern float  limeTouchScreenX[];        /* 0x00171af4, four slots */
+extern float  limeTouchScreenY[];         /* pointer slot */
 
 double acos(double x);
 float  sqrtf(float x);
@@ -2207,7 +2227,7 @@ void Write_SaveData(void)
 }
 
 
-extern long *SurvivalCharacter1;        /* pointer slot -> 0x000ff9?? */
+extern long  SurvivalCharacter1;        /* pointer slot -> 0x000ff9?? */
 
 void *limeLoadSaveFile(const char *name);
 void  Reset_SaveData(void);
@@ -2310,9 +2330,9 @@ void Load_SaveData(void)
     *SurvivalStage = surv[0];
 
     v = surv[1];
-    *SurvivalCharacter1 = v;            /* written from Character1, read here */
+    SurvivalCharacter1 = v;            /* written from Character1, read here */
     if (v < 0 || v > 0x17)
-        *SurvivalCharacter1 = 1;
+        SurvivalCharacter1 = 1;
 
     v = surv[2];
     *SurvivalHealth = v;
@@ -2333,7 +2353,7 @@ extern long  EnduranceTowerList[];      /* 0x0014fb50, eleven words a row */
 /* `RoundParam` is declared above as `int *`; the three fields this function
  * writes are BYTES, so they go through a char view of the same pointer. */
 #define ROUNDPARAM_B  ((char *)RoundParam)
-extern long *TreasurePlayed;            /* pointer slot */
+extern long  TreasurePlayed;            /* pointer slot */
 extern long  girlrand, girlrand2;       /* 0x0010de74, 0x0010de78 */
 extern long  boyrand,  boyrand2;        /* 0x0010de6c, 0x0010de70 */
 extern long *PLAYER2MODEL;              /* pointer slot -> 0x0014e1b8 */
@@ -2409,7 +2429,7 @@ void InitEnduranceMatch(void)
     if (GameMode != 5)
         return;
 
-    if (*TreasurePlayed == 7) {
+    if (TreasurePlayed == 7) {
         long r = girlrand * 4;
         long a = EnduranceMatchTreasure7[r + ((girlrand2 + 0) & 3)];
         long b = EnduranceMatchTreasure7[r + ((girlrand2 + 1) & 3)];
@@ -2424,7 +2444,7 @@ void InitEnduranceMatch(void)
         EnduranceCharacters[1] = c;
         EnduranceCharacters[2] = -1;
         LastEnduranceCharacter = c;
-    } else if (*TreasurePlayed == 8) {
+    } else if (TreasurePlayed == 8) {
         long r = boyrand * 4;
         long a = EnduranceMatchTreasure8[r + ((boyrand2 + 0) & 3)];
         long b = EnduranceMatchTreasure8[r + ((boyrand2 + 1) & 3)];
@@ -2439,7 +2459,7 @@ void InitEnduranceMatch(void)
         EnduranceCharacters[1] = c;
         EnduranceCharacters[2] = -1;
         LastEnduranceCharacter = c;
-    } else if (*TreasurePlayed == 9) {
+    } else if (TreasurePlayed == 9) {
         Character2    = 11;
         *PLAYER2MODEL = 11;
         ROUNDPARAM_B[0x18] = 24;          /* the two ladder bosses */
@@ -2456,9 +2476,9 @@ void InitEnduranceMatch(void)
 extern void *SplashTexture1;            /* 0x001abb8c */
 extern void *SplashTexture2;            /* 0x001abb90 */
 extern long  SplashCount;               /* 0x00150cc8 */
-extern long *limeDeferredDeviceSideways;/* pointer slot */
-extern long *limeDeviceSideways;        /* pointer slot */
-extern float *FE_YOffset;               /* pointer slot */
+extern int limeDeferredDeviceSideways;/* pointer slot */
+extern int limeDeviceSideways;        /* pointer slot */
+extern float  FE_YOffset;               /* pointer slot */
 extern float *FE_WidthScaleP;           /* pointer slot -- see below */
 extern float *FE_HeightScaleP;          /* pointer slot */
 
@@ -2497,8 +2517,8 @@ void Task_LoadingScreen(void);
  *
  * ### Both orientation flags are forced sideways
  *
- *      *limeDeferredDeviceSideways = 1
- *      *limeDeviceSideways         = 1
+ *      limeDeferredDeviceSideways = 1
+ *      limeDeviceSideways         = 1
  *
  * every frame, not once. So the splash cannot be rotated out from under itself
  * by anything else changing them.
@@ -2533,8 +2553,8 @@ void Task_LoadSplashScreen(void)
     colour[0] = colour[1] = colour[2] = colour[3] = 1.0f;   /* C.243 */
 
     SetupFEScale();
-    *limeDeferredDeviceSideways = 1;
-    *limeDeviceSideways         = 1;
+    limeDeferredDeviceSideways = 1;
+    limeDeviceSideways         = 1;
 
     limeEnableAlphaBlending_Basic();
     limeSetColourMask(1, 1, 1, 0);
@@ -2574,7 +2594,7 @@ void Task_LoadSplashScreen(void)
         tex = SplashTexture1;
     }
 
-    limeDrawSprite(tex, 0.0f, *FE_YOffset,
+    limeDrawSprite(tex, 0.0f, FE_YOffset,
                    480.0f * *FE_WidthScaleP,
                    320.0f * *FE_HeightScaleP,
                    0.03125f, 0.1875f, 0.9375f, 0.625f,
@@ -2592,8 +2612,8 @@ extern long  ToggleDebug;               /* 0x00150588 */
 extern long  AIOn;                      /* 0x0014e1f4 */
 extern long  SpeedNormal;               /* 0x0014e1f8 */
 extern long  JoystickState;             /* 0x0014febc */
-extern float *limeFPS;                  /* pointer slot */
-extern long  *limeRenderedPolyCount;    /* pointer slot */
+extern float limeFPS;                  /* pointer slot */
+extern long limeRenderedPolyCount;    /* pointer slot */
 extern GAMEFONT NameFont;               /* 0x001c3bf4 */
 extern float  fontcol[];                /* 0x0014f9f0 */
 extern char   str[];                    /* 0x001f3cac, the shared scratch buffer */
@@ -2655,7 +2675,7 @@ void ShowDebugInfo(void)
         return;
 
     AverageFPSCount++;
-    AverageFPS += *limeFPS;
+    AverageFPS += limeFPS;
 
     if (AverageFPSCount == 10) {
         DisplayAverageFPS = AverageFPS / 10.0f;
@@ -2667,7 +2687,7 @@ void ShowDebugInfo(void)
         return;                         /* the average has already been kept */
 
     sprintf(str, "Poly Count %d  Joy: %d",
-            (int)*limeRenderedPolyCount, (int)JoystickState);
+            (int)limeRenderedPolyCount, (int)JoystickState);
     limeDrawFONT(&NameFont, str, 8.0f, (float)FE_Y(96.0f), 0, 1.0f, fontcol);
 
     if (AIOn == 2)
@@ -2841,7 +2861,26 @@ void GetReal6ButtonJoyBits(int dir, const int *buttons, Mk3Obj_t *unused,
  *      +0x5d4  float  grey            AnimateFECharacters sets this to 1.0f
  *      +0x5d8  float  pos[3]
  */
-typedef struct ANIMATEDCHARACTER ANIMATEDCHARACTER;
+typedef struct ANIMATEDCHARACTER {
+    long        meshCount;      /* 0x00 */
+    void       *meshes;         /* 0x04  meshCount records of 0x58 */
+    long        id;             /* 0x08  the character, for the frame gates */
+    long        field0c;        /* 0x0c  nothing reads it */
+    void       *scene;          /* 0x10 */
+    void       *diffuse;        /* 0x14 */
+    void       *diffuseIce;     /* 0x18 */
+    void       *jadeGreen;      /* 0x1c  JADE only */
+    void       *sindelHair;     /* 0x20  SINDEL only */
+    void       *diffuse2;       /* 0x24  the lite path's second sheet */
+    void       *babality;       /* 0x28  may stay NULL */
+    void       *frameList;      /* 0x2c */
+    void       *skin;           /* 0x30 */
+    void       *bones;          /* 0x34 */
+    const long *meshbase;       /* 0x38  kept so it can be freed */
+    const long *meshTable;      /* 0x3c */
+    const long *meshNames;      /* 0x40 */
+} ANIMATEDCHARACTER;            /* 0x44 = 68 bytes, the size limeMalloc asks */
+
 typedef struct PLAYER PLAYER;
 
 long IsFrameVisible(ANIMATEDCHARACTER *c, long a, long b);
@@ -2922,7 +2961,7 @@ long RenderPlayer(PLAYER *p, long attach, long flag)
     ANIMATEDCHARACTER *c = (ANIMATEDCHARACTER *)(uintptr_t)
                            (unsigned long)w[1];
     float grey = ((float *)w)[0x5d4 / 4];
-    char *const *def;
+    const PLAYERDEF *def;
     long vis;
 
     LIME_PushMatrix();
@@ -2936,10 +2975,10 @@ long RenderPlayer(PLAYER *p, long attach, long flag)
     limeEnableDepthWrites();
 
     vis = IsFrameVisible(c, w[0x51c / 4], w[0x520 / 4]);
-    def = (char *const *)(PlayerDefs + w[0] * PLAYERDEF_STRIDE);
+    def = &PlayerDefs[w[0]];
 
     if (vis == 0) {
-        RenderAnimatedCharacter(def[0x18 / 4], c,
+        RenderAnimatedCharacter(def->lighting, c,
                                 w[0x51c / 4], w[0x520 / 4],
                                 ((float *)w)[0x524 / 4],
                                 ((float *)w)[0x5d0 / 4], grey,
@@ -2950,14 +2989,14 @@ long RenderPlayer(PLAYER *p, long attach, long flag)
         if (w[0x14 / 4] == 0x127 && w[0] == 12) {
             /* the 12/295 exception: somebody else's asset name */
             RenderAnimatedCharacter(
-                    ((char *const *)PlayerDefs)[0x288 / 4], c,
+                    PlayerDefs[12].lighting, c,
                     w[0x51c / 4], w[0x520 / 4],
                     ((float *)w)[0x524 / 4],
                     ((float *)w)[0x5d0 / 4], grey,
                     (limeVECTOR3 *)&w[0x5d8 / 4],
                     (void *)(uintptr_t)(unsigned long)w[0x528 / 4], 1);
         } else {
-            RenderAnimatedCharacter(def[0x18 / 4], c,
+            RenderAnimatedCharacter(def->lighting, c,
                                     w[0x51c / 4], w[0x520 / 4],
                                     ((float *)w)[0x524 / 4],
                                     ((float *)w)[0x5d0 / 4], grey,
@@ -2970,8 +3009,7 @@ long RenderPlayer(PLAYER *p, long attach, long flag)
         if (attach != 0) {
             memcpy(AttachTransforms, *MatrixPalette2, 0x1c20);
             LIME_RenderScene(6,
-                             (void *)(uintptr_t)(unsigned long)
-                                 ((const long *)c)[0x10 / 4],
+                             c->scene,
                              w[0x51c / 4], w[0x520 / 4],
                              ((float *)w)[0x524 / 4], 0, 0, 0,
                              (void *)(uintptr_t)(unsigned long) w[0x528 / 4],
@@ -2983,8 +3021,7 @@ long RenderPlayer(PLAYER *p, long attach, long flag)
     LIME_KillAllLights();
     LIME_PopMatrix(1);
 
-    return ((const long *)(uintptr_t)(unsigned long)
-            ((const long *)c)[0x34 / 4])[1];
+    return ((const long *)c->bones)[1];
 }
 
 
@@ -3270,10 +3307,10 @@ void RenderExtras(void)
 extern long   GamePaused;               /* 0x0014e1fc */
 extern long   PauseMenuAreYouSure;      /* 0x0014e260 */
 extern long   DidIntroThisFrame;        /* 0x0010dec4 */
-extern float *HUD_Scale;                /* pointer slot */
+extern float  HUD_Scale;                /* pointer slot */
 extern float *FE_FadeAddP;              /* pointer slot -> 0x0010089c */
-extern float *limeLastTouchScreenX;     /* pointer slot */
-extern float *limeLastTouchScreenY;     /* pointer slot */
+extern float  limeLastTouchScreenX[];     /* pointer slot */
+extern float  limeLastTouchScreenY[];     /* pointer slot */
 extern long  SFXHandle[];               /* 0x001ab99c -- an ARRAY of sound handles.
                                          * Every site reaches it as `ldr r3,[slot]`
                                          * then `ldr r0,[r3,#0x68]`: the slot holds
@@ -3353,8 +3390,8 @@ void TogglePauseMenu(void)
     lx = limeLastTouchScreenX[0];
 
     if (lx != -1.0f
-        && lx > (float)limeScreenWidth - *HUD_Scale * 80.0f
-        && (ly = limeLastTouchScreenY[0]) < *HUD_Scale * 64.0f
+        && lx > (float)limeScreenWidth - HUD_Scale * 80.0f
+        && (ly = limeLastTouchScreenY[0]) < HUD_Scale * 64.0f
         && DidIntroThisFrame == 0) {
 
         if (Settings[3] != 0)
@@ -3382,9 +3419,9 @@ void TogglePauseMenu(void)
     lx = limeLastTouchScreenX[0];
     if (lx == -1.0f)
         return;
-    if (lx >= *HUD_Scale * 80.0f)
+    if (lx >= HUD_Scale * 80.0f)
         return;
-    if (limeLastTouchScreenY[0] >= *HUD_Scale * 64.0f)
+    if (limeLastTouchScreenY[0] >= HUD_Scale * 64.0f)
         return;
     if (DidIntroThisFrame != 0)
         return;
@@ -4410,19 +4447,19 @@ void DrawControlsPreview(long originX, long originY)
 }
 
 
-extern long  *JustWon;                  /* pointer slot */
+extern long   JustWon;                  /* pointer slot */
 extern long   winningStryk;             /* 0x0014dffc */
-extern long  *feedPosted;               /* pointer slot */
+extern long   feedPosted;               /* pointer slot */
 extern long   defeatedBySK;             /* 0x0010deb4 */
 extern long   lastWinStreak;            /* 0x0014e1ac */
 extern long   points;                   /* 0x0014e1b0 */
 extern float  timeInGame;               /* 0x0014e1e0 */
-extern float *KontinueTime;             /* pointer slot -> 0x000ff960 -- a FLOAT.
+extern float  KontinueTime;             /* pointer slot -> 0x000ff960 -- a FLOAT.
                                          * The store is a raw word from the pool
                                          * (0x419ffdf4), which says nothing on its
                                          * own; the countdown that reads it is what
                                          * types it. */
-extern float *exitTimeout;              /* pointer slot -> 0x00182c80 -- also a
+extern float  exitTimeout;              /* pointer slot -> 0x00182c80 -- also a
                                          * FLOAT: the value stored is 0x44160000,
                                          * which is 600.0f, not the integer 600.
                                          * This header always said 600.0f; the C
@@ -4462,7 +4499,7 @@ void EASDK_LogEventEnumEnumStringNum(long id, long a, const char *s,
  *
  * armv7 0x000269d0, 692 bytes.  **Complete.**
  *
- * The lose path out of a fight. Clears `*JustWon`, logs the arcade case, then
+ * The lose path out of a fight. Clears `JustWon`, logs the arcade case, then
  * does something different for every game mode.
  *
  * ### Three losses to character 25 unlock achievement 15
@@ -4523,7 +4560,7 @@ void EASDK_LogEventEnumEnumStringNum(long id, long a, const char *s,
  */
 void QuitAsLose(void)
 {
-    *JustWon = 0;
+    JustWon = 0;
 
     if (GameMode == 0) {
         EASDK_LogEventEnumEnumString(0x754e, 15,
@@ -4536,7 +4573,7 @@ void QuitAsLose(void)
     }
 
     winningStryk = 0;
-    *feedPosted  = 0;
+    feedPosted  = 0;
 
     switch (GameMode) {
     case 1:
@@ -4557,7 +4594,7 @@ void QuitAsLose(void)
     case 3:
         *FE_FadeAddP = -0.033333335f;
         PushFETask(0x27);
-        *exitTimeout = 600.0f;
+        exitTimeout = 600.0f;
         break;
 
     case 4:
@@ -4569,7 +4606,7 @@ void QuitAsLose(void)
         *DisplaySurvivalStage = *SurvivalStageP;
         *SurvivalStageP       = 0;
         Write_SaveData();
-        *exitTimeout = 600.0f;
+        exitTimeout = 600.0f;
         break;
 
     case 5:
@@ -4592,7 +4629,7 @@ void QuitAsLose(void)
         winStreak     = 0;
         points        = lastWinStreak;
         *FE_FadeAddP    = -0.033333335f;
-        *KontinueTime = 19.999001f;     /* the same odd literal InitKodeScreen
+        KontinueTime = 19.999001f;     /* the same odd literal InitKodeScreen
                                          * writes into KodeTime */
         PushFETask(0x1d);
         Player1Wins = 0;
@@ -4691,9 +4728,8 @@ void RenderIntroCharacterPlayer(void)
 
     if (IntroCamCount > 1 && p0[1] != 0) {
         const long *anim = (const long *)(uintptr_t)(unsigned long) p0[1];
-        const float *def = (const float *)(PlayerDefs
-                                           + p0[0] * PLAYERDEF_STRIDE);
-        float s = def[1];
+        const PLAYERDEF *def = &PlayerDefs[p0[0]];
+        float s = def->scale;
 
         glEnable(GL_CULL_FACE);
 
@@ -4727,9 +4763,8 @@ void RenderIntroCharacterPlayer(void)
 
     if ((IntroCamCount > 2 || IntroCamCount == 0) && p1[1] != 0) {
         const long *anim = (const long *)(uintptr_t)(unsigned long) p1[1];
-        const float *def = (const float *)(PlayerDefs
-                                           + p1[0] * PLAYERDEF_STRIDE);
-        float s = def[1];
+        const PLAYERDEF *def = &PlayerDefs[p1[0]];
+        float s = def->scale;
 
         /* pre-divided: PlayerSize is already on the matrix */
         glTranslatef(-IntroPlayer1PosX / PlayerSize,
@@ -4916,8 +4951,8 @@ void Task_LoadGeneralData(void)
     const uint8_t *unicode;
     int i;
 
-    *limeDeferredDeviceSideways = 1;
-    *limeDeviceSideways = 1;
+    limeDeferredDeviceSideways = 1;
+    limeDeviceSideways = 1;
 
     Task_LoadingScreen();
     if (LoadingTexture)
@@ -5076,8 +5111,8 @@ void Task_LoadGeneralData(void)
  * loss, so the layout data set is biased towards players who were winning.
  */
 extern const char **DestinyNamesWin;    /* pointer slot -> 0x00176838 */
-extern long  *TreasureSelected;         /* pointer slot */
-extern long  *playerLostRound;          /* pointer slot -> 0x000ff8b8 */
+extern long   TreasureSelected;         /* pointer slot */
+extern long   playerLostRound;          /* pointer slot -> 0x000ff8b8 */
 extern long   survivalWinStreak;        /* 0x0014e1ec */
 extern long   TowerRand[];              /* pointer slot -> 0x001014d0 */
 extern int    achievementTracker[24];   /* 0x00379c60, see achievements.c */
@@ -5086,7 +5121,7 @@ const char *getLayoutName(int buttons, int custom);
 
 void QuitAsWin(void)
 {
-    *JustWon = 1;
+    JustWon = 1;
 
     if (GameMode == 0) {
         EASDK_LogEventEnumEnumString(0x7554, 15,
@@ -5119,7 +5154,7 @@ void QuitAsWin(void)
 
     case 3:
         *FE_FadeAddP = -0.033333335f;
-        *exitTimeout = 600.0f;
+        exitTimeout = 600.0f;
         PushFETask(0x27);
         break;
 
@@ -5172,14 +5207,14 @@ void QuitAsWin(void)
                 Stage++;
                 if (Stage >= Destiny + 8) {
                     /* Tower cleared. */
-                    if (Destiny == 3 && *playerLostRound == 0)
+                    if (Destiny == 3 && playerLostRound == 0)
                         achievementsUnlock(0);
 
                     achievementTracker[0x54 / 4] |= 1 << Destiny;
                     if (achievementTracker[0x54 / 4] == 0xf)
                         achievementsUnlock(1);
 
-                    *TreasureSelected = -1;
+                    TreasureSelected = -1;
                     SaveUnclaimedTreasure(1);
                     PushFETask(0x24);
                     GameStarted = 0;
@@ -5797,10 +5832,10 @@ void Task_GameInit(void)
     }
 
     printf("GameMode = %d, TreasurePlayed = %d\n",
-           (int)GameMode, (int)*TreasurePlayed);
+           (int)GameMode, (int)TreasurePlayed);
 
-    if (GameMode == 5 && *TreasurePlayed == 10) {
-        *theKode = *TreasurePlayed - 9;
+    if (GameMode == 5 && TreasurePlayed == 10) {
+        *theKode = TreasurePlayed - 9;
         puts("\n#############################\n"
              "TREASURE PLAY IN DARK KOBAT MODE!");
     }
@@ -5894,10 +5929,14 @@ extern float BabalityVel[8];            /* 0x001f4104 */
 extern float BabalityHeight[8];         /* 0x001f4124 */
 extern long  MercyMessage;              /* 0x0014fb40 */
 extern float MercyMessageCounter;       /* 0x0014fb44 */
-extern long  BabalityMessageG;          /* 0x0014fb28 */
-extern long  AnimalityMessageG;         /* 0x0014fb2c */
-extern long  FatalityMessageG;          /* 0x0014fb30 */
-extern long  FriendshipMessageG;        /* 0x0014fb34 */
+/* The symbol table calls these four `_BabalityMessage`, `_AnimalityMessage`,
+ * `_FatalityMessage` and `_FriendshipMessage`. The trailing G was invented
+ * here, and it made each of them look like a different variable from the one
+ * Blood.c writes at the same address. */
+extern long  BabalityMessage;           /* 0x0014fb28 */
+extern long  AnimalityMessage;          /* 0x0014fb2c */
+extern long  FatalityMessage;           /* 0x0014fb30 */
+extern long  FriendshipMessage;         /* 0x0014fb34 */
 extern long  AnimalityMessageCounter;   /* 0x0014fb38 */
 extern long  FatalityMessageCounter;    /* 0x0014fb3c */
 extern long  DoingStageFatal;           /* 0x0010dee0 */
@@ -6010,10 +6049,10 @@ void ResetFightData(void)
 
     MercyMessage            = 0;
     MercyMessageCounter     = 0;
-    BabalityMessageG        = 0;
-    AnimalityMessageG       = 0;
-    FatalityMessageG        = 0;
-    FriendshipMessageG      = 0;
+    BabalityMessage        = 0;
+    AnimalityMessage       = 0;
+    FatalityMessage        = 0;
+    FriendshipMessage      = 0;
     AnimalityMessageCounter = 0;
     FatalityMessageCounter  = 0;
 
@@ -6808,7 +6847,7 @@ long GameInit_LoadABit(long step)
         else if (*LevelSelectP == 11)
             RoundParam[0x24 / 4] = 4;
 
-        if (GameMode == 5 && *TreasurePlayed == 2)
+        if (GameMode == 5 && TreasurePlayed == 2)
             *LevelSelectP = 0;
 
         *FEBits1 = limeLoadTexture("FE_BUTTONS_01.PNG", 0, 0);
@@ -7590,9 +7629,9 @@ extern long   ComboNumber[2];           /* 0x0014e27c */
 extern long   ComboDamage[2];           /* 0x0014e274 */
 extern float  ComboSlider1[2];          /* 0x0014e28c */
 extern float  ComboSlider2[2];          /* 0x0014e294 */
-extern float *limeLastTouchScreenX;     /* pointer slot -> 0x00171b44 */
-extern float *limeTouchScreenY;         /* pointer slot -> 0x00171b1c */
-extern float *FE_FadeAdd;               /* pointer slot -> 0x0010089c */
+extern float  limeLastTouchScreenX[];     /* 0x00171b44, four slots */
+extern float  limeTouchScreenY[];         /* 0x00171b1c, four slots */
+extern float  FE_FadeAdd;               /* pointer slot -> 0x0010089c */
 
 void  HUDANIM_Render(void);
 void  achievementsDraw(void);
@@ -7601,7 +7640,8 @@ void  updateMPWins(void);
 void  InitEnduranceMatch(void);
 void  LIME_InitEventsManager(void);
 void  DumpAltCostume(char *player);
-void  LoadGameCharacterCheckCache(char *player, const char *def, long *stats);
+void  LoadGameCharacterCheckCache(char *player, const PLAYERDEF *def,
+                                  long *stats);
 void  mk3_set_four_button(long player, long fourButton);
 void  DrawControls(void);
 void  TrainingMessages(void);
@@ -7624,7 +7664,7 @@ static void RoundSummaryUpdate(void);
  * only difference apart from the text alignment. */
 static void DrawPlayerPlate(long p)
 {
-    float s    = *HUD_Scale;
+    float s    = HUD_Scale;
     float edge = p ? (float)limeScreenWidth : 0.0f;
     float dir  = p ? -1.0f : 1.0f;
     long  model = p ? *PLAYER2MODEL : PLAYER1MODEL;
@@ -7657,7 +7697,7 @@ static void DrawPlayerPlate(long p)
  * counter, because it has just been set to WinsNeeded on the loser. */
 static void DrawRoundWinCoins(long p)
 {
-    float s    = *HUD_Scale;
+    float s    = HUD_Scale;
     float edge = p ? (float)limeScreenWidth : 0.0f;
     float dir  = p ? -1.0f : 1.0f;
     long  wins = (GameMode == 1 && *theKode == 0x13) ? RoundWins[p ^ 1]
@@ -7677,7 +7717,7 @@ static void DrawRoundWinCoins(long p)
  * them on and off the screen. Karnage draws no text but still runs the timer. */
 static void DrawComboCounter(long p)
 {
-    float s = *HUD_Scale;
+    float s = HUD_Scale;
 
     if (ComboTimer[p] <= 0.0f)
         return;
@@ -7739,7 +7779,7 @@ static void RoundEndedAgainst(long loser)
     }
 
     flawlessVictories = 0;
-    *playerLostRound  = 1;
+    playerLostRound  = 1;
 
     /* The one-round kode hands the match over immediately. */
     if (GameMode == 1 && *theKode == 0x13) {
@@ -7856,7 +7896,7 @@ void DrawHUD(void)
     if (GamePaused)
         goto tail;
 
-    s = *HUD_Scale;
+    s = HUD_Scale;
 
     /* ---- the plates ---- */
     if (*theKode != 0x11)
@@ -8019,9 +8059,9 @@ static void RoundSummaryUpdate(void)
 
     /* A tap above the bottom band skips the rest of the wait. */
     if (GameMode != 4 && !IsInFinishing
-        && *limeLastTouchScreenX == -1.0f
-        && *limeTouchScreenY != -1.0f
-        && *limeTouchScreenY < (float)limeScreenHeight + FE_HeightScale * -64.0f
+        && limeLastTouchScreenX[0] == -1.0f
+        && limeTouchScreenY[0] != -1.0f
+        && limeTouchScreenY[0] < (float)limeScreenHeight + FE_HeightScale * -64.0f
         && RoundSummaryTime < ROUND_SUMMARY_HOLD)
         RoundSummaryTime = ROUND_SUMMARY_HOLD;
 
@@ -8065,7 +8105,7 @@ static void RoundSummaryUpdate(void)
     /* Nobody has the match yet. Fade out first, unless the fade already ran, in
      * which case start the next round now. */
     if (FE_Fade != 0.0f) {
-        *FE_FadeAdd       = -1.0f / 30.0f;
+        FE_FadeAdd       = -1.0f / 30.0f;
         DontQuitAfterFade = 1;
         return;
     }
@@ -8086,7 +8126,7 @@ static void RoundSummaryUpdate(void)
         if (*PLAYER2MODEL != PLAYER1MODEL)
             DumpAltCostume(Players + 0x5f0);
         LoadGameCharacterCheckCache(Players + 0x5f0,
-                                    PlayerDefs + *PLAYER2MODEL * PLAYERDEF_STRIDE,
+                                    &PlayerDefs[*PLAYER2MODEL],
                                     Stats);
     } else {
         ((signed char *)RoundParam)[0x18] = -1;
@@ -8565,7 +8605,7 @@ void Task_GameDestroy(void)
         NextTask    = 2;
         CurrentTask = 8;
         disableHeartbeat();
-    } else if (GameMode == 4 && *JustWon) {
+    } else if (GameMode == 4 && JustWon) {
         NextTask         = 5;
         CurrentTask      = 8;
         *LevelSelectPtr  = GetNextLevel(*LevelSelectPtr);
@@ -9276,7 +9316,7 @@ extern float  IntroAt[3];               /* 0x001abb74 */
 extern float  IntroCountTimer;          /* 0x0014e1cc */
 extern float  IntroFrameComp;           /* 0x00151068 */
 extern float  FE_Fade;                  /* pointer slot -> 0x00100898 */
-extern float *limeTouchScreenX;         /* pointer slot -> 0x00171af4 */
+extern float  limeTouchScreenX[];        /* 0x00171af4, four slots */
 
 void AnimateIntroCharacterPlayers1Frame(long a);
 void RenderIntroCharacterPlayer(void);
@@ -9393,28 +9433,28 @@ void IntroRender(void)
     }
 
     /* ---- the fade owns the frame while it is running ---- */
-    if (*FE_FadeAdd != 0.0f) {
+    if (FE_FadeAdd != 0.0f) {
         if (areAchievementsViewing())
-            FE_Fade += *FE_FadeAdd / 10.0f * limeFPSScaleFactor;
+            FE_Fade += FE_FadeAdd / 10.0f * limeFPSScaleFactor;
         else
-            FE_Fade += *FE_FadeAdd / limeFPSScaleFactor;
+            FE_Fade += FE_FadeAdd / limeFPSScaleFactor;
 
         if (FE_Fade <= 0.0f) {
-            if (*FE_FadeAdd < 0.0f) {
+            if (FE_FadeAdd < 0.0f) {
                 FE_Fade     = 0.0f;
-                *FE_FadeAdd = 0.0f;
+                FE_FadeAdd = 0.0f;
             }
-        } else if (FE_Fade >= 1.0f && *FE_FadeAdd > 0.0f) {
+        } else if (FE_Fade >= 1.0f && FE_FadeAdd > 0.0f) {
             FE_Fade     = 1.0f;
-            *FE_FadeAdd = 0.0f;
+            FE_FadeAdd = 0.0f;
         }
         return;
     }
 
     /* ---- the leading edge of a tap skips it, except on the network ---- */
     if (GameMode != 1
-        && *limeLastTouchScreenX == -1.0f
-        && *limeTouchScreenX != -1.0f) {
+        && limeLastTouchScreenX[0] == -1.0f
+        && limeTouchScreenX[0] != -1.0f) {
         DoIntro = 0;
         EndIntro();
     }
@@ -9654,8 +9694,8 @@ void Task_GameMain(void)
     /* a stage picked from the pause menu starts the fade that ends the round */
     if (GamePaused == 0
         && *InGameLevelSelect != *LevelSelectPtr
-        && *FE_FadeAdd == 0.0f)
-        *FE_FadeAdd = GAMEMAIN_FADE_OUT_STEP;
+        && FE_FadeAdd == 0.0f)
+        FE_FadeAdd = GAMEMAIN_FADE_OUT_STEP;
 
     /* one key holds block for both sides -- see the header */
     if (limePressed[0] & GAMEMAIN_KEY_BLOCK) {
@@ -9750,16 +9790,16 @@ void Task_GameMain(void)
     }
 
     /* ---- the fade, and what it ends ---- */
-    if (*FE_FadeAdd != 0.0f) {
+    if (FE_FadeAdd != 0.0f) {
         if (areAchievementsViewing())
-            FE_Fade += *FE_FadeAdd / 10.0f * limeFPSScaleFactor;
+            FE_Fade += FE_FadeAdd / 10.0f * limeFPSScaleFactor;
         else
-            FE_Fade += *FE_FadeAdd / limeFPSScaleFactor;
+            FE_Fade += FE_FadeAdd / limeFPSScaleFactor;
 
         if (FE_Fade <= 0.0f) {
-            if (*FE_FadeAdd < 0.0f) {
+            if (FE_FadeAdd < 0.0f) {
                 FE_Fade     = 0.0f;
-                *FE_FadeAdd = 0.0f;
+                FE_FadeAdd = 0.0f;
                 if (DontQuitAfterFade == 0) {
                     CurrentTask       = GAMEMAIN_TASK_DESTROY;
                     InGame            = 0;
@@ -9767,9 +9807,9 @@ void Task_GameMain(void)
                     otherPlayerPaused = 0;
                 }
             }
-        } else if (FE_Fade >= 1.0f && *FE_FadeAdd > 0.0f) {
+        } else if (FE_Fade >= 1.0f && FE_FadeAdd > 0.0f) {
             FE_Fade     = 1.0f;
-            *FE_FadeAdd = 0.0f;
+            FE_FadeAdd = 0.0f;
         }
 
         /* the music rides the same fade, if it is on and asked to */
@@ -9985,7 +10025,10 @@ void Task_GameMain(void)
 
 extern void  *LastGObj;                 /* 0x00150eb0 */
 extern long  *SkipFrame86;              /* pointer slot -> 0x00171774 */
-extern char   AllFramesTable[];         /* pointer slot -> 0x00218cc4 */
+/* Not a pointer slot -- 0x00218cc4 IS the array, a 470,860-byte
+ * `__DATA,__common` object. The extent and the evidence are on the declaration
+ * in Players.c, which spelled the same symbol `char *` and crashed on it. */
+extern char   AllFramesTable[];         /* 0x00218cc4 */
 
 long  mk3_who_in_front(void);
 long *HavePreloadedCharacter(long who);
@@ -10005,9 +10048,8 @@ void  LIME_TriggerEventsFromSceneOffsetIfFollowing(long slot, long follow,
 #define RLP_NEXT(o)     (*(Mk3Obj_t **)(o))
 #define RLP_PLAYER(i)   ((long *)(Players + (long)(i) * ARCADE_PLAYER_STRIDE))
 #define RLP_PTR(x)      ((long *)(uintptr_t)(unsigned long)(x))
-#define RLP_DEF(c)      ((const float *)(PlayerDefs + (c) * PLAYERDEF_STRIDE))
-#define RLP_DEFNAME(c)  (((char *const *)(PlayerDefs \
-                          + (c) * PLAYERDEF_STRIDE))[0x18 / 4])
+#define RLP_DEF(c)      (&PlayerDefs[c])
+#define RLP_DEFNAME(c)  (PlayerDefs[c].lighting)
 
 /* The six GL calls the transform is made of, emitted in two places. `out` is
  * where the model matrix is read back to -- f588 the first time, f548 the
@@ -10016,7 +10058,7 @@ static void RenderLevelPlayers_Pose(const long *w, long chr, float s,
                                     int withOffset, float *out)
 {
     const float *pf  = (const float *)w;
-    const float *def = RLP_DEF(chr);
+    const PLAYERDEF *def = RLP_DEF(chr);
 
     LIME_PushMatrix();
     glMatrixMode(GL_MODELVIEW);
@@ -10025,9 +10067,9 @@ static void RenderLevelPlayers_Pose(const long *w, long chr, float s,
     glScalef(s, s, s);
 
     if (withOffset)
-        glTranslatef(def[0x10 / 4] * (w[0x540 / 4] ? 2.15f : -2.15f),
+        glTranslatef(def->renderOffsetX * (w[0x540 / 4] ? 2.15f : -2.15f),
                      0.0f,
-                     def[0x14 / 4] * 0.65f);
+                     def->renderOffsetZ * 0.65f);
 
     glRotatef(90.0f, 1.0f, 0.0f, 0.0f);
 
@@ -10229,7 +10271,7 @@ void RenderLevelPlayers(void)
                 w[0x540 / 4] ^= 1;
             }
 
-            s16 = RLP_DEF(chr)[4 / 4];
+            s16 = RLP_DEF(chr)->scale;
 
             /* ---- pass 0 builds the lime matrix and the GL model matrix ---- */
             if (pass == 0 && w[0x14 / 4] != -1) {
@@ -10482,7 +10524,7 @@ void RenderLevelPlayers(void)
  *
  *      LastTouch_PauseN = Touch_PauseN;
  *      Touch_PauseN     = DrawOptionAsButton(...);
- *      if (LastTouch_PauseN && !Touch_PauseN && *limeTouchScreenX == -1.0f)
+ *      if (LastTouch_PauseN && !Touch_PauseN && limeTouchScreenX[0] == -1.0f)
  *
  * -- the finger has to have been inside last frame, be outside now, **and** be
  * off the screen entirely. Sliding off an option does not activate it. The
@@ -10617,7 +10659,7 @@ extern long   Touch_Pause4, Touch_Pause5, Touch_Pause6;
 extern long   LastTouch_Pause1, LastTouch_Pause2, LastTouch_Pause3;
 extern long   LastTouch_Pause4, LastTouch_Pause5, LastTouch_Pause6;
 extern const char *TrainingNames[];     /* pointer slot -> 0x00176718 */
-extern long  *TrainingCatagory;         /* pointer slot -> 0x0017809c */
+extern long   TrainingCatagory;         /* pointer slot -> 0x0017809c */
 
 void  Write_SettingsData(void);
 long  DrawOptionAsText(const char *text, float x, float y, float scale,
@@ -10627,7 +10669,7 @@ long  DrawOptionAsButton(const char *text, float x, float y, float scale,
 
 #define PAUSE_COL(last)   (&mmfontcol[((last) + 1) * 4])
 #define PAUSE_RELEASED(last, now) \
-    ((last) != 0 && (now) == 0 && *limeTouchScreenX == -1.0f)
+    ((last) != 0 && (now) == 0 && limeTouchScreenX[0] == -1.0f)
 
 /* The panel behind every one of these screens: the right half of the 512-square
  * page, so u is 0.5 and the extents are 0.5 by 0.75. */
@@ -10721,22 +10763,22 @@ void UpdateInGamePauseMenu(void)
         /* ---- CANCEL, then the list itself ---- */
         limeEnableAlphaBlending_Additive();
         limeDrawSprite((TEXTURE *)CancelTexture,
-                       (float)limeScreenWidth + *HUD_Scale * CANCEL_X_OFF,
-                       *HUD_Scale * CANCEL_Y_OFF,
-                       *HUD_Scale * CANCEL_SIZE, *HUD_Scale * CANCEL_SIZE,
+                       (float)limeScreenWidth + HUD_Scale * CANCEL_X_OFF,
+                       HUD_Scale * CANCEL_Y_OFF,
+                       HUD_Scale * CANCEL_SIZE, HUD_Scale * CANCEL_SIZE,
                        0.0f, 0.0f, 1.0f, 1.0f, col);
         limeEnableAlphaBlending_Basic();
         MovesList();
 
         /* the corner is dismissed on the frame the finger comes off */
-        if (*limeLastTouchScreenX == -1.0f)
+        if (limeLastTouchScreenX[0] == -1.0f)
             return;
-        if (*limeTouchScreenX != -1.0f)
+        if (limeTouchScreenX[0] != -1.0f)
             return;
-        if (*limeLastTouchScreenX
-            <= (float)limeScreenWidth - *HUD_Scale * CANCEL_HIT)
+        if (limeLastTouchScreenX[0]
+            <= (float)limeScreenWidth - HUD_Scale * CANCEL_HIT)
             return;
-        if (*HUD_Scale * CANCEL_HIT <= *limeLastTouchScreenY)
+        if (HUD_Scale * CANCEL_HIT <= limeLastTouchScreenY[0])
             return;
 
         PauseClick();
@@ -10997,7 +11039,7 @@ void UpdateInGamePauseMenu(void)
             EASDK_LogEvent(EV_VERSUS_QUIT, 0, NULL, 0, NULL);
         else if (GameMode == 2)
             EASDK_LogEvent(EV_TRAINING_QUIT, 15,
-                           TrainingNames[*TrainingCatagory], 0, NULL);
+                           TrainingNames[TrainingCatagory], 0, NULL);
         else if (GameMode == 6)
             EASDK_LogEvent(EV_VERSUS_QUIT, 15, "2 Players on 1 iPad", 0, NULL);
         return;

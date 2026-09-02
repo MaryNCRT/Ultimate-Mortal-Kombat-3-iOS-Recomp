@@ -392,7 +392,7 @@ void checkIfKode(void)
 }
 
 
-extern long *LevelSelect;               /* pointer slot -> 0x000ff7f8 */
+extern long  LevelSelect;               /* pointer slot -> 0x000ff7f8 */
 extern long *requestedLevel;            /* pointer slot -> 0x0010deb0 */
 
 extern long GameMode;                   /* 0x0014faa4 */
@@ -441,16 +441,16 @@ int  isParent(void);
 void preprocessPreloadKode(void)
 {
     switch (*theKode) {
-    case  3: *LevelSelect =  1; sendLevelPacket(); break;
-    case  4: *LevelSelect = 10; sendLevelPacket(); break;
-    case  5: *LevelSelect =  0; sendLevelPacket(); break;
-    case  6: *LevelSelect =  4; sendLevelPacket(); break;
-    case  7: *LevelSelect =  8; sendLevelPacket(); break;
-    case  8: *LevelSelect =  9; sendLevelPacket(); break;
-    case  9: *LevelSelect =  2; sendLevelPacket(); break;
-    case 10: *LevelSelect =  3; sendLevelPacket(); break;
-    case 11: *LevelSelect =  5; sendLevelPacket(); break;
-    case 12: *LevelSelect = 11; sendLevelPacket(); break;
+    case  3: LevelSelect =  1; sendLevelPacket(); break;
+    case  4: LevelSelect = 10; sendLevelPacket(); break;
+    case  5: LevelSelect =  0; sendLevelPacket(); break;
+    case  6: LevelSelect =  4; sendLevelPacket(); break;
+    case  7: LevelSelect =  8; sendLevelPacket(); break;
+    case  8: LevelSelect =  9; sendLevelPacket(); break;
+    case  9: LevelSelect =  2; sendLevelPacket(); break;
+    case 10: LevelSelect =  3; sendLevelPacket(); break;
+    case 11: LevelSelect =  5; sendLevelPacket(); break;
+    case 12: LevelSelect = 11; sendLevelPacket(); break;
     default: break;                     /* no level selected */
     }
 
@@ -460,14 +460,14 @@ void preprocessPreloadKode(void)
     if (!isParent())
         return;
 
-    *LevelSelect = *requestedLevel;     /* the host has the last word */
+    LevelSelect = *requestedLevel;     /* the host has the last word */
     sendLevelPacket();
     puts("MP:KODE NOT ENTERED");
 }
 
 
-extern float *FE_HeightScale;           /* pointer slot -> 0x000ff9bc */
-extern float *FE_WidthScale;            /* pointer slot -> 0x000ff9b8 */
+extern float  FE_HeightScale;           /* pointer slot -> 0x000ff9bc */
+extern float  FE_WidthScale;            /* pointer slot -> 0x000ff9b8 */
 extern void **GameFontSlot;             /* pointer slot -> 0x001abb98 */
 extern long  *GamePausedPtr;            /* pointer slot */
 extern int   *limeScreenWidthP;         /* pointer slot */
@@ -572,18 +572,18 @@ void achievementsDraw(void)
 
         y = (float)((double)*limeScreenHeightP
                     + sin((double)achievementsDescr[i].timer.f)
-                      * -32.0 * (double)*FE_HeightScale);
+                      * -32.0 * (double)FE_HeightScale);
 
         limeFillRect(0.0f, y, (float)*limeScreenWidthP,
-                     32.0f * *FE_HeightScale, 0.0f, 0.0f, 0.0f, 0.5f);
+                     32.0f * FE_HeightScale, 0.0f, 0.0f, 0.0f, 0.5f);
 
         limeDrawFONT(*GameFontSlot, GameText(0x65),
-                     4.0f * *FE_WidthScale, y + 20.0f * *FE_HeightScale,
-                     0, 0.65f * *FE_WidthScale, grey);
+                     4.0f * FE_WidthScale, y + 20.0f * FE_HeightScale,
+                     0, 0.65f * FE_WidthScale, grey);
 
         limeDrawFONT(*GameFontSlot, GameText(achievementsDescr[i].id),
-                     14.0f * *FE_WidthScale, y + 20.0f * *FE_HeightScale,
-                     0, 0.9f * *FE_WidthScale, white);
+                     14.0f * FE_WidthScale, y + 20.0f * FE_HeightScale,
+                     0, 0.9f * FE_WidthScale, white);
 
         if (*GamePausedPtr == 0) {
             double t = achievementsDescr[i].timer.f;
@@ -606,7 +606,7 @@ void achievementsDraw(void)
 }
 
 
-extern void **KodesTexture;             /* pointer slot -> 0x00183f1c */
+extern void *KodesTexture;             /* pointer slot -> 0x00183f1c */
 extern void  *GameFont;                 /* pointer slot -> 0x001abb98 */
 extern float *fontcolP;                 /* pointer slot -> 0x0014f9f0 */
 extern float *FE_WidthScaleP;           /* pointer slot -> 0x000ff9b8 */
@@ -651,7 +651,7 @@ void  limeDrawSprite(TEXTURE *tex, float x, float y, float w, float h,
  *
  * ### It reloads the texture every single call
  *
- *      *KodesTexture = limeLoadTexture("KOMBAT_KODES_TPAGE.PNG", 0, 0);
+ *      KodesTexture = limeLoadTexture("KOMBAT_KODES_TPAGE.PNG", 0, 0);
  *
  * unconditionally, at the top of every frame this tip is on screen, and the
  * previous handle is overwritten without being freed. `drawLoadingBackground`
@@ -688,7 +688,7 @@ void drawKodeTip(long index)
                  1, *FE_WidthScaleP, fontcolP);
 
     /* reloaded every call, and the old handle is dropped -- see above */
-    *KodesTexture = limeLoadTexture("KOMBAT_KODES_TPAGE.PNG", 0, 0);
+    KodesTexture = limeLoadTexture("KOMBAT_KODES_TPAGE.PNG", 0, 0);
 
     for (i = 0; i < 6; i++) {
         long v   = seq[i];
@@ -697,7 +697,7 @@ void drawKodeTip(long index)
         float x  = (float)(0x86 + (i % 3) * 0x20);
         float y  = (i < 3) ? 160.0f : 160.0f + 116.0f;
 
-        limeDrawSprite((TEXTURE *)*KodesTexture,
+        limeDrawSprite((TEXTURE *)KodesTexture,
                        x * *FE_WidthScaleP, y * *FE_HeightScaleP,
                        32.0f * *FE_WidthScaleP, 32.0f * *FE_HeightScaleP,
                        (float)((double)(col * 48) * 0.00390625),   /* 1/256 */

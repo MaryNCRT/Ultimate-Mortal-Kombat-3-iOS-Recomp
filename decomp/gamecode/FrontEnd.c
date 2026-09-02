@@ -422,7 +422,7 @@ void PopFETaskDeferred(void)
 
 extern float FE_HeightScale;            /* 0x000ff9bc */
 extern float FE_YOffset;                /* 0x000ff9b4 */
-extern int  *limeScreenWidth;           /* pointer slot at 0x00171aec */
+extern int   limeScreenWidth;           /* pointer slot at 0x00171aec */
 
 
 /* ---------------------------------------------------------------------- FE_Y
@@ -454,7 +454,7 @@ float FE_Y(float y)
  */
 float getScale(void)
 {
-    return (float)(*limeScreenWidth) / 480.0f;
+    return (float)(limeScreenWidth) / 480.0f;
 }
 
 
@@ -586,7 +586,27 @@ int getRandomLevel(void)
 
 
 extern long **FrameRemapTablePtr;       /* pointer slot -> 0x002003d4 */
-extern char **PlayerDefsPtr;            /* pointer slot -> 0x00170950 */
+typedef struct PLAYERDEF {
+    long        id;             /* 0x00  0..25; the same as the index */
+    float       scale;          /* 0x04  multiplied by PlayerSize */
+    float       posOffsetX;     /* 0x08  added or subtracted by facing */
+    float       height;         /* 0x0c  added to Z in ArcadePosTo3dPos */
+    float       renderOffsetX;  /* 0x10  glTranslatef x, times +/-2.15 */
+    float       renderOffsetZ;  /* 0x14  glTranslatef z, times 0.65 */
+    const char *lighting;       /* 0x18  "KANO" */
+    const char *frameList;      /* 0x1c  "kanoframes.txt" */
+    const char *bones;          /* 0x20  "KANO_STANDARD.bones" */
+    const char *skin;           /* 0x24  "KANO_STANDARD.skin" */
+    const char *skinAnim;       /* 0x28  "KANO_STANDARD.skinanim" */
+    const char *texBase;        /* 0x2c  "KANO" */
+    const char *scene;          /* 0x30  "KANO_STANDARD.scene" */
+} PLAYERDEF;
+
+/* 52 bytes an entry IN THE IMAGE, where a pointer is four bytes. Kept because
+ * the compiler spells the multiply out as `(n*16 - n*4 + n) << 2` and that is
+ * how the stride was read off in the first place. The host struct is wider and
+ * nothing should use this number to index it. */
+extern const PLAYERDEF PlayerDefs[];   /* 0x00170950, 26 entries */
 extern float *PlayerZPosPtr;            /* pointer slot -> 0x00150e88 */
 
 typedef struct limeVECTOR3 { float x, y, z; } limeVECTOR3;
@@ -635,11 +655,11 @@ int HaveFrameInList(const long *list, long frame)
  */
 void GetCharacterOffsetPos(int index, limeVECTOR3 *out)
 {
-    const char *def = *PlayerDefsPtr + index * 52;
+    const PLAYERDEF *def = &PlayerDefs[index];
 
-    out->x = *(const float *)(def + 0x08);
+    out->x = def->posOffsetX;
     out->y = *PlayerZPosPtr;
-    out->z = *(const float *)(def + 0x0c);
+    out->z = def->height;
 }
 
 
@@ -1055,7 +1075,7 @@ void Reset_PresetButtonData(void)
 
 
 extern int  Settings[10];               /* 0x00100e34 */
-extern int *limeScreenHeight;           /* pointer slot -> 0x00171af0 */
+extern int  limeScreenHeight;           /* pointer slot -> 0x00171af0 */
 int  limeCheckForUserMusic(void);
 
 
@@ -1154,7 +1174,7 @@ void ResetSettingsData(void)
  */
 int getMenuStartPos(const int *menu)
 {
-    float mid  = (float)(*limeScreenHeight / 2);
+    float mid  = (float)(limeScreenHeight / 2);
     float step = -16.0f * getScale();
 
     return (int)(mid + step * (float)getMenuItemNum(menu));
@@ -1714,7 +1734,9 @@ void DestroyFEMeshSets(void)
 extern float FE_AspectRatioAdjust;      /* 0x000ff9c0 */
 extern float FE_WidthScale;             /* 0x000ff9b8 */
 extern float HUD_Scale;                 /* 0x000ff9c4 */
-extern int  *UseLOWAssetsPtr;           /* slot -> 0x0010df10 */
+/* The symbol is `_UseLOWAssets`; the Ptr suffix was invented here and
+ * made one variable look like two. */
+extern long UseLOWAssets;               /* 0x0010df10 */
 
 
 /* --------------------------------------------------------------- SetupFEScale
@@ -1739,7 +1761,7 @@ extern int  *UseLOWAssetsPtr;           /* slot -> 0x0010df10 */
  * on anything else. FE_HeightScale divides by it and FE_YOffset centres what is
  * left, which is letterboxing done in the layout rather than in the projection.
  *
- * **UseLOWAssets is set by WIDTH alone, and only for exactly 480.** Not "480 or
+ * *UseLOWAssets is set by WIDTH alone, and only for exactly 480.** Not "480 or
  * less": a 320-wide device would get the high assets. That is what the code
  * says.
  *
@@ -1748,8 +1770,8 @@ extern int  *UseLOWAssetsPtr;           /* slot -> 0x0010df10 */
  */
 void SetupFEScale(void)
 {
-    int   w = *limeScreenWidth;
-    int   h = *limeScreenHeight;
+    int   w = limeScreenWidth;
+    int   h = limeScreenHeight;
     float aspect = (float)w / (float)h;
     float adj;
 
@@ -1762,7 +1784,7 @@ void SetupFEScale(void)
 
     HUD_Scale = (FE_WidthScale >= 2.0f) ? 1.75f : 1.0f;
 
-    *UseLOWAssetsPtr = (w == 480) ? 1 : 0;           /* exactly 480, not <= */
+    UseLOWAssets = (w == 480) ? 1 : 0;           /* exactly 480, not <= */
 }
 
 
@@ -2470,7 +2492,7 @@ void FE_DrawLeaderBoardEntriesCallback(int rank, int offset, const char *name,
     if (show == 0)
         return;
 
-    y = (float)(*limeScreenHeight / 2 + 10)
+    y = (float)(limeScreenHeight / 2 + 10)
         + FE_HeightScale * -80.0f
         + FE_HeightScale * (float)(rank * 16);
 
@@ -2480,7 +2502,7 @@ void FE_DrawLeaderBoardEntriesCallback(int rank, int offset, const char *name,
 
     snprintf(buf, sizeof buf, "%d", score);
     limeDrawFONT(GameFont, buf,
-                 (float)*limeScreenWidth + FE_WidthScale * -60.0f,
+                 (float)limeScreenWidth + FE_WidthScale * -60.0f,
                  (float)(long)y, 2, FE_WidthScale, colour);
 }
 
@@ -2588,10 +2610,10 @@ long DrawOptionAsText(const char *text, float x, float y, float scale,
 }
 
 
-extern float *limeTouchScreenX;         /* pointer slot -> 0x00171af4 */
-extern float *limeTouchScreenY;         /* pointer slot */
-extern float *limeLastTouchScreenX;     /* pointer slot */
-extern float *limeLastTouchScreenY;     /* pointer slot */
+extern float  limeTouchScreenX[];        /* 0x00171af4, four slots */
+extern float  limeTouchScreenY[];         /* pointer slot */
+extern float  limeLastTouchScreenX[];     /* pointer slot */
+extern float  limeLastTouchScreenY[];     /* pointer slot */
 extern long  SFXHandle[];               /* 0x001ab99c -- an ARRAY of sound handles.
                                          * Every site reaches it as `ldr r3,[slot]`
                                          * then `ldr r0,[r3,#0x68]`: the slot holds
@@ -2914,12 +2936,12 @@ void FE_Task_Multiplayer_Disconnected(void)
     mpLobbyCurrentPage = 0;
 
     limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0234375f, 1.0f, 0.703125f, col);
 
     limeDrawFONT(GameFont, GameText(0xc4),
-                 (float)(*limeScreenWidth / 2),
-                 (float)(*limeScreenHeight / 2 - 0x14),
+                 (float)(limeScreenWidth / 2),
+                 (float)(limeScreenHeight / 2 - 0x14),
                  1, FE_WidthScale, col);
 
     pressed = DrawButtonNew(&BUTTON_1X3_3, 0xed, 0xe6, 1)
@@ -3203,7 +3225,7 @@ long BasicMenuMod(const long *items, const long *disabled)
     for (count = 1; items[count] != -1; count++)
         ;
 
-    y = (float)(*limeScreenHeight / 2)
+    y = (float)(limeScreenHeight / 2)
         - (float)(count * 16) * FE_HeightScale;
 
     if (count <= 0)
@@ -3216,7 +3238,7 @@ long BasicMenuMod(const long *items, const long *disabled)
         float cx, tx, ty;
 
         limeDrawFONT(GameFont, GameText(items[i]),
-                     (float)(*limeScreenWidth / 2),
+                     (float)(limeScreenWidth / 2),
                      y + (float)off * FE_HeightScale,
                      1, FE_WidthScale, colour);
 
@@ -3224,7 +3246,7 @@ long BasicMenuMod(const long *items, const long *disabled)
         if (limeLastTouchScreenX[0] != -1.0f)
             continue;
 
-        cx = (float)(*limeScreenWidth / 2);
+        cx = (float)(limeScreenWidth / 2);
         tx = limeTouchScreenX[0];
 
         if (tx < cx + w * -0.5f)
@@ -3384,7 +3406,7 @@ long DrawButtonNew(BUTTONNEW *b, int x, int y, int interactive)
 extern char CancelCustomButtonsPos4[0x78];
 extern char CancelCustomButtonsPos5[0x78];
 extern char CancelCustomButtonsPos6[0x78];
-extern long *P2Controls;                /* pointer slot */
+extern long  P2Controls;                /* pointer slot */
 /* A direct global, not a pointer slot: the pcrel add lands on 0x00100f84 and
  * the store is `str r?, [r3]`, one deref. It was declared `long *` and written
  * through as `*ButtonEditModePtr`, which is one deref too many. Corrected while
@@ -3413,7 +3435,7 @@ void PopFETaskDeferred(void);
  * The Save label is left-aligned at `FE_X(16)` and the Cancel label
  * right-aligned (align 2) at `FE_X(472)`, both at `FE_Y(8)`.
  *
- * **`*P2Controls` is cleared on every frame of this screen**, before
+ * **`P2Controls` is cleared on every frame of this screen**, before
  * `DrawControls`, so the preview always shows the player-one layout no matter
  * which player's controls are being edited.
  *
@@ -3445,11 +3467,11 @@ void FE_Task_Button_Edit(void)
     long row, k;
 
     limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0234375f, 1.0f, 0.703125f, col);
 
     EditButtons();
-    *P2Controls = 0;                    /* always the player-one preview */
+    P2Controls = 0;                    /* always the player-one preview */
     DrawControls();
 
     save = DrawButtonNew(&BUTTON_SAVE, 0x26, 0x10, 1);
@@ -3665,7 +3687,7 @@ long usprintf(char *dst, const char *fmt, ...);
 long BasicMenuWithWidth(const long *items, int width)
 {
     char buf[0x100];
-    float scale = (float)*limeScreenWidth / 480.0f;
+    float scale = (float)limeScreenWidth / 480.0f;
     float pitch, base, blockH;
     long count = 0;
     long selected = 0;
@@ -3677,10 +3699,10 @@ long BasicMenuWithWidth(const long *items, int width)
 
     pitch  = scale * 32.0f;
     blockH = pitch * (float)count;
-    base   = (float)(long)((float)(*limeScreenHeight / 2)
+    base   = (float)(long)((float)(limeScreenHeight / 2)
                            - scale * (float)(count * 16));
 
-    limeFillRect((float)(*limeScreenWidth / 2) + (float)width * -0.5f,
+    limeFillRect((float)(limeScreenWidth / 2) + (float)width * -0.5f,
                  base - 8.0f, (float)width, blockH,
                  0.0f, 0.0f, 0.0f, 0.7f);
 
@@ -3689,7 +3711,7 @@ long BasicMenuWithWidth(const long *items, int width)
 
     for (i = 0; i < count; i++) {
         float y = base + (float)i * pitch;
-        float cx = (float)(*limeScreenWidth / 2);
+        float cx = (float)(limeScreenWidth / 2);
         float tx, ty, w;
 
         if (i == 0) {                   /* the heading, never hit-tested */
@@ -3810,14 +3832,14 @@ void DrawTicker(void)
         return;
 
     limeFillRect(0.0f, (float)(displayTicker - 0x18) * FE_HeightScale,
-                 (float)*limeScreenWidth, 24.0f * FE_HeightScale,
+                 (float)limeScreenWidth, 24.0f * FE_HeightScale,
                  0.0f, 0.0f, 0.0f, 0.6f);
 
     for (t = EASDK_GetLoadedTicker(i); t != 0;
          t = EASDK_GetLoadedTicker(i)) {
         const char *msg = EASDK_GetTickerMsg();
         const char *url;
-        float left = (float)*limeScreenWidth + tickeroff + x;
+        float left = (float)limeScreenWidth + tickeroff + x;
         float w;
 
         limeDrawFONT(GameFont, limeUC(msg), left,
@@ -3846,7 +3868,7 @@ void DrawTicker(void)
     }
 
     tickeroff -= 2.0f;                  /* not frame-rate scaled */
-    if (tickeroff < -(x + (float)*limeScreenWidth + 64.0f * FE_WidthScale))
+    if (tickeroff < -(x + (float)limeScreenWidth + 64.0f * FE_WidthScale))
         tickeroff = 0.0f;
 
     if (hideTicker != 0) {
@@ -3915,7 +3937,7 @@ void FE_Task_Select_Leaderboard(void)
     long choice, back;
 
     limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0234375f, 1.0f, 0.703125f, col);
 
     choice = drawPage2x1Wide(0, 0x1e);
@@ -4019,7 +4041,7 @@ void FE_Task_About_Usage_Sharing(void)
     long back;
 
     limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0234375f, 1.0f, 0.703125f, col);
 
     pressed = DrawButtonNew(&BUTTON_1X1_1D, 0xf0, 0xa0, 1);
@@ -4116,7 +4138,7 @@ void FE_Task_ResetAllDataConfirmation(void)
     long yes, no;
 
     limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0234375f, 1.0f, 0.703125f, col);
 
     limeDrawFONT(GameFont, GameText(0x11c),
@@ -4217,7 +4239,7 @@ void FE_Task_Catagory_Select(void)
     long choice, back;
 
     limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0234375f, 1.0f, 0.703125f, col);
 
     choice = drawPage1x3Small();
@@ -4299,7 +4321,7 @@ void FE_Task_Catagory_Select(void)
  *
  * Ends by handing control on: `CurrentTask = 8`, `NextTask = 5`.
  */
-extern void **ButtonsTPage;             /* pointer slot */
+extern void *ButtonsTPage;             /* pointer slot */
 extern void **FEBits3;                  /* pointer slot */
 extern void **SmokeTexture;             /* pointer slot */
 extern void **FBIconTexture;            /* pointer slot */
@@ -4327,7 +4349,7 @@ extern void *MainLogoTexture;           /* 0x00183f20 */
 extern void *SelectBGTexture;           /* 0x00183f24 */
 extern void *PortraitBorderTexture;     /* 0x00183f2c */
 
-extern long *NextTask;                  /* pointer slot -> 0x0015058c */
+extern long  NextTask;                  /* pointer slot -> 0x0015058c */
 
 void FreeFrontEndCharacters(void);
 void limeDeleteSound(long handle);
@@ -4358,7 +4380,7 @@ void Task_FEDestroy(void)
         limeDeleteTexture(CharacterVSTexture2[i]);
     }
 
-    limeDeleteTexture(*ButtonsTPage);
+    limeDeleteTexture(ButtonsTPage);
     limeDeleteTexture(OrangeTexture);
     for (i = 0; i < 10; i++)
         limeDeleteTexture(FireLogo[i]);
@@ -4400,7 +4422,7 @@ void Task_FEDestroy(void)
     DestroyFEMeshSets();
 
     CurrentTask = 8;
-    *NextTask   = 5;
+    NextTask   = 5;
 }
 
 
@@ -4449,7 +4471,7 @@ void FE_Task_Manage_Social_Features(void)
     long choice, back;
 
     limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0234375f, 1.0f, 0.703125f, col);
 
     if (socialConnectionAvailable == -1)
@@ -4578,16 +4600,16 @@ void FE_Task_Manage_Social_Features(void)
 #define FE_CHARACTER_STRIDE 0x668
 
 extern long   FEChars[2];               /* 0x0018ed78 */
-extern float *SceneGroundOffset;        /* pointer slot -> 0x0014df8c */
-extern float *ShadowOffset;             /* pointer slot */
+extern float  SceneGroundOffset;        /* pointer slot -> 0x0014df8c */
+extern float  ShadowOffset;             /* pointer slot */
 extern float  FECAMPOSX;                /* 0x00101710 */
 extern float  FECAMPOSY;                /* 0x00101714 */
 extern float  FECAMPOSZ;                /* 0x00101718 */
 extern float  FEPlayer1Offset;          /* 0x00183d68 */
 extern float  FEPlayer2Offset;          /* 0x00183d64 */
 extern char  *TheFECharacters;          /* pointer slot -> 0x0020e634 */
-extern char  *PlayerDefs;               /* pointer slot -> 0x00170950 */
-extern float *PlayerSize;               /* pointer slot */
+/* PlayerDefs is declared with its struct near the top of this file. */
+extern float  PlayerSize;               /* pointer slot */
 
 void ClearDebugWindow(int index);
 void LIME_Slider(int window, float *value, const char *label,
@@ -4608,8 +4630,8 @@ void RenderFECharacters(long slot0, long slot1)
     FEChars[1] = slot1;
 
     LIMEDS_Set3dMode();
-    *SceneGroundOffset = 0.0f;
-    *ShadowOffset = 0.0f;
+    SceneGroundOffset = 0.0f;
+    ShadowOffset = 0.0f;
     ClearDebugWindow(1);
 
     LIME_Slider(1, &FECAMPOSX, "camx", -10.0f, 10.0f, 0, 0);
@@ -4618,11 +4640,11 @@ void RenderFECharacters(long slot0, long slot1)
     LIME_Slider(1, &CameraLookAt[0], "atx", -100.0f, 100.0f, 0, 0);
     LIME_Slider(1, &CameraLookAt[1], "aty", -100.0f, 100.0f, 0, 0);
     LIME_Slider(1, &CameraLookAt[2], "atz", -100.0f, 100.0f, 0, 0);
-    LIME_Slider(1, SceneGroundOffset, "groundoff", -100.0f, 100.0f, 0, 0);
+    LIME_Slider(1, &SceneGroundOffset, "groundoff", -100.0f, 100.0f, 0, 0);
 
     for (i = 0; i < 2; i++) {
         char  *ch;
-        float *def;
+        const PLAYERDEF *def;
         void **anim;
         float  scale;
         long   which;
@@ -4657,8 +4679,8 @@ void RenderFECharacters(long slot0, long slot1)
         if (i != 0)
             *(float *)(ch + 0x5c8) = -*(float *)(ch + 0x5c8);
 
-        def = (float *)(PlayerDefs + FEChars[i] * 52);
-        scale = def[1] * *PlayerSize;   /* PLAYERDEF+0x04 */
+        def = &PlayerDefs[FEChars[i]];
+        scale = def->scale * PlayerSize;
 
         LIME_PushMatrix();
         glMatrixMode(0x1700);           /* GL_MODELVIEW */
@@ -4778,7 +4800,7 @@ void FE_Task_About_Usage_Sharing_Confirm(void)
     long  back;
 
     limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0234375f, 1.0f, 0.703125f, col);
 
     if (strcmp(Language, "ZH") == 0 || strcmp(Language, "KO") == 0) {
@@ -4799,12 +4821,12 @@ void FE_Task_About_Usage_Sharing_Confirm(void)
         body = GameText(Settings[9] ? 0xb1 : 0xb2);
 
         CreateWrappedTextArrays(body, HelpSpiltText, &lines,
-                                *limeScreenWidth - 0x20,
+                                limeScreenWidth - 0x20,
                                 GameFont, bodyScale * FE_WidthScale);
 
         for (i = 0; i < lines; i++)
             limeDrawFONT(GameFont, limeUC(&HelpSpiltText[i * 256]),
-                         (float)(*limeScreenWidth / 2),
+                         (float)(limeScreenWidth / 2),
                          (float)FE_Y((float)(i * 16 + 0x48)),
                          1, bodyScale * FE_WidthScale, fontcol);
     }
@@ -4825,7 +4847,7 @@ void FE_Task_About_Usage_Sharing_Confirm(void)
 
     if (limeLastTouchScreenX[0] == -1.0f
         && limeTouchScreenX[0] <= 114.0f * FE_WidthScale
-        && limeTouchScreenY[0] >= (float)*limeScreenHeight
+        && limeTouchScreenY[0] >= (float)limeScreenHeight
                                   + -64.0f * FE_HeightScale) {
         puts("OPTOUT CONFIRMED!");
 
@@ -4912,7 +4934,7 @@ void FE_Task_About_Usage_Sharing_Confirm(void)
  */
 extern long  pressedPlay;               /* 0x000ff824 */
 extern long  opponentPressedPlay;       /* 0x000ff828 */
-extern long *WaitForOpponent;           /* pointer slot -> 0x0010df18 */
+extern long  WaitForOpponent;           /* pointer slot -> 0x0010df18 */
 extern long *startTime;                 /* pointer slot */
 extern long *syncState;                 /* pointer slot */
 extern long *readyToSync;               /* pointer slot */
@@ -4943,16 +4965,16 @@ void FE_Task_Multiplayer_Summary(void)
     opponentPressedPlay = 0;
 
     limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0234375f, 1.0f, 0.703125f, col);
 
     choice = 0;
 
-    live = (*WaitForOpponent == 0) && isParent();
+    live = (WaitForOpponent == 0) && isParent();
     if (DrawButtonNew(&BUTTON_1X3_1, 0xed, 0x5a, (int)live))
         choice = (FE_FadeAdd == 0.0f) ? 1 : 0;
 
-    live = (*WaitForOpponent == 0) && isParent();
+    live = (WaitForOpponent == 0) && isParent();
     if (DrawButtonNew(&BUTTON_1X3_2, 0xed, 0xa0, (int)live)) {
         if (FE_FadeAdd == 0.0f)
             choice = 2;
@@ -4963,7 +4985,7 @@ void FE_Task_Multiplayer_Summary(void)
             choice = 3;
     }
 
-    if (*WaitForOpponent == 0 && isParent()) {
+    if (WaitForOpponent == 0 && isParent()) {
         limeDrawFONT(GameFont, GameText(0xf7), (float)FE_X(235.0f),
                      (float)FE_Y(82.0f), 1, FE_WidthScale, fontcol);
         limeDrawFONT(GameFont, GameText(0xc6), (float)FE_X(235.0f),
@@ -5097,16 +5119,16 @@ void FE_Task_Continue_Screen(void)
     long yes, no, action;
 
     limeFillRect(0.0f, 0.0f,
-                 (float)*limeScreenWidth, (float)*limeScreenHeight,
+                 (float)limeScreenWidth, (float)limeScreenHeight,
                  0.0f, 0.0f, 0.0f, 1.0f);
 
     limeDrawSprite((TEXTURE *)GameOverTopTexture, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0f, 1.0f, 0.75f, col);
 
     limeDrawSprite((TEXTURE *)GameOverBottomTexture,
                    0.0f, (float)FE_Y(143.0f),
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0f, 1.0f, 0.75f, col);
 
     limeDrawFONT(GameFont, GameText(0x51), (float)FE_X(120.0f),
@@ -5249,16 +5271,16 @@ void FE_Task_Continue_Screen(void)
  * was not. Its own inner `if (r3 > 15) restore and give up` is dead a second
  * time over, since the index is wrapped to 0..15 on the line before.
  */
-extern long *otherPlayerPaused;         /* pointer slot */
+extern long  otherPlayerPaused;         /* pointer slot */
 extern long  playerLostRound;           /* 0x000ff8b8 */
-extern long *defeatedBySK;              /* pointer slot */
-extern long *GamePaused;                /* pointer slot */
+extern long  defeatedBySK;              /* pointer slot */
+extern long  GamePaused;                /* pointer slot */
 extern long  Touch_MMOptions;           /* 0x00100e5c */
 extern long  Touch_MMPlay;              /* 0x00100e60 */
 extern long  Touch_MMHelp;              /* 0x00100e64 */
 extern long  Touch_MMExtra;             /* 0x00100e68 */
 extern long  Touch_MMMore;              /* 0x00100e6c */
-extern long *flawlessVictories;         /* pointer slot */
+extern long  flawlessVictories;         /* pointer slot */
 extern long  LevelSelect;               /* 0x000ff7f8 */
 
 int  EASOC_MayhemNeedsUserName(void);
@@ -5283,12 +5305,12 @@ void FE_Task_Main_Menu(void)
 {
     long sel;
 
-    *otherPlayerPaused = 0;
+    otherPlayerPaused = 0;
     playerLostRound    = 1;
-    *defeatedBySK      = 0;
+    defeatedBySK      = 0;
     limeRand();                         /* result discarded: stirs the sequence */
     mpLobbyCurrentPage = 0;
-    *GamePaused        = 0;
+    GamePaused        = 0;
     resetKodeSelector();
 
     if (EASOC_MayhemNeedsUserName())
@@ -5298,7 +5320,7 @@ void FE_Task_Main_Menu(void)
     limeSet2DDrawing();
 
     limeDrawSprite((TEXTURE *)MainMenuBGTexture, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0f, 1.0f, 0.75f, col);
 
     DrawVortex3D();
@@ -5351,7 +5373,7 @@ void FE_Task_Main_Menu(void)
             FESlideNextTask = 7;
             EASDK_LogEvent(0xc35d, 15, "MAIN MENU", 15, "HELP & ABOUT");
         } else if (sel == 0) {
-            *flawlessVictories = 0;
+            flawlessVictories = 0;
             FESlideDir      = 1;
             FESlideNextTask = 1;
             EASDK_LogEvent(0xc35d, 15, "MAIN MENU", 15, "PLAY");
@@ -5468,8 +5490,8 @@ void FE_Task_Main_Menu(void)
  */
 extern void **spotlight_SpriteDef;      /* pointer slot */
 extern long  *spotlight_Anim;           /* pointer slot -> 0x00175608 */
-extern float *GameCounter;              /* pointer slot */
-extern long  *KarnageScore;             /* pointer slot -> 0x0014df88 */
+extern float  GameCounter;              /* pointer slot */
+extern long   KarnageScore;             /* pointer slot -> 0x0014df88 */
 extern long   stats[];                  /* 0x00100fc8 */
 extern char   ourName[];                /* 0x00183d6c */
 extern long   userNameEntryViewed;      /* 0x000ff8f0 */
@@ -5499,7 +5521,7 @@ void FE_Task_Karnage_Summary(void)
     long ready, exiting;
 
     limeDrawSprite((TEXTURE *)MetalScreenTexture, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0f, 1.0f, 1.0f, col);
 
     limeEnableAlphaBlending_Additive();
@@ -5507,16 +5529,16 @@ void FE_Task_Karnage_Summary(void)
     DrawAnimAsSprite(0, 0, FE_WidthScale, 0x80,
                      0x80, (long)(uintptr_t)SpotlightTextures,
                      (const char *)&spotlight_SpriteDef, spotlight_Anim,
-                     0, (long)*GameCounter,
+                     0, (long)GameCounter,
                      0, spotlight_Anim[0] - 1, 1,
                      col);
 
-    DrawAnimAsSprite((long)((float)*limeScreenWidth
+    DrawAnimAsSprite((long)((float)limeScreenWidth
                             + -128.0f * FE_WidthScale),
                      0, FE_WidthScale, 0x80,
                      0x80, (long)(uintptr_t)SpotlightTextures,
                      (const char *)&spotlight_SpriteDef, spotlight_Anim,
-                     1, (long)*GameCounter,
+                     1, (long)GameCounter,
                      0, spotlight_Anim[0] - 1, 1,
                      col);
 
@@ -5542,16 +5564,16 @@ void FE_Task_Karnage_Summary(void)
     }
 
     limeDrawFONT(GameFont, GameText(0x11f),
-                 (float)(*limeScreenWidth / 2), (float)FE_Y(160.0f),
+                 (float)(limeScreenWidth / 2), (float)FE_Y(160.0f),
                  1, FE_WidthScale, fontcol);
 
-    usprintf(strBuf, UC("%s: %d"), GameTextNoHeader(0x121), *KarnageScore);
+    usprintf(strBuf, UC("%s: %d"), GameTextNoHeader(0x121), KarnageScore);
     limeDrawFONT(GameFont, limeUC(strBuf),
-                 (float)(*limeScreenWidth / 2), (float)FE_Y(180.0f),
+                 (float)(limeScreenWidth / 2), (float)FE_Y(180.0f),
                  1, FE_WidthScale, fontcol);
 
     feedPosted = 1;
-    usprintf(feedText, GameTextNoHeader(0x120), *KarnageScore);
+    usprintf(feedText, GameTextNoHeader(0x120), KarnageScore);
 
     ready = !EASDK_ConnectedToNetwork() || EASOC_MayhemIsReady();
 
@@ -5569,7 +5591,7 @@ void FE_Task_Karnage_Summary(void)
                 long corr = (t >> 31) >> 24;    /* 255 when negative, else 0 */
                 if ((((t + corr) & 0xff) - corr) > 0x80)
                     limeDrawFONT(GameFont, GameText(0x13),
-                                 (float)(*limeScreenWidth / 2),
+                                 (float)(limeScreenWidth / 2),
                                  (float)FE_Y(200.0f),
                                  1, FE_WidthScale, fontcol);
             }
@@ -5585,7 +5607,7 @@ void FE_Task_Karnage_Summary(void)
         PopAllFETasksDeferred(0);
 
         if (EASDK_ConnectedToNetwork() && Settings[8] && EASOC_MayhemIsReady())
-            EASOC_MayhemPostStatWithData("shaokahn_med", *KarnageScore,
+            EASOC_MayhemPostStatWithData("shaokahn_med", KarnageScore,
                                          stats, 0xc);
     }
 }
@@ -5663,7 +5685,7 @@ void FE_Task_Settings(void)
     long musicLabel, sfxLabel;
 
     limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0234375f, 1.0f, 0.703125f, col);
 
     choice = drawPage2x2BigForSettings();
@@ -5821,7 +5843,7 @@ void FE_Task_Achievements(void)
     rowcol[3] = 1.0f;
 
     limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0234375f, 1.0f, 0.703125f, col);
 
     prevEnabled = (currentAchievementPage <= 0) ? 2 : 1;
@@ -6035,7 +6057,7 @@ void FE_Task_Stats(void)
 
     /* --- the screen */
     limeDrawSprite((TEXTURE *)MetalScreenTexture, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0f, 1.0f, 1.0f, col);
 
     limeEnableAlphaBlending_Additive();
@@ -6043,15 +6065,15 @@ void FE_Task_Stats(void)
     DrawAnimAsSprite(0, 0, FE_WidthScale, 0x80,
                      0x80, (long)(uintptr_t)SpotlightTextures,
                      (const char *)&spotlight_SpriteDef, spotlight_Anim,
-                     0, (long)*GameCounter,
+                     0, (long)GameCounter,
                      0, spotlight_Anim[0] - 1, 1, col);
 
-    DrawAnimAsSprite((long)((float)*limeScreenWidth
+    DrawAnimAsSprite((long)((float)limeScreenWidth
                             + -128.0f * FE_WidthScale),
                      0, FE_WidthScale, 0x80,
                      0x80, (long)(uintptr_t)SpotlightTextures,
                      (const char *)&spotlight_SpriteDef, spotlight_Anim,
-                     1, (long)*GameCounter,
+                     1, (long)GameCounter,
                      0, spotlight_Anim[0] - 1, 1, col);
 
     limeEnableAlphaBlending_Basic();
@@ -6089,7 +6111,7 @@ void FE_Task_Stats(void)
         slot += 24;
 
         limeDrawFONT(GameFont, limeUC(strBuf),
-                     (float)(*limeScreenWidth / 2), (float)FE_Y((float)y),
+                     (float)(limeScreenWidth / 2), (float)FE_Y((float)y),
                      1, FE_WidthScale, fontcol);
     }
 
@@ -6181,7 +6203,7 @@ void FE_Task_Survival_Summary(void)
     long  ready, exiting;
 
     limeDrawSprite((TEXTURE *)MetalScreenTexture, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0f, 1.0f, 1.0f, col);
 
     limeEnableAlphaBlending_Additive();
@@ -6189,15 +6211,15 @@ void FE_Task_Survival_Summary(void)
     DrawAnimAsSprite(0, 0, FE_WidthScale, 0x80,
                      0x80, (long)(uintptr_t)SpotlightTextures,
                      (const char *)&spotlight_SpriteDef, spotlight_Anim,
-                     0, (long)*GameCounter,
+                     0, (long)GameCounter,
                      0, spotlight_Anim[0] - 1, 1, col);
 
-    DrawAnimAsSprite((long)((float)*limeScreenWidth
+    DrawAnimAsSprite((long)((float)limeScreenWidth
                             + -128.0f * FE_WidthScale),
                      0, FE_WidthScale, 0x80,
                      0x80, (long)(uintptr_t)SpotlightTextures,
                      (const char *)&spotlight_SpriteDef, spotlight_Anim,
-                     1, (long)*GameCounter,
+                     1, (long)GameCounter,
                      0, spotlight_Anim[0] - 1, 1, col);
 
     limeEnableAlphaBlending_Basic();
@@ -6223,7 +6245,7 @@ void FE_Task_Survival_Summary(void)
 
     /* The title -- scaled but not offset; see the header. */
     limeDrawFONT(GameFont, GameText(0x5a),
-                 (float)(*limeScreenWidth / 2), 160.0f * FE_HeightScale,
+                 (float)(limeScreenWidth / 2), 160.0f * FE_HeightScale,
                  1, FE_WidthScale, fontcol);
 
     if (DisplaySurvivalStage == 1)
@@ -6232,7 +6254,7 @@ void FE_Task_Survival_Summary(void)
         usprintf(strBuf, GameTextNoHeader(0xb9), DisplaySurvivalStage);
 
     limeDrawFONT(GameFont, limeUC(strBuf),
-                 (float)(*limeScreenWidth / 2), (float)FE_Y(180.0f),
+                 (float)(limeScreenWidth / 2), (float)FE_Y(180.0f),
                  1, FE_WidthScale, fontcol);
 
     if (DisplaySurvivalStage <= 0)
@@ -6261,7 +6283,7 @@ void FE_Task_Survival_Summary(void)
                 long corr = (t >> 31) >> 24;
                 if ((((t + corr) & 0xff) - corr) > 0x80)
                     limeDrawFONT(GameFont, GameText(0x13),
-                                 (float)(*limeScreenWidth / 2),
+                                 (float)(limeScreenWidth / 2),
                                  (float)FE_Y(200.0f),
                                  1, FE_WidthScale, fontcol);
             }
@@ -6385,7 +6407,7 @@ void FE_Task_Character_Select(void)
 
     limeDrawSprite((TEXTURE *)(&SelectBGTexture)[BGRandomised],
                    0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0f, 0.9375f, 0.625f, col);
 
     limeDrawFONT(GameFont, GameText(0x4a), (float)FE_X(240.0f),
@@ -6563,7 +6585,7 @@ void FE_Task_Button_Config(void)
     float alpha;
 
     limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0234375f, 1.0f, 0.703125f, col);
 
     if (ButtonEditMode)
@@ -6763,13 +6785,13 @@ void Task_FEMain(void)
     void (*fn)(void);
     long task;
 
-    *GameCounter += 1.0f / limeFPSScaleFactor;
+    GameCounter += 1.0f / limeFPSScaleFactor;
 
     limeEnableAlphaBlending_Basic();
     limeSetColourMask(1, 1, 1, 0);
     limeSet2DDrawing();
     limeFillRect(0.0f, 0.0f,
-                 (float)*limeScreenWidth, (float)*limeScreenHeight,
+                 (float)limeScreenWidth, (float)limeScreenHeight,
                  0.0f, 0.0f, 0.0f, 1.0f);
 
     /* ---- the tune, latched on FETuneSelection ---- */
@@ -6901,7 +6923,7 @@ void Task_FEMain(void)
 
     if (FE_Fade != 1.0f)
         limeFillRect(0.0f, 0.0f,
-                     (float)*limeScreenWidth, (float)*limeScreenHeight,
+                     (float)limeScreenWidth, (float)limeScreenHeight,
                      0.0f, 0.0f, 0.0f, 1.0f - FE_Fade);
 
     /* ---- a thirty-frame average nothing reads ---- */
@@ -7022,7 +7044,7 @@ void FE_Task_Options(void)
     limeSet2DDrawing();
 
     limeDrawSprite((TEXTURE *)MainMenuBGTexture, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0f, 1.0f, 0.75f, col);
 
     DrawVortex3D();
@@ -7079,7 +7101,7 @@ void FE_Task_Options(void)
                                         &mmfontcol[(LastTouch_Options1 + 1) * 4],
                                         FE_W(FEOPT_OPTION_WIDTH));
     if (LastTouch_Options1 != 0 && Touch_Options1 == 0
-        && *limeTouchScreenX == -1.0f)
+        && limeTouchScreenX[0] == -1.0f)
         sel = 1;
 
     LastTouch_Options2 = Touch_Options2;
@@ -7090,7 +7112,7 @@ void FE_Task_Options(void)
                                         &mmfontcol[(LastTouch_Options2 + 1) * 4],
                                         FE_W(FEOPT_OPTION_WIDTH));
     if (LastTouch_Options2 != 0 && Touch_Options2 == 0
-        && *limeTouchScreenX == -1.0f)
+        && limeTouchScreenX[0] == -1.0f)
         sel = 2;
 
     LastTouch_Options3 = Touch_Options3;
@@ -7101,7 +7123,7 @@ void FE_Task_Options(void)
                                         &mmfontcol[(LastTouch_Options3 + 1) * 4],
                                         FE_W(FEOPT_OPTION_WIDTH));
     if (LastTouch_Options3 != 0 && Touch_Options3 == 0
-        && *limeTouchScreenX == -1.0f)
+        && limeTouchScreenX[0] == -1.0f)
         sel = 3;
 
     MaintainFESlide();
@@ -7255,14 +7277,14 @@ void FE_Task_Single_Player(void)
     long hit;
 
     limeFillRect(0.0f, 0.0f,
-                 (float)*limeScreenWidth, (float)*limeScreenHeight,
+                 (float)limeScreenWidth, (float)limeScreenHeight,
                  0.0f, 0.0f, 0.0f, 1.0f);
 
     limeDrawSprite((TEXTURE *)GameOverTopTexture, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0f, 1.0f, 0.75f, col);
     limeDrawSprite((TEXTURE *)GameOverBottomTexture, 0.0f, FE_Y(143.0f),
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0f, 1.0f, 0.75f, col);
 
     limeDrawFONT(GameFont, GameText(0x51),
@@ -7457,7 +7479,7 @@ void FE_Task_LeaderboardsSK(void)
     rowcol[3] = 1.0f;
 
     limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0234375f, 1.0f, 0.703125f, col);
     limeDrawSprite((TEXTURE *)*FEBits3,
                    FE_X(6.0f), FE_Y(66.0f), FE_W(468.0f), FE_H(218.0f),
@@ -7484,7 +7506,7 @@ void FE_Task_LeaderboardsSK(void)
 
         rowcol[0] = rowcol[1] = rowcol[2] = 0.5f;
         limeDrawFONT(GameFont, GameText(8),
-                     (float)*limeScreenWidth - FE_WidthScale * 60.0f,
+                     (float)limeScreenWidth - FE_WidthScale * 60.0f,
                      FE_Y(294.0f), 2, FE_WidthScale, rowcol);
 
         rowcol[0] = rowcol[1] = rowcol[2] = 0.5f;
@@ -7514,8 +7536,8 @@ void FE_Task_LeaderboardsSK(void)
         leaderboardPageCnt++;
         if ((leaderboardPageCnt % (LB_BLINK_MASK + 1)) <= LB_BLINK_ON)
             limeDrawFONT(GameFont, GameText(entries + 0x14),
-                         (float)(*limeScreenWidth / 2),
-                         (float)(*limeScreenHeight / 2 - 6),
+                         (float)(limeScreenWidth / 2),
+                         (float)(limeScreenHeight / 2 - 6),
                          1, FE_WidthScale, fontcol);
         nextEnabled = 2;
         nextShade   = 0.5f;
@@ -7545,7 +7567,7 @@ void FE_Task_LeaderboardsSK(void)
 
     rowcol[0] = rowcol[1] = rowcol[2] = nextShade;
     limeDrawFONT(GameFont, GameText(8),
-                 (float)*limeScreenWidth - FE_WidthScale * 60.0f,
+                 (float)limeScreenWidth - FE_WidthScale * 60.0f,
                  FE_Y(294.0f), 2, FE_WidthScale, rowcol);
 
     rowcol[0] = rowcol[1] = rowcol[2] = prevShade;
@@ -7613,7 +7635,7 @@ void FE_Task_Leaderboards(void)
     rowcol[3] = 1.0f;
 
     limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0234375f, 1.0f, 0.703125f, col);
     limeDrawSprite((TEXTURE *)*FEBits3,
                    FE_X(6.0f), FE_Y(66.0f), FE_W(468.0f), FE_H(218.0f),
@@ -7639,7 +7661,7 @@ void FE_Task_Leaderboards(void)
 
         rowcol[0] = rowcol[1] = rowcol[2] = 0.5f;
         limeDrawFONT(GameFont, GameText(8),
-                     (float)*limeScreenWidth - FE_W(60.0f),
+                     (float)limeScreenWidth - FE_W(60.0f),
                      FE_Y(294.0f), 2, FE_WidthScale, rowcol);
 
         rowcol[0] = rowcol[1] = rowcol[2] = 0.5f;
@@ -7669,8 +7691,8 @@ void FE_Task_Leaderboards(void)
         leaderboardPageCnt++;
         if ((leaderboardPageCnt % (LB_BLINK_MASK + 1)) <= LB_BLINK_ON)
             limeDrawFONT(GameFont, GameText(entries + 0x14),
-                         (float)(*limeScreenWidth / 2),
-                         (float)(*limeScreenHeight / 2 - 6),
+                         (float)(limeScreenWidth / 2),
+                         (float)(limeScreenHeight / 2 - 6),
                          1, FE_WidthScale, fontcol);
         nextEnabled = 2;
         nextShade   = 0.5f;
@@ -7700,7 +7722,7 @@ void FE_Task_Leaderboards(void)
 
     rowcol[0] = rowcol[1] = rowcol[2] = nextShade;
     limeDrawFONT(GameFont, GameText(8),
-                 (float)*limeScreenWidth - FE_WidthScale * 60.0f,
+                 (float)limeScreenWidth - FE_WidthScale * 60.0f,
                  FE_Y(294.0f), 2, FE_WidthScale, rowcol);
 
     rowcol[0] = rowcol[1] = rowcol[2] = prevShade;
@@ -7832,7 +7854,7 @@ void FE_Task_EnterName(void)
     ourName[nameIndex] = 0;             /* re-terminated every frame */
 
     limeDrawSprite((TEXTURE *)MetalScreenTexture, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0f, 1.0f, 1.0f, col);
 
     limeDrawFONT(GameFont, GameText(0xf4),
@@ -8071,7 +8093,7 @@ void FE_Task_Multiplayer_Character_Select(void)
         glowProgress -= MPCS_TWO_PI;
 
     limeDrawSprite((TEXTURE *)(&SelectBGTexture)[BGRandomised], 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0f, 0.9375f, 0.625f, col);
 
     *requestedLevel = getRandomLevel();
@@ -8262,7 +8284,7 @@ void FE_Task_About(void)
     limeSet2DDrawing();
 
     limeDrawSprite((TEXTURE *)MainMenuBGTexture, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0f, 1.0f, 0.75f, col);
 
     DrawVortex3D();
@@ -8318,7 +8340,7 @@ void FE_Task_About(void)
                                       &mmfontcol[(LastTouch_About1 + 1) * 4],
                                       FE_W(ABOUT_OPTION_WIDTH));
     if (LastTouch_About1 != 0 && Touch_About1 == 0
-        && *limeTouchScreenX == -1.0f)
+        && limeTouchScreenX[0] == -1.0f)
         sel = 1;
 
     LastTouch_About2 = Touch_About2;
@@ -8330,7 +8352,7 @@ void FE_Task_About(void)
                                       &mmfontcol[(LastTouch_About2 + 1) * 4],
                                       FE_W(ABOUT_OPTION_WIDTH));
     if (LastTouch_About2 != 0 && Touch_About2 == 0
-        && *limeTouchScreenX == -1.0f)
+        && limeTouchScreenX[0] == -1.0f)
         sel = 2;
 
     LastTouch_About3 = Touch_About3;
@@ -8342,7 +8364,7 @@ void FE_Task_About(void)
                                       &mmfontcol[(LastTouch_About3 + 1) * 4],
                                       FE_W(ABOUT_OPTION_WIDTH));
     if (LastTouch_About3 != 0 && Touch_About3 == 0
-        && *limeTouchScreenX == -1.0f)
+        && limeTouchScreenX[0] == -1.0f)
         sel = 3;
 
     LastTouch_About4 = Touch_About4;
@@ -8354,7 +8376,7 @@ void FE_Task_About(void)
                                       &mmfontcol[(LastTouch_About4 + 1) * 4],
                                       FE_W(ABOUT_OPTION_WIDTH));
     if (LastTouch_About4 != 0 && Touch_About4 == 0
-        && *limeTouchScreenX == -1.0f)
+        && limeTouchScreenX[0] == -1.0f)
         sel = 4;
 
     LastTouch_About5 = Touch_About5;
@@ -8366,7 +8388,7 @@ void FE_Task_About(void)
                                       &mmfontcol[(LastTouch_About5 + 1) * 4],
                                       FE_W(ABOUT_OPTION_WIDTH));
     if (LastTouch_About5 != 0 && Touch_About5 == 0
-        && *limeTouchScreenX == -1.0f)
+        && limeTouchScreenX[0] == -1.0f)
         sel = 5;
 
     LastTouch_About6 = Touch_About6;
@@ -8378,7 +8400,7 @@ void FE_Task_About(void)
                                       &mmfontcol[(LastTouch_About6 + 1) * 4],
                                       FE_W(ABOUT_OPTION_WIDTH));
     if (LastTouch_About6 != 0 && Touch_About6 == 0
-        && *limeTouchScreenX == -1.0f)
+        && limeTouchScreenX[0] == -1.0f)
         sel = 6;
 
     MaintainFESlide();
@@ -8528,7 +8550,7 @@ void FE_Task_Extras(void)
     limeSet2DDrawing();
 
     limeDrawSprite((TEXTURE *)MainMenuBGTexture, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0f, 1.0f, 0.75f, col);
 
     DrawVortex3D();
@@ -8582,7 +8604,7 @@ void FE_Task_Extras(void)
                                        &mmfontcol[(LastTouch_Extras1 + 1) * 4],
                                        FE_W(EXTRAS_OPTION_WIDTH));
     if (LastTouch_Extras1 != 0 && Touch_Extras1 == 0
-        && *limeTouchScreenX == -1.0f)
+        && limeTouchScreenX[0] == -1.0f)
         sel = 1;
 
     LastTouch_Extras2 = Touch_Extras2;
@@ -8594,7 +8616,7 @@ void FE_Task_Extras(void)
                                        &mmfontcol[(LastTouch_Extras2 + 1) * 4],
                                        FE_W(EXTRAS_OPTION_WIDTH));
     if (LastTouch_Extras2 != 0 && Touch_Extras2 == 0
-        && *limeTouchScreenX == -1.0f)
+        && limeTouchScreenX[0] == -1.0f)
         sel = 2;
 
     LastTouch_Extras3 = Touch_Extras3;
@@ -8606,7 +8628,7 @@ void FE_Task_Extras(void)
                                        &mmfontcol[(LastTouch_Extras3 + 1) * 4],
                                        FE_W(EXTRAS_OPTION_WIDTH));
     if (LastTouch_Extras3 != 0 && Touch_Extras3 == 0
-        && *limeTouchScreenX == -1.0f)
+        && limeTouchScreenX[0] == -1.0f)
         sel = 3;
 
     LastTouch_Extras4 = Touch_Extras4;
@@ -8618,7 +8640,7 @@ void FE_Task_Extras(void)
                                        &mmfontcol[(LastTouch_Extras4 + 1) * 4],
                                        FE_W(EXTRAS_OPTION_WIDTH));
     if (LastTouch_Extras4 != 0 && Touch_Extras4 == 0
-        && *limeTouchScreenX == -1.0f)
+        && limeTouchScreenX[0] == -1.0f)
         sel = 4;
 
     /* ---- how many endings have been seen, and the treasure that grants ---- */
@@ -8640,7 +8662,7 @@ void FE_Task_Extras(void)
                                            &mmfontcol[(LastTouch_Extras5 + 1) * 4],
                                            FE_W(EXTRAS_OPTION_WIDTH));
         if (LastTouch_Extras5 != 0 && Touch_Extras5 == 0
-            && *limeTouchScreenX == -1.0f)
+            && limeTouchScreenX[0] == -1.0f)
             sel = 5;
     }
 
@@ -8653,7 +8675,7 @@ void FE_Task_Extras(void)
                                        &mmfontcol[(LastTouch_Extras6 + 1) * 4],
                                        FE_W(EXTRAS_OPTION_WIDTH));
     if (LastTouch_Extras6 != 0 && Touch_Extras6 == 0
-        && *limeTouchScreenX == -1.0f)
+        && limeTouchScreenX[0] == -1.0f)
         sel = 6;
 
     MaintainFESlide();
@@ -8765,8 +8787,8 @@ void FE_Task_Extras(void)
  *
  * ### The layout is derived from the screen, not from the front-end transform
  *
- *      body x   *limeScreenWidth / 2 - 32
- *      name x   *limeScreenWidth * 3 / 4 - 32
+ *      body x   limeScreenWidth / 2 - 32
+ *      name x   limeScreenWidth * 3 / 4 - 32
  *      body y   line * (textScale * 16) + textScale * 48
  *
  * -- all raw pixels off `limeScreenWidth`, where the three button labels below
@@ -8821,11 +8843,11 @@ void FE_Task_Bios(void)
     }
 
     limeDrawSprite((TEXTURE *)OrangeTexture, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0f, 1.0f, 1.0f, col);
 
     CreateWrappedTextArrays(GameText(BioText[BioPage]), BioSplitText, &lines,
-                            *limeScreenWidth / 2, GameFont, textScale);
+                            limeScreenWidth / 2, GameFont, textScale);
 
     /* ---- the portrait, slid by the page-turn cosine ---- */
     x = (float)((double)(FE_WidthScale * -BIOS_SLIDE)
@@ -8834,7 +8856,7 @@ void FE_Task_Bios(void)
 
     limeDrawSprite((TEXTURE *)CharacterVSTexture[BioPage],
                    x,
-                   (float)*limeScreenHeight + FE_HeightScale * -253.0f,
+                   (float)limeScreenHeight + FE_HeightScale * -253.0f,
                    FE_WidthScale * 254.0f,
                    FE_HeightScale * 253.0f,
                    0.0f, 0.01171875f, 0.9921875f, 0.98828125f, col);
@@ -8846,13 +8868,13 @@ void FE_Task_Bios(void)
     for (i = 0; i < lines; i++)
         limeDrawFONT(GameFont,
                      limeUC(&BioSplitText[i * BIOS_SPLIT_STRIDE]),
-                     (float)(*limeScreenWidth / 2 - 0x20),
+                     (float)(limeScreenWidth / 2 - 0x20),
                      (float)i * pitch + top,
                      0, textScale, fontcol);
 
     /* ---- the character's name, at the line pitch as its y ---- */
     limeDrawFONT(GameFont, CharacterNames[BioPage],
-                 (float)(*limeScreenWidth * 3 / 4 - 0x20), pitch,
+                 (float)(limeScreenWidth * 3 / 4 - 0x20), pitch,
                  1, textScale, fontcol);
 
     /* ---- Next ---- */
@@ -8999,7 +9021,7 @@ void FE_Task_About_About(void)
     cjk = (strcmp(Language, "ZH") == 0) ? 1.0f : ABOUTABOUT_CJK_SCALE;
 
     limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0234375f, 1.0f, 0.703125f, col);
 
     if (AboutPage != 0) {
@@ -9013,7 +9035,7 @@ void FE_Task_About_About(void)
                 continue;               /* the gap that spaces the headings */
 
             limeDrawFONT(GameFont, GameText(e->id),
-                         (float)(*limeScreenWidth / 2),
+                         (float)(limeScreenWidth / 2),
                          FE_Y((float)((double)(row * ABOUTABOUT_PITCH)
                                       * ABOUTABOUT_CRED_SCL
                                       + ABOUTABOUT_CRED_TOP)),
@@ -9025,48 +9047,48 @@ void FE_Task_About_About(void)
     } else {
         /* ---- the about text ---- */
         limeDrawFONT(GameFont, GameText(0x3b8),
-                     (float)(*limeScreenWidth / 2),
+                     (float)(limeScreenWidth / 2),
                      FE_Y(ABOUTABOUT_TOP),
                      1, FE_WidthScale * 1.25f, fontcol);
 
         CreateWrappedTextArrays(GameText(0xa9), AboutSpiltText, &lines,
-                                *limeScreenWidth - 0x20,
+                                limeScreenWidth - 0x20,
                                 GameFont, FE_WidthScale * cjk);
         for (row = 2; row < lines + 2; row++)
             limeDrawFONT(GameFont,
                          limeUC(&AboutSpiltText[(row - 2) * ABOUTABOUT_SPLIT]),
-                         (float)(*limeScreenWidth / 2),
+                         (float)(limeScreenWidth / 2),
                          FE_Y((float)(row * ABOUTABOUT_PITCH) * cjk
                               + ABOUTABOUT_TOP),
                          1, FE_WidthScale * cjk, fontcol);
         line = row + 1;
 
         CreateWrappedTextArrays(GameText(0xaa), AboutSpiltText, &lines,
-                                *limeScreenWidth - 0x20,
+                                limeScreenWidth - 0x20,
                                 GameFont, FE_WidthScale * cjk);
         for (i = 0; i < lines; i++)
             limeDrawFONT(GameFont,
                          limeUC(&AboutSpiltText[i * ABOUTABOUT_SPLIT]),
-                         (float)(*limeScreenWidth / 2),
+                         (float)(limeScreenWidth / 2),
                          FE_Y((float)((line + i) * ABOUTABOUT_PITCH) * cjk
                               + ABOUTABOUT_TOP),
                          1, FE_WidthScale * cjk, fontcol);
         line += i + 1;
 
         CreateWrappedTextArrays(GameText(0xab), AboutSpiltText, &lines,
-                                *limeScreenWidth - 0x20,
+                                limeScreenWidth - 0x20,
                                 GameFont, FE_WidthScale * cjk);
         for (i = 0; i < lines; i++)
             limeDrawFONT(GameFont,
                          limeUC(&AboutSpiltText[i * ABOUTABOUT_SPLIT]),
-                         (float)(*limeScreenWidth / 2),
+                         (float)(limeScreenWidth / 2),
                          FE_Y((float)((line + i) * ABOUTABOUT_PITCH) * cjk
                               + ABOUTABOUT_TOP),
                          1, FE_WidthScale * cjk, fontcol);
         line += i;
 
         limeDrawFONT(GameFont, GameText(0xac),
-                     (float)(*limeScreenWidth / 2),
+                     (float)(limeScreenWidth / 2),
                      FE_Y((float)(line * ABOUTABOUT_PITCH) * cjk
                           + ABOUTABOUT_TOP),
                      1, FE_WidthScale * cjk, fontcol);
@@ -9075,13 +9097,13 @@ void FE_Task_About_About(void)
         usprintf(version, UC("Version: %s"),
                  UC(limeGetPropertyString("CFBundleVersion")));
         limeDrawFONT(GameFont, limeUC(version),
-                     (float)(*limeScreenWidth / 2),
+                     (float)(limeScreenWidth / 2),
                      FE_Y((float)((line + 2) * ABOUTABOUT_PITCH) * cjk
                           + ABOUTABOUT_TOP),
                      1, FE_WidthScale * cjk, fontcol);
 
         limeDrawFONT(GameFont, GameText(0xad),
-                     (float)(*limeScreenWidth / 2),
+                     (float)(limeScreenWidth / 2),
                      FE_Y((float)((line + 3) * ABOUTABOUT_PITCH) * cjk
                           + ABOUTABOUT_TOP),
                      1, FE_WidthScale * cjk, fontcol);
@@ -9213,7 +9235,7 @@ void DrawTower3D(void)
 
     limeSet2DDrawing();
     limeFillRect(0.0f, 0.0f,
-                 (float)*limeScreenWidth, (float)*limeScreenHeight,
+                 (float)limeScreenWidth, (float)limeScreenHeight,
                  0.09411765f, 0.0f, 0.25098038f, 1.0f);
 
     LIMEDS_Set3dMode();
@@ -9430,7 +9452,7 @@ void FE_Task_Play(void)
     limeSet2DDrawing();
 
     limeDrawSprite((TEXTURE *)MainMenuBGTexture, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0f, 1.0f, 0.75f, col);
 
     DrawVortex3D();
@@ -9484,7 +9506,7 @@ void FE_Task_Play(void)
                                           &mmfontcol[(LastTouch_PlayArcade + 1) * 4],
                                           FE_W(PLAY_OPTION_WIDTH));
     if (LastTouch_PlayArcade != 0 && Touch_PlayArcade == 0
-        && *limeTouchScreenX == -1.0f)
+        && limeTouchScreenX[0] == -1.0f)
         sel = 1;
 
     LastTouch_PlayMultiPlayer = Touch_PlayMultiPlayer;
@@ -9496,7 +9518,7 @@ void FE_Task_Play(void)
                                                &mmfontcol[(LastTouch_PlayMultiPlayer + 1) * 4],
                                                FE_W(PLAY_OPTION_WIDTH));
     if (LastTouch_PlayMultiPlayer != 0 && Touch_PlayMultiPlayer == 0
-        && *limeTouchScreenX == -1.0f)
+        && limeTouchScreenX[0] == -1.0f)
         sel = 2;
 
     LastTouch_PlaySurvival = Touch_PlaySurvival;
@@ -9508,7 +9530,7 @@ void FE_Task_Play(void)
                                             &mmfontcol[(LastTouch_PlaySurvival + 1) * 4],
                                             FE_W(PLAY_OPTION_WIDTH));
     if (LastTouch_PlaySurvival != 0 && Touch_PlaySurvival == 0
-        && *limeTouchScreenX == -1.0f)
+        && limeTouchScreenX[0] == -1.0f)
         sel = 3;
 
     LastTouch_PlaySK = Touch_PlaySK;
@@ -9522,7 +9544,7 @@ void FE_Task_Play(void)
                                       &mmfontcol[(LastTouch_PlaySK + 1) * 4],
                                       FE_W(PLAY_OPTION_WIDTH));
     if (LastTouch_PlaySK != 0 && Touch_PlaySK == 0
-        && *limeTouchScreenX == -1.0f)
+        && limeTouchScreenX[0] == -1.0f)
         sel = 4;
 
     MaintainFESlide();
@@ -9740,14 +9762,14 @@ void FE_Task_Endings(void)
     EndingsPage    = p;
 
     limeDrawSprite((TEXTURE *)OrangeTexture, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0f, 1.0f, 1.0f, col);
 
     /* ---- wrap once a page, not once a frame ---- */
     if (EndingWrapDone == 0) {
         CreateWrappedTextArrays(GameText(EndingsText[EndingsPage]),
                                 EndingsSplitText, &NumOfEndingsLines,
-                                *limeScreenWidth / 2, GameFont, FE_WidthScale);
+                                limeScreenWidth / 2, GameFont, FE_WidthScale);
         EndingWrapDone = 1;
     }
 
@@ -9758,7 +9780,7 @@ void FE_Task_Endings(void)
 
     limeDrawSprite((TEXTURE *)CharacterVSTexture[EndingsPage],
                    x,
-                   (float)*limeScreenHeight + FE_HeightScale * -253.0f,
+                   (float)limeScreenHeight + FE_HeightScale * -253.0f,
                    FE_WidthScale * 254.0f,
                    FE_HeightScale * 253.0f,
                    0.0f, 0.01171875f, 0.9921875f, 0.98828125f, col);
@@ -9770,7 +9792,7 @@ void FE_Task_Endings(void)
     for (i = 0; i < NumOfEndingsLines; i++) {
         float y = (float)i * pitch + *endingsOffsetY + top;
         float fadeIn    = FE_HeightScale * ENDINGS_FADE_IN;
-        float fadeStart = (float)*limeScreenHeight
+        float fadeStart = (float)limeScreenHeight
                           + FE_HeightScale * -ENDINGS_FADE_TOP;
         float fadeEnd   = fadeStart + FE_HeightScale * -ENDINGS_FADE_SPAN;
         float a;
@@ -9792,13 +9814,13 @@ void FE_Task_Endings(void)
 
         limeDrawFONT(GameFont,
                      limeUC(&EndingsSplitText[i * ENDINGS_SPLIT_STRIDE]),
-                     (float)(*limeScreenWidth / 2 - 0x20), y,
+                     (float)(limeScreenWidth / 2 - 0x20), y,
                      0, FE_WidthScale, colour);
     }
 
     /* ---- the character's name, sliding vertically on the same cosine ---- */
     limeDrawFONT(GameFont, CharacterNames[EndingsPage],
-                 (float)(*limeScreenWidth / 4 - 0x20),
+                 (float)(limeScreenWidth / 4 - 0x20),
                  (float)((double)(FE_WidthScale * -32.0f)
                          + fabs(cos((double)(currentEndingProgress
                                              * ENDINGS_HALF_PI)))
@@ -10015,11 +10037,11 @@ void FE_Task_VS_Screen(void)
         FE_Task_VS_Screen_Init();       /* and carry on into this same frame */
 
     limeDrawSprite((TEXTURE *)MetalScreenTexture, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0f, 1.0f, 1.0f, col);
 
     limeDrawSprite((TEXTURE *)VSTexture,
-                   ((float)*limeScreenWidth + FE_WidthScale * -64.0f) * 0.5f,
+                   ((float)limeScreenWidth + FE_WidthScale * -64.0f) * 0.5f,
                    FE_HeightScale * 80.0f,
                    FE_WidthScale * 64.0f,
                    FE_HeightScale * 128.0f,
@@ -10030,15 +10052,15 @@ void FE_Task_VS_Screen(void)
     DrawAnimAsSprite(0, 0, FE_WidthScale, 0x80,
                      0x80, (long)(uintptr_t)SpotlightTextures,
                      (const char *)&spotlight_SpriteDef, spotlight_Anim,
-                     0, (long)*GameCounter,
+                     0, (long)GameCounter,
                      0, spotlight_Anim[0] - 1, 1, col);
 
-    DrawAnimAsSprite((long)((float)*limeScreenWidth
+    DrawAnimAsSprite((long)((float)limeScreenWidth
                             + FE_WidthScale * -128.0f),
                      0, FE_WidthScale, 0x80,
                      0x80, (long)(uintptr_t)SpotlightTextures,
                      (const char *)&spotlight_SpriteDef, spotlight_Anim,
-                     1, (long)*GameCounter,
+                     1, (long)GameCounter,
                      0, spotlight_Anim[0] - 1, 1, col);
 
     limeEnableAlphaBlending_Basic();
@@ -10046,7 +10068,7 @@ void FE_Task_VS_Screen(void)
     /* ---- player one, sliding in from the left ---- */
     limeDrawSprite((TEXTURE *)CharacterVSTexture[Character1],
                    0.0f - FE_WidthScale * VSScroll,
-                   (float)*limeScreenHeight + FE_HeightScale * -VS_PORTRAIT,
+                   (float)limeScreenHeight + FE_HeightScale * -VS_PORTRAIT,
                    FE_WidthScale * VS_PORTRAIT,
                    FE_HeightScale * VS_PORTRAIT,
                    0.0f, 0.0f, 1.0f, 1.0f, col);
@@ -10054,8 +10076,8 @@ void FE_Task_VS_Screen(void)
     /* ---- player two, mirrored, from the right ---- */
     if ((unsigned long)(Character2 - VS_BOSS_FIRST) <= 1) {  /* 24 or 25 */
         limeDrawFONT(GameFont, "NO IMAGE",
-                     (float)(*limeScreenWidth - 8),
-                     (float)(*limeScreenHeight / 2),
+                     (float)(limeScreenWidth - 8),
+                     (float)(limeScreenHeight / 2),
                      2, FE_WidthScale, fontcol);
     } else {
         void *portrait = (Character2 == Character1)
@@ -10063,11 +10085,11 @@ void FE_Task_VS_Screen(void)
                          : CharacterVSTexture[Character2];
 
         limeDrawSprite((TEXTURE *)portrait,
-                       (float)*limeScreenWidth
+                       (float)limeScreenWidth
                        + FE_WidthScale * VSScroll
                        + FE_HeightScale * -VS_PORTRAIT,  /* height-scaled -- see
                                                           * the header */
-                       (float)*limeScreenHeight + FE_HeightScale * -VS_PORTRAIT,
+                       (float)limeScreenHeight + FE_HeightScale * -VS_PORTRAIT,
                        FE_WidthScale * VS_PORTRAIT,
                        FE_HeightScale * VS_PORTRAIT,
                        0.0f, 0.0f, -1.0f, 1.0f, col);      /* u extent -1 */
@@ -10088,12 +10110,12 @@ void FE_Task_VS_Screen(void)
                  FE_X(240.0f), FE_Y(296.0f), 1, FE_WidthScale, fontcol);
 
     /* ---- a release in the bottom-centre band starts the match ---- */
-    if (*limeLastTouchScreenX == -1.0f) {
-        cx = (float)(*limeScreenWidth / 2);
+    if (limeLastTouchScreenX[0] == -1.0f) {
+        cx = (float)(limeScreenWidth / 2);
 
-        if (*limeTouchScreenX >= cx + FE_HeightScale * -VS_START_BAND
-            && *limeTouchScreenX <= cx + FE_HeightScale * VS_START_BAND
-            && *limeTouchScreenY >= (float)*limeScreenHeight
+        if (limeTouchScreenX[0] >= cx + FE_HeightScale * -VS_START_BAND
+            && limeTouchScreenX[0] <= cx + FE_HeightScale * VS_START_BAND
+            && limeTouchScreenY[0] >= (float)limeScreenHeight
                                     + FE_HeightScale * -VS_START_TOP) {
             FE_FadeAdd   = VS_FADE_STEP;
             FadeMusicOut = 1;
@@ -10107,20 +10129,20 @@ void FE_Task_VS_Screen(void)
             CharacterNames[Character2]);
 
     limeDrawFONT(GameFont, strBuf,
-                 (float)(*limeScreenWidth / 2),
+                 (float)(limeScreenWidth / 2),
                  FE_HeightScale * 4.0f,
                  1, FE_WidthScale, fontcol);
 
     w = limeGetStringWidth(GameFont, strBuf) * FE_WidthScale;
 
-    if (*limeLastTouchScreenX == -1.0f) {
-        cx = (float)(*limeScreenWidth / 2);
+    if (limeLastTouchScreenX[0] == -1.0f) {
+        cx = (float)(limeScreenWidth / 2);
 
         /* "<--" : back to the previous available character */
         edge = cx + w * -0.5f;
-        if (*limeTouchScreenX >= edge + FE_WidthScale * -VS_ARROW_NEAR
-            && *limeTouchScreenX <= edge + FE_WidthScale * VS_ARROW_FAR
-            && *limeTouchScreenY <= FE_HeightScale * VS_ARROW_BAND) {
+        if (limeTouchScreenX[0] >= edge + FE_WidthScale * -VS_ARROW_NEAR
+            && limeTouchScreenX[0] <= edge + FE_WidthScale * VS_ARROW_FAR
+            && limeTouchScreenY[0] <= FE_HeightScale * VS_ARROW_BAND) {
 
             Character2 = Character2 - 1;
             if (Character2 < 0)
@@ -10138,9 +10160,9 @@ void FE_Task_VS_Screen(void)
 
         /* "-->" : on to the next one. `<` here where the other arm has `<=` */
         edge = cx + w * 0.5f;
-        if (*limeTouchScreenX <= edge + FE_WidthScale * VS_ARROW_NEAR
-            && *limeTouchScreenX >= edge + FE_WidthScale * -VS_ARROW_FAR
-            && *limeTouchScreenY < FE_HeightScale * VS_ARROW_BAND) {
+        if (limeTouchScreenX[0] <= edge + FE_WidthScale * VS_ARROW_NEAR
+            && limeTouchScreenX[0] >= edge + FE_WidthScale * -VS_ARROW_FAR
+            && limeTouchScreenY[0] < FE_HeightScale * VS_ARROW_BAND) {
 
             p = (Character2 + 1) % CHARACTER_SLOTS;
             Character2 = p;
@@ -10287,7 +10309,7 @@ void FE_Task_Treasure(void)
     long  i, x, shown = 0, selected = 0;
 
     limeDrawSprite((TEXTURE *)MetalScreenTexture, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0f, 1.0f, 1.0f, col);
 
     limeEnableAlphaBlending_Additive();
@@ -10295,15 +10317,15 @@ void FE_Task_Treasure(void)
     DrawAnimAsSprite(0, 0, FE_WidthScale, 0x80,
                      0x80, (long)(uintptr_t)SpotlightTextures,
                      (const char *)&spotlight_SpriteDef, spotlight_Anim,
-                     0, (long)*GameCounter,
+                     0, (long)GameCounter,
                      0, spotlight_Anim[0] - 1, 1, col);
 
-    DrawAnimAsSprite((long)((float)*limeScreenWidth
+    DrawAnimAsSprite((long)((float)limeScreenWidth
                             + FE_WidthScale * -128.0f),
                      0, FE_WidthScale, 0x80,
                      0x80, (long)(uintptr_t)SpotlightTextures,
                      (const char *)&spotlight_SpriteDef, spotlight_Anim,
-                     1, (long)*GameCounter,
+                     1, (long)GameCounter,
                      0, spotlight_Anim[0] - 1, 1, col);
 
     limeEnableAlphaBlending_Basic();
@@ -10318,11 +10340,11 @@ void FE_Task_Treasure(void)
         if (i != 0 && i != 2 && i != 3 && gained != 0) {
             shown++;
 
-            if (*limeLastTouchScreenX == -1.0f
-                && *limeTouchScreenY >= FE_HeightScale * TREASURE_BAND_TOP
-                && *limeTouchScreenY <= FE_HeightScale * TREASURE_BAND_BOT
-                && *limeTouchScreenX >= FE_WidthScale * (float)x
-                && *limeTouchScreenX <= FE_WidthScale
+            if (limeLastTouchScreenX[0] == -1.0f
+                && limeTouchScreenY[0] >= FE_HeightScale * TREASURE_BAND_TOP
+                && limeTouchScreenY[0] <= FE_HeightScale * TREASURE_BAND_BOT
+                && limeTouchScreenX[0] >= FE_WidthScale * (float)x
+                && limeTouchScreenX[0] <= FE_WidthScale
                                         * (float)(x + TREASURE_CELL)) {
                 selected = i + 1;                   /* one-based */
                 KodeSelectorParticle[i] = TREASURE_PART_ON;
@@ -10379,7 +10401,7 @@ void FE_Task_Treasure(void)
 
     /* ---- the heading answers "anything playable", not "anything" ---- */
     limeDrawFONT(GameFont, GameText(shown != 0 ? 0x63 : 0x3f5),
-                 (float)(*limeScreenWidth / 2),
+                 (float)(limeScreenWidth / 2),
                  FE_Y(200.0f), 1, FE_WidthScale, fontcol);
 
     if (DrawButtonNew(&BUTTON_BACK, 0xf0, 0x130, 1))
@@ -10521,7 +10543,7 @@ void FE_Task_Enter_Kode(void)
     long i, x;
 
     limeDrawSprite((TEXTURE *)MetalScreenTexture, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0f, 1.0f, 1.0f, col);
 
     for (i = 0, x = 0; i < KODE_WHEELS; i++, x += KODE_CELL) {
@@ -10530,11 +10552,11 @@ void FE_Task_Enter_Kode(void)
 
         /* ---- a release on a wheel steps its digit ---- */
         if (KodeSuccess == 0
-            && *limeLastTouchScreenX == -1.0f
-            && *limeTouchScreenY >= FE_HeightScale * KODE_BAND_TOP
-            && *limeTouchScreenY <= FE_HeightScale * KODE_BAND_BOT
-            && *limeTouchScreenX >= FE_WidthScale * (float)x
-            && *limeTouchScreenX <= FE_WidthScale * (float)(x + KODE_CELL)) {
+            && limeLastTouchScreenX[0] == -1.0f
+            && limeTouchScreenY[0] >= FE_HeightScale * KODE_BAND_TOP
+            && limeTouchScreenY[0] <= FE_HeightScale * KODE_BAND_BOT
+            && limeTouchScreenX[0] >= FE_WidthScale * (float)x
+            && limeTouchScreenX[0] <= FE_WidthScale * (float)(x + KODE_CELL)) {
             KodeSelector[i] = (KodeSelector[i] + 1) % KODE_DIGITS;
             KodeSelectorParticle[i] = KODE_PART_ON;
         }
@@ -10581,46 +10603,46 @@ void FE_Task_Enter_Kode(void)
     DrawAnimAsSprite(0, 0, FE_WidthScale, 0x80,
                      0x80, (long)(uintptr_t)SpotlightTextures,
                      (const char *)&spotlight_SpriteDef, spotlight_Anim,
-                     0, (long)*GameCounter,
+                     0, (long)GameCounter,
                      0, spotlight_Anim[0] - 1, 1, col);
 
-    DrawAnimAsSprite((long)((float)*limeScreenWidth
+    DrawAnimAsSprite((long)((float)limeScreenWidth
                             + FE_WidthScale * -128.0f),
                      0, FE_WidthScale, 0x80,
                      0x80, (long)(uintptr_t)SpotlightTextures,
                      (const char *)&spotlight_SpriteDef, spotlight_Anim,
-                     1, (long)*GameCounter,
+                     1, (long)GameCounter,
                      0, spotlight_Anim[0] - 1, 1, col);
 
     limeEnableAlphaBlending_Basic();
 
-    limeDrawFONT(GameFont, GameText(0x5b), (float)(*limeScreenWidth / 2),
+    limeDrawFONT(GameFont, GameText(0x5b), (float)(limeScreenWidth / 2),
                  24.0f, 1, FE_WidthScale, fontcol);
-    limeDrawFONT(GameFont, GameText(0x5e), (float)(*limeScreenWidth / 2),
+    limeDrawFONT(GameFont, GameText(0x5e), (float)(limeScreenWidth / 2),
                  200.0f, 1, FE_WidthScale, fontcol);
 
     /* ---- the middle line: the unlock message, the clock, or a bare "0" ---- */
     if (KodeSuccess != 0) {
-        if ((((long)*GameCounter) & KODE_BLINK) <= 7) {   /* eight on, eight off */
+        if ((((long)GameCounter) & KODE_BLINK) <= 7) {   /* eight on, eight off */
             if (KodeSuccess == 1)
                 limeDrawFONT(GameFont, GameText(0x5f),
-                             (float)(*limeScreenWidth / 2), 240.0f,
+                             (float)(limeScreenWidth / 2), 240.0f,
                              1, FE_WidthScale, fontcol);
             else if (KodeSuccess == 2)
                 limeDrawFONT(GameFont, GameText(0x60),
-                             (float)(*limeScreenWidth / 2), 240.0f,
+                             (float)(limeScreenWidth / 2), 240.0f,
                              1, FE_WidthScale, fontcol);
             else if (KodeSuccess == 3)
                 limeDrawFONT(GameFont, GameText(0x61),
-                             (float)(*limeScreenWidth / 2), 240.0f,
+                             (float)(limeScreenWidth / 2), 240.0f,
                              1, FE_WidthScale, fontcol);
         }
     } else if (KodeTime != 0.0f) {
         sprintf(strBuf, "%d", (int)KodeTime + 1);
-        limeDrawFONT(GameFont, strBuf, (float)(*limeScreenWidth / 2), 240.0f,
+        limeDrawFONT(GameFont, strBuf, (float)(limeScreenWidth / 2), 240.0f,
                      1, FE_WidthScale, fontcol);
     } else {
-        limeDrawFONT(GameFont, "0", (float)(*limeScreenWidth / 2), 240.0f,
+        limeDrawFONT(GameFont, "0", (float)(limeScreenWidth / 2), 240.0f,
                      1, FE_WidthScale, fontcol);
     }
 
@@ -10629,10 +10651,10 @@ void FE_Task_Enter_Kode(void)
                  2, FE_WidthScale, fontcol);
 
     /* ---- the bottom-right corner is the way out ---- */
-    if (FE_FadeAdd == 0.0f && *limeLastTouchScreenX == -1.0f
-        && *limeTouchScreenX >= (float)*limeScreenWidth
+    if (FE_FadeAdd == 0.0f && limeLastTouchScreenX[0] == -1.0f
+        && limeTouchScreenX[0] >= (float)limeScreenWidth
                                 + FE_WidthScale * -KODE_CORNER
-        && *limeTouchScreenY >= (float)*limeScreenHeight
+        && limeTouchScreenY[0] >= (float)limeScreenHeight
                                 + FE_HeightScale * -KODE_CORNER) {
         PopAllFETasksDeferred(0);
         GameStarted = 0;
@@ -10868,13 +10890,13 @@ void FE_Task_Multiplayer(void)
     float top;
 
     limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0234375f, 1.0f, 0.703125f, col);
 
     pressedPlay         = 0;
     opponentPressedPlay = 0;
-    *otherPlayerPaused  = 0;
-    *GamePaused         = 0;
+    otherPlayerPaused  = 0;
+    GamePaused         = 0;
 
     limeDrawFONT(GameFont, GameText(0x39f),
                  (float)(int)(FE_WidthScale * 240.0f),
@@ -10897,7 +10919,7 @@ void FE_Task_Multiplayer(void)
     if (peers == 0 && mpBlinker > 1.0f)
         limeDrawFONT(GameFont, GameText(0x3a1),
                      (float)(int)FE_X(240.0f),
-                     (float)(*limeScreenHeight / 2),
+                     (float)(limeScreenHeight / 2),
                      1, FE_WidthScale, col);
 
     shown = getNumberOfPeers() - mpLobbyCurrentPage * MP_PER_PAGE;
@@ -10924,18 +10946,18 @@ void FE_Task_Multiplayer(void)
         const float *colour = (peerNamesFlags[idx] != 0) ? darkcol : fontcol;
 
         limeDrawFONT(GameFont, peerNames[idx + 1],
-                     (float)(*limeScreenWidth / 2),
+                     (float)(limeScreenWidth / 2),
                      (float)y * FE_HeightScale + top,
                      1, FE_WidthScale, colour);
 
-        if (*limeLastTouchScreenX == -1.0f) {
-            float cx = (float)(*limeScreenWidth / 2);
+        if (limeLastTouchScreenX[0] == -1.0f) {
+            float cx = (float)(limeScreenWidth / 2);
 
-            if (*limeTouchScreenX >= cx + FE_WidthScale * -MP_HIT_HALFW
-                && *limeTouchScreenX <= cx + FE_WidthScale * MP_HIT_HALFW
-                && *limeTouchScreenY >= (float)(y - MP_HIT_ABOVE)
+            if (limeTouchScreenX[0] >= cx + FE_WidthScale * -MP_HIT_HALFW
+                && limeTouchScreenX[0] <= cx + FE_WidthScale * MP_HIT_HALFW
+                && limeTouchScreenY[0] >= (float)(y - MP_HIT_ABOVE)
                                         * FE_HeightScale + top
-                && *limeTouchScreenY <= (float)(y + MP_HIT_BELOW)
+                && limeTouchScreenY[0] <= (float)(y + MP_HIT_BELOW)
                                         * FE_HeightScale + top) {
                 hot = mpLobbyCurrentPage * MP_PER_PAGE + 1 + i;
                 printf("%d TOUCHED\n", (int)i);
@@ -10951,8 +10973,8 @@ void FE_Task_Multiplayer(void)
         const char *dots = (n <= 9) ? "." : (n <= 0x13) ? ".." : "...";
 
         limeDrawFONT(GameFont, dots,
-                     (float)(*limeScreenWidth / 2) + FE_WidthScale * -10.0f,
-                     (float)(*limeScreenHeight / 2),
+                     (float)(limeScreenWidth / 2) + FE_WidthScale * -10.0f,
+                     (float)(limeScreenHeight / 2),
                      0,
                      (float)((double)FE_WidthScale * 1.9),
                      fontcol);
@@ -11032,7 +11054,7 @@ void FE_Task_Multiplayer(void)
 
         if (lobbyInfoTxt == 1)
             limeDrawFONT(GameFont, GameText(0x48),
-                         (float)(*limeScreenWidth / 2),
+                         (float)(limeScreenWidth / 2),
                          (float)(int)(FE_HeightScale * 36.0f),
                          lobbyInfoTxt,
                          (float)((double)FE_HeightScale * 0.9),
@@ -11246,10 +11268,10 @@ long drawCharacterSelection(long sel)
 
             /* ---- hold on Human Smoke to unlock Smoke ---- */
             if (c == CS_SMOKE_CELL) {
-                if (*limeTouchScreenY < FE_Y((float)y)
-                    || *limeTouchScreenY > FE_Y((float)(row * CS_ROW_STEP + 91))
-                    || *limeTouchScreenX < FE_X((float)x)
-                    || *limeTouchScreenX > FE_X((float)(cx * CS_COL_STEP
+                if (limeTouchScreenY[0] < FE_Y((float)y)
+                    || limeTouchScreenY[0] > FE_Y((float)(row * CS_ROW_STEP + 91))
+                    || limeTouchScreenX[0] < FE_X((float)x)
+                    || limeTouchScreenX[0] > FE_X((float)(cx * CS_COL_STEP
                                                         + 108))) {
                     SmokeCounter = 0.0f;
                 } else {
@@ -11258,7 +11280,7 @@ long drawCharacterSelection(long sel)
                     if (SmokeCounter > CS_SMOKE_HOLD) {
                         SmokeCounter = 0.0f;
                         c = CS_SMOKE_GRANT;
-                        *limeLastTouchScreenX = -1.0f;  /* a faked release */
+                        limeLastTouchScreenX[0] = -1.0f;  /* a faked release */
                     }
                 }
             }
@@ -11270,13 +11292,13 @@ long drawCharacterSelection(long sel)
             if (CharacterAvailable[c] == 0)
                 continue;
 
-            if (*limeLastTouchScreenX != -1.0f)
+            if (limeLastTouchScreenX[0] != -1.0f)
                 continue;
 
-            if (*limeTouchScreenY < FE_Y((float)y)
-                || *limeTouchScreenY > FE_Y((float)(row * CS_ROW_STEP + 91))
-                || *limeTouchScreenX < FE_X((float)x)
-                || *limeTouchScreenX > FE_X((float)(cx * CS_COL_STEP + 108)))
+            if (limeTouchScreenY[0] < FE_Y((float)y)
+                || limeTouchScreenY[0] > FE_Y((float)(row * CS_ROW_STEP + 91))
+                || limeTouchScreenX[0] < FE_X((float)x)
+                || limeTouchScreenX[0] > FE_X((float)(cx * CS_COL_STEP + 108)))
                 continue;
 
             if (GameMode == 6) {
@@ -11533,7 +11555,7 @@ extern long  DraggingButton;            /* 0x00100f80 */
 extern long  LastDraggingButton;        /* 0x00100f7c */
 extern long  LastButtonPosX;            /* 0x00185d50 */
 extern long  LastButtonPosY;            /* 0x00185d54 */
-extern float *ButtonSize;               /* pointer slot -> 0x0014ff48 */
+extern float  ButtonSize;               /* pointer slot -> 0x0014ff48 */
 
 /* `vsqrt.f32`, one instruction -- not a call. Declared so the C says what the
  * instruction does. */
@@ -11559,9 +11581,9 @@ static long EB_OutOfBounds(const CUSTOMBUTTON *b)
 
     if ((float)b->x < FE_W(EB_LEFT_MARGIN))
         bad = 1;
-    if (b->x > *limeScreenWidth - half)
+    if (b->x > limeScreenWidth - half)
         bad = 1;
-    if (b->y > *limeScreenHeight - half)
+    if (b->y > limeScreenHeight - half)
         bad = 1;
     if ((float)b->y < (float)half + FE_H(EB_TOP_MARGIN))
         bad = 1;
@@ -11582,7 +11604,7 @@ void EditButtons(void)
 
     LastDraggingButton = DraggingButton;
 
-    touchX = *limeTouchScreenX;
+    touchX = limeTouchScreenX[0];
     if (touchX == -1.0f)
         DraggingButton = -1;
 
@@ -11595,7 +11617,7 @@ void EditButtons(void)
         held   = LastDraggingButton;
 
         if (b != 0) {
-            float apart = *ButtonSize - EB_DROP_SLACK;
+            float apart = ButtonSize - EB_DROP_SLACK;
 
             for (i = 0; i < EB_BUTTONS; i++) {
                 float dx, dy;
@@ -11625,10 +11647,10 @@ void EditButtons(void)
     layout  = Settings[4];
     b       = EB_Layout(layout);
     held    = DraggingButton;
-    half    = *ButtonSize * 0.5f;
+    half    = ButtonSize * 0.5f;
     pickedX = LastButtonPosX;
     pickedY = LastButtonPosY;
-    touchY  = *limeTouchScreenY;
+    touchY  = limeTouchScreenY[0];
 
     if (b != 0) {
         for (i = 0; i < EB_BUTTONS; i++) {
@@ -11677,27 +11699,27 @@ void EditButtons(void)
 
         /* left */
         limeFillRect(0.0f, 0.0f,
-                     FE_W(EB_LEFT_MARGIN), (float)*limeScreenHeight,
+                     FE_W(EB_LEFT_MARGIN), (float)limeScreenHeight,
                      EB_BAND_R, EB_BAND_G, EB_BAND_B, EB_BAND_A);
 
         /* top */
         limeFillRect(FE_W(EB_LEFT_MARGIN), 0.0f,
-                     (float)*limeScreenWidth - FE_W(EB_LEFT_MARGIN),
+                     (float)limeScreenWidth - FE_W(EB_LEFT_MARGIN),
                      (float)half2 + FE_H(EB_TOP_MARGIN),
                      EB_BAND_R, EB_BAND_G, EB_BAND_B, EB_BAND_A);
 
         /* bottom */
         limeFillRect(FE_W(EB_LEFT_MARGIN),
-                     (float)(*limeScreenHeight - half2),
-                     (float)*limeScreenWidth - FE_W(EB_LEFT_MARGIN),
+                     (float)(limeScreenHeight - half2),
+                     (float)limeScreenWidth - FE_W(EB_LEFT_MARGIN),
                      (float)half2,
                      EB_BAND_R, EB_BAND_G, EB_BAND_B, EB_BAND_A);
 
         /* right -- FE_W where the others use FE_H; see the header */
-        limeFillRect((float)(*limeScreenWidth - half2),
+        limeFillRect((float)(limeScreenWidth - half2),
                      (float)half2 + FE_W(EB_TOP_MARGIN),
                      (float)half2,
-                     (float)(*limeScreenHeight - m[0].size)
+                     (float)(limeScreenHeight - m[0].size)
                      - FE_W(EB_TOP_MARGIN),
                      EB_BAND_R, EB_BAND_G, EB_BAND_B, EB_BAND_A);
     }
@@ -11798,8 +11820,8 @@ void EditButtons(void)
 #define ST_TIMEOUT      300.0f
 #define ST_FADE_STEP    -0.033333335f
 
-extern long  *LastDestiny;              /* pointer slot -> 0x0014e210 */
-extern long  *PLAYER1MODEL;             /* pointer slot -> 0x0014e1b4 */
+extern long   LastDestiny;              /* pointer slot -> 0x0014e210 */
+extern long   PLAYER1MODEL;             /* pointer slot -> 0x0014e1b4 */
 extern long   TreasureSelected;         /* 0x00101160 */
 extern float  TreasureSelectTime;       /* 0x0010118c */
 
@@ -11809,17 +11831,17 @@ void FE_Task_Select_Treasure(void)
 {
     long  count, claimed = 0, i, x, n = 0, allDone;
 
-    if (*LastDestiny == 0)
+    if (LastDestiny == 0)
         count = 1;
-    else if (*LastDestiny == 1)
+    else if (LastDestiny == 1)
         count = 4;
-    else if (*LastDestiny == 2)
+    else if (LastDestiny == 2)
         count = 9;
     else
         count = ST_TILES;
 
     limeDrawSprite((TEXTURE *)MetalScreenTexture, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0f, 1.0f, 1.0f, col);
 
     limeEnableAlphaBlending_Additive();
@@ -11827,15 +11849,15 @@ void FE_Task_Select_Treasure(void)
     DrawAnimAsSprite(0, 0, FE_WidthScale, 0x80,
                      0x80, (long)(uintptr_t)SpotlightTextures,
                      (const char *)&spotlight_SpriteDef, spotlight_Anim,
-                     0, (long)*GameCounter,
+                     0, (long)GameCounter,
                      0, spotlight_Anim[0] - 1, 1, col);
 
-    DrawAnimAsSprite((long)((float)*limeScreenWidth
+    DrawAnimAsSprite((long)((float)limeScreenWidth
                             + FE_WidthScale * -128.0f),
                      0, FE_WidthScale, 0x80,
                      0x80, (long)(uintptr_t)SpotlightTextures,
                      (const char *)&spotlight_SpriteDef, spotlight_Anim,
-                     1, (long)*GameCounter,
+                     1, (long)GameCounter,
                      0, spotlight_Anim[0] - 1, 1, col);
 
     limeEnableAlphaBlending_Basic();
@@ -11856,7 +11878,7 @@ void FE_Task_Select_Treasure(void)
         const float *colour;
 
         gained = (i != 0) ? TreasureGained[i]
-                          : EndingsGained[*PLAYER1MODEL];
+                          : EndingsGained[PLAYER1MODEL];
 
         if (TreasureSelected == -1) {
             if (gained)
@@ -11864,11 +11886,11 @@ void FE_Task_Select_Treasure(void)
 
             /* ---- the tap, for the tiles this run actually offers ---- */
             if (i < count && gained == 0
-                && *limeLastTouchScreenX == -1.0f
-                && *limeTouchScreenY >= FE_HeightScale * ST_BAND_TOP
-                && *limeTouchScreenY <= FE_HeightScale * ST_BAND_BOT
-                && *limeTouchScreenX >= FE_WidthScale * (float)x
-                && *limeTouchScreenX <= FE_WidthScale
+                && limeLastTouchScreenX[0] == -1.0f
+                && limeTouchScreenY[0] >= FE_HeightScale * ST_BAND_TOP
+                && limeTouchScreenY[0] <= FE_HeightScale * ST_BAND_BOT
+                && limeTouchScreenX[0] >= FE_WidthScale * (float)x
+                && limeTouchScreenX[0] <= FE_WidthScale
                                         * (float)(x + ST_CELL)) {
                 long k;
 
@@ -11879,7 +11901,7 @@ void FE_Task_Select_Treasure(void)
                 } else {
                     long e, seen = 0;
 
-                    EndingsGained[*PLAYER1MODEL] = 1;
+                    EndingsGained[PLAYER1MODEL] = 1;
 
                     for (e = 0; e < ST_ENDINGS; e++)
                         if (EndingsGained[e])
@@ -11943,7 +11965,7 @@ void FE_Task_Select_Treasure(void)
     /* ---- has this run's whole allowance been claimed? ---- */
     for (i = 0; i < count; i++) {
         if (i == 0) {
-            if (EndingsGained[*PLAYER1MODEL])
+            if (EndingsGained[PLAYER1MODEL])
                 n++;
         } else {
             n += TreasureGained[i];     /* a SUM, not a count */
@@ -11992,23 +12014,23 @@ void FE_Task_Select_Treasure(void)
     /* ---- the bottom line ---- */
     if (claimed == ST_TILES) {
         limeDrawFONT(GameFont, GameText(0x4e),
-                     (float)(*limeScreenWidth / 2), FE_HeightScale * 240.0f,
+                     (float)(limeScreenWidth / 2), FE_HeightScale * 240.0f,
                      1, FE_WidthScale, fontcol);
     } else if (allDone) {
         limeDrawFONT(GameFont, GameText(0x4d),
-                     (float)(*limeScreenWidth / 2), FE_HeightScale * 240.0f,
+                     (float)(limeScreenWidth / 2), FE_HeightScale * 240.0f,
                      1, FE_WidthScale, fontcol);
     } else {
         limeDrawFONT(GameFont, GameText(0x4f),
-                     (float)(*limeScreenWidth / 2), FE_HeightScale * 230.0f,
+                     (float)(limeScreenWidth / 2), FE_HeightScale * 230.0f,
                      1, FE_HeightScale, fontcol);
         limeDrawFONT(GameFont, GameText(0x50),
-                     (float)(*limeScreenWidth / 2), FE_HeightScale * 248.0f,
+                     (float)(limeScreenWidth / 2), FE_HeightScale * 248.0f,
                      1, FE_HeightScale, fontcol);
 
         if (TreasureSelected == -1)
             limeDrawFONT(GameFont, GameText(0x4c),
-                         (float)(*limeScreenWidth / 2),
+                         (float)(limeScreenWidth / 2),
                          FE_HeightScale * 280.0f,
                          1, FE_HeightScale, fontcol);
     }
@@ -12115,8 +12137,8 @@ void FE_Task_Select_Treasure(void)
 #define MVS_BIG_TEXT     2.5f
 #define MVS_LOG_MATCH    0x7555
 
-extern long *SpritelistReceived;        /* pointer slot -> 0x0010deac */
-extern float *limeLastTouchScreenY;     /* pointer slot -> 0x00171b6c */
+extern long  SpritelistReceived;        /* pointer slot -> 0x0010deac */
+extern float  limeLastTouchScreenY[];     /* 0x00171b6c, four slots */
 extern char  MPVersusSplitText[];       /* 0x00185950, 256 bytes a line */
 
 long isHeartbeatOn(void);
@@ -12154,18 +12176,18 @@ void FE_Task_Multiplayer_Versus_Screen(void)
     }
 
     charSelectButtonPressed = 0;
-    *SpritelistReceived     = 0;
+    SpritelistReceived     = 0;
     syncCharactersOpponent  = 0;
     syncCharacters          = 0;
 
-    if (*GamePaused == 0 && *otherPlayerPaused == 0 && isHeartbeatOn() == 0)
+    if (GamePaused == 0 && otherPlayerPaused == 0 && isHeartbeatOn() == 0)
         enableHeartbeat(5);
 
     if (VSAssetsLoaded == 0)
         FE_Task_VS_Screen_Init();
 
     limeDrawSprite((TEXTURE *)MetalScreenTexture, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0f, 1.0f, 1.0f, col);
 
     limeDrawSprite((TEXTURE *)VSTexture,
@@ -12175,19 +12197,19 @@ void FE_Task_Multiplayer_Versus_Screen(void)
 
     limeEnableAlphaBlending_Additive();
 
-    if (*otherPlayerPaused == 0) {
+    if (otherPlayerPaused == 0) {
         DrawAnimAsSprite(0, 0, FE_WidthScale, 0x80,
                          0x80, (long)(uintptr_t)SpotlightTextures,
                          (const char *)&spotlight_SpriteDef, spotlight_Anim,
-                         0, (long)*GameCounter,
+                         0, (long)GameCounter,
                          0, spotlight_Anim[0] - 1, 1, col);
 
-        DrawAnimAsSprite((long)((float)*limeScreenWidth
+        DrawAnimAsSprite((long)((float)limeScreenWidth
                                 + FE_WidthScale * -128.0f),
                          0, FE_WidthScale, 0x80,
                          0x80, (long)(uintptr_t)SpotlightTextures,
                          (const char *)&spotlight_SpriteDef, spotlight_Anim,
-                         1, (long)*GameCounter,
+                         1, (long)GameCounter,
                          0, spotlight_Anim[0] - 1, 1, col);
     }
 
@@ -12196,14 +12218,14 @@ void FE_Task_Multiplayer_Versus_Screen(void)
     /* ---- the two portraits, through FE_X / FE_W / FE_H this time ---- */
     limeDrawSprite((TEXTURE *)CharacterVSTexture[left],
                    FE_X(0.0f - VSScroll),
-                   (float)*limeScreenHeight + FE_HeightScale * -256.0f,
+                   (float)limeScreenHeight + FE_HeightScale * -256.0f,
                    FE_W(256.0f), FE_H(256.0f),
                    0.0f, 0.0f, 1.0f, 1.0f, col);
 
     limeDrawSprite((TEXTURE *)(left == right ? CharacterVSTexture2[right]
                                              : CharacterVSTexture[right]),
                    FE_X(224.0f + VSScroll),
-                   (float)*limeScreenHeight + FE_HeightScale * -256.0f,
+                   (float)limeScreenHeight + FE_HeightScale * -256.0f,
                    FE_W(256.0f), FE_H(256.0f),
                    0.0f, 0.0f, -1.0f, 1.0f, col);   /* mirrored */
 
@@ -12213,17 +12235,17 @@ void FE_Task_Multiplayer_Versus_Screen(void)
         float u, v, t;
         long  x = i * MVS_CELL;
 
-        if (*GamePaused == 0 && *otherPlayerPaused == 0) {
+        if (GamePaused == 0 && otherPlayerPaused == 0) {
             long mine = isParent() ? (isParentBasedOnSpeed() && i <= 4)
                                    : (i <= 5);
 
-            if (mine && *limeLastTouchScreenX == -1.0f
-                && *limeTouchScreenY >= (float)*limeScreenHeight
+            if (mine && limeLastTouchScreenX[0] == -1.0f
+                && limeTouchScreenY[0] >= (float)limeScreenHeight
                                         + FE_HeightScale * -64.0f
-                && *limeTouchScreenY <= (float)*limeScreenHeight
+                && limeTouchScreenY[0] <= (float)limeScreenHeight
                                         + FE_HeightScale * 16.0f
-                && *limeTouchScreenX >= FE_X((float)x)
-                && *limeTouchScreenX <= FE_X((float)((i + 1) * MVS_CELL))) {
+                && limeTouchScreenX[0] >= FE_X((float)x)
+                && limeTouchScreenX[0] <= FE_X((float)((i + 1) * MVS_CELL))) {
 
                 KodeSelector[i] = (KodeSelector[i] + 1) % 10;
 
@@ -12254,7 +12276,7 @@ void FE_Task_Multiplayer_Versus_Screen(void)
 
         limeDrawSprite((TEXTURE *)KodesTexture,
                        FE_X((float)x),
-                       (float)*limeScreenHeight + FE_HeightScale * -48.0f,
+                       (float)limeScreenHeight + FE_HeightScale * -48.0f,
                        FE_W((float)MVS_CELL), FE_H((float)MVS_CELL),
                        u, v, MVS_U, MVS_V, col);
 
@@ -12267,7 +12289,7 @@ void FE_Task_Multiplayer_Versus_Screen(void)
 
             limeDrawSprite((TEXTURE *)KodesTexture,
                            FE_X((float)x - MVS_PART_MOVE * t),
-                           (float)*limeScreenHeight
+                           (float)limeScreenHeight
                            + FE_HeightScale * -48.0f
                            - FE_HeightScale * MVS_PART_MOVE * t,
                            FE_W((t + 1.0f) * (float)MVS_CELL),
@@ -12290,46 +12312,46 @@ void FE_Task_Multiplayer_Versus_Screen(void)
 
     /* ---- handing over into the match ---- */
     if (FE_FadeAdd == 0.0f && FE_Fade == 0.0f
-        && *otherPlayerPaused == 0 && *GamePaused == 0) {
+        && otherPlayerPaused == 0 && GamePaused == 0) {
         CurrentTask = 4;
         checkIfKode();
         preprocessPreloadKode();
         disableHeartbeat();
     }
 
-    if (*otherPlayerPaused != 0) {
+    if (otherPlayerPaused != 0) {
         /* ---- the opponent paused: a wrapped message and a bare exit box ---- */
         CreateWrappedTextArrays(GameText(0x3bb), MPVersusSplitText, &lines,
-                                *limeScreenWidth - 0x20,
+                                limeScreenWidth - 0x20,
                                 GameFont, FE_WidthScale);
 
         for (i = 0; i < lines; i++)
             limeDrawFONT(GameFont, limeUC(&MPVersusSplitText[i * 256]),
-                         (float)(*limeScreenWidth / 2),
+                         (float)(limeScreenWidth / 2),
                          FE_Y((float)(i * 16 + 0x30)),
                          1, FE_WidthScale, fontcol);
 
         limeDrawFONT(GameFont, GameText(9),
-                     (float)(*limeScreenWidth / 2),
-                     (float)*limeScreenHeight + FE_HeightScale * -48.0f,
+                     (float)(limeScreenWidth / 2),
+                     (float)limeScreenHeight + FE_HeightScale * -48.0f,
                      1, FE_WidthScale * MVS_BIG_TEXT, fontcol);
 
-        if (*limeTouchScreenX == -1.0f
-            && *limeLastTouchScreenX > FE_X(160.0f)
-            && *limeLastTouchScreenX < FE_X(320.0f)
-            && *limeLastTouchScreenY > FE_Y(272.0f)) {
+        if (limeTouchScreenX[0] == -1.0f
+            && limeLastTouchScreenX[0] > FE_X(160.0f)
+            && limeLastTouchScreenX[0] < FE_X(320.0f)
+            && limeLastTouchScreenY[0] > FE_Y(272.0f)) {
             puts("PRESSED EXIT!");
             PopAllFETasksDeferred(0);
             disableHeartbeat();
             endMP();
             thisSessionId++;
-            *otherPlayerPaused = 0;
+            otherPlayerPaused = 0;
         }
 
         return;
     }
 
-    if (*GamePaused == 0) {
+    if (GamePaused == 0) {
         /* ---- the clock ---- */
         if (isParentBasedOnSpeed()) {
             sendTimerPacket((long)vsScreenTimer, (long)VSWait);
@@ -12357,8 +12379,8 @@ void FE_Task_Multiplayer_Versus_Screen(void)
              (int)(vsScreenTimer / 60.0f));
 
     limeDrawFONT(GameFont, timerText,
-                 (float)(*limeScreenWidth / 2),
-                 (float)*limeScreenHeight + FE_HeightScale * -48.0f,
+                 (float)(limeScreenWidth / 2),
+                 (float)limeScreenHeight + FE_HeightScale * -48.0f,
                  1, FE_WidthScale * MVS_BIG_TEXT, fontcol);
 }
 
@@ -12422,7 +12444,7 @@ void FE_Task_Multiplayer_Versus_Screen(void)
 #define FELOAD_CHARACTERS 26
 #define FELOAD_HB_SECS    9
 
-extern long  *UseLOWAssets;             /* pointer slot -> 0x0010df10 */
+extern long  UseLOWAssets;             /* 0x0010df10 */
 extern char  *Versus_Names[];           /* 0x000ffbf4 */
 extern char  *Versus_Names2[];          /* 0x000ffe74 */
 extern char  *Versus_Names_LOW[];       /* 0x00100140 */
@@ -12533,7 +12555,7 @@ int FEInit_LoadABit(long step)
     case 40:
         for (i = 0; i < FELOAD_CHARACTERS; i++) {
             /* the LOW test is made per character, inside the loop */
-            if (*UseLOWAssets) {
+            if (UseLOWAssets) {
                 CharacterVSTexture[i]  = limeLoadTexture(Versus_Names_LOW[i],
                                                          0, 0);
                 CharacterVSTexture2[i] = limeLoadTexture(Versus_Names2_LOW[i],
@@ -12570,7 +12592,7 @@ int FEInit_LoadABit(long step)
         return 0;
     case 48:
         *FEBits3 = limeLoadTexture("FE_BUTTONS_03.PNG", 0, 0);
-        FENew1Texture = *UseLOWAssets
+        FENew1Texture = UseLOWAssets
                         ? limeLoadTexture("FENEW1_LOW.PNG", 0, 1)
                         : limeLoadTexture("FENEW1.PNG", 0, 0);
         return 0;
@@ -12589,16 +12611,16 @@ int FEInit_LoadABit(long step)
         return 0;
     case 52:
         MetalScreenTexture = limeLoadTexture("FE_METAL_BG.PNG", 0, 0);
-        GameOverTopTexture = *UseLOWAssets
+        GameOverTopTexture = UseLOWAssets
                              ? limeLoadTexture("FE_GAMEOVER_TOP_LOW.PNG", 0, 1)
                              : limeLoadTexture("FE_GAMEOVER_TOP.PNG", 0, 0);
         return 0;
     case 53:
         GameOverBottomTexture =
-            *UseLOWAssets ? limeLoadTexture("FE_GAMEOVER_BOTTOM_LOW.PNG", 0, 1)
+            UseLOWAssets ? limeLoadTexture("FE_GAMEOVER_BOTTOM_LOW.PNG", 0, 1)
                           : limeLoadTexture("FE_GAMEOVER_BOTTOM.PNG", 0, 0);
         MainMenuBGTexture =
-            *UseLOWAssets ? limeLoadTexture("FE_TITLE_BG_LOW.PNG", 0, 1)
+            UseLOWAssets ? limeLoadTexture("FE_TITLE_BG_LOW.PNG", 0, 1)
                           : limeLoadTexture("FE_TITLE_BG.PNG", 0, 0);
         return 0;
 
@@ -12693,12 +12715,12 @@ int FEInit_LoadABit(long step)
     case 69:
         *SmokeTexture  = limeLoadTexture("SMOKEPARTICLE2.PNG", 0, 0);
         BricksTexture = limeLoadTexture("TWO-BRICKS_CMAP.PNG", 0, 0);
-        MainLogoTexture = *UseLOWAssets
+        MainLogoTexture = UseLOWAssets
                           ? limeLoadTexture("FELOGO_LOW.PVR", 0, 1)
                           : limeLoadTexture("FELOGO.PVR", 0, 0);
         return 0;
     case 70:
-        SelectBGTexture = *UseLOWAssets
+        SelectBGTexture = UseLOWAssets
                           ? limeLoadTexture("CS_BG3_LOW.PNG", 0, 1)
                           : limeLoadTexture("CS_BG3.PNG", 0, 0);
         PortraitBorderTexture = limeLoadTexture("FE_PORTRAIT_BORDER.PNG", 0, 0);
@@ -12706,7 +12728,7 @@ int FEInit_LoadABit(long step)
 
     /* ---- 71..84: the meshes, and the burning logo ---- */
     case 71:
-        *ButtonsTPage = limeLoadTexture("BUTTONS_TPAGE.PNG", 0, 0);
+        ButtonsTPage = limeLoadTexture("BUTTONS_TPAGE.PNG", 0, 0);
         OrangeTexture = limeLoadTexture("ORANGEPORTAL.PNG", 0, 0);
         return 0;
     case 72:
@@ -12915,12 +12937,12 @@ static long Tower_Settled(const float *target, double xBias)
 /* Any release above the bottom strip drops straight into the fade. */
 static long Tower_TappedToSkip(void)
 {
-    if (*limeLastTouchScreenX != -1.0f)
+    if (limeLastTouchScreenX[0] != -1.0f)
         return 0;
-    if (*limeTouchScreenY == -1.0f)
+    if (limeTouchScreenY[0] == -1.0f)
         return 0;
 
-    return *limeTouchScreenY < (float)*limeScreenHeight
+    return limeTouchScreenY[0] < (float)limeScreenHeight
                                - FE_HeightScale * TOWER_BOTTOM;
 }
 
@@ -12989,7 +13011,7 @@ void FE_Task_Tower(void)
 
     case 0:
         limeDrawFONT(GameFont, GameText(0x49),
-                     (float)(*limeScreenWidth / 2), FE_Y(8.0f),
+                     (float)(limeScreenWidth / 2), FE_Y(8.0f),
                      1, FE_WidthScale, fontcol);
 
         back = DrawButtonNew(&BUTTON_BACK, 0x1a7, 0x130, 1);
@@ -13012,16 +13034,16 @@ void FE_Task_Tower(void)
             return;
         }
 
-        if (*limeLastTouchScreenX != -1.0f
-            || *limeTouchScreenY == -1.0f
-            || *limeTouchScreenY <= 0.0f
-            || *limeTouchScreenY >= (float)*limeScreenHeight
+        if (limeLastTouchScreenX[0] != -1.0f
+            || limeTouchScreenY[0] == -1.0f
+            || limeTouchScreenY[0] <= 0.0f
+            || limeTouchScreenY[0] >= (float)limeScreenHeight
                                     - FE_HeightScale * TOWER_BOTTOM)
             return;
 
         /* ---- four columns, two taps each ---- */
         {
-            float tx = *limeTouchScreenX;
+            float tx = limeTouchScreenX[0];
             long  n;
 
             for (n = 0; n < 4; n++) {
@@ -13047,7 +13069,7 @@ void FE_Task_Tower(void)
                     DestinyToSelect = n;
                 }
 
-                tx = *limeTouchScreenX;         /* reloaded between bands */
+                tx = limeTouchScreenX[0];         /* reloaded between bands */
             }
         }
 
@@ -13227,12 +13249,12 @@ static float Help_Block(long id, float scale, float running,
     long i;
 
     CreateWrappedTextArrays(GameText(id), HelpSpiltText, &lines,
-                            *limeScreenWidth - 0x20,
+                            limeScreenWidth - 0x20,
                             GameFont, FE_WidthScale * scale);
 
     for (i = 0; i < lines; i++)
         limeDrawFONT(GameFont, limeUC(&HelpSpiltText[i * HELP_SPLIT]),
-                     (float)(*limeScreenWidth / 2),
+                     (float)(limeScreenWidth / 2),
                      FE_Y(((float)i + running) * HELP_PITCH + HELP_TOP),
                      1, FE_WidthScale * scale, fontcol);
 
@@ -13247,7 +13269,7 @@ void FE_Task_About_Help(void)
     float head, body, running = 0.0f;
 
     limeDrawSprite((TEXTURE *)*FEBackground, 0.0f, 0.0f,
-                   (float)*limeScreenWidth, (float)*limeScreenHeight,
+                   (float)limeScreenWidth, (float)limeScreenHeight,
                    0.0f, 0.0234375f, 1.0f, 0.703125f, col);
 
     /* ---- the CJK carve-out ---- */
