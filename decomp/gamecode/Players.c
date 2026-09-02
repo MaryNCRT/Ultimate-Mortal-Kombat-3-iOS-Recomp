@@ -200,7 +200,26 @@ void PreloadGameCharacters(const EPLAYER *list, long arg)
 #define FE_CHARACTER_SLOTS  26
 #define FE_CHARACTER_STRIDE 0x668
 
-typedef struct ANIMATEDCHARACTER ANIMATEDCHARACTER;
+typedef struct ANIMATEDCHARACTER {
+    long        meshCount;      /* 0x00 */
+    void       *meshes;         /* 0x04  meshCount records of 0x58 */
+    long        id;             /* 0x08  the character, for the frame gates */
+    long        field0c;        /* 0x0c  nothing reads it */
+    void       *scene;          /* 0x10 */
+    void       *diffuse;        /* 0x14 */
+    void       *diffuseIce;     /* 0x18 */
+    void       *jadeGreen;      /* 0x1c  JADE only */
+    void       *sindelHair;     /* 0x20  SINDEL only */
+    void       *diffuse2;       /* 0x24  the lite path's second sheet */
+    void       *babality;       /* 0x28  may stay NULL */
+    void       *frameList;      /* 0x2c */
+    void       *skin;           /* 0x30 */
+    void       *bones;          /* 0x34 */
+    const long *meshbase;       /* 0x38  kept so it can be freed */
+    const long *meshTable;      /* 0x3c */
+    const long *meshNames;      /* 0x40 */
+} ANIMATEDCHARACTER;            /* 0x44 = 68 bytes, the size limeMalloc asks */
+
 int  FreeAnimatedCharacter(ANIMATEDCHARACTER *c);
 void LIME_FreeScene(void *scene);
 
@@ -246,7 +265,26 @@ void FreeFrontEndCharacters(void)
 }
 
 
-typedef struct PLAYERDEF PLAYERDEF;
+typedef struct PLAYERDEF {
+    long        id;             /* 0x00  0..25; the same as the index */
+    float       scale;          /* 0x04  multiplied by PlayerSize */
+    float       posOffsetX;     /* 0x08  added or subtracted by facing */
+    float       height;         /* 0x0c  added to Z in ArcadePosTo3dPos */
+    float       renderOffsetX;  /* 0x10  glTranslatef x, times +/-2.15 */
+    float       renderOffsetZ;  /* 0x14  glTranslatef z, times 0.65 */
+    const char *lighting;       /* 0x18  "KANO" */
+    const char *frameList;      /* 0x1c  "kanoframes.txt" */
+    const char *bones;          /* 0x20  "KANO_STANDARD.bones" */
+    const char *skin;           /* 0x24  "KANO_STANDARD.skin" */
+    const char *skinAnim;       /* 0x28  "KANO_STANDARD.skinanim" */
+    const char *texBase;        /* 0x2c  "KANO" */
+    const char *scene;          /* 0x30  "KANO_STANDARD.scene" */
+} PLAYERDEF;
+
+/* 52 bytes an entry IN THE IMAGE, where a pointer is four bytes. Kept because
+ * the compiler spells the multiply out as `(n*16 - n*4 + n) << 2` and that is
+ * how the stride was read off in the first place. The host struct is wider and
+ * nothing should use this number to index it. */
 void Load1Character(PLAYER *p, EPLAYER who, FRONTEND_CHARACTER *fe, long a, long b);
 
 
@@ -269,7 +307,8 @@ void Load1Character(PLAYER *p, EPLAYER who, FRONTEND_CHARACTER *fe, long a, long
  * camera. +0x530 is the alt-costume texture DumpAltCostume frees, cleared here
  * so a freshly loaded character never inherits the previous one's.
  */
-void LoadGameCharacter(PLAYER *p, PLAYERDEF *def, FRONTEND_CHARACTER *fe,
+void LoadGameCharacter(PLAYER *p, const PLAYERDEF *def,
+                       FRONTEND_CHARACTER *fe,
                        long arg)
 {
     long *pw = (long *)p;
@@ -759,7 +798,7 @@ int IsAFrameVisible(ANIMATEDCHARACTER *c, long frame)
  * Word 0 is the character id. The seven words from +0x18 to +0x30 are asset
  * name pointers; Load1Character passes all seven on and the ORDER it passes
  * them in is not the order they sit in. */
-extern char *PlayerDefs;                /* 0x00170950 */
+extern const PLAYERDEF PlayerDefs[];   /* 0x00170950, 26 entries */
 #define PLAYERDEF_STRIDE  52
 
 /* `_Players` -- 0x001fa4d4, and the second player is at +0x5f0. */
@@ -806,21 +845,20 @@ ANIMATEDCHARACTER *LoadAnimatedCharacter(char *a, char *b, char *c, char *d,
 void Load1Character(PLAYER *p, EPLAYER who, FRONTEND_CHARACTER *fe,
                     long a, long b)
 {
-    char **def = (char **)(PlayerDefs + who * PLAYERDEF_STRIDE);
-    const long *defw = (const long *)def;
+    const PLAYERDEF *def = &PlayerDefs[who];
     ANIMATEDCHARACTER *c;
 
-    c = LoadAnimatedCharacter(def[0x30 / 4], def[0x24 / 4], def[0x20 / 4],
-                              def[0x18 / 4], def[0x28 / 4], def[0x2c / 4],
-                              def[0x1c / 4],
-                              (EPLAYER)defw[0], fe, a, 1, b);
+    c = LoadAnimatedCharacter(def->scene, def->skin, def->bones,
+                              def->lighting, def->skinAnim, def->texBase,
+                              def->frameList,
+                              (EPLAYER)def->id, fe, a, 1, b);
 
     ((long *)p)[1] = (long)(uintptr_t)c;    /* p->anim, +0x04 */
-    ((long *)c)[2] = who;                   /* the character id, +0x08 */
+    c->id = who;                   /* the character id, +0x08 */
 }
 
 
-void LoadGameCharacterCheckCache(PLAYER *p, PLAYERDEF *def,
+void LoadGameCharacterCheckCache(PLAYER *p, const PLAYERDEF *def,
                                  FRONTEND_CHARACTER *fe);
 int  puts(const char *s);
 void LoadAllFramesTXT(void);
@@ -852,7 +890,7 @@ void LoadAllFramesTXT(void);
  *
  * Note it checks `OrigLoadedPlayers[1]` only -- slot 0 is never consulted.
  */
-void LoadGameCharacterCheckCache(PLAYER *p, PLAYERDEF *def,
+void LoadGameCharacterCheckCache(PLAYER *p, const PLAYERDEF *def,
                                  FRONTEND_CHARACTER *fe)
 {
     long *pw = (long *)p;
@@ -914,11 +952,11 @@ void LoadLevelCharacters(EPLAYER a, EPLAYER b)
 {
     PLAYER *p0 = (PLAYER *)Players;
     PLAYER *p1 = (PLAYER *)(Players + PLAYER_STRIDE);
-    PLAYERDEF *da = (PLAYERDEF *)(PlayerDefs + a * PLAYERDEF_STRIDE);
-    PLAYERDEF *db = (PLAYERDEF *)(PlayerDefs + b * PLAYERDEF_STRIDE);
+    const PLAYERDEF *da = &PlayerDefs[a];
+    const PLAYERDEF *db = &PlayerDefs[b];
 
     printf("Loading characters... (%s vs %s)...\n",
-           ((char *const *)da)[0x18 / 4], ((char *const *)db)[0x18 / 4]);
+           da->lighting, db->lighting);
 
     ClearAnimRemapTables();
     LoadAllFramesTXT();
@@ -940,7 +978,15 @@ void LoadLevelCharacters(EPLAYER a, EPLAYER b)
 #define ALLFRAMES_STRIDE  65
 #define ALLFRAMES_COUNT   0x1c4c        /* 7244 */
 
-extern char *AllFramesTable;            /* 0x00218cc4 */
+/* An ARRAY, not a pointer, and the symbol table settles it: `_AllFramesTable`
+ * is a `__DATA,__common` object at 0x00218cc4 and the gap to the next symbol --
+ * `_PreloadedCharacters` at 0x0028bc10 -- is 470,860 bytes, which is
+ * ALLFRAMES_COUNT * ALLFRAMES_STRIDE to the byte. A pointer slot would live in
+ * the 0x000f3xxx region and hold an address; this holds the table.
+ *
+ * Spelled `char *` it reads the table's first bytes as a pointer and
+ * LoadAllFramesTXT's sscanf then writes through whatever that is. */
+extern char AllFramesTable[ALLFRAMES_COUNT * ALLFRAMES_STRIDE]; /* 0x00218cc4 */
 
 void *limeLoadFile(const char *name);
 void  limeFree(void *p);
@@ -1005,10 +1051,27 @@ void LoadAllFramesTXT(void)
 }
 
 
-/* `_IdlesPerPlayer` -- 0x00171288, two words an entry. */
+/* `_IdlesPerPlayer` -- 0x00171288, eight bytes an entry.
+ *
+ * Spelled as a struct because the two words are not the same kind of thing and
+ * an array of one type cannot hold both. The loader indexes it with
+ * `lsls r3, r4, #3` -- who * 8, one entry -- then `ldr r2, [r3]` takes the
+ * first word as a VALUE and `ldr r1, [r3, #4]` the second as an address it
+ * walks. The first word is a float: the table reads 0x3f800000 and 0x3f000000,
+ * which are 1.0f and 0.5f, and DrawFrontEndCharacter below loads the field it
+ * lands in with `*(const float *)(fc + 0x660)`. Two independent readings, and
+ * they agree.
+ *
+ * This was `long *IdlesPerPlayer[]` and every entry was one dereference of the
+ * bits of 1.0f. */
+typedef struct {
+    float       speed;      /* idle playback rate: 1.0f, and 0.5f for a few */
+    const long *frames;     /* frame numbers, terminated by -1 */
+} IdleSet;
+
 /* `_TheFECharacters` is already declared above as [25][0x668]; slot 23 is the
  * one this function loads as character 0. */
-extern long *IdlesPerPlayer[];          /* 0x00171288, {value, list} pairs */
+extern const IdleSet IdlesPerPlayer[];  /* 0x00171288 */
 
 
 /* ----------------------------------------------------- LoadFrontEndCharacters
@@ -1021,7 +1084,7 @@ extern long *IdlesPerPlayer[];          /* 0x00171288, {value, list} pairs */
  * LoadAllFramesTXT run first, then it falls into the same body. So the frame
  * tables are rebuilt on the first character of a front-end load and not again.
  *
- * The body clears +4 and +0x65c, copies `IdlesPerPlayer[who][0]` into +0x660,
+ * The body clears +4 and +0x65c, copies `IdlesPerPlayer[who].speed` into +0x660,
  * and then copies that entry second word -- a **-1-terminated list** -- into
  * the slot at +0x5f4, terminating it with its own -1.
  *
@@ -1048,9 +1111,9 @@ void LoadFrontEndCharacters(long who)
 
     ((long *)fc)[1]            = 0;             /* +0x04 */
     *(long *)(fc + 0x650 + 0xc) = 0;            /* +0x65c */
-    *(long *)(fc + 0x660)       = IdlesPerPlayer[who * 2][0];
+    *(float *)(fc + 0x660)      = IdlesPerPlayer[who].speed;
 
-    src = IdlesPerPlayer[who * 2 + 1];
+    src = IdlesPerPlayer[who].frames;
     dst = (long *)(fc + 0x5f0 + 4);
     while (*src != -1)
         *dst++ = *src++;
@@ -1094,8 +1157,7 @@ extern long PLAYER1MODEL;               /* 0x0014e1b4 */
  */
 void Preload1Character(EPLAYER who, FRONTEND_CHARACTER *fe, long a, long b)
 {
-    char **def;
-    const long *defw;
+    const PLAYERDEF *def;
     long slot;
     ANIMATEDCHARACTER *c;
 
@@ -1103,13 +1165,12 @@ void Preload1Character(EPLAYER who, FRONTEND_CHARACTER *fe, long a, long b)
         return;
 
     slot = NumPreloadedCharacters;      /* read before the load */
-    def  = (char **)(PlayerDefs + who * PLAYERDEF_STRIDE);
-    defw = (const long *)def;
+    def = &PlayerDefs[who];
 
-    c = LoadAnimatedCharacter(def[0x30 / 4], def[0x24 / 4], def[0x20 / 4],
-                              def[0x18 / 4], def[0x28 / 4], def[0x2c / 4],
-                              def[0x1c / 4],
-                              (EPLAYER)defw[0], fe, a, b,
+    c = LoadAnimatedCharacter(def->scene, def->skin, def->bones,
+                              def->lighting, def->skinAnim, def->texBase,
+                              def->frameList,
+                              (EPLAYER)def->id, fe, a, b,
                               (who == PLAYER1MODEL) ? 1 : 0);
 
     *(long *)&PreloadedCharacters[slot][0] = who;
@@ -1221,7 +1282,7 @@ void AnimateFECharacters(float dt)
 }
 
 
-extern float *ShadowOffset;             /* pointer slot */
+extern float  ShadowOffset;             /* pointer slot */
 extern float  ShadowHeightFromGround;   /* 0x00171364 */
 extern limeVECTOR3 *RenderVerts;        /* pointer slot */
 
@@ -1342,7 +1403,7 @@ void RenderAnimatedCharacter(char *name, ANIMATEDCHARACTER *c,
     glPushMatrix();
     glColor4f(0.0f, 0.0f, 0.0f, 1.0f);
     glTranslatef(0.0f,
-                 (y - *ShadowOffset) * -100.0f + ShadowHeightFromGround,
+                 (y - ShadowOffset) * -100.0f + ShadowHeightFromGround,
                  0.0f);
     glScalef(1.0f, 0.0f, 1.0f);         /* Y collapsed to the ground plane */
 
@@ -1623,7 +1684,7 @@ void PlayerAutoSmoothAnims(PLAYER *p)
  *
  * ### The struct
  *
- * `limeMalloc(0x44, "animatedcharacter")`, so an `ANIMATEDCHARACTER` is
+ * `limeMalloc("animatedcharacter", 0x44)`, so an `ANIMATEDCHARACTER` is
  * **68 bytes**, and the per-mesh record is **0x58 = 88**.
  *
  * ### All three failure paths print and then crash
@@ -1660,14 +1721,18 @@ void PlayerAutoSmoothAnims(PLAYER *p)
 
 extern signed char  WantFrames[];   /* 0x00295d24, WANTFRAMES_BYTES of them */
 extern long        *WantDoingFatalFrames;            /* pointer slot -> 0x0017135c */
-extern long        *UseLOWAssets;                    /* pointer slot -> 0x0010df10 */
+extern long  UseLOWAssets;                   /* 0x0010df10 */
 
-void *limeMalloc(long size, const char *tag);
+/* Tag first, then size -- 0x0005c3d8 loads the string into r0 and 0x44
+ * into r1. This file had the two the other way round, which made every
+ * allocation here ask for a string's worth of bytes. */
+void *limeMalloc(const char *tag, long size);
 void *limeLoadTexture(const char *path, long a, long b);
 void *LIME_LoadSkin(const char *path);
 void *LIME_LoadBones(const char *path);
 void *LIME_LoadScene(const char *path, long a, const char *tex, long b);
 void  LIME_LoadMeshSetTextures(void *meshset, const char *tex);
+void *LIME_SceneMeshSet(void *scene);
 
 /* One 88-byte mesh record. Only the fields this function writes are named. */
 typedef struct MESHREC {
@@ -1730,16 +1795,17 @@ ANIMATEDCHARACTER *LoadAnimatedCharacter(char *scene, char *skinFile,
     sprintf(framePath, "framelists/%s.bin", name);
 #pragma GCC diagnostic pop
 
-    c = (ANIMATEDCHARACTER *)limeMalloc(ANIMCHAR_BYTES, "animatedcharacter");
+    c = (ANIMATEDCHARACTER *)limeMalloc("animatedcharacter",
+                                        sizeof(ANIMATEDCHARACTER));
     if (c == NULL)
         Error("LAC: outofmem1\n");      /* and then carries straight on */
 
-    ((void **)c)[0x30 / 4] = LIME_LoadSkin(skinFile);
-    ((void **)c)[0x34 / 4] = LIME_LoadBones(bonesFile);
-    ((void **)c)[0x2c / 4] = limeLoadFile(framePath);
+    c->skin = LIME_LoadSkin(skinFile);
+    c->bones = LIME_LoadBones(bonesFile);
+    c->frameList = limeLoadFile(framePath);
 
     /* ---- the frame list, and the finisher-frame gate ---- */
-    list = (const short *)((void **)c)[0x2c / 4];
+    list = (const short *)c->frameList;
     for (i = 0; i != FRAMELIST_ENTRIES; i++) {
         if (list[i] == -1)
             continue;
@@ -1761,10 +1827,15 @@ ANIMATEDCHARACTER *LoadAnimatedCharacter(char *scene, char *skinFile,
 
     /* ---- scene and mesh textures ---- */
     if ((q != 0 && fe == NULL) || (who == 9 && fe != NULL)) {
-        ((void **)c)[0x10 / 4] = LIME_LoadScene(scene, 1, texBase, 0);
-        if (((void **)c)[0x10 / 4])
-            LIME_LoadMeshSetTextures(
-                ((void ***)c)[0x10 / 4][0x80 / 4], texBase);
+        c->scene = LIME_LoadScene(scene, 1, texBase, 0);
+        if (c->scene)
+            /* `->meshset`, not word 32. lime.h states SCENEINFO, so the field
+             * has a name and the compiler can find it; 0x80 is where it sits in
+             * the IMAGE, and on the host the 64-byte name and the pointers
+             * ahead of it do not add up to the same place. Spelled as an
+             * offset it handed LIME_LoadMeshSetTextures the characters of
+             * "KUNGLAO_" as an address. */
+            LIME_LoadMeshSetTextures(LIME_SceneMeshSet(c->scene), texBase);
     }
 
     /* ---- the meshbase file: a header then one block a mesh ---- */
@@ -1775,19 +1846,19 @@ ANIMATEDCHARACTER *LoadAnimatedCharacter(char *scene, char *skinFile,
         if (base == NULL)
             Error("LAC: Filenotfound\n");
         hdr = base + 1 + ((who == 6) ? 1 : 0);
-        ((const long **)c)[0x40 / 4] = (const long *)(uintptr_t)hdr[1];
+        c->meshNames = (const long *)(uintptr_t)hdr[1];
         meshCount = hdr[0];
-        ((const long **)c)[0x3c / 4] = hdr + 2;
-        ((long *)c)[0] = meshCount;
+        c->meshTable = hdr + 2;
+        c->meshCount = meshCount;
 
         if (fe)
             ((long *)fe)[0x5f0 / 4] =
                 CreateFramesWeWantFromFIDs(WantedFrames, who,
                                            (const long *)((char *)fe + 0x5f4));
 
-        ((void **)c)[1] = limeMalloc(meshCount * MESHREC_BYTES,
-                                     "animatedcharacter_meshbase");
-        if (((void **)c)[1] == NULL)
+        c->meshes = limeMalloc("animatedcharacter_meshbase",
+                               meshCount * sizeof(MESHREC));
+        if (c->meshes == NULL)
             Error("LAC: meshbase out of ram\n");
 
         lighting = limeLoadFile(lightingPath);
@@ -1796,12 +1867,12 @@ ANIMATEDCHARACTER *LoadAnimatedCharacter(char *scene, char *skinFile,
         for (i = 0; i < meshCount; i++) {
             MESHREC *m    = &((MESHREC *)((void **)c)[1])[i];
             MESHREC *m0   = &((MESHREC *)((void **)c)[1])[0];
-            void   **skin = (void **)((void **)c)[0x30 / 4];
+            void   **skin = (void **)c->skin;
             long     first = (i == 0);
             const float *meshbase =
-                (const float *)((char *)((const long **)c)[0x3c / 4]
+                (const float *)((char *)c->meshTable
                                 + i * (long)(uintptr_t)
-                                      ((const long **)c)[0x40 / 4]);
+                                      c->meshNames);
 
             m->field04 = ((long *)skin)[2];
             if (skin[0] == NULL)
@@ -1818,10 +1889,10 @@ ANIMATEDCHARACTER *LoadAnimatedCharacter(char *scene, char *skinFile,
                                          0, 1);
             }
 
-            m->cols = limeMalloc(size1, "animatedcharacter_cols");
+            m->cols = limeMalloc("animatedcharacter_cols", size1);
             memcpy(m->cols, (char *)lighting + i * (size1 + size2), size1);
 
-            m->cols2 = limeMalloc(size2, "animatedcharacter_cols2");
+            m->cols2 = limeMalloc("animatedcharacter_cols2", size2);
             memcpy(m->cols2, (char *)lighting + i * (size1 + size2) + size1,
                    size2);
 
@@ -1854,13 +1925,13 @@ ANIMATEDCHARACTER *LoadAnimatedCharacter(char *scene, char *skinFile,
             }
         }
 
-        ((const long **)c)[0x38 / 4] = base;   /* the meshbase file is kept */
+        c->meshbase = base;   /* the meshbase file is kept */
         limeFree(lighting);                    /* the lighting file is not */
     }
 
-    ((void **)c)[0x14 / 4] = NULL;
-    ((void **)c)[0x24 / 4] = NULL;
-    ((void **)c)[0x28 / 4] = NULL;
+    c->diffuse = NULL;
+    c->diffuse2 = NULL;
+    c->babality = NULL;
 
     /* ---- the textures ---- */
     if (fe != NULL || p != 0) {
@@ -1871,14 +1942,14 @@ ANIMATEDCHARACTER *LoadAnimatedCharacter(char *scene, char *skinFile,
                 strcpy(texPath, "DUMMY_DIFFUSE_LITE.PNG");
             else
                 sprintf(texPath, "%s_DIFFUSE2_LITE.PNG", texBase);
-            ((void **)c)[0x24 / 4] = limeLoadTexture(texPath, 0, 0);
+            c->diffuse2 = limeLoadTexture(texPath, 0, 0);
 
-            if (((void **)c)[0x24 / 4] == NULL) {
+            if (c->diffuse2 == NULL) {
                 if (dummy)
                     strcpy(texPath, "DUMMY_DIFFUSE_LITE.PNG");
                 else
                     sprintf(texPath, "%s_DIFFUSE_LITE2.PNG", texBase);
-                ((void **)c)[0x24 / 4] = limeLoadTexture(texPath, 0, 0);
+                c->diffuse2 = limeLoadTexture(texPath, 0, 0);
             }
         }
 
@@ -1886,30 +1957,30 @@ ANIMATEDCHARACTER *LoadAnimatedCharacter(char *scene, char *skinFile,
             strcpy(texPath, "DUMMY_DIFFUSE_LITE.PNG");
         else
             sprintf(texPath, "%s_DIFFUSE_LITE.PNG", texBase);
-        ((void **)c)[0x14 / 4] = limeLoadTexture(texPath, 0, 0);
+        c->diffuse = limeLoadTexture(texPath, 0, 0);
 
         if (dummy)
             strcpy(texPath, "DUMMY_DIFFUSE_ICE.PNG");
         else
             sprintf(texPath, "%s_DIFFUSE_ICE.PNG", texBase);
-        ((void **)c)[0x18 / 4] = limeLoadTexture(texPath, 0, 0);
+        c->diffuseIce = limeLoadTexture(texPath, 0, 0);
     } else {
         int dummy = (strcmp(frameListName, "dummyframes.txt") == 0);
 
         if (dummy) {
             strcpy(texPath, "DUMMY_DIFFUSE.PNG");
         } else if (r != 0) {
-            if (*UseLOWAssets)
+            if (UseLOWAssets)
                 sprintf(texPath, "%s_DIFFUSE2_LOW.PNG", texBase);
             else
                 sprintf(texPath, "%s_DIFFUSE2.PNG", texBase);
         } else {
-            if (*UseLOWAssets)
+            if (UseLOWAssets)
                 sprintf(texPath, "%s_DIFFUSE_LOW.PNG", texBase);
             else
                 sprintf(texPath, "%s_DIFFUSE.PNG", texBase);
         }
-        ((void **)c)[0x14 / 4] = limeLoadTexture(texPath, r, r);
+        c->diffuse = limeLoadTexture(texPath, r, r);
     }
 
     /* the babality sheet is the only texture with a fallback spelling */
@@ -1918,20 +1989,20 @@ ANIMATEDCHARACTER *LoadAnimatedCharacter(char *scene, char *skinFile,
             strcpy(texPath, "DUMMY_DIFFUSE_ICE.PNG");
         else
             sprintf(texPath, "%sBABY2.PVR", texBase);
-        ((void **)c)[0x28 / 4] = limeLoadTexture(texPath, 0, 0);
+        c->babality = limeLoadTexture(texPath, 0, 0);
 
-        if (((void **)c)[0x28 / 4] == NULL) {
+        if (c->babality == NULL) {
             sprintf(texPath, "%sBABILITY2.PVR", texBase);
-            ((void **)c)[0x28 / 4] = limeLoadTexture(texPath, 0, 0);
+            c->babality = limeLoadTexture(texPath, 0, 0);
         }
     } else {
-        ((void **)c)[0x28 / 4] = NULL;
+        c->babality = NULL;
     }
 
     /* two characters, two textures nobody else has */
-    ((void **)c)[0x1c / 4] = (who == JADE)
+    c->jadeGreen = (who == JADE)
         ? limeLoadTexture("JADE_DIFFUSE_GREEN.PNG", 0, 0) : NULL;
-    ((void **)c)[0x20 / 4] = (who == SINDEL)
+    c->sindelHair = (who == SINDEL)
         ? limeLoadTexture("SINDEL_HAIR_DIFF.PVR", 0, 0) : NULL;
 
     return c;

@@ -807,6 +807,7 @@ int LIME_TriggerEventFromSceneH(SCENEINFO *scene, SCENEEVENTTRACK *track,
 EVENTSINFO *LIME_LoadEvents(const char *filename, long arg1, long arg2)
 {
     const uint8_t *data;
+    const uint8_t *base;        /* data before the loop moves it */
     EVENTSINFO *info;
     char *tracks;
     int32_t n;
@@ -820,16 +821,21 @@ EVENTSINFO *LIME_LoadEvents(const char *filename, long arg1, long arg2)
     if (data == NULL)
         return NULL;
 
-    info = limeMalloc("events", 8);
+    info = limeMalloc("events", sizeof(EVENTSINFO));  /* 8 in the image */
     if (info == NULL)
         return NULL;
 
     n = *(const int32_t *)data;
     info->count = n;
+    /* Past the count: it is the file's header, not the first four bytes of the
+     * first track's name. Without this the loop reads every record four bytes
+     * early and every name begins with the count's bytes. */
+    base = data;
+    data += 4;
     LIME_printf(8, "");
 
     if (n == 0) {                       /* empty reads the same as absent */
-        limeFree((void *)data);
+        limeFree((void *)base);
         return NULL;
     }
 
@@ -871,7 +877,10 @@ EVENTSINFO *LIME_LoadEvents(const char *filename, long arg1, long arg2)
         data += 0x2c;                   /* 44 bytes per record */
     }
 
-    limeFree((void *)data);
+    /* `base`, not `data`: the loop above left `data` at the end of the last
+     * record, and an allocation can only be released at the address it was
+     * handed out at. */
+    limeFree((void *)base);
     return info;
 }
 

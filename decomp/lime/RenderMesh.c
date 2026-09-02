@@ -132,14 +132,14 @@ MESHSETINFO *LIME_LoadMeshSet(const char *filename, int useLighting)
     (void)data_size;
     uint8_t *data = (uint8_t *)limeLoadFile(filename);
     if (!data) {
-        free(light);
+        limeFree(light);
         return NULL;
     }
 
     MESHSETINFO *set = (MESHSETINFO *)calloc(1, sizeof(MESHSETINFO));
     if (!set) {
-        free(data);
-        free(light);
+        limeFree(data);
+        limeFree(light);
         return NULL;
     }
 
@@ -153,8 +153,8 @@ MESHSETINFO *LIME_LoadMeshSet(const char *filename, int useLighting)
                                       sizeof(MESHINFO *));
     if (!set->meshes) {
         free(set);
-        free(data);
-        free(light);
+        limeFree(data);
+        limeFree(light);
         return NULL;
     }
 
@@ -225,8 +225,8 @@ MESHSETINFO *LIME_LoadMeshSet(const char *filename, int useLighting)
         p += (size_t)m->numVerts * DISK_VERT_STRIDE;
     }
 
-    free(data);
-    free(light);
+    limeFree(data);
+    limeFree(light);
     return set;
 }
 

@@ -37,10 +37,79 @@ import os
 import re
 import subprocess
 import sys
+
+import mkdata
 import tempfile
 
 DECOMP_DIRS = ["decomp/gamecode", "decomp/lime"]
+
+# Backing words for a pointer slot. These are small in practice -- a slot is
+# usually a colour, a matrix or a handful of counters.
 SLOT_WORDS = 64
+
+# Bytes for an array the decomp declares as `T name[]`, extent unknown. 229 of
+# them, and a slot-sized guess is not slack, it is a silent overrun:
+# `AllFramesTable` got 64 bytes and LoadAllFramesTXT sscanf'd 7,244 entries into
+# it. This default is generous; where the real extent is known it is listed
+# below and used instead.
+UNSIZED_BYTES = 64 * 1024
+
+# Where the symbol table lives. Every global's real extent is in it, implicitly:
+# the linker laid the data out, so the gap from one symbol to the next IS the
+# size of the first. That beats any default -- `AllFramesTable` measures 470,860
+# bytes this way, which is ALLFRAMES_COUNT * ALLFRAMES_STRIDE to the byte.
+SYMBOLS = os.environ.get("UMK3_SYMBOLS", "work/symbols.txt")
+
+# The image itself. Every initialised global has its value in it, and
+# tools/mkdata.py reads them out -- see that file for why a memcpy'd blob
+# would not do.
+BINARY = os.environ.get("UMK3_BINARY",
+                        "E:/MK3 PROJECT/OUTPUT/armv7/UMK3.armv7")
+
+# Sections whose symbols are data. A gap measured across a section boundary is
+# not an extent, so only symbols from the same section are compared.
+DATA_SECTIONS = ("__DATA,__data", "__DATA,__common", "__DATA,__bss",
+                 "__DATA,__const", "__TEXT,__const")
+
+
+def symbol_extents():
+    """Every data symbol's size, as the gap to the next symbol in its section.
+
+    This is a measurement, not a guess, and it is the reason a generated global
+    can be the right size without anyone stating the size anywhere: the address
+    of the next thing is where this thing ends.
+
+    It is an upper bound where the linker left padding, which is the safe
+    direction -- too much storage wastes bytes, too little corrupts whatever is
+    next.
+    """
+    by_section = {}
+    for line in open(SYMBOLS, encoding="utf-8", errors="replace"):
+        parts = line.split()
+        if len(parts) < 5 or not parts[0].startswith("0x"):
+            continue
+        sect, name = parts[3], parts[-1]
+        if sect not in DATA_SECTIONS or not name.startswith("_"):
+            continue
+        try:
+            by_section.setdefault(sect, set()).add((int(parts[0], 16),
+                                                    name[1:]))
+        except ValueError:
+            pass
+
+    out = {}
+    for addrs in by_section.values():
+        ordered = sorted(addrs)
+        for i, (addr, name) in enumerate(ordered):
+            j = i
+            while j < len(ordered) and ordered[j][0] == addr:
+                j += 1
+            if j < len(ordered):
+                size = ordered[j][0] - addr
+                if 0 < size:
+                    # several names can share an address; keep the largest span
+                    out[name] = max(out.get(name, 0), size)
+    return out
 
 # Field types whose size is known without a layout. Anything else embedded by
 # value has to have a body in the decomp, or the struct around it cannot be
@@ -52,9 +121,20 @@ SCALARS = {
     "uint8_t", "uint16_t", "uint32_t", "uint64_t",
 }
 
-# Declarations we must NOT define here: the runtime owns them, or they are
-# function prototypes that only look like data.
-SKIP_PREFIX = ("lime", "gl", "EASDK", "EASOC")
+# Declarations we must NOT define here: the runtime owns them.
+SKIP_PREFIX = ("lime", "EASDK", "EASOC")
+
+
+def is_runtime_symbol(name):
+    """True for names the platform layer owns rather than the game.
+
+    The GL test is `gl` + a capital, not the bare prefix: `glowProgress` is a
+    front-end global and a plain `startswith("gl")` silently swallowed it, which
+    then showed up as one unexplained undefined symbol at link time.
+    """
+    if name.startswith(SKIP_PREFIX):
+        return True
+    return len(name) > 2 and name[:2] == "gl" and name[2].isupper()
 
 # `extern <stuff> <name>[dims];` on one line. The decomp writes these one per
 # line with the address in a trailing comment, which is what makes this safe.
@@ -79,7 +159,7 @@ HEAD = re.compile(
 # it is data and the front end indexes it every frame.
 FNPTR = re.compile(
     r"^extern\s+(?P<ret>[A-Za-z_]\w*)\s*"
-    r"\(\s*\*\s*(?P<name>[A-Za-z_]\w*)\s*(?P<dims>(?:\[[^\]]*\])*)\s*\)\s*"
+    r"\(\s*\*\s*(?:const\s+)?(?P<name>[A-Za-z_]\w*)\s*(?P<dims>(?:\[[^\]]*\])*)\s*\)\s*"
     r"\((?P<args>[^)]*)\)\s*;"
 )
 
@@ -313,6 +393,9 @@ def emit_header(needed, blocks, path, opaque=(), decl_texts=()):
     return order
 
 
+DEFINED = set()   # everything the decomp defines; filled below
+
+
 def undefined_symbols():
     """Compile every decomp TU and collect what nothing defines."""
     tmp = tempfile.mkdtemp(prefix="mkglobals")
@@ -340,20 +423,54 @@ def undefined_symbols():
         line = line.strip()
         if line.startswith("U "):
             undef.add(line[2:].strip())
+
+    # The same objects, the other half of the answer: what the tree provides.
+    # A function-pointer table can only carry names that are in here.
+    out = subprocess.run(["nm", "-g", "--defined-only"] + objs,
+                         capture_output=True, text=True).stdout
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) == 3 and parts[1] in "TtDdBbRr":
+            DEFINED.add(parts[2])
+
     return undef
 
 
 def main():
     undef = undefined_symbols()
 
-    seen = {}
+    # The same global is often declared several different ways across the tree,
+    # because each transcription wrote it the way ITS function reached it.
+    # `FrameRemapTable` is declared four ways: a `long *` slot in Blood.c and
+    # GameCode.c, a `long **` in FrontEnd.c, and -- in Players.c, which is the
+    # one that clears it -- `long FrameRemapTable[FRAME_REMAP_ENTRIES][2]`.
+    #
+    # Only the last knows how big it is, and taking the first one alphabetically
+    # gave it 64 words and a segfault in ClearAnimRemapTables. So: prefer a
+    # declaration that carries a real extent over one that does not.
+    def rank(m):
+        dims = m.group("dims")
+        sized = dims and "[]" not in dims
+        return (1 if sized else 0,                 # a real extent wins
+                1 if dims else 0,                  # then any array form
+                -len(m.group("stars")))            # then the fewest stars
+
+    seen, conflicts = {}, {}
     for path, line, m in decl_lines():
         name = m.group("name")
-        if name in seen or name not in undef:
+        if name not in undef or is_runtime_symbol(name):
             continue
-        if name.startswith(SKIP_PREFIX):
-            continue
+        if name in seen:
+            conflicts.setdefault(name, 1)
+            conflicts[name] += 1
+            if rank(m) <= rank(seen[name][2]):
+                continue
         seen[name] = (path, line, m)
+
+    if conflicts:
+        sys.stderr.write("mkglobals: %d globals are declared more than one way; "
+                         "kept the declaration with a known extent\n"
+                         % len(conflicts))
 
     blocks, opaque = typedef_blocks()
 
@@ -361,7 +478,12 @@ def main():
     # is the transitive closure over the ones the globals mention -- not just
     # the first level. Missing that put HUDANIM and MKEVENT in the header's
     # bodies without their own definitions.
-    needed = {m.group("type") for _, _, m in seen.values()} & set(blocks)
+    # Strip the qualifier before matching: `const IdleSet` names the
+    # typedef `IdleSet`, and comparing the whole string left the struct
+    # out of the header while still emitting a global that uses it.
+    needed = {re.sub(r"^(?:const|unsigned|signed|struct)\s+", "",
+                     m.group("type")).strip()
+              for _, _, m in seen.values()} & set(blocks)
     while True:
         grown = set(needed)
         for n in list(needed):
@@ -417,7 +539,8 @@ def main():
     print()
     print('#include "gamecode_globals.h"')
     print()
-    print("#define SLOT_WORDS %d" % SLOT_WORDS)
+    print("#define SLOT_WORDS    %d" % SLOT_WORDS)
+    print("#define UNSIZED_BYTES %d" % UNSIZED_BYTES)
     print()
 
     # A `*` in the declaration does NOT mean a pointer slot. `void *FloorTexture`
@@ -430,22 +553,179 @@ def main():
         is_slot = "pointer slot" in line and m.group("stars") and not m.group("dims")
         (slots if is_slot else plain).append((name, path, line, m))
 
+    extents = symbol_extents()
+    guessed, measured = [], []
+
+    # The initial VALUE of each global, read out of the image. Storage
+    # without it is storage full of zeros, and for 498 of these zero is not
+    # a neutral default -- it is the wrong number.
+    img = mkdata.Image(BINARY, SYMBOLS)
+    sources = [open(f, encoding='utf-8', errors='replace').read()
+               for d in DECOMP_DIRS
+               for f in [os.path.join(d, n) for n in sorted(os.listdir(d))
+                         if n.endswith('.c')]]
+    layouts = mkdata.struct_layouts(sources)
+    defs = mkdata.defines(sources)
+    warn, valued = {}, []
+
+    # Only these names exist in the generated file, so only these can be
+    # referred to by address from an initialiser -- until a table asks for one
+    # that does not, which `demand` collects and the pass below supplies.
+    known = set(seen)
+    demand = {}
+
+    # Function-pointer tables: the entry count and the names, from the image.
+    # These have to be worked out before the forward declarations are printed,
+    # because the declared length is part of the declaration.
+    fntables = {}
+
+    def init_for(name, typ, stars, dims):
+        # No `demand` on the real pass. The dry run below already asked for
+        # every symbol a table needs and `known` holds the ones that could be
+        # supplied; accepting a new demand here would emit a reference to a name
+        # that never gets defined, which is a link error dressed as an
+        # initialiser.
+        text = mkdata.initialiser(img, name, typ, stars, dims, layouts, warn,
+                                  defs, known)
+        if text is None:
+            return ';'
+        valued.append(name)
+        return ' = %s;' % text
+
+    # A dry run first, purely to find out which unnamed symbols the tables
+    # point at. Its output is thrown away; only the demands are kept, and they
+    # join `known` before anything is printed, so the real pass can name them.
+    scratch = {}
+    for name, (path, line, m) in seen.items():
+        mkdata.initialiser(img, name, m.group("type"), m.group("stars"),
+                           m.group("dims"), layouts, scratch, defs, known,
+                           demand)
+    for name, (path, line, m) in seen.items():
+        if not getattr(m, "fnptr", False):
+            continue
+        made = mkdata.function_table(img, name, scratch, DEFINED,
+                                     set())
+        if made:
+            fntables[name] = made
+
+    extra = []
+    for _ in range(4):                      # a synthesised table can want more
+        pending = [(n, ty) for n, ty in sorted(demand.items())
+                   if n not in known]
+        if not pending:
+            break
+        for n, ty in pending:
+            known.add(n)
+        for n, ty in pending:
+            made = mkdata.synthesise(img, n, ty, layouts, scratch, defs,
+                                     known, demand)
+            if made:
+                extra.append(made)
+            else:
+                known.discard(n)
+    valued[:] = []
+
+    # Resolve every declared extent once, before anything is printed. An
+    # initialiser may name any other global -- `TrainingData` points at
+    # `FatalityMessage` -- and C wants a declaration in hand before the
+    # initialiser that uses it, which no single ordering of definitions can
+    # promise. Declaring them all up front removes the ordering problem instead
+    # of trying to satisfy it.
+    shape = {}
+    for name, path, line, m in plain:
+        typ, dims = m.group("type"), m.group("dims")
+        if dims and "[]" in dims:
+            if name in extents:
+                base = re.sub(r"^(?:const|unsigned|signed|struct)\s+", "",
+                              typ).strip()
+                stride = mkdata.image_stride(base, layouts)
+                if stride:
+                    # `sizeof` is the HOST's, and for a struct holding pointers
+                    # the host's is bigger: PLAYERDEF is 52 bytes in the image
+                    # and 80 here, so dividing the measured 1352 by sizeof gave
+                    # 16 entries for a table of 26. The count comes from the
+                    # stride the image was laid out with.
+                    dims = dims.replace("[]", "[%d]"
+                                        % (extents[name] // stride), 1)
+                else:
+                    dims = dims.replace(
+                        "[]", "[%d / sizeof(%s)]" % (extents[name], typ), 1)
+                measured.append(name)
+            else:
+                dims = dims.replace(
+                    "[]", "[UNSIZED_BYTES / sizeof(%s)]" % typ, 1)
+                guessed.append(name)
+        shape[name] = dims
+
+    # Prototypes for whatever the function tables name. The table itself gives
+    # the signature -- it is a table OF that type -- so these are not invented,
+    # they are the same declaration written the other way round.
+    if fntables:
+        named = set()
+        for name, (path, line, m) in seen.items():
+            n = fntables.get(name)
+            if not n:
+                continue
+            for cell in re.findall(r"^\s*(\w+),\s*$", n[1], re.M):
+                if cell != "NULL":
+                    named.add((cell, m.group("type"), m.group("args")))
+        for fn, ret, args in sorted(named):
+            print("%s %s(%s);" % (ret, fn, args))
+        print()
+
+    print("/* ---- every name, so an initialiser can reach any other ---- */")
+    print()
+    for name, path, line, m in plain:
+        if getattr(m, "fnptr", False):
+            n = fntables.get(name)
+            print("extern %s (*%s%s)(%s);"
+                  % (m.group("type"), name,
+                     ("[%d]" % n[0]) if n else (shape[name] or "[SLOT_WORDS]"),
+                     m.group("args")))
+        else:
+            print("extern %s %s%s%s;"
+                  % (m.group("type"), m.group("stars"), name, shape[name]))
+    for name, path, line, m in slots:
+        print("extern %s %s%s;" % (m.group("type"), m.group("stars"), name))
+    for decl, _body in extra:
+        print(decl)
+    print()
+
+    if extra:
+        print("/* ---- %d symbols only a table names ---- */" % len(extra))
+        print("/*")
+        print(" * Nothing in the decomp declares these; the front end reaches")
+        print(" * them only through the tables above. Element type from the")
+        print(" * pointer, length from the symbol table, contents from the")
+        print(" * image -- see tools/mkdata.py, synthesise().")
+        print(" */")
+        print()
+        for _decl, body in extra:
+            print(body)
+        print()
+
     print("/* ---- %d plain globals ---- */" % len(plain))
     print()
     for name, path, line, m in plain:
-        typ, dims = m.group("type"), m.group("dims")
+        typ, dims = m.group("type"), shape[name]
         comment = line.split("/*", 1)[1].rstrip("*/ ").strip() if "/*" in line else ""
-        if dims and "[]" in dims:
-            dims = dims.replace("[]", "[SLOT_WORDS]", 1)
         if getattr(m, "fnptr", False):
-            print("%s (*%s%s)(%s);%s"
-                  % (typ, name, dims or "[SLOT_WORDS]", m.group("args"),
+            n = fntables.get(name)
+            print("%s (*%s%s)(%s)%s;%s"
+                  % (typ, name,
+                     ("[%d]" % n[0]) if n else (dims or "[SLOT_WORDS]"),
+                     m.group("args"),
+                     (" = %s" % n[1]) if n else "",
                      ("  /* %s */" % comment) if comment else ""))
+            if n:
+                valued.append(name)
             continue
         # Keep the stars: `extern void *X[26]` is an array of pointers, and
         # dropping them declares an array of void.
-        print("%s %s%s%s;%s" % (typ, m.group("stars"), name, dims,
-                                ("  /* %s */" % comment) if comment else ""))
+        print("%s %s%s%s%s%s"
+              % (typ, m.group("stars"), name, dims,
+                 init_for(name, typ, m.group("stars"), dims),
+                 ("  /* %s */" % comment) if comment else ""))
 
     print()
     print("/* ---- %d pointer slots: storage, then a pointer at it ---- */"
@@ -456,12 +736,37 @@ def main():
         inner = stars[:-1]                  # one fewer star: this is the storage
         # `void` has no storage of its own; a `void *` slot backs onto words.
         store_t = "void *" if (typ == "void" and not inner) else "%s %s" % (typ, inner)
-        print("static %s%s__store[SLOT_WORDS];" % (store_t, name))
+        # A pointer slot's backing wants the size of what the slot points AT,
+        # and the symbol table gives that the same way it gives an array's.
+        words = extents.get(name)
+        if words:
+            print("static %s%s__store[%d / sizeof(%s)];"
+                  % (store_t, name, words, typ))
+        else:
+            print("static %s%s__store[SLOT_WORDS];" % (store_t, name))
         print("%s %s%s = %s__store;" % (typ, stars, name, name))
 
     print()
-    print("/* %d plain + %d slots = %d" % (len(plain), len(slots), len(seen)),
-          "*/")
+    print("/* %d plain + %d slots = %d */"
+          % (len(plain), len(slots), len(seen)))
+    if guessed:
+        print("/*")
+        print(" * %d of these are arrays the decomp declares as `T name[]` with no"
+              % len(guessed))
+        print(" * extent, so each got UNSIZED_BYTES of slack rather than a known size.")
+        print(" * A crash indexing one of them is a size to look up and add to")
+        print(" * EXTENTS in tools/mkglobals.py, not a size to raise here:")
+        print(" *")
+        for i in range(0, len(guessed), 4):
+            print(" *   " + "  ".join("%-22s" % g for g in guessed[i:i + 4]).rstrip())
+        print(" */")
+        sys.stderr.write("mkglobals: %d arrays have a guessed extent\n"
+                         % len(guessed))
+    sys.stderr.write("mkglobals: %d globals carry a value from the image\n"
+                     % len(valued))
+    sys.stderr.write("mkglobals: %d symbols recovered that only a table names\n"
+                     % len(extra))
+    mkdata.report(warn)
 
 
 if __name__ == "__main__":

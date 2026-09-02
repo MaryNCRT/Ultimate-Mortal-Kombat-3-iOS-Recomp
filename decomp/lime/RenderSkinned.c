@@ -636,7 +636,7 @@ SKININFO *LIME_LoadSkin(const char *filename)
     if (data == NULL)
         return NULL;
 
-    skin = (SKININFO *)limeMalloc("skin", 0x30);
+    skin = (SKININFO *)limeMalloc("skin", sizeof(SKININFO));   /* 0x30 in the image */
     skin->next = NULL;                   /* +0x00, before parsing anything */
 
     /* The leading word is read and stepped over. Nothing here consumes it --
@@ -715,13 +715,17 @@ BONESINFO *LIME_LoadBones(const char *filename)
     if (data == NULL)
         return NULL;
 
-    info = (BONESINFO *)limeMalloc("bones", 8);
+    info = (BONESINFO *)limeMalloc("bones", sizeof(BONESINFO));  /* 8 in the image */
     if (info == NULL)
         return NULL;
 
     n = *(const int32_t *)data;
     info->numBones = n;                          /* +0x04 */
-    bones = (BONE *)limeMalloc("bones", n * 56); /* n*64 - n*8 */
+    /* sizeof, not 56: a BONE is 56 bytes in the image and 96 here,
+     * and `&bones[i]` below steps by the host size. The compiler
+     * spells the image multiply as n*64 - n*8, which is where 56
+     * came from. */
+    bones = (BONE *)limeMalloc("bones", n * sizeof(BONE));
     info->bones = bones;                         /* +0x00 */
     if (bones == NULL)
         return NULL;

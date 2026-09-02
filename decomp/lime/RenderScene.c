@@ -165,7 +165,8 @@ SCENEINFO *LIME_GetSceneFromFilename(const char *filename)
  */
 SCENEINFO *AddScene(const char *name)
 {
-    SCENEINFO *scene = (SCENEINFO *)limeMalloc("scene", 0x94);
+    SCENEINFO *scene = (SCENEINFO *)limeMalloc("scene",
+                                               sizeof(SCENEINFO));  /* 0x94 in the image */
 
     strcpy((char *)scene, name);        /* the name IS the first field */
 
@@ -338,7 +339,12 @@ void LIME_FreeScene(SCENEINFO *scene)
  * null-guards whose exact ordering does not change the outcome, and writing it
  * out precisely would add length without adding fact.
  */
-SCENEINFO *LIME_LoadScene(const char *filename, int arg1, int arg2, int arg3)
+/* arg2 is a texture-base NAME, not a number: Players.c passes `texBase`
+ * here and every other caller passes 0. Declared `int`, the pointer was
+ * truncated to 32 bits at every call -- harmless only for as long as
+ * nothing in here reads it, which is not a property to depend on. */
+SCENEINFO *LIME_LoadScene(const char *filename, int arg1,
+                          const char *arg2, int arg3)
 {
     SCENEINFO *scene;
     char meshsetName[0x40];
@@ -942,4 +948,24 @@ void LIME_RenderSceneOverrideTextures(SCENEINFO *scene, TEXTURE **textures,
         limeDisableAlphaBlending();
         limeEnableDepthWrites();
     }
+}
+
+
+/* ------------------------------------------------------------ LIME_SceneMeshSet
+ *
+ * The scene's meshset, by name.
+ *
+ * Not in the original: gamecode reached the field directly, as `scene[0x80/4]`,
+ * because on the device that arithmetic was right. Here it is not -- SCENEINFO
+ * opens with a 64-byte name and several pointers, so the host puts `meshset`
+ * somewhere else entirely, and the old spelling handed the caller the
+ * characters of "KUNGLAO_" as an address.
+ *
+ * It lives here rather than in Players.c because this is the file that states
+ * the layout, and gamecode including lime.h collides with the declarations it
+ * keeps locally.
+ */
+void *LIME_SceneMeshSet(void *scene)
+{
+    return scene ? ((SCENEINFO *)scene)->meshset : NULL;
 }

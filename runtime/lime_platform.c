@@ -36,8 +36,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <malloc.h>
 
 #include "arm_runtime.h"
+
+void *limeMalloc(const char *tag, size_t bytes);
+void  limeFree(void *p);
+long  lime_heap_check(const char *where);
 #include "../decomp/lime/lime.h"
 
 
@@ -46,6 +51,13 @@
  * caller sets. Kept separate from arm_runtime's copy on purpose: a test can
  * point the two at different trees to prove neither is reading the other's. */
 static char g_lime_asset_root[512] = "";
+
+/* The bundle's own files -- Info.plist among them -- sit beside res/, so the
+ * root has to be readable, not just usable through resolve(). */
+const char *lime_platform_asset_root(void)
+{
+    return g_lime_asset_root;
+}
 
 void lime_platform_set_asset_root(const char *path)
 {
@@ -90,8 +102,14 @@ void *limeLoadFile(const char *path)
     long n;
     void *p;
 
+    if (getenv("LIME_HEAP_CHECK"))
+        lime_heap_check(path);
+    if (getenv("LIME_TRACE_FILES"))
+        fprintf(stderr, "[load] %s ...", path);
     resolve(path, full, sizeof(full));
     f = fopen(full, "rb");
+    if (getenv("LIME_TRACE_FILES"))
+        fprintf(stderr, " %s\n", f ? "open" : "MISSING");
     if (!f)
         return NULL;
 
@@ -118,9 +136,16 @@ void *limeLoadFile(const char *path)
      *
      * The extra byte is not visible to callers: limeFileSize still reports the
      * real length, and the engine never looks past it deliberately. */
-    p = calloc((size_t)n + 1, 1);
+    /* Through limeMalloc, not calloc: the engine frees this with limeFree, and
+     * an allocation and its release have to come from the same allocator. They
+     * did not, and it went unnoticed while limeFree was a bare free() -- the
+     * guarded allocator read a header that had never been written and walked
+     * off the end of memory on the first frame list it loaded. */
+    p = limeMalloc("loadfile", (size_t)n + 1);
+    if (p)
+        memset(p, 0, (size_t)n + 1);
     if (p && fread(p, 1, (size_t)n, f) != (size_t)n) {
-        free(p);
+        limeFree(p);
         p = NULL;
     }
     fclose(f);
@@ -135,16 +160,125 @@ void *limeLoadFile(const char *path)
  * but it is kept in the signature because it is in the binary and because it is
  * genuinely useful: the tags name what every allocation in the engine is for.
  */
+/* Guard bytes after every block, and a header carrying the tag, so an overrun
+ * can be attributed instead of merely detected. Windows reports heap damage at
+ * the next allocation, by which point the culprit is gone; this reports it
+ * with the name the engine gave the allocation.
+ *
+ * The cost is 48 bytes and a memcmp per block. That is nothing next to an
+ * afternoon spent bisecting a SIGTRAP inside ntdll. */
+#define LIME_GUARD_BYTES 16
+static const unsigned char LIME_CANARY[LIME_GUARD_BYTES] = {
+    0xA5, 0x5A, 0xC3, 0x3C, 0xA5, 0x5A, 0xC3, 0x3C,
+    0xA5, 0x5A, 0xC3, 0x3C, 0xA5, 0x5A, 0xC3, 0x3C,
+};
+
+typedef struct lime_block {
+    struct lime_block *next, *prev;
+    const char        *tag;
+    size_t             bytes;
+} lime_block;
+
+static lime_block *g_blocks;
+static long        g_live, g_overruns;
+
+static int block_intact(const lime_block *b)
+{
+    const unsigned char *tail = (const unsigned char *)(b + 1) + b->bytes;
+    return memcmp(tail, LIME_CANARY, LIME_GUARD_BYTES) == 0;
+}
+
+/* With LIME_HEAP_CHECK set, every allocation validates every live block first.
+ * That turns "the heap is damaged" into "the heap was damaged before this
+ * call", and the call is on the stack -- which is the whole difference between
+ * a report and a lead. Quadratic, and irrelevant at these counts. */
+static int heap_paranoid(void)
+{
+    static int on = -1;
+    if (on < 0)
+        on = getenv("LIME_HEAP_CHECK") != NULL;
+    return on;
+}
+
+long lime_heap_check(const char *where);
+
 void *limeMalloc(const char *tag, size_t bytes)
 {
-    (void)tag;
-    return malloc(bytes);
+    lime_block *b;
+
+    if (heap_paranoid())
+        lime_heap_check(tag);
+
+    b = malloc(sizeof(*b) + bytes + LIME_GUARD_BYTES);
+
+    if (b == NULL)
+        return NULL;
+
+    b->tag   = tag ? tag : "(untagged)";
+    b->bytes = bytes;
+    memcpy((unsigned char *)(b + 1) + bytes, LIME_CANARY, LIME_GUARD_BYTES);
+
+    b->prev = NULL;
+    b->next = g_blocks;
+    if (g_blocks)
+        g_blocks->prev = b;
+    g_blocks = b;
+    g_live++;
+
+    return b + 1;
 }
 
 void limeFree(void *p)
 {
-    free(p);                            /* free(NULL) is defined; so is this */
+    lime_block *b;
+
+    if (p == NULL)
+        return;                         /* free(NULL) is defined; so is this */
+
+    b = (lime_block *)p - 1;
+    if (!block_intact(b)) {
+        fprintf(stderr, "lime_heap: OVERRUN past \"%s\" (%lu bytes)\n",
+                b->tag, (unsigned long)b->bytes);
+        g_overruns++;
+    }
+
+    if (b->prev) b->prev->next = b->next; else g_blocks = b->next;
+    if (b->next) b->next->prev = b->prev;
+    g_live--;
+
+    free(b);
 }
+
+/* Walk every live allocation. Returns the number that are damaged and names
+ * each one, so a caller can check between loader steps and find out not just
+ * that memory was corrupted but by which allocation. */
+long lime_heap_check(const char *where)
+{
+    const lime_block *b;
+    long bad = 0;
+
+    /* The CRT's own heap, not just ours. A wild pointer can land in a block
+     * malloc handed to fopen or sprintf, which no guard of ours protects, and
+     * _heapchk is the only thing that sees those. */
+    if (_heapchk() != _HEAPOK) {
+        fprintf(stderr, "lime_heap: %s: the CRT heap is damaged\n",
+                where ? where : "check");
+        bad++;
+    }
+
+    for (b = g_blocks; b; b = b->next) {
+        if (!block_intact(b)) {
+            fprintf(stderr, "lime_heap: %s: \"%s\" (%lu bytes) is overrun\n",
+                    where ? where : "check", b->tag,
+                    (unsigned long)b->bytes);
+            bad++;
+        }
+    }
+    return bad;
+}
+
+long lime_heap_live(void)     { return g_live; }
+long lime_heap_overruns(void) { return g_overruns; }
 
 
 /* --------------------------------------------------------------- textures

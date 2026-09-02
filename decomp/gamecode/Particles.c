@@ -91,9 +91,9 @@ long PI_limeRand(void)
 }
 
 
-extern long  *GamePaused;               /* pointer slot */
-extern long  *DoIntro;                  /* pointer slot */
-extern void **GameObjects;              /* pointer slot */
+extern long   GamePaused;               /* pointer slot */
+extern long   DoIntro;                  /* pointer slot */
+extern void **GameObjects;             /* 0x0014dfec, one per object */
 extern float *Player1Pos;               /* pointer slot -> 0x00150564 */
 extern float *Player2Pos;               /* pointer slot -> 0x00150570 */
 extern char  *PlayersP;                 /* pointer slot -> _Players */
@@ -127,7 +127,7 @@ void AddParticles(long type, float x, float y, float z, float speed, long arg);
  *
  * ### The frame guard, and the intro exception
  *
- * Normally it reads a frame id out of `*GameObjects` -- **+0x08 for player one
+ * Normally it reads a frame id out of `GameObjects` -- **+0x08 for player one
  * and +0x18 for player two**, both `int16` -- and emits nothing when that id is
  * 20000 or 6830. 20000 is the same `ARCADE_POS_RAW` sentinel
  * `ArcadePosTo3dPos` special-cases; 6830 is not otherwise known here.
@@ -150,7 +150,7 @@ void AddParticles(long type, float x, float y, float z, float speed, long arg);
  */
 void DoSmokesSmoke(long id1, long id2)
 {
-    if (*GamePaused != 0)
+    if (GamePaused != 0)
         return;
 
     /* ---- player one ---- */
@@ -164,10 +164,10 @@ void DoSmokesSmoke(long id1, long id2)
                 xoff = SmokeAdjust2;
         }
 
-        if (*DoIntro != 0) {
+        if (DoIntro != 0) {
             pos = Player1Pos;
         } else {
-            const short *obj = (const short *)*GameObjects;
+            const short *obj = (const short *)GameObjects[0];
             if (obj != 0) {
                 long fid = obj[4];              /* +0x08, int16 */
                 if (fid != 20000 && fid != 6830)
@@ -196,10 +196,10 @@ void DoSmokesSmoke(long id1, long id2)
                 xoff = SmokeAdjust2;
         }
 
-        if (*DoIntro != 0) {
+        if (DoIntro != 0) {
             pos = Player2Pos;
         } else {
-            const short *obj = (const short *)*GameObjects;
+            const short *obj = (const short *)GameObjects[0];
             if (obj != 0) {
                 long fid = obj[0x18 / 2];       /* +0x18, int16 */
                 if (fid != 20000 && fid != 6830)
@@ -507,9 +507,9 @@ extern float  ShadowOffset;             /* pointer slot -> 0x0014dfc8, the floor
 extern float  limeFPSScaleFactor;       /* pointer slot -> 0x00171acc */
 extern float  FaceMeMatrix[];           /* 0x0016f700 */
 extern void **BloodTextures;            /* pointer slot -> 0x001f4460 */
-extern void **NewBloodTexture;          /* pointer slot -> 0x001f4490 */
-extern void **NewGreenBloodTexture;     /* pointer slot -> 0x001f4494 */
-extern void **NewBlackBloodTexture;     /* pointer slot -> 0x001f4498 */
+extern void *NewBloodTexture;          /* pointer slot -> 0x001f4490 */
+extern void *NewGreenBloodTexture;     /* pointer slot -> 0x001f4494 */
+extern void *NewBlackBloodTexture;     /* pointer slot -> 0x001f4498 */
 extern void **SmokeTexture;             /* pointer slot -> 0x001f449c */
 
 void limeDisableDepthWrites(void);
@@ -558,9 +558,9 @@ void MaintainParticles(void)
             }
             alpha = p->field00 * -2.0f + 1.0f;
 
-            tex = (type == 3) ? *NewBloodTexture
-                : (type == 7) ? *NewBlackBloodTexture
-                              : *NewGreenBloodTexture;
+            tex = (type == 3) ? NewBloodTexture
+                : (type == 7) ? NewBlackBloodTexture
+                              : NewGreenBloodTexture;
 
             limeDrawFaceUpSprite(tex, FaceMeMatrix,
                                  p->field10, p->field14, p->field18,
@@ -592,9 +592,9 @@ void MaintainParticles(void)
                 continue;
             }
 
-            tex = (type == 2) ? *NewBloodTexture
-                : (type == 6) ? *NewBlackBloodTexture
-                              : *NewGreenBloodTexture;
+            tex = (type == 2) ? NewBloodTexture
+                : (type == 6) ? NewBlackBloodTexture
+                              : NewGreenBloodTexture;
 
             limeDrawFaceMeSprite(tex, FaceMeMatrix,
                                  p->field10, p->field14, p->field18,
@@ -606,7 +606,7 @@ void MaintainParticles(void)
 
         /* ---- 8: smoke. Paused freezes the physics, not the draw. ---- */
         if (type == 8) {
-            if (!*GamePaused) {
+            if (!GamePaused) {
                 p->field08 -= 1.0f / limeFPSScaleFactor;
                 if (p->field08 < 0.0f)
                     p->field08 = 0.0f;
