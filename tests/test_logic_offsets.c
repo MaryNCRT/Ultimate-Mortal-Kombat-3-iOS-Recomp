@@ -116,7 +116,7 @@ typedef struct IMG_OBJ {
     uint32_t field30;            /* 0x30  the flag word the clearers mask */
     uint32_t field34;            /* 0x34  the ring buffer's base */
     uint32_t field38;            /* 0x38 */
-    uint8_t  _pad3c[4];
+    uint32_t field3c;            /* 0x3c  the second horizontal bound */
     uint32_t field40;            /* 0x40 */
     uint32_t a10;                /* 0x44 */
     uint32_t field48;            /* 0x48  shake_a11 */
@@ -138,6 +138,7 @@ CHECK(IMG_OBJ, field28,     0x28);
 CHECK(IMG_OBJ, field2c,     0x2c);
 CHECK(IMG_OBJ, field34,     0x34);
 CHECK(IMG_OBJ, field38,     0x38);
+CHECK(IMG_OBJ, field3c,     0x3c);
 CHECK(IMG_OBJ, field40,     0x40);
 CHECK(IMG_OBJ, a10,         0x44);
 CHECK(IMG_OBJ, field30,     0x30);

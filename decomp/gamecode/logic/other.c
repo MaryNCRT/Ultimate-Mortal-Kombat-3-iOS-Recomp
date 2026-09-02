@@ -102,6 +102,12 @@ typedef struct MK3OBJPROC {
  * and one of them sign-extends. Little-endian: 0x0e is the top two bytes. */
 #define MK3_FIELD0E(o)   ((uint16_t)((o)->field0c >> 16))
 
+/* And the write. `multi_adjust_xy_ob` stores a halfword there, which on the
+ * word at 0x0c is a read-modify-write of the top half. */
+#define MK3_SET_FIELD0E(o, v)                                               \
+    ((o)->field0c = ((o)->field0c & 0x0000ffffu)                            \
+                    | ((uint32_t)(uint16_t)(v) << 16))
+
 typedef struct MK3OBJ {
     MK3OBJPROC *field00;         /* 0x00  ldr r2, [r4] */
     /* 0x04  the object's thread. KillProc and StartProcAt both take it out of
@@ -128,7 +134,8 @@ typedef struct MK3OBJ {
     uint32_t    field34;         /* 0x34  the ring buffer's base */
     uint32_t    field38;         /* 0x38  the base highest_mpart_ob adds to,
                                   *       and the ring buffer's head */
-    uint8_t     _pad3c[4];
+    uint32_t    field3c;         /* 0x3c  the second horizontal bound; 0x34 is
+                                  *       the first */
     uint32_t    field40;         /* 0x40  and the one lowest_mpart_ob adds to */
     /* 0x44  what used to be the A10 register: the argument slot the arcade
      * loaded before a call. Three of the routines below do nothing but fill
@@ -3080,8 +3087,7 @@ void center_about_x(MK3OBJ *obj)
 
     obj->field20 = (uint32_t)half;
     obj->field1c = (uint32_t)((int32_t)obj->field1c - half);
-    obj->field08->field0c = (obj->field08->field0c & 0x0000ffffu)
-                            | ((obj->field1c & 0xffffu) << 16);
+    MK3_SET_FIELD0E(obj->field08, obj->field1c);
 }
 
 
@@ -3515,4 +3521,193 @@ long isa5_px(MK3OBJ *obj, MK3OBJ *target)
     obj->field1c &= obj->field38;
     obj->field5c = (obj->field1c != 0) ? 1u : 0u;
     return (long)obj->field5c;
+}
+
+
+/* -------------------------------------------------------- multi_adjust_xy_ob
+ *
+ * armv7 0x000554f8, thirty-six bytes.  **Complete.**
+ *
+ *      flags = target->field28
+ *      obj->field2c = flags
+ *      if (flags & 0x10) dx = -dx
+ *      target->x0e += dx
+ *      target->field12 += dy
+ *
+ * What every `adjust_*`, `lineup_*` and `dragon` routine in this file has been
+ * feeding. The facing bit negates the horizontal step -- the same bit
+ * `flip_multi` toggles and `walk_flip_reverse` tests -- so a step is given in
+ * the fighter's own terms and turned into the world's here.
+ *
+ * Both coordinates are halfwords and both are read and written unsigned, so
+ * they wrap at 65536 rather than saturating.
+ */
+void multi_adjust_xy_ob(MK3OBJ *obj, uint32_t target_w, uint32_t dx, uint32_t dy)
+{
+    MK3OBJ  *target = (MK3OBJ *)(uintptr_t)target_w;
+    uint32_t flags  = target->field28;
+
+    obj->field2c = flags;
+    if (flags & 0x10u)
+        dx = (uint32_t)(-(int32_t)dx);
+
+    MK3_SET_FIELD0E(target, (uint16_t)(MK3_FIELD0E(target) + dx));
+    target->field12 = (uint16_t)(target->field12 + dy);
+}
+
+
+/* --------------------------------- leftmost_mpart_ob, rightmost_mpart_ob
+ *
+ * armv7 0x0005582c and 0x00055850, thirty-six bytes each.  **Complete.**
+ *
+ *      leftmost:   out->field24 = flipped ? x - src->field3c : x + src->field34
+ *      rightmost:  out->field28 = flipped ? x - src->field34 : x + src->field3c
+ *
+ * A mirrored pair. The facing bit chooses BOTH which of 0x34 and 0x3c is the
+ * bound and whether it is added or subtracted, and the two functions swap both
+ * choices -- which is what makes them a left and a right rather than two
+ * bounds.
+ *
+ * `x` is the signed halfword at 0x0e, and it is loaded identically in both
+ * arms of each `itete`; the compiler predicated a common load rather than
+ * hoisting it.
+ *
+ * They write different slots -- 0x24 and 0x28 -- so a caller can have both.
+ */
+void leftmost_mpart_ob(MK3OBJ *out, MK3OBJ *src)
+{
+    int32_t x = (int32_t)(int16_t)MK3_FIELD0E(src);
+
+    if (src->field28 & 0x10u)
+        out->field24 = (uint32_t)(x - (int32_t)src->field3c);
+    else
+        out->field24 = (uint32_t)(x + (int32_t)src->field34);
+}
+
+void rightmost_mpart_ob(MK3OBJ *out, MK3OBJ *src)
+{
+    int32_t x = (int32_t)(int16_t)MK3_FIELD0E(src);
+
+    if (src->field28 & 0x10u)
+        out->field28 = (uint32_t)(x - (int32_t)src->field34);
+    else
+        out->field28 = (uint32_t)(x + (int32_t)src->field3c);
+}
+
+
+/* ------------------------------------------------------------- update_tsl
+ *
+ * armv7 0x0005742c, thirty-six bytes.  **Complete.**
+ *
+ *      i = proc->field08
+ *      obj->field20 = i                    ; overwritten below
+ *      obj->field1c += i * 2
+ *      obj->field20 = G[0xa8]
+ *      *(uint16_t *)(base + i * 2) = G[0xa8]
+ *
+ * A halfword table indexed by the fighter number, taking its value from G at
+ * 0xa8 -- four bytes below the 0xac that holds the stage ground. 0x1c is
+ * advanced past the entry as well as being used as the base, so the caller
+ * gets a cursor back.
+ *
+ * 0x20 is written twice and the first value is not read between them.
+ */
+void update_tsl(MK3OBJ *obj)
+{
+    uint32_t  i    = obj->field00->field08;
+    uint32_t  base = obj->field1c;
+    uint32_t  v;
+
+    obj->field20 = i;
+    obj->field1c = base + i * 2;
+
+    v = *(const uint32_t *)(G_BYTES + 0xa8);
+    obj->field20 = v;
+    *(uint16_t *)(uintptr_t)(base + i * 2) = (uint16_t)v;
+}
+
+
+/* -------------------------------------------------------------- CountThreads
+ *
+ * armv7 0x000575e8, forty bytes.  **Complete.**
+ *
+ *      n = 0
+ *      for (t = *head; t; t = t->next) if (t->pid == pid) n++;
+ *      return n
+ *
+ * `FindThread` counting instead of stopping. The empty-list case returns
+ * through a separate exit that moves the null into the counter, which is why
+ * the function has two returns for one value.
+ */
+long CountThreads(uint32_t pid)
+{
+    const MK3THREAD *t = *ThreadListHead;
+    long n = 0;
+
+    while (t != NULL) {
+        if (t->pid == pid)
+            n++;
+        t = t->next;
+    }
+    return n;
+}
+
+
+/* ------------------------ get_bcq_next_pointer_idx, get_jcq_next_pointer_idx
+ *
+ * armv7 0x000560e8 and 0x00056110, forty bytes each.  **Complete.**
+ *
+ *      base = G + (which ? 0x218 : 0x0c0)      ; bcq
+ *      base = G + (which ? 0x26c : 0x114)      ; jcq
+ *      obj->field34 = base
+ *      obj->field38 = *base
+ *
+ * Four ring buffers inside G, two per name, with the argument choosing between
+ * them -- one for each fighter, on the same reading that makes the strengths
+ * at 0x368 a per-fighter array.
+ *
+ * The pair written out is the base and the head, which is exactly what
+ * `previous_q_entry` walks. Three functions and one representation of a queue.
+ */
+void get_bcq_next_pointer_idx(MK3OBJ *obj, long which)
+{
+    char *base = G_BYTES + (which ? 0x218 : 0x0c0);
+
+    obj->field34 = (uint32_t)(uintptr_t)base;
+    obj->field38 = *(const uint32_t *)base;
+}
+
+void get_jcq_next_pointer_idx(MK3OBJ *obj, long which)
+{
+    char *base = G_BYTES + (which ? 0x26c : 0x114);
+
+    obj->field34 = (uint32_t)(uintptr_t)base;
+    obj->field38 = *(const uint32_t *)base;
+}
+
+
+/* ----------------------------------------------------------- get_walk_info_b
+ *
+ * armv7 0x000552f4, forty bytes.  **Complete.**
+ *
+ *      obj->field24 = 2
+ *      obj->field1c = walk_backward_info
+ *      decode_walk_table(obj)
+ *      obj->field20 = -obj->field20
+ *      walk_flip_reverse(obj)
+ *
+ * `get_walk_info_f` with a sign. The negate happens BEFORE the facing flip, so
+ * the two compose: walking backwards while facing left is forwards in world
+ * terms. Putting the negate after the flip would cancel one with the other,
+ * which is the mistake this ordering is evidence against.
+ */
+extern uint32_t walk_backward_info[];   /* 0x0016f03c */
+
+void get_walk_info_b(MK3OBJ *obj)
+{
+    obj->field24 = 2;
+    obj->field1c = (uint32_t)(uintptr_t)walk_backward_info;
+    decode_walk_table(obj);
+    obj->field20 = (uint32_t)(-(int32_t)obj->field20);
+    walk_flip_reverse(obj);
 }
