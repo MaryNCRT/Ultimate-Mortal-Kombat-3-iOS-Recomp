@@ -16,7 +16,7 @@ call; the completion figures are measured by `tools/progress.py` on every run.
 | Asset formats | **100%** — solved, demonstrated, animating |
 | `lime/common` | **109 of 109** written, **all nine files verified** |
 | Native executable | **exists**, draws all 18 arenas with a skinned animated fighter |
-| `gamecode` | **291 of 291** — finished |
+| `gamecode` | **291 of 291** — finished, and it BOOTS: `tests/test_menu_boot.c` runs the loader and sixty ticks of the main menu |
 | `gamecode/logic` (fight engine) | 3 of 2,172 — essentially untouched |
 | Platform layer | window, GL context and asset loading on Windows and Linux; no audio, no input mapping |
 
