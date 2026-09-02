@@ -114,6 +114,12 @@ typedef struct MK3OBJPROC {
     ((o)->field0c = ((o)->field0c & 0x0000ffffu)                            \
                     | ((uint32_t)(uint16_t)(v) << 16))
 
+/* And the same pair for 0x10, whose high half is the halfword at 0x12. */
+#define MK3_FIELD12(o)   ((uint16_t)((o)->field10 >> 16))
+#define MK3_SET_FIELD12(o, v)                                               \
+    ((o)->field10 = ((o)->field10 & 0x0000ffffu)                            \
+                    | ((uint32_t)(uint16_t)(v) << 16))
+
 typedef struct MK3OBJ {
     MK3OBJPROC *field00;         /* 0x00  ldr r2, [r4] */
     /* 0x04  the object's thread. KillProc and StartProcAt both take it out of
@@ -124,9 +130,12 @@ typedef struct MK3OBJ {
                                   *       through it and ani2 passes it on */
     uint32_t    field0c;         /* 0x0c  a horizontal position; is_he_right
                                   *       compares two of them */
-    uint8_t     _pad10[2];
-    uint16_t    field12;         /* 0x12  a signed halfword offset; see
-                                  *       highest_mpart_ob and lowest_mpart_ob */
+    /* 0x10  the second coordinate, and the same shape as 0x0c: a word whose
+     * HIGH half is what almost everything reads. `match_ani_points_ob_ob` is
+     * the one routine that takes the whole thing, and it takes 0x0c the same
+     * way -- so the two are x and y as 16.16 fixed point, with the integer
+     * part on top and a fraction underneath that only a copy preserves. */
+    uint32_t    field10;         /* 0x10 */
     uint8_t     _pad14[4];
     uint32_t    field18;         /* 0x18  the A8 pair, cleared together */
     uint32_t    field1c;         /* 0x1c  and the high bound */
@@ -228,6 +237,19 @@ extern char *H;                            /* 0x0038c674 */
  * touches it, and it sets one bit at two offsets -- so it is a byte array for
  * the same reason the other two are. */
 extern char *GrObj;                        /* 0x0038c698 */
+
+/* G carries two per-fighter blocks, 0x158 bytes apart. Four independent pairs
+ * establish it and none of them alone would:
+ *
+ *      0x0b8 / 0x210   the x velocity, keyed by the object beside it
+ *      0x0bc / 0x214   that object
+ *      0x0c0 / 0x218   the bcq ring buffer
+ *      0x114 / 0x26c   the jcq ring buffer
+ *
+ * So the offsets in this file are written as `0xb8` and `0x210` rather than as
+ * `base + fighter * 0x158`: the stride is known, the base of the block is not,
+ * and inventing one would put a name on the gap between 0x00 and 0xb8. */
+#define G_FIGHTER_STRIDE  0x158
 
 /* Declared further down as `GAMESTATE *G`, which is how GameCode.c spells it
  * too. The three accesses here are by byte offset because two reads and a
@@ -577,7 +599,7 @@ void *gmo_proc_insobja8(MK3OBJ *obj)
  */
 void ground_player(MK3OBJ *obj)
 {
-    obj->field08->field12 = (uint16_t)obj->field00->field40;
+    MK3_SET_FIELD12(obj->field08, obj->field00->field40);
 }
 
 
@@ -585,8 +607,8 @@ void ground_player(MK3OBJ *obj)
  *
  * armv7 0x0005579c and 0x00055820, ten bytes each.  **Complete.**
  *
- *      highest:  out->field1c = src->field38 + (int16_t)src->field12
- *      lowest:   out->field20 = src->field40 + (int16_t)src->field12
+ *      highest:  out->field1c = src->field38 + (int16_t)MK3_FIELD12(src)
+ *      lowest:   out->field20 = src->field40 + (int16_t)MK3_FIELD12(src)
  *
  * `ldrsh`, so 0x12 is signed here. Two bounds, one offset added to both, and
  * the results land in adjacent words -- which is what a pair of bounds looks
@@ -594,12 +616,12 @@ void ground_player(MK3OBJ *obj)
  */
 void highest_mpart_ob(MK3OBJ *out, MK3OBJ *src)
 {
-    out->field1c = (uint32_t)(src->field38 + (int32_t)(int16_t)src->field12);
+    out->field1c = (uint32_t)(src->field38 + (int32_t)(int16_t)MK3_FIELD12(src));
 }
 
 void lowest_mpart_ob(MK3OBJ *out, MK3OBJ *src)
 {
-    out->field20 = (uint32_t)(src->field40 + (int32_t)(int16_t)src->field12);
+    out->field20 = (uint32_t)(src->field40 + (int32_t)(int16_t)MK3_FIELD12(src));
 }
 
 
@@ -1374,7 +1396,7 @@ void allow_moves(MK3OBJ *obj)
  *
  * armv7 0x00058d70, twenty bytes.  **Complete.**
  *
- *      r1 = (MK3_FIELD0E(other) << 16) | other->field12
+ *      r1 = (MK3_FIELD0E(other) << 16) | MK3_FIELD12(other)
  *
  * Two halfwords packed into one word and passed as a single parameter -- the
  * high half from 0x0e and the low from 0x12. 0x12 is the same field
@@ -1387,7 +1409,7 @@ void create_fx(MK3OBJ *obj)
 {
     MK3OBJ *other = obj->field08;
 
-    create_fx_param(obj, ((uint32_t)MK3_FIELD0E(other) << 16) | other->field12);
+    create_fx_param(obj, ((uint32_t)MK3_FIELD0E(other) << 16) | MK3_FIELD12(other));
 }
 
 
@@ -1964,7 +1986,7 @@ void decode_walk_table(MK3OBJ *obj)
  *
  *      ground = proc->field40
  *      obj->field1c = ground                       ; then overwritten
- *      obj->field24 = (int16_t)other->field12
+ *      obj->field24 =(int16_t)MK3_FIELD12(other)
  *      obj->field1c = ground - that
  *
  * 0x1c is written twice, the first time with a value nothing reads. Kept:
@@ -1981,7 +2003,7 @@ void distance_off_ground(MK3OBJ *obj)
     int32_t  height;
 
     obj->field1c = ground;
-    height = (int32_t)(int16_t)obj->field08->field12;
+    height =(int32_t)(int16_t)MK3_FIELD12(obj->field08);
     obj->field24 = (uint32_t)height;
     obj->field1c = (uint32_t)((int32_t)ground - height);
 }
@@ -3154,7 +3176,7 @@ void distance_from_ground(MK3OBJ *obj)
     int32_t  height;
 
     obj->field1c = ground;
-    height = (int32_t)(int16_t)obj->field08->field12;
+    height =(int32_t)(int16_t)MK3_FIELD12(obj->field08);
     obj->field24 = (uint32_t)height;
     obj->field1c = (uint32_t)((int32_t)ground - height);
 }
@@ -3346,7 +3368,7 @@ void pose_him_a9(MK3OBJ *obj)
  *      obj->field28 = target->field08->field1c
  *      result = obj->field28
  *      if (result == 0) {
- *          obj->field24 = (int16_t)target->field08->field12
+ *          obj->field24 =(int16_t)MK3_FIELD12(target->field08)
  *          if (obj->field24 == ground) result = 0; else result = 1;
  *      } else result = 1;
  *      obj->field5c = result
@@ -3369,7 +3391,7 @@ long aborn4(MK3OBJ *obj, MK3OBJ *target)
     obj->field28 = result;
 
     if (result == 0) {
-        int32_t height = (int32_t)(int16_t)target->field08->field12;
+        int32_t height =(int32_t)(int16_t)MK3_FIELD12(target->field08);
 
         obj->field24 = (uint32_t)height;
         if ((uint32_t)height != ground)
@@ -3473,7 +3495,7 @@ void get_my_height(MK3OBJ *obj)
  *
  * armv7 0x0005527c, thirty-six bytes.  **Complete.**
  *
- *      obj->field12 = (uint16_t)(G[0xac] - ochar_ground_offsets[obj->field24])
+ *      MK3_SET_FIELD12(obj, (G[0xac] - ochar_ground_offsets[obj->field24])
  *
  * The stage ground less a per-character offset, stored as a halfword into
  * 0x12. That is the field `ground_player` copies into and
@@ -3482,13 +3504,13 @@ void get_my_height(MK3OBJ *obj)
  *
  * `_ochar_ground_offsets` is the fifth named table this file reaches.
  */
-extern uint32_t ochar_ground_offsets[]; /* 0x0016ef04 */
+extern uint32_t ochar_ground_offsets[];  /* 0x0016ef04 */
 
 void ground_ochar_ob(MK3OBJ *obj)
 {
     uint32_t ground = *(const uint32_t *)(G_BYTES + 0xac);
 
-    obj->field12 = (uint16_t)(ground - ochar_ground_offsets[obj->field24]);
+    MK3_SET_FIELD12(obj, (ground - ochar_ground_offsets[obj->field24]));
 }
 
 
@@ -3550,7 +3572,7 @@ long isa5_px(MK3OBJ *obj, MK3OBJ *target)
  *      obj->field2c = flags
  *      if (flags & 0x10) dx = -dx
  *      target->x0e += dx
- *      target->field12 += dy
+MK3_FIELD12(*      target) += dy
  *
  * What every `adjust_*`, `lineup_*` and `dragon` routine in this file has been
  * feeding. The facing bit negates the horizontal step -- the same bit
@@ -3570,7 +3592,7 @@ void multi_adjust_xy_ob(MK3OBJ *obj, uint32_t target_w, uint32_t dx, uint32_t dy
         dx = (uint32_t)(-(int32_t)dx);
 
     MK3_SET_FIELD0E(target, (uint16_t)(MK3_FIELD0E(target) + dx));
-    target->field12 = (uint16_t)(target->field12 + dy);
+    MK3_SET_FIELD12(target,MK3_FIELD12((target) + dy));
 }
 
 
@@ -3738,10 +3760,10 @@ void get_walk_info_b(MK3OBJ *obj)
  *      off = ochar_ground_offsets[other->field24]
  *      obj->field1c = off
  *      obj->field20 = G[0xac] - off
- *      other->field12 = (uint16_t)obj->field20
+ *      MK3_SET_FIELD12(other, obj->field20
  *
  * `ground_ochar_ob` with both intermediate values kept. That one computes the
- * same halfword and stores only it; this leaves the offset in 0x1c and the
+ * same halfword and stores only it); this leaves the offset in 0x1c and the
  * result in 0x20 as well, so a caller can see either.
  */
 void ground_ochar(MK3OBJ *obj)
@@ -3750,7 +3772,7 @@ void ground_ochar(MK3OBJ *obj)
 
     obj->field1c = off;
     obj->field20 = *(const uint32_t *)(G_BYTES + 0xac) - off;
-    obj->field08->field12 = (uint16_t)obj->field20;
+    MK3_SET_FIELD12(obj->field08, obj->field20);
 }
 
 
@@ -4074,5 +4096,178 @@ long intersect(const MK3BOX *a, const MK3BOX *b)
         return 0;
     if (b->top >= a->bottom)
         return 0;
+    return 1;
+}
+
+
+/* -------------------------------------------------------- set_x_vel_player
+ *
+ * armv7 0x00055a68, forty-four bytes.  **Complete.**
+ *
+ *      if (obj->field08 == G[0xbc])  G[0xb8]  = obj->field1c
+ *      else if (obj->field08 == G[0x214]) G[0x210] = obj->field1c
+ *
+ * The velocity does not go on the object. It goes into a global slot chosen by
+ * matching the object against the two that G already holds -- so a third
+ * object silently stores nothing, which is the whole of the error handling.
+ *
+ * `away_x_vel`, `towards_x_vel` and `stop_me_player` all end here.
+ */
+void set_x_vel_player(MK3OBJ *obj)
+{
+    uint32_t who = (uint32_t)(uintptr_t)obj->field08;
+
+    if (*(const uint32_t *)(G_BYTES + 0xbc) == who)
+        *(uint32_t *)(G_BYTES + 0xb8) = obj->field1c;
+    else if (*(const uint32_t *)(G_BYTES + 0x214) == who)
+        *(uint32_t *)(G_BYTES + 0x210) = obj->field1c;
+}
+
+
+/* ------------------------------------------------------- set_winner_status
+ *
+ * armv7 0x00056afc, forty-four bytes.  **Complete.**
+ *
+ *      obj->field20 = (G[0x368] == 0) ? 2 : 1
+ *      G[0x45c] = (uint16_t)obj->field20
+ *
+ * 0x368 is where `get_strength` reads from -- entry zero of the strengths --
+ * and here it is tested against zero to pick between two and one. So the
+ * winner status is 2 when the first strength is clear and 1 otherwise, and it
+ * is published as a halfword at 0x45c, four bytes past the repell value
+ * `sans_repell` writes.
+ *
+ * The 2 is formed as `0 + 2` from the zero just tested, which is the compiler
+ * and not two constants.
+ */
+void set_winner_status(MK3OBJ *obj)
+{
+    obj->field20 = (*(const uint32_t *)(G_BYTES + 0x368) == 0) ? 2u : 1u;
+    *(uint16_t *)(G_BYTES + 0x45c) = (uint16_t)obj->field20;
+}
+
+
+/* ------------------------------------------------------ am_i_close_to_edge
+ *
+ * armv7 0x0005718c, forty-eight bytes.  **Complete.**
+ *
+ *      get_my_dfe(obj)
+ *      is_he_right(obj)
+ *      if (!obj->field5c) obj->field30 = obj->field34
+ *      obj->field1c = 0x40000
+ *      obj->field5c = (obj->field30 <= 103)
+ *
+ * Two distances are computed and the facing picks which one is tested: the
+ * fetch leaves one in 0x30 and `is_he_right` decides whether 0x34 replaces it.
+ * So "close to the edge" means close to the edge BEHIND you, and which edge
+ * that is depends on where the opponent stands.
+ *
+ * The threshold is 103, the same number `am_i_short` compares a height
+ * against. Two unrelated quantities sharing a constant is worth noting and not
+ * worth unifying.
+ *
+ * 0x1c takes 0x40000 -- 262144 -- and nothing here reads it back.
+ */
+void am_i_close_to_edge(MK3OBJ *obj)
+{
+    get_my_dfe(obj);
+    is_he_right(obj);
+
+    if (obj->field5c == 0)
+        obj->field30 = obj->field34;
+
+    obj->field1c = 0x40000;
+    obj->field5c = ((int32_t)obj->field30 > 0x67) ? 0u : 1u;
+}
+
+
+/* ------------------------------------------------------- match_ani_points_ob_ob
+ *
+ * armv7 0x000555f0, forty-eight bytes.  **Complete.**
+ *
+ *      if (a == NULL || b == NULL) return
+ *      b->field0c = a->field0c                     ; x, whole word
+ *      b->field10 = a->field10                     ; y, whole word
+ *      b->field28 = (b->field28 & ~0x10) | (a->field28 & 0x10)
+ *
+ * Both coordinates copied as WORDS, so the fractions come with them -- this is
+ * the only routine here that moves a fighter without losing the sub-unit part.
+ * And the facing bit is masked out of the destination and back in from the
+ * source, which is what makes this "be where he is, facing the way he faces"
+ * rather than a position copy.
+ *
+ * The null test is written as two comparisons and an `and`, which is `a && b`
+ * compiled without short-circuiting: both pointers are tested whatever the
+ * first says.
+ */
+void match_ani_points_ob_ob(uint32_t a_w, uint32_t b_w)
+{
+    MK3OBJ *a = (MK3OBJ *)(uintptr_t)a_w;
+    MK3OBJ *b = (MK3OBJ *)(uintptr_t)b_w;
+
+    if (a == NULL || b == NULL)
+        return;
+
+    b->field0c = a->field0c;
+    b->field10 = a->field10;
+    b->field28 = (b->field28 & ~0x10u) | (a->field28 & 0x10u);
+}
+
+
+/* ------------------------------------------------------------- ground_multi
+ *
+ * armv7 0x00057450, forty-eight bytes.  **Complete.**
+ *
+ *      lowest_mpart_ob(obj, obj->field08)          ; the bottom into 0x20
+ *      obj->field1c = G[0xac] - obj->field20       ; how far above the ground
+ *      obj->field20 = (int16_t)other_y + obj->field1c
+ *      other_y = (uint16_t)obj->field20
+ *
+ * Drops the fighter until his lowest part sits on the stage ground: the gap is
+ * measured once and added to the current y. `ground_player` does the same job
+ * by copying a precomputed number; this one computes it from the bounding box,
+ * which is why it needs the fetch first.
+ *
+ * The y is read signed and written as a halfword, so the fraction underneath
+ * is left untouched -- a whole-unit move, like every other adjust here.
+ */
+void ground_multi(MK3OBJ *obj)
+{
+    lowest_mpart_ob(obj, obj->field08);
+
+    obj->field1c = *(const uint32_t *)(G_BYTES + 0xac) - obj->field20;
+    obj->field20 = (uint32_t)((int32_t)(int16_t)MK3_FIELD12(obj->field08)
+                              + (int32_t)obj->field1c);
+    MK3_SET_FIELD12(obj->field08, (uint16_t)obj->field20);
+}
+
+
+/* ------------------------------------------------------------- t_round_loop
+ *
+ * armv7 0x00056c54, forty-eight bytes.  **Complete.**
+ *
+ *      above = thread frame index + 1
+ *      if (*above != 0 && *above != 0x12f8) return -3
+ *      *above = 0x12f8
+ *      thread->fieldfc = 1
+ *      return 1
+ *
+ * `t_self_terminate` with one difference that matters: it accepts a frame
+ * already marked 0x12f8 as well as an empty one, so calling it twice is
+ * harmless where terminating twice is not. Its marker is 0x12f8 against the
+ * terminator's 0x12ff, and it reports 1 rather than the literal 0x00016462.
+ *
+ * Two functions writing two different markers into the same slot is what makes
+ * that slot a state and not a flag.
+ */
+long t_round_loop(MK3THREAD *thread)
+{
+    uint32_t *above = (uint32_t *)((char *)thread + (thread->frame + 1) * 8);
+
+    if (*above != 0 && *above != 0x12f8u)
+        return -3;
+
+    *above = 0x12f8u;
+    thread->fieldfc = 1;
     return 1;
 }

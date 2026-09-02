@@ -104,8 +104,9 @@ typedef struct IMG_OBJ {
     uint32_t field08;            /* 0x08  another object */
     /* 0x0c is a word and 0x0e is its high half -- one field, not two. */
     uint32_t field0c;            /* 0x0c  is_he_right compares two */
-    uint8_t  _pad10[2];
-    uint16_t field12;            /* 0x12 */
+    /* 0x10 is a word and 0x12 its high half, exactly like 0x0c and 0x0e.
+     * Two coordinates in 16.16 fixed point. */
+    uint32_t field10;            /* 0x10  match_ani_points_ob_ob copies it */
     uint8_t  _pad14[4];
     uint32_t field18;            /* 0x18 */
     uint32_t field1c;            /* 0x1c */
@@ -129,7 +130,7 @@ typedef struct IMG_OBJ {
 CHECK(IMG_OBJ, thread,      0x04);
 CHECK(IMG_OBJ, field08,     0x08);
 CHECK(IMG_OBJ, field0c,     0x0c);
-CHECK(IMG_OBJ, field12,     0x12);
+CHECK(IMG_OBJ, field10,     0x10);
 CHECK(IMG_OBJ, field18,     0x18);
 CHECK(IMG_OBJ, field1c,     0x1c);
 CHECK(IMG_OBJ, field20,     0x20);
