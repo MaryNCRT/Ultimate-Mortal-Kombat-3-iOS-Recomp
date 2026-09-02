@@ -205,6 +205,12 @@ extern GAMESTATE *G;                       /* 0x0038c1fc */
  * so it is a byte array for the same reason G is. */
 extern char *H;                            /* 0x0038c674 */
 
+/* The third global reached from this file, beside G and H, through the pointer
+ * slot at 0x000f320c. `no_edge_both_players` is the only routine here that
+ * touches it, and it sets one bit at two offsets -- so it is a byte array for
+ * the same reason the other two are. */
+extern char *GrObj;                        /* 0x0038c698 */
+
 /* Declared further down as `GAMESTATE *G`, which is how GameCode.c spells it
  * too. The three accesses here are by byte offset because two reads and a
  * write are not a layout; where GAMESTATE grows fields, they replace these. */
@@ -2699,4 +2705,198 @@ void get_his_char_ani(MK3OBJ *obj)
     const MK3OBJ *him = (const MK3OBJ *)(uintptr_t)obj->field00->him;
 
     obj->field40 = character_anitabs1[him->field24][obj->field40];
+}
+
+
+/* ------------------------------------------------------- get_his_char_ani2
+ *
+ * armv7 0x00055260, twenty-eight bytes.  **Complete.**
+ *
+ * The fourth of the fetch family: the second table, indexed by the opponent's
+ * character number rather than the other object's.
+ */
+void get_his_char_ani2(MK3OBJ *obj)
+{
+    const MK3OBJ *him = (const MK3OBJ *)(uintptr_t)obj->field00->him;
+
+    obj->field40 = character_anitabs2[him->field24][obj->field40];
+}
+
+
+/* ---------------------------------------------------------- get_his_matchw
+ *
+ * armv7 0x000550fc, twenty-eight bytes.  **Complete.**
+ *
+ *      obj->field1c = ((uint32_t *)H)[him_proc->field08]
+ *
+ * `get_my_matchw` with three dereferences instead of one, to reach the
+ * opponent's PROC and take his index. Same table, same indexing.
+ */
+void get_his_matchw(MK3OBJ *obj)
+{
+    const MK3OBJPROC *his = obj->field00->field00->field00;
+
+    obj->field1c = ((const uint32_t *)H)[his->field08];
+}
+
+
+/* --------------------------------------------------------- his_ochar_sound
+ *
+ * armv7 0x00057b94, twenty-eight bytes.  **Complete.**
+ *
+ *      MKEvent_Add(2, 3, (him->field24 << 8) + obj->field1c, 0)
+ *
+ * `ochar_sound_c` with the character number supplied from the opponent rather
+ * than by the caller. The same packing: character in the high byte, slot in
+ * the low, added rather than ORed.
+ */
+void his_ochar_sound(MK3OBJ *obj)
+{
+    const MK3OBJ *him = (const MK3OBJ *)(uintptr_t)obj->field00->him;
+
+    MKEvent_Add(2, 3, (long)((him->field24 << 8) + obj->field1c), 0);
+}
+
+
+/* --------------------------------------------------------- hob_ochar_sound
+ *
+ * armv7 0x00057c18, twenty-eight bytes.  **Complete.**
+ *
+ *      if (obj->field18) obj->field1c = (uint16_t)obj->field1c;
+ *      else              obj->field1c = obj->field1c >> 16;
+ *      ochar_sound(obj)
+ *
+ * Half of a packed word, chosen by a flag: the low half when 0x18 is set and
+ * the high half when it is not. Both unsigned -- a zero-extending `ldrh` in one
+ * branch and an `lsrs` in the other -- which is worth stating beside
+ * `adjust_him_a0`, which splits the same kind of word with arithmetic shifts.
+ * The two are not interchangeable.
+ */
+void hob_ochar_sound(MK3OBJ *obj)
+{
+    if (obj->field18 != 0)
+        obj->field1c = (uint16_t)obj->field1c;
+    else
+        obj->field1c = obj->field1c >> 16;
+    ochar_sound(obj);
+}
+
+
+/* ----------------------------------------------------------- inc_his_p_hit
+ *
+ * armv7 0x00054e1c, twenty-eight bytes.  **Complete.**
+ *
+ * `dec_his_p_hit` with an add, and the same re-read through all three pointers
+ * afterwards.
+ */
+void inc_his_p_hit(MK3OBJ *obj)
+{
+    MK3OBJPROC *proc = obj->field00;
+    MK3OBJPROC *his  = proc->field00->field00;
+
+    obj->field1c = (uint32_t)(uintptr_t)proc->field00;
+    his->p_hit = his->p_hit + 1;
+    obj->field20 = obj->field00->field00->field00->p_hit;
+}
+
+
+/* ------------------------------------------------------------ is_stick_away
+ *
+ * armv7 0x00055df0, twenty-eight bytes.  **Complete.**
+ *
+ *      obj->field38 = LEFT
+ *      if (!is_he_right(obj)) obj->field38 = RIGHT
+ *      return isa5(obj)
+ *
+ * The first of the stick routines that chooses its direction instead of
+ * naming one. "Away" is not a fifth direction: it is left or right decided at
+ * the time of asking, which is what the four constant ones were written for.
+ */
+long is_stick_away(MK3OBJ *obj)
+{
+    obj->field38 = MK3_STICK_LEFT;
+    if (!is_he_right(obj))
+        obj->field38 = MK3_STICK_RIGHT;
+    return isa5(obj);
+}
+
+
+/* ------------------------------------------------------- joystick_in_a0_px
+ *
+ * armv7 0x00055d78, twenty-eight bytes.  **Complete.**
+ *
+ *      obj->field1c = ((uint32_t *)G)[target->field00->field08] & 0xf
+ *
+ * The stick state lives in G, one word per fighter, indexed the same way
+ * `get_strength` indexes it. The low nibble is four bits, and four bits is
+ * exactly what `is_stick_up`, `_down`, `_left` and `_right` write into 0x38 as
+ * 1, 2, 4 and 8.
+ *
+ * Three readings meeting: the constants, the mask, and the shared index. That
+ * is what makes it safe to say the stick is here rather than that a nibble is
+ * read here.
+ */
+long joystick_in_a0_px(MK3OBJ *obj, MK3OBJ *target)
+{
+    uint32_t state = ((const uint32_t *)G)[target->field00->field08] & 0xfu;
+
+    obj->field1c = state;
+    return (long)state;
+}
+
+
+/* ------------------------------------------------------------ lineup_second
+ *
+ * armv7 0x00057560, twenty-eight bytes.  **Complete.**
+ *
+ * `air_dragon` and `lower_dragon` again with a third pair: -26 and -37, formed
+ * as `~0x19` and then `-0xb` from it. Both negative, and the slave as the
+ * object.
+ */
+void lineup_second(MK3OBJ *obj)
+{
+    obj->field1c = (uint32_t)-26;
+    obj->field20 = (uint32_t)-37;
+    obj->field30 = obj->field00->slave;
+    adjust_xy_a5(obj);
+}
+
+
+/* ------------------------------------------------------ no_edge_both_players
+ *
+ * armv7 0x000575b0, twenty-eight bytes.  **Complete.**
+ *
+ *      GrObj[0x30] |= 0x400
+ *      GrObj[0x7c] |= 0x400
+ *
+ * No argument. It sets the noedge bit at two offsets in one global, which is
+ * what "both players" means when neither is passed in -- whatever GrObj holds,
+ * it holds two of them 0x4c apart.
+ */
+void no_edge_both_players(void)
+{
+    *(uint32_t *)(GrObj + 0x30) |= MK3F_NOEDGE;
+    *(uint32_t *)(GrObj + 0x7c) |= MK3F_NOEDGE;
+}
+
+
+/* --------------------------------------------- ochar_sound and ochar_sound_n
+ *
+ * armv7 0x00057be4 and 0x00057bc8, twenty-eight bytes each.  **Complete.**
+ *
+ *      MKEvent_Add(2, 3, (other->field24 << 8) + n, 0)
+ *
+ * The character number in the high byte and a sound number in the low. The two
+ * differ only in where the low part comes from: `ochar_sound` takes it out of
+ * 0x1c and `ochar_sound_n` from the caller. `his_ochar_sound` written last
+ * batch is the third, taking the character from the opponent instead.
+ */
+void ochar_sound(MK3OBJ *obj)
+{
+    MKEvent_Add(2, 3, (long)((obj->field08->field24 << 8) + obj->field1c), 0);
+}
+
+void ochar_sound_n(MK3OBJ *obj, uint32_t n)
+{
+    MKEvent_Add(2, 3, (long)(n + (obj->field08->field24 << 8)), 0);
 }
