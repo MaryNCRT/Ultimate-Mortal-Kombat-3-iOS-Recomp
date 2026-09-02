@@ -42,7 +42,7 @@ typedef void (*MK3THREADFUNC)(void);
 /* The thread, as its writers and readers establish it. Only the offsets that
  * appear in this file are named. */
 typedef struct MK3THREAD {
-    uint8_t       _pad00[4];
+    struct MK3THREAD *next;      /* 0x00  FindThread walks this */
     MK3THREADFUNC func;          /* 0x04  what StartThreadAt puts there */
     uint32_t      field08;       /* 0x08  cleared with it */
     uint8_t       _pad0c[0x98];
@@ -735,15 +735,18 @@ long t_self_terminate_px(MK3THREAD *thread)
  *      ldr  r0, [r0, #0x108]
  *
  * Each calls the thread-level function with its arguments untouched and turns
- * the thread into the proc at 0x108, passing a null through. The arguments are
- * not named here: neither wrapper reads them.
+ * the thread into the proc at 0x108, passing a null through.
+ *
+ * `FindThread`'s argument is a pid -- see its body below, which walks a list
+ * comparing 0x104. `NewThread`'s arguments are not named: this wrapper does
+ * not read them.
  */
-MK3THREAD *FindThread(void);
+MK3THREAD *FindThread(uint32_t pid);
 MK3THREAD *NewThread(void);
 
-void *FindThreadProc(void)
+void *FindThreadProc(uint32_t pid)
 {
-    MK3THREAD *t = FindThread();
+    MK3THREAD *t = FindThread(pid);
     return t ? t->proc : NULL;
 }
 
@@ -1754,11 +1757,9 @@ void xfer_otherguy(MK3OBJ *obj)
  * `KillSThread` is the restart-at-terminate call, so "really kill" is still a
  * request the thread has to honour on its next turn.
  */
-MK3THREAD *FindThread_at(uint32_t key);
-
 void ReallyKillProjectile(MK3OBJ *obj)
 {
-    MK3THREAD *t = FindThread_at(obj->field00->field08 + 0x700);
+    MK3THREAD *t = FindThread(obj->field00->field08 + 0x700);
 
     if (t != NULL)
         KillSThread(t);
@@ -2493,7 +2494,7 @@ void call_for_him(MK3OBJ *obj, void (*fn)(MK3OBJ *))
  */
 void ReallyKillHisProjectile(MK3OBJ *obj)
 {
-    MK3THREAD *t = FindThread_at(0x700 - obj->field00->field08 + 1);
+    MK3THREAD *t = FindThread(0x700 - obj->field00->field08 + 1);
 
     if (t != NULL)
         KillSThread(t);
@@ -2899,4 +2900,153 @@ void ochar_sound(MK3OBJ *obj)
 void ochar_sound_n(MK3OBJ *obj, uint32_t n)
 {
     MKEvent_Add(2, 3, (long)(n + (obj->field08->field24 << 8)), 0);
+}
+
+
+/* ---------------------------------------------------------------- FindThread
+ *
+ * armv7 0x00057610, thirty-two bytes.  **Complete.**
+ *
+ *      for (t = *head; t; t = t->next)
+ *          if (t->pid == pid) return t;
+ *      return NULL;
+ *
+ * A singly linked list from a pointer slot at 0x000f3220, with the link at
+ * offset 0x00 and the key at 0x104 -- the pid `NewThreadProcPid` writes. The
+ * loop is rotated so the test comes after the load, which is why the entry
+ * jumps into the middle.
+ *
+ * The list head is not named here: one read of a slot is not a global worth
+ * declaring, and nothing else in this file touches it.
+ */
+extern MK3THREAD **ThreadListHead;      /* pointer slot -> 0x000f3220 */
+
+MK3THREAD *FindThread(uint32_t pid)
+{
+    MK3THREAD *t = *ThreadListHead;
+
+    while (t != NULL) {
+        if (t->pid == pid)
+            return t;
+        t = t->next;
+    }
+    return NULL;
+}
+
+
+/* ----------------------------------------------------------------- random32
+ *
+ * armv7 0x000586b0, twenty-eight bytes.  **Complete.**
+ *
+ *      hi = rand() << 17
+ *      lo = rand() & 0x7fff
+ *      return hi | (lo << 2)
+ *
+ * Two library calls -- the `blx` goes to an import thunk and `_rand` is UNDF
+ * in the symbol table, the same identification as `memset` earlier.
+ *
+ * **Bits 0 and 1 are never set.** Fifteen bits land at 2..16 and fifteen at
+ * 17..31, and nothing fills the bottom two. Every value is a multiple of four,
+ * and `randu_minimum` builds its ranges on top of that. It is in the shifts,
+ * not in this transcription.
+ */
+int rand(void);
+
+uint32_t random32(void)
+{
+    uint32_t hi = (uint32_t)rand() << 17;
+    uint32_t lo = (uint32_t)rand() & 0x7fffu;
+
+    return hi | (lo << 2);
+}
+
+
+/* ------------------------------------------------------------ stop_me_player
+ *
+ * armv7 0x00055c04, twenty-eight bytes.  **Complete.**
+ *
+ *      stop_a8(obj->field08)
+ *      obj->field1c = 0
+ *      obj->field08->field20 = 0
+ *      set_x_vel_player(obj)
+ *
+ * Three things cleared and then a velocity applied -- which is zero, because
+ * 0x1c was just cleared and that is where `set_x_vel_player` reads from.
+ */
+void stop_me_player(MK3OBJ *obj)
+{
+    stop_a8(obj->field08);
+    obj->field1c = 0;
+    obj->field08->field20 = 0;
+    set_x_vel_player(obj);
+}
+
+
+/* ------------------------------------------------------------ towards_x_vel
+ *
+ * armv7 0x00055a94, twenty-eight bytes.  **Complete.**
+ *
+ * `away_x_vel` with the test the other way round: negate when he is NOT to the
+ * right. The pair is the same eight instructions with `cbz` against `cbnz`.
+ */
+void towards_x_vel(MK3OBJ *obj)
+{
+    if (!is_he_right(obj))
+        obj->field1c = (uint32_t)(-(int32_t)obj->field1c);
+    set_x_vel_player(obj);
+}
+
+
+/* ----------------------------------------------------------- away_x_vel_him
+ *
+ * armv7 0x00055acc, thirty-two bytes.  **Complete.**
+ *
+ *      save obj->field00, obj->field08
+ *      obj->field08 = proc->him                 ; the PROC's 0x04
+ *      obj->field00 = proc->field00->field00    ; the opponent's PROC
+ *      away_x_vel(obj)
+ *      restore
+ *
+ * The same idea as `call_for_him` and NOT the same substitution: that one sets
+ * 0x08 from the opponent's own 0x08, this one from the PROC's 0x04. One field
+ * differs, so they are two things and are written as two.
+ */
+void away_x_vel_him(MK3OBJ *obj)
+{
+    MK3OBJPROC *saved_proc  = obj->field00;
+    MK3OBJ     *saved_other = obj->field08;
+
+    obj->field08 = (MK3OBJ *)(uintptr_t)saved_proc->him;
+    obj->field00 = saved_proc->field00->field00;
+
+    away_x_vel(obj);
+
+    obj->field08 = saved_other;
+    obj->field00 = saved_proc;
+}
+
+
+/* ---------------------------------------------------------- call_a0_for_him
+ *
+ * armv7 0x0005710c, thirty-two bytes.  **Complete.**
+ *
+ * `call_for_him` with the function taken from 0x1c rather than passed. The a0
+ * slot holding a code pointer, after holding a count, a bound, an object and a
+ * table base elsewhere in this file.
+ */
+void call_a0_for_him(MK3OBJ *obj)
+{
+    MK3OBJPROC *saved_proc  = obj->field00;
+    MK3OBJ     *saved_other = obj->field08;
+    MK3OBJ     *him         = saved_proc->field00;
+    void      (*fn)(MK3OBJ *);
+
+    obj->field00 = him->field00;
+    obj->field08 = him->field08;
+
+    fn = (void (*)(MK3OBJ *))(uintptr_t)obj->field1c;
+    fn(obj);
+
+    obj->field00 = saved_proc;
+    obj->field08 = saved_other;
 }
