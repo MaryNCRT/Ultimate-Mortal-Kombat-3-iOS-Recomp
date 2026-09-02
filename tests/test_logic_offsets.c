@@ -49,7 +49,8 @@
 typedef struct IMG_PROC {
     uint8_t  _pad00[4];
     uint32_t him;                /* 0x04 */
-    uint8_t  _pad08[8];
+    uint32_t field08;            /* 0x08  the strength index */
+    uint8_t  _pad0c[4];
     uint32_t field10;            /* 0x10 */
     uint8_t  _pad14[4];
     uint32_t field18;            /* 0x18  get_his_action, init_special_act */
@@ -64,6 +65,7 @@ typedef struct IMG_PROC {
 } IMG_PROC;
 
 CHECK(IMG_PROC, him,     0x04);
+CHECK(IMG_PROC, field08, 0x08);
 CHECK(IMG_PROC, field10, 0x10);
 CHECK(IMG_PROC, field18, 0x18);
 CHECK(IMG_PROC, field40, 0x40);
@@ -91,7 +93,9 @@ typedef struct IMG_OBJ {
     uint32_t field00;            /* 0x00  a PROC * in the image */
     uint32_t thread;             /* 0x04 */
     uint32_t field08;            /* 0x08  another object */
-    uint8_t  _pad0c[6];
+    uint8_t  _pad0c[2];
+    uint16_t field0e;            /* 0x0e  create_fx packs it high */
+    uint8_t  _pad10[2];
     uint16_t field12;            /* 0x12 */
     uint8_t  _pad14[4];
     uint32_t field18;            /* 0x18 */
@@ -114,6 +118,7 @@ typedef struct IMG_OBJ {
 
 CHECK(IMG_OBJ, thread,      0x04);
 CHECK(IMG_OBJ, field08,     0x08);
+CHECK(IMG_OBJ, field0e,     0x0e);
 CHECK(IMG_OBJ, field12,     0x12);
 CHECK(IMG_OBJ, field18,     0x18);
 CHECK(IMG_OBJ, field1c,     0x1c);
