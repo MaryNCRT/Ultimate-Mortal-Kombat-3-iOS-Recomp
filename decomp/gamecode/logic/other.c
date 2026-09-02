@@ -91,6 +91,10 @@ typedef struct MK3OBJPROC {
     uint32_t slave;              /* 0x68  per f_set_a10_to_slave */
 } MK3OBJPROC;
 
+/* The high half of the word at 0x0c, which several routines read on its own
+ * and one of them sign-extends. Little-endian: 0x0e is the top two bytes. */
+#define MK3_FIELD0E(o)   ((uint16_t)((o)->field0c >> 16))
+
 typedef struct MK3OBJ {
     MK3OBJPROC *field00;         /* 0x00  ldr r2, [r4] */
     /* 0x04  the object's thread. KillProc and StartProcAt both take it out of
@@ -99,8 +103,8 @@ typedef struct MK3OBJ {
     MK3THREAD  *thread;          /* 0x04 */
     struct MK3OBJ *field08;      /* 0x08  another object: player_swpal writes
                                   *       through it and ani2 passes it on */
-    uint8_t     _pad0c[2];
-    uint16_t    field0e;         /* 0x0e  create_fx's high half */
+    uint32_t    field0c;         /* 0x0c  a horizontal position; is_he_right
+                                  *       compares two of them */
     uint8_t     _pad10[2];
     uint16_t    field12;         /* 0x12  a signed halfword offset; see
                                   *       highest_mpart_ob and lowest_mpart_ob */
@@ -1329,7 +1333,7 @@ void allow_moves(MK3OBJ *obj)
  *
  * armv7 0x00058d70, twenty bytes.  **Complete.**
  *
- *      r1 = (other->field0e << 16) | other->field12
+ *      r1 = (MK3_FIELD0E(other) << 16) | other->field12
  *
  * Two halfwords packed into one word and passed as a single parameter -- the
  * high half from 0x0e and the low from 0x12. 0x12 is the same field
@@ -1342,7 +1346,7 @@ void create_fx(MK3OBJ *obj)
 {
     MK3OBJ *other = obj->field08;
 
-    create_fx_param(obj, ((uint32_t)other->field0e << 16) | other->field12);
+    create_fx_param(obj, ((uint32_t)MK3_FIELD0E(other) << 16) | other->field12);
 }
 
 
@@ -1473,7 +1477,7 @@ void gdfe4(MK3OBJ *obj);
 
 void get_my_dfe(MK3OBJ *obj)
 {
-    obj->field28 = (uint32_t)(int32_t)(int16_t)obj->field08->field0e;
+    obj->field28 = (uint32_t)(int32_t)(int16_t)MK3_FIELD0E(obj->field08);
     gdfe4(obj);
 }
 
@@ -1878,7 +1882,7 @@ void borrow_ochar_sound(MK3OBJ *obj)
  *
  * armv7 0x00057b6c, twenty-four bytes.  **Complete.**
  *
- *      MKEvent_Add(1, 1, (int16_t)other->field0e, proc->field08)
+ *      MKEvent_Add(1, 1, (int16_t)MK3_FIELD0E(other), proc->field08)
  *
  * The same event kind as `shake_a11` with a different second argument. 0x0e is
  * read signed here and signed in `get_my_dfe`; `create_fx` takes it as the
@@ -1886,7 +1890,7 @@ void borrow_ochar_sound(MK3OBJ *obj)
  */
 void center_around_me(MK3OBJ *obj)
 {
-    MKEvent_Add(1, 1, (int32_t)(int16_t)obj->field08->field0e,
+    MKEvent_Add(1, 1, (int32_t)(int16_t)MK3_FIELD0E(obj->field08),
                 obj->field00->field08);
 }
 
@@ -1999,4 +2003,140 @@ void fastxfer_thread(MK3OBJ *obj, MK3THREAD *thread)
     thread->fieldf8 = 0;
     thread->field08 = 0;
     thread->func = (MK3THREADFUNC)(uintptr_t)obj->field38;
+}
+
+
+/* ------------------------------- find_ani_part_a14, find_ani2_part_a14
+ *
+ * armv7 0x000554a8 and 0x000554c0, twenty-four bytes each.  **Complete.**
+ *
+ *      saved = obj->field54
+ *      get_char_ani(obj)            ; or get_char_ani2
+ *      obj->field54 = saved
+ *      find_part_a14(obj)
+ *
+ * The second and third restores in this file. Both defend 0x54 across the
+ * fetch, which says the fetch writes it -- these two functions are the
+ * evidence for that, since `get_char_ani` is not decompiled yet.
+ */
+void find_part_a14(MK3OBJ *obj);
+
+void find_ani_part_a14(MK3OBJ *obj)
+{
+    uint32_t saved = obj->field54;
+
+    get_char_ani(obj);
+    obj->field54 = saved;
+    find_part_a14(obj);
+}
+
+void find_ani2_part_a14(MK3OBJ *obj)
+{
+    uint32_t saved = obj->field54;
+
+    get_char_ani2(obj);
+    obj->field54 = saved;
+    find_part_a14(obj);
+}
+
+
+/* ------------------------------------------------------------- get_his_dfe
+ *
+ * armv7 0x00054dd4, twenty-four bytes.  **Complete.**
+ *
+ * The "him" spelling of `get_my_dfe`: the opponent into 0x1c, his 0x0e
+ * sign-extended into 0x28, then the same worker. The PROC's 0x04 is loaded
+ * twice, once for each.
+ */
+void get_his_dfe(MK3OBJ *obj)
+{
+    MK3OBJPROC *proc = obj->field00;
+
+    obj->field1c = proc->him;
+    obj->field28 = (uint32_t)(int32_t)(int16_t)
+                   MK3_FIELD0E((const MK3OBJ *)(uintptr_t)proc->him);
+    gdfe4(obj);
+}
+
+
+/* ---------------------------------------------------------- get_my_matchw
+ *
+ * armv7 0x000550e4, twenty-four bytes.  **Complete.**
+ *
+ *      obj->field1c = ((uint32_t *)H)[proc->field08]
+ *
+ * H indexed by the PROC's 0x08 -- the same number `get_strength` uses to index
+ * G. So the two globals are addressed by one per-fighter index, and H is at
+ * least an array of words.
+ */
+void get_my_matchw(MK3OBJ *obj)
+{
+    obj->field1c = ((const uint32_t *)H)[obj->field00->field08];
+}
+
+
+/* ------------------------------------------------------------ init_special
+ *
+ * armv7 0x000587c8, twenty-four bytes.  **Complete.**
+ *
+ * `air_init_special` without the grounding: this stops the player, grounds
+ * him, then runs isp2, where the air version skips the middle step. The pair
+ * is what makes the name of the other one mean something.
+ */
+void init_special(MK3OBJ *obj)
+{
+    stop_me_player(obj);
+    ground_player(obj);
+    isp2(obj);
+}
+
+
+/* --------------------------------------------- is_he_right and is_he_left
+ *
+ * armv7 0x0005517c and 0x00055194, twenty-four bytes each.  **Complete.**
+ *
+ *      right: (him->field0c > other->field0c)
+ *      left:  r = 1 - is_he_right(obj);  if (r borrowed) r = 0
+ *
+ * A comparison of 0x0c on two objects, so 0x0c is a horizontal position.
+ *
+ * The left one is not a negation. `rsbs` sets the carry and `it lo` clamps
+ * anything that borrowed to zero, so a return above 1 would come out as 0
+ * rather than negative. On the two values `is_he_right` actually returns the
+ * two spellings agree; the clamp is transcribed because it is there, not
+ * because it is reachable.
+ */
+long is_he_right(MK3OBJ *obj)
+{
+    MK3OBJ *him = (MK3OBJ *)(uintptr_t)obj->field00->him;
+    long    r = (him->field0c > obj->field08->field0c) ? 1 : 0;
+
+    obj->field5c = (uint32_t)r;
+    return r;
+}
+
+long is_he_left(MK3OBJ *obj)
+{
+    uint32_t r = 1u - (uint32_t)is_he_right(obj);
+
+    if (r > 1u)                         /* the borrow the `it lo` tests */
+        r = 0;
+    obj->field5c = r;
+    return (long)r;
+}
+
+
+/* ------------------------------------------------------------- is_he_short
+ *
+ * armv7 0x000557cc, twenty-four bytes.  **Complete.**
+ *
+ * The "him" spelling of `am_i_short`, with the same threshold of 103 and the
+ * same slot for the answer.
+ */
+void get_his_height(MK3OBJ *obj);
+
+void is_he_short(MK3OBJ *obj)
+{
+    get_his_height(obj);
+    obj->field5c = ((int32_t)obj->field20 > 0x67) ? 0u : 1u;
 }
