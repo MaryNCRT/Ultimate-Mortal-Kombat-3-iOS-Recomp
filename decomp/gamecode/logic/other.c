@@ -697,11 +697,15 @@ void StartThreadAt(MK3THREAD *thread, MK3THREADFUNC func)
  * ends it on its own next turn -- the only way to stop a thread in a scheduler
  * that never interrupts one.
  */
-void t_self_terminate(void);
+long t_self_terminate(MK3THREAD *thread);
 
 void KillSThread(MK3THREAD *thread)
 {
-    StartThreadAt(thread, t_self_terminate);
+    /* The cast is where the shape changes: the scheduler installs a
+     * `void (*)(void)` and calls it with the thread in r0, which is what
+     * `t_self_terminate` reads. The name carries no suffix because the symbol
+     * carries none. */
+    StartThreadAt(thread, (MK3THREADFUNC)(void *)t_self_terminate);
 }
 
 
@@ -727,11 +731,11 @@ void KillSThread(MK3THREAD *thread)
  * is both the stored value and the return; neither is an address in any
  * section, and nothing else in this file reads either back.
  *
- * Spelled with the thread as an argument although the original takes it in r0
- * as a thread function would receive its own thread -- it is installed as one
- * by KillSThread.
+ * Spelled with the thread as an argument although the scheduler installs it as
+ * a `void (*)(void)`: it is called with the thread in r0, the way a thread
+ * function receives its own. The cast is at the installation in `KillSThread`.
  */
-long t_self_terminate_px(MK3THREAD *thread)
+long t_self_terminate(MK3THREAD *thread)
 {
     uint32_t *above = (uint32_t *)((char *)thread + (thread->frame + 1) * 8);
 
@@ -2512,8 +2516,12 @@ void call_for_him(MK3OBJ *obj, void (*fn)(MK3OBJ *))
  *      t = FindThread(key); if (t) KillSThread(t)
  *
  * NOT the "him" spelling of `ReallyKillProjectile`, which adds 0x700 to the
- * same field. This reflects about it instead. Both arithmetics are
- * transcribed as they are; reading a symmetry into the pair would be reading.
+ * same field -- it reflects about it instead.
+ *
+ * `delete_slave_notproj` below says why both work: pids 0x700 and 0x701 are
+ * the two projectiles, one per fighter. For indices 0 and 1, `index + 0x700`
+ * gives 0x700 and 0x701 while `0x700 - index + 1` gives 0x701 and 0x700 -- the
+ * same pair with the fighters swapped, which is what "his" asks for.
  */
 void ReallyKillHisProjectile(MK3OBJ *obj)
 {
@@ -3807,4 +3815,154 @@ long next_anirate(MK3OBJ *obj)
     /* The original branches PAST its own `movs r0, #0` here, so this path
      * returns the callee's value and the two above return zero. */
     return do_next_a9_frame(obj);
+}
+
+
+/* ------------------------------------ pose_a9_manual and pose2_a9_manual
+ *
+ * armv7 0x0005a028 and 0x0005a000, forty bytes each.  **Complete.**
+ *
+ *      packed = obj->field40
+ *      step   = ((int32_t)packed >> 16) * 4
+ *      obj->field1c = step
+ *      obj->field40 = (uint16_t)packed          ; the index alone
+ *      get_char_ani(obj)                        ; or get_char_ani2
+ *      obj->field1c = step                      ; again
+ *      obj->field40 += step
+ *      do_next_a9_frame(obj)
+ *
+ * 0x40 arrives packed: a frame index in the low half and a signed offset in
+ * the high, scaled by four. The fetch runs on the index alone and the offset
+ * is added to whatever it returns, so the pair is "which animation, and how
+ * far into it".
+ *
+ * 0x1c is written twice with the same value, once on each side of the fetch.
+ * `get_char_ani` does not touch it, so the second store is redundant as the
+ * code stands -- the same shape as the 0x54 saves, and left alone for the same
+ * reason.
+ */
+void pose_a9_manual(MK3OBJ *obj)
+{
+    uint32_t packed = obj->field40;
+    uint32_t step   = (uint32_t)(((int32_t)packed >> 16) * 4);
+
+    obj->field1c = step;
+    obj->field40 = (uint16_t)packed;
+    get_char_ani(obj);
+    obj->field1c = step;
+    obj->field40 = obj->field40 + step;
+    do_next_a9_frame(obj);
+}
+
+void pose2_a9_manual(MK3OBJ *obj)
+{
+    uint32_t packed = obj->field40;
+    uint32_t step   = (uint32_t)(((int32_t)packed >> 16) * 4);
+
+    obj->field1c = step;
+    obj->field40 = (uint16_t)packed;
+    get_char_ani2(obj);
+    obj->field1c = step;
+    obj->field40 = obj->field40 + step;
+    do_next_a9_frame(obj);
+}
+
+
+/* -------------------------------------------------------------------- randu
+ *
+ * armv7 0x00058714, forty bytes.  **Complete.**
+ *
+ *      saved = obj->field20
+ *      obj->field20 = obj->field1c          ; the bound
+ *      mk_random(obj)                       ; 0x1c = random32()
+ *      mpyu(obj->field1c, obj->field20, &obj->field1c, NULL)
+ *      obj->field20 = saved
+ *      obj->field1c += 1
+ *
+ * A bound applied by multiply-high, not by modulo: the product's high word of
+ * `random * bound` is uniform over 0..bound-1 without a division. `mpyu`'s
+ * optional outputs are why one call does it -- the low half is discarded by
+ * passing null, which is the only thing that test in `mpyu` is for.
+ *
+ * The result is 1..bound. It inherits `random32`'s missing low two bits: the
+ * high word is fed by a value that is always a multiple of four, so the
+ * distribution is not what a uniform generator would give. That is in the
+ * generator, not here.
+ *
+ * 0x20 is borrowed for the bound and restored, the fifth restore in this file.
+ */
+void randu(MK3OBJ *obj)
+{
+    uint32_t saved = obj->field20;
+
+    obj->field20 = obj->field1c;
+    mk_random(obj);
+    mpyu(obj->field1c, obj->field20, &obj->field1c, NULL);
+    obj->field20 = saved;
+    obj->field1c = obj->field1c + 1;
+}
+
+
+/* -------------------------------------------------------- rsnd_ochar_sound
+ *
+ * armv7 0x0005873c, forty bytes.  **Complete.**
+ *
+ *      packed = obj->field1c
+ *      obj->field1c = (int16_t)packed              ; the range
+ *      obj->field20 = (int32_t)packed >> 16        ; the minimum
+ *      randu(obj)                                  ; 1..range
+ *      obj->field1c += obj->field20 - 1
+ *      ochar_sound(obj)
+ *
+ * `randu_minimum` inlined: it does the same `-1 + minimum` rather than calling
+ * the routine that exists for it. Both halves are sign-extended, so a negative
+ * minimum is expressible.
+ */
+void rsnd_ochar_sound(MK3OBJ *obj)
+{
+    uint32_t packed = obj->field1c;
+
+    obj->field1c = (uint32_t)(int32_t)(int16_t)packed;
+    obj->field20 = (uint32_t)((int32_t)packed >> 16);
+    randu(obj);
+    obj->field1c = obj->field1c - 1 + obj->field20;
+    ochar_sound(obj);
+}
+
+
+/* ----------------------------------------------------- delete_slave_notproj
+ *
+ * armv7 0x00056d3c, forty-four bytes.  **Complete.**
+ *
+ *      slave = proc->field64
+ *      if (!slave) return
+ *      if ((slave->thread->pid - 0x700) <= 1) return        ; unsigned
+ *      KillProc(slave)
+ *      proc->field64 = 0
+ *      proc->slave   = 0
+ *
+ * `delete_slave` with one test in front of it, and that test is what 0x700
+ * means: pids 0x700 and 0x701 are the projectiles, one per fighter, and this
+ * refuses to delete a slave that is one.
+ *
+ * It also settles the pair noted earlier. `ReallyKillProjectile` computes
+ * `index + 0x700` and `ReallyKillHisProjectile` computes `0x700 - index + 1`;
+ * for indices 0 and 1 those give 0x700/0x701 and 0x701/0x700, so the second is
+ * the first with the fighters swapped. The two arithmetics were transcribed as
+ * unrelated because nothing then said they were a pair. This does.
+ */
+void delete_slave_notproj(MK3OBJ *obj)
+{
+    MK3OBJ *slave = (MK3OBJ *)(uintptr_t)obj->field00->field64;
+
+    if (slave == NULL)
+        return;
+
+    /* Unsigned, so a pid below 0x700 wraps large and passes. */
+    if (slave->thread->pid - 0x700u <= 1u)
+        return;
+
+    KillProc(slave);
+    obj->field00->field64 = 0;
+    obj->field00->slave = 0;
 }
