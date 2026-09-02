@@ -125,6 +125,18 @@ typedef struct MK3OBJ {
     uint32_t    field5c;         /* 0x5c  am_i_joy's isolated bit */
 } MK3OBJ;
 
+/* ------------------------------------------------------------------------
+ * `G`, the global game state.
+ *
+ * One letter, as it was on the TMS34010. Three routines here reach it through
+ * the pointer slot at 0x000f357c, and the word that slot holds is 0x0038c1fc,
+ * which the symbol table gives as `_G` in `__DATA,__common`.
+ *
+ * It is a `char` array and not a struct. Two offsets are established so far --
+ * the strengths at 0x368 and a halfword at 0x456 -- and three accesses is not
+ * a layout. Fields go in when there are enough of them to be a shape.
+ * ------------------------------------------------------------------------ */
+
 /* Called by isp2 and decompiled elsewhere. Declared, not defined: this file
  * owns the sequencing and not the steps. */
 void face_opponent(MK3OBJ *obj);
@@ -173,6 +185,11 @@ typedef struct SWITCHQUEUE {
  */
 typedef struct GAMESTATE GAMESTATE;
 extern GAMESTATE *G;                       /* 0x0038c1fc */
+
+/* Declared further down as `GAMESTATE *G`, which is how GameCode.c spells it
+ * too. The three accesses here are by byte offset because two reads and a
+ * write are not a layout; where GAMESTATE grows fields, they replace these. */
+#define G_BYTES  ((char *)G)
 
 #define G_SWITCH_COUNTER(g)  (*(const uint16_t *)((const char *)(g) + 0xa8))
 
@@ -1458,16 +1475,13 @@ void get_my_dfe(MK3OBJ *obj)
  *
  *      get_strength(i) = (*table)[i] read at +0x368
  *
- * A pointer slot at 0x000f357c holds the table's address, the index is scaled
- * by four, and the read is 0x368 further on -- so 0x368 is where the strengths
- * begin inside whatever that structure is. `get_my_strength` supplies the
+ * The pointer slot at 0x000f357c is `G` -- see its declaration above -- so the
+ * strengths begin 0x368 into the global state. `get_my_strength` supplies the
  * index from the PROC's 0x08 and parks the answer in 0x1c.
  */
-extern uint32_t *StrengthTable;         /* pointer slot -> 0x000f357c */
-
 uint32_t get_strength(uint32_t index)
 {
-    return *(const uint32_t *)((const char *)StrengthTable + index * 4 + 0x368);
+    return *(const uint32_t *)(G_BYTES + index * 4 + 0x368);
 }
 
 void get_my_strength(MK3OBJ *obj)
@@ -1513,4 +1527,110 @@ void lights_on_hit(MK3OBJ *obj)
 void lights_on_slam(MK3OBJ *obj)
 {
     MKEvent_Add(3, 0xb, 0x38, obj->field00->field08);
+}
+
+
+/* --------------------------------------------------------------- init_1_q
+ *
+ * armv7 0x00058960, twenty bytes.  **Complete.**
+ *
+ *      memset(q, 0, 0x54)
+ *      q->head = q + 4
+ *
+ * The constructor for the ring buffer this file's header describes: clear the
+ * whole of it and point the head at the array, which starts one word in. The
+ * header says the wrap check is against `q + 0x54`, and 0x54 is the size
+ * cleared here -- the two agree, which is the only check available on a
+ * function this small.
+ */
+void init_1_q(char *q)
+{
+    memset(q, 0, 0x54);
+    *(uint32_t *)q = (uint32_t)(uintptr_t)(q + 4);
+}
+
+
+/* -------------------------------------- match_him_with_me, match_me_with_him
+ *
+ * armv7 0x000570cc and 0x000570f8, twenty bytes each.  **Complete.**
+ *
+ * The same worker with the two arguments the other way round. `_him_with_me`
+ * passes (mine, his) and `_me_with_him` passes (his, mine), so the first
+ * argument is the one that moves.
+ */
+void match_him_with_me(MK3OBJ *obj)
+{
+    match_ani_points_ob_ob((uint32_t)(uintptr_t)obj->field08,
+                           obj->field00->him);
+}
+
+void match_me_with_him(MK3OBJ *obj)
+{
+    match_ani_points_ob_ob(obj->field00->him,
+                           (uint32_t)(uintptr_t)obj->field08);
+}
+
+
+/* ------------------------------------------------------------------- mpyu
+ *
+ * armv7 0x00056150, twenty bytes.  **Complete.**
+ *
+ *      umull lo, hi, b, a
+ *      if (lo_out) *lo_out = lo
+ *      if (hi_out) *hi_out = hi
+ *
+ * A 64-bit unsigned multiply with both halves optional -- each pointer is
+ * tested before it is written, so a caller that wants only the high word
+ * passes null for the other. The name is the TMS34010 instruction it replaces.
+ */
+void mpyu(uint32_t a, uint32_t b, uint32_t *hi_out, uint32_t *lo_out)
+{
+    uint64_t product = (uint64_t)b * (uint64_t)a;
+
+    if (lo_out != NULL)
+        *lo_out = (uint32_t)product;
+    if (hi_out != NULL)
+        *hi_out = (uint32_t)(product >> 32);
+}
+
+
+/* -------------------------------------------------------------- rsnd_func
+ *
+ * armv7 0x00057dbc, twenty bytes.  **Complete.**
+ *
+ *      MKEvent_Add(2, 2, arg, 0)
+ *
+ * The caller's second argument becomes the event's third and everything else
+ * is a literal. The object is not passed at all, so this is a sound request
+ * that belongs to nobody.
+ */
+void rsnd_func(uint32_t unused, uint32_t which)
+{
+    (void)unused;
+    MKEvent_Add(2, 2, (long)which, 0);
+}
+
+
+/* ------------------------------------------ sans_repell and sans_repell_3
+ *
+ * armv7 0x00054d64 and 0x00054d78, twenty bytes each.  **Complete.**
+ *
+ *      obj->field38 = N
+ *      *(uint16_t *)(G + 0x456) = N        ; the same N
+ *
+ * 0x40 and 3. Each writes its constant to two places, one on the object and
+ * one in the global state, and the object's 0x38 is the same slot the stick
+ * routines write their direction mask into. Two unrelated things through one
+ * offset, again.
+ */
+void sans_repell(MK3OBJ *obj)
+{
+    obj->field38 = 0x40;
+    *(uint16_t *)(G_BYTES + 0x456) = 0x40;
+}
+
+void sans_repell_3(MK3OBJ *obj)
+{
+    obj->field38 = 3;
+    *(uint16_t *)(G_BYTES + 0x456) = 3;
 }
