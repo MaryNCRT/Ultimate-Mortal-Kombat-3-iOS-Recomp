@@ -94,8 +94,8 @@ long PI_limeRand(void)
 extern long   GamePaused;               /* pointer slot */
 extern long   DoIntro;                  /* pointer slot */
 extern void **GameObjects;             /* 0x0014dfec, one per object */
-extern float *Player1Pos;               /* pointer slot -> 0x00150564 */
-extern float *Player2Pos;               /* pointer slot -> 0x00150570 */
+extern float  Player1Pos[];               /* pointer slot -> 0x00150564 */
+extern float  Player2Pos[];               /* pointer slot -> 0x00150570 */
 extern char  *PlayersP;                 /* pointer slot -> _Players */
 extern float  SmokeAdjust;              /* 0x0016f77c */
 extern float  SmokeAdjust2;             /* 0x0016f780 */

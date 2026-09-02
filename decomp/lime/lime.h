@@ -880,6 +880,12 @@ extern int  g_whirlwindFirstFrame;
 #define GL_CULL_FACE            0x0B44
 #endif
 
+/* The GL entry points the engine calls, spelled with plain C types because
+ * the decompilation has no GL header to lean on. A build that links a real
+ * GL gets them from <GL/gl.h> instead, where the same functions are
+ * declared with GLenum and GLboolean -- and `void glDepthMask(int)` against
+ * `void glDepthMask(GLboolean)` is a conflict, not a duplicate. */
+#ifndef UMK3_REAL_GL
 void glEnable(unsigned cap);
 void glDisable(unsigned cap);
 void glEnableClientState(unsigned array);
@@ -902,6 +908,14 @@ void glLoadIdentity(void);
 void glMatrixMode(unsigned mode);
 void glTranslatef(float x, float y, float z);
 void glMultMatrixf(const float *m);
+#else
+/* A real GL supplies all of the above. Two exceptions: the multitexture calls
+ * arrived in GL 1.3 and Windows' opengl32 exports 1.1, so runtime/draw_gl.c
+ * provides them and they are declared here. */
+#include "platform/gl.h"
+void glClientActiveTexture(unsigned unit);
+void glActiveTexture(unsigned unit);
+#endif  /* !UMK3_REAL_GL */
 void   limeDeleteTexture(TEXTURE *tex);
 
 /* GetNextLine copies one line into `dst`, stopping at NUL, CR or LF, handles

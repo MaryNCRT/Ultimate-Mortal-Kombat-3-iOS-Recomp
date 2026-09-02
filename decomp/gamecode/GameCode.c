@@ -1346,7 +1346,7 @@ typedef struct Mk3Obj_t Mk3Obj_t;
 /* `_FrameRemapTable` 0x002003d4, eight bytes an entry, first word used.
  * `_PlayerDefs` 0x00170950, **52 bytes** an entry -- the compiler spells the
  * multiply out as `(n*16 - n*4 + n) << 2`, which is 13 << 2. */
-extern long  *FrameRemapTable;          /* pointer slot -> 0x002003d4 */
+extern long   FrameRemapTable[];          /* pointer slot -> 0x002003d4 */
 typedef struct PLAYERDEF {
     long        id;             /* 0x00  0..25; the same as the index */
     float       scale;          /* 0x04  multiplied by PlayerSize */
@@ -1434,10 +1434,16 @@ void ArcadePosTo3dPosNO_OFFSETS(Mk3Obj_t *obj, float *out)
 
 
 extern int  limeScreenWidthI;           /* alias comment only -- see below */
-extern long col[];                      /* 0x0014fa00 */
+/* Four floats, all 1.0f -- white. FrontEnd.c spells it `float col[]` and
+ * the bits at 0x0014fa00 are 0x3f800000 four times, so `long` here made
+ * one symbol into two incompatible types. */
+extern float col[];                     /* 0x0014fa00, RGBA */
 
+/* The colour is four floats, as FrontEnd.c and lime.h both have it. Spelled
+ * `long *` here only because `col` was spelled `long []` a few lines up. */
 void limeDrawSprite(TEXTURE *tex, float x, float y, float w, float h,
-                    float u0, float v0, float u1, float v1, long *colour);
+                    float u0, float v0, float u1, float v1,
+                    const float *colour);
 
 
 /* ------------------------------------------------------ drawLoadingBackground
@@ -1543,7 +1549,7 @@ void drawSingleButton(int x, int y, float alpha)
     limeDrawSprite(*ButtonsTPage,
                    FE_X((float)x), FE_Y((float)y),
                    FE_W(64.0f),    FE_H(64.0f),
-                   0.0f, 0.5f, 0.125f, 0.25f, &colour[0].w);
+                   0.0f, 0.5f, 0.125f, 0.25f, (const float *)&colour[0]);
 }
 
 
@@ -2653,7 +2659,7 @@ void Task_LoadSplashScreen(void)
                    480.0f * *FE_WidthScaleP,
                    320.0f * *FE_HeightScaleP,
                    0.03125f, 0.1875f, 0.9375f, 0.625f,
-                   (long *)colour);
+                   colour);
 
     SplashCount++;
 }
@@ -3241,7 +3247,7 @@ extern long   SpearWhichTexture[2];     /* 0x0010def4 */
 extern float  SpearStartPos[2][3];      /* 0x001ab63c */
 extern float  SpearEndPos[2][3];        /* 0x001ab624 */
 extern void  *SpearTexture[];           /* 0x001ab654 */
-extern float *FaceMeMatrix;             /* pointer slot */
+extern float  FaceMeMatrix[];             /* pointer slot */
 extern float  ShadowOffset;             /* 0x0014dfc8 */
 
 void limeDrawFaceMeSpriteWH(void *tex, const float *m, float x, long a,
@@ -3677,7 +3683,7 @@ long DrawAnimAsSprite(long x, long y, float scale, long ax,
                       const char *frames, const long *table,
                       long mirror, long modulus,
                       long first, long last, long wrap,
-                      long *colour)
+                      const float *colour)
 {
     long n = last - first;
     long idx;
@@ -3884,7 +3890,7 @@ extern float LastAt[3];                 /* 0x001f4448 */
 extern long  NewCam;                    /* 0x0014e1bc */
 extern long  DoIntroFlag;               /* 0x0014e1c0 */
 extern float GameTime;                  /* 0x0014fa58 */
-extern float *m;                        /* pointer slot */
+extern float  m[];                        /* pointer slot */
 extern float *CameraLookAt;             /* pointer slot -> 0x0014fa80 */
 
 long get_tsound(long id);
@@ -4497,7 +4503,7 @@ void DrawControlsPreview(long originX, long originY)
         limeDrawSprite((TEXTURE *)*ButtonsTPage, x, y, wh, wh,
                        (float)((double)col * 0.125),
                        (float)((double)(glyph / 4) * 0.25),
-                       0.125f, 0.25f, (long *)colour);
+                       0.125f, 0.25f, colour);
     }
 }
 
@@ -7674,7 +7680,7 @@ void MovesList(void)
 
 extern float  limeFPSScaleFactor;       /* pointer slot -> 0x00171acc */
 extern long   flawlessVictories;        /* 0x0014e000 */
-extern long  *Stats;                    /* pointer slot -> 0x00183c84 */
+extern long   Stats[];                    /* pointer slot -> 0x00183c84 */
 extern long   RoundHasEnded;            /* 0x0014e248 */
 extern long   RoundHasEndedStatsUpdated;/* 0x0014e244 */
 extern long   DoingSKDeath;             /* 0x0010deb8 */
@@ -8359,7 +8365,7 @@ static void DrawButtonRow(const long *pos, const long *states,
                        (float)v / (float)BUTTON_ATLAS_ROWS,
                        1.0f / (float)BUTTON_ATLAS_COLS,
                        1.0f / (float)BUTTON_ATLAS_ROWS,
-                       (long *)colour);
+                       colour);
     }
 }
 
@@ -8370,13 +8376,13 @@ static void DrawJoystick(long x, long y, long state,
     limeDrawSprite(*ButtonsTPage,
                    (float)x - JSIZE, (float)y - JSIZE,
                    JSIZE + JSIZE, JSIZE + JSIZE,
-                   0.375f, 0.5f, 0.25f, 0.5f, (long *)base);
+                   0.375f, 0.5f, 0.25f, 0.5f, base);
 
     limeDrawSprite(*ButtonsTPage,
                    (float)(x + JoyOffset[state][0]) - JSIZE * 0.5f,
                    (float)(y + JoyOffset[state][1]) - JSIZE * 0.5f,
                    JSIZE, JSIZE,
-                   0.25f, 0.5f, 0.125f, 0.25f, (long *)knob);
+                   0.25f, 0.5f, 0.125f, 0.25f, knob);
 }
 
 void DrawControls(void)
