@@ -51,7 +51,9 @@ typedef struct IMG_PROC {
     uint32_t him;                /* 0x04 */
     uint8_t  _pad08[8];
     uint32_t field10;            /* 0x10 */
-    uint8_t  _pad14[0x2c];
+    uint8_t  _pad14[4];
+    uint32_t field18;            /* 0x18  get_his_action, init_special_act */
+    uint8_t  _pad1c[0x24];
     uint16_t field40;            /* 0x40 */
     uint8_t  _pad42[2];
     uint32_t p_hit;              /* 0x44 */
@@ -63,6 +65,7 @@ typedef struct IMG_PROC {
 
 CHECK(IMG_PROC, him,     0x04);
 CHECK(IMG_PROC, field10, 0x10);
+CHECK(IMG_PROC, field18, 0x18);
 CHECK(IMG_PROC, field40, 0x40);
 CHECK(IMG_PROC, p_hit,   0x44);
 CHECK(IMG_PROC, field54, 0x54);
@@ -151,7 +154,7 @@ CHECK(IMG_THREAD, proc,    0x108);
 
 int main(void)
 {
-    printf("logic offsets: IMG_PROC %d fields, IMG_OBJ %d fields -- all agree\n",
-           5, 12);
+    printf("logic offsets: %d fields over three structs -- all agree\n",
+           6 + 14 + 5);
     return 0;
 }
