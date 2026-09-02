@@ -60,12 +60,25 @@ void  StartThreadAt(MK3THREAD *thread, MK3THREADFUNC func);
 void *GetThreadFunc(MK3THREAD *thread);
 
 typedef struct MK3OBJPROC {
-    /* 0x00  another object; center_around_him reaches through it twice. */
+    /* 0x00  the other fighter's object.
+     *
+     * Six functions reach `obj->field00->field00` and every one of them is
+     * named for the opponent -- ground_him, is_he_airborn, is_he_facing_me,
+     * center_around_him, get_his_action, do_his_next_a9_frame -- so the
+     * composite is what it looks like.
+     *
+     * The field is still called field00 and not `him`, because `him` is
+     * already taken by 0x04 below, on the authority of a function name that
+     * says so just as plainly. One of the two readings is incomplete and
+     * nothing here settles which. */
     struct MK3OBJ *field00;
     uint32_t him;                /* 0x04  the opponent, per f_set_a10_to_him */
     uint8_t  _pad08[8];
     uint32_t field10;            /* 0x10  isp2 ORs bit 4 into this */
-    uint8_t  _pad14[0x2c];
+    uint8_t  _pad14a[4];
+    uint32_t field18;            /* 0x18  the action get_his_action reads and
+                                  *       init_special_act writes */
+    uint8_t  _pad1c[0x24];
     uint16_t field40;            /* 0x40  ground_player copies it out */
     uint8_t  _pad42[2];
     uint32_t p_hit;              /* 0x44  per zero_my_p_hit */
@@ -854,4 +867,341 @@ void takeover_him(MK3OBJ *obj)
 void takeover_him_sr(MK3OBJ *obj)
 {
     take3(obj);
+}
+
+
+/* ------------------------------------------------- two more flag clearers
+ *
+ * armv7 0x00054f00 and 0x00054f60, sixteen bytes each.  **Complete.**
+ *
+ * The same five instructions as the three above, masking bit 3 and bit 4 out
+ * of the other object's 0x30. With these the family reads:
+ *
+ *      0x008  noflip        0x020  inviso
+ *      0x010  shadow        0x100  nocol        0x400  noedge
+ */
+void clear_noflip(MK3OBJ *obj)
+{
+    uint32_t flags = obj->field08->field30 & ~0x8u;
+    obj->field54 = flags;
+    obj->field08->field30 = flags;
+}
+
+void clear_shadow_bit(MK3OBJ *obj)
+{
+    uint32_t flags = obj->field08->field30 & ~0x10u;
+    obj->field54 = flags;
+    obj->field08->field30 = flags;
+}
+
+
+/* --------------------------------- do_next_a9_frame, do_his_next_a9_frame
+ *
+ * armv7 0x00059e24 and 0x00059e14, sixteen bytes each.  **Complete.**
+ *
+ *      mine: pxob(obj, obj,               obj->field08)
+ *      his:  pxob(obj, proc->field00,     proc->field04)
+ *
+ * The two differ only in which pair they hand over, and the "his" one takes
+ * both out of the PROC -- the opponent object and the field beside it. Whether
+ * those two are the same pairing as (obj, obj->field08) is not established
+ * here; they occupy the same argument positions and that is all.
+ */
+void do_next_a9_frame_pxob(MK3OBJ *obj, MK3OBJ *a, MK3OBJ *b);
+
+void do_next_a9_frame(MK3OBJ *obj)
+{
+    do_next_a9_frame_pxob(obj, obj, obj->field08);
+}
+
+void do_his_next_a9_frame(MK3OBJ *obj)
+{
+    MK3OBJPROC *proc = obj->field00;
+
+    do_next_a9_frame_pxob(obj, proc->field00, (MK3OBJ *)(uintptr_t)proc->him);
+}
+
+
+/* ------------------------------------------------------------- find_part2
+ *
+ * armv7 0x00055450, sixteen bytes.  **Complete.**
+ *
+ *      r2 = obj->field40
+ *      do { r3 = *r2++; obj->field1c = r3; } while (r3);
+ *      obj->field40 = r2
+ *
+ * The only loop in this batch, and a short one: walk a word list to its zero
+ * and leave the cursor past it. "Part 2" is what follows the first
+ * NUL-terminated run, and the cursor at 0x40 is how the caller gets there.
+ *
+ * `field1c` is written every time round and ends up holding the terminator, so
+ * it is the spill slot rather than a result -- the same 0x1c `highest_mpart_ob`
+ * uses for a bound, which is what a spill slot looks like.
+ */
+void find_part2(MK3OBJ *obj)
+{
+    const uint32_t *p = (const uint32_t *)(uintptr_t)obj->field40;
+    uint32_t word;
+
+    do {
+        word = *p++;
+        obj->field1c = word;
+    } while (word != 0);
+
+    obj->field40 = (uint32_t)(uintptr_t)p;
+}
+
+
+/* ---------------------------------------------------------- get_his_action
+ *
+ * armv7 0x00054e38, sixteen bytes.  **Complete.**
+ *
+ *      obj->field1c = proc->field00                 ; the opponent object
+ *      obj->field20 = proc->field00->field00->field18
+ *
+ * Two spills: the opponent, and something at 0x18 of the opponent's own PROC.
+ * The name calls that second one his action.
+ */
+void get_his_action(MK3OBJ *obj)
+{
+    MK3OBJPROC *proc = obj->field00;
+
+    obj->field1c = (uint32_t)(uintptr_t)proc->field00;
+    obj->field20 = proc->field00->field00->field18;
+}
+
+
+/* -------------------------------------------------------------- ground_him
+ *
+ * armv7 0x00055348, sixteen bytes.  **Complete.**
+ */
+void ground_him(MK3OBJ *obj)
+{
+    ground_player(obj->field00->field00);
+}
+
+
+/* -------------------------------------------------------- init_special_act
+ *
+ * armv7 0x000587e0, sixteen bytes.  **Complete.**
+ *
+ *      proc->field18 = obj->field20
+ *      init_special(obj)
+ *
+ * Moves 0x20 into the PROC's 0x18 and then initialises. 0x18 of a PROC is what
+ * `get_his_action` reads as an action, so this is setting the action before
+ * the call -- the argument-in-a-field habit again, and the reason so many of
+ * these are two instructions and a branch.
+ */
+void init_special(MK3OBJ *obj);
+
+void init_special_act(MK3OBJ *obj)
+{
+    obj->field00->field18 = obj->field20;
+    init_special(obj);
+}
+
+
+/* --------------------------------------------- is_he_airborn, is_he_facing_me
+ *
+ * armv7 0x00055060 and 0x000551fc, sixteen bytes each.  **Complete.**
+ *
+ * The "him" spellings of the two questions written last batch. `is_he_airborn`
+ * keeps the subject and passes the opponent as the target; `is_he_facing_me`
+ * asks the opponent the "am I" question, which is the same question from the
+ * other side and is why it needs no second argument.
+ */
+long is_he_airborn(MK3OBJ *obj)
+{
+    return aborn4(obj, obj->field00->field00);
+}
+
+long is_he_facing_me(MK3OBJ *obj)
+{
+    return am_i_facing_him(obj->field00->field00);
+}
+
+
+/* ----------------------------------------------------------- is_stick_down
+ *
+ * armv7 0x00055e1c, sixteen bytes.  **Complete.**
+ *
+ *      obj->field38 = 2
+ *      return isa5(obj)
+ *
+ * A direction written into 0x38 and then the general test. 2 is down, by the
+ * name; the rest of the family will fill in the other three and say whether
+ * this is a bit mask or an enumeration.
+ */
+long is_stick_down(MK3OBJ *obj)
+{
+    obj->field38 = 2;
+    return isa5(obj);
+}
+
+
+/* ========================================================================
+ * The object flags at 0x30.
+ *
+ * Ten routines, five clearing and five setting, all of the same five
+ * instructions through `obj->field08`. The bits they name:
+ *
+ *      0x0001  noscroll        0x0080  ignore_y        0x0800  half_damage
+ *      0x0004  no_block        0x0100  nocol           0x1000  quarter_damage
+ *      0x0008  noflip          0x0400  noedge
+ *      0x0010  shadow
+ *      0x0020  inviso
+ *
+ * 0x0002, 0x0040 and 0x0200 have no routine in this file. They are left out
+ * rather than filled in from their neighbours.
+ * ======================================================================== */
+
+#define MK3F_NOSCROLL        0x0001u
+#define MK3F_NO_BLOCK        0x0004u
+#define MK3F_NOFLIP          0x0008u
+#define MK3F_SHADOW          0x0010u
+#define MK3F_INVISO          0x0020u
+#define MK3F_IGNORE_Y        0x0080u
+#define MK3F_NOCOL           0x0100u
+#define MK3F_NOEDGE          0x0400u
+#define MK3F_HALF_DAMAGE     0x0800u
+#define MK3F_QUARTER_DAMAGE  0x1000u
+
+void set_noscroll(MK3OBJ *obj)
+{
+    uint32_t flags = obj->field08->field30 | MK3F_NOSCROLL;
+    obj->field54 = flags;
+    obj->field08->field30 = flags;
+}
+
+void set_no_block(MK3OBJ *obj)
+{
+    uint32_t flags = obj->field08->field30 | MK3F_NO_BLOCK;
+    obj->field54 = flags;
+    obj->field08->field30 = flags;
+}
+
+void set_noflip(MK3OBJ *obj)
+{
+    uint32_t flags = obj->field08->field30 | MK3F_NOFLIP;
+    obj->field54 = flags;
+    obj->field08->field30 = flags;
+}
+
+void set_ignore_y(MK3OBJ *obj)
+{
+    uint32_t flags = obj->field08->field30 | MK3F_IGNORE_Y;
+    obj->field54 = flags;
+    obj->field08->field30 = flags;
+}
+
+void set_nocol(MK3OBJ *obj)
+{
+    uint32_t flags = obj->field08->field30 | MK3F_NOCOL;
+    obj->field54 = flags;
+    obj->field08->field30 = flags;
+}
+
+void set_noedge(MK3OBJ *obj)
+{
+    uint32_t flags = obj->field08->field30 | MK3F_NOEDGE;
+    obj->field54 = flags;
+    obj->field08->field30 = flags;
+}
+
+void set_half_damage(MK3OBJ *obj)
+{
+    uint32_t flags = obj->field08->field30 | MK3F_HALF_DAMAGE;
+    obj->field54 = flags;
+    obj->field08->field30 = flags;
+}
+
+void set_quarter_damage(MK3OBJ *obj)
+{
+    uint32_t flags = obj->field08->field30 | MK3F_QUARTER_DAMAGE;
+    obj->field54 = flags;
+    obj->field08->field30 = flags;
+}
+
+
+/* ========================================================================
+ * The stick.
+ *
+ * Each writes a constant into 0x38 and asks `isa5`. The four constants are
+ * 1, 2, 4 and 8 -- a bit mask, not a direction number, which one of them
+ * alone could not have shown. A diagonal is therefore expressible, and
+ * whether the game ever asks for one is a question for `isa5`.
+ * ======================================================================== */
+
+#define MK3_STICK_UP     1u
+#define MK3_STICK_DOWN   2u
+#define MK3_STICK_LEFT   4u
+#define MK3_STICK_RIGHT  8u
+
+long is_stick_up(MK3OBJ *obj)
+{
+    obj->field38 = MK3_STICK_UP;
+    return isa5(obj);
+}
+
+long is_stick_left(MK3OBJ *obj)
+{
+    obj->field38 = MK3_STICK_LEFT;
+    return isa5(obj);
+}
+
+long is_stick_right(MK3OBJ *obj)
+{
+    obj->field38 = MK3_STICK_RIGHT;
+    return isa5(obj);
+}
+
+
+/* ------------------------------------------------------- lineup_a0_onto_a1
+ *
+ * armv7 0x00057214, sixteen bytes.  **Complete.**
+ *
+ *      match_ani_points_ob_ob(obj->field20, obj->field1c)
+ *
+ * Both arguments come out of spill slots and the object itself is not passed,
+ * so by the time this is called the two things to line up are already sitting
+ * in 0x1c and 0x20. The A-register names in the symbol say the same: a0 and a1
+ * were where the arcade put them.
+ */
+void match_ani_points_ob_ob(uint32_t a, uint32_t b);
+
+void lineup_a0_onto_a1(MK3OBJ *obj)
+{
+    match_ani_points_ob_ob(obj->field20, obj->field1c);
+}
+
+
+/* --------------------------------------------------------------- mk_random
+ *
+ * armv7 0x000586cc, sixteen bytes.  **Complete.**
+ *
+ * Calls the generator and parks the result in 0x1c. It returns nothing: the
+ * caller reads the slot, which is why so much of this file writes 0x1c before
+ * a call and reads it after.
+ */
+uint32_t random32(void);
+
+void mk_random(MK3OBJ *obj)
+{
+    obj->field1c = random32();
+}
+
+
+/* -------------------------------------------------------- multi_adjust_xy
+ *
+ * armv7 0x000570ac, sixteen bytes.  **Complete.**
+ *
+ * The same worker `adjust_xy_a5` calls, with `obj->field08` in the second
+ * position where that one passes `obj->field30`. Two different things in one
+ * argument slot, so the parameter is written as a word rather than typed.
+ */
+void multi_adjust_xy(MK3OBJ *obj)
+{
+    multi_adjust_xy_ob(obj, (uint32_t)(uintptr_t)obj->field08,
+                       obj->field1c, obj->field20);
 }
