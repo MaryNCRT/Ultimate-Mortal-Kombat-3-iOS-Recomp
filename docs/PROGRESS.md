@@ -2,57 +2,95 @@
 
 Current state of the project. Written so that someone can pick it up with no prior context.
 
-**Last updated:** 2026-08-22 — see [HANDOFF.md](HANDOFF.md) for the route and
+**Last updated:** 2026-09-02 — see [HANDOFF.md](HANDOFF.md) for the route and
 [ENCARGO.md](ENCARGO.md) for the next task.
 
-> Latest: **all 18 arenas render, textured, with their effects and an animated
-> fighter standing in them** — and the transparency model, the projection and
-> the two scale globals all come out of the binary rather than out of tuning.
+> Latest: **the decompiled main menu boots and runs.**
+> `tests/test_menu_boot.c` exits 0 -- general data, the 88-step front-end
+> loader, sixty ticks of `Task_FEMain` asking for 480 sprites and 89 fills
+> a second, with the retail build's own diagnostics coming out on the way.
+> Nothing is on screen yet: the platform layer counts draw calls rather
+> than making them, which is what tests the transcription.
 >
-> - **Transparency is ADDITIVE and unsorted.** `FlushTranspMeshList` opens with
->   `limeEnableAlphaBlending_Additive` and `limeDisableDepthWrites`, and
->   additive blending is commutative, so the deferred list needs no depth sort.
->   [RenderScene.c](../decomp/lime/RenderScene.c) had warned in advance that
->   adding one is *"the thing most likely to be improved by mistake in a port"*.
->   This port added one, and it is gone.
-> - **The projection is the game's own**: `LIMEDS_Set3dMode` passes 25.0000
->   degrees, not the 45 the demo assumed, which alone made everything behind the
->   fighter 1.87x too small.
-> - **`_SceneScale` (0.0133138) and `_PlayerSize` (0.0101562)** are separate, so
->   the fighter is drawn at 0.7628 of the stage's scale, and the same constant
->   explains the projection's far plane of 400: 28,629 stage units scaled is 381.
-> - **The camera zoom endpoints are literals**: `_camzoomedin` 3.60 and
->   `_camzoomedout` 5.55. Two distances measured off a 1080p capture of the game
->   running — 4.09 with the fighters close, 4.88 apart — fall inside them.
-> - **The `.events` file places effect instances**, each with its own 3x3 and
->   translation in 12.12 fixed point. Nothing about it is Graveyard-specific:
->   the same code gives Pit its 7 blades, Street its 20 newspapers, Lair 29 lava
->   pulses, Rooftop 7 cloud layers over 4,802 frames.
-> - **221 textures are PNG and were not being read at all.** 183 exist only as
->   PNG, including nearly every stage atlas, so most arenas drew untextured.
->   [png.c](../runtime/lime/png.c) decodes them with its own DEFLATE; fifteen
->   files across all three colour types are byte-identical to an independent
->   reference decoder.
-> - **`gamecode` is 102 of 291 -- 35%**, up from 35 functions at the start of
->   this stretch, with three new files -- `HudAnim.c`,
->   `Blood.c` and the front end's static-init pair. Several of the new bodies
->   carry behaviour a tidier rewrite would lose: `Error()` never returns,
->   `getRandomLevel`'s distribution is deliberately uneven, `ClearAnimRemapTables`
->   writes two different values per pair, and the two achievement counters use
->   different comparisons on purpose. One of them caught a wrong array bound in
->   already-committed code, and a second confirmed the correction independently.
+> Getting there was one fault repeated: two files describing the same
+> object differently, each compiling alone. `tools/mkdata.py` recovers the
+> initialised data every global was missing, and `tools/slotcheck.py`
+> settles the declaration disagreements from the symbol table.
 >
-> Previously: **`lime/common` is 109 of 109** — every function in the engine core has
-> a body, the module compiles clean with `-Wall -Wextra`, and **every one of its nine
-> files is verified** against the recompiled original. 103,907 synthetic cases
-> plus 590 files and 7,327 meshes of real game data, zero divergences.
->
-> Extending the differential tests found **four defects in the oracle itself**
-> and **five in already-committed decompiled code**, none of which was visible by
-> reading. That ratio is the finding of the period: running the gate is worth
-> more than the next module of decompilation.
+> Before that: **all 18 arenas render, textured, with their effects and an
+> animated fighter standing in them.**
 
----
+`tests/test_menu_boot.c` exits 0. It runs what the game runs: `Task_LoadGeneral-
+Data`, then the 88-step front-end loader, then sixty ticks of `Task_FEMain`.
+The menu asks for **480 sprites and 89 fills a second** and stays on
+`FE_Task_Main_Menu`. Along the way the retail build's own diagnostics come out
+-- the settings reset with its ten values, `Num Text strings Loading: 1022`, and
+the bare `F` and `G` the loader prints.
+
+Nothing is on screen yet: the platform layer counts draw calls instead of making
+them. That is deliberate. It tests the transcription, which is the part that was
+in doubt; a window would test the GL code, which is not.
+
+### What it took, and it was all one thing
+
+Two files describing the same object differently. Each compiles alone, so
+nothing catches it until something reads through the wrong shape at run time.
+
+**Values that were never there.** 498 of the 779 generated globals live in
+`__DATA,__data` -- initialised in the image -- and had been given zeros.
+`tools/mkdata.py` reads what the linker put there and emits C rather than a
+blob, because a word is either a number or an address and a `memcpy` cannot tell
+them apart across word sizes. 256 globals now carry their real contents, and 88
+more symbols that nothing in the decomp declares -- the per-character idle lists
+a table points at -- are recovered from the pointer's type, the symbol table's
+extent and the image's bytes.
+
+**Four bytes against eight.** The transcription is full of `def[0x30 / 4]`,
+which is an addressing mode rather than a field and is only right while a
+pointer is four bytes wide:
+
+| | was | now |
+|---|---|---|
+| `PlayerDefs` | `char *` + `def[0x30 / 4]` | a `PLAYERDEF` struct, thirteen named fields |
+| `ANIMATEDCHARACTER` | opaque, `((void **)c)[0x30 / 4]` | seventeen fields, 0x00 to 0x40 |
+| `SKININFO` | `limeMalloc("skin", 0x30)` | `sizeof` -- 48 in the image, 72 here |
+| `BONE` | `n * 56` | `n * sizeof(BONE)` -- 56 against 96 |
+| `GAMEFONT` | padding to the image's offsets | lime's `FONT` fields |
+
+**Signatures that disagreed.** `limeDrawSprite` takes a colour as its tenth
+argument; lime's own transcription dropped it and the runtime was written to
+match, so the two agreed with each other and with no caller in gamecode.
+`limeDrawFONTAtAngle` had its last three parameters in the wrong order.
+`limeGetLanguage` fills a buffer and was declared as returning one, which left
+the language empty and the text table looked up under `LANGUAGE_TEXT_`.
+
+**Declarations that disagreed.** 110 symbols were declared both as a pointer
+slot and as a value. `tools/slotcheck.py` settles each from the symbol table --
+a real GOT slot is in the 0x000f3xxx region, so an address outside it is the
+data itself -- and corrects the ones it is sure of. 84 fixed mechanically, plus
+four that contradicted a hand-written runtime definition.
+
+### Two tools worth knowing about
+
+- **`tools/mkdata.py`** -- the initial value of every global, out of the binary.
+  Run through `tools/mkglobals.py`; it reports what it could not spell.
+- **`tools/slotcheck.py`** -- `--fix` corrects slot/value disagreements. It reads
+  one declarator per line, so `extern long *A, *B;` still slips past it; that is
+  how `FE_CurrentTask` was missed.
+
+### What is next
+
+The menu runs headless. Three things follow, in this order:
+
+1. **Draw it.** `runtime/platform/win32_gl.c` and `demo.c` already open a window
+   and draw meshes; the menu needs `limeDrawSprite` and `limeDrawFONT` wired to
+   it instead of to counters.
+2. **`gamecode/logic`, 3 of 2,172.** The fight engine, and the largest block
+   left in the project by a wide margin.
+3. **Finish the type unification.** GameCode.c keeps its own copies of a dozen
+   lime types and functions, which is why `GAMEFONT` had to be copied instead of
+   included. Deleting the local copies and including `lime.h` is the real fix
+   and removes the whole class of disagreement above.
 
 ## Overall progress
 
