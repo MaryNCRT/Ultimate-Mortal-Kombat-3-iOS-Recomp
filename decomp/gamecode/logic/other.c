@@ -82,7 +82,9 @@ typedef struct MK3OBJPROC {
     uint8_t  _pad14a[4];
     uint32_t field18;            /* 0x18  the action get_his_action reads and
                                   *       init_special_act writes */
-    uint8_t  _pad1c[0x24];
+    uint32_t field1c;            /* 0x1c  the animation rate */
+    uint32_t field20;            /* 0x20  its counter, normally 1 */
+    uint8_t  _pad24[0x1c];
     uint16_t field40;            /* 0x40  ground_player copies it out */
     uint8_t  _pad42[2];
     uint32_t p_hit;              /* 0x44  per zero_my_p_hit */
@@ -3281,5 +3283,236 @@ long is_he_joy(MK3OBJ *obj)
     flags = him->field00->field10;
     obj->field2c = flags;
     obj->field5c = (flags & 1u) ? 1u : 0u;
+    return (long)obj->field5c;
+}
+
+
+/* ------------------------------------------------------------- pose_him_a9
+ *
+ * armv7 0x0005a050, thirty-two bytes.  **Complete.**
+ *
+ * The same substitution `away_x_vel_him` performs -- 0x08 from the PROC's 0x04
+ * and 0x00 from the opponent's PROC -- around `pose_a9_manual`. Two functions
+ * with one trampoline written out twice rather than shared, which is how the
+ * original has it.
+ */
+void pose_a9_manual(MK3OBJ *obj);
+
+void pose_him_a9(MK3OBJ *obj)
+{
+    MK3OBJPROC *saved_proc  = obj->field00;
+    MK3OBJ     *saved_other = obj->field08;
+
+    obj->field08 = (MK3OBJ *)(uintptr_t)saved_proc->him;
+    obj->field00 = saved_proc->field00->field00;
+
+    pose_a9_manual(obj);
+
+    obj->field08 = saved_other;
+    obj->field00 = saved_proc;
+}
+
+
+/* ------------------------------------------------------------------ aborn4
+ *
+ * armv7 0x0005503c, thirty-six bytes.  **Complete.**
+ *
+ *      ground = target->field00->field40
+ *      obj->field20 = ground
+ *      obj->field28 = target->field08->field1c
+ *      result = obj->field28
+ *      if (result == 0) {
+ *          obj->field24 = (int16_t)target->field08->field12
+ *          if (obj->field24 == ground) result = 0; else result = 1;
+ *      } else result = 1;
+ *      obj->field5c = result
+ *
+ * Where `am_i_airborn`, `is_he_airborn` and their two `_px` spellings all end
+ * up. Airborne unless a slot is clear AND the height equals the ground -- an
+ * equality, not a comparison, so a fighter one unit below the floor reads as
+ * airborne.
+ *
+ * `distance_off_ground` subtracts these same two numbers. This asks whether
+ * they are the same.
+ */
+long aborn4(MK3OBJ *obj, MK3OBJ *target)
+{
+    uint32_t ground = target->field00->field40;
+    uint32_t result;
+
+    obj->field20 = ground;
+    result = target->field08->field1c;
+    obj->field28 = result;
+
+    if (result == 0) {
+        int32_t height = (int32_t)(int16_t)target->field08->field12;
+
+        obj->field24 = (uint32_t)height;
+        if ((uint32_t)height != ground)
+            result = 1;
+    } else {
+        result = 1;
+    }
+
+    obj->field5c = result;
+    return (long)result;
+}
+
+
+/* --------------------------------------------------------------- create_fx_xy
+ *
+ * armv7 0x00057d98, thirty-six bytes.  **Complete.**
+ *
+ *      MKEvent_Add(4, obj->field1c, (y & 0xffff) | ((x & 0xffff) << 16),
+ *                  proc->field08)
+ *
+ * Two coordinates packed into one word, high half from the first argument. The
+ * third packing in this file after `create_fx` and `ochar_sound_c`, and the
+ * only one that masks both halves first -- the others rely on the values
+ * already fitting.
+ */
+void create_fx_xy(MK3OBJ *obj, uint32_t x, uint32_t y)
+{
+    uint32_t packed = (y & 0xffffu) | ((x & 0xffffu) << 16);
+
+    MKEvent_Add(4, (long)obj->field1c, (long)packed, obj->field00->field08);
+}
+
+
+/* ------------------------------------------------------------ double_next_a9
+ *
+ * armv7 0x0005a178, thirty-six bytes.  **Complete.**
+ *
+ *      do_next_a9_frame(obj)
+ *      saved = obj->field40
+ *      obj->field40 = obj->field48
+ *      do_next_a9_frame_pxob(obj, proc->field00, obj->field44)
+ *      obj->field48 = obj->field40
+ *      obj->field40 = saved
+ *
+ * The advance run twice: once on 0x40 and once on 0x48, the second through the
+ * borrow-and-restore `get_his_a11_ani` uses. Both cursors move, which is what
+ * "double" names.
+ *
+ * The second call takes its pair from the PROC and from 0x44 -- the same slot
+ * `get_his_a11_ani` leaves the opponent in, which is why the two are usually
+ * called together.
+ */
+void double_next_a9(MK3OBJ *obj)
+{
+    uint32_t saved;
+
+    do_next_a9_frame(obj);
+
+    saved = obj->field40;
+    obj->field40 = obj->field48;
+    do_next_a9_frame_pxob(obj, obj->field00->field00,
+                          (MK3OBJ *)(uintptr_t)obj->a10);
+    obj->field48 = obj->field40;
+    obj->field40 = saved;
+}
+
+
+/* ------------------------------------------------------------ get_his_height
+ *
+ * armv7 0x000557a8, thirty-six bytes.  **Complete.**
+ *
+ *      highest_mpart_ob(obj, proc->him)      ; leaves the top in 0x1c
+ *      obj->field20 = G[0xac] - obj->field1c
+ *
+ * The stage's ground from G at 0xac -- the same word `distance_from_ground`
+ * reads -- minus the top of the opponent's bounding part. So height here is
+ * measured downwards from the ceiling of that number, not upwards from zero.
+ */
+void get_his_height(MK3OBJ *obj)
+{
+    highest_mpart_ob(obj, (MK3OBJ *)(uintptr_t)obj->field00->him);
+    obj->field20 = *(const uint32_t *)(G_BYTES + 0xac) - obj->field1c;
+}
+
+
+/* ------------------------------------------------------------ get_my_height
+ *
+ * armv7 0x000557e4, thirty-six bytes.  **Complete.**
+ *
+ * `get_his_height` with the other object instead of the opponent. Same two
+ * steps: the top of the bounding part, subtracted from G's 0xac.
+ */
+void get_my_height(MK3OBJ *obj)
+{
+    highest_mpart_ob(obj, obj->field08);
+    obj->field20 = *(const uint32_t *)(G_BYTES + 0xac) - obj->field1c;
+}
+
+
+/* ---------------------------------------------------------- ground_ochar_ob
+ *
+ * armv7 0x0005527c, thirty-six bytes.  **Complete.**
+ *
+ *      obj->field12 = (uint16_t)(G[0xac] - ochar_ground_offsets[obj->field24])
+ *
+ * The stage ground less a per-character offset, stored as a halfword into
+ * 0x12. That is the field `ground_player` copies into and
+ * `distance_off_ground` subtracts from -- so this is where the number they
+ * pass around is computed, and the character index is 0x24 again.
+ *
+ * `_ochar_ground_offsets` is the fifth named table this file reaches.
+ */
+extern uint32_t ochar_ground_offsets[]; /* 0x0016ef04 */
+
+void ground_ochar_ob(MK3OBJ *obj)
+{
+    uint32_t ground = *(const uint32_t *)(G_BYTES + 0xac);
+
+    obj->field12 = (uint16_t)(ground - ochar_ground_offsets[obj->field24]);
+}
+
+
+/* ------------------------------------------------------------- init_anirate
+ *
+ * armv7 0x000553a0, thirty-six bytes.  **Complete.**
+ *
+ *      proc->field1c = obj->field1c
+ *      proc->field20 = (obj->field1c == 0xfff) ? obj->field1c : 1
+ *
+ * Both branches write the rate; they differ only in the second store. 0xfff is
+ * a sentinel that puts itself in 0x20 where every other value puts 1, so the
+ * pair is "rate, and a counter that is normally one".
+ *
+ * The sentinel path re-reads 0x1c rather than reusing the register, which is
+ * why the two branches are four instructions each instead of one and a
+ * conditional move.
+ */
+void init_anirate(MK3OBJ *obj)
+{
+    uint32_t rate = obj->field1c;
+
+    obj->field00->field1c = rate;
+    if (rate == 0xfff)
+        obj->field00->field20 = obj->field1c;
+    else
+        obj->field00->field20 = 1;
+}
+
+
+/* ----------------------------------------------------------------- isa5_px
+ *
+ * armv7 0x00055da0, thirty-six bytes.  **Complete.**
+ *
+ *      joystick_in_a0_px(obj, target)      ; 0x1c = G[index] & 0xf
+ *      obj->field1c &= obj->field38        ; the direction mask
+ *      obj->field5c = (obj->field1c != 0)
+ *
+ * The end of the stick chain, and every link of it was read on its own: the
+ * constants 1/2/4/8 written into 0x38, the nibble taken out of G, and the AND
+ * here. A test that any requested direction is held -- so asking for two at
+ * once answers yes to either, which is what a mask means and what an
+ * enumeration would not have allowed.
+ */
+long isa5_px(MK3OBJ *obj, MK3OBJ *target)
+{
+    joystick_in_a0_px(obj, target);
+    obj->field1c &= obj->field38;
+    obj->field5c = (obj->field1c != 0) ? 1u : 0u;
     return (long)obj->field5c;
 }
