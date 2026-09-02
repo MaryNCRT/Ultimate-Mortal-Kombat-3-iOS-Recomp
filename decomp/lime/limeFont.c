@@ -610,7 +610,7 @@ float limeGetStringWidth(const FONT *font, const char *text)
  * per-glyph draw, which is the part the evidence covers.
  */
 void limeDrawFONT(FONT *font, const char *text, float x, float y,
-                  int alignment, float scale)
+                  long alignment, float scale, const float *colour)
 {
     const float half = 0.5f;    /* the constant added to each texture coord */
     float advance;
@@ -635,7 +635,7 @@ void limeDrawFONT(FONT *font, const char *text, float x, float y,
 
         limeDrawSprite(page, x, y, advance,
                        (float)font->glyphHeight * scale,
-                       u, v, du, dv);
+                       u, v, du, dv, colour);
     }
 }
 
@@ -675,7 +675,8 @@ void limeDrawFONT(FONT *font, const char *text, float x, float y,
  * with several early exits.
  */
 void limeDrawFONTAtAngle(FONT *font, const char *text, float x, float y,
-                         float angle, int alignment, float scale)
+                         long alignment, float scale,
+                         const float *colour, float angle)
 {
     const float half = 0.5f;
     limeMATRIX44 rot;
@@ -706,6 +707,6 @@ void limeDrawFONTAtAngle(FONT *font, const char *text, float x, float y,
         limeDrawRotSpriteFromTopLeft(page, pos.x, pos.y,
                                      (float)font->glyphWidth[i] * scale,
                                      (float)font->glyphHeight   * scale,
-                                     u, v, du, dv, angle);
+                                     u, v, du, dv, angle, colour);
     }
 }

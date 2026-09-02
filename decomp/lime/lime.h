@@ -818,10 +818,12 @@ float  limeGetStringWidthUCNoHeader(const FONT *font, const char *text);
 void   ClearDebugWindow(int index);
 void   DW_NewLine(DEBUGWINDOW *win);
 void   limeDrawSprite(TEXTURE *page, float x, float y, float w, float h,
-                      float u, float v, float du, float dv);
+                      float u, float v, float du, float dv,
+                      const float *colour);
 void   limeDrawRotSpriteFromTopLeft(TEXTURE *page, float x, float y,
                                     float w, float h, float u, float v,
-                                    float du, float dv, float angle);
+                                    float du, float dv, float angle,
+                                    const float *colour);
 int    FindIdInMasterOffsets(const char *name);
 struct SCENEINFO *LIME_SceneExists(struct SCENEINFO *scene);
 void   LIME_FreeScene(struct SCENEINFO *scene);
