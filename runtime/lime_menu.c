@@ -131,12 +131,14 @@ static long g_fills;
 void limeBegin(void)  { limeRenderedPolyCount = 0; }
 void limeFinish(void) { }
 
+#ifndef UMK3_REAL_GL   /* headless; see runtime/draw_gl.c for the windowed half */
 void limeSet2DDrawing(void)     { g_in_2d = 1; }
 void limeEnableDepthTest(void)  { g_depth_test = 1; }
 void limeDisableDepthTest(void) { g_depth_test = 0; }
 void limeClearDepthBuffer(void) { }
 void limeSetColourMask(int on)  { g_colour_mask = on; }
 
+#endif  /* !UMK3_REAL_GL */
 int  lime_menu_in_2d(void)      { return g_in_2d; }
 int  lime_menu_depth_test(void) { return g_depth_test; }
 long lime_menu_fill_count(void) { return g_fills; }
@@ -145,6 +147,7 @@ long lime_menu_fill_count(void) { return g_fills; }
  * end fills rectangles for the button-editor's forbidden bands and for the
  * treasure screen's portrait box, and a test can assert the count without a
  * window. */
+#ifndef UMK3_REAL_GL   /* headless; see runtime/draw_gl.c for the windowed half */
 void limeFillRect(float x, float y, float w, float h,
                   float r, float g, float b, float a)
 {
@@ -152,6 +155,7 @@ void limeFillRect(float x, float y, float w, float h,
     (void)r; (void)g; (void)b; (void)a;
     g_fills++;
 }
+#endif  /* !UMK3_REAL_GL */
 
 /* The three billboard entries the fight HUD uses. The front end reaches none of
  * them; they are here so the module links whole rather than in pieces. */
@@ -189,10 +193,12 @@ void limeGetCurrentModelMatrix(float *out)
  * the vortex with it and drawCharacterSelection turns the fighters. A no-op for
  * the same reason as its neighbours: this boundary tracks state, it does not
  * render, and a port that draws replaces the whole of it at once. */
+#ifndef UMK3_REAL_GL   /* headless; see runtime/draw_gl.c for the windowed half */
 void glRotatef(float angle, float x, float y, float z)
 {
     (void)angle; (void)x; (void)y; (void)z;
 }
+#endif  /* !UMK3_REAL_GL */
 
 
 /* ------------------------------------------------------------------- sound */

@@ -21,6 +21,8 @@ static HDC       g_dc;
 static HGLRC     g_rc;
 static bool      g_quit;
 static LARGE_INTEGER g_freq, g_start;
+static bool      g_mouse_down;
+static int       g_mouse_x, g_mouse_y;
 
 static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
 {
@@ -31,6 +33,24 @@ static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     case WM_KEYDOWN:
         if (wp == VK_ESCAPE) g_quit = true;
+        return 0;
+    /* The pointer, which the front end reads as a finger. The position comes
+     * from the message rather than from GetCursorPos so that it is already in
+     * client coordinates, and the capture stops a drag that leaves the window
+     * from silently leaving the button down. */
+    case WM_LBUTTONDOWN:
+        g_mouse_down = true;
+        SetCapture(h);
+        g_mouse_x = (short)LOWORD(lp);
+        g_mouse_y = (short)HIWORD(lp);
+        return 0;
+    case WM_LBUTTONUP:
+        g_mouse_down = false;
+        ReleaseCapture();
+        return 0;
+    case WM_MOUSEMOVE:
+        g_mouse_x = (short)LOWORD(lp);
+        g_mouse_y = (short)HIWORD(lp);
         return 0;
     case WM_SIZE: {
         int w = LOWORD(lp), h2 = HIWORD(lp);
@@ -121,4 +141,14 @@ void plat_close(void)
     if (g_rc) { wglMakeCurrent(NULL, NULL); wglDeleteContext(g_rc); g_rc = NULL; }
     if (g_dc) { ReleaseDC(g_wnd, g_dc); g_dc = NULL; }
     if (g_wnd) { DestroyWindow(g_wnd); g_wnd = NULL; }
+}
+
+/* Where the pointer is, and whether it is pressed. The front end has no mouse:
+ * it reads a touch position, with -1 for "nothing is down", so the caller maps
+ * one onto the other. */
+int plat_mouse(int *x, int *y)
+{
+    if (x) *x = g_mouse_x;
+    if (y) *y = g_mouse_y;
+    return g_mouse_down ? 1 : 0;
 }

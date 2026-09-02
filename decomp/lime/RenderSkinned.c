@@ -407,7 +407,7 @@ void LightVert(const limeVECTOR3 *n, float *out)
  * armv6 0x0008314c, 32 bytes.  __Z15MatrixIdentity2P12SKINMATRIX43
  *
  * Writes 1.0f at byte offsets 0x00, 0x10 and 0x20 and zero everywhere else --
- * that is, at m[0], m[4] and m[8].
+ * that is, at *m, m[4] and m[8].
  *
  * Which is a third independent confirmation of the SKINMATRIX43 layout: the
  * diagonal of a 3x3 identity lands at 0, 4 and 8 only if the rotation is nine
@@ -761,7 +761,7 @@ BONESINFO *LIME_LoadBones(const char *filename)
  * -- `a` walked at 0, 4, 8 and `b` at 0, 0xc, 0x18. A row of `a` against a
  * column of `b` only lands on those offsets if **b is row-major with a stride
  * of three floats**, which is what docs/SKIN-FORMAT.md says and what
- * MatrixIdentity2 implied by writing 1.0f at m[0], m[4] and m[8].
+ * MatrixIdentity2 implied by writing 1.0f at *m, m[4] and m[8].
  *
  * The fourth row is the interesting one. Rows 0 to 2 are pure multiply-
  * accumulate, but row 3 ends with a bare `vadd.f32` against b[9], b[10] and

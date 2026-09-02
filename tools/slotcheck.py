@@ -176,8 +176,11 @@ def runtime_pass(do_fix):
     return hits
 
 
-def fix_file(path, name):
+def fix_file(path, name, is_array=False):
     """Drop the star from the declaration and from `*name` uses in one file.
+
+    With `is_array` the declaration becomes `T name[]` and a bare dereference
+    becomes `name[0]` -- the same correction, one level along.
 
     Never for `void`: `void *handle` is an opaque handle, not a slot around a
     value, and `extern void handle;` is not a type at all. The verdict machinery
@@ -185,19 +188,28 @@ def fix_file(path, name):
     what a pointer measured -- so the size test cannot tell them apart and the
     type has to.
     """
+    # A one- or two-letter global is not safe to rewrite mechanically: the
+    # scratch matrix is called `m`, and every parameter and local named `m` in
+    # the tree looks exactly like it. Those are corrected by hand.
+    if len(name) < 3:
+        return
+
     text = io.open(path, encoding="utf-8", newline="").read()
     if re.search(r"^extern\s+void\s+\*%s\s*;" % re.escape(name), text,
                  flags=re.M):
         return
 
-    # the declaration: `extern T *name;` -> `extern T name;`
-    text = re.sub(r"(^extern\s+(?:const |unsigned |signed )*\w+\s+)\*(%s\s*;)"
-                  % re.escape(name), r"\1 \2", text, flags=re.M)
+    # the declaration: `extern T *name;` -> `extern T name;` or `T name[];`
+    text = re.sub(r"(^extern\s+(?:const |unsigned |signed )*\w+\s+)\*(%s)(\s*;)"
+                  % re.escape(name),
+                  (r"\1 \2[]\3" if is_array else r"\1 \2\3"),
+                  text, flags=re.M)
 
     # the uses: `*name` with the star touching the identifier. Multiplication in
     # this tree is always spaced (`i * 25`, `who * 2`), and a cast is
     # `*(long *)`, so a star flush against a name is a dereference.
-    text = re.sub(r"(?<![\w\])])\*(%s)\b" % re.escape(name), r"\1", text)
+    text = re.sub(r"(?<![\w\])])\*(%s)\b(?!\s*\[)" % re.escape(name),
+                  (r"\1[0]" if is_array else r"\1"), text)
 
     io.open(path, "w", encoding="utf-8", newline="").write(text)
 
@@ -222,10 +234,10 @@ def main():
                    "value" if size and size <= 4 else "array")
 
         bad += 1
-        if do_fix and verdict == "value":
+        if do_fix and verdict in ("value", "array"):
             for path, n, slot, dims, text in forms:
                 if slot:
-                    fix_file(path, name)
+                    fix_file(path, name, verdict == "array")
             fixed += 1
             continue
 

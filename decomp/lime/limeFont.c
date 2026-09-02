@@ -37,6 +37,7 @@
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include "lime.h"
 
 
@@ -612,17 +613,70 @@ float limeGetStringWidth(const FONT *font, const char *text)
 void limeDrawFONT(FONT *font, const char *text, float x, float y,
                   long alignment, float scale, const float *colour)
 {
-    const float half = 0.5f;    /* the constant added to each texture coord */
+    const float half = 0.5f;    /* half a texel, added inside the divide */
+    const char *p;
     float advance;
-    int i;
 
-    (void)text; (void)x; (void)y; (void)alignment;
+    if (font == NULL || text == NULL || font->codesW == NULL)
+        return;
 
-    /* per accepted glyph, once its index i is known */
-    i = 0;
-    {
-        float u  = (float)font->atlasU[i]     / font->atlasWidth  + half;
-        float v  = (float)font->atlasV[i]     / font->atlasHeight + half;
+    /* Alignment shifts the pen before the first glyph. The measure function is
+     * the one the front end itself uses to centre a label, so using it here
+     * keeps the two in step.
+     *
+     * NOT TRANSCRIBED: the three cases are read off the call sites -- every
+     * one passes 0, 1 or 2 -- and not off the disassembly. If a label sits
+     * half a word out, this is the line to check. */
+    if (alignment == 1)
+        x -= limeGetStringWidth(font, text) * scale * 0.5f;
+    else if (alignment == 2)
+        x -= limeGetStringWidth(font, text) * scale;
+
+    /* The text is UTF-16, two bytes a character, and `limeUC` hands it over
+     * with a byte-order mark. Step over it: the game is little-endian on both
+     * the device and here, and the search below compares raw byte pairs. */
+    p = text;
+    if ((uint8_t)p[0] == 0xff && (uint8_t)p[1] == 0xfe)
+        p += 2;
+
+    while (p[0] != '\0' || p[1] != '\0') {
+        int index = -1;
+        int i;
+
+        /* A space draws nothing and advances by the fallback, exactly as
+         * limeGetStringWidthUCNoHeader measures it. */
+        if ((uint8_t)p[0] == 0x20 && p[1] == '\0') {
+            x += (float)(font->spacing + font->fallbackAdvance
+                         + font->extraUnknown) * font->field14 * scale;
+            p += 2;
+            continue;
+        }
+
+        for (i = 0; i < font->numGlyphs; i++) {
+            if ((uint8_t)((const uint8_t *)font->codesW)[i * 2]     == (uint8_t)p[0] &&
+                (uint8_t)((const uint8_t *)font->codesW)[i * 2 + 1] == (uint8_t)p[1]) {
+                index = i;
+                break;
+            }
+        }
+
+        if (index < 0) {
+            /* Not in the table: no glyph to draw, and the pen still moves. */
+            x += (float)(font->spacing + font->fallbackAdvance
+                         + font->extraUnknown) * font->field14 * scale;
+            p += 2;
+            continue;
+        }
+
+        i = index;
+        {
+        /* The half is a half-TEXEL and belongs inside the division: adding it
+         * after divides puts the sample half an atlas away, which on a 1024
+         * sheet is 512 texels and drew fragments of the wrong glyphs. It is
+         * the standard offset to the centre of a texel, so that a linear
+         * filter reads the texel meant rather than the seam between two. */
+        float u  = ((float)font->atlasU[i] + half) / font->atlasWidth;
+        float v  = ((float)font->atlasV[i] + half) / font->atlasHeight;
         float du = (float)font->glyphWidth[i] / font->atlasWidth;
         float dv = (float)font->glyphHeight   / font->atlasHeight;
 
@@ -631,11 +685,29 @@ void limeDrawFONT(FONT *font, const char *text, float x, float y,
                         ? font->texture0        /* +0x50 */
                         : font->texture1;       /* +0x54 */
 
-        advance = (float)font->glyphWidth[i] * scale;
+        /* `field14` is the font's own scale -- the last argument of
+         * limeCreateFONT, 0.325 for GameFont -- and it belongs on the drawn
+         * size as well as on the advance. Left off the size, every glyph was
+         * drawn about three times the width the pen then moved, so the letters
+         * of every label sat on top of each other. */
+        advance = (float)font->glyphWidth[i] * font->field14 * scale;
 
         limeDrawSprite(page, x, y, advance,
-                       (float)font->glyphHeight * scale,
+                       (float)font->glyphHeight * font->field14 * scale,
                        u, v, du, dv, colour);
+
+        /* The pen moves by what the measure function counts for this glyph:
+         * spacing plus the glyph's own width, plus kerning when the font
+         * carries a table, and `defaultAdvance` instead of the width when the
+         * font is a simple one. */
+        x += (float)(font->spacing
+                     + (font->simple
+                        ? font->defaultAdvance
+                        : font->glyphWidth[i]
+                          + (font->kerning ? font->kerning[i] : 0)))
+             * font->field14 * scale;
+        }
+        p += 2;
     }
 }
 
@@ -681,22 +753,75 @@ void limeDrawFONTAtAngle(FONT *font, const char *text, float x, float y,
     const float half = 0.5f;
     limeMATRIX44 rot;
     limeVECTOR3 pos;
-    int i;
+    const char *p;
+    float pen = 0.0f;                   /* distance along the rotated line */
+    float ca, sa;
 
-    (void)text; (void)alignment;
+    if (font == NULL || text == NULL || font->codesW == NULL)
+        return;
 
     RotMatrixZ(rot, angle);             /* Matrix.cpp, verified */
+
+    /* See the note in limeDrawFONT: the three alignment cases are read off the
+     * call sites, not off the disassembly. */
+    if (alignment == 1)
+        x -= limeGetStringWidth(font, text) * scale * 0.5f;
+    else if (alignment == 2)
+        x -= limeGetStringWidth(font, text) * scale;
 
     pos.x = x; pos.y = y; pos.z = 0.0f;
     RotVector(rot, &pos, &pos);         /* (matrix, in, out) -- the
                                          * existing declaration's order */
 
-    /* per accepted glyph, once its index i is known -- identical lookup to the
-     * unrotated path, because rotation is in the destination not the atlas */
-    i = 0;
-    {
-        float u  = (float)font->atlasU[i]     / font->atlasWidth  + half;
-        float v  = (float)font->atlasV[i]     / font->atlasHeight + half;
+    /* The advance runs along the line, which is tilted, so it is added as a
+     * rotated offset rather than to pos.x. RotMatrixZ's angle is in degrees,
+     * the same as everywhere else in Matrix.cpp. */
+    ca = (float)cos((double)angle * 3.14159265358979323846 / 180.0);
+    sa = (float)sin((double)angle * 3.14159265358979323846 / 180.0);
+
+    p = text;
+    if ((uint8_t)p[0] == 0xff && (uint8_t)p[1] == 0xfe)
+        p += 2;                         /* the byte-order mark limeUC writes */
+
+    while (p[0] != '\0' || p[1] != '\0') {
+        int index = -1;
+        int i;
+        float gx, gy;
+
+        if ((uint8_t)p[0] == 0x20 && p[1] == '\0') {
+            pen += (float)(font->spacing + font->fallbackAdvance
+                           + font->extraUnknown) * font->field14 * scale;
+            p += 2;
+            continue;
+        }
+
+        for (i = 0; i < font->numGlyphs; i++) {
+            if ((uint8_t)((const uint8_t *)font->codesW)[i * 2]     == (uint8_t)p[0] &&
+                (uint8_t)((const uint8_t *)font->codesW)[i * 2 + 1] == (uint8_t)p[1]) {
+                index = i;
+                break;
+            }
+        }
+
+        if (index < 0) {
+            pen += (float)(font->spacing + font->fallbackAdvance
+                           + font->extraUnknown) * font->field14 * scale;
+            p += 2;
+            continue;
+        }
+
+        gx = pos.x + pen * ca;
+        gy = pos.y + pen * sa;
+
+        i = index;
+        {
+        /* The half is a half-TEXEL and belongs inside the division: adding it
+         * after divides puts the sample half an atlas away, which on a 1024
+         * sheet is 512 texels and drew fragments of the wrong glyphs. It is
+         * the standard offset to the centre of a texel, so that a linear
+         * filter reads the texel meant rather than the seam between two. */
+        float u  = ((float)font->atlasU[i] + half) / font->atlasWidth;
+        float v  = ((float)font->atlasV[i] + half) / font->atlasHeight;
         float du = (float)font->glyphWidth[i] / font->atlasWidth;
         float dv = (float)font->glyphHeight   / font->atlasHeight;
 
@@ -704,9 +829,21 @@ void limeDrawFONTAtAngle(FONT *font, const char *text, float x, float y,
                         ? font->texture0
                         : font->texture1;
 
-        limeDrawRotSpriteFromTopLeft(page, pos.x, pos.y,
-                                     (float)font->glyphWidth[i] * scale,
-                                     (float)font->glyphHeight   * scale,
+        /* The font's own scale, as in the unrotated path above. */
+        limeDrawRotSpriteFromTopLeft(page, gx, gy,
+                                     (float)font->glyphWidth[i]
+                                         * font->field14 * scale,
+                                     (float)font->glyphHeight
+                                         * font->field14 * scale,
                                      u, v, du, dv, angle, colour);
+
+        pen += (float)(font->spacing
+                       + (font->simple
+                          ? font->defaultAdvance
+                          : font->glyphWidth[i]
+                            + (font->kerning ? font->kerning[i] : 0)))
+               * font->field14 * scale;
+        }
+        p += 2;
     }
 }

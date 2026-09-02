@@ -92,17 +92,6 @@ typedef struct limeVECTOR2 limeVECTOR2;
 #define WANTFRAMES_BYTES 0x1c4c
 #endif
 
-typedef struct ACHIEVEMENTDESCR {
-    long id;                            /* 0x00, the GameText id of the label */
-    long descr;                         /* 0x04, the GameText id of the
-                                         *       description line */
-    long pad08;                         /* 0x08 */
-    /* +0x0c is a FLOAT -- achievementsDraw runs sin() on it. achievementsUnlock
-     * clears it with an integer zero store, which is the same bit pattern, so
-     * the union keeps both honest. */
-    union { float f; long w; } timer;   /* 0x0c */
-} ACHIEVEMENTDESCR;
-
 typedef struct ANIMATEDCHARACTER {
     long        meshCount;      /* 0x00 */
     void       *meshes;         /* 0x04  meshCount records of 0x58 */
@@ -152,6 +141,13 @@ typedef struct EDITVAR {
     float       step;                   /* 0x10 */
     long        type;                   /* 0x14, 0 = heading */
 } EDITVAR;
+
+typedef struct FEACHIEVEMENTDESCR {
+    long id;                            /* 0x00  GameText id of the name */
+    long descr;                         /* 0x04  GameText id of the description */
+    long pad08;                         /* 0x08 */
+    long timer;                         /* 0x0c */
+} FEACHIEVEMENTDESCR;
 
 typedef struct FOUNDTOKEN {
     long        type;                   /* 0x00  0 none, 1 's', 2 'd', 4 'f' */

@@ -153,7 +153,7 @@ extern long Character2;
 extern long Character2Override;
 extern signed char CharacterAvailable[CHARACTER_SLOTS];
 extern int CharacterConfirmed;
-extern const char *CharacterNames[104 / sizeof(const char)];
+extern const char *CharacterNames[0];
 extern int CharacterSelected;
 extern void *CharacterVSTexture[26];
 extern void *CharacterVSTexture2[26];
@@ -186,6 +186,7 @@ extern const char *DestinationMaster[184 / sizeof(const char)];
 extern const char *DestinationNovice[144 / sizeof(const char)];
 extern const char *DestinationWarrior[160 / sizeof(const char)];
 extern long Destiny;
+extern const char *DestinyNames[0];
 extern const char **DestinyNamesLoss;
 extern long DestinyToSelect;
 extern long DidIntroThisFrame;
@@ -452,7 +453,7 @@ extern void *NewGreenBloodTexture;
 extern long NextTask;
 extern long NumOfEndingsLines;
 extern int NumPreloadedCharacters;
-extern char OpponentTowerList[416 / sizeof(char)];
+extern long OpponentTowerList[416 / sizeof(long)];
 extern void *OrangeTexture;
 extern ANIMATEDCHARACTER *OrigLoadedPlayers[2];
 extern int OverrideCamera;
@@ -632,7 +633,7 @@ extern long WinsNeeded;
 extern float WorldScaleAdjust;
 extern char __mh_execute_header;
 extern int achievementTracker[24];
-extern ACHIEVEMENTDESCR achievementsDescr[420 / sizeof(ACHIEVEMENTDESCR)];
+extern FEACHIEVEMENTDESCR achievementsDescr[26];
 extern float averageScaleFactor;
 extern long averageScaleFactorCnt;
 extern float averageScaleFactorOutput;
@@ -651,7 +652,7 @@ extern float camzoomedin;
 extern float camzoomedout;
 extern long charSelectButtonPressed;
 extern long characterReported;
-extern long col[16 / sizeof(long)];
+extern float col[16 / sizeof(float)];
 extern long currentAchievementPage;
 extern float currentBiosProgress;
 extern float currentEndingProgress;
@@ -808,7 +809,6 @@ extern void *ButtonsTPage;
 extern float *CameraLookAt;
 extern int *CurrentTaskPtr;
 extern void *CyraxSelfDestructScene;
-extern const char **DestinyNames;
 extern const char **DestinyNamesWin;
 extern int *DoIntroPtr;
 extern long *EndingsText;
@@ -2443,7 +2443,7 @@ char usprintfBuffer7[512];
 char usprintfBuffer8[512];
 char usprintfBuffer9[512];
 
-/* ---- 739 plain globals ---- */
+/* ---- 740 plain globals ---- */
 
 long AIOn = 1;  /* 0x0014e1f4 */
 long AboutPage;  /* 0x00101190 */
@@ -2589,7 +2589,7 @@ long Character2 = 1;  /* pointer slot -> 0x000ff98c */
 long Character2Override = 0xffffffff;  /* 0x00101798 */
 signed char CharacterAvailable[CHARACTER_SLOTS];  /* 0x0018ed5c */
 int CharacterConfirmed = 0xffffffff;  /* 0x000ff8cc */
-const char *CharacterNames[104 / sizeof(const char)] = {
+const char *CharacterNames[0] = {
     "KANO", "SONYA", "JAX", "NIGHTWOLF",
     "SUB-ZERO", "STRYKER", "SINDEL", "SEKTOR",
     "CYRAX", "KUNG LAO", "KABAL", "SHEEVA",
@@ -2841,6 +2841,10 @@ const char *DestinationWarrior[160 / sizeof(const char)] = {
     "Shao Kahn",
 };  /* 0x00176a80 */
 long Destiny = 0xffffffff;  /* pointer slot -> 0x0014e20c */
+const char *DestinyNames[0] = {
+    "Novice", "Warrior", "Master", "Grand Master",
+    "Grand Master",
+};  /* pointer slot -> 0x00176760 */
 const char **DestinyNamesLoss;
 long DestinyToSelect = 0xffffffff;  /* 0x0010175c */
 long DidIntroThisFrame;  /* 0x0010dec4 */
@@ -2873,7 +2877,7 @@ long EndingsGained[23];  /* 0x00101088 */
 long EndingsPage;  /* 0x0010114c */
 char EndingsSplitText[16384 / sizeof(char)];  /* 0x00189d58, 256 bytes a line */
 long EnduranceChange;  /* pointer slot -> 0x0010df14 */
-long EnduranceCharacters[28 / sizeof(long)];  /* 0x001ab014 */
+long EnduranceCharacters[28 / sizeof(long)];  /* pointer slot -> 0x001ab014 */
 long EnduranceMatchTable2[32 / sizeof(long)] = {
     4, 5, 15, 20, 20, 16, 2, 3,
 };  /* 0x00145f1c, two words a row */
@@ -2892,7 +2896,7 @@ long EnduranceTowerList[176 / sizeof(long)] = {
     0, 0, 0, 0, 0, 1, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0,
     1, 2,
-};  /* 0x0014fb50, eleven words a row */
+};  /* pointer slot -> 0x0014fb50 */
 int ErmacUnlocked;  /* 0x000ff974 */
 int *ErmacUnlockedPtr;  /* slot -> 0x000ff974 */
 long ExtraEffects = 1;  /* 0x0014e1e8 */
@@ -2995,7 +2999,7 @@ float FaceMeMatrix[64 / sizeof(float)] = {
     0.0f, 0.0f, 1.0f, 0.0f,
     0.0f, 1.0f, 0.0f, 0.0f,
     0.0f, 0.0f, 0.0f, 1.0f,
-};  /* 0x0016f700 */
+};  /* pointer slot */
 long FadeMusicOut;  /* 0x0010dee8 */
 long FatalityMessage;  /* 0x0014fb30 */
 long FatalityMessageCounter;  /* 0x0014fb3c */
@@ -17613,60 +17617,21 @@ void *NewGreenBloodTexture;  /* 0x001f4494 */
 long NextTask;  /* pointer slot -> 0x0015058c */
 long NumOfEndingsLines;  /* 0x0010115c */
 int NumPreloadedCharacters;  /* 0x00171358 */
-char OpponentTowerList[416 / sizeof(char)] = {
-    16, 0, 0, 0, 16, 0, 0, 0,
-    16, 0, 0, 0, 16, 0, 0, 0,
-    16, 0, 0, 0, 16, 0, 0, 0,
-    16, 0, 0, 0, 16, 0, 0, 0,
-    16, 0, 0, 0, 16, 0, 0, 0,
-    16, 0, 0, 0, 15, 0, 0, 0,
-    5, 0, 0, 0, 11, 0, 0, 0,
-    7, 0, 0, 0, 18, 0, 0, 0,
-    2, 0, 0, 0, 1, 0, 0, 0,
-    24, 0, 0, 0, 25, 0, 0, 0,
-    5, 0, 0, 0, 11, 0, 0, 0,
-    24, 0, 0, 0, 5, 0, 0, 0,
-    11, 0, 0, 0, 7, 0, 0, 0,
-    18, 0, 0, 0, 2, 0, 0, 0,
-    4, 0, 0, 0, 1, 0, 0, 0,
-    24, 0, 0, 0, 25, 0, 0, 0,
-    11, 0, 0, 0, 25, 0, 0, 0,
-    7, 0, 0, 0, 18, 0, 0, 0,
-    2, 0, 0, 0, 4, 0, 0, 0,
-    1, 0, 0, 0, 15, 0, 0, 0,
-    5, 0, 0, 0, 11, 0, 0, 0,
-    24, 0, 0, 0, 25, 0, 0, 0,
-    75, 65, 78, 79, 0, 0, 0, 0,
-    83, 79, 78, 89, 65, 0, 0, 0,
-    74, 65, 88, 0, 78, 73, 71, 72,
-    84, 87, 79, 76, 70, 0, 0, 0,
-    83, 85, 66, 45, 90, 69, 82, 79,
-    0, 0, 0, 0, 83, 84, 82, 89,
-    75, 69, 82, 0, 83, 73, 78, 68,
-    69, 76, 0, 0, 83, 69, 75, 84,
-    79, 82, 0, 0, 67, 89, 82, 65,
-    88, 0, 0, 0, 75, 85, 78, 71,
-    32, 76, 65, 79, 0, 0, 0, 0,
-    75, 65, 66, 65, 76, 0, 0, 0,
-    83, 72, 69, 69, 86, 65, 0, 0,
-    83, 72, 65, 78, 71, 32, 84, 83,
-    85, 78, 71, 0, 76, 73, 85, 32,
-    75, 65, 78, 71, 0, 0, 0, 0,
-    83, 77, 79, 75, 69, 0, 0, 0,
-    75, 73, 84, 65, 78, 65, 0, 0,
-    74, 65, 68, 69, 0, 0, 0, 0,
-    77, 73, 76, 69, 69, 78, 65, 0,
-    83, 67, 79, 82, 80, 73, 79, 78,
-    0, 0, 0, 0, 82, 69, 80, 84,
-    73, 76, 69, 0, 69, 82, 77, 65,
-    67, 0, 0, 0, 83, 85, 66, 45,
-    90, 69, 82, 79, 0, 0, 0, 0,
-    83, 77, 79, 75, 69, 0, 0, 0,
-    78, 79, 79, 66, 32, 83, 65, 73,
-    66, 79, 84, 0, 77, 79, 84, 65,
-    82, 79, 0, 0, 83, 72, 65, 79,
-    32, 75, 65, 72, 78,
-};  /* 0x0014fcb4 */
+long OpponentTowerList[416 / sizeof(long)] = {
+    16, 16, 16, 16, 16, 16, 16, 16,
+    16, 16, 16, 15, 5, 11, 7, 18,
+    2, 1, 24, 25, 5, 11, 24, 5,
+    11, 7, 18, 2, 4, 1, 24, 25,
+    11, 25, 7, 18, 2, 4, 1, 15,
+    5, 11, 24, 25, 1330528587, 0, 1498304339, 65,
+    5783882, 1212631374, 1280268116, 70, 759321939, 1330791770, 0, 1498567763,
+    5391691, 1145981267, 19525, 1414219091, 21071, 1095915843, 88, 1196315979,
+    1329679392, 0, 1094861131, 76, 1162168403, 16726, 1312901203, 1398022215,
+    4673109, 542460236, 1196310859, 0, 1263488339, 69, 1096042827, 16718,
+    1162101066, 0, 1162627405, 4279877, 1380926291, 1313818960, 0, 1414546770,
+    4541513, 1095586373, 67, 759321939, 1330791770, 0, 1263488339, 69,
+    1112493902, 1229017888, 5525314, 1096044365, 20306, 1329678419, 1212238624, 78,
+};  /* pointer slot -> 0x0014fcb4 */
 void *OrangeTexture;  /* 0x00183e50 */
 ANIMATEDCHARACTER *OrigLoadedPlayers[2];  /* 0x00295ccc */
 int OverrideCamera = 1;  /* 0x0010dea8 */
@@ -18039,7 +18004,34 @@ long WinsNeeded = 2;  /* 0x0014e234 */
 float WorldScaleAdjust = 64.0f;  /* pointer slot -> 0x0014df9c */
 char __mh_execute_header;
 int achievementTracker[24];  /* 0x00379c60, see achievements.c */
-ACHIEVEMENTDESCR achievementsDescr[420 / sizeof(ACHIEVEMENTDESCR)];  /* 0x0017684c */
+FEACHIEVEMENTDESCR achievementsDescr[26] = {
+    { 0x00000066, 0x00000067, 1, 0 },
+    { 0x00000068, 0x00000069, 1, 0 },
+    { 0x0000006a, 0x0000006b, 0, 0 },
+    { 0x0000006c, 0x0000006d, 1, 0 },
+    { 0x0000006e, 0x0000006f, 0, 0 },
+    { 0x00000070, 0x00000071, 1, 0 },
+    { 0x00000072, 0x00000073, 0, 0 },
+    { 0x00000074, 0x00000075, 0, 0 },
+    { 0x00000076, 0x00000077, 0, 0 },
+    { 0x00000078, 0x00000079, 1, 0 },
+    { 0x0000007a, 0x0000007b, 1, 0 },
+    { 0x0000007c, 0x0000007d, 1, 0 },
+    { 0x0000007e, 0x0000007f, 1, 0 },
+    { 0x00000084, 0x00000085, 1, 0 },
+    { 0x00000086, 0x00000087, 0, 0 },
+    { 0x00000092, 0x00000093, 1, 0 },
+    { 0x00000088, 0x00000089, 0, 0 },
+    { 0x0000008c, 0x0000008d, 1, 0 },
+    { 0x0000008e, 0x0000008f, 1, 0 },
+    { 0x00000090, 0x00000091, 1, 0 },
+    { 0x6f70704f, 0x746e656e, 0x00003120, 0x6f70704f },
+    { 0x746e656e, 0x00003220, 0x6f70704f, 0x746e656e },
+    { 0x00003320, 0x6f70704f, 0x746e656e, 0x00003420 },
+    { 0x6f70704f, 0x746e656e, 0x00003520, 0x75646e45 },
+    { 0x636e6172, 0x614d2065, 0x20686374, 0x00000031 },
+    { 0x61746f4d, 0x00006f72, 0x6f616853, 0x68614b20 },
+};  /* pointer slot -> 0x0017684c */
 float averageScaleFactor;  /* 0x001017b0 */
 long averageScaleFactorCnt;  /* 0x001017b4 */
 float averageScaleFactorOutput = 0.0f;  /* 0x001017b8 -- written, never read */
@@ -18058,9 +18050,9 @@ float camzoomedin = 3.5999999f;  /* 0x0014dfb4 */
 float camzoomedout = 5.55000019f;  /* 0x0014dfb8 */
 long charSelectButtonPressed;  /* 0x00100eb8 */
 long characterReported;  /* 0x000ff7fc */
-long col[16 / sizeof(long)] = {
-    1065353216, 1065353216, 1065353216, 1065353216,
-};  /* 0x0014fa00 */
+float col[16 / sizeof(float)] = {
+    1.0f, 1.0f, 1.0f, 1.0f,
+};  /* pointer slot -> 0x0014fa00 */
 long currentAchievementPage;  /* 0x000ff96c */
 float currentBiosProgress;  /* 0x00101080 */
 float currentEndingProgress;  /* 0x00101150 */
@@ -18682,7 +18674,7 @@ float finishsize = 0.0179999992f;  /* 0x00175184 */
 long flawlessVictories;  /* pointer slot */
 float fontcol[16 / sizeof(float)] = {
     1.0f, 1.0f, 1.0f, 1.0f,
-};  /* 0x0014f9f0 */
+};  /* pointer slot */
 FOUNDTOKEN foundToken;  /* 0x003877e0 */
 long g_usprintfSemaphore = 0;  /* 0x00178078 */
 long gameCnt;  /* 0x00150ea0 */
@@ -19554,7 +19546,7 @@ long winningStryk;  /* 0x0014dffc */
 long workingInd;  /* 0x000ff810 */
 float zoomedoutweight;  /* 0x001f44a4 */
 
-/* ---- 83 pointer slots: storage, then a pointer at it ---- */
+/* ---- 82 pointer slots: storage, then a pointer at it ---- */
 
 static void *BloodScene__store[4 / sizeof(void)];
 void *BloodScene = BloodScene__store;
@@ -19568,8 +19560,6 @@ static int CurrentTaskPtr__store[SLOT_WORDS];
 int *CurrentTaskPtr = CurrentTaskPtr__store;
 static void *CyraxSelfDestructScene__store[4 / sizeof(void)];
 void *CyraxSelfDestructScene = CyraxSelfDestructScene__store;
-static const char *DestinyNames__store[108 / sizeof(const char)];
-const char **DestinyNames = DestinyNames__store;
 static const char *DestinyNamesWin__store[20 / sizeof(const char)];
 const char **DestinyNamesWin = DestinyNamesWin__store;
 static int DoIntroPtr__store[SLOT_WORDS];
@@ -19723,7 +19713,7 @@ long *syncState = syncState__store;
 static long theKode__store[4 / sizeof(long)];
 long *theKode = theKode__store;
 
-/* 739 plain + 83 slots = 822 */
+/* 740 plain + 82 slots = 822 */
 /*
  * 5 of these are arrays the decomp declares as `T name[]` with no
  * extent, so each got UNSIZED_BYTES of slack rather than a known size.

@@ -302,6 +302,7 @@ long lime_heap_overruns(void) { return g_overruns; }
  * on device -- returning NULL here would silently steer every caller down its
  * failure branch and make a passing test meaningless.
  */
+#ifndef UMK3_REAL_GL   /* headless; see runtime/draw_gl.c for the windowed half */
 static int g_texture_sentinel;
 
 TEXTURE *limeLoadTexture(const char *path, int a, int b)
@@ -314,6 +315,7 @@ void limeDeleteTexture(TEXTURE *tex)
 {
     (void)tex;
 }
+#endif  /* !UMK3_REAL_GL */
 
 
 /* --------------------------------------------------------- the GL surface
@@ -328,6 +330,7 @@ int lime_platform_matrix_depth(void)
     return g_matrix_depth;
 }
 
+#ifndef UMK3_REAL_GL   /* headless; see runtime/draw_gl.c for the windowed half */
 void glPushMatrix(void)   { g_matrix_depth++; }
 void glPopMatrix(void)    { if (g_matrix_depth > 0) g_matrix_depth--; }
 void glLoadIdentity(void) { }
@@ -338,6 +341,7 @@ void glMultMatrixf(const float *m)                { (void)m; }
 void glScalef(float x, float y, float z)          { (void)x; (void)y; (void)z; }
 
 
+#endif  /* !UMK3_REAL_GL */
 /* ------------------------------------------------------------ blend state
  *
  * Real symbols in the binary (_limeEnableAlphaBlending_Additive and friends),
@@ -352,10 +356,12 @@ static int g_blend_mode;    /* 0 none, 1 additive, 2 basic */
 
 int lime_platform_blend_mode(void)          { return g_blend_mode; }
 
+#ifndef UMK3_REAL_GL   /* headless; see runtime/draw_gl.c for the windowed half */
 void limeEnableAlphaBlending_Additive(void) { g_blend_mode = 1; }
 void limeEnableAlphaBlending_Basic(void)    { g_blend_mode = 2; }
 void limeDisableAlphaBlending(void)         { g_blend_mode = 0; }
 
+#endif  /* !UMK3_REAL_GL */
 static int g_depth_writes = 1;
 
 int lime_platform_depth_writes(void)        { return g_depth_writes; }
@@ -384,6 +390,7 @@ static struct {
 /* Ten arguments; the tenth is the colour every caller in gamecode passes and
  * this signature used to drop. Nothing draws here, so it is not read -- but the
  * shape has to match or every argument after the fourth is misplaced. */
+#ifndef UMK3_REAL_GL   /* headless; see runtime/draw_gl.c for the windowed half */
 void limeDrawSprite(TEXTURE *page, float x, float y, float w, float h,
                     float u, float v, float du, float dv,
                     const float *colour)
@@ -417,6 +424,7 @@ void limeDrawRotSpriteFromTopLeft(TEXTURE *page, float x, float y,
     (void)angle;
     limeDrawSprite(page, x, y, w, h, u, v, du, dv, colour);
 }
+#endif  /* !UMK3_REAL_GL */
 
 
 /* ------------------------------------------------ the rest of the GL surface
@@ -432,6 +440,7 @@ static long g_draw_indices;
 long lime_platform_draw_calls(void)   { return g_draw_calls; }
 long lime_platform_draw_indices(void) { return g_draw_indices; }
 
+#ifndef UMK3_REAL_GL   /* headless; see runtime/draw_gl.c for the windowed half */
 void glDrawElements(unsigned mode, int count, unsigned type, const void *idx)
 {
     (void)mode; (void)type; (void)idx;
@@ -454,3 +463,5 @@ void glColor4f(float r, float g, float b, float a){ (void)r; (void)g; (void)b; (
 void glDepthMask(int flag)                        { (void)flag; }
 void glShadeModel(unsigned mode)                  { (void)mode; }
 void glCullFace(unsigned mode)                    { (void)mode; }
+
+#endif  /* !UMK3_REAL_GL */

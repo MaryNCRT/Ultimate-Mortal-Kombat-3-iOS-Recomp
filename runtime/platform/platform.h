@@ -32,6 +32,11 @@ void plat_close(void);
  * the user resizes or the OS applies scaling. */
 void plat_size(int *width, int *height);
 
+/* Pointer position in client pixels, and whether a button is down. The engine
+ * has no mouse -- it reads a touch position -- so the caller maps one onto the
+ * other. */
+int plat_mouse(int *x, int *y);
+
 /* Seconds since plat_open, monotonic. */
 double plat_time(void);
 

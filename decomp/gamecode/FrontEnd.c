@@ -2101,7 +2101,7 @@ void MaintainFESlide(void)
 #define TOWERLIST_STRIDE  44
 
 extern long  TowerRand[];               /* 0x001014d0 */
-extern long *OpponentTowerList;         /* pointer slot -> 0x0014fcb4 */
+extern long  OpponentTowerList[];         /* pointer slot -> 0x0014fcb4 */
 
 long limeRand(void);
 void Write_Tower(void);
@@ -2889,8 +2889,8 @@ long CreateWrappedTextArrays(const char *text, char *out, long *lines,
 
 extern long  mpLobbyCurrentPage;        /* 0x000ff8e0 */
 extern void **FEBackground;             /* pointer slot */
-extern float *col;                      /* pointer slot -> 0x0014fa00 */
-extern float *fontcol;                  /* pointer slot */
+extern float  col[];                      /* pointer slot -> 0x0014fa00 */
+extern float  fontcol[];                  /* pointer slot */
 typedef struct TEXTURE TEXTURE;
 
 void limeDrawSprite(TEXTURE *tex, float x, float y, float w, float h,
@@ -4613,7 +4613,7 @@ extern float  FECAMPOSY;                /* 0x00101714 */
 extern float  FECAMPOSZ;                /* 0x00101718 */
 extern float  FEPlayer1Offset;          /* 0x00183d68 */
 extern float  FEPlayer2Offset;          /* 0x00183d64 */
-extern char  *TheFECharacters;          /* pointer slot -> 0x0020e634 */
+extern char   TheFECharacters[];          /* pointer slot -> 0x0020e634 */
 /* PlayerDefs is declared with its struct near the top of this file. */
 extern float  PlayerSize;               /* pointer slot */
 
@@ -5109,7 +5109,7 @@ void FE_Task_Multiplayer_Summary(void)
  * nothing, as everywhere else in the front end.
  */
 extern float KontinueTime;              /* 0x000ff960 */
-extern const char **DestinyNames;       /* pointer slot -> 0x00176760 */
+extern const char *DestinyNames[0];       /* pointer slot -> 0x00176760 */
 
 int  sprintf(char *dst, const char *fmt, ...);
 
@@ -5833,7 +5833,7 @@ typedef struct FEACHIEVEMENTDESCR {
     long timer;                         /* 0x0c */
 } FEACHIEVEMENTDESCR;
 
-extern FEACHIEVEMENTDESCR *achievementsDescr;   /* pointer slot -> 0x0017684c */
+extern FEACHIEVEMENTDESCR  achievementsDescr[];   /* pointer slot -> 0x0017684c */
 extern int achievementTracker[24];              /* 0x00379c60 */
 
 void FE_Task_Achievements(void)
@@ -9221,9 +9221,9 @@ void FE_Task_About_About(void)
 #define TOWER_ENDURANCE_PORTRAIT 26
 #define TOWER_LIGHTNINGS  5
 
-extern float *IdentityMatrix;           /* pointer slot -> 0x0014f9a4 */
+extern float  IdentityMatrix[];           /* pointer slot -> 0x0014f9a4 */
 extern float  MoveUpTower;              /* 0x00101758 */
-extern long  *EnduranceTowerList;       /* pointer slot -> 0x0014fb50 */
+extern long   EnduranceTowerList[];       /* pointer slot -> 0x0014fb50 */
 extern void  *MeshSet_SINGLEBRICK;      /* 0x00183d20 */
 extern void  *MeshSet_PLAYERFACE;       /* 0x00183d24 */
 extern void  *MeshSet_OPPONENTFACE;     /* 0x00183d28 */

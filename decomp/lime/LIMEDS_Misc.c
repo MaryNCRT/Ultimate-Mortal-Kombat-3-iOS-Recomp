@@ -230,7 +230,7 @@ void LerpQSTMatrix(const QSTMATRIX *a, const QSTMATRIX *b, float t,
  * `m[1] = 2xy + 2wz`, and so on -- computed in double and narrowed once. Then
  * each **row** is multiplied by a float read from the source:
  *
- *      vldr   s15, [r0, #0x08]   ; multiplies m[0], m[1], m[2]
+ *      vldr   s15, [r0, #0x08]   ; multiplies *m, m[1], m[2]
  *      vldr   s15, [r0, #0x0c]   ; multiplies m[4], m[5], m[6]
  *      vldr   s15, [r0, #0x10]   ; multiplies m[8], m[9], m[10]
  *

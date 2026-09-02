@@ -508,7 +508,7 @@ extern float  Camera[];                 /* pointer slot -> 0x0014fa74 */
 extern float  Player1Pos[];             /* pointer slot -> 0x00150564 */
 extern float  Player2Pos[];             /* pointer slot -> 0x00150570 */
 extern void **GameObjects;             /* 0x0014dfec, one per object */
-extern long  *FrameRemapTable;          /* pointer slot -> 0x002003d4 */
+extern long   FrameRemapTable[];          /* pointer slot -> 0x002003d4 */
 extern char   Players[];                /* 0x001fa4d4 */
 typedef struct PLAYERDEF {
     long        id;             /* 0x00  0..25; the same as the index */
@@ -546,14 +546,14 @@ extern long   opponentPerformedMercy;   /* pointer slot -> 0x0010dea4 */
 extern long   GameMode;                 /* pointer slot -> 0x0014faa4 */
 extern long   Character2;               /* pointer slot -> 0x000ff98c */
 extern long   Destiny;                  /* pointer slot -> 0x0014e20c */
-extern const char **DestinyNames;       /* pointer slot -> 0x00176760 */
-extern const char **CharacterNames;     /* pointer slot -> 0x0014fe54 */
-extern long  *Health;                   /* pointer slot -> 0x0014fa64 */
-extern long  *RunBar;                   /* pointer slot -> 0x0014fa6c */
+extern const char *DestinyNames[0];       /* pointer slot -> 0x00176760 */
+extern const char *CharacterNames[0];     /* pointer slot -> 0x0014fe54 */
+extern long   Health[];                   /* pointer slot -> 0x0014fa64 */
+extern long   RunBar[];                   /* pointer slot -> 0x0014fa6c */
 extern long   SurvivalHealth;           /* pointer slot -> 0x000ff994 */
 extern long   ClockTens;                /* pointer slot -> 0x0014fa50 */
 extern long   ClockSingles;             /* pointer slot -> 0x0014fa54 */
-extern long  *DangerMessage;            /* pointer slot -> 0x0014e23c */
+extern long   DangerMessage[];            /* pointer slot -> 0x0014e23c */
 extern long   FightMessage;             /* pointer slot -> 0x0014e258 */
 /* Flags, not slots. Both are plain words in `__DATA,__data`, and a slot lives
  * in the 0x000f3xxx region and holds an address -- these are at 0x0014fb2c and
@@ -568,12 +568,12 @@ extern long  FatalityMessage;           /* 0x0014fb30 */
 extern long  AnimalityMessage;          /* 0x0014fb2c */
 extern long   BabalityMessage;          /* pointer slot -> 0x0014fb28 */
 extern long   FriendshipMessage;        /* pointer slot -> 0x0014fb34 */
-extern char  *WinnerMessage;            /* pointer slot -> 0x0014faa8 */
-extern long  *ComboNumber;              /* pointer slot -> 0x0014e27c */
-extern long  *ComboDamage;              /* pointer slot -> 0x0014e274 */
-extern float *ComboSlider1;             /* pointer slot -> 0x0014e28c */
-extern float *ComboSlider2;             /* pointer slot -> 0x0014e294 */
-extern float *ComboTimer;               /* pointer slot -> 0x0014e284 */
+extern char   WinnerMessage[];            /* pointer slot -> 0x0014faa8 */
+extern long   ComboNumber[];              /* pointer slot -> 0x0014e27c */
+extern long   ComboDamage[];              /* pointer slot -> 0x0014e274 */
+extern float  ComboSlider1[];             /* pointer slot -> 0x0014e28c */
+extern float  ComboSlider2[];             /* pointer slot -> 0x0014e294 */
+extern float  ComboTimer[];               /* pointer slot -> 0x0014e284 */
 extern float  ScorpionFade;             /* pointer slot -> 0x0010df04 */
 extern float  ScorpionFadeAdd;          /* pointer slot -> 0x0010df08 */
 extern float  ScorpionFlash;            /* pointer slot -> 0x0010df0c */
@@ -582,8 +582,8 @@ extern float  SKDeathMessageOffset;     /* pointer slot -> 0x0010debc */
 extern long   blast_state;              /* pointer slot -> 0x0014df94 */
 extern long   blast_player_height;      /* pointer slot -> 0x0014df98 */
 extern long   EnduranceChange;          /* pointer slot -> 0x0010df14 */
-extern long  *EnduranceCharacters;      /* pointer slot -> 0x001ab014 */
-extern long  *Stats;                    /* pointer slot -> 0x00183c84 */
+extern long   EnduranceCharacters[];      /* pointer slot -> 0x001ab014 */
+extern long   Stats[];                    /* pointer slot -> 0x00183c84 */
 extern void *BloodScene;               /* pointer slot -> 0x001aba58 */
 extern void *PitDeathScene;            /* pointer slot -> 0x001aba50 */
 extern void *SZEffectScene;            /* pointer slot -> 0x001aba48 */
