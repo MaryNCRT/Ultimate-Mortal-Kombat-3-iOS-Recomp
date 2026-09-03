@@ -259,6 +259,14 @@ extern char *GrObj;                        /* 0x0038c698 */
  * and inventing one would put a name on the gap between 0x00 and 0xb8. */
 #define G_FIGHTER_STRIDE  0x158
 
+/* `_Plyr`, the other global array, and the two strides `StartGrObjAt` reveals.
+ * Neither is written down anywhere: the GrObj one comes out of a modular
+ * inverse the compiler used to avoid a divide, and the Plyr one out of a
+ * shift-and-add multiply. */
+extern char *Plyr;                         /* 0x0038cff4 */
+#define GROBJ_STRIDE   76
+#define PLYR_STRIDE   108
+
 /* Declared further down as `GAMESTATE *G`, which is how GameCode.c spells it
  * too. The three accesses here are by byte offset because two reads and a
  * write are not a layout; where GAMESTATE grows fields, they replace these. */
@@ -4337,4 +4345,150 @@ void gdfe4(MK3OBJ *obj)
 
     obj->field30 = (uint32_t)((a < 0) ? -a : a);
     obj->field34 = (uint32_t)((b < 0) ? -b : b);
+}
+
+
+/* ============================================== the frame-push family
+ *
+ * armv7 0x000560b4, 0x00056234, 0x000555bc and 0x00054e6c, fifty-two bytes
+ * each.  **Complete.**
+ *
+ * Four functions, one body. Every instruction matches except the literal each
+ * loads, and what they do is
+ *
+ *      if (frame[current + 1] != 0) return -3;
+ *      frame[current].func = handler;
+ *      frame[current + 1]  = 0;
+ *      return 0;
+ *
+ * -- install a handler in the RUNNING frame and clear the one above it, so the
+ * thread resumes as that handler on its next turn. Nothing runs here, which is
+ * what "wake" means in two of the names.
+ *
+ * The guard is `t_self_terminate`'s: refuse if something is stacked on this
+ * thread. Where terminate marks the frame above with 0x12ff and `t_round_loop`
+ * with 0x12f8, these clear it -- three routines writing three things into one
+ * slot, which is what makes it a state.
+ *
+ * Written out four times because the game calls four names. Folding them into
+ * one helper with an argument would be a tidier file and a worse record of
+ * what is in the binary.
+ * ================================================================== */
+
+void t_attk2(void);
+void t_master_mercy_entry(void);
+void t_multi_dummy_proc(void);
+void t_wait_forever(void);
+
+/* The frame array lives at the thread's own address, eight bytes an entry,
+ * indexed by 0xa4 -- the same arithmetic `GetThreadFunc` and
+ * `t_self_terminate` use. */
+static uint32_t *mk3_frame(MK3THREAD *thread, uint32_t n)
+{
+    return (uint32_t *)((char *)thread + n * 8);
+}
+
+static long mk3_push_handler(MK3THREAD *thread, MK3THREADFUNC handler)
+{
+    uint32_t current = thread->frame;
+
+    if (*mk3_frame(thread, current + 1) != 0)
+        return -3;
+
+    mk3_frame(thread, current)[1] = (uint32_t)(uintptr_t)handler;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+long t_attk5(MK3THREAD *thread)
+{
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_attk2);
+}
+
+long t_continue_fighting(MK3THREAD *thread)
+{
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_master_mercy_entry);
+}
+
+long t_multi_dummy_wake(MK3THREAD *thread)
+{
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_multi_dummy_proc);
+}
+
+long t_wait_forever_wake(MK3THREAD *thread)
+{
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_wait_forever);
+}
+
+
+/* ------------------------------------------------------------ StartGrObjAt
+ *
+ * armv7 0x00056cdc, fifty-six bytes.  **Complete.**
+ *
+ *      i = (grobj - GrObj) / 76
+ *      StartProcAt(&Plyr[i], func)
+ *
+ * A pointer into one global array turned into the matching entry of another.
+ * Both strides come out of the arithmetic and neither is stated anywhere:
+ *
+ *   - the divide is `>> 2` then a multiply by 0x286bca1b keeping the low 32
+ *     bits, which is the modular-inverse trick for an exact division by an odd
+ *     number. The inverse of that constant mod 2^32 is 19, so the divisor is
+ *     4 * 19 = 76.
+ *
+ *   - the multiply back is `i*16 - i*4` and then `+ that*8`, which is 108.
+ *
+ * So GrObj entries are 76 bytes, Plyr entries are 108, and the arrays are
+ * parallel. That difference is the reason this function exists.
+ *
+ * The second argument is not touched, so it reaches `StartProcAt` and then
+ * `StartThreadAt` -- the function to start at, flowing through two wrappers.
+ */
+void StartGrObjAt(char *grobj, MK3THREADFUNC func)
+{
+    size_t i = (size_t)(grobj - GrObj) / GROBJ_STRIDE;
+
+    StartProcAt((MK3OBJ *)(Plyr + i * PLYR_STRIDE), func);
+}
+
+
+/* ------------------------------------------------------------- advance_him
+ *
+ * armv7 0x00059e78, fifty-six bytes.  **Complete.**
+ *
+ *      save   obj->field00, obj->field08, obj->field40
+ *      obj->field00 = proc->field00->field00      ; his PROC
+ *      obj->field40 = obj->field48                ; his frame cursor
+ *      obj->field08 = obj->a10                    ; and his object
+ *      do_next_a9_frame(obj)
+ *      result = obj->field40
+ *      restore all three
+ *      obj->field48 = result
+ *
+ * The trampoline pattern with three slots instead of two, and a result carried
+ * back out. `get_his_a11_ani` and `double_next_a9` borrow 0x40 the same way;
+ * this one borrows the whole triple so the advance happens entirely in the
+ * opponent's terms.
+ *
+ * 0x44 supplies the object here, which is the slot `get_his_a11_ani` leaves
+ * the opponent in -- the two are meant to be called in that order.
+ */
+void advance_him(MK3OBJ *obj)
+{
+    MK3OBJPROC *saved_proc  = obj->field00;
+    MK3OBJ     *saved_other = obj->field08;
+    uint32_t    saved_frame = obj->field40;
+    uint32_t    result;
+
+    obj->field00 = saved_proc->field00->field00;
+    obj->field40 = obj->field48;
+    obj->field08 = (MK3OBJ *)(uintptr_t)obj->a10;
+
+    do_next_a9_frame(obj);
+
+    result = obj->field40;
+    obj->field08 = saved_other;
+    obj->field00 = saved_proc;
+    obj->field40 = saved_frame;
+    obj->field48 = result;
 }
