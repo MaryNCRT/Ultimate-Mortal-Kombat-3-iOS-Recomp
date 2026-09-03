@@ -9033,10 +9033,14 @@ long t_bani2(MK3THREAD *thread)
  * the PROC it reads the gate and the index from is this fighter's own.
  *
  * Between the decrement and the install the compiler copies level+1 down to
- * level -- its handler AND its first word -- and then overwrites both, once
- * with the new handler and once with the zero. Two dead stores in the middle
- * of a live routine; transcribed because they are there and marked because
- * they do nothing.
+ * level -- its handler AND its first word -- and then overwrites both.
+ *
+ * That copy is an idiom, not noise: `t_clock_ran_out` emits the same six
+ * instructions and does NOT overwrite the handler half, so it means "drop a
+ * level and take my place in it". Here the handler is replaced immediately
+ * afterwards by a different one, which is what makes this routine a return
+ * that replaces its caller rather than one that carries itself down. The
+ * stores are dead in this instance and the shape is not.
  *
  * The frame <= 0 case reaches the same install after writing
  * `t_local_reaction_exit` at the same slot, which is likewise overwritten. So
@@ -9454,6 +9458,93 @@ long t_do_jump_up(MK3THREAD *thread)
     thread->frame = thread->frame + 1;                  /* push a level */
     mk3_frame(thread, thread->frame)[1] =
         (uint32_t)(uintptr_t)t_flight_call;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ---------------------------------------------------------- t_clock_ran_out
+ *
+ * armv7 0x000568f4, two hundred and fifty-two bytes.  **Complete.**
+ *
+ *      token 0:
+ *          if (frame > 0) frame = frame - 1
+ *          else { frame[frame].handler = t_local_reaction_exit;
+ *                 frame[frame+1].w0 = 0; }
+ *          frame[frame+1].w0     = frame[frame+2].w0
+ *          frame[frame].handler  = frame[frame+1].handler   ; carry me down
+ *          obj->field1c = 1
+ *          G[0x452] = (uint16_t)obj->field20
+ *          frame[frame+1].w0 = 0x11ee
+ *          frame = frame + 1                                ; push
+ *          frame[frame].handler = t_print_timeout_msg
+ *      token 0x11ee:
+ *          frame[frame].handler = t_play3
+ *          frame[frame+1].w0 = 0
+ *          frame = frame + 1                                ; push
+ *          frame[frame].handler = t_round_is_over
+ *      otherwise:  return -3
+ *
+ * What `t_results_of_round` reaches when the outcome is anything but 0, 1 or 2.
+ *
+ * The first step **pops a level and carries this handler down into it**. That
+ * is the same six-instruction shuffle `t_back_to_shang_check` emits, and here
+ * the handler half survives -- nothing writes over it -- so the idiom has a
+ * meaning: drop a level and take the parent's place. In the other routine a
+ * different handler is stored immediately afterwards, which is what makes that
+ * one a return that REPLACES its caller. One shape, two uses.
+ *
+ * `G[0x452]` is the halfword `t_fatality_wait` reads as "no". A round that ran
+ * out of time refuses the fatality by writing it here, from 0x20 rather than
+ * from a constant.
+ *
+ * The second step is the clearest call-with-continuation in the file: install
+ * `t_play3` at the current level and then push `t_round_is_over` above it. When
+ * that unwinds, `t_play3` is what it comes back to -- so "do X, then continue
+ * as Y" is two stores and an increment.
+ */
+long t_play3(MK3THREAD *thread);
+
+long t_clock_ran_out(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x11ee) {
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_play3;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+
+        thread->frame = thread->frame + 1;              /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_round_is_over;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    if ((int32_t)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+    } else {
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_local_reaction_exit;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+    }
+
+    /* Drop a level and take its place: the handler above comes down. */
+    *mk3_frame(thread, thread->frame + 1) =
+        *mk3_frame(thread, thread->frame + 2);
+    mk3_frame(thread, thread->frame)[1] =
+        mk3_frame(thread, thread->frame + 1)[1];
+
+    obj->field1c = 1;
+    *(uint16_t *)(G_BYTES + 0x452) = (uint16_t)obj->field20;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x11ee;
+    thread->frame = thread->frame + 1;                  /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_print_timeout_msg;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
