@@ -146,7 +146,15 @@ typedef struct MK3OBJ {
     uint32_t    field2c;         /* 0x2c  receives the same OR-ed value, and
                                   *       is what GetFrameWidth is asked about */
     uint32_t    field30;         /* 0x30  the flag word the clearers mask */
-    uint32_t    field34;         /* 0x34  the ring buffer's base */
+    /* 0x34..0x40 is a BOUNDING BOX -- left, top, right, bottom, in the order
+     * `intersect` establishes. `ani2_ob` fills all four from `mk3_getbbox` in
+     * one call, and the four `*_mpart_ob` routines read exactly these: 0x34
+     * and 0x3c as the horizontal pair, 0x38 as the top, 0x40 as the bottom.
+     *
+     * The same words are the ring buffer's base and head in `previous_q_entry`
+     * and a table base in `decode_walk_table`. Spill slots, as everywhere else
+     * in this file, so they keep their offset names. */
+    uint32_t    field34;         /* 0x34  the box's left, and the queue base */
     uint32_t    field38;         /* 0x38  the base highest_mpart_ob adds to,
                                   *       and the ring buffer's head */
     uint32_t    field3c;         /* 0x3c  the second horizontal bound; 0x34 is
@@ -3572,7 +3580,7 @@ long isa5_px(MK3OBJ *obj, MK3OBJ *target)
  *      obj->field2c = flags
  *      if (flags & 0x10) dx = -dx
  *      target->x0e += dx
-MK3_FIELD12(*      target) += dy
+ *      target y  += dy                    ; the halfword at 0x12
  *
  * What every `adjust_*`, `lineup_*` and `dragon` routine in this file has been
  * feeding. The facing bit negates the horizontal step -- the same bit
@@ -4270,4 +4278,63 @@ long t_round_loop(MK3THREAD *thread)
     *above = 0x12f8u;
     thread->fieldfc = 1;
     return 1;
+}
+
+
+/* --------------------------------------------------------------- ani2_ob
+ *
+ * armv7 0x000584d4, fifty-two bytes.  **Complete.**
+ *
+ *      obj->field1c &= 0x3fff
+ *      target->field2c = obj->field1c
+ *      mk3_getbbox(obj->field1c,
+ *                  &target->field34, &target->field38,
+ *                  &target->field3c, &target->field40)
+ *
+ * The four out-pointers are the target's box. `GetFrameWidth` and
+ * `GetFrameHeight` call the same function with four locals and read one each;
+ * this one keeps all four, in the object, where the `*_mpart_ob` routines
+ * expect them.
+ *
+ * The mask to fourteen bits happens before the call and is stored back, so
+ * whatever 0x1c held is truncated for good rather than for the call.
+ */
+void ani2_ob(MK3OBJ *obj, MK3OBJ *target)
+{
+    obj->field1c &= 0x3fffu;
+    target->field2c = obj->field1c;
+
+    mk3_getbbox((MK3OBJ *)(uintptr_t)obj->field1c,
+                (int *)&target->field34, (int *)&target->field38,
+                (int *)&target->field3c, (int *)&target->field40);
+}
+
+
+/* ------------------------------------------------------------------- gdfe4
+ *
+ * armv7 0x00054d8c, fifty-two bytes.  **Complete.**
+ *
+ *      d = obj->field28
+ *      obj->field30 = |G[0xb0] - d|
+ *      obj->field34 = |G[0xb4] + 0x18f - d|
+ *
+ * Distance from each edge of the arena: 0xb0 is one boundary and 0xb4 plus 399
+ * the other, and both differences are made positive. So "dfe" is distance from
+ * edge and the caller gets both, with `am_i_close_to_edge` picking between
+ * them by the facing.
+ *
+ * The 0x18f is formed as `+0x18c` then `+3`, which is the compiler splitting an
+ * immediate that does not fit one encoding rather than two constants.
+ *
+ * 0xb0 and 0xb4 sit just below the per-fighter block at 0xb8, so the arena
+ * bounds are shared and the velocities are not.
+ */
+void gdfe4(MK3OBJ *obj)
+{
+    int32_t d = (int32_t)obj->field28;
+    int32_t a = (int32_t)*(const uint32_t *)(G_BYTES + 0xb0) - d;
+    int32_t b = (int32_t)*(const uint32_t *)(G_BYTES + 0xb4) + 0x18f - d;
+
+    obj->field30 = (uint32_t)((a < 0) ? -a : a);
+    obj->field34 = (uint32_t)((b < 0) ? -b : b);
 }
