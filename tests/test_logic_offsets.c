@@ -160,10 +160,10 @@ typedef struct IMG_THREAD {
     uint32_t field08;            /* 0x08 */
     uint8_t  _pad0c[0x98];
     uint32_t frame;              /* 0xa4 */
-    uint8_t  _pad_a8[0x50];
+    uint32_t args[0x50 / 4];     /* 0xa8  twenty words, t_striker pushes */
     uint32_t fieldf8;            /* 0xf8  fastxfer_thread */
     uint32_t fieldfc;            /* 0xfc */
-    uint8_t  _pad100[4];
+    uint32_t player;             /* 0x100 getobjectinsert indexes Plyr */
     uint32_t pid;                /* 0x104 NewThreadProcPid */
     uint32_t proc;               /* 0x108 */
 } IMG_THREAD;
@@ -171,14 +171,15 @@ typedef struct IMG_THREAD {
 CHECK(IMG_THREAD, func,    0x04);
 CHECK(IMG_THREAD, field08, 0x08);
 CHECK(IMG_THREAD, frame,   0xa4);
+CHECK(IMG_THREAD, args,    0xa8);
 CHECK(IMG_THREAD, fieldf8, 0xf8);
 CHECK(IMG_THREAD, fieldfc, 0xfc);
+CHECK(IMG_THREAD, player,  0x100);
 CHECK(IMG_THREAD, pid,     0x104);
 CHECK(IMG_THREAD, proc,    0x108);
 
 int main(void)
 {
-    printf("logic offsets: %d fields over three structs -- all agree\n",
-           6 + 14 + 5);
+    printf("logic offsets: %d fields over three structs -- all agree\n", 40);
     return 0;
 }
