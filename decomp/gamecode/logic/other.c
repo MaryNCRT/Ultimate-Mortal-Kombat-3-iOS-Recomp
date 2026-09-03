@@ -6381,7 +6381,7 @@ void finish_him_or_her(MK3OBJ *obj)
  * coordinates are left changed.
  */
 void get_char_stk(MK3OBJ *obj);
-long strike_check_regs(MK3OBJ *obj);
+long strike_check_regs(MK3OBJ *obj, const uint32_t *p);
 
 void strike_check_box(MK3OBJ *obj)
 {
@@ -6412,7 +6412,7 @@ void strike_check_box(MK3OBJ *obj)
     obj->field28 = (uint32_t)(int32_t)(int16_t)packed;
 
     obj->field1c = saved1c + 0x10;
-    strike_check_regs(obj);
+    strike_check_regs(obj, (const uint32_t *)(uintptr_t)(saved1c + 0x10));
 
     obj->field1c = saved1c;
     obj->a10     = saved_a10;
@@ -6687,8 +6687,12 @@ long t_animate2_a9(MK3THREAD *thread)
  *
  * The compiler reads the four words with a post-incrementing load and then
  * three offsets from two different registers, which makes the disassembly look
- * like it walks the pointer. It does not: the four are p[0] to p[3] and the
- * final `adds r1, #0xc` is dead.
+ * like it walks the pointer. It does not: the four are p[0] to p[3].
+ *
+ * The `adds r1, #0xc` afterwards is NOT dead -- an earlier note here said it
+ * was, before `strike_check_regs` had been read. It leaves `p + 4` in r1, and
+ * that is the second argument: this routine reads the first four words and
+ * hands the next three on.
  *
  * The prototype was already here: two callers written earlier do
  * `return strike_check_ptr(obj, obj->field1c, flag)`, which fixed the shape
@@ -6723,7 +6727,7 @@ long strike_check_ptr(MK3OBJ *obj, uint32_t what, long arg)
     obj->field28 = p[2];
     obj->field2c = p[3];
 
-    r = strike_check_regs(obj);
+    r = strike_check_regs(obj, p + 4);
 
     obj->field20 = s20;
     obj->field24 = s24;
@@ -11494,4 +11498,167 @@ long do_next_a9_frame_pxob(MK3OBJ *obj, MK3OBJ *ref, MK3OBJ *other)
             break;
         }
     }
+}
+
+
+/* -------------------------------------------------------- strike_check_regs
+ *
+ * armv7 0x00059280, four hundred and twenty bytes.  **Complete**, and it is
+ * the hit test.
+ *
+ *      save obj->field48, obj->field38, obj->field30
+ *      obj->field48 = p[0]
+ *      obj->field38 = p[1]
+ *      obj->field30 = p[2]
+ *      if (obj->field20 & 0x8000) obj->field20 |= 0xffff0000
+ *      if (obj->field24 & 0x8000) obj->field24 |= 0xffff0000
+ *      obj->field20 = (him->field28 & 0x10) ? -obj->field20
+ *                                           : obj->field20 - obj->field28
+ *      box_b.left = (int16_t)him->field0e + obj->field20
+ *      box_b.top = (int16_t)him->field12 + obj->field24
+ *      box_b.right = obj->field28 + box_b.left
+ *      box_b.bottom = obj->field2c + box_b.top
+ *      highest_mpart_ob(obj, him);  lowest_mpart_ob(obj, him)
+ *      leftmost_mpart_ob(obj, him); rightmost_mpart_ob(obj, him)
+ *      obj->field2c = |obj->field28 - obj->field24|
+ *      cbox_squeeze(obj, obj->field30, him)
+ *      box_a.left = obj->field24;  box_a.top = obj->field1c
+ *      box_a.right = obj->field28;  box_a.bottom = obj->field20
+ *      if (!intersect(box_b, box_a)) { obj->field5c = 0; restore; return; }
+ *      if (obj->field14 == 0) <resolve the hit>
+ *      obj->field5c = 1
+ *      restore the three
+ *
+ * The three words behind the pointer go into 0x48, 0x38 and 0x30, and all
+ * three are put back on the way out -- so the caller's copies survive and this
+ * borrows them for the length of the test. `strike_check_box` and
+ * `strike_check_ptr` save the same slots around their own calls, which is why
+ * they nest.
+ *
+ * Two coordinates are SIGN-EXTENDED by ORing 0xffff0000 when bit 15 is set,
+ * the same expansion `get_tsl_px` uses, so the box may sit at negative
+ * coordinates.
+ *
+ * The horizontal offset is negated or subtracted depending on bit 4 of the
+ * opponent's 0x28 -- the facing `am_i_facing_him_px` gave a direction to. A
+ * strike box is mirrored with the fighter.
+ *
+ * **`obj->field38` packs two damages.** Byte 0 is what the hit does through a
+ * block and byte 1 what it does through none. And a blocked hit whose chip
+ * damage is NOT less than the opponent's remaining health falls through to the
+ * full-damage arm: the comparison is `<`, and the else side is the unblocked
+ * path. Transcribed as written.
+ *
+ * The block reaction comes from `_block_xfers` indexed by the low byte of
+ * 0x48, and the ordinary one from `react_xfer_him`, which picks from
+ * `_reaction_table` by the byte at 0x49. Two tables, two paths, one word.
+ *
+ * `obj->field14` is the test-only flag `strike_check_ptr` sets from its third
+ * argument: non-zero means answer whether they touch and do nothing about it.
+ *
+ * The four `*_mpart_ob` calls run before the box is assembled, so what they
+ * write is what `intersect` compares.
+ */
+extern uint32_t *block_xfers;           /* through the slot at 0x000f3208 */
+void disable_his_buttons(MK3OBJ *obj);
+void add_combo_damage(MK3OBJ *obj);
+void highest_mpart_ob(MK3OBJ *obj, MK3OBJ *him);
+void lowest_mpart_ob(MK3OBJ *obj, MK3OBJ *him);
+void leftmost_mpart_ob(MK3OBJ *obj, MK3OBJ *him);
+void rightmost_mpart_ob(MK3OBJ *obj, MK3OBJ *him);
+
+long strike_check_regs(MK3OBJ *obj, const uint32_t *p)
+{
+    uint32_t saved48 = obj->field48;
+    uint32_t saved38 = obj->field38;
+    uint32_t saved30 = obj->field30;
+    uint32_t saved1c;
+    MK3BOX box_a, box_b;
+    MK3OBJ  *him;
+    int32_t  dx;
+
+    obj->field48 = p[0];
+    obj->field38 = p[1];
+    obj->field30 = p[2];
+
+    if ((obj->field20 & 0x8000u) != 0)          /* sign-extend both */
+        obj->field20 |= 0xffff0000u;
+    if ((obj->field24 & 0x8000u) != 0)
+        obj->field24 |= 0xffff0000u;
+
+    saved1c = obj->field1c;
+
+    if ((obj->field08->field28 & 0x10u) != 0)   /* facing left */
+        dx = -(int32_t)obj->field20;
+    else
+        dx = (int32_t)obj->field20 - (int32_t)obj->field28;
+    obj->field20 = (uint32_t)dx;
+
+    box_b.left = (uint32_t)((int32_t)(int16_t)MK3_FIELD0E(obj->field08) + dx);
+    box_b.top = (uint32_t)((int32_t)(int16_t)MK3_FIELD12(obj->field08)
+                          + (int32_t)obj->field24);
+    box_b.right = obj->field28 + box_b.left;
+    box_b.bottom = obj->field2c + box_b.top;
+
+    him = (MK3OBJ *)(uintptr_t)obj->field00->him;
+    highest_mpart_ob(obj, him);
+    lowest_mpart_ob(obj, him);
+    leftmost_mpart_ob(obj, him);
+    rightmost_mpart_ob(obj, him);
+
+    obj->field2c = (uint32_t)((int32_t)obj->field28 - (int32_t)obj->field24);
+    if ((int32_t)obj->field2c < 0)
+        obj->field2c = (uint32_t)(-(int32_t)obj->field2c);
+
+    cbox_squeeze(obj, obj->field30,
+                 (MK3OBJ *)(uintptr_t)obj->field00->him);
+
+    box_a.left = obj->field24;
+    box_a.top = obj->field1c;
+    obj->field1c = saved1c;
+    box_a.right = obj->field28;
+    box_a.bottom = obj->field20;
+
+    if (intersect(&box_b, &box_a) == 0) {
+        obj->field5c = 0;
+    } else if (obj->field14 != 0) {             /* asked, not told */
+        obj->field5c = 1;
+    } else {
+        MK3OBJPROC *mine = obj->field00;
+        uint32_t packed;
+        uint32_t i;
+
+        disable_his_buttons(obj);
+        /* 0x48 of his PROC; the struct has a pad there. */
+        *(uint32_t *)((char *)mine->field00->field00 + 0x48) = mine->field18;
+
+        i = mine->field00->field00->field08;
+        obj->field34 = i;
+
+        is_he_blocking(obj);
+        packed = obj->field38;
+
+        if (obj->field5c != 0 &&
+            (packed & 0xffu) <
+                *(const uint32_t *)(G_BYTES + 0x368 + i * 4)) {
+            obj->a10 = packed & 0xffu;          /* the chip damage */
+            obj->field18 = 1;
+            obj->field48 = (uint8_t)obj->field48;
+            obj->field38 = block_xfers[obj->field48];
+            xfer_otherguy(obj);
+            bar_reducer(obj);
+        } else {
+            obj->a10 = (packed >> 8) & 0xffu;   /* the full damage */
+            bar_reducer(obj);
+            obj->field54 = obj->a10;
+            add_combo_damage(obj);
+            react_xfer_him(obj);
+        }
+        obj->field5c = 1;
+    }
+
+    obj->field30 = saved30;
+    obj->field38 = saved38;
+    obj->field48 = saved48;
+    return (long)obj->field5c;
 }
