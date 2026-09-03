@@ -6001,10 +6001,14 @@ void stance_setup(MK3OBJ *obj)
  * written as a state machine because the language had no coroutines. 0xf28 and
  * 0xf2a are two apart, consecutive labels in whatever generated them.
  *
- * The masks are 0x60 and 0x16462. Neither is a single bit and the second is
- * not a combination of anything seen before, so what reads 0xfc takes a value
- * rather than a set of flags. The three earlier parks each happened to write
- * one bit and that is all they proved.
+ * The two durations are 0x60 and 0x16462, and the second is how this routine
+ * ENDS. The token it parks with, 0xf2a, is not one this function accepts -- it
+ * would answer -3 to itself -- so the last step waits ninety-one thousand
+ * ticks for a wake-up that cannot come, and something kills the thread first.
+ *
+ * `t_friendship_speech` and `t_round_intro_fx` finish the same way, on the same
+ * duration and each with a token of its own that it rejects. That is how a
+ * sequence ends when it must not unwind to its caller.
  *
  * 0x43 into the object's 0x28 is a code and 0x65 the sound; both are constants
  * this routine does not compute.
@@ -6745,10 +6749,11 @@ long strike_check_ptr(MK3OBJ *obj, uint32_t what, long arg)
  * The sounds are 0x68, 0x69, 0x6a: consecutive, so they are three entries of
  * one table and almost certainly three lines of one speech.
  *
- * The first two waits use mask 0x40, the same value `t_wait_forever` parks on.
- * The last uses 0x16462, which is exactly what `t_fx_babality` ends on. Two
- * unrelated sequences finishing on the same mask is what makes that value a
- * condition rather than a number private to one routine.
+ * The first two waits are 0x40 ticks, the same as `t_wait_forever`. The last is
+ * 0x16462 with the token 0xf78, which this function does not accept -- it
+ * would answer -3 to itself. So the third step never wakes: it waits ninety-one
+ * thousand ticks and is killed in the meantime, which is how a sequence ends
+ * without unwinding. `t_fx_babality` and `t_round_intro_fx` end identically.
  *
  * `t_fx_friendship` starts this alongside `t_ship_proc` and then becomes
  * `t_fani3` itself, so the speech runs beside the animation rather than in it.
@@ -8506,4 +8511,79 @@ long t_double_mframew(MK3THREAD *thread)
 long t_mframew(MK3THREAD *thread)
 {
     return mk3_mframew(thread, 0x6a6, do_next_a9_frame);
+}
+
+
+/* --------------------------------------------------------- t_round_intro_fx
+ *
+ * armv7 0x00059094, one hundred and ninety-two bytes.  **Complete**, and the
+ * longest coroutine here: four resume points, one of which is a call.
+ *
+ *      token 0:       obj->field1c = 0x13; create_fx(obj)
+ *                     frame[frame+1].w0 = 0x1047
+ *                     frame = frame + 1              ; a CALL, not a park
+ *                     frame[frame].handler = t_print_round_number
+ *      token 0x1047:  obj->field1c = 0xb; create_fx(obj)
+ *                     park(0x104b, 0x10)
+ *      token 0x104b:  tsound_func(obj, 0x10)
+ *                     park(0x104d, 0x20)
+ *      token 0x104d:  park(0x104e, 0x16462)          ; and never wake
+ *      otherwise:     return -3
+ *
+ * The round introduction: an effect, then the spoken round number as a
+ * subroutine, then a second effect, then a sound, then a wait that does not
+ * end.
+ *
+ * The first step is the only one that pushes. So this mixes a call and three
+ * parks in one function, and the token does double duty -- it is the resume
+ * point for the parks AND the marker `t_print_round_number` leaves behind when
+ * it unwinds. Both meanings work because both are "what is one level up".
+ *
+ * **The last step never wakes.** 0x104e is not a token this function accepts;
+ * a fifth entry would fall through to `return -3`. Together with the duration
+ * of 0x16462 that makes it a deliberate dead end, and `t_fx_babality` and
+ * `t_friendship_speech` end exactly the same way. Three routines, three
+ * unaccepted tokens, one duration.
+ *
+ * The dispatch is a binary comparison -- equal, then less-than, then two more
+ * equals -- rather than a chain, which is why 0x104d is formed as 0x104b + 2.
+ */
+long t_round_intro_fx(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x1047) {
+        obj->field1c = 0xb;
+        create_fx(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x104b;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (token == 0x104b) {
+        tsound_func((uint32_t)(uintptr_t)obj, 0x10);
+        *mk3_frame(thread, thread->frame + 1) = 0x104d;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (token == 0x104d) {
+        *mk3_frame(thread, thread->frame + 1) = 0x104e;
+        thread->fieldfc = 0x16462;      /* nothing accepts 0x104e */
+        return 0x16462;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field1c = 0x13;
+    create_fx(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x1047;
+    thread->frame = thread->frame + 1;                  /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_print_round_number;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
 }
