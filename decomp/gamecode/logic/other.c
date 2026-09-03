@@ -52,7 +52,8 @@ typedef struct MK3THREAD {
     uint32_t      fieldf8;       /* 0xf8  the cursor into them; fastxfer_thread
                                   *       clears it too */
     uint32_t      fieldfc;       /* 0xfc  cleared on start, set on terminate */
-    uint8_t       _pad100[4];
+    uint32_t      player;        /* 0x100 getobjectinsert multiplies it by
+                                  *       PLYR_STRIDE to index Plyr */
     uint32_t      pid;           /* 0x104 NewThreadProcPid sets it */
     void         *proc;          /* 0x108 FindThreadProc and NewThreadProc
                                   *       return it */
@@ -593,7 +594,7 @@ void face_opponent(MK3OBJ *obj)
  * A tail call to `getobjectinsert` with the arguments untouched -- not even a
  * register move. The wrapper exists for the name.
  */
-void *getobjectinsert(MK3OBJ *obj);
+MK3OBJ *getobjectinsert(MK3OBJ *obj);
 
 void *gmo_proc_insobja8(MK3OBJ *obj)
 {
@@ -4385,7 +4386,7 @@ void gdfe4(MK3OBJ *obj)
  * ================================================================== */
 
 void t_attk2(void);
-void t_master_mercy_entry(void);
+long t_master_mercy_entry(struct MK3THREAD *thread);
 long t_multi_dummy_proc(struct MK3THREAD *thread);
 long t_wait_forever(struct MK3THREAD *thread);
 
@@ -4688,7 +4689,7 @@ long t_round_tied(MK3THREAD *thread)
  * `_reaction_table` is the seventh named table this file reaches.
  */
 extern uint32_t reaction_table[];       /* 0x00166fc0 */
-void clear_queues(uint32_t what);
+void clear_queues(uint32_t which);
 
 void react_xfer_him(MK3OBJ *obj)
 {
@@ -5511,4 +5512,308 @@ const uint32_t *slave_ani(MK3OBJ *obj, const uint32_t *script)
     }
 
     return script + 1;
+}
+
+
+/* ----------------------------------------------------------------- t_shake2
+ *
+ * armv7 0x00056df8, eighty bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field48 = obj->field24
+ *      obj->field40 = obj->field1c & 0xffff
+ *      obj->a10     = (obj->field1c >> 16) & 0xffff
+ *      frame[frame].handler = t_shake3
+ *      frame[frame+1].w0 = 0
+ *
+ * A packed word unpacked: 0x1c carries two halves and they go to different
+ * slots -- the low one to 0x40, which is the animation, and the high one to
+ * 0x44, which is the A10 register this port kept from the arcade.
+ *
+ * The high half is taken with an ARITHMETIC shift and then masked back to
+ * sixteen bits, so the sign is shifted in and immediately thrown away. The
+ * result is the unsigned high half either way; transcribed as the mask.
+ *
+ * The shake family is the arcade's screen shake, and `shake_a11` was already
+ * seen passing 0x48 out as an event.
+ */
+long t_shake3(MK3THREAD *thread);
+
+long t_shake2(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field48 = obj->field24;
+    obj->field40 = obj->field1c & 0xffffu;
+    obj->a10 = ((int32_t)obj->field1c >> 16) & 0xffffu;
+
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_shake3;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ---------------------------------------------------------- do_ani_offset_xy
+ *
+ * armv7 0x0005551c, eighty-four bytes.  **Complete.**
+ *
+ *      dx = script[0]
+ *      obj->field1c = dx
+ *      obj->field20 = target->field28
+ *      if (target->field28 & 0x10) obj->field1c = -dx      ; facing left
+ *      x = him->field0e + obj->field1c
+ *      obj->field28 = x;  target->field0e = (uint16_t)x
+ *      dy = script[1]
+ *      obj->field1c = dy
+ *      y = him->field12 + dy
+ *      obj->field28 = y;  target->field12 = (uint16_t)y
+ *      return script + 2
+ *
+ * The second script step in this file, and the first that consumes more than
+ * one word. It places the target at an offset from the opponent -- `him` being
+ * `ref->field00->him`, the PROC's 0x04 -- one word per axis.
+ *
+ * **Only the horizontal offset flips.** Bit 4 of 0x28 is the facing that
+ * `am_i_facing_him_px` gave a direction to, and it negates dx and never dy.
+ * That asymmetry is why this is one routine with two unrolled halves rather
+ * than a loop, and it is exactly what a rewrite loses: a mirrored character
+ * whose limb lands in the right place vertically and the wrong one across.
+ *
+ * The two coordinates are written as HALFWORDS into 0x0e and 0x12 -- the high
+ * halves of the words at 0x0c and 0x10, which is where this file's accessors
+ * put x and y. The full sum is also left in 0x28 of the working object, so a
+ * caller can see the untruncated value.
+ *
+ * The bases are read SIGNED and the sums stored back unsigned, so an object
+ * offset far enough to the left of the opponent wraps rather than going
+ * negative. Transcribed, not corrected.
+ */
+const uint32_t *do_ani_offset_xy(MK3OBJ *obj, MK3OBJ *ref, MK3OBJ *target,
+                                 const uint32_t *script)
+{
+    MK3OBJ  *him = (MK3OBJ *)(uintptr_t)ref->field00->him;
+    uint32_t dx = script[0];
+    uint32_t dy;
+    uint32_t v;
+
+    obj->field1c = dx;
+    obj->field20 = target->field28;
+    if ((target->field28 & 0x10u) != 0)         /* facing left */
+        obj->field1c = (uint32_t)(-(int32_t)dx);
+
+    v = (uint32_t)((int32_t)MK3_FIELD0E(him) + (int32_t)obj->field1c);
+    obj->field28 = v;
+    MK3_SET_FIELD0E(target, v);
+
+    dy = script[1];
+    obj->field1c = dy;
+    v = (uint32_t)((int32_t)MK3_FIELD12(him) + (int32_t)dy);
+    obj->field28 = v;
+    MK3_SET_FIELD12(target, v);
+
+    return script + 2;
+}
+
+
+/* ----------------------------------------------------- t_master_mercy_entry
+ *
+ * armv7 0x00056268, eighty-eight bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = 1
+ *      G[0x44e] = (int16_t)1
+ *      obj->field40 = 11
+ *      obj->field48 = 9
+ *      obj->a10     = 9
+ *      frame[frame].handler = t_clock3
+ *      frame[frame+1].w0 = 0
+ *
+ * Mercy: a halfword flag into G at 0x44e -- near, but not in, the pair at
+ * 0x45e/0x460 that a timeout clears -- and three constants on the object.
+ *
+ * 11 goes to the animation slot at 0x40, which is well under the 0x47 that
+ * `t_attk3` treats as "a number, resolve it", so it is an animation index and
+ * not a pointer.
+ *
+ * The two nines are one register: the compiler loads 11, stores it, subtracts
+ * 2 and stores the result twice. Three constants, two instructions -- and the
+ * reason the disassembly looks as though 9 were derived from 11 rather than
+ * written.
+ *
+ * `t_continue_fighting` installs this, and this installs `t_clock3`, so mercy
+ * hands the round back to the clock.
+ */
+long t_clock3(MK3THREAD *thread);
+
+long t_master_mercy_entry(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 1;
+    *(int16_t *)(G_BYTES + 0x44e) = 1;
+    obj->field40 = 11;
+    obj->field48 = 9;
+    obj->a10 = 9;
+
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_clock3;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ------------------------------------------------------------- clear_queues
+ *
+ * armv7 0x00058974, ninety-six bytes.  **Complete.**
+ *
+ *      base = which ? 0x218 : 0xc0
+ *      init_1_q(G + base + 0x00)
+ *      init_1_q(G + base + 0x54)
+ *      init_1_q(G + base + 0xa8)
+ *      init_1_q(G + base + 0xfc)
+ *
+ * There are **four** queues per fighter, not two. The pair already known --
+ * bcq at 0xc0 and jcq at 0x114 -- are the first two of four, spaced 0x54
+ * apart, so a queue is eighty-four bytes and the block runs 0xc0 to 0x210.
+ *
+ * The two bases are 0xc0 and 0x218, which differ by 0x158: `G_FIGHTER_STRIDE`
+ * for the fifth time and from a fifth independent place. The block ending at
+ * 0x210 also butts exactly against the second fighter's velocity at 0x210,
+ * which is the shape a per-fighter record should have.
+ *
+ * The argument selects the fighter and nothing else; the two halves are
+ * separate straight-line code rather than a loop over a computed base, so the
+ * compiler was given two constants and not an index.
+ */
+void clear_queues(uint32_t which)
+{
+    char *base = G_BYTES + (which ? 0x218 : 0xc0);
+
+    init_1_q(base + 0x00);
+    init_1_q(base + 0x54);
+    init_1_q(base + 0xa8);
+    init_1_q(base + 0xfc);
+}
+
+
+/* ---------------------------------------------------------- getobjectinsert
+ *
+ * armv7 0x00059bf0, one hundred bytes.  **Complete.**
+ *
+ *      z = getprc_z(obj)
+ *      if (z == NULL) return NULL
+ *      z->field08->field2c = -1
+ *      z->thread->func    = t_multi_dummy_proc
+ *      z->thread->field08 = 0
+ *      match_ani_points_ob_ob(obj->field08, z->field08)
+ *      obj->field3c = z->field08
+ *      p = Plyr + z->thread->player * 108
+ *      p->field3c = z->field08
+ *      p->field40 = obj->field40
+ *      p->field48 = obj->field48
+ *      p->field44 = obj->a10
+ *      return z
+ *
+ * The multiply is written as `n*16 - n*4` and then `+ that*8`, which is
+ * n * 108: `PLYR_STRIDE`, reached for the third time and from a third
+ * direction. `StartGrObjAt` got it from a shift-and-add, `is_finish_him_allowed`
+ * got the GrObj one from two offsets, and this one arrives at 108 again.
+ *
+ * It also names the thread's 0x100: it is the index into Plyr, so a thread
+ * knows which player entry is its own. That fills the last pad in MK3THREAD
+ * before the pid.
+ *
+ * The animation set to -1 is on `z->field08`, not on z, and the handler
+ * installed is `t_multi_dummy_proc` -- the park that waits on bit 0x1000. So
+ * the inserted object is created parked, with no animation, and something else
+ * wakes it.
+ */
+MK3OBJ *getprc_z(MK3OBJ *obj);
+
+MK3OBJ *getobjectinsert(MK3OBJ *obj)
+{
+    MK3OBJ *z = getprc_z(obj);
+    MK3THREAD *th;
+    MK3OBJ *p;
+
+    if (z == NULL)
+        return NULL;
+
+    th = z->thread;
+
+    z->field08->field2c = 0xffffffffu;
+    th->func = (MK3THREADFUNC)t_multi_dummy_proc;
+    th->field08 = 0;
+
+    match_ani_points_ob_ob((uint32_t)(uintptr_t)obj->field08,
+                           (uint32_t)(uintptr_t)z->field08);
+
+    obj->field3c = (uint32_t)(uintptr_t)z->field08;
+
+    p = (MK3OBJ *)(Plyr + th->player * PLYR_STRIDE);
+    p->field3c = (uint32_t)(uintptr_t)z->field08;
+    p->field40 = obj->field40;
+    p->field48 = obj->field48;
+    p->a10     = obj->a10;
+
+    return z;
+}
+
+
+/* -------------------------------------------------------- stack_switch_bits
+ *
+ * armv7 0x00055e2c, one hundred bytes.  **Complete**, and with `swscan` and
+ * `UnstackSwitches` it accounts for the whole switch mechanism.
+ *
+ *      cursor = G[0xa4]
+ *      for (i = 0; i < 32; i++)
+ *          if (changed & (1u << i)) {
+ *              id = pressed ? i : i + 32
+ *              if ((int32_t)cursor > 0) G[0x24 + (--cursor)*4] = id
+ *          }
+ *      G[0xa4] = cursor
+ *
+ * The stack is filled **downward** from the cursor and consumed **upward** to
+ * 31. That is why `UnstackSwitches` loops while the cursor is at or below 31
+ * and increments: the two meet in the middle of a thirty-two entry array, and
+ * the cursor is the boundary rather than a count.
+ *
+ * A press is id `i` and a release is `i + 32`, so `_swtab` has sixty-four
+ * entries -- one per switch per edge -- of sixteen bytes each.
+ *
+ * When the cursor reaches zero the stack is full and further entries are
+ * **dropped silently**: the loop keeps running and the store is simply
+ * skipped. No error, no overwrite. Transcribed as it stands.
+ *
+ * The first parameter is DEAD. `swscan` passes the live switch word and r0 is
+ * zeroed on the first instruction to become the bit counter. It is kept in the
+ * signature because the call site passes it and the ABI is part of what is
+ * being recorded.
+ */
+void stack_switch_bits(uint32_t now, uint32_t changed, uint32_t pressed)
+{
+    uint32_t cursor = *(const uint32_t *)(G_BYTES + 0xa4);
+    uint32_t mask = 1u;
+    uint32_t i;
+
+    (void)now;                          /* zeroed on entry; never read */
+
+    for (i = 0; i < 32; i++, mask <<= 1) {
+        uint32_t id;
+
+        if ((changed & mask) == 0)
+            continue;
+
+        id = pressed ? i : i + 32;
+
+        if ((int32_t)cursor > 0)        /* full: dropped, not overwritten */
+            *(uint32_t *)(G_BYTES + 0x24 + (--cursor) * 4) = id;
+    }
+
+    *(uint32_t *)(G_BYTES + 0xa4) = cursor;
 }
