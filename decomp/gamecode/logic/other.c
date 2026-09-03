@@ -305,7 +305,11 @@ extern char *Pp;                           /* 0x0038dc9c */
  * The wrap is deliberately checked *after* the store, which means the last
  * slot is written and then `head` resets. Reordering it would drop an entry.
  */
-void SwitchQueue(uint16_t value, SWITCHQUEUE *q)
+/* It RETURNS the packed word. That value is built in r0 and never overwritten
+ * before the return, so it falls out the way `strike_check_ptr`'s answer does,
+ * and nothing had read it while this was the only routine known to call it.
+ * `QueueAndJump` reads it -- and stores only the low half, the counter. */
+uint32_t SwitchQueue(uint16_t value, SWITCHQUEUE *q)
 {
     uint32_t packed = (uint32_t)G_SWITCH_COUNTER(G)
                     | ((uint32_t)value << 16);
@@ -316,6 +320,7 @@ void SwitchQueue(uint16_t value, SWITCHQUEUE *q)
     if (q->head >= &q->slots[SWITCH_QUEUE_SLOTS]) {
         q->head = &q->slots[0];
     }
+    return packed;
 }
 
 
@@ -10490,4 +10495,117 @@ long t_one_on_one(MK3THREAD *thread)
         (uint32_t)(uintptr_t)t_spawn_endurance_guy;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
+}
+
+
+/* ------------------------------------------------------------- QueueAndJump
+ *
+ * armv7 0x000572b8, three hundred and four bytes.  **Complete**, and it is
+ * where `UnstackSwitches` lands.
+ *
+ * A `_swtab` entry is four words: `[0]` the switch id, `[1]` an argument,
+ * `[2]` the player, `[3]` a table for `DoSwitchJump`.
+ *
+ *      r = SwitchQueue(e[0], e[1])
+ *      if (e[3] != 0) {
+ *          h = Plyr[who].field60
+ *          if (h != NULL && h[id] != NULL
+ *              && (int16_t)Pp[who].field7e == 0) {
+ *              mytc[who].frame   = 0
+ *              mytc[who].func    = h[id]
+ *              mytc[who].field08 = 0
+ *          }
+ *      }
+ *      last_switch_ram[id * 2    ][who] = r        ; halfwords
+ *      last_switch_ram[id * 2 + 1][who] = r
+ *      if ((int16_t)Plyr[who].field00->field7c != 0) {
+ *          if (id == 0)      DoSwitchJump(e[3], who, 1)
+ *          else if (id == 3) DoSwitchJump(e[3], who, 4)
+ *          f = my_func(&Plyr[who])
+ *          if (f == t_do_shake || f == t_do_fatality_1 || f == t_do_fatality_2)
+ *              return
+ *      }
+ *      DoSwitchJump(e[3], who, id)
+ *
+ * **Three routines are not to be interrupted.** The function currently
+ * installed on the player's thread is compared against `t_do_shake`,
+ * `t_do_fatality_1` and `t_do_fatality_2` -- all three named in the symbol
+ * table, the fatalities in `mkfatal.c` and the shake in `moves.c` -- and if it
+ * is any of them the switch is queued and recorded but never dispatched. A
+ * button pressed during a fatality goes nowhere.
+ *
+ * That comparison is by ADDRESS, through three pointer slots, which is exactly
+ * why the pop family has four identical bodies at four addresses: identity is
+ * how this engine asks what a thread is doing.
+ *
+ * **A third four-button hook.** With the gate at 0x7c set, switches 0 and 3
+ * fire an extra `DoSwitchJump` with ids 1 and 4 before the ordinary one --
+ * after `four_button_bits` folding the bits and `get_tsl_px` swapping the
+ * tables, this dispatches twice. All three read the same halfword.
+ *
+ * The guard test is only reached under that gate, so on the four-button scheme
+ * a fatality is protected and on the six-button one it is not. Transcribed as
+ * written; nothing here says whether that is intended.
+ *
+ * `_last_switch_ram` is a table of POINTERS, indexed twice: entry `id*2` and
+ * entry `id*2+1`, each a halfword array indexed by player. The same value goes
+ * to both, so the pair is a current-and-previous kept side by side.
+ *
+ * The per-switch handler at `Plyr[who].field60` is installed straight into
+ * `mytc[who]` -- the thread array `my_func` indexes with a stride of 268 -- and
+ * only when `Pp[who].field7e` is zero. That is a fifth place a handler comes
+ * out of data.
+ */
+extern uint16_t **last_switch_ram;      /* 0x0016f50c */
+void t_do_shake(void);
+void t_do_fatality_1(void);
+void t_do_fatality_2(void);
+
+void QueueAndJump(const uint32_t *e, uint32_t unused)
+{
+    uint32_t id  = e[0];
+    uint32_t who = e[2];
+    char *plyr   = Plyr + who * PLYR_STRIDE;
+    uint16_t r;
+
+    (void)unused;
+
+    /* The low half of what SwitchQueue builds: the counter at G+0xa8. */
+    r = (uint16_t)SwitchQueue((uint16_t)id, (SWITCHQUEUE *)(uintptr_t)e[1]);
+
+    if (e[3] != 0) {
+        MK3THREADFUNC *h = *(MK3THREADFUNC **)(plyr + 0x60);
+
+
+        if (h != NULL && h[id] != NULL &&
+            *(const int16_t *)(Pp + who * PP_STRIDE + 0x7e) == 0) {
+            MK3THREAD *th =
+                (MK3THREAD *)((char *)mytc + who * MK3THREAD_STRIDE);
+
+            th->frame   = 0;
+            th->func    = h[id];
+            th->field08 = 0;
+        }
+    }
+
+    last_switch_ram[id * 2][who]     = r;
+    last_switch_ram[id * 2 + 1][who] = r;
+
+    if (*(const int16_t *)((char *)(*(MK3OBJPROC **)plyr) + 0x7c) != 0) {
+        if (id == 0)                            /* the four-button scheme */
+            DoSwitchJump((long)e[3], who, 1);
+        else if (id == 3)
+            DoSwitchJump((long)e[3], who, 4);
+
+        {
+            const void *f = my_func((MK3OBJ *)plyr);
+
+            if (f == (const void *)t_do_shake ||
+                f == (const void *)t_do_fatality_1 ||
+                f == (const void *)t_do_fatality_2)
+                return;                         /* do not interrupt these */
+        }
+    }
+
+    DoSwitchJump((long)e[3], who, id);
 }
