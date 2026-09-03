@@ -5163,6 +5163,12 @@ long t_upcut_striker(MK3THREAD *thread)
  * boundary belongs to the slot and is not a global constant. Seventy-one
  * animations reachable by number in this one.
  *
+ * Except that `t_backwards_ani` reads the SAME slot and resolves at or below
+ * **0x48**. One apart, on one field, in one file. Either 0x48 is a number
+ * there and a pointer here, or one of the two is off by one; nothing in either
+ * function says which, so both are transcribed as written and the
+ * disagreement is left standing rather than smoothed over.
+ *
  * The frame index is re-read after `get_char_ani`, so the call is allowed to
  * move it. Transcribed as the re-read rather than as a saved local.
  *
@@ -8135,4 +8141,120 @@ void back_to_normal_px(MK3OBJ *obj, MK3OBJ *other)
 
     obj->field2c = other->field00->field10 & ~0x1eu;
     other->field00->field10 = obj->field2c;
+}
+
+
+/* --------------------------------------------------------------- t_do_duck
+ *
+ * armv7 0x00055c38, one hundred and sixty-eight bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          stop_me_player(obj)
+ *          face_opponent(obj)
+ *          obj->field40 = 4
+ *          get_char_ani(obj)
+ *          obj->field1c = 2                    ; the rate
+ *          obj->field20 = 0x302                ; formed as 2 + 0x300
+ *          frame[frame+1].w0 = 0x8d7
+ *          frame = frame + 1                   ; push
+ *          frame[frame].handler = t_act_mframew
+ *          frame[frame+1].w0 = 0
+ *      token == 0x8d7:  unwind
+ *      otherwise:       return -3
+ *
+ * Ducking, and the third member of the movement-action family: 0x301 backing
+ * up, 0x302 ducking, 0x304 landing from an angled jump. The action is left in
+ * 0x20 and `t_act_mframew` -- pushed here -- is what copies it to the PROC.
+ *
+ * The action is built from the rate: 2 is stored, then 0x300 added to the same
+ * register. Two constants for the price of one, and the reason the disassembly
+ * makes 0x302 look derived.
+ *
+ * Animation 4 is the same number `t_do_backup` uses, so the two share an
+ * animation and differ in the action and in what they push.
+ */
+long t_do_duck(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x8d7)
+        return mk3_unwind(thread);
+
+    if (token != 0)
+        return -3;
+
+    stop_me_player(obj);
+    face_opponent(obj);
+
+    obj->field40 = 4;
+    get_char_ani(obj);
+
+    obj->field1c = 2;
+    obj->field20 = 0x302;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x8d7;
+    thread->frame = thread->frame + 1;                  /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_act_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* --------------------------------------------------------- t_backwards_ani
+ *
+ * armv7 0x00055874, one hundred and seventy-two bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          args[argc++] = obj->field1c
+ *          if ((int32_t)obj->field40 <= 0x48) get_char_ani(obj)
+ *          frame[frame+1].w0 = 0x7d3
+ *          frame = frame + 1                   ; push
+ *          frame[frame].handler = t_bani2
+ *          frame[frame+1].w0 = 0
+ *      token == 0x7d3:  unwind
+ *      otherwise:       return -3
+ *
+ * The rate is pushed onto the argument stack and left there -- no pop, unlike
+ * `t_animate_a9`, which pushes and pops around its resolver. So `t_bani2`,
+ * running one level up, is expected to find it.
+ *
+ * That is the first use of the argument stack as a real argument rather than a
+ * save area: the pusher and the reader are different functions at different
+ * levels.
+ *
+ * The threshold is **0x48**, and `t_attk3` uses 0x47 on the same slot. See the
+ * note there; the two are left disagreeing because neither says which is
+ * right.
+ *
+ * The frame index is re-read after the resolver, as in `t_attk3`, so the call
+ * is allowed to move it.
+ */
+long t_bani2(MK3THREAD *thread);
+
+long t_backwards_ani(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t argc;
+
+    if (token == 0x7d3)
+        return mk3_unwind(thread);
+
+    if (token != 0)
+        return -3;
+
+    argc = thread->fieldf8;
+    *mk3_arg(thread, argc) = obj->field1c;      /* left for t_bani2 */
+    thread->fieldf8 = argc + 1;
+
+    if ((int32_t)obj->field40 <= 0x48)          /* a number, not a pointer */
+        get_char_ani(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x7d3;
+    thread->frame = thread->frame + 1;                  /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_bani2;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
 }
