@@ -3566,3 +3566,78 @@ long t_do_smoke_tele(MK3THREAD *thread)
 
 
 
+
+
+/* --------------------------------------------------------------------
+ * What the readers could prove. See tools/pushfn.py, which executes
+ * a body symbolically, and tools/microfn.py, which matches whole
+ * bodies against templates. Both refuse anything they cannot account
+ * for instruction by instruction.
+ * -------------------------------------------------------------------- */
+
+long t_do_body_propell(struct MK3THREAD *thread);
+long t_do_stationary(struct MK3THREAD *thread);
+long t_do_zap(struct MK3THREAD *thread);
+
+/* t_do_lao_spin -- armv7 0x00050700, 60 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = 0   (the register the guard proved)
+ *      frame[frame].handler = t_do_stationary
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_do_lao_spin(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0;   /* the guard proved this register */
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_do_stationary);
+}
+
+/* t_do_kano_roll -- armv7 0x0005073c, 60 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = 0   (the register the guard proved)
+ *      frame[frame].handler = t_do_body_propell
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_do_kano_roll(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0;   /* the guard proved this register */
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_do_body_propell);
+}
+
+/* t_do_kano_zap -- armv7 0x00050e00, 60 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = 0   (the register the guard proved)
+ *      frame[frame].handler = t_do_zap
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_do_kano_zap(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0;   /* the guard proved this register */
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_do_zap);
+}
+
+
+

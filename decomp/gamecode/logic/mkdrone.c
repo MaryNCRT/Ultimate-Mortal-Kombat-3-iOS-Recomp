@@ -1681,3 +1681,39 @@ long t_nr_hikick_if_u_can(MK3THREAD *thread)
 
 
 
+
+
+/* --------------------------------------------------------------------
+ * What the readers could prove. See tools/pushfn.py, which executes
+ * a body symbolically, and tools/microfn.py, which matches whole
+ * bodies against templates. Both refuse anything they cannot account
+ * for instruction by instruction.
+ * -------------------------------------------------------------------- */
+
+long is_he_airborn(struct MK3THREAD *thread);
+long t_stance_wait_no(struct MK3THREAD *thread);
+
+/* t_swait_land_jsrp -- armv7 0x0006b404, 72 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field48 = is_he_airborn
+ *      obj->a10 = 0x40
+ *      frame[frame].handler = t_stance_wait_no
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_swait_land_jsrp(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field48 = (uint32_t)(uintptr_t)is_he_airborn;
+    obj->a10 = 0x40;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_stance_wait_no);
+}
+
+
+

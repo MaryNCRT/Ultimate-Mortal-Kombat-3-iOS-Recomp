@@ -61,3 +61,31 @@ long rip_ani(MK3OBJ *obj)
 }
 
 
+
+
+/* --------------------------------------------------------------------
+ * What the readers could prove. See tools/pushfn.py, which executes
+ * a body symbolically, and tools/microfn.py, which matches whole
+ * bodies against templates. Both refuse anything they cannot account
+ * for instruction by instruction.
+ * -------------------------------------------------------------------- */
+
+long t_victory_animation(struct MK3THREAD *thread);
+
+/* t_null_fatality -- armv7 0x00032f40, 52 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      frame[frame].handler = t_victory_animation
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_null_fatality(MK3THREAD *thread)
+{
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_victory_animation);
+}
+
+
+
