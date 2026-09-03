@@ -56,7 +56,9 @@ typedef struct IMG_PROC {
     uint32_t field18;            /* 0x18  get_his_action, init_special_act */
     uint32_t field1c;            /* 0x1c  the animation rate */
     uint32_t field20;            /* 0x20  its counter */
-    uint8_t  _pad24[0x1c];
+    uint8_t  _pad24[4];
+    uint32_t field28;            /* 0x28  the shake pair */
+    uint8_t  _pad2c[0x14];
     uint16_t field40;            /* 0x40 */
     uint8_t  _pad42[2];
     uint32_t p_hit;              /* 0x44 */
@@ -75,6 +77,7 @@ CHECK(IMG_PROC, field10, 0x10);
 CHECK(IMG_PROC, field18, 0x18);
 CHECK(IMG_PROC, field1c, 0x1c);
 CHECK(IMG_PROC, field20, 0x20);
+CHECK(IMG_PROC, field28, 0x28);
 CHECK(IMG_PROC, field40, 0x40);
 CHECK(IMG_PROC, p_hit,   0x44);
 CHECK(IMG_PROC, field54, 0x54);
@@ -181,6 +184,6 @@ CHECK(IMG_THREAD, proc,    0x108);
 
 int main(void)
 {
-    printf("logic offsets: %d fields over three structs -- all agree\n", 41);
+    printf("logic offsets: %d fields over three structs -- all agree\n", 42);
     return 0;
 }
