@@ -10041,3 +10041,122 @@ long t_flight_call(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------ t_gravity_ani
+ *
+ * armv7 0x0005a870, two hundred and eighty-eight bytes.  **Complete.**
+ *
+ *      token 0:
+ *          obj->field00->field34 = obj->field34        ; the callback
+ *          if (obj->field20 != 0) obj->field08->field1c = obj->field20
+ *          init_anirate(obj)
+ *          park(0x1684, 1)
+ *      token 0x1684:
+ *          obj->field34 = obj->field00->field34
+ *          if (obj->field34 != 0) {
+ *              args[argc++] = obj->a10
+ *              frame[frame+1].w0 = 0x168a
+ *              frame = frame + 1                       ; push
+ *              frame[frame].handler = obj->field34
+ *          } else fall through
+ *      token 0x168a:
+ *          obj->a10 = args[--argc]
+ *          fall through
+ *      common:
+ *          next_anirate(obj)
+ *          obj->field1c = obj->field08->field1c + obj->a10
+ *          obj->field08->field1c = obj->field1c
+ *          if ((int32_t)obj->field1c < 0)   park(0x1684, 1)
+ *          if ((int16_t)obj->field08->field12 < obj->field00->field40)
+ *                                           park(0x1684, 1)
+ *          stop_me_player(obj)
+ *          ground_player(obj)
+ *          obj->field1c = 0
+ *          obj->field00->p_hit = 0
+ *          unwind
+ *      otherwise:  return -3
+ *
+ * `t_flight_loop`'s shape with the arithmetic actually in it. That routine
+ * only waits for y to reach the ground; this one **integrates**: every tick it
+ * adds A10 to 0x1c of the other object, so A10 is an acceleration and that
+ * slot is a velocity.
+ *
+ * There are two reasons to keep going and they park on the same token: the
+ * velocity is still negative -- he is on the way up -- or y has not reached the
+ * floor. Either one alone would be wrong, because a rising fighter is above
+ * the floor and a falling one may have negative velocity for a while yet.
+ *
+ * The optional callback is the same one `t_flight_loop` runs, read from the
+ * PROC's 0x34, with the same A10-across-the-call and the same pair of tokens
+ * six apart. Two loops share the mechanism and differ in the physics.
+ *
+ * On the first entry 0x20 seeds the velocity, and it is skipped when zero --
+ * so a zero there means "keep whatever velocity is already set" rather than
+ * "start from rest". `t_flight_call` uses 0xd for that idea in a different
+ * slot; this one uses 0.
+ *
+ * The PROC's 0x44 is cleared on landing -- the hit count `back_to_normal_px`
+ * reads to decide whether a combo happened. So landing ends a combo.
+ */
+long t_gravity_ani(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t argc;
+
+    if (token != 0 && token != 0x1684 && token != 0x168a)
+        return -3;
+
+    if (token == 0) {
+        *(uint32_t *)((char *)obj->field00 + 0x34) = obj->field34;
+
+        if (obj->field20 != 0)                  /* 0: keep what is set */
+            obj->field08->field1c = obj->field20;
+
+        init_anirate(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1684;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0x1684) {
+        obj->field34 = *(const uint32_t *)((char *)obj->field00 + 0x34);
+
+        if (obj->field34 != 0) {                /* the optional callback */
+            argc = thread->fieldf8;
+            *mk3_arg(thread, argc) = obj->a10;
+            thread->fieldf8 = argc + 1;
+
+            *mk3_frame(thread, thread->frame + 1) = 0x168a;
+            thread->frame = thread->frame + 1;          /* push a level */
+            mk3_frame(thread, thread->frame)[1] = obj->field34;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+    } else {                                    /* 0x168a: it just finished */
+        argc = thread->fieldf8 - 1;
+        thread->fieldf8 = argc;
+        obj->a10 = *mk3_arg(thread, argc);
+    }
+
+    next_anirate(obj);
+
+    obj->field1c = obj->field08->field1c + obj->a10;     /* v += g */
+    obj->field08->field1c = obj->field1c;
+
+    if ((int32_t)obj->field1c < 0 ||            /* still rising */
+        (int32_t)(int16_t)MK3_FIELD12(obj->field08)
+            < (int32_t)obj->field00->field40) { /* still above the floor */
+        *mk3_frame(thread, thread->frame + 1) = 0x1684;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    stop_me_player(obj);
+    ground_player(obj);
+    obj->field1c = 0;
+    obj->field00->p_hit = 0;                    /* landing ends the combo */
+    return mk3_unwind(thread);
+}
