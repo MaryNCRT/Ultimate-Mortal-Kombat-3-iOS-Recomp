@@ -107,7 +107,7 @@ typedef struct IMG_OBJ {
     /* 0x10 is a word and 0x12 its high half, exactly like 0x0c and 0x0e.
      * Two coordinates in 16.16 fixed point. */
     uint32_t field10;            /* 0x10  match_ani_points_ob_ob copies it */
-    uint8_t  _pad14[4];
+    uint32_t field14;            /* 0x14  strike_check_box clears it with 0x18 */
     uint32_t field18;            /* 0x18 */
     uint32_t field1c;            /* 0x1c */
     uint32_t field20;            /* 0x20 */
@@ -131,6 +131,7 @@ CHECK(IMG_OBJ, thread,      0x04);
 CHECK(IMG_OBJ, field08,     0x08);
 CHECK(IMG_OBJ, field0c,     0x0c);
 CHECK(IMG_OBJ, field10,     0x10);
+CHECK(IMG_OBJ, field14,     0x14);
 CHECK(IMG_OBJ, field18,     0x18);
 CHECK(IMG_OBJ, field1c,     0x1c);
 CHECK(IMG_OBJ, field20,     0x20);
@@ -180,6 +181,6 @@ CHECK(IMG_THREAD, proc,    0x108);
 
 int main(void)
 {
-    printf("logic offsets: %d fields over three structs -- all agree\n", 40);
+    printf("logic offsets: %d fields over three structs -- all agree\n", 41);
     return 0;
 }
