@@ -352,4 +352,21 @@ static uint32_t *mk3_arg(MK3THREAD *thread, uint32_t n)
     return (uint32_t *)((char *)thread + 0xa8 + n * 4);
 }
 
+
+/* Replace the handler at the CURRENT level -- a tail call: the routine gives
+ * up its place. `t_flight` and its kind INCREMENT the index instead, which is
+ * a real call. The two differ by that one increment and most of this
+ * directory is built out of the pair. */
+static long mk3_push_handler(MK3THREAD *thread, MK3THREADFUNC handler)
+{
+    uint32_t current = thread->frame;
+
+    if (*mk3_frame(thread, current + 1) != 0)
+        return -3;
+
+    mk3_frame(thread, current)[1] = (uint32_t)(uintptr_t)handler;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
 #endif /* MK3LOGIC_H */

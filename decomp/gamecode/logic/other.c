@@ -4124,17 +4124,6 @@ long t_multi_dummy_proc(struct MK3THREAD *thread);
 long t_wait_forever(struct MK3THREAD *thread);
 
 
-static long mk3_push_handler(MK3THREAD *thread, MK3THREADFUNC handler)
-{
-    uint32_t current = thread->frame;
-
-    if (*mk3_frame(thread, current + 1) != 0)
-        return -3;
-
-    mk3_frame(thread, current)[1] = (uint32_t)(uintptr_t)handler;
-    *mk3_frame(thread, thread->frame + 1) = 0;
-    return 0;
-}
 
 long t_attk5(MK3THREAD *thread)
 {
