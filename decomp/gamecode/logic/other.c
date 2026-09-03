@@ -11662,3 +11662,168 @@ long strike_check_regs(MK3OBJ *obj, const uint32_t *p)
     obj->field48 = saved48;
     return (long)obj->field5c;
 }
+
+
+/* ------------------------------------------------------------ t_spawn_wingman
+ *
+ * armv7 0x0005a6a8, four hundred and fifty-six bytes.  **Complete**, and it is
+ * the next endurance opponent walking on.
+ *
+ *      token 0:
+ *          i = obj->field00->field08
+ *          c = obj->field30
+ *          Endurance_ClearPlayer(i)
+ *          set_noedge(obj)
+ *          G[0x380 + i*4] = G[0x378 + i*4] = 0x30
+ *          G[0x370 + i*4] = G[0x368 + i*4] = 0xa6
+ *          MKEvent_Add(3, 0,   0xa6, i)
+ *          MKEvent_Add(3, 5,   G[0x378 + i*4], i)
+ *          MKEvent_Add(3, 0xa, c, i)
+ *          mid = (RoundParam[0] + RoundParam[1]) / 2
+ *          if ((int16_t)him->field0e <= mid) {
+ *              x = G[0x470] + 0x3c;  facing = 0x10;  vel = 0xfffd8000
+ *          } else {
+ *              x = G[0x468] - 0x3c;  facing = 0;     vel = 0x00028000
+ *          }
+ *          obj->field1c = vel
+ *          set_x_vel_player(obj)
+ *          obj->field08->field0e = x
+ *          obj->field08->field28 = facing
+ *          obj->field08->field24 = c
+ *          ground_ochar(obj)
+ *          tsound_func(obj, c + 0x28)
+ *          obj->field00->field40 = (int16_t)obj->field08->field12
+ *          obj->field40 = 0x1a;  get_char_ani(obj)
+ *          obj->field1c = 3
+ *          obj->field34 = 0
+ *          obj->field20 = 0xfff60000
+ *          obj->a10     = 0xfff60000 + 0xa8000
+ *          push t_gravity_ani with token 0x171a
+ *      token 0x171a:
+ *          obj->a10 = 0x80
+ *          stance_setup(obj)
+ *          park(0x171f, 1)
+ *      token 0x171f:
+ *          next_anirate(obj)
+ *          if (--obj->a10 != 0) park(0x171f, 1)
+ *          else { reset_proc_stack(obj); install t_local_reaction_exit }
+ *      otherwise:  return -3
+ *
+ * The whole arrival. His slot is cleared, both his bars filled to the same
+ * values `recharge_bars` uses -- 0xa6 health and 0x30 turbo, in the same five
+ * pairs -- and three events sent, the last of them (3, 0xa) carrying the
+ * character.
+ *
+ * **He comes in from the far side.** The opponent's x is compared against the
+ * midpoint of `RoundParam[0]` and `RoundParam[1]`, and he is placed 0x3c inside
+ * whichever edge -- G+0x470 or G+0x468 -- is on the other half, facing inward,
+ * with the velocity signed to match. Two more fields of RoundParam, and they
+ * are the arena's bounds.
+ *
+ * The velocities are 16.16 again: -2.5 or +2.5 walking in, then -10.0 and +0.5
+ * for the jump. That last pair is the same as `t_do_jump_up`'s and reached the
+ * same way -- one literal and `+ 0xa8000` for the second.
+ *
+ * `tsound_func(obj, c + 0x28)` is his name announced: a base plus the
+ * character, like `t_fx_mercy`'s `A10 + 0x99`.
+ *
+ * The count of 0x80 in the last two arms is a wait measured in calls to
+ * `next_anirate` rather than in ticks -- the routine parks for one each time
+ * and decrements, so the stance plays for 128 frames before the thread lets go.
+ */
+void set_noedge(MK3OBJ *obj);
+void set_x_vel_player(MK3OBJ *obj);
+long t_gravity_ani(MK3THREAD *thread);
+
+long t_spawn_wingman(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t *g = (uint32_t *)G_BYTES;
+    const uint32_t *rp = (const uint32_t *)RoundParam;
+    uint32_t i, c, facing, vel;
+    int32_t mid, x;
+
+    if (token == 0x171a) {
+        obj->a10 = 0x80;
+        stance_setup(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x171f;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0x171f) {
+        next_anirate(obj);
+        obj->a10 = obj->a10 - 1;
+        if (obj->a10 != 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0x171f;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        reset_proc_stack(obj);
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_local_reaction_exit;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    i = obj->field00->field08;
+    c = obj->field30;
+
+    Endurance_ClearPlayer(i);
+    set_noedge(obj);
+
+    g[(0x380 + i * 4) / 4] = 0x30;              /* turbo, full */
+    g[(0x378 + i * 4) / 4] = 0x30;
+    g[(0x370 + i * 4) / 4] = 0xa6;              /* health, full */
+    g[(0x368 + i * 4) / 4] = 0xa6;
+
+    MKEvent_Add(3, 0, 0xa6, i);
+    MKEvent_Add(3, 5, (long)g[(0x378 + i * 4) / 4], i);
+    MKEvent_Add(3, 0xa, (long)c, i);
+
+    mid = (int32_t)(rp[0] + rp[1]);
+    mid = (mid + (int32_t)((uint32_t)mid >> 31)) >> 1;
+
+    if ((int32_t)(int16_t)MK3_FIELD0E(
+            (MK3OBJ *)(uintptr_t)obj->field00->him) <= mid) {
+        x      = (int32_t)g[0x470 / 4] + 0x3c;  /* in from the left */
+        facing = 0x10;
+        vel    = 0xfffd8000u;                   /* -2.5 */
+    } else {
+        x      = (int32_t)g[0x468 / 4] - 0x3c;  /* in from the right */
+        facing = 0;
+        vel    = 0x00028000u;                   /* +2.5 */
+    }
+
+    obj->field1c = vel;
+    set_x_vel_player(obj);
+
+    MK3_SET_FIELD0E(obj->field08, (uint32_t)x);
+    obj->field08->field28 = facing;
+    obj->field08->field24 = c;
+
+    ground_ochar(obj);
+    tsound_func((uint32_t)(uintptr_t)obj, c + 0x28);    /* his name */
+
+    obj->field00->field40 = (uint16_t)MK3_FIELD12(obj->field08);
+
+    obj->field40 = 0x1a;
+    get_char_ani(obj);
+
+    obj->field1c = 3;
+    obj->field34 = 0;
+    obj->field20 = 0xfff60000u;                 /* -10.0 */
+    obj->a10     = 0xfff60000u + 0xa8000u;      /*  +0.5, from one literal */
+
+    *mk3_frame(thread, thread->frame + 1) = 0x171a;
+    thread->frame = thread->frame + 1;                  /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_gravity_ani;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
