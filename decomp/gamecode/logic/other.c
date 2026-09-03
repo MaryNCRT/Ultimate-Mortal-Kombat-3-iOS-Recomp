@@ -6989,3 +6989,107 @@ long t_clock3(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------ t_mercy_start
+ *
+ * armv7 0x0005975c, one hundred and thirty-six bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          back_to_normal(obj)
+ *          face_opponent(obj)
+ *          disable_all_buttons(obj)
+ *          frame[frame+1].w0 = 0x17ec
+ *          frame = frame + 1                   ; a call, not a tail call
+ *          frame[frame].handler = t_wait_for_start
+ *          frame[frame+1].w0 = 0
+ *      token == 0x17ec:  unwind
+ *      otherwise:        return -3
+ *
+ * The second routine to push a level, and the shape reads as a call now that
+ * `t_flight` has established it: stamp the token where the child will sit,
+ * push, and recognise it coming back.
+ *
+ * Three calls before the wait, and the order is the whole of what mercy does
+ * to the fighter -- return to normal, turn to face the opponent, take the
+ * controls away. The controls come back somewhere past `t_wait_for_start`;
+ * nothing here gives them back, which is what makes this a call rather than a
+ * sequence.
+ *
+ * `disable_all_buttons` is in another translation unit -- 0x0002ec68, well
+ * below this file -- so the button state is not private to the fight logic.
+ */
+long t_wait_for_start(MK3THREAD *thread);
+void back_to_normal(MK3OBJ *obj);
+void face_opponent(MK3OBJ *obj);
+void disable_all_buttons(MK3OBJ *obj);
+
+long t_mercy_start(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x17ec)
+        return mk3_unwind(thread);
+
+    if (token != 0)
+        return -3;
+
+    back_to_normal(obj);
+    face_opponent(obj);
+    disable_all_buttons(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x17ec;
+    thread->frame = thread->frame + 1;                  /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_wait_for_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ------------------------------------------------------ t_print_timeout_msg
+ *
+ * armv7 0x00057ae4, one hundred and thirty-six bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field28 = 0;      send_code_a3(obj)
+ *          obj->field28 = 0x21b;  send_code_a3(obj)
+ *          MKEvent_Add(3, 0xc, 0, 0)
+ *          park(0x186b, 0x50)
+ *      token == 0x186b:  unwind
+ *      otherwise:        return -3
+ *
+ * Two codes sent through the same slot, one after the other: a zero and then
+ * 0x21b. The zero is not a clear -- it is a code in its own right, sent the
+ * same way, because `send_code_a3` reads 0x28 each time it is called.
+ *
+ * Event (3, 0xc) carries nothing, like the (3, 6) `t_white_flash` sends. So
+ * the event numbers with arguments and those without are mixed in one
+ * enumeration rather than split.
+ *
+ * The mask is 0x50, which is 0x10 | 0x40 -- and 0x40 on its own is what
+ * `t_wait_forever` and the friendship speech park on.
+ */
+long t_print_timeout_msg(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x186b)
+        return mk3_unwind(thread);
+
+    if (token != 0)
+        return -3;
+
+    obj->field28 = 0;
+    send_code_a3(obj);
+    obj->field28 = 0x21b;
+    send_code_a3(obj);
+
+    MKEvent_Add(3, 0xc, 0, 0);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x186b;
+    thread->fieldfc = 0x50;
+    return 0x50;
+}
