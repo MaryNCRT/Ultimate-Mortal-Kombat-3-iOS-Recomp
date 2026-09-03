@@ -11179,3 +11179,123 @@ long t_master_proc_mercy(MK3THREAD *thread)
     thread->fieldfc = 0x40;
     return 0x40;
 }
+
+
+/* ----------------------------------------------------------------- t_shake3
+ *
+ * armv7 0x00056e48, four hundred and four bytes.  **Complete**, and it is the
+ * shake.
+ *
+ *      token 0:
+ *          o = obj->field00->field28
+ *          obj->field28 = o
+ *          o->field0e = (int16_t)o->field0e + obj->field40
+ *          o->field12 = (int16_t)o->field12 + obj->a10
+ *          obj->field1c = args[argc-1]             ; peek the half-period
+ *          park(0x1378, obj->field1c)
+ *      token 0x1378:
+ *          o = obj->field00->field28
+ *          obj->field28 = o
+ *          o->field0e = (int16_t)o->field0e - obj->field40
+ *          o->field12 = (int16_t)o->field12 - obj->a10
+ *          obj->field1c = args[argc-1]
+ *          park(0x1382, obj->field1c)
+ *      token 0x1382:
+ *          obj->field48 = obj->field48 - 1
+ *          if (obj->field48 > 0) { install t_shake3; return 0; }
+ *          obj->field20 = args[--argc]
+ *          obj->field48 = args[--argc]
+ *          obj->a10     = args[--argc]
+ *          obj->field40 = args[--argc]
+ *          unwind
+ *      otherwise:  return -3
+ *
+ * Displace, wait, displace back, wait, and round again: a square wave on both
+ * axes at once. The amplitudes are 0x40 and A10, the count is 0x48, and the
+ * half-period is peeked off the argument stack on every pass with the
+ * pop-and-push-back the mframew family uses.
+ *
+ * **The four pops are exactly the four pushes of `t_shake_him_up` and
+ * `t_shake_ob_up`**, in reverse: 0x20, 0x48, 0x44, 0x40 coming back off what
+ * went on as 0x40, 0x44, 0x48, 0x20. Those two pushed and installed `t_shake2`,
+ * `t_shake2` unpacked a word and installed this, and this is where the
+ * arguments land -- four values across three handlers, the deepest argument
+ * passing in the file.
+ *
+ * What moves is `proc->field28`, the slot the shake pair set to either the
+ * PROC's own `him` or the object's 0x08. So the two entry points chose whose
+ * screen shakes and this does not have to know.
+ *
+ * The displacement is signed on the way in and stored back as a halfword, so a
+ * shake that runs past the coordinate's range wraps rather than clamping.
+ *
+ * The repeat re-installs the routine at the current level and clears the slot
+ * above, so each cycle re-enters at token 0 -- `t_wait_for_his_dog`'s shape.
+ */
+long t_shake3(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    MK3OBJ  *o;
+    uint32_t argc;
+
+    if (token != 0 && token != 0x1378 && token != 0x1382)
+        return -3;
+
+    if (token == 0x1382) {
+        obj->field48 = obj->field48 - 1;
+
+        if ((int32_t)obj->field48 > 0) {        /* one more cycle */
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)t_shake3;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+
+        argc = thread->fieldf8 - 1;             /* what the pair pushed */
+        thread->fieldf8 = argc;
+        obj->field20 = *mk3_arg(thread, argc);
+        argc = thread->fieldf8 - 1;
+        thread->fieldf8 = argc;
+        obj->field48 = *mk3_arg(thread, argc);
+        argc = thread->fieldf8 - 1;
+        thread->fieldf8 = argc;
+        obj->a10 = *mk3_arg(thread, argc);
+        argc = thread->fieldf8 - 1;
+        thread->fieldf8 = argc;
+        obj->field40 = *mk3_arg(thread, argc);
+
+        return mk3_unwind(thread);
+    }
+
+    o = (MK3OBJ *)(uintptr_t)obj->field00->field28;
+    obj->field28 = (uint32_t)(uintptr_t)o;
+
+    if (token == 0) {                           /* out */
+        obj->field1c = (uint32_t)((int32_t)(int16_t)MK3_FIELD0E(o)
+                                  + (int32_t)obj->field40);
+        MK3_SET_FIELD0E(o, obj->field1c);
+        o = (MK3OBJ *)(uintptr_t)obj->field28;
+        obj->field1c = (uint32_t)((int32_t)(int16_t)MK3_FIELD12(o)
+                                  + (int32_t)obj->a10);
+        MK3_SET_FIELD12(o, obj->field1c);
+    } else {                                    /* and back */
+        obj->field1c = (uint32_t)((int32_t)(int16_t)MK3_FIELD0E(o)
+                                  - (int32_t)obj->field40);
+        MK3_SET_FIELD0E(o, obj->field1c);
+        o = (MK3OBJ *)(uintptr_t)obj->field28;
+        obj->field1c = (uint32_t)((int32_t)(int16_t)MK3_FIELD12(o)
+                                  - (int32_t)obj->a10);
+        MK3_SET_FIELD12(o, obj->field1c);
+    }
+
+    argc = thread->fieldf8 - 1;                 /* peek the half-period */
+    thread->fieldf8 = argc;
+    obj->field1c = *mk3_arg(thread, argc);
+    *mk3_arg(thread, argc) = obj->field1c;
+    thread->fieldf8 = argc + 1;
+
+    *mk3_frame(thread, thread->frame + 1) = (token == 0) ? 0x1378 : 0x1382;
+    thread->fieldfc = obj->field1c;
+    return (long)obj->field1c;
+}
