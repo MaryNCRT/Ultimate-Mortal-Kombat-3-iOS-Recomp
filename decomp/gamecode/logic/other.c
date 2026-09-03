@@ -10570,3 +10570,108 @@ MK3OBJ *getprc_x(MK3OBJ *obj, MK3THREAD *th)
 
     return th ? (MK3OBJ *)th->proc : NULL;
 }
+
+
+/* --------------------------------------------------- t_finish_him_sequence
+ *
+ * armv7 0x00058f58, three hundred and sixteen bytes.  **Complete.**
+ *
+ *      token 0:
+ *          is_finish_him_allowed(obj)
+ *          if (obj->field5c == 0) { install t_finish_him_exit; return 0; }
+ *          obj->field1c = 3
+ *          G[0x45c] = (int16_t)3
+ *          finish_him_or_her(obj)
+ *          obj->field20 = 0x28
+ *          frame[frame+1].w0 = 0x1163
+ *          frame = frame + 1                       ; push
+ *          frame[frame].handler = t_fatality_wait
+ *      token 0x1163:
+ *          v = (uint16_t)G[0x452]
+ *          obj->field1c = (int16_t)v
+ *          if (v != 0) { install t_finish_him_exit; return 0; }
+ *          obj->field48 = 0x120
+ *          frame[frame+1].w0 = 0x1170
+ *          frame = frame + 1                       ; push
+ *          frame[frame].handler = t_fatality_wait
+ *      token 0x1170:
+ *          if (obj->field48 != 0) {
+ *              obj->field48 = 0x140
+ *              install t_fhs3
+ *          } else install t_finish_him_exit
+ *      otherwise:  return -3
+ *
+ * Two waits with a check between them. `t_fatality_wait` counts 0x48 down and
+ * ends early when one of two halfwords in G is set, so **a non-zero 0x48 on
+ * return means it stopped early and a zero means it ran out** -- the countdown
+ * doubles as the verdict and no separate flag is needed. That is why the third
+ * arm can decide with one comparison.
+ *
+ * G+0x45c is the winner halfword: `t_player_1_won` writes 1 and
+ * `t_player_2_won` writes 2. Writing **3** here says neither, for as long as
+ * the finisher lasts, which is a fifth value for a field that had two and a
+ * gap.
+ *
+ * The refusal in the middle reads G+0x452 directly rather than trusting the
+ * wait's answer -- "no fatality" arriving between the two windows ends the
+ * sequence at once.
+ *
+ * Three of the four exits install `t_finish_him_exit` at the current level,
+ * from three different places with three different registers holding the zero.
+ * One body, three constants.
+ */
+long t_finish_him_sequence(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    MK3THREADFUNC next;
+
+    if (token != 0 && token != 0x1163 && token != 0x1170)
+        return -3;
+
+    if (token == 0) {
+        is_finish_him_allowed(obj);
+        if (obj->field5c == 0) {
+            next = (MK3THREADFUNC)t_finish_him_exit;
+        } else {
+            obj->field1c = 3;
+            *(int16_t *)(G_BYTES + 0x45c) = 3;      /* nobody yet */
+            finish_him_or_her(obj);
+            obj->field20 = 0x28;
+
+            *mk3_frame(thread, thread->frame + 1) = 0x1163;
+            thread->frame = thread->frame + 1;      /* push a level */
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)t_fatality_wait;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+    } else if (token == 0x1163) {
+        uint16_t v = *(const uint16_t *)(G_BYTES + 0x452);
+
+        obj->field1c = (uint32_t)(int32_t)(int16_t)v;
+        if (v != 0) {
+            next = (MK3THREADFUNC)t_finish_him_exit;    /* refused */
+        } else {
+            obj->field48 = 0x120;
+
+            *mk3_frame(thread, thread->frame + 1) = 0x1170;
+            thread->frame = thread->frame + 1;      /* push a level */
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)t_fatality_wait;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+    } else {                                        /* 0x1170 */
+        if (obj->field48 != 0) {                    /* it ended early */
+            obj->field48 = 0x140;
+            next = (MK3THREADFUNC)t_fhs3;
+        } else {
+            next = (MK3THREADFUNC)t_finish_him_exit;
+        }
+    }
+
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)next;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
