@@ -11299,3 +11299,199 @@ long t_shake3(MK3THREAD *thread)
     thread->fieldfc = obj->field1c;
     return (long)obj->field1c;
 }
+
+
+/* ---------------------------------------------------- do_next_a9_frame_pxob
+ *
+ * armv7 0x00059c74, four hundred and sixteen bytes.  **Complete**, and it is
+ * the **animation script interpreter**.
+ *
+ * The cursor is `obj->field40`. Each pass fetches one word, leaves it in 0x1c,
+ * and dispatches through a table of nineteen `b.w` instructions the code jumps
+ * into with `mov pc, r2` -- so opcodes 0 to 0x12 are a jump table and anything
+ * above falls to a default. The loop runs until an opcode returns.
+ *
+ *       0  store the cursor, return 0                   the end
+ *       1  cursor = *cursor                             an unconditional jump
+ *       2  other->field28 ^= 0x10                       flip the facing
+ *       3  multi_adjust_xy_ob(obj, other, w, 0)         one word
+ *       4  multi_adjust_xy_ob(obj, other, w0, w1)       two words
+ *       5  obj->field1c = w; ani2_ob(obj, other)
+ *          store the cursor, return 1
+ *       6  obj->field1c = w                             a word, and nothing
+ *       7  the same as 6
+ *       8  if (w0 == other->field24) cursor = w1
+ *          else cursor += 2                             per character
+ *       9  nothing at all
+ *      10  cursor = do_ani_offset_xy(obj, ref, other, cursor)
+ *      11  z = getprc_z(obj); if (z) link it in as the slave; cursor++
+ *      12  cursor = slave_ani(ref, cursor)
+ *      13  obj->field1c = w; ani2_ob(obj, other)
+ *      14  cursor = slave_ani(ref, cursor)
+ *          store the cursor, return 2
+ *      15  obj->field1c = w; ochar_sound(ref)
+ *      16  multi_adjust_xy_ob(obj, other, w, 0); cursor++   two words, one used
+ *      17  (*(void (**)(MK3OBJ *))cursor++)(obj)        call a function
+ *      18  obj->field1c = w; rsnd_func(obj, w)
+ *     >18  ani2_ob(obj, other); store the cursor, return 2
+ *
+ * **Three return values**, and they are what the mframew family loops on: 0
+ * ends the animation, 1 says a frame was drawn, 2 says one was drawn by a
+ * slave or by the default arm. `t_mframew` keeps going while the answer is
+ * non-zero, which is why 0 is the only opcode that finishes anything.
+ *
+ * Opcode 0 is what `stance_setup` scans forward for -- and opcode 8 is the one
+ * it follows. Note the difference: **here 8 is CONDITIONAL**, comparing its
+ * first word against the other object's character and taking `cursor[1]` only
+ * on a match. `stance_setup` follows that target unconditionally. Both are
+ * transcribed as written; a walker that only wants the end of the script can
+ * take either arm, and nothing says the two were meant to agree.
+ *
+ * **Opcode 17 is a function pointer in the script.** The interpreter calls it
+ * with the object and carries on. That is the sixth place in this file where a
+ * routine comes out of data rather than the linker, and the only one where the
+ * data is an animation.
+ *
+ * Opcodes 6 and 7 share an arm and do nothing but consume a word into 0x1c;
+ * opcode 9 consumes nothing at all. Three opcodes that are, as written, no-ops
+ * -- transcribed rather than folded away, because a script that uses them
+ * still has to step over the right number of words.
+ *
+ * Opcode 16 reads one word, uses it, and skips a second. Opcode 4 reads two
+ * and uses both. So the same call takes one, two or two-with-one-ignored
+ * depending on which opcode reached it.
+ *
+ * Opcode 11 is the only one that creates anything: it clones the fighter with
+ * `getprc_z`, clears the clone's animation, hangs it off the reference
+ * object's 0x64 and 0x68 -- the slave pair -- starts its thread on
+ * `t_multi_dummy_proc`, and matches the two up. The slave the `slave_ani`
+ * opcodes then drive.
+ */
+void ochar_sound(MK3OBJ *obj);
+void rsnd_func(uint32_t obj, uint32_t which);
+
+long do_next_a9_frame_pxob(MK3OBJ *obj, MK3OBJ *ref, MK3OBJ *other)
+{
+    const uint32_t *cursor = (const uint32_t *)(uintptr_t)obj->field40;
+
+    for (;;) {
+        uint32_t op = *cursor++;
+
+        obj->field1c = op;
+
+        if (op > 0x12) {                        /* the default arm */
+            ani2_ob(obj, other);
+            obj->field40 = (uint32_t)(uintptr_t)cursor;
+            return 2;
+        }
+
+        switch (op) {
+        case 0:
+            obj->field40 = (uint32_t)(uintptr_t)cursor;
+            return 0;                           /* the end */
+
+        case 1:
+            cursor = (const uint32_t *)(uintptr_t)cursor[0];
+            break;
+
+        case 2:
+            other->field28 ^= 0x10u;            /* flip the facing */
+            break;
+
+        case 3:
+            multi_adjust_xy_ob(obj, (uint32_t)(uintptr_t)other,
+                               *cursor++, 0);
+            break;
+
+        case 4: {
+            uint32_t a = *cursor++;
+            uint32_t b = cursor[0];
+
+            cursor++;
+            multi_adjust_xy_ob(obj, (uint32_t)(uintptr_t)other, a, b);
+            break;
+        }
+
+        case 5:
+            obj->field1c = *cursor++;
+            ani2_ob(obj, other);
+            obj->field40 = (uint32_t)(uintptr_t)cursor;
+            return 1;
+
+        case 6:
+        case 7:
+            obj->field1c = *cursor++;           /* read, and nothing else */
+            break;
+
+        case 8:                                 /* branch on the character */
+            if (cursor[0] == other->field24)
+                cursor = (const uint32_t *)(uintptr_t)cursor[1];
+            else
+                cursor += 2;
+            break;
+
+        case 9:
+            break;                              /* nothing at all */
+
+        case 10:
+            cursor = do_ani_offset_xy(obj, ref, other, cursor);
+            break;
+
+        case 11: {
+            MK3OBJ *z = getprc_z(obj);
+
+            if (z != NULL) {
+                MK3THREAD *th = z->thread;
+
+                z->field08->field2c = 0xffffffffu;
+                ref->field00->field64 = (uint32_t)(uintptr_t)z;
+                ref->field00->slave   = (uint32_t)(uintptr_t)z->field08;
+                th->func = (MK3THREADFUNC)t_multi_dummy_proc;
+                th->field08 = 0;
+                match_ani_points_ob_ob((uint32_t)(uintptr_t)ref->field08,
+                                       (uint32_t)(uintptr_t)z->field08);
+            }
+            cursor++;
+            break;
+        }
+
+        case 12:
+            cursor = slave_ani(ref, cursor);
+            break;
+
+        case 13:
+            obj->field1c = *cursor++;
+            ani2_ob(obj, other);
+            break;
+
+        case 14:
+            cursor = slave_ani(ref, cursor);
+            obj->field40 = (uint32_t)(uintptr_t)cursor;
+            return 2;
+
+        case 15:
+            obj->field1c = *cursor++;
+            ochar_sound(ref);
+            break;
+
+        case 16:
+            multi_adjust_xy_ob(obj, (uint32_t)(uintptr_t)other,
+                               *cursor++, 0);
+            cursor++;                           /* a second word, unused */
+            break;
+
+        case 17: {                              /* a function IN the script */
+            void (*fn)(MK3OBJ *) =
+                (void (*)(MK3OBJ *))(uintptr_t)*cursor++;
+
+            fn(obj);
+            break;
+        }
+
+        case 18:
+            obj->field1c = *cursor++;
+            rsnd_func((uint32_t)(uintptr_t)obj, obj->field1c);
+            break;
+        }
+    }
+}
