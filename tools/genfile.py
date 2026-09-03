@@ -9,6 +9,7 @@ so it can be read by hand.
 """
 
 import io
+import os
 import re
 import subprocess
 import sys
@@ -69,7 +70,21 @@ HEAD = '''/*
 
 '''
 
-io.open(out, "w", encoding="utf-8", newline="").write(
-    HEAD % {"src": src, "blurb": blurb} + push + "\n" + micro + "\n")
+body = push + "\n" + micro + "\n"
+
+if os.path.exists(out):
+    # The file already holds functions read by hand. Append rather than
+    # replace: `written()` has already stopped the readers re-emitting any of
+    # them, so everything arriving here is new.
+    io.open(out, "a", encoding="utf-8", newline="").write(
+        "\n\n/* " + "-" * 68 + "\n"
+        " * What the readers could prove. See tools/pushfn.py, which executes\n"
+        " * a body symbolically, and tools/microfn.py, which matches whole\n"
+        " * bodies against templates. Both refuse anything they cannot account\n"
+        " * for instruction by instruction.\n"
+        " * " + "-" * 68 + " */\n\n" + body)
+else:
+    io.open(out, "w", encoding="utf-8", newline="").write(
+        HEAD % {"src": src, "blurb": blurb} + body)
 
 print("%s: %d by pushfn, %d by microfn" % (out, n_push, n_micro))
