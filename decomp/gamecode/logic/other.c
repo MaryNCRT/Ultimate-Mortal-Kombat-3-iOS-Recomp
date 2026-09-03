@@ -8669,3 +8669,161 @@ long t_play_1_round(MK3THREAD *thread)
     thread->fieldfc = 0x20;
     return 0x20;
 }
+
+
+/* ---------------------------------------------------------- t_fatality_wait
+ *
+ * armv7 0x00056540, two hundred and eight bytes.  **Complete.**
+ *
+ *      token 0:       park(0x113c, 1)
+ *      token 0x113c:
+ *          a = (uint16_t)G[0x450]
+ *          obj->field1c = (int16_t)a
+ *          if (a != 0)  { install t_fatal_yes; return 0; }
+ *          b = (uint16_t)G[0x452]
+ *          obj->field1c = (int16_t)b
+ *          if (b != 0)  { install t_fatal_no;  return 0; }
+ *          if (--obj->field48 > 0) install t_fatality_wait      ; poll again
+ *          else                    install t_fatal_no
+ *      otherwise:     return -3
+ *
+ * The fatality window. A countdown at 0x48 polled once a tick, and two
+ * halfwords in G that can end it early: 0x450 means yes, 0x452 means no.
+ *
+ * **Running out and being refused are the same outcome.** Both install
+ * `t_fatal_no`, from two different places with two different constants loaded
+ * into the same register. The code does not distinguish them and neither does
+ * this.
+ *
+ * The poll re-installs the routine at the current level and clears the slot
+ * above, so the next tick re-enters at token 0 and parks again -- the shape
+ * `t_wait_for_his_dog` uses, not the one `t_wait_for_start` uses.
+ *
+ * Each halfword is read UNSIGNED to test and SIGNED into 0x1c, so a negative
+ * value counts as set and reaches the caller as a negative number. That
+ * matters: `t_wait_fatality_finish` reads the same G+0x450 and tests it
+ * against **-1**, so the halfword has at least three states -- zero, -1, and
+ * anything else -- and two routines look at two different ones.
+ *
+ * The zeroes written into the slot above come from whichever halfword was just
+ * found to be zero, which is why the disassembly stores three different
+ * registers into the same place.
+ */
+long t_fatal_no(MK3THREAD *thread);
+
+long t_fatality_wait(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    MK3THREADFUNC next;
+    uint16_t a, b;
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x113c;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token != 0x113c)
+        return -3;
+
+    a = *(const uint16_t *)(G_BYTES + 0x450);
+    obj->field1c = (uint32_t)(int32_t)(int16_t)a;
+    if (a != 0) {
+        next = (MK3THREADFUNC)t_fatal_yes;              /* yes */
+    } else {
+        b = *(const uint16_t *)(G_BYTES + 0x452);
+        obj->field1c = (uint32_t)(int32_t)(int16_t)b;
+        if (b != 0) {
+            next = (MK3THREADFUNC)t_fatal_no;           /* refused */
+        } else {
+            obj->field48 = obj->field48 - 1;
+            next = ((int32_t)obj->field48 > 0)
+                       ? (MK3THREADFUNC)t_fatality_wait /* keep waiting */
+                       : (MK3THREADFUNC)t_fatal_no;     /* out of time */
+        }
+    }
+
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)next;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ----------------------------------------------------------- t_fx_animality
+ *
+ * armv7 0x00057ef0, two hundred and eight bytes.  **Complete.**
+ *
+ *      token 0:
+ *          tsound_func(obj, 0x95)
+ *          obj->field08->field2c = 0xf40           ; an animation id
+ *          obj->field08->field0e = 0x50            ; and a fixed position
+ *          obj->field08->field12 = 0x50
+ *          obj->field40 = a_animality
+ *          set_noscroll(obj)
+ *          obj->field1c = 4
+ *          frame[frame+1].w0 = 0xfae
+ *          frame = frame + 1                       ; push
+ *          frame[frame].handler = t_mframew
+ *      token 0xfae:  park(0xfb4, 0x2a)
+ *      token 0xfb4:
+ *          tsound_func(obj, 0x64)
+ *          frame[frame].handler = t_wait_forever
+ *      otherwise:    return -3
+ *
+ * `t_fani3`'s frame with two sounds and a pause added: stop the camera, plant
+ * the object, run the animation as a call, wait 0x2a, make the second noise,
+ * and stop. The ending is the same tail call to `t_wait_forever` -- the thread
+ * does not return to whoever pushed it.
+ *
+ * The position is (0x50, 0x50) where `t_fani3` uses (0xc7, 0x50), so the
+ * vertical is shared and the horizontal is not.
+ *
+ * 0xf40 goes into 0x2c, which `ani2_ob` masks to fourteen bits. It fits, so
+ * this is an animation id written directly rather than resolved -- the third
+ * way an animation reaches an object here, after a small number through
+ * `get_char_ani` and a table address into 0x40.
+ *
+ * `_a_animality` is the eleventh named table this file reaches, and the third
+ * of the finisher tables after `_a_ship` and `_a_friend`.
+ */
+extern uint32_t a_animality[];          /* 0x0016f674 */
+
+long t_fx_animality(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0xfae) {
+        *mk3_frame(thread, thread->frame + 1) = 0xfb4;
+        thread->fieldfc = 0x2a;
+        return 0x2a;
+    }
+
+    if (token == 0xfb4) {
+        tsound_func((uint32_t)(uintptr_t)obj, 0x64);
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_wait_forever;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    tsound_func((uint32_t)(uintptr_t)obj, 0x95);
+
+    obj->field08->field2c = 0xf40;
+    MK3_SET_FIELD0E(obj->field08, 0x50);
+    MK3_SET_FIELD12(obj->field08, 0x50);
+
+    obj->field40 = (uint32_t)(uintptr_t)a_animality;
+    set_noscroll(obj);
+    obj->field1c = 4;
+
+    *mk3_frame(thread, thread->frame + 1) = 0xfae;
+    thread->frame = thread->frame + 1;                  /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
