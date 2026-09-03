@@ -8325,6 +8325,11 @@ long t_backwards_ani2(MK3THREAD *thread)
  * That is a fourth field of RoundParam: 0x0c the difficulty `adjust_damage`
  * indexes with, 0x10 the round `t_print_round_number` speaks, 0x14 the ladder
  * order, and now 0x18. A byte among three words, and negative means no.
+ *
+ * `t_spawn_endurance_guy` says what it is: the head of a QUEUE of endurance
+ * opponents, ten signed bytes from 0x18, which that routine pops and shifts
+ * down. So this test is "is there another opponent", answered by the queue not
+ * having run out. The two were read separately and each explains the other.
  */
 long t_is_endurance_possible(MK3THREAD *thread)
 {
@@ -8824,6 +8829,80 @@ long t_fx_animality(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0xfae;
     thread->frame = thread->frame + 1;                  /* push a level */
     mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ----------------------------------------------------- t_spawn_endurance_guy
+ *
+ * armv7 0x00057740, two hundred and eight bytes.  **Complete.**
+ *
+ *      token 0:
+ *          head = RoundParam[0x18]                     ; a signed byte
+ *          for (k = 0; k < 9; k++)
+ *              RoundParam[0x18 + k] = RoundParam[0x19 + k]
+ *          i = 1 - obj->field48                        ; the other player
+ *          StartProcAt(&Plyr[i], t_spawn_wingman)
+ *          Plyr[i].field30 = (int8_t)head
+ *          frame[frame+1].w0 = 0x1784
+ *          frame = frame + 1                           ; push
+ *          frame[frame].handler = t_continue_fighting
+ *      token 0x1784:  unwind
+ *      otherwise:     return -3
+ *
+ * **RoundParam+0x18 is a queue.** Ten signed bytes at least -- nine are shifted
+ * and one is read -- holding the endurance opponents in order. This pops the
+ * head and moves the rest down a place, which is the whole of "next fighter".
+ *
+ * That settles `t_is_endurance_possible`, which reads the same byte and asks
+ * whether it is zero or positive. It is asking whether the queue still has
+ * somebody in it, with a negative value as the end marker. Neither function
+ * says so alone.
+ *
+ * `1 - obj->field48` turns the round result into the other player: 0 becomes 1
+ * and 1 becomes 0. The winner is at 0x48 and the new fighter takes the loser's
+ * slot, which is what an endurance match is.
+ *
+ * The shift is written as a byte loop over nine iterations with a pointer and
+ * a limit, not a memmove, so the queue is short enough that a loop was
+ * cheaper -- and it moves upward through overlapping bytes, which is only safe
+ * in this direction.
+ *
+ * The character is sign-extended into `Plyr[i].field30` after the proc starts,
+ * so `t_spawn_wingman` runs later and finds it there rather than being handed
+ * it.
+ */
+long t_spawn_wingman(MK3THREAD *thread);
+
+long t_spawn_endurance_guy(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    char    *rp    = (char *)RoundParam;
+    int8_t   head;
+    uint32_t i;
+    int      k;
+
+    if (token == 0x1784)
+        return mk3_unwind(thread);
+
+    if (token != 0)
+        return -3;
+
+    head = *(const int8_t *)(rp + 0x18);
+    for (k = 0; k < 9; k++)                     /* pop the head */
+        rp[0x18 + k] = rp[0x19 + k];
+
+    i = 1u - obj->field48;                      /* the loser's slot */
+    StartProcAt((MK3OBJ *)(Plyr + i * PLYR_STRIDE),
+                (MK3THREADFUNC)t_spawn_wingman);
+    *(uint32_t *)(Plyr + i * PLYR_STRIDE + 0x30) = (uint32_t)(int32_t)head;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x1784;
+    thread->frame = thread->frame + 1;                  /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_continue_fighting;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
