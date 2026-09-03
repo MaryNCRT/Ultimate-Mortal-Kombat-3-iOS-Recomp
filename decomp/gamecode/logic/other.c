@@ -10379,3 +10379,115 @@ void bar_reducer(MK3OBJ *obj)
 
     obj->field5c = 0;
 }
+
+
+/* -------------------------------------------------------------- t_one_on_one
+ *
+ * armv7 0x00056b28, three hundred bytes.  **Complete**, and it is the match
+ * loop.
+ *
+ *      token 0:
+ *          frame[frame+1].w0 = 0x129b
+ *          push t_play_1_round
+ *      token 0x129b or 0x12b1:
+ *          frame[frame+1].w0 = 0x12a1
+ *          push t_is_endurance_possible
+ *      token 0x12a1:
+ *          if (obj->field5c == 0) {
+ *              frame[frame].handler = t_play3          ; the loop ends
+ *              frame[frame+1].w0 = 0
+ *          } else if ((Pp[0].field10 & 0x200) != 0
+ *                     && GrObj[0].field24 != 0xc) {
+ *              G[0x3fc] = (uint16_t)0                  ; order the morph
+ *              park(0x12ac, 1)
+ *          } else {
+ *              frame[frame+1].w0 = 0x12b1
+ *              push t_spawn_endurance_guy
+ *          }
+ *      token 0x12ac:
+ *          if (GrObj[0].field24 != 0xc) park(0x12ac, 1)
+ *          else { frame[frame+1].w0 = 0x12b1; push t_spawn_endurance_guy; }
+ *      otherwise:  return -3
+ *
+ * Play a round, ask whether endurance continues, spawn the next opponent, ask
+ * again -- and 0x12b1 rejoins at the same place as 0x129b, which is what makes
+ * it a loop rather than a sequence. When `t_is_endurance_possible` says no, the
+ * routine becomes `t_play3` at the current level instead.
+ *
+ * **The wait is the interesting part.** If the fighter is not currently
+ * character 0xc, this zeroes the halfword at G+0x3fc and then polls until it
+ * IS. That address is exactly the table `t_back_to_shang_check` looks up
+ * through `get_tsl_px`, and `get_tsl_px` treats a zero entry as a hole and
+ * answers 0x780 -- comfortably above the 0x200 that check demands. So writing
+ * the zero is how this routine **orders** the morph back to Shang, and the
+ * poll is it waiting for the morph to finish before the next opponent walks
+ * on.
+ *
+ * Three functions had to be read to see that: the writer here, the reader in
+ * `t_back_to_shang_check`, and the lookup in `get_tsl_px`. None of them says
+ * it alone.
+ *
+ * Bit 0x200 of Pp's 0x10 gates the whole morph branch -- a second bit of that
+ * word, after the 1 that gates endurance and the end of the match.
+ *
+ * The dispatch is a binary search: equal, less-than, then two more equals, with
+ * 0x129b formed as 0x12a1 - 6 and 0x12b1 as 0x12ac + 5. That is why the
+ * disassembly reaches its constants by arithmetic.
+ */
+long t_one_on_one(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token != 0 && token != 0x129b && token != 0x12a1 &&
+        token != 0x12ac && token != 0x12b1)
+        return -3;
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x129b;
+        thread->frame = thread->frame + 1;              /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_play_1_round;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x129b || token == 0x12b1) {           /* round the loop */
+        *mk3_frame(thread, thread->frame + 1) = 0x12a1;
+        thread->frame = thread->frame + 1;              /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_is_endurance_possible;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x12a1) {
+        if (obj->field5c == 0) {                        /* no more opponents */
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)t_play3;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+
+        if ((*(const uint32_t *)(Pp + 0x10) & 0x200) != 0 &&
+            *(const uint32_t *)(GrObj + 0x24) != MK3_CHAR_SHANG) {
+            /* Zeroing that entry makes t_back_to_shang_check's lookup pass.
+             * Only here: the polling arm below does not repeat it. */
+            *(uint16_t *)(G_BYTES + 0x3fc) = 0;
+            *mk3_frame(thread, thread->frame + 1) = 0x12ac;
+            thread->fieldfc = 1;
+            return 1;
+        }
+    } else if (*(const uint32_t *)(GrObj + 0x24) != MK3_CHAR_SHANG) {
+        *mk3_frame(thread, thread->frame + 1) = 0x12ac; /* still waiting */
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = 0x12b1;
+    thread->frame = thread->frame + 1;                  /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_spawn_endurance_guy;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
