@@ -9085,3 +9085,123 @@ long t_back_to_shang_check(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ----------------------------------------------------- t_back_to_shang_form
+ *
+ * armv7 0x0005a330, two hundred and thirty-two bytes.  **Complete**, and the
+ * first function here that names a character.
+ *
+ *      token 0:
+ *          obj->field20 = 0x401
+ *          init_special_act(obj)
+ *          clear_inviso(obj)
+ *          obj->field20 = 0xc
+ *          obj->field1c = 4
+ *          borrow_ochar_sound(obj)
+ *          mine  = ochar_ground_offsets[obj->field08->field24]
+ *          shang = ochar_ground_offsets[12]
+ *          obj->field20 = shang
+ *          obj->field1c = mine - shang
+ *          obj->field24 = (int16_t)obj->field08->field12 + (mine - shang)
+ *          obj->field08->field12 = obj->field24
+ *          park(0x18ae, 4)
+ *      token 0x18ae:
+ *          obj->field1c = 0xc
+ *          obj->field08->field24 = 0xc             ; he is Shang again
+ *          player_normpal(obj)
+ *          obj->field40 = 0
+ *          do_first_a9_frame(obj)
+ *          ground_ochar(obj)
+ *          obj->field00->field40 = (int16_t)obj->field08->field12
+ *          park(0x18c1, 4)
+ *      token 0x18c1:  unwind
+ *      otherwise:     return -3
+ *
+ * **Character 0xc is Shang Tsung.** The routine is called
+ * `t_back_to_shang_form`, it writes 0xc into the character field, and
+ * `t_back_to_shang_check` refuses when the character is already 0xc. That is
+ * three uses of one constant across two functions whose SYMBOL NAMES say what
+ * it is, so the identification comes off the symbol table and not off a guess
+ * at the roster. It is the first character id this file can name.
+ *
+ * The vertical adjustment is what makes the morph work. `_ochar_ground_offsets`
+ * has one entry per character, indexed by the character number and read as
+ * words; entry 12 is Shang's own. The difference between the current form's
+ * offset and his is added to y BEFORE the character changes, so the feet stay
+ * where they were. Without it a morph would leave him hanging or sunk.
+ *
+ * The order matters and is preserved: the position is fixed while he is still
+ * the other character, and only then does the character number change.
+ *
+ * The PROC's 0x40 -- the ground, which `ground_player` reads -- is refreshed
+ * from the new y at the end, after `ground_ochar` has had its say.
+ *
+ * `_ochar_ground_offsets` at 0x0016ef04 is the twelfth named table this file
+ * reaches, and the second whose entries are per character rather than per
+ * animation.
+ */
+extern uint32_t ochar_ground_offsets[];  /* 0x0016ef04, one word a character */
+
+void init_special_act(MK3OBJ *obj);
+void clear_inviso(MK3OBJ *obj);
+void borrow_ochar_sound(MK3OBJ *obj);
+void do_first_a9_frame(MK3OBJ *obj);
+void ground_ochar(MK3OBJ *obj);
+
+#define MK3_CHAR_SHANG  0xc
+
+long t_back_to_shang_form(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x18ae) {
+        obj->field1c = MK3_CHAR_SHANG;
+        obj->field08->field24 = MK3_CHAR_SHANG;
+
+        player_normpal(obj);
+        obj->field40 = 0;
+        do_first_a9_frame(obj);
+        ground_ochar(obj);
+
+        obj->field00->field40 = (uint16_t)MK3_FIELD12(obj->field08);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x18c1;
+        thread->fieldfc = 4;
+        return 4;
+    }
+
+    if (token == 0x18c1)
+        return mk3_unwind(thread);
+
+    if (token != 0)
+        return -3;
+
+    obj->field20 = 0x401;
+    init_special_act(obj);
+    clear_inviso(obj);
+
+    obj->field20 = MK3_CHAR_SHANG;
+    obj->field1c = 4;
+    borrow_ochar_sound(obj);
+
+    {
+        uint32_t mine  = ochar_ground_offsets[obj->field08->field24];
+        uint32_t shang = ochar_ground_offsets[MK3_CHAR_SHANG];
+        uint32_t d     = mine - shang;
+
+        obj->field1c = mine;
+        obj->field20 = shang;
+        obj->field1c = d;
+
+        /* Move him before he changes, so the feet stay put. */
+        obj->field24 = (uint32_t)((int32_t)(int16_t)MK3_FIELD12(obj->field08)
+                                  + (int32_t)d);
+        MK3_SET_FIELD12(obj->field08, obj->field24);
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = 0x18ae;
+    thread->fieldfc = 4;
+    return 4;
+}
