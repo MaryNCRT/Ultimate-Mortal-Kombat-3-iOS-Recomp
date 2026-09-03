@@ -10160,3 +10160,88 @@ long t_gravity_ani(MK3THREAD *thread)
     obj->field00->p_hit = 0;                    /* landing ends the combo */
     return mk3_unwind(thread);
 }
+
+
+/* ---------------------------------------------------------------- NewThread
+ *
+ * armv7 0x00058a10, two hundred and ninety-six bytes.  **Complete**, and its
+ * body had already been read twice from elsewhere.
+ *
+ *      th = TList_Get()
+ *      if (th == NULL) return NULL
+ *      i = th->player
+ *      th->fieldf8 = th->frame = th->fieldfc = th->field08 = 0
+ *      th->func = func
+ *      th->proc = Plyr + i * 108
+ *      memcpy(Pp    + i * 140, owner->field00, 140)
+ *      memcpy(GrObj + i *  76, owner->field08,  76)
+ *      GrObj[i].field44 = 0
+ *      owner->field1c = Pp + i * 140
+ *      Plyr[i].field3c = owner->field3c
+ *      Plyr[i].field40 = owner->field40
+ *      Plyr[i].field44 = owner->a10
+ *      Plyr[i].field48 = owner->field48
+ *      Plyr[i].field08->field2c = -1
+ *      return th
+ *
+ * A new fighter cloned from an existing one. `t_play_1_round` writes the first
+ * six stores inline rather than calling this, and `getprc_z` is the same body
+ * with the handler taken out of the owner's 0x38 instead of an argument and
+ * the Plyr entry returned instead of the thread. Three readings of one routine
+ * from three addresses, and they agree field for field -- which is the check
+ * on all three.
+ *
+ * The two `memcpy` lengths are `PP_STRIDE` and `GROBJ_STRIDE`, so a clone is a
+ * whole entry and not a selection of fields. The four hand-copied words
+ * afterwards are in Plyr, which neither copy touches.
+ *
+ * `owner->field1c = &Pp[i]` hands the caller the clone's Pp entry, so the
+ * routine returns two things: the thread through r0 and that pointer through
+ * the owner. `getprc_z` does not do this, which is the one place the two
+ * bodies differ beyond their return.
+ *
+ * The animation of the clone's object is set to -1 -- "nothing yet", as in
+ * `getobjectinsert` and `t_play_1_round`.
+ *
+ * The index is recomputed from `th->player` for every store, eight times, so
+ * the disassembly repeats the same five instructions over and over. Written
+ * once here.
+ */
+MK3THREAD *NewThread(void *owner_p, MK3THREADFUNC func)
+{
+    MK3THREAD *th = TList_Get();
+    MK3OBJ *owner = (MK3OBJ *)owner_p;
+    char *plyr;
+    uint32_t i;
+
+    if (th == NULL)
+        return NULL;
+
+    i = th->player;
+
+    th->fieldf8 = 0;
+    th->frame   = 0;
+    th->func    = func;
+    th->fieldfc = 0;
+    th->field08 = 0;
+
+    plyr = Plyr + i * PLYR_STRIDE;
+    th->proc = plyr;
+
+    memcpy(Pp    + i * PP_STRIDE,    owner->field00, PP_STRIDE);
+    memcpy(GrObj + i * GROBJ_STRIDE, owner->field08, GROBJ_STRIDE);
+
+    *(uint32_t *)(GrObj + i * GROBJ_STRIDE + 0x44) = 0;
+
+    /* The second return value: where the clone's Pp entry landed. */
+    owner->field1c = (uint32_t)(uintptr_t)(Pp + i * PP_STRIDE);
+
+    *(uint32_t *)(plyr + 0x3c) = owner->field3c;
+    *(uint32_t *)(plyr + 0x40) = owner->field40;
+    *(uint32_t *)(plyr + 0x44) = owner->a10;
+    *(uint32_t *)(plyr + 0x48) = owner->field48;
+
+    (*(MK3OBJ **)(plyr + 8))->field2c = 0xffffffffu;    /* nothing yet */
+
+    return th;
+}
