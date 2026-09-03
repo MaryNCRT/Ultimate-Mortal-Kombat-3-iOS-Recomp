@@ -3493,19 +3493,27 @@ void create_fx_xy(MK3OBJ *obj, uint32_t x, uint32_t y)
  * The second call takes its pair from the PROC and from 0x44 -- the same slot
  * `get_his_a11_ani` leaves the opponent in, which is why the two are usually
  * called together.
+ *
+ * It RETURNS `do_next_a9_frame_pxob`'s answer: nothing touches r0 after that
+ * call, so the value falls through, the same way it does out of
+ * `strike_check_ptr`. That went unnoticed while nothing read it.
+ * `t_double_mframew` does -- it loops while the value is non-zero -- which
+ * makes this "is there another frame", answered by the second cursor.
  */
-void double_next_a9(MK3OBJ *obj)
+long double_next_a9(MK3OBJ *obj)
 {
     uint32_t saved;
+    long r;
 
     do_next_a9_frame(obj);
 
     saved = obj->field40;
     obj->field40 = obj->field48;
-    do_next_a9_frame_pxob(obj, obj->field00->field00,
-                          (MK3OBJ *)(uintptr_t)obj->a10);
+    r = do_next_a9_frame_pxob(obj, obj->field00->field00,
+                              (MK3OBJ *)(uintptr_t)obj->a10);
     obj->field48 = obj->field40;
     obj->field40 = saved;
+    return r;
 }
 
 
@@ -5249,10 +5257,15 @@ long t_wait_fatality_finish(MK3THREAD *thread);
  *     coroutines. The ones with a single park have a single resume point,
  *     which is why one value looked like an identity.
  *
- *   - `mask` says WHAT is being waited for. It is stored at 0xfc and also
- *     returned, and the three known values are single distinct bits --
- *     0x0001, 0x0040, 0x1000 -- so the scheduler is told the reason twice, in
- *     the thread and in the return.
+ *   - `mask` says HOW LONG. It is stored at 0xfc and also returned, so the
+ *     scheduler is told twice, in the thread and in the return.
+ *
+ *     It was called a mask because the first three values seen were single
+ *     bits. `t_double_mframew` settles it: that routine writes `obj->field1c`
+ *     there -- the animation rate, a runtime value -- and every other park
+ *     writes a literal. A field that takes an arbitrary number from an
+ *     animation is a duration, not a set of flags, and the constants
+ *     elsewhere are durations too.
  *
  * That is the whole of this cooperative scheduler's blocking: no queue, no
  * wait list. A thread writes down what it wants and a value only it will
@@ -5364,9 +5377,9 @@ long is_finish_him_allowed(MK3OBJ *obj)
  * `t_multi_dummy_proc` is the same loop with a different bit, which is what a
  * thread that exists only to hold a slot open would look like.
  *
- * These three masks are single bits, but 0xfc is not a bitmask: `t_fx_babality`
- * writes 0x60 and then 0x16462, which is neither a single bit nor a
- * combination of the others. Whatever reads 0xfc takes a value, not a set.
+ * These three are single bits, but 0xfc is not a bitmask: `t_fx_babality`
+ * writes 0x60 and then 0x16462, and `t_double_mframew` writes the animation
+ * rate straight out of the object. It is a duration.
  */
 long t_multi_dummy_wake(MK3THREAD *thread);
 long t_wait_forever_wake(MK3THREAD *thread);
@@ -8328,4 +8341,149 @@ long t_is_endurance_possible(MK3THREAD *thread)
     }
 
     return mk3_unwind(thread);
+}
+
+
+/* ------------------------------------------------------ t_jump_up_land_jsrp
+ *
+ * armv7 0x00059f44, one hundred and eighty-eight bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field20 = 0x304
+ *          obj->field00->field18 = 0x304
+ *          tsound_func(obj, 0x18)
+ *          obj->field40 = 0x16
+ *          get_char_ani(obj)
+ *          allow_moves(obj)
+ *          obj->a10 = obj->field40         ; keep the resolved pointer
+ *          obj->field40 += 4               ; and step it one word on
+ *          do_next_a9_frame(obj)
+ *          park(0x824, 3)
+ *      token == 0x824:
+ *          obj->field40 = obj->a10         ; put it back
+ *          do_next_a9_frame(obj)
+ *          park(0x827, 3)
+ *      token == 0x827:  unwind
+ *      otherwise:       return -3
+ *
+ * Landing from a straight jump, and a three-step coroutine that shows **two
+ * frames of one animation out of order**: the second entry in the script
+ * first, then the first.
+ *
+ * The four added to 0x40 is one word of the animation script, which
+ * `stance_setup` walks in the same units. So this is a deliberate hop -- show
+ * the next frame, then come back for the one it skipped.
+ *
+ * The same action 0x304 and the same sound 0x18 as `t_angle_jump_land_jsrp`,
+ * and the same `allow_moves` before the first frame. The two landings differ
+ * in the animation -- 0x16 against 0x1a -- and in this hop.
+ *
+ * The A10 slot carries the saved pointer across the park, which is a value
+ * surviving in the object rather than on the argument stack. Both are used in
+ * this file and this is the cheaper one for a single word.
+ */
+long t_jump_up_land_jsrp(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x824) {
+        obj->field40 = obj->a10;                /* back to the skipped one */
+        do_next_a9_frame(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x827;
+        thread->fieldfc = 3;
+        return 3;
+    }
+
+    if (token == 0x827)
+        return mk3_unwind(thread);
+
+    if (token != 0)
+        return -3;
+
+    obj->field20 = 0x304;
+    obj->field00->field18 = 0x304;
+    tsound_func((uint32_t)(uintptr_t)obj, 0x18);
+
+    obj->field40 = 0x16;
+    get_char_ani(obj);
+    allow_moves(obj);
+
+    obj->a10 = obj->field40;
+    obj->field40 = obj->field40 + 4;            /* one word on */
+    do_next_a9_frame(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x824;
+    thread->fieldfc = 3;
+    return 3;
+}
+
+
+/* -------------------------------------------------------- t_double_mframew
+ *
+ * armv7 0x0005a19c, one hundred and ninety-two bytes.  **Complete**, and it
+ * says what 0xfc is.
+ *
+ *      if (token != 0 && token != 0x6e8) return -3
+ *      if (token == 0) args[argc++] = obj->field1c
+ *      if (double_next_a9(obj) == 0) {
+ *          obj->field1c = args[--argc]         ; pop
+ *          unwind
+ *      }
+ *      v = args[--argc]                        ; peek, written as pop...
+ *      obj->field1c = v
+ *      args[argc++] = v                        ; ...and push back
+ *      frame[frame+1].w0 = 0x6e8
+ *      thread->fieldfc = obj->field1c
+ *      return obj->field1c
+ *
+ * **The value written into 0xfc is `obj->field1c`** -- the animation rate,
+ * read at run time. Every other park in this file writes a literal, and the
+ * three earliest happened to be single bits, which is why that field was
+ * called a mask. A field that takes an arbitrary number out of an animation is
+ * a duration, and so the literals are durations.
+ *
+ * The loop is the animation: `double_next_a9` returns non-zero while there are
+ * frames left, and each time round the thread parks for as long as the current
+ * frame lasts. When it returns zero the rate is popped and the routine unwinds.
+ *
+ * The middle is a peek written as a pop and a push: the cursor comes down, the
+ * word is read, the same word is written back to the same slot, and the cursor
+ * goes up. Nothing changes. The compiler did not see through it and neither
+ * does this; it is transcribed as the four operations it is.
+ *
+ * Both entries share everything after the initial push, which the second one
+ * skips -- so the rate is stacked once and read on every tick.
+ */
+long t_double_mframew(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t argc;
+
+    if (token != 0 && token != 0x6e8)
+        return -3;
+
+    if (token == 0) {
+        argc = thread->fieldf8;
+        *mk3_arg(thread, argc) = obj->field1c;
+        thread->fieldf8 = argc + 1;
+    }
+
+    if (double_next_a9(obj) == 0) {             /* the animation is done */
+        argc = thread->fieldf8 - 1;
+        thread->fieldf8 = argc;
+        obj->field1c = *mk3_arg(thread, argc);
+        return mk3_unwind(thread);
+    }
+
+    argc = thread->fieldf8 - 1;                 /* a peek, spelled long-hand */
+    thread->fieldf8 = argc;
+    obj->field1c = *mk3_arg(thread, argc);
+    *mk3_arg(thread, argc) = obj->field1c;
+    thread->fieldf8 = argc + 1;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x6e8;
+    thread->fieldfc = obj->field1c;             /* wait this animation's rate */
+    return (long)obj->field1c;
 }
