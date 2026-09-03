@@ -7528,3 +7528,275 @@ long t_shake_ob_up(MK3THREAD *thread)
 
     return mk3_shake_up(thread, (uint32_t)(uintptr_t)obj->field08);
 }
+
+
+/* ---------------------------------------------------- t_angle_jump_land_jsrp
+ *
+ * armv7 0x00059eb0, one hundred and forty-eight bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field20 = 0x304
+ *          obj->field00->field18 = 0x304       ; the same value, twice
+ *          face_opponent(obj)
+ *          tsound_func(obj, 0x18)
+ *          obj->field40 = 0x1a
+ *          get_char_ani(obj)
+ *          allow_moves(obj)
+ *          do_next_a9_frame(obj)
+ *          park(0x85e, 3)
+ *      token == 0x85e:  unwind
+ *      otherwise:       return -3
+ *
+ * Landing from an angled jump, and the longest run of set-up before a park so
+ * far. The order is the content: commit the action, turn to face, make the
+ * noise, load the animation, re-enable moves, show one frame, then wait.
+ *
+ * 0x304 goes to two places from one register -- the object's 0x20 and the
+ * PROC's action at 0x18. `t_act_mframew` copies 0x20 into that same field, so
+ * this is the same pairing done inline.
+ *
+ * `allow_moves` before the frame rather than after: the fighter is controllable
+ * from the first frame of the landing, not once it finishes.
+ *
+ * The animation number is 0x1a, well under the 0x47 that makes it a number
+ * rather than a pointer.
+ */
+void allow_moves(MK3OBJ *obj);
+
+long t_angle_jump_land_jsrp(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x85e)
+        return mk3_unwind(thread);
+
+    if (token != 0)
+        return -3;
+
+    obj->field20 = 0x304;
+    obj->field00->field18 = 0x304;
+
+    face_opponent(obj);
+    tsound_func((uint32_t)(uintptr_t)obj, 0x18);
+
+    obj->field40 = 0x1a;
+    get_char_ani(obj);
+
+    allow_moves(obj);
+    do_next_a9_frame(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x85e;
+    thread->fieldfc = 3;
+    return 3;
+}
+
+
+/* -------------------------------------------------------- t_duck_turnaround
+ *
+ * armv7 0x000559cc, one hundred and forty-eight bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field40 = 5
+ *          get_char_ani(obj)
+ *          obj->field1c = 2
+ *          frame[frame+1].w0 = 0x89d
+ *          frame = frame + 1                   ; push
+ *          frame[frame].handler = t_mframew
+ *          frame[frame+1].w0 = 0
+ *      token == 0x89d:  unwind
+ *      otherwise:       return -3
+ *
+ * Animation 5 at rate 2, run as a call. Three of the four routines that push
+ * `t_mframew` -- this, `t_act_mframew` and `t_fani3` -- set something up and
+ * hand it the frame, so `t_mframew` is the shared "play this and come back".
+ *
+ * The rate goes into 0x1c AFTER the resolver, which writes 0x40 and not 0x1c,
+ * so the order is free and this is the order the code has.
+ */
+long t_duck_turnaround(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x89d)
+        return mk3_unwind(thread);
+
+    if (token != 0)
+        return -3;
+
+    obj->field40 = 5;
+    get_char_ani(obj);
+    obj->field1c = 2;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x89d;
+    thread->frame = thread->frame + 1;                  /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* --------------------------------------------------------- t_round_is_over
+ *
+ * armv7 0x000563a8, one hundred and forty-eight bytes.  **Complete**, and it
+ * is the writer the round-result enumeration was missing.
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field20 = G[0x368]                 ; player one's health
+ *      obj->field24 = G[0x36c]                 ; player two's
+ *      if (equal)          next = t_round_tied
+ *      else {
+ *          obj->field34 = 1
+ *          if (h1 > h2)    next = t_p1_won
+ *          else {
+ *              obj->field48 = 1
+ *              next = t_prend
+ *          }
+ *      }
+ *
+ * The health bars are the ones `recharge_bars` fills to 166 and announces, so
+ * the comparison is exactly what it looks like.
+ *
+ * The third arm writes **1** into 0x48 -- the round result -- which is the
+ * value `t_results_of_round` sends to `t_player_2_won` and the one nothing had
+ * been seen to write. There is no `t_p2_won` to match `t_p1_won`: this routine
+ * writes the value itself and goes straight to `t_prend`, which is all
+ * `t_p1_won` does after writing 0. One of the two got a function and the other
+ * did not.
+ *
+ * Every value of that enumeration now has a writer and a reader.
+ *
+ * The tie arm does NOT set 0x34, because the store sits after the equality
+ * branch. Two outcomes set it and one does not, so 0x34 is "somebody won"
+ * rather than "the round ended".
+ */
+long t_round_is_over(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t h1, h2;
+    MK3THREADFUNC next;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    h1 = *(const uint32_t *)(G_BYTES + 0x368);
+    obj->field20 = h1;
+    h2 = *(const uint32_t *)(G_BYTES + 0x36c);
+    obj->field24 = h2;
+
+    if (h1 == h2) {
+        next = (MK3THREADFUNC)t_round_tied;
+    } else {
+        obj->field34 = 1;
+        if ((int32_t)h1 > (int32_t)h2) {
+            next = (MK3THREADFUNC)t_p1_won;
+        } else {
+            obj->field48 = 1;               /* player two won */
+            next = (MK3THREADFUNC)t_prend;
+        }
+    }
+
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)next;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ------------------------------------------------------------ cbox_squeeze
+ *
+ * armv7 0x00055fd4, one hundred and fifty-two bytes.  **Complete.**
+ *
+ *      if (!(flags & 1)) return
+ *      obj->field54 = other->field24                   ; the character
+ *      if (other->field24 == 0x18) {
+ *          d = obj->field20 - obj->field1c
+ *          obj->field30 = d < 0 ? -d : d               ; the span, unsigned
+ *          d = obj->field30 >> 3
+ *          obj->field1c += d                           ; pull both ends in
+ *          obj->field20 -= d
+ *          shift = (other->field28 & 0x10) ? -0x25 : 0x25
+ *          obj->field54 = other->field28
+ *          obj->field24 += shift                       ; and slide the box
+ *          obj->field28 += shift
+ *      }
+ *      w = obj->field2c
+ *      q = w >> 2
+ *      if (other->a10 != 1 && obj->field00->field18 != 0x20f)
+ *          q += w >> 3                                 ; a quarter, or 3/8
+ *      obj->field2c = q
+ *      obj->field24 += q
+ *      obj->field28 -= q
+ *
+ * A collision box narrowed from both sides by a fraction of its own width: a
+ * quarter normally, three eighths otherwise. The two conditions that keep it
+ * at a quarter are the other object's A10 being 1 and this one's action being
+ * 0x20f -- either alone is enough.
+ *
+ * **One character, 0x18, is squeezed differently.** Before the shared part it
+ * pulls the 0x1c..0x20 span in by an eighth at each end and slides the
+ * horizontal pair by 0x25 -- negated when bit 4 of the other's 0x28 says facing
+ * left, which is the direction `am_i_facing_him_px` established.
+ *
+ * 0x18 is also one of the three characters `is_finish_him_allowed` refuses. So
+ * that id is unusual in two unrelated ways, which is what a boss looks like
+ * from inside the code. Which character it is is still not stated anywhere
+ * here.
+ *
+ * 0x38 is borrowed for the eighth and put back, and the special path jumps
+ * into the middle of the shared one so the two loads it has already done are
+ * not repeated. Written out as straight-line code, which costs those two loads
+ * and says the same thing.
+ *
+ * All the shifts are arithmetic, so a negative width shrinks toward zero
+ * rather than wrapping.
+ */
+void cbox_squeeze(MK3OBJ *obj, uint32_t flags, MK3OBJ *other)
+{
+    uint32_t saved38;
+    int32_t w, q;
+
+    if ((flags & 1) == 0)
+        return;
+
+    obj->field54 = other->field24;
+
+    if (other->field24 == 0x18) {           /* this one character only */
+        int32_t d = (int32_t)obj->field20 - (int32_t)obj->field1c;
+        int32_t shift;
+
+        obj->field30 = (uint32_t)d;
+        if (d < 0)
+            obj->field30 = (uint32_t)(-d);
+
+        d = (int32_t)obj->field30 >> 3;
+        obj->field1c = (uint32_t)((int32_t)obj->field1c + d);
+        obj->field20 = (uint32_t)((int32_t)obj->field20 - d);
+
+        shift = 0x25;
+        obj->field30 = 0x25;
+        if ((other->field28 & 0x10u) != 0) {        /* facing left */
+            shift = 0x25 - 0x4a;
+            obj->field30 = (uint32_t)shift;
+        }
+        obj->field54 = other->field28;
+
+        obj->field24 = (uint32_t)((int32_t)obj->field24 + shift);
+        obj->field28 = (uint32_t)((int32_t)obj->field28 + shift);
+    }
+
+    saved38 = obj->field38;
+    w = (int32_t)obj->field2c;
+    q = w >> 2;
+    obj->field38 = (uint32_t)(w >> 3);      /* borrowed for the eighth */
+    obj->field2c = (uint32_t)q;
+
+    if (other->a10 != 1 && obj->field00->field18 != 0x20f) {
+        q += w >> 3;                        /* three eighths instead */
+        obj->field2c = (uint32_t)q;
+    }
+
+    obj->field24 = (uint32_t)((int32_t)obj->field24 + q);
+    obj->field38 = saved38;
+    obj->field28 = (uint32_t)((int32_t)obj->field28 - q);
+}
