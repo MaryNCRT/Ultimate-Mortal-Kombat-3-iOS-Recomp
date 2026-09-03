@@ -10910,3 +10910,145 @@ long t_play3(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------ t_game_finished
+ *
+ * armv7 0x00058d84, three hundred and sixty bytes.  **Complete.**
+ *
+ *      token 0:
+ *          for (n = 1; n <= 30; n++) {
+ *              if (n - 1 <= 1) {
+ *                  StartProcAt(&Plyr[n-1], t_wait_forever)
+ *                  GrObj[n-1].field20 = 0
+ *                  GrObj[n-1].field1c = 0
+ *                  GrObj[n-1].field18 = 0
+ *              } else if (n - 1 != 2) {
+ *                  KillProc(&Plyr[n-1])
+ *              }
+ *          }
+ *          G[0x210] = 0
+ *          G[0x0b8] = 0
+ *          obj->field1c = 0x42;  create_fx(obj)
+ *          obj->a10 = 10
+ *          obj->field1c = 0x43;  create_fx(obj)
+ *          park(0x11aa, 6)
+ *      token 0x11aa:
+ *          obj->field1c = 0x44;  create_fx(obj)
+ *          park(0x11ad, 6)
+ *      token 0x11ad:
+ *          if (--obj->a10 != 0) {
+ *              obj->field1c = 0x43;  create_fx(obj)
+ *              park(0x11aa, 6)
+ *          } else {
+ *              GrObj[0].field2c = -1
+ *              GrObj[0].field78 = -1
+ *              obj->field1c = 0x41;  create_fx(obj)
+ *              park(0x11b8, 0x1c7)
+ *          }
+ *      token 0x11b8:  unwind
+ *      otherwise:     return -3
+ *
+ * **The arrays are thirty entries long.** The sweep walks `Plyr` by 108 and
+ * `GrObj` by 76 in step, thirty times, which is the first statement of how many
+ * there are -- every other routine indexes them by a player number and never
+ * says where they stop.
+ *
+ * Three kinds of entry:
+ *
+ *   - 0 and 1, the two fighters: parked on `t_wait_forever` rather than
+ *     killed, and three of their GrObj words cleared. They stay alive because
+ *     the ending still has to draw them.
+ *   - 2: skipped entirely, neither started nor killed. What lives there is not
+ *     said here.
+ *   - 3 to 29: killed.
+ *
+ * The two zeroes into G are 0xb8 and 0x210, which are the same field one
+ * `G_FIGHTER_STRIDE` apart -- the x velocity of each fighter. Everything stops
+ * moving.
+ *
+ * Then ten alternations of effects 0x43 and 0x44 six ticks apart, and a final
+ * 0x41 held for 455. The count lives in A10 and the alternation is two resume
+ * points, so the loop is the coroutine rather than anything counted inside one
+ * entry.
+ *
+ * The -1 pair before the last effect goes into GrObj[0] at 0x2c and 0x78 --
+ * the animation, and a second slot seventy-six bytes into the same entry, which
+ * is its last word.
+ *
+ * The 0x41 is formed as -1 + 0x42, reusing the register the two stores just
+ * used, which is why the disassembly makes it look derived.
+ */
+void KillProc(MK3OBJ *obj);
+
+long t_game_finished(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x11aa) {
+        obj->field1c = 0x44;
+        create_fx(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x11ad;
+        thread->fieldfc = 6;
+        return 6;
+    }
+
+    if (token == 0x11ad) {
+        obj->a10 = obj->a10 - 1;
+        if (obj->a10 != 0) {
+            obj->field1c = 0x43;
+            create_fx(obj);
+            *mk3_frame(thread, thread->frame + 1) = 0x11aa;
+            thread->fieldfc = 6;
+            return 6;
+        }
+
+        *(uint32_t *)(GrObj + 0x2c) = 0xffffffffu;
+        *(uint32_t *)(GrObj + 0x78) = 0xffffffffu;
+        obj->field1c = 0x41;
+        create_fx(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x11b8;
+        thread->fieldfc = 0x1c7;
+        return 0x1c7;
+    }
+
+    if (token == 0x11b8)
+        return mk3_unwind(thread);
+
+    if (token != 0)
+        return -3;
+
+    {
+        char *plyr = Plyr;
+        char *grobj = GrObj;
+        uint32_t n;
+
+        for (n = 1; n <= 30; n++) {
+            if (n - 1 <= 1) {                   /* the two fighters */
+                StartProcAt((MK3OBJ *)plyr, (MK3THREADFUNC)t_wait_forever);
+                *(uint32_t *)(grobj + 0x20) = 0;
+                *(uint32_t *)(grobj + 0x1c) = 0;
+                *(uint32_t *)(grobj + 0x18) = 0;
+            } else if (n - 1 != 2) {            /* entry 2 is spared */
+                KillProc((MK3OBJ *)plyr);
+            }
+            plyr  += PLYR_STRIDE;
+            grobj += GROBJ_STRIDE;
+        }
+    }
+
+    *(uint32_t *)(G_BYTES + 0x210) = 0;         /* both x velocities */
+    *(uint32_t *)(G_BYTES + 0x0b8) = 0;
+
+    obj->field1c = 0x42;
+    create_fx(obj);
+
+    obj->a10 = 10;                              /* ten alternations */
+    obj->field1c = 0x43;
+    create_fx(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x11aa;
+    thread->fieldfc = 6;
+    return 6;
+}
