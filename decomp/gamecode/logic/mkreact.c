@@ -20,6 +20,7 @@ long shake_a11(MK3OBJ *obj);
 long pose_a9_manual(MK3OBJ *obj);
 long rsnd_func(uint32_t obj, uint32_t which);
 void *FindThreadProc(uint32_t pid);
+void away_x_vel(MK3OBJ *obj);
 void match_ani_points_ob_ob(uint32_t a, uint32_t b);
 
 /* gup2 was read before other.c existed, and it worked the thread struct out
@@ -941,4 +942,140 @@ void uhq_entry(MK3OBJ *obj)
     q[2] = q[1];
     q[1] = q[0];
     q[0] = (uint16_t)obj->field38;
+}
+
+
+/* --------------------------------------------------------------------
+ * What the readers could prove. See tools/pushfn.py, which executes
+ * a body symbolically, and tools/microfn.py, which matches whole
+ * bodies against templates. Both refuse anything they cannot account
+ * for instruction by instruction.
+ * -------------------------------------------------------------------- */
+
+long t_wait_forever(struct MK3THREAD *thread);
+
+/* t_r_dummy -- armv7 0x00041110, 52 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      frame[frame].handler = t_wait_forever
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_r_dummy(MK3THREAD *thread)
+{
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_wait_forever);
+}
+
+
+/* ------------------------------------------------------ get_block_ani_offset
+ *
+ * armv7 0x00044834, forty-eight bytes.  **Complete.**
+ *
+ *      obj->field40 = 0xc
+ *      obj->field30 = 6
+ *      c = obj->field08->field24
+ *      obj->field1c = c
+ *      if (c == 0xb) {
+ *          a = obj->field08->field2c
+ *          obj->field1c = a
+ *          if ((uint32_t)(a - 0x1e3) <= 2) obj->field40 = 6
+ *      }
+ *      tall_or_short_ani(obj)
+ *
+ * Which animation a block uses. Everyone gets 0xc, with 6 parked in 0x30 as
+ * the short-character alternative -- `tall_or_short_ani` is what chooses
+ * between them, and it runs on every path.
+ *
+ * **One character is different.** When the character is 0xb and its current
+ * animation is one of three consecutive numbers -- 0x1e3, 0x1e4, 0x1e5 --
+ * the tall animation becomes 6 as well, so both branches of the height test
+ * lead to the same frame.
+ *
+ * The range is tested as `(a - 0x1e3) <= 2` UNSIGNED, which rejects anything
+ * below 0x1e3 by wrapping. One comparison for three values, and a signed test
+ * would have needed two.
+ *
+ * The two constants are loaded once and 6 stays in its register across the
+ * whole function, which is why the second store to 0x40 has no `movs` in
+ * front of it.
+ */
+void get_block_ani_offset(MK3OBJ *obj)
+{
+    uint32_t c;
+
+    obj->field40 = 0xc;
+    obj->field30 = 6;                   /* the short-character alternative */
+
+    c = obj->field08->field24;
+    obj->field1c = c;
+
+    if (c == 0xb) {
+        uint32_t a = obj->field08->field2c;
+
+        obj->field1c = a;
+        if ((uint32_t)(a - 0x1e3) <= 2)         /* 0x1e3, 0x1e4 or 0x1e5 */
+            obj->field40 = 6;
+    }
+
+    tall_or_short_ani(obj);
+}
+
+
+/* --------------------------------------------------------- repell_one_of_us
+ *
+ * armv7 0x000432b8, sixty-four bytes.  **Complete.**
+ *
+ *      am_i_close_to_edge(obj)
+ *      if (obj->field5c == 0) { away_x_vel(obj); return; }
+ *      if (obj->field38 != 0) {
+ *          s1 = obj->field1c; s2 = obj->field20
+ *          takeover_him(obj)
+ *          obj->field1c = s1; obj->field20 = s2
+ *      }
+ *      obj->field1c = obj->field20
+ *      call_for_him(obj, away_x_vel)
+ *
+ * Two fighters cannot occupy the same ground, and one of them has to give.
+ * Away from the edge, this one moves itself. Against it, HE moves instead --
+ * `call_for_him` runs `away_x_vel` on the other fighter, which is the same
+ * routine pointed the other way.
+ *
+ * The name says "one of us" and the body says which: whoever is not cornered.
+ *
+ * `takeover_him` runs first when 0x38 is set, with 0x1c and 0x20 saved and put
+ * back around it -- the borrow-and-restore this directory does everywhere, here
+ * protecting two slots the callee is known to use.
+ *
+ * `away_x_vel` arrives through a pointer slot even though the other branch
+ * calls it directly four instructions earlier. One function, one routine, two
+ * ways of naming it -- because a direct call is a `bl` and a pointer handed to
+ * `call_for_him` has to be an address.
+ */
+void am_i_close_to_edge(MK3OBJ *obj);
+void takeover_him(MK3OBJ *obj);
+void call_for_him(MK3OBJ *obj, void (*what)(MK3OBJ *));
+
+void repell_one_of_us(MK3OBJ *obj)
+{
+    am_i_close_to_edge(obj);
+
+    if (obj->field5c == 0) {            /* room to move: move myself */
+        away_x_vel(obj);
+        return;
+    }
+
+    if (obj->field38 != 0) {
+        uint32_t s1 = obj->field1c;
+        uint32_t s2 = obj->field20;
+
+        takeover_him(obj);
+        obj->field1c = s1;
+        obj->field20 = s2;
+    }
+
+    obj->field1c = obj->field20;
+    call_for_him(obj, away_x_vel);      /* cornered: he moves */
 }

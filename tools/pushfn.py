@@ -167,6 +167,18 @@ class Run(object):
                     and self.get(m.group(2)).kind == "frame":
                 self.r[a[0]] = V("framew0", self.get(m.group(2)).a)
                 return 1
+            # A load from a pc-relative address is a POINTER SLOT being
+            # dereferenced: the handler lives in another translation unit and
+            # the linker left its address in __nl_symbol_ptr. The word there
+            # is the function, Thumb bit and all.
+            m = re.match(r"^\[(\w+)\]$", rest)
+            if m and self.get(m.group(1)).kind == "pcrel":
+                slot = self.get(m.group(1)).a
+                nm = microfn.slot_target(slot, self.starts)
+                if nm is None:
+                    raise Refuse("a pointer slot with no symbol")
+                self.r[a[0]] = V("pcrel", slot, nm)
+                return 1
             self.r[a[0]] = UNK
             return 1
 
