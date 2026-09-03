@@ -11827,3 +11827,132 @@ long t_spawn_wingman(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* -------------------------------------------------------------- init_players
+ *
+ * armv7 0x0005a418, five hundred and eighty-eight bytes.  **Complete**, and it
+ * is where a match begins.
+ *
+ *      G[0xac]  = RoundParam[2] + 0xf7
+ *      G[0xb0]  = RoundParam[0]
+ *      G[0xb4]  = RoundParam[1] - 0x18c - 3
+ *      G[0x44c] = (uint16_t)RoundParam[3]
+ *      init_1_q(G + 0xc0);   init_1_q(G + 0x114)
+ *      init_1_q(G + 0x168);  init_1_q(G + 0x1bc)
+ *      init_1_q(G + 0x218);  init_1_q(G + 0x26c)
+ *      init_1_q(G + 0x2c0);  init_1_q(G + 0x314)
+ *      G[0xb8] = 0;  G[0x210] = 0
+ *      GrObj[0].field24 = a
+ *      GrObj[1].field24 = b
+ *      for (n = 0; n < 2; n++) {
+ *          Plyr[n].field08 = &GrObj[n]
+ *          Plyr[n].field00 = &Pp[n]
+ *          Pp[n].field08   = n
+ *          Plyr[n].field3c = Plyr[n].field08
+ *          Pp[n].him       = &GrObj[1 - n]
+ *          Pp[n].field00   = &Plyr[1 - n]
+ *          GrObj[n].field0e = n ? 0x12f : 0x60
+ *          ground_ochar_ob(&GrObj[n])
+ *          Plyr[n].field00->field40 = (int16_t)GrObj[n].field12
+ *          Plyr[n].field40 = 0
+ *          do_first_a9_frame(&Plyr[n])
+ *      }
+ *      GrObj[0].field74 ^= 0x10
+ *      G[0x214] = &GrObj[1]
+ *      G[0xbc]  = &GrObj[0]
+ *      G[0xa4]  = 0x20
+ *      recharge_bars()
+ *
+ * The two arguments are the two characters, and everything else is wiring: each
+ * player entry points at its GrObj and its Pp, each Pp points at the OTHER
+ * fighter's object and player entry, and each Pp's 0x08 is its own index. That
+ * is the whole of "who is who" in this engine, set once.
+ *
+ * **Two offsets are confirmed here.** G+0xbc and G+0x214 are one
+ * `G_FIGHTER_STRIDE` apart and take the two objects -- the pair those offsets
+ * were named from, now seen being written. And **G+0xa4 starts at 0x20**: the
+ * switch stack's cursor at the top of a thirty-two entry array, which is
+ * "empty" for a stack `stack_switch_bits` fills downward and `UnstackSwitches`
+ * consumes upward to 31. Both ends of that mechanism were read months of
+ * functions ago and this is the initialiser they implied.
+ *
+ * All eight queues are cleared, which is `clear_queues` for both fighters at
+ * once -- four each, 0x54 apart, the second set 0x158 on.
+ *
+ * The starting positions are 0x60 and 0x12f, a fixed pair rather than anything
+ * computed from the arena bounds this same routine writes into G.
+ *
+ * The facing bit is flipped on GrObj[0] only, so the two fighters start facing
+ * each other from one constant and one exclusive-or.
+ *
+ * `RoundParam[1] - 0x18f` is written as a subtraction of 0x18c and then 3,
+ * which is the compiler running out of room in one immediate.
+ *
+ * The `str [sp]` before each `ground_ochar_ob` is the loop counter spilled
+ * across the call and read back afterwards, not an argument -- that routine
+ * takes one.
+ *
+ * The original computes the six pointers from `n` on the first pass and then
+ * ADVANCES them by their strides for the second, rather than recomputing. The
+ * loop here recomputes; the addresses are the same and the arithmetic is the
+ * evidence for the strides either way.
+ */
+void init_players(uint32_t a, uint32_t b)
+{
+    uint32_t *g  = (uint32_t *)G_BYTES;
+    const uint32_t *rp = (const uint32_t *)RoundParam;
+    uint32_t n;
+
+    g[0xac / 4] = rp[2] + 0xf7;
+    g[0xb0 / 4] = rp[0];
+    g[0xb4 / 4] = rp[1] - 0x18c - 3;
+    *(uint16_t *)(G_BYTES + 0x44c) = (uint16_t)rp[3];
+
+    init_1_q(G_BYTES + 0x0c0);          /* both fighters' four queues */
+    init_1_q(G_BYTES + 0x114);
+    init_1_q(G_BYTES + 0x168);
+    init_1_q(G_BYTES + 0x1bc);
+    init_1_q(G_BYTES + 0x218);
+    init_1_q(G_BYTES + 0x26c);
+    init_1_q(G_BYTES + 0x2c0);
+    init_1_q(G_BYTES + 0x314);
+
+    g[0x0b8 / 4] = 0;                   /* both x velocities */
+    g[0x210 / 4] = 0;
+
+    *(uint32_t *)(GrObj + 0x24) = a;
+    *(uint32_t *)(GrObj + GROBJ_STRIDE + 0x24) = b;
+
+    for (n = 0; n < 2; n++) {
+        char *grobj  = GrObj + n * GROBJ_STRIDE;
+        char *other  = GrObj + (1 - n) * GROBJ_STRIDE;
+        char *plyr   = Plyr + n * PLYR_STRIDE;
+        char *plyr_o = Plyr + (1 - n) * PLYR_STRIDE;
+        char *pp     = Pp + n * PP_STRIDE;
+
+        *(char **)(plyr + 8)    = grobj;
+        *(char **)(plyr)        = pp;
+        *(uint32_t *)(pp + 8)   = n;
+        *(char **)(plyr + 0x3c) = *(char **)(plyr + 8);
+        *(char **)(pp + 4)      = other;        /* the other fighter */
+        *(char **)(pp)          = plyr_o;
+
+        MK3_SET_FIELD0E((MK3OBJ *)grobj, n ? 0x12f : 0x60);
+        ground_ochar_ob((MK3OBJ *)grobj);
+
+        *(uint32_t *)(*(char **)plyr + 0x40) =
+            (uint16_t)MK3_FIELD12((MK3OBJ *)grobj);
+        *(uint32_t *)(plyr + 0x40) = 0;
+
+        do_first_a9_frame((MK3OBJ *)plyr);
+    }
+
+    *(uint32_t *)(GrObj + 0x74) ^= 0x10u;       /* face each other */
+
+    g[0x214 / 4] = (uint32_t)(uintptr_t)(GrObj + GROBJ_STRIDE);
+    g[0x0bc / 4] = (uint32_t)(uintptr_t)GrObj;
+    g[0x0a4 / 4] = 0x20;                        /* the switch stack, empty */
+
+    recharge_bars();
+}
