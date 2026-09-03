@@ -8587,3 +8587,85 @@ long t_round_intro_fx(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ----------------------------------------------------------- t_play_1_round
+ *
+ * armv7 0x000585e8, two hundred bytes.  **Complete.**
+ *
+ *      token 0:
+ *          th = TList_Get()
+ *          if (th != NULL) {
+ *              th->fieldf8 = th->frame = th->fieldfc = th->field08 = 0
+ *              th->proc = Plyr + th->player * 108
+ *              th->func = t_round_intro_fx
+ *              GrObj[th->player].field2c = -1
+ *          }
+ *          park(0x10ac, 0x20)
+ *      token 0x10ac:  park(0x10ad, 0x40)
+ *      token 0x10ad:  frame[frame].handler = t_continue_fighting
+ *      otherwise:     return -3
+ *
+ * **NewThread inlined.** The first step does not call it; it does the same
+ * work in place -- TList_Get, four zeroed fields, the proc from Plyr[player],
+ * the entry point at 0x04. Field for field it matches `NewThread`'s body,
+ * which makes this a check on that reading rather than a repetition of it. The
+ * two were read from different addresses and agree.
+ *
+ * A failed `TList_Get` is not treated as an error: the park happens either
+ * way, and a round with no threads left simply gets no intro.
+ *
+ * The animation of the GrObj entry is set to -1, which `getobjectinsert` also
+ * does to the object it creates. So -1 in that slot is "nothing yet" rather
+ * than a real animation.
+ *
+ * Two parks in a row with nothing between them: 0x20 ticks, then 0x40. Written
+ * as two because the durations differ; a single 0x60 would not be the same if
+ * anything can happen at the boundary.
+ *
+ * Both strides appear again -- 108 for Plyr, 76 for GrObj -- from the same two
+ * shift-and-subtract sequences the rest of the file uses.
+ */
+MK3THREAD *TList_Get(void);
+
+long t_play_1_round(MK3THREAD *thread)
+{
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x10ac) {
+        *mk3_frame(thread, thread->frame + 1) = 0x10ad;
+        thread->fieldfc = 0x40;
+        return 0x40;
+    }
+
+    if (token == 0x10ad) {
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_continue_fighting;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    {
+        MK3THREAD *th = TList_Get();
+
+        if (th != NULL) {                       /* NewThread, written out */
+            uint32_t i = th->player;
+
+            th->fieldf8 = 0;
+            th->frame   = 0;
+            th->fieldfc = 0;
+            th->field08 = 0;
+            th->proc    = Plyr + i * PLYR_STRIDE;
+            th->func    = (MK3THREADFUNC)t_round_intro_fx;
+
+            *(uint32_t *)(GrObj + i * GROBJ_STRIDE + 0x2c) = 0xffffffffu;
+        }
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = 0x10ac;
+    thread->fieldfc = 0x20;
+    return 0x20;
+}
