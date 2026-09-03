@@ -6332,7 +6332,7 @@ void finish_him_or_her(MK3OBJ *obj)
  * coordinates are left changed.
  */
 void get_char_stk(MK3OBJ *obj);
-void strike_check_regs(MK3OBJ *obj);
+long strike_check_regs(MK3OBJ *obj);
 
 void strike_check_box(MK3OBJ *obj)
 {
@@ -6541,4 +6541,210 @@ void get_tsl_px(MK3OBJ *obj, MK3OBJ *ref)
         obj->field20 |= 0xffff0000u;
 
     obj->field20 = *(const uint32_t *)(G_BYTES + 0xa8) - obj->field1c;
+}
+
+
+/* ------------------------------------- t_animate_a9 and t_animate2_a9
+ *
+ * armv7 0x000556ac and 0x00055724, one hundred and twenty bytes each.
+ * **Complete**, and one body with one call swapped.
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      packed = obj->field40
+ *      obj->field1c = (int32_t)packed >> 16        ; high half, signed
+ *      args[argc++] = obj->field1c
+ *      obj->field40 = (uint16_t)packed             ; low half, unsigned
+ *      get_char_ani(obj)           ; get_char_ani2 in the other
+ *      obj->field1c = args[--argc]
+ *      frame[frame].handler = t_mframew
+ *      frame[frame+1].w0 = 0
+ *
+ * 0x40 arrives packed: an animation in the low half and a number in the high
+ * one. The halves are taken with different signedness -- an arithmetic shift
+ * for the high, `ldrh` for the low -- so the high one may be negative and the
+ * low one is a plain animation index, which is what `get_char_ani` wants.
+ *
+ * The push and the pop straddle the resolver, which writes 0x1c. So the
+ * argument stack at 0xa8 is doing duty as a save area for a single word: push,
+ * call, pop. That is what a stack is for and why it has its own cursor rather
+ * than being a fixed set of slots.
+ *
+ * The two functions differ only in the resolver, so the pairing is
+ * `get_char_ani` against `get_char_ani2` and nothing else -- whatever the 2
+ * means, it does not change how the caller is set up or where it goes next.
+ *
+ * Both continue into `t_mframew`.
+ */
+long t_mframew(MK3THREAD *thread);
+void get_char_ani2(MK3OBJ *obj);
+
+static long mk3_animate_a9(MK3THREAD *thread, void (*resolve)(MK3OBJ *))
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t packed, argc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    packed = obj->field40;
+    obj->field1c = (uint32_t)((int32_t)packed >> 16);
+
+    argc = thread->fieldf8;
+    *mk3_arg(thread, argc) = obj->field1c;
+    thread->fieldf8 = argc + 1;
+
+    obj->field40 = (uint16_t)packed;
+    resolve(obj);
+
+    argc = thread->fieldf8 - 1;
+    thread->fieldf8 = argc;
+    obj->field1c = *mk3_arg(thread, argc);
+
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+long t_animate_a9(MK3THREAD *thread)
+{
+    return mk3_animate_a9(thread, get_char_ani);
+}
+
+long t_animate2_a9(MK3THREAD *thread)
+{
+    return mk3_animate_a9(thread, get_char_ani2);
+}
+
+
+/* --------------------------------------------------------- strike_check_ptr
+ *
+ * armv7 0x00059424, one hundred and twenty-four bytes.  **Complete.**
+ *
+ *      obj->field14 = arg
+ *      obj->field18 = 0
+ *      save 0x1c, 0x20, 0x24, 0x28, 0x2c, 0x44, 0x48
+ *      if (him->field30 & MK3F_NOCOL) { obj->field5c = 0; return; }
+ *      obj->field20 = p[0]
+ *      obj->field24 = p[1]
+ *      obj->field28 = p[2]
+ *      obj->field2c = p[3]
+ *      strike_check_regs(obj)
+ *      restore all seven
+ *
+ * `strike_check_box`'s sibling. Same four coordinate slots, same
+ * `strike_check_regs`, same short-circuit on the TARGET's NOCOL bit -- the
+ * difference is entirely where the numbers come from: four consecutive words
+ * behind a pointer here, two packed words unpacked there.
+ *
+ * So the four slots at 0x20..0x2c are the box `strike_check_regs` reads, and
+ * two callers fill them two ways. That is what makes them a box rather than
+ * four numbers that happen to be adjacent.
+ *
+ * Seven slots are saved and put back, against three in the box version -- 0x44
+ * and 0x48 as well, because this one is called with a live A10 the caller wants
+ * afterwards. 0x14 and 0x18 are written and NOT restored, as in the sibling.
+ *
+ * The compiler reads the four words with a post-incrementing load and then
+ * three offsets from two different registers, which makes the disassembly look
+ * like it walks the pointer. It does not: the four are p[0] to p[3] and the
+ * final `adds r1, #0xc` is dead.
+ *
+ * The prototype was already here: two callers written earlier do
+ * `return strike_check_ptr(obj, obj->field1c, flag)`, which fixed the shape
+ * before the body was read and turns out to fit -- the second argument is the
+ * pointer, arriving as a word.
+ *
+ * What it returns is whatever is left in r0. On the ordinary path that is
+ * `strike_check_regs`' result, untouched by the restores that follow; on the
+ * NOCOL path r0 still holds the argument. Both are written out rather than
+ * picked between, because the function does not choose either.
+ */
+long strike_check_ptr(MK3OBJ *obj, uint32_t what, long arg)
+{
+    const uint32_t *p = (const uint32_t *)(uintptr_t)what;
+    uint32_t s1c = obj->field1c, s20 = obj->field20, s24 = obj->field24;
+    uint32_t s28 = obj->field28, s2c = obj->field2c;
+    uint32_t s44 = obj->a10,     s48 = obj->field48;
+    uint32_t flags;
+    long r;
+
+    obj->field14 = (uint32_t)arg;
+    obj->field18 = 0;
+
+    flags = ((MK3OBJ *)(uintptr_t)obj->field00->him)->field30;
+    if ((flags & MK3F_NOCOL) != 0) {
+        obj->field5c = 0;
+        return (long)what;              /* r0 still holds the argument */
+    }
+
+    obj->field20 = p[0];
+    obj->field24 = p[1];
+    obj->field28 = p[2];
+    obj->field2c = p[3];
+
+    r = strike_check_regs(obj);
+
+    obj->field20 = s20;
+    obj->field24 = s24;
+    obj->field28 = s28;
+    obj->field2c = s2c;
+    obj->field48 = s48;
+    obj->field1c = s1c;
+    obj->a10     = s44;
+    return r;
+}
+
+
+/* ------------------------------------------------------ t_friendship_speech
+ *
+ * armv7 0x00057fc0, one hundred and twenty-eight bytes.  **Complete**, and the
+ * longest coroutine here so far: three resume points.
+ *
+ *      token 0      tsound_func(proc, 0x68)   park(0xf69, 0x0040)
+ *      token 0xf69  tsound_func(proc, 0x69)   park(0xf70, 0x0040)
+ *      token 0xf70  tsound_func(proc, 0x6a)   park(0xf78, 0x16462)
+ *      otherwise    return -3
+ *
+ * Three sounds played in order with a wait between each, written as one
+ * function that is entered four times. `t_fx_babality` had two steps; this has
+ * three, and the shape is the same -- the token says where, the mask says what
+ * to wait for.
+ *
+ * The sounds are 0x68, 0x69, 0x6a: consecutive, so they are three entries of
+ * one table and almost certainly three lines of one speech.
+ *
+ * The first two waits use mask 0x40, the same value `t_wait_forever` parks on.
+ * The last uses 0x16462, which is exactly what `t_fx_babality` ends on. Two
+ * unrelated sequences finishing on the same mask is what makes that value a
+ * condition rather than a number private to one routine.
+ *
+ * `t_fx_friendship` starts this alongside `t_ship_proc` and then becomes
+ * `t_fani3` itself, so the speech runs beside the animation rather than in it.
+ */
+long t_friendship_speech(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0xf69) {
+        tsound_func((uint32_t)(uintptr_t)obj, 0x69);
+        *mk3_frame(thread, thread->frame + 1) = 0xf70;
+        thread->fieldfc = 0x40;
+        return 0x40;
+    }
+
+    if (token == 0xf70) {
+        tsound_func((uint32_t)(uintptr_t)obj, 0x6a);
+        *mk3_frame(thread, thread->frame + 1) = 0xf78;
+        thread->fieldfc = 0x16462;
+        return 0x16462;
+    }
+
+    if (token != 0)
+        return -3;
+
+    tsound_func((uint32_t)(uintptr_t)obj, 0x68);
+    *mk3_frame(thread, thread->frame + 1) = 0xf69;
+    thread->fieldfc = 0x40;
+    return 0x40;
 }
