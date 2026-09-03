@@ -6369,3 +6369,176 @@ void strike_check_box(MK3OBJ *obj)
     obj->a10     = saved_a10;
     obj->field48 = saved48;
 }
+
+
+/* --------------------------------------------------- t_wait_fatality_finish
+ *
+ * armv7 0x000566d4, one hundred and eight bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = (int16_t)G[0x450]
+ *      if (obj->field1c == -1)          next = t_finish_him_exit
+ *      else if (--obj->field48 <= 0)    next = t_finish_him_exit
+ *      else                             next = t_fhs3
+ *      frame[frame].handler = next
+ *      frame[frame+1].w0 = 0
+ *
+ * The tick that pairs with `t_fhs3`'s park. Together they are the wait: park,
+ * come back here, decrement, park again -- until the counter at 0x48 runs out
+ * or the signed halfword at G+0x450 goes to -1.
+ *
+ * Two conditions and one destination between them. The -1 is an abort from
+ * outside; the counter is the ordinary end. Both reach `t_finish_him_exit` and
+ * the code has two separate loads of the same address for them, which is how
+ * the disassembly ends up with the branch target twice.
+ *
+ * The counter is written back before it is tested, so a zero left in 0x48 goes
+ * to -1 and still leaves. `ble` and not `beq`, which is what makes that safe.
+ *
+ * 0x48 is the round result in the routines around this one. Here it is a
+ * countdown on the same object -- another slot doing two jobs, and the third
+ * such in this file.
+ */
+long t_wait_fatality_finish(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC next;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = (uint32_t)(int32_t)*(const int16_t *)(G_BYTES + 0x450);
+
+    if ((int32_t)obj->field1c == -1) {
+        next = (MK3THREADFUNC)t_finish_him_exit;
+    } else {
+        obj->field48 = obj->field48 - 1;
+        next = ((int32_t)obj->field48 <= 0)
+                   ? (MK3THREADFUNC)t_finish_him_exit
+                   : (MK3THREADFUNC)t_fhs3;
+    }
+
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)next;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ------------------------------------------------------------ t_white_flash
+ *
+ * armv7 0x00057a24, one hundred and eight bytes.  **Complete.**
+ *
+ *      token == 0:      MKEvent_Add(3, 6, 0, 0)
+ *                       park(token 0x1549, mask 6)
+ *      token == 0x1549: if (frame > 0) { frame--; return 0; }
+ *                       frame[0].handler = t_local_reaction_exit
+ *                       frame[1].w0 = 0
+ *      otherwise:       return -3
+ *
+ * The first routine to put both halves together: it parks like `t_fhs3` and
+ * then returns like `t_prend`, so one function is the whole of a step --
+ * announce, wait, unwind.
+ *
+ * Event (3, 6) with three zeroes. `recharge_bars` sends (3, 0) for health and
+ * (3, 5) for turbo, both with a value and a player; this one carries nothing,
+ * so 6 is an event that needs no argument.
+ *
+ * The mask is 6, which is 2 | 4 and the first park in this file to write more
+ * than one bit -- and it is still not what 0xfc holds after `t_fx_babality`.
+ */
+long t_white_flash(MK3THREAD *thread)
+{
+    uint32_t current = thread->frame;
+    uint32_t token   = *mk3_frame(thread, current + 1);
+
+    if (token == 0) {
+        MKEvent_Add(3, 6, 0, 0);
+        *mk3_frame(thread, current + 1) = 0x1549;
+        thread->fieldfc = 6;
+        return 6;
+    }
+
+    if (token != 0x1549)
+        return -3;
+
+    if ((int32_t)current > 0) {                 /* unwind one level */
+        thread->frame = current - 1;
+        return 0;
+    }
+
+    mk3_frame(thread, current)[1] =
+        (uint32_t)(uintptr_t)t_local_reaction_exit;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* -------------------------------------------------------------- get_tsl_px
+ *
+ * armv7 0x00054cf0, one hundred and sixteen bytes.  **Complete.**
+ *
+ *      table = obj->field1c
+ *      if ((int16_t)proc->field7c != 0) {
+ *          if (table == G + 0x3b8) table = G + 0x3b4
+ *          if (table == G + 0x3ac) table = G + 0x3a8
+ *      }
+ *      v = ((const uint16_t *)table)[proc->field08]
+ *      obj->field1c = v
+ *      if (v == 0) { obj->field20 = 0x780; return; }
+ *      if (v & 0x8000) obj->field1c = v | 0xffff0000       ; sign-extend
+ *      if (obj->field20 & 0x8000) obj->field20 |= 0xffff0000   ; dead
+ *      obj->field20 = G[0xa8] - obj->field1c
+ *
+ * **The second four-button hook.** `four_button_bits` folds the button bits;
+ * this swaps the table they index, and both are gated on the PROC's 0x7c. So
+ * there are four tables in G at 0x3a8, 0x3ac, 0x3b4 and 0x3b8 -- two pairs,
+ * each pair four bytes apart -- and the four-button scheme takes the lower of
+ * each pair.
+ *
+ * The comparison is against the ADDRESS, not an index: the caller has already
+ * chosen a table and this substitutes one for another. A port that reorders
+ * those four words in G breaks this even though nothing indexes them.
+ *
+ * The lookup is by halfword, indexed by the PROC's 0x08 -- the strength or
+ * fighter index -- and the result is signed. `ldrh` cannot sign-extend, so the
+ * compiler tests bit 15 and ORs in 0xffff0000, which is the same value both
+ * times because it is the same literal in the pool.
+ *
+ * It does that twice, and **the second is dead**: 0x20 is sign-extended and
+ * then immediately overwritten by `G[0xa8] - field1c` on both paths. An
+ * artefact of the same expansion appearing twice; transcribed with the store
+ * that makes it visible.
+ *
+ * A zero entry means something else entirely -- 0x20 gets 0x780 and the
+ * subtraction never happens -- so zero is not a value in this table, it is a
+ * hole.
+ */
+void get_tsl_px(MK3OBJ *obj, MK3OBJ *ref)
+{
+    MK3OBJPROC     *proc  = ref->field00;
+    const uint16_t *table = (const uint16_t *)(uintptr_t)obj->field1c;
+    uint32_t v;
+
+    if ((int16_t)proc->field7c != 0) {          /* the four-button gate */
+        if ((const char *)table == G_BYTES + 0x3b8)
+            table = (const uint16_t *)(G_BYTES + 0x3b4);
+        if ((const char *)table == G_BYTES + 0x3ac)
+            table = (const uint16_t *)(G_BYTES + 0x3a8);
+    }
+
+    v = table[proc->field08];
+    obj->field1c = v;
+
+    if (v == 0) {                               /* a hole, not a value */
+        obj->field20 = 0x780;
+        return;
+    }
+
+    if ((v & 0x8000u) != 0)
+        obj->field1c = v | 0xffff0000u;
+
+    if ((obj->field20 & 0x8000u) != 0)          /* dead: overwritten below */
+        obj->field20 |= 0xffff0000u;
+
+    obj->field20 = *(const uint32_t *)(G_BYTES + 0xa8) - obj->field1c;
+}
