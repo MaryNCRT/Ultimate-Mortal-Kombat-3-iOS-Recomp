@@ -199,6 +199,7 @@ class Run(object):
 
 GUARD_A = ["ldr.w", "ldr.w", "adds", "ldr.w", "cbz", "mvn", "bx"]
 GUARD_B = ["ldr.w", "add.w", "ldr.w", "cbz", "mvn", "bx"]
+GUARD_C = ["ldr.w", "adds", "ldr.w", "cbz", "mvn", "bx"]
 
 
 def split_guard(b):
@@ -209,6 +210,11 @@ def split_guard(b):
             and b[5][1] == "r0, #2" and b[6][1] == "lr":
         return (b[1][1].split(",")[0], 4, 7)
     if ops[:6] == GUARD_B and re.match(r"^\w+, \[r0, #0xa4\]$", b[0][1]) \
+            and b[4][1] == "r0, #2" and b[5][1] == "lr":
+        return (None, 3, 6)
+    # A third spelling: the frame loaded and incremented in place, with no
+    # proc. Same three instructions of work, one register fewer.
+    if ops[:6] == GUARD_C and re.match(r"^\w+, \[r0, #0xa4\]$", b[0][1]) \
             and b[4][1] == "r0, #2" and b[5][1] == "lr":
         return (None, 3, 6)
     return None
