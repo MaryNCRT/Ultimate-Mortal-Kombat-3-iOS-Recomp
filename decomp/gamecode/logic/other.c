@@ -9360,3 +9360,100 @@ long t_results_retp(MK3THREAD *thread)
 
     return mk3_unwind(thread);
 }
+
+
+/* ------------------------------------------------------------- t_do_jump_up
+ *
+ * armv7 0x000580e8, two hundred and forty-eight bytes.  **Complete.**
+ *
+ *      token 0:
+ *          obj->field1c = 1
+ *          group_sound(obj)
+ *          obj->field1c = 0x30a
+ *          obj->field00->field18 = 0x30a
+ *          obj->field40 = 0x16
+ *          get_char_ani(obj)
+ *          obj->field1c = 0
+ *          obj->field40 = obj->field40 + 4         ; skip the first entry
+ *          obj->field34 = obj->field48
+ *          obj->field20 = 0xfff60000               ; -10.0 in 16.16
+ *          obj->field24 = 0x00008000               ;  +0.5 in 16.16
+ *          obj->field28 = 4
+ *          frame[frame+1].w0 = 0x840
+ *          frame = frame + 1                       ; push
+ *          frame[frame].handler = t_flight_call
+ *      token 0x840:
+ *          frame[frame+1].w0 = 0x842
+ *          frame = frame + 1                       ; push again
+ *          frame[frame].handler = t_jump_up_land_jsrp
+ *      token 0x842:  unwind
+ *      otherwise:    return -3
+ *
+ * A straight jump, start to finish: make the noise, commit the action, load
+ * the animation, set three numbers, fly, land.
+ *
+ * **The two words are 16.16 fixed point.** 0xfff60000 is -10.0 and 0x00008000
+ * is 0.5 -- the same format `is_he_right` and the 0x0e/0x12 accessors use for
+ * coordinates. The compiler forms them from ONE pool entry: it loads
+ * 0xfff60000 and adds 0xa8000, which wraps to 0x8000. Two constants, one
+ * literal, and the second looks derived when it is not.
+ *
+ * What they are is `t_flight_call`'s business; this routine only sets them.
+ * Given a jump, an upward ten and a downward half read as a velocity and a
+ * gravity, but neither is named here and neither is assumed.
+ *
+ * The animation cursor is advanced past its first entry before the flight
+ * starts, as in `t_jump_up_land_jsrp` -- the same four bytes, and the same
+ * reason: the first frame belongs to the take-off, not the arc.
+ *
+ * Action 0x30a joins the movement family: 0x301 backing up, 0x302 ducking,
+ * 0x304 landing, 0x30a jumping.
+ *
+ * The two pushes never pop between them, so the flight and the landing run at
+ * the same depth one after the other rather than nested.
+ */
+void group_sound(MK3OBJ *obj);
+
+long t_do_jump_up(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x840) {
+        *mk3_frame(thread, thread->frame + 1) = 0x842;
+        thread->frame = thread->frame + 1;              /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_jump_up_land_jsrp;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x842)
+        return mk3_unwind(thread);
+
+    if (token != 0)
+        return -3;
+
+    obj->field1c = 1;
+    group_sound(obj);
+
+    obj->field1c = 0x30a;
+    obj->field00->field18 = 0x30a;
+
+    obj->field40 = 0x16;
+    get_char_ani(obj);
+    obj->field1c = 0;
+    obj->field40 = obj->field40 + 4;            /* past the take-off frame */
+
+    obj->field34 = obj->field48;
+    obj->field20 = 0xfff60000u;                 /* -10.0 in 16.16 */
+    obj->field24 = 0xfff60000u + 0xa8000u;      /*  +0.5, from one literal */
+    obj->field28 = 4;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x840;
+    thread->frame = thread->frame + 1;                  /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_flight_call;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
