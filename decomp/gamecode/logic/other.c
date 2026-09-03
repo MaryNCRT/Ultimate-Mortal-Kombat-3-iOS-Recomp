@@ -26,6 +26,7 @@
 
 #include <stddef.h>   /* NULL */
 #include <stdint.h>
+#include <string.h>
 
 
 /* ------------------------------------------------------------------------
@@ -271,6 +272,12 @@ extern char *GrObj;                        /* 0x0038c698 */
 extern char *Plyr;                         /* 0x0038cff4 */
 #define GROBJ_STRIDE   76
 #define PLYR_STRIDE   108
+
+/* The third parallel array, and the third stride, both from
+ * `Endurance_ClearPlayer` -- which reaches all three in one function and so is
+ * the only place they can be compared. */
+extern char *Pp;                           /* 0x0038dc9c */
+#define PP_STRIDE     140
 
 /* Declared further down as `GAMESTATE *G`, which is how GameCode.c spells it
  * too. The three accesses here are by byte offset because two reads and a
@@ -1364,6 +1371,9 @@ long strike_check(MK3OBJ *obj)
  */
 void *memset(void *dst, int c, size_t n);
 
+/* Its three call sites are all in `Endurance_ClearPlayer`, further down: GrObj
+ * passes `from == base` and is cleared whole, Plyr and Pp pass `base + 12` and
+ * keep twelve bytes. Read separately and arrived at the same body. */
 void Endurance_ClearStruct(char *base, char *from, size_t total)
 {
     memset(from, 0, total - (size_t)(from - base));
@@ -5081,7 +5091,7 @@ long t_its_a_tie(MK3THREAD *thread)      { return mk3_pop_or_exit(thread); }
  */
 long t_attk3(MK3THREAD *thread);
 
-static long mk3_striker_entry(MK3THREAD *thread)
+static long mk3_striker_entry(MK3THREAD *thread, MK3THREADFUNC next)
 {
     MK3OBJ  *proc = (MK3OBJ *)thread->proc;
     uint32_t argc;
@@ -5097,13 +5107,28 @@ static long mk3_striker_entry(MK3THREAD *thread)
 
     init_special(proc);
 
-    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_attk3;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)next;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
 
-long t_striker(MK3THREAD *thread)        { return mk3_striker_entry(thread); }
-long t_behind_striker(MK3THREAD *thread) { return mk3_striker_entry(thread); }
+/* Three entries, one body, two destinations. `t_upcut_striker` is the same
+ * hundred bytes with `t_attk5` where the other two have `t_attk3` -- so the
+ * handler is the only thing that varies and the helper takes it. */
+long t_striker(MK3THREAD *thread)
+{
+    return mk3_striker_entry(thread, (MK3THREADFUNC)t_attk3);
+}
+
+long t_behind_striker(MK3THREAD *thread)
+{
+    return mk3_striker_entry(thread, (MK3THREADFUNC)t_attk3);
+}
+
+long t_upcut_striker(MK3THREAD *thread)
+{
+    return mk3_striker_entry(thread, (MK3THREADFUNC)t_attk5);
+}
 
 
 /* ------------------------------------------------------------------ t_attk3
@@ -6118,4 +6143,91 @@ long t_results_of_round(MK3THREAD *thread)
     mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)next;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
+}
+
+
+/* ------------------------------------------------------------ recharge_bars
+ *
+ * armv7 0x000581f4, one hundred and four bytes.  **Complete**, and it lays out
+ * G's bar block.
+ *
+ *      G[0x378] = G[0x37c] = G[0x380] = G[0x384] = 48
+ *      G[0x368] = G[0x36c] = G[0x370] = G[0x374] = 166
+ *      MKEvent_Add(3, 0, G[0x368], 0)
+ *      MKEvent_Add(3, 0, G[0x36c], 1)
+ *      MKEvent_Add(3, 5, G[0x378], 0)
+ *      MKEvent_Add(3, 5, G[0x37c], 1)
+ *
+ * Eight words set and four announced, which is what identifies them.
+ * `RaiseTurboBars` caps its bar at 48 and sends event (3, 5) with the fighter
+ * index -- exactly the last two calls here -- so:
+ *
+ *      0x368  0x36c   health, and 166 is full
+ *      0x370  0x374   a second pair, set with them and never announced
+ *      0x378  0x37c   turbo, and 48 is full
+ *      0x380  0x384   a second pair, likewise
+ *      0x388  0x38c   the turbo raise delay, from RaiseTurboBars
+ *
+ * Five pairs, four bytes apart within a pair and eight between them: the
+ * per-fighter layout that is NOT the 0x158 block, laid out in full for the
+ * first time.
+ *
+ * 166 is the arcade's full health. Nothing here depends on that and it is not
+ * how the number was arrived at -- the events did that -- but it is the number.
+ *
+ * The two unannounced pairs are written from the same registers in the same
+ * order and never read here. A displayed value against a real one is the usual
+ * reason for such a pair; this function does not say so and it is left open.
+ *
+ * The event arguments are re-read from G rather than reused from the register
+ * that was just stored, which is why the disassembly loads 0x36c and 0x378
+ * back after writing them.
+ */
+void recharge_bars(void)
+{
+    uint32_t *g = (uint32_t *)G_BYTES;
+
+    g[0x380 / 4] = g[0x378 / 4] = g[0x384 / 4] = g[0x37c / 4] = 0x30;
+    g[0x36c / 4] = g[0x368 / 4] = g[0x374 / 4] = g[0x370 / 4] = 0xa6;
+
+    MKEvent_Add(3, 0, (long)g[0x368 / 4], 0);
+    MKEvent_Add(3, 0, (long)g[0x36c / 4], 1);
+    MKEvent_Add(3, 5, (long)g[0x378 / 4], 0);
+    MKEvent_Add(3, 5, (long)g[0x37c / 4], 1);
+}
+
+
+/* ------------------------------------------------------ Endurance_ClearPlayer
+ *
+ * armv7 0x00058314, one hundred and four bytes.  **Complete.**
+ *
+ *      Endurance_ClearStruct(&GrObj[i], &GrObj[i],        76)
+ *      Endurance_ClearStruct(&Plyr[i],  &Plyr[i]  + 0xc, 108)
+ *      Endurance_ClearStruct(&Pp[i],    &Pp[i]    + 0xc, 140)
+ *
+ * One player's entry in three parallel arrays, and the three strides are the
+ * whole content of the function. None is written as a multiply:
+ *
+ *      i*4 + i*16, minus i, times 4    ->  i * 76      GrObj
+ *      i*16 - i*4, plus that*8         ->  i * 108     Plyr
+ *      (i*4 + i*16)*8 minus that       ->  i * 140     Pp
+ *
+ * The first two agree with `StartGrObjAt` and `getobjectinsert`, which reached
+ * 76 and 108 from a modular inverse and a shift-and-add in other functions
+ * entirely. The third is new: `_Pp` at 0x0038dc9c, 140 bytes an entry.
+ *
+ * GrObj is cleared whole and the other two keep their first twelve bytes.
+ * Whatever lives in those twelve survives a player being reset for endurance,
+ * which is presumably an identity or a link the entry must not lose.
+ */
+void Endurance_ClearPlayer(uint32_t i)
+{
+    Endurance_ClearStruct(GrObj + i * GROBJ_STRIDE,
+                          GrObj + i * GROBJ_STRIDE, GROBJ_STRIDE);
+
+    Endurance_ClearStruct(Plyr + i * PLYR_STRIDE,
+                          Plyr + i * PLYR_STRIDE + 0xc, PLYR_STRIDE);
+
+    Endurance_ClearStruct(Pp + i * PP_STRIDE,
+                          Pp + i * PP_STRIDE + 0xc, PP_STRIDE);
 }
