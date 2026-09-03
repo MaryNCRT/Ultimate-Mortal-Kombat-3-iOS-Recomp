@@ -2463,7 +2463,7 @@ void sweep_sounds(MK3OBJ *obj)
  * armv7 0x0005841c and 0x00058468, twenty-eight bytes each.  **Complete.**
  *
  *      int a, b, c, d;
- *      mk3_getbbox(obj, &d, &c, &b, &a)
+ *      mk3_getbbox(ani, &d, &c, &b, &a)
  *      return b;                       ; width
  *      return a;                       ; height
  *
@@ -2473,22 +2473,28 @@ void sweep_sounds(MK3OBJ *obj)
  *
  * The four locals are named by position because that is all the pair
  * establishes: which slot is which, not what the other two are.
+ *
+ * The first argument is an ANIMATION, not an object. Neither of these two says
+ * so -- both forward r0 untouched -- and it was written as `MK3OBJ *` because
+ * everything else in this file takes one. `slave_ani`, read later, passes
+ * `script[0] & 0x3fff` into the same call, which settles it, and the
+ * correction propagates back here.
  */
-void mk3_getbbox(MK3OBJ *obj, int *p1, int *p2, int *p3, int *p4);
+void mk3_getbbox(uint32_t ani, int *p1, int *p2, int *p3, int *p4);
 
-int GetFrameWidth(MK3OBJ *obj)
+int GetFrameWidth(uint32_t ani)
 {
     int s04 = 0, s08 = 0, s0c = 0, s10 = 0;
 
-    mk3_getbbox(obj, &s10, &s0c, &s08, &s04);
+    mk3_getbbox(ani, &s10, &s0c, &s08, &s04);
     return s08;
 }
 
-int GetFrameHeight(MK3OBJ *obj)
+int GetFrameHeight(uint32_t ani)
 {
     int s04 = 0, s08 = 0, s0c = 0, s10 = 0;
 
-    mk3_getbbox(obj, &s10, &s0c, &s08, &s04);
+    mk3_getbbox(ani, &s10, &s0c, &s08, &s04);
     return s04;
 }
 
@@ -3137,11 +3143,12 @@ void call_a0_for_him(MK3OBJ *obj)
  * centres is the one `is_he_right` compares, reached through its top half.
  *
  * `GetFrameWidth` is given `other->field2c`, not the object, so 0x2c holds
- * whatever the bounding box is asked about.
+ * the animation the bounding box is asked about -- which is what later made
+ * `mk3_getbbox`'s first parameter an animation everywhere.
  */
 void center_about_x(MK3OBJ *obj)
 {
-    int32_t half = (int32_t)GetFrameWidth((MK3OBJ *)(uintptr_t)obj->field08->field2c) >> 1;
+    int32_t half = (int32_t)GetFrameWidth(obj->field08->field2c) >> 1;
 
     obj->field20 = (uint32_t)half;
     obj->field1c = (uint32_t)((int32_t)obj->field1c - half);
@@ -4314,7 +4321,7 @@ void ani2_ob(MK3OBJ *obj, MK3OBJ *target)
     obj->field1c &= 0x3fffu;
     target->field2c = obj->field1c;
 
-    mk3_getbbox((MK3OBJ *)(uintptr_t)obj->field1c,
+    mk3_getbbox(obj->field1c,
                 (int *)&target->field34, (int *)&target->field38,
                 (int *)&target->field3c, (int *)&target->field40);
 }
@@ -5351,4 +5358,157 @@ long t_round_timeout(MK3THREAD *thread)
     mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_prend;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
+}
+
+
+/* ------------------------------------------------------------ adjust_damage
+ *
+ * armv7 0x00054c90, eighty bytes.  **Complete.**
+ *
+ *      f = (float)damage
+ *      s = adjust_diff[RoundParam[0x0c]] * adjust_ladder[RoundParam[0x14]]
+ *      r = (int32_t)(f * s)            ; vcvt truncates toward zero
+ *      return r < 1 ? 1 : r
+ *
+ * Two scale tables, and the symbol table gives both extents exactly:
+ *
+ *      _adjust_diff    0x0016edfc .. 0x0016ee24   ten floats
+ *      _adjust_ladder  0x0016ee24 .. 0x0016ee34   four floats
+ *
+ * and the values in the image are:
+ *
+ *      adjust_diff    1.0 ten times
+ *      adjust_ladder  0.8, 1.0, 1.0, 1.0
+ *
+ * So **difficulty does not scale damage in this build** -- ten entries, all
+ * 1.0, a table left in place with its effect removed. And the first ladder
+ * step deals 80 per cent, the rest full.
+ *
+ * Four ladder entries is the second time that number has appeared:
+ * `ladderorder_a1` reads the same RoundParam+0x14 and folds anything above 3
+ * back to 1. That was read from a clamp and this from a symbol's extent, and
+ * they agree.
+ *
+ * The multiply order is the compiler's: the two scales are multiplied together
+ * FIRST and the damage applied to the product. Float multiplication is not
+ * associative, so the grouping is transcribed rather than tidied.
+ *
+ * The clamp is a floor of 1, applied after the truncation. A hit that scales
+ * to nothing still takes a point, which is what stops a weak attack against a
+ * generous table from becoming free.
+ */
+extern float adjust_diff[10];           /* 0x0016edfc, ten floats, all 1.0 */
+extern float adjust_ladder[4];          /* 0x0016ee24, 0.8 then three 1.0 */
+
+long adjust_damage(long damage)
+{
+    const uint32_t *rp = (const uint32_t *)RoundParam;
+    float scale = adjust_diff[rp[0x0c / 4]] * adjust_ladder[rp[0x14 / 4]];
+    long  r = (long)((float)damage * scale);
+
+    return r < 1 ? 1 : r;
+}
+
+
+/* --------------------------------------------------------- four_button_bits
+ *
+ * armv7 0x00057224, eighty bytes.  **Complete.**
+ *
+ *      if ((int16_t)proc->field7c == 0) return bits
+ *      for each pair (high, low):
+ *          if (bits & high) bits = (bits & ~(high | low)) | low
+ *
+ *      0x00010000 -> 0x0010
+ *      0x00100000 -> 0x1000
+ *      0x00020000 -> 0x0040
+ *      0x00200000 -> 0x4000
+ *
+ * The four-button control scheme, and the gate at 0x7c is what turns it on --
+ * the field this struct has called "the four-button gate" since the flag was
+ * first seen being written, now with the routine that reads it.
+ *
+ * Each pair is cleared whole before the low bit is set, so the high bit does
+ * not survive the translation and a consumer downstream sees only the ordinary
+ * button. The masks are three literals in the pool -- 0xfffeffef, 0xffefefff,
+ * 0xfffdffbf -- and the fourth pair is done with an immediate `bic` of
+ * 0x00204000 instead, which is the same operation the assembler could spell
+ * without a constant.
+ *
+ * This is the hook a gamepad wants. The port's controller work does not need
+ * to invent a mapping: the game already has one, and it is four bits wide.
+ *
+ * The gate is read as a SIGNED halfword and compared with zero, so any
+ * non-zero value enables it.
+ */
+uint32_t four_button_bits(MK3OBJ *obj, uint32_t bits)
+{
+    static const uint32_t pair[4][2] = {
+        { 0x00010000u, 0x0010u },
+        { 0x00100000u, 0x1000u },
+        { 0x00020000u, 0x0040u },
+        { 0x00200000u, 0x4000u },
+    };
+    int i;
+
+    if ((int16_t)obj->field00->field7c == 0)
+        return bits;
+
+    for (i = 0; i < 4; i++)
+        if ((bits & pair[i][0]) != 0)
+            bits = (bits & ~(pair[i][0] | pair[i][1])) | pair[i][1];
+
+    return bits;
+}
+
+
+/* --------------------------------------------------------------- slave_ani
+ *
+ * armv7 0x00058484, eighty bytes.  **Complete.**
+ *
+ *      slave = obj->field00->slave
+ *      if (slave != NULL) {
+ *          ani = script[0] & 0x3fff
+ *          match_ani_points_ob_ob(obj->field08, slave)
+ *          slave->field2c = ani
+ *          mk3_getbbox(ani, &slave->box.left, &slave->box.top,
+ *                           &slave->box.right, &slave->box.bottom)
+ *          obj->a10 = slave
+ *      }
+ *      return script + 1
+ *
+ * The first function in this file that is a **script step**: it reads one word
+ * from a cursor and returns the cursor advanced by four, whether or not it did
+ * anything. So there is a stream of these somewhere and this is one opcode's
+ * worth of work.
+ *
+ * The word is masked to fourteen bits for the animation, which leaves the top
+ * eighteen for something this opcode does not look at. Not guessed here; a
+ * second reader of the same word will say what they are.
+ *
+ * `mk3_getbbox` fills the object's box at 0x34..0x40 -- four out-parameters,
+ * the fourth passed on the stack because ARM ran out of registers. That box is
+ * the one `MK3BOX` describes, and this is the first sight of what writes it.
+ *
+ * 0x68 of the PROC is dereferenced as an object here for the first time, which
+ * is what makes the name `slave` a pointer rather than a number.
+ */
+const uint32_t *slave_ani(MK3OBJ *obj, const uint32_t *script)
+{
+    MK3OBJ *slave = (MK3OBJ *)(uintptr_t)obj->field00->slave;
+
+    if (slave != NULL) {
+        uint32_t ani = script[0] & 0x3fffu;
+
+        match_ani_points_ob_ob((uint32_t)(uintptr_t)obj->field08,
+                               (uint32_t)(uintptr_t)slave);
+        slave->field2c = ani;
+        /* The box fields are unsigned here and the out-parameters signed;
+         * GetFrameWidth's locals are what fixed the signedness and this
+         * struct's what fixed the width. Cast rather than pick a side. */
+        mk3_getbbox(ani, (int *)&slave->field34, (int *)&slave->field38,
+                    (int *)&slave->field3c, (int *)&slave->field40);
+        obj->a10 = (uint32_t)(uintptr_t)slave;
+    }
+
+    return script + 1;
 }
