@@ -8998,3 +8998,90 @@ long t_bani2(MK3THREAD *thread)
     thread->fieldfc = obj->field1c;
     return (long)obj->field1c;
 }
+
+
+/* ---------------------------------------------------- t_back_to_shang_check
+ *
+ * armv7 0x00057924, two hundred and sixteen bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      am_i_shang(obj)
+ *      if (obj->field5c == 0)                      unwind
+ *      obj->field1c = obj->field08->field24
+ *      if (obj->field1c == 0xc)                    unwind
+ *      obj->field1c = G + 0x3fc
+ *      get_tsl_px(obj, obj)
+ *      if ((int32_t)obj->field20 < 0x200)          unwind
+ *      if (frame > 0) frame = frame - 1
+ *      frame[frame].handler = t_back_to_shang_form
+ *      frame[frame+1].w0 = 0
+ *
+ * Three tests before it will change anything: he must be Shang, his current
+ * form must not be character 0xc, and a value looked up in a table must be at
+ * least 0x200. Only then does the morph happen.
+ *
+ * **The last arm is not an unwind.** It drops a level exactly as one would and
+ * then installs a DIFFERENT handler there, so the caller is both returned to
+ * and replaced. Nothing else in this file does that; every other pop leaves
+ * the parent's handler alone.
+ *
+ * The table is G+0x3fc, which is not one of the four `get_tsl_px` swaps for
+ * the four-button scheme -- a fifth table reached the same way and left alone
+ * by that gate.
+ *
+ * The lookup goes through `get_tsl_px` with the object as both arguments, so
+ * the PROC it reads the gate and the index from is this fighter's own.
+ *
+ * Between the decrement and the install the compiler copies level+1 down to
+ * level -- its handler AND its first word -- and then overwrites both, once
+ * with the new handler and once with the zero. Two dead stores in the middle
+ * of a live routine; transcribed because they are there and marked because
+ * they do nothing.
+ *
+ * The frame <= 0 case reaches the same install after writing
+ * `t_local_reaction_exit` at the same slot, which is likewise overwritten. So
+ * at the bottom of the stack this routine still becomes the morph rather than
+ * exiting.
+ */
+long t_back_to_shang_form(MK3THREAD *thread);
+
+long t_back_to_shang_check(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    am_i_shang(obj);
+    if (obj->field5c == 0)
+        return mk3_unwind(thread);
+
+    obj->field1c = obj->field08->field24;
+    if (obj->field1c == 0xc)                    /* already that form */
+        return mk3_unwind(thread);
+
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x3fc);
+    get_tsl_px(obj, obj);
+    if ((int32_t)obj->field20 < 0x200)
+        return mk3_unwind(thread);
+
+    if ((int32_t)thread->frame > 0)
+        thread->frame = thread->frame - 1;
+    else {
+        /* Written and then overwritten below -- see the note. */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_local_reaction_exit;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+    }
+
+    /* Dead: both halves are overwritten by the two stores that follow. */
+    *mk3_frame(thread, thread->frame + 1) =
+        *mk3_frame(thread, thread->frame + 2);
+    mk3_frame(thread, thread->frame)[1] =
+        mk3_frame(thread, thread->frame + 1)[1];
+
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_back_to_shang_form;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
