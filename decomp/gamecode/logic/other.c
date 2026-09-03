@@ -7093,3 +7093,141 @@ long t_print_timeout_msg(MK3THREAD *thread)
     thread->fieldfc = 0x50;
     return 0x50;
 }
+
+
+/* ------------------------------------------------------------ DoSwitchJump
+ *
+ * armv7 0x00055efc, one hundred and forty bytes.  **Complete.**
+ *
+ *      table = flag ? *(0x000f3204) : *(0x000f3210)
+ *      row = table[index]
+ *      if (row == NULL) return
+ *      frame.pp    = &Pp[player]            ; stride 140
+ *      frame.grobj = &GrObj[player]         ; stride 76
+ *      c = Plyr[player].field08->field24    ; stride 108, then the character
+ *      fn = row[c]
+ *      if (fn == NULL) return
+ *      fn(&frame)
+ *
+ * A two-level dispatch: an index picks a row and the CHARACTER picks the entry
+ * in it, so this is how a switch does something different per fighter without
+ * every switch knowing the roster. Both levels are checked for null and both
+ * failures are silent.
+ *
+ * The first argument chooses between two tables entirely -- 0x000f3204 and
+ * 0x000f3210 -- so there are two complete sets of per-character handlers.
+ *
+ * The three multiplies are 140, 76 and 108: `Pp`, `GrObj` and `Plyr`, all
+ * three strides in one function for the second time after
+ * `Endurance_ClearPlayer`. The character is reached the long way here, through
+ * Plyr's 0x08 rather than GrObj's own 0x24, which is a second path to the same
+ * number.
+ *
+ * The callee is handed a pointer to a 0x6c-byte stack frame of which exactly
+ * two words are filled -- 0 and 8. **The word at 4 is never written**, so it
+ * is whatever the stack held. Transcribed as an uninitialised field rather
+ * than zeroed, because zeroing it would be inventing a value the callee may
+ * be relying on not to exist.
+ */
+typedef struct SWITCHFRAME {
+    char    *pp;                /* 0x00  &Pp[player] */
+    uint32_t uninitialised;     /* 0x04  never written -- see above */
+    char    *grobj;             /* 0x08  &GrObj[player] */
+    uint8_t  rest[0x6c - 12];   /* the frame is 0x6c bytes; nothing fills it */
+} SWITCHFRAME;
+
+extern void **SwitchTableA;             /* slot 0x000f3204 */
+extern void **SwitchTableB;             /* slot 0x000f3210 */
+
+void DoSwitchJump(long flag, uint32_t player, uint32_t index)
+{
+    void **table = flag ? SwitchTableA : SwitchTableB;
+    void **row = (void **)table[index];
+    SWITCHFRAME frame;
+    uint32_t c;
+    void (*fn)(SWITCHFRAME *);
+
+    if (row == NULL)
+        return;
+
+    frame.pp    = Pp + player * PP_STRIDE;
+    frame.grobj = GrObj + player * GROBJ_STRIDE;
+
+    c = *(const uint32_t *)
+        (*(char **)(Plyr + player * PLYR_STRIDE + 8) + 0x24);
+
+    fn = (void (*)(SWITCHFRAME *))row[c];
+    if (fn == NULL)
+        return;
+
+    fn(&frame);
+}
+
+
+/* ---------------------------------------------------------- create_fx_param
+ *
+ * armv7 0x00058b64, one hundred and forty bytes.  **Complete**, and it names
+ * four finishers.
+ *
+ *      switch (obj->field1c) {          ; a tbb over [0x16, 0x2b]
+ *      case 0x16: tsound_func(obj, 0x62);                    break;
+ *      case 0x18: tsound_func(obj, 0); tsound_func(obj, 1);  break;
+ *      case 0x1c: NewThread(obj, t_fx_animality);            break;
+ *      case 0x1d: NewThread(obj, t_fx_mercy);                break;
+ *      case 0x2a: NewThread(obj, t_fx_friendship);           break;
+ *      case 0x2b: NewThread(obj, t_fx_babality);             break;
+ *      default:                                              break;
+ *      }
+ *      MKEvent_Add(4, obj->field1c, param, obj->field00->field08)
+ *
+ * So the effect numbers are: **0x1c animality, 0x1d mercy, 0x2a friendship,
+ * 0x2b babality**. Four of the game's finishers, identified not by guessing at
+ * constants but by the names of the threads they start.
+ *
+ * Sixteen of the twenty-two cases do nothing but the event, and the two that
+ * are not threads are sounds. So one table carries "make a noise", "start a
+ * sequence" and "just tell the front end", and the event at the end runs
+ * whatever the case did.
+ *
+ * The event is (4, effect, param, strength) -- the first this file has seen
+ * with a 4 in front, and the only one that carries the PROC's 0x08.
+ *
+ * The jump table is a `tbb`: twenty-two bytes at 0x00058b7a, each the
+ * half-offset from that address. Read out of the image rather than from the
+ * disassembly, which renders them as instructions.
+ *
+ * `finish_him_or_her` sets 0x11 or 0x12, which are below this range, so those
+ * go to `create_fx` and not here. Two entry points, two ranges.
+ */
+long t_fx_animality(MK3THREAD *thread);
+long t_fx_mercy(MK3THREAD *thread);
+
+void create_fx_param(MK3OBJ *obj, uint32_t param)
+{
+    switch (obj->field1c) {
+    case 0x16:
+        tsound_func((uint32_t)(uintptr_t)obj, 0x62);
+        break;
+    case 0x18:
+        tsound_func((uint32_t)(uintptr_t)obj, 0);
+        tsound_func((uint32_t)(uintptr_t)obj, 1);
+        break;
+    case 0x1c:
+        NewThread(obj, (MK3THREADFUNC)t_fx_animality);
+        break;
+    case 0x1d:
+        NewThread(obj, (MK3THREADFUNC)t_fx_mercy);
+        break;
+    case 0x2a:
+        NewThread(obj, (MK3THREADFUNC)t_fx_friendship);
+        break;
+    case 0x2b:
+        NewThread(obj, (MK3THREADFUNC)t_fx_babality);
+        break;
+    default:
+        break;
+    }
+
+    MKEvent_Add(4, (long)obj->field1c, (long)param,
+                obj->field00->field08);
+}
