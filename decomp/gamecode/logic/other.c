@@ -7231,3 +7231,224 @@ void create_fx_param(MK3OBJ *obj, uint32_t param)
     MKEvent_Add(4, (long)obj->field1c, (long)param,
                 obj->field00->field08);
 }
+
+
+/* ------------------------------------------------------------ t_act_mframew
+ *
+ * armv7 0x00055620, one hundred and forty bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field00->field18 = obj->field20        ; set the action
+ *          frame[frame+1].w0 = 0x6b4
+ *          frame = frame + 1                           ; push
+ *          frame[frame].handler = t_mframew
+ *          frame[frame+1].w0 = 0
+ *      token == 0x6b4:  unwind
+ *      otherwise:       return -3
+ *
+ * The call shape with one store first, and the name says what it is: act, then
+ * mframew. The action comes from the object's 0x20 rather than a constant, so
+ * the caller chooses it and this only commits it.
+ *
+ * `stance_setup` writes 0x303 into the same field directly. So an action is
+ * set either way -- with a constant in place, or from a slot through this --
+ * and both write the PROC's 0x18.
+ */
+long t_act_mframew(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x6b4)
+        return mk3_unwind(thread);
+
+    if (token != 0)
+        return -3;
+
+    obj->field00->field18 = obj->field20;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x6b4;
+    thread->frame = thread->frame + 1;                  /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ------------------------------------------------------- t_wait_for_landing
+ *
+ * armv7 0x000574a4, one hundred and forty bytes.  **Complete.**
+ *
+ *      token == 0:       park(0x15c3, 1)
+ *      token == 0x15c3:
+ *          get_his_action(obj)
+ *          if (obj->field20 == 0x610) unwind
+ *          is_he_airborn(obj)
+ *          if (obj->field5c == 0)     unwind
+ *          frame[frame].handler = t_wait_for_landing       ; poll again
+ *      otherwise:        return -3
+ *
+ * The second polling loop, and the first with two ways out. It ends when he
+ * lands -- `is_he_airborn` leaves its answer in 0x5c -- or when his action
+ * becomes 0x610, whichever happens first.
+ *
+ * The action test comes FIRST and short-circuits, so `is_he_airborn` is not
+ * called at all in that case. An escape hatch rather than a second condition:
+ * whatever 0x610 is, it means this wait is over regardless of where he is.
+ *
+ * Both exits go to the same unwind, so the caller cannot tell which happened.
+ * If it needs to know, it has to look at the action itself -- and 0x20 still
+ * holds it, because `get_his_action` left it there.
+ */
+void get_his_action(MK3OBJ *obj);
+long is_he_airborn(MK3OBJ *obj);
+
+long t_wait_for_landing(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x15c3;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token != 0x15c3)
+        return -3;
+
+    get_his_action(obj);
+    if (obj->field20 == 0x610)          /* the escape hatch */
+        return mk3_unwind(thread);
+
+    is_he_airborn(obj);
+    if (obj->field5c == 0)              /* he has landed */
+        return mk3_unwind(thread);
+
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_wait_for_landing;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* --------------------------------------------------------- t_wait_for_start
+ *
+ * armv7 0x0005a990, one hundred and forty bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          stance_setup(obj)
+ *          park(0x105d, 1)
+ *      token == 0x105d:
+ *          next_anirate(obj)
+ *          obj->field1c = (int16_t)G[0x44e]
+ *          if ((uint16_t)G[0x44e] == 0) park(0x105d, 1)    ; still waiting
+ *          else unwind
+ *      otherwise:  return -3
+ *
+ * The cleanest poll here. It re-parks with **the same token**, which is
+ * already in the slot, so the store changes nothing and the next entry lands
+ * on the same branch. No handler is written at all.
+ *
+ * Compare `t_wait_for_his_dog`, which re-installs itself and clears the slot
+ * above so the park happens again from the top. Both poll once per tick; this
+ * one does it with a store that is a no-op and a return value.
+ *
+ * The flag is G+0x44e, which `t_master_mercy_entry` sets to 1. So this is what
+ * mercy waits on, and `t_mercy_start` is what pushed it -- after taking the
+ * controls away, which is why nothing here reads a button.
+ *
+ * The halfword is read twice: unsigned to test, signed into 0x1c. So a
+ * negative value would be non-zero and would end the wait, arriving at the
+ * caller as a negative number.
+ */
+long t_wait_for_start(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        stance_setup(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x105d;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token != 0x105d)
+        return -3;
+
+    next_anirate(obj);
+    obj->field1c = (uint32_t)(int32_t)*(const int16_t *)(G_BYTES + 0x44e);
+
+    if (*(const uint16_t *)(G_BYTES + 0x44e) == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x105d;   /* unchanged */
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    return mk3_unwind(thread);
+}
+
+
+/* ------------------------------------------------------------------ t_fani3
+ *
+ * armv7 0x000561a4, one hundred and forty-four bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          set_noscroll(obj)
+ *          obj->field08->field0e = 0xc7        ; a fixed position
+ *          obj->field08->field12 = 0x50
+ *          obj->field1c = 4
+ *          frame[frame+1].w0 = 0xf8d
+ *          frame = frame + 1                   ; push
+ *          frame[frame].handler = t_mframew
+ *          frame[frame+1].w0 = 0
+ *      token == 0xf8d:
+ *          frame[frame].handler = t_wait_forever
+ *          frame[frame+1].w0 = 0
+ *      otherwise:  return -3
+ *
+ * The finisher animations' frame. It stops the camera, plants the object at
+ * (0xc7, 0x50) -- 199 and 80, constants and not a computation -- runs
+ * `t_mframew` as a call, and then becomes `t_wait_forever`.
+ *
+ * The second half is a tail call and NOT an unwind, which is the difference
+ * that matters: the thread does not return to whoever pushed it. It stops
+ * where it is and waits to be killed. That is what the end of a finisher looks
+ * like from inside.
+ *
+ * `t_ship_proc` and `t_fx_friendship` both install this, so ship and
+ * friendship share the frame and differ only in the table they put in 0x40
+ * beforehand.
+ *
+ * The two coordinates are written as halfwords into 0x0e and 0x12 of the
+ * OTHER object at 0x08, not this one.
+ */
+void set_noscroll(MK3OBJ *obj);
+
+long t_fani3(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0xf8d) {
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_wait_forever;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    set_noscroll(obj);
+    MK3_SET_FIELD0E(obj->field08, 0xc7);
+    MK3_SET_FIELD12(obj->field08, 0x50);
+    obj->field1c = 4;
+
+    *mk3_frame(thread, thread->frame + 1) = 0xf8d;
+    thread->frame = thread->frame + 1;                  /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
