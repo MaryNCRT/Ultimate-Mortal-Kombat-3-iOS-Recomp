@@ -4379,8 +4379,8 @@ void gdfe4(MK3OBJ *obj)
 
 void t_attk2(void);
 void t_master_mercy_entry(void);
-void t_multi_dummy_proc(void);
-void t_wait_forever(void);
+long t_multi_dummy_proc(struct MK3THREAD *thread);
+long t_wait_forever(struct MK3THREAD *thread);
 
 /* The frame array lives at the thread's own address, eight bytes an entry,
  * indexed by 0xa4 -- the same arithmetic `GetThreadFunc` and
@@ -4747,11 +4747,12 @@ void RaiseTurboBars(void)
  * The frame-push family with a table installed first: the PROC's 0x40 takes
  * `_a_ship` before the handler `t_fani3` goes into the frame.
  *
- * 0x40 of a PROC is the ground `ground_player` copies out and
- * `distance_off_ground` measures against. Here it takes the address of an
- * animation table instead. Another offset carrying two unrelated things, and
- * this one crosses a type -- a coordinate in one routine, a pointer in
- * another.
+ * The 0x40 written here is an MK3OBJ's, not an MK3OBJPROC's -- `thread->proc`
+ * points at the object. `t_attk3` and `pose_him_a0` read the same slot and
+ * resolve it through `get_char_ani` when it is small, so 0x40 is the animation
+ * and a table address is simply the large case. Nothing anomalous: an earlier
+ * note here called it the ground, which is the PROC's 0x40 and a different
+ * struct.
  *
  * `_a_ship` is the eighth named table this file reaches.
  */
@@ -5059,7 +5060,7 @@ long t_its_a_tie(MK3THREAD *thread)      { return mk3_pop_or_exit(thread); }
  * The cursor is stored twice -- once after each push -- because the compiler
  * kept no running total. Not observable, transcribed because it is there.
  */
-void t_attk3(void);
+long t_attk3(MK3THREAD *thread);
 
 static long mk3_striker_entry(MK3THREAD *thread)
 {
@@ -5084,3 +5085,270 @@ static long mk3_striker_entry(MK3THREAD *thread)
 
 long t_striker(MK3THREAD *thread)        { return mk3_striker_entry(thread); }
 long t_behind_striker(MK3THREAD *thread) { return mk3_striker_entry(thread); }
+
+
+/* ------------------------------------------------------------------ t_attk3
+ *
+ * armv7 0x0005606c, seventy-two bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      if ((int32_t)obj->field40 <= 0x47) get_char_ani(obj)
+ *      frame[frame].handler = t_attk5
+ *      frame[frame+1].w0 = 0
+ *
+ * `pose_him_a0`'s tagged union again, with a different threshold: 0x47 here on
+ * the object's 0x40, 0xff there on its 0x1c. Two slots hold "an animation,
+ * either as a number or as a pointer" and each has its own boundary, so the
+ * boundary belongs to the slot and is not a global constant. Seventy-one
+ * animations reachable by number in this one.
+ *
+ * The frame index is re-read after `get_char_ani`, so the call is allowed to
+ * move it. Transcribed as the re-read rather than as a saved local.
+ *
+ * The chain runs t_striker -> t_attk3 -> t_attk5 -> t_attk2, one handler
+ * installed per entry, which is how this scheduler spells a sequence.
+ */
+long t_attk3(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    if ((int32_t)obj->field40 <= 0x47)          /* a number, not a pointer */
+        get_char_ani(obj);
+
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_attk5;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ------------------------------------------------------------------- t_fhs3
+ *
+ * armv7 0x0005668c, seventy-two bytes.  **Complete**, and it rewrites what the
+ * rest of this family's first line means.
+ *
+ *      token = frame[frame+1].w0
+ *      if (token == 0) {
+ *          frame[frame+1].w0 = 0x1180
+ *          thread->fieldfc = 1
+ *          return 1
+ *      }
+ *      if (token != 0x1180) return -3
+ *      frame[frame].handler = t_wait_fatality_finish
+ *      frame[frame+1].w0 = 0
+ *      return 0
+ *
+ * The slot above the current frame is a **resume token**. Until now every
+ * member of the family had only tested it against zero, which reads as a busy
+ * flag; this one stamps 0x1180 into it, sets 0xfc, and returns **1** -- a value
+ * no other member returns.
+ *
+ * Read the family again with that in hand:
+ *
+ *   - zero means nobody is waiting there, so the caller may install;
+ *   - a token means somebody is, and -3 is "not mine, I am not the one to
+ *     run" rather than a failure;
+ *   - returning 1 is "I have parked myself; come back".
+ *
+ * On the second entry the routine recognises its own stamp, clears it and
+ * moves on. So a thread yields by writing a value only it will recognise, and
+ * the scheduler needs to know nothing about who is waiting for what.
+ *
+ * 0x1180 is a tag as far as this function is concerned -- it is only ever
+ * compared with itself. Whether the number also means something to whatever
+ * reads 0xfc is not visible from here and is left open.
+ *
+ * 0xfc is the slot `NewThread` clears and `t_self_terminate` sets. Set here
+ * too, on a park, which fits "this thread is not runnable" better than the
+ * "terminated" the earlier note guessed at.
+ */
+long t_wait_fatality_finish(MK3THREAD *thread);
+
+/* The park, shared by every member of the shape.
+ *
+ *      if (the slot above is empty)  stamp `token`, set 0xfc to `mask`,
+ *                                    and return the mask
+ *      if (it holds somebody else's) return -3
+ *      otherwise clear it and install `next`
+ *
+ * Two numbers, and they are not the same kind of thing:
+ *
+ *   - `token` identifies WHO is parked. It is compared only against itself,
+ *     so any distinct value would do and each routine has its own.
+ *
+ *   - `mask` says WHAT is being waited for. It is stored at 0xfc and also
+ *     returned, and the three known values are single distinct bits --
+ *     0x0001, 0x0040, 0x1000 -- so the scheduler is told the reason twice, in
+ *     the thread and in the return.
+ *
+ * That is the whole of this cooperative scheduler's blocking: no queue, no
+ * wait list. A thread writes down what it wants and a value only it will
+ * recognise, and is asked again later. */
+static long mk3_park(MK3THREAD *thread, uint32_t token, uint32_t mask,
+                     MK3THREADFUNC next)
+{
+    uint32_t current = thread->frame;
+    uint32_t seen    = *mk3_frame(thread, current + 1);
+
+    if (seen == 0) {
+        *mk3_frame(thread, current + 1) = token;
+        thread->fieldfc = mask;
+        return (long)mask;              /* parked -- come back */
+    }
+
+    if (seen != token)
+        return -3;                      /* somebody else is waiting here */
+
+    mk3_frame(thread, current)[1] = (uint32_t)(uintptr_t)next;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+long t_fhs3(MK3THREAD *thread)
+{
+    return mk3_park(thread, 0x1180, 0x0001,
+                    (MK3THREADFUNC)t_wait_fatality_finish);
+}
+
+
+/* -------------------------------------------------- is_finish_him_allowed
+ *
+ * armv7 0x000578c0, seventy-six bytes.  **Complete.**
+ *
+ *      obj->field1c = GrObj[1].field24        ; read at 0x70
+ *      obj->field20 = GrObj[0].field24        ; read at 0x24
+ *      if either is 0x17, 0x18 or 0x19 -> 0
+ *      else if (int16)G[0x45e] or (int16)G[0x460] -> 1
+ *      else 0
+ *
+ * The two reads are the SAME FIELD of two GrObj entries: the offsets are 0x24
+ * and 0x70, and 0x70 - 0x24 is 76 -- `GROBJ_STRIDE` exactly, arrived at from
+ * the other direction. `StartGrObjAt` got that 76 out of a modular inverse the
+ * compiler used to avoid a divide; this function reaches it by writing two
+ * offsets down. Two independent derivations agreeing is what makes the stride
+ * safe to build on.
+ *
+ * So a GrObj entry plus 0x24 is the character, and three consecutive values --
+ * 0x17, 0x18, 0x19 -- forbid the finisher for whichever side holds one. Three
+ * in a row at the end of a range is the shape of a roster's non-selectable
+ * tail; which characters they are is not in this function and is not guessed
+ * here.
+ *
+ * The two SIGNED halfwords at G+0x45e and G+0x460 are two bytes apart, so this
+ * is a third per-fighter layout in G -- after the 0x158 blocks and the
+ * four-byte pair `RaiseTurboBars` walks. Either being non-zero permits it.
+ *
+ * The two character numbers are left behind in 0x1c and 0x20, written before
+ * the test rather than after, so a caller can read them whatever the answer.
+ */
+long is_finish_him_allowed(MK3OBJ *obj)
+{
+    uint32_t a = *(const uint32_t *)(GrObj + 0x24 + GROBJ_STRIDE);
+    uint32_t b = *(const uint32_t *)(GrObj + 0x24);
+    uint32_t allowed;
+
+    obj->field1c = a;
+    obj->field20 = b;
+
+    if (a == 0x18 || b == 0x18 || a == 0x19 || b == 0x19 ||
+        a == 0x17 || b == 0x17)
+        allowed = 0;
+    else if (*(const int16_t *)(G_BYTES + 0x45e) != 0 ||
+             *(const int16_t *)(G_BYTES + 0x460) != 0)
+        allowed = 1;
+    else
+        allowed = 0;
+
+    obj->field5c = allowed;
+    return (long)allowed;
+}
+
+
+/* ------------------------------- t_multi_dummy_proc and t_wait_forever
+ *
+ * armv7 0x00055570 and 0x00054e48, seventy-six bytes each.  **Complete.**
+ *
+ * Two more parks, and having three of them is what separated the token from
+ * the mask:
+ *
+ *      t_fhs3              token 0x1180   mask 0x0001
+ *      t_multi_dummy_proc  token 0x05e6   mask 0x1000
+ *      t_wait_forever      token 0x011d   mask 0x0040
+ *
+ * Each continues into its own wake routine, and both wake routines install the
+ * parker again. `t_wait_forever` and `t_wait_forever_wake` are a two-function
+ * loop with a park in the middle -- which is exactly what the name promises,
+ * and it is the whole implementation. Nothing counts down; the thread simply
+ * keeps asking and keeps being told to wait until something outside clears the
+ * mask at 0xfc.
+ *
+ * `t_multi_dummy_proc` is the same loop with a different bit, which is what a
+ * thread that exists only to hold a slot open would look like.
+ *
+ * The masks are single bits and no routine here sets two, so whether 0xfc ever
+ * carries a combination is not visible from this file.
+ */
+long t_multi_dummy_wake(MK3THREAD *thread);
+long t_wait_forever_wake(MK3THREAD *thread);
+
+long t_multi_dummy_proc(MK3THREAD *thread)
+{
+    return mk3_park(thread, 0x05e6, 0x1000,
+                    (MK3THREADFUNC)t_multi_dummy_wake);
+}
+
+long t_wait_forever(MK3THREAD *thread)
+{
+    return mk3_park(thread, 0x011d, 0x0040,
+                    (MK3THREADFUNC)t_wait_forever_wake);
+}
+
+
+/* ------------------------------------------------------------ t_round_timeout
+ *
+ * armv7 0x00056474, seventy-six bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      G[0x460] = 0        ; halfwords
+ *      G[0x45e] = 0
+ *      obj->field48 = 3
+ *      frame[frame].handler = t_prend
+ *      frame[frame+1].w0 = 0
+ *
+ * A fourth value for the round result at 0x48, and the one that finally makes
+ * the enumeration legible:
+ *
+ *      0  t_p1_won
+ *      1  (no routine writes it -- still a gap)
+ *      2  t_round_tied
+ *      3  t_round_timeout
+ *
+ * and all four continue into `t_prend`, so the result is recorded here and
+ * acted on further along.
+ *
+ * The two halfwords it zeroes are the pair `is_finish_him_allowed` requires to
+ * be non-zero. So a round that runs out of time offers no finisher -- and the
+ * two functions agree about that having been read independently, neither one
+ * for the sake of the other. That is the check on both readings.
+ *
+ * The zero it writes comes from the frame-above test, which had to be zero to
+ * get here; the compiler reuses the register rather than loading a constant,
+ * which is why three different stores share one value.
+ */
+long t_round_timeout(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    *(int16_t *)(G_BYTES + 0x460) = 0;
+    *(int16_t *)(G_BYTES + 0x45e) = 0;
+    obj->field48 = 3;
+
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_prend;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
