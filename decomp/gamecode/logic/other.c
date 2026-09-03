@@ -47,8 +47,10 @@ typedef struct MK3THREAD {
     uint32_t      field08;       /* 0x08  cleared with it */
     uint8_t       _pad0c[0x98];
     uint32_t      frame;         /* 0xa4  the index into the frame array */
-    uint8_t       _pad_a8[0x50];
-    uint32_t      fieldf8;       /* 0xf8  fastxfer_thread clears it too */
+    uint8_t       args[0x50];    /* 0xa8  twenty more words, four bytes each,
+                                  *       pushed by the striker pair */
+    uint32_t      fieldf8;       /* 0xf8  the cursor into them; fastxfer_thread
+                                  *       clears it too */
     uint32_t      fieldfc;       /* 0xfc  cleared on start, set on terminate */
     uint8_t       _pad100[4];
     uint32_t      pid;           /* 0x104 NewThreadProcPid sets it */
@@ -4585,7 +4587,7 @@ void randper(MK3OBJ *obj)
  * The compiler reuses that register rather than loading a constant, which is
  * why the store looks like it writes an arbitrary value.
  */
-void t_fatal_yes(void);
+long t_fatal_yes(struct MK3THREAD *thread);
 
 long t_fatal_no(MK3THREAD *thread)
 {
@@ -4624,7 +4626,7 @@ long t_fatal_no(MK3THREAD *thread)
  * get past the guard; `t_round_tied` loads a 2. That is why one is fifty-six
  * bytes and the other sixty.
  */
-void t_prend(void);
+long t_prend(struct MK3THREAD *thread);
 
 long t_p1_won(MK3THREAD *thread)
 {
@@ -4955,3 +4957,130 @@ void swscan(void)
     if ((diff & ~now) != 0)
         stack_switch_bits(now, diff & ~now, 0);
 }
+
+
+/* The thread's SECOND stack. `t_striker` pushes two words at 0xa8 indexed by
+ * 0xf8, four bytes an entry -- which fixes the whole layout, because the two
+ * arrays and their two cursors tile the struct exactly:
+ *
+ *      0x00  frame[20], eight bytes each   ends at 0xa0
+ *      0xa4  the frame index
+ *      0xa8  args[20], four bytes each     ends at 0xf8
+ *      0xf8  the arg cursor
+ *
+ * Twenty of each. The pads were sized from the offsets that had been seen
+ * before this array existed, and they came out right, which is the check. */
+static uint32_t *mk3_arg(MK3THREAD *thread, uint32_t n)
+{
+    return (uint32_t *)((char *)thread + 0xa8 + n * 4);
+}
+
+
+/* ------------------- t_prend, t_fatal_yes, t_finish_him_exit, t_its_a_tie
+ *
+ * armv7 0x000564fc, 0x00056648, 0x00056740 and 0x000568b0, sixty-eight bytes
+ * each.  **Complete** -- and the same sixty-eight bytes four times.
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      if (frame > 0) { frame--; return 0; }
+ *      frame[0].handler = t_local_reaction_exit
+ *      frame[1].w0 = 0
+ *      return 0
+ *
+ * A shape the frame family has not shown before: a POP. Every other member
+ * installs a handler at the current level and leaves the index alone; this one
+ * drops a level if there is one to drop, and only at the bottom does it install
+ * anything. So these are returns, and `t_local_reaction_exit` is where a thread
+ * that has run out of frames goes.
+ *
+ * The handler comes through the pointer slot at 0x000f3708 rather than as a
+ * link-time constant -- the same slot `mkreact.c` reads.
+ *
+ * Four names for one body is not the compiler failing to fold them. A thread
+ * is identified by the ADDRESS of its handler, so "is this the tie routine"
+ * is answered by comparing a pointer; folding them would make four different
+ * questions have the same answer. They must be four functions to be four
+ * things, and they are written out four times here for the same reason.
+ *
+ * (`t_p1_won` and `t_round_tied` install `t_prend` after recording the result
+ * at 0x48, so the outcome is read by whatever `t_local_reaction_exit` reaches
+ * and not by this.)
+ */
+long t_local_reaction_exit(MK3THREAD *thread);
+
+static long mk3_pop_or_exit(MK3THREAD *thread)
+{
+    uint32_t current = thread->frame;
+
+    if (*mk3_frame(thread, current + 1) != 0)
+        return -3;
+
+    if ((int32_t)current > 0) {
+        thread->frame = current - 1;
+        return 0;
+    }
+
+    mk3_frame(thread, current)[1] =
+        (uint32_t)(uintptr_t)t_local_reaction_exit;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+long t_prend(MK3THREAD *thread)          { return mk3_pop_or_exit(thread); }
+long t_fatal_yes(MK3THREAD *thread)      { return mk3_pop_or_exit(thread); }
+long t_finish_him_exit(MK3THREAD *thread){ return mk3_pop_or_exit(thread); }
+long t_its_a_tie(MK3THREAD *thread)      { return mk3_pop_or_exit(thread); }
+
+
+/* -------------------------------------------- t_striker and t_behind_striker
+ *
+ * armv7 0x000587f0 and 0x00058854, one hundred bytes each.  **Complete** --
+ * and again one body at two addresses.
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      args[argc]     = proc->field1c
+ *      args[argc + 1] = proc->field20
+ *      argc += 2
+ *      init_special(proc)
+ *      frame[frame].handler = t_attk3
+ *      frame[frame+1].w0 = 0
+ *
+ * The first sight of the thread's second stack being written, and what fixes
+ * the layout above.
+ *
+ * The two words are the PROC's 0x1c and 0x20 -- the animation rate and its
+ * counter -- handed to `t_attk3` as arguments rather than left where it would
+ * have to know to look. So 0xa8 is an argument stack and 0xf8 counts it.
+ *
+ * `init_special` is `stop_me_player`, `ground_player`, `isp2`: stop, drop to
+ * the floor, initialise. It runs BEFORE the handler is installed, so t_attk3
+ * begins on a fighter already still and on the ground.
+ *
+ * The cursor is stored twice -- once after each push -- because the compiler
+ * kept no running total. Not observable, transcribed because it is there.
+ */
+void t_attk3(void);
+
+static long mk3_striker_entry(MK3THREAD *thread)
+{
+    MK3OBJ  *proc = (MK3OBJ *)thread->proc;
+    uint32_t argc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    argc = thread->fieldf8;
+    *mk3_arg(thread, argc) = proc->field1c;
+    thread->fieldf8 = argc + 1;
+    *mk3_arg(thread, argc + 1) = proc->field20;
+    thread->fieldf8 = argc + 2;
+
+    init_special(proc);
+
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_attk3;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+long t_striker(MK3THREAD *thread)        { return mk3_striker_entry(thread); }
+long t_behind_striker(MK3THREAD *thread) { return mk3_striker_entry(thread); }
