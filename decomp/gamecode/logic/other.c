@@ -4417,7 +4417,7 @@ void gdfe4(MK3OBJ *obj)
  * what is in the binary.
  * ================================================================== */
 
-void t_attk2(void);
+long t_attk2(struct MK3THREAD *thread);
 long t_master_mercy_entry(struct MK3THREAD *thread);
 long t_multi_dummy_proc(struct MK3THREAD *thread);
 long t_wait_forever(struct MK3THREAD *thread);
@@ -9658,4 +9658,174 @@ long t_flight_loop(MK3THREAD *thread)
     stop_me_player(obj);
     ground_player(obj);
     return mk3_unwind(thread);
+}
+
+
+/* ------------------------------------------------------------------ t_attk2
+ *
+ * armv7 0x000594d4, two hundred and sixty bytes.  **Complete**, and it is the
+ * far end of the striker chain's arguments.
+ *
+ *      token 0:
+ *          obj->field20 = args[--argc]
+ *          obj->field1c = args[--argc]
+ *          frame[frame+1].w0 = 0xd35
+ *          frame = frame + 1                       ; push
+ *          frame[frame].handler = t_act_mframew
+ *      token 0xd40:
+ *          obj->a10 = obj->a10 - 1
+ *          if (obj->a10 <= 0) { obj->field5c = 0; unwind }
+ *          fall through
+ *      token 0xd35:
+ *          obj->field1c = obj->field48
+ *          strike_check_a0(obj)
+ *          if (obj->field5c == 0) park(0xd40, 1)
+ *          obj->field5c = 1
+ *          unwind
+ *      otherwise:  return -3
+ *
+ * **The two words come from `t_striker`.** That routine pushed
+ * `proc->field1c` and `proc->field20` and then installed `t_attk3`; `t_attk3`
+ * installed `t_attk5` and `t_attk5` installed `t_attk2`. All three are tail
+ * calls at the same level, so nothing touches the argument stack in between,
+ * and the two words are still sitting there when this pops them -- in the
+ * right order, last in first out.
+ *
+ * That is the chain's entire argument-passing convention, and neither end says
+ * so alone: the pusher does not know who will read them and the reader does not
+ * name who pushed.
+ *
+ * After the animation runs as a call, the routine becomes a per-tick strike
+ * test with a countdown on the A10. It ends two ways and says which in 0x5c:
+ * 1 when the strike connects, 0 when the count runs out. Both unwind, so the
+ * caller reads the answer rather than the destination.
+ *
+ * The 0xd40 arm falls INTO the 0xd35 body rather than duplicating it, which is
+ * why one token decrements and the other does not and both reach the same
+ * strike check.
+ */
+long t_attk2(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t argc;
+
+    if (token != 0 && token != 0xd35 && token != 0xd40)
+        return -3;
+
+    if (token == 0) {
+        argc = thread->fieldf8 - 1;             /* what t_striker pushed */
+        thread->fieldf8 = argc;
+        obj->field20 = *mk3_arg(thread, argc);
+        argc = thread->fieldf8 - 1;
+        thread->fieldf8 = argc;
+        obj->field1c = *mk3_arg(thread, argc);
+
+        *mk3_frame(thread, thread->frame + 1) = 0xd35;
+        thread->frame = thread->frame + 1;              /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_act_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xd40) {
+        obj->a10 = obj->a10 - 1;
+        if ((int32_t)obj->a10 <= 0) {           /* out of time */
+            obj->field5c = 0;
+            return mk3_unwind(thread);
+        }
+    }
+
+    obj->field1c = obj->field48;
+    strike_check_a0(obj);
+
+    if (obj->field5c == 0) {                    /* nothing yet */
+        *mk3_frame(thread, thread->frame + 1) = 0xd40;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    obj->field5c = 1;                           /* it connected */
+    return mk3_unwind(thread);
+}
+
+
+/* ----------------------------------------------------------------- getprc_z
+ *
+ * armv7 0x00059ae8, two hundred and sixty-four bytes.  **Complete.**
+ *
+ *      th = TList_Get()
+ *      if (th == NULL) return NULL
+ *      i = th->player
+ *      th->fieldf8 = th->frame = th->fieldfc = th->field08 = 0
+ *      th->proc = Plyr + i * 108
+ *      th->func = obj->field38
+ *      memcpy(Pp    + i * 140, obj->field00, 140)
+ *      memcpy(GrObj + i *  76, obj->field08,  76)
+ *      GrObj[i].field44 = 0
+ *      Plyr[i].field3c = obj->field3c
+ *      Plyr[i].field40 = obj->field40
+ *      Plyr[i].field44 = obj->a10
+ *      Plyr[i].field48 = obj->field48
+ *      return (MK3OBJ *)(Plyr + i * 108)
+ *
+ * A fighter cloned into a spare thread: `NewThread`'s field-for-field opening
+ * again, and then two `memcpy`s that copy this fighter's Pp and GrObj entries
+ * wholesale into the new slot.
+ *
+ * **The two lengths are the two strides**, 140 and 76. Every earlier
+ * derivation -- the modular inverse in `StartGrObjAt`, the shift-and-add in
+ * `getobjectinsert`, the two offsets in `is_finish_him_allowed`, the three
+ * multiplies in `Endurance_ClearPlayer` and in `DoSwitchJump` -- gave the
+ * distance from one entry to the next. This gives the number of bytes actually
+ * copied, which is the first evidence that the entries are that SIZE and not
+ * merely that far apart.
+ *
+ * The new thread's entry point is `obj->field38`, read at run time -- the same
+ * slot `fastxfer_thread` takes a thread function out of and `react_xfer_him`
+ * writes a reaction into. So 0x38 is "the routine this object is about to
+ * become", and it is the second place in this file where a handler comes from
+ * data rather than the linker.
+ *
+ * Four more fields are copied by hand after the bulk copy, from offsets 0x3c
+ * to 0x48 of the caller's object into the same offsets of the clone. Those are
+ * in Plyr, which the memcpys do not touch -- only Pp and GrObj are copied
+ * whole.
+ *
+ * The compiler recomputes `i * 108` from `th->player` for every one of those
+ * four stores rather than keeping the address, which is why the disassembly
+ * repeats the same five instructions five times.
+ */
+MK3OBJ *getprc_z(MK3OBJ *obj)
+{
+    MK3THREAD *th = TList_Get();
+    char *plyr;
+    uint32_t i;
+
+    if (th == NULL)
+        return NULL;
+
+    i = th->player;
+
+    th->fieldf8 = 0;
+    th->frame   = 0;
+    th->fieldfc = 0;
+    th->field08 = 0;
+
+    plyr = Plyr + i * PLYR_STRIDE;
+    th->proc = plyr;
+    th->func = (MK3THREADFUNC)(uintptr_t)obj->field38;
+
+    memcpy(Pp    + i * PP_STRIDE,    obj->field00, PP_STRIDE);
+    memcpy(GrObj + i * GROBJ_STRIDE, obj->field08, GROBJ_STRIDE);
+
+    *(uint32_t *)(GrObj + i * GROBJ_STRIDE + 0x44) = 0;
+
+    *(uint32_t *)(plyr + 0x3c) = obj->field3c;
+    *(uint32_t *)(plyr + 0x40) = obj->field40;
+    *(uint32_t *)(plyr + 0x44) = obj->a10;
+    *(uint32_t *)(plyr + 0x48) = obj->field48;
+
+    return (MK3OBJ *)plyr;
 }
