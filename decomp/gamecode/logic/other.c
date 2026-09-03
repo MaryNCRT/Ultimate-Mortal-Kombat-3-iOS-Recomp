@@ -5040,12 +5040,14 @@ static uint32_t *mk3_arg(MK3THREAD *thread, uint32_t n)
  */
 long t_local_reaction_exit(MK3THREAD *thread);
 
-static long mk3_pop_or_exit(MK3THREAD *thread)
+/* Drop one level, or at the bottom hand over to the local reaction exit.
+ * Four routines end this way: the pop family, `t_white_flash`, `t_flight` and
+ * `t_print_round_number`. The last three reach it after recognising their own
+ * token rather than after finding the slot empty, which is the only difference
+ * between them and why the guard is the caller's. */
+static long mk3_unwind(MK3THREAD *thread)
 {
     uint32_t current = thread->frame;
-
-    if (*mk3_frame(thread, current + 1) != 0)
-        return -3;
 
     if ((int32_t)current > 0) {
         thread->frame = current - 1;
@@ -5056,6 +5058,14 @@ static long mk3_pop_or_exit(MK3THREAD *thread)
         (uint32_t)(uintptr_t)t_local_reaction_exit;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
+}
+
+static long mk3_pop_or_exit(MK3THREAD *thread)
+{
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    return mk3_unwind(thread);
 }
 
 long t_prend(MK3THREAD *thread)          { return mk3_pop_or_exit(thread); }
@@ -6461,15 +6471,7 @@ long t_white_flash(MK3THREAD *thread)
     if (token != 0x1549)
         return -3;
 
-    if ((int32_t)current > 0) {                 /* unwind one level */
-        thread->frame = current - 1;
-        return 0;
-    }
-
-    mk3_frame(thread, current)[1] =
-        (uint32_t)(uintptr_t)t_local_reaction_exit;
-    *mk3_frame(thread, thread->frame + 1) = 0;
-    return 0;
+    return mk3_unwind(thread);
 }
 
 
@@ -6747,4 +6749,119 @@ long t_friendship_speech(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0xf69;
     thread->fieldfc = 0x40;
     return 0x40;
+}
+
+
+/* ----------------------------------------------------------------- t_flight
+ *
+ * armv7 0x00054fb8, one hundred and thirty-two bytes.  **Complete**, and it
+ * settles what the slot above the current frame is.
+ *
+ *      token == 0:
+ *          obj->field34 = 0
+ *          frame[frame+1].w0 = 0x205
+ *          frame = frame + 1                   ; <- a PUSH
+ *          frame[frame].handler = t_flight_call
+ *          frame[frame+1].w0 = 0
+ *          return 0
+ *      token == 0x205:  unwind
+ *      otherwise:       return -3
+ *
+ * The first routine in this file to **increment** the frame index. Everything
+ * else either leaves it alone or drops it by one.
+ *
+ * Look at the order: the token is written into the slot the child is about to
+ * occupy, and then the child is pushed on top of it. So when the child unwinds
+ * and this routine runs again, it finds its own token exactly one level up --
+ * which is how it knows the call it made is the thing that just finished.
+ *
+ * With that, every use of that slot is one idea:
+ *
+ *      zero          nothing above me; I may install
+ *      my token      what I started is above me, or has just left
+ *      anything else somebody else's, so -3 and let them run
+ *
+ * And it separates two shapes that had looked alike. `mk3_push_handler`
+ * replaces the handler at the CURRENT level -- a tail call, the routine gives
+ * up its place. `t_flight` pushes a new level -- a call, the routine keeps its
+ * place and expects to come back. The port needs both and they differ by one
+ * increment.
+ *
+ * The zero into the PROC's 0x34 comes from the token test, which had to be
+ * zero to get here.
+ */
+long t_flight_call(MK3THREAD *thread);
+
+long t_flight(MK3THREAD *thread)
+{
+    MK3OBJPROC *proc  = (MK3OBJPROC *)thread->proc;
+    uint32_t    token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x205)
+        return mk3_unwind(thread);
+
+    if (token != 0)
+        return -3;
+
+    *(uint32_t *)((char *)proc + 0x34) = 0;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x205;
+    thread->frame = thread->frame + 1;                  /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_flight_call;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ---------------------------------------------------- t_print_round_number
+ *
+ * armv7 0x00057e6c, one hundred and thirty-two bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          round = RoundParam[0x10]
+ *          obj->field1c = round
+ *          if (round <= 4) {
+ *              obj->field1c = round + 0x10
+ *              tsound_func(obj, round + 0x10)
+ *          }
+ *          park(0x103c, 0x30)
+ *      token == 0x103c:  unwind
+ *      otherwise:        return -3
+ *
+ * The round number is spoken for rounds one to four and **not at all from five
+ * on** -- the wait still happens, so the pause is there and the voice is not.
+ * Four recordings, 0x11 to 0x14, and a fifth round that passes in silence.
+ *
+ * RoundParam+0x10 is the round; +0x14 is the ladder order `ladderorder_a1`
+ * reads and +0x0c the difficulty `adjust_damage` indexes with. Three fields of
+ * that struct now, all small integers about the current match.
+ *
+ * 0x11 and 0x12 are also the two `finish_him_or_her` chooses between, but that
+ * pair goes to `create_fx` through 0x1c and these go to `tsound_func`. Two
+ * tables, and the overlap is a coincidence of small numbers.
+ */
+long t_print_round_number(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t round;
+
+    if (token == 0x103c)
+        return mk3_unwind(thread);
+
+    if (token != 0)
+        return -3;
+
+    round = ((const uint32_t *)RoundParam)[0x10 / 4];
+    obj->field1c = round;
+
+    if ((int32_t)round <= 4) {                  /* five and up are silent */
+        obj->field1c = round + 0x10;
+        tsound_func((uint32_t)(uintptr_t)obj, round + 0x10);
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = 0x103c;
+    thread->fieldfc = 0x30;
+    return 0x30;
 }
