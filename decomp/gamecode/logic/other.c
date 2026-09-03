@@ -10675,3 +10675,109 @@ long t_finish_him_sequence(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ---------------------------------------------------------------- t_fx_mercy
+ *
+ * armv7 0x000597f8, three hundred and forty-four bytes.  **Complete**, and the
+ * longest coroutine in this file: five resume points.
+ *
+ *      token 0:
+ *          NewThread(obj, t_make_db_tone)
+ *          MKEvent_Add(3, 0xf, 0, 0)
+ *          park(0xfde, 0x30)
+ *      token 0xfde:
+ *          tsound_func(obj, 0x94)
+ *          obj->field08->field2c = 0x104
+ *          center_obj_x(obj)
+ *          set_noscroll(obj)
+ *          obj->field40 = a_mercy
+ *          obj->field1c = 4
+ *          push t_mframew with token 0xff0
+ *      token 0xff0:  obj->field1c = 4; push t_mframew with token 0xff3
+ *      token 0xff3:  obj->field1c = 4; push t_mframew with token 0xff6
+ *      token 0xff6:
+ *          obj->field1c = obj->a10 + 0x99
+ *          tsound_func(obj, obj->field1c)
+ *          park(0xffd, 8)
+ *      token 0xffd:  park(0x1004, 0x16462)         ; and never wake
+ *      otherwise:    return -3
+ *
+ * Mercy from the inside: start a tone thread, tell the front end, wait, make
+ * the noise, plant the object and run `_a_mercy` three times at rate 4, then a
+ * spoken line, then stop.
+ *
+ * **The sound is `A10 + 0x99`.** A base plus whatever the caller left in A10,
+ * so the line is per character and 0x99 is where that block of recordings
+ * starts.
+ *
+ * The three animation runs are three separate pushes with three tokens, not a
+ * loop -- and the middle one takes its next token from a register the dispatch
+ * left behind, which is why the disassembly stores `r1` without loading it.
+ *
+ * The last park is 0x16462 on token 0x1004, which this function does not
+ * accept. That is the fourth routine here to end that way, after
+ * `t_fx_babality`, `t_friendship_speech` and `t_round_intro_fx`: wait for a
+ * wake-up that cannot come and be killed in the meantime.
+ *
+ * `t_make_db_tone` comes through a pointer slot rather than as a link-time
+ * constant, and it lives in another translation unit.
+ *
+ * `_a_mercy` at 0x0016f6a8 is the thirteenth named table this file reaches and
+ * the fourth of the finisher tables, after `_a_ship`, `_a_friend` and
+ * `_a_animality`.
+ */
+extern uint32_t a_mercy[];              /* 0x0016f6a8 */
+extern MK3THREADFUNC t_make_db_tone;    /* through the slot at 0x000f3200 */
+void center_obj_x(MK3OBJ *obj);
+
+long t_fx_mercy(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t next_token;
+
+    if (token == 0) {
+        NewThread(obj, t_make_db_tone);
+        MKEvent_Add(3, 0xf, 0, 0);
+        *mk3_frame(thread, thread->frame + 1) = 0xfde;
+        thread->fieldfc = 0x30;
+        return 0x30;
+    }
+
+    if (token == 0xff6) {
+        obj->field1c = obj->a10 + 0x99;         /* the per-character line */
+        tsound_func((uint32_t)(uintptr_t)obj, obj->field1c);
+        *mk3_frame(thread, thread->frame + 1) = 0xffd;
+        thread->fieldfc = 8;
+        return 8;
+    }
+
+    if (token == 0xffd) {
+        *mk3_frame(thread, thread->frame + 1) = 0x1004;
+        thread->fieldfc = 0x16462;              /* nothing accepts 0x1004 */
+        return 0x16462;
+    }
+
+    if (token == 0xfde) {
+        tsound_func((uint32_t)(uintptr_t)obj, 0x94);
+        obj->field08->field2c = 0x104;
+        center_obj_x(obj);
+        set_noscroll(obj);
+        obj->field40 = (uint32_t)(uintptr_t)a_mercy;
+        next_token = 0xff0;
+    } else if (token == 0xff0) {
+        next_token = 0xff3;
+    } else if (token == 0xff3) {
+        next_token = 0xff6;
+    } else {
+        return -3;
+    }
+
+    obj->field1c = 4;
+    *mk3_frame(thread, thread->frame + 1) = next_token;
+    thread->frame = thread->frame + 1;                  /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
