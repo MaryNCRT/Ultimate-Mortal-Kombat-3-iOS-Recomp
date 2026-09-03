@@ -10,54 +10,18 @@
  * oracle: tests/test_gup2_diff.c.
  */
 
-#include <stdint.h>
-#include <stddef.h>
+#include "mk3logic.h"
 
-/* ------------------------------------------------------------------------
- * The switch stack.
+/* gup2 was read before other.c existed, and it worked the thread struct out
+ * on its own: a frame array at the head, the index at 0xa4, a word at 0xfc
+ * that mirrors the return, and the object at 0x108. That is MK3THREAD field
+ * for field, arrived at twice from two functions in two files without either
+ * reading knowing about the other. Its local `PROC` and `SWITCHFRAME` are
+ * dropped here in favour of the shared ones; the agreement is the point and
+ * is recorded rather than quietly tidied away.
  *
- * `_gup2` indexes `proc + index * 8` and keeps its stack pointer at `+0xa4`,
- * which is index 20.5 — so the array is twenty frames at the head of PROC and
- * the pointer sits just past the end of it. Two functions would have to agree
- * on that before it is a fact rather than an arithmetic observation; for now
- * the layout is written the way gup2 uses it and nothing more is claimed.
- * ------------------------------------------------------------------------ */
-#define SWITCH_STACK_FRAMES 20
-
-typedef struct SWITCHFRAME {
-    uint32_t code;               /* +0  which resume point, 0 = not started */
-    void    *resume;             /* +4  the thread function to continue at */
-} SWITCHFRAME;
-
-/* Only the three fields gup2 touches are named. A placeholder array for the
- * rest would imply a total size nobody has measured. */
-typedef struct PROC {
-    SWITCHFRAME stack[SWITCH_STACK_FRAMES];  /* 0x00 */
-    uint8_t     _pad_a0[4];                  /* 0xa0 */
-    long        switchSP;                    /* 0xa4 */
-    uint8_t     _pad_a8[0x54];               /* 0xa8 */
-    long        fieldfc;                     /* 0xfc  1 or 2, mirrors the return */
-    uint8_t     _pad_100[8];                 /* 0x100 */
-    struct MK3OBJ *obj;                      /* 0x108 */
-} PROC;
-
-/* Every one of these is a single sighting in a single function. That is a
- * hypothesis, not a field, so they carry their offsets as names. */
-typedef struct MK3OBJ {
-    uint8_t   _pad00[0x1c];
-    int       field1c;           /* 0x1c  an animation rate */
-    uint8_t   _pad20[0x20];
-    uint32_t *field40;           /* 0x40  dereferenced for one word */
-    /* 0x44 takes a straight copy of the WORD at +0x40 (`ldr r3, [r5, #0x40];
-     * str r3, [r5, #0x44]`) and is later compared against 0x17. A pointer
-     * tested against 23 does not read as sensible, and nothing here explains
-     * it -- so the copy is written as the machine performs it and the oddity
-     * is left standing rather than resolved by choosing a nicer type. */
-    void     *field44;           /* 0x44 */
-    void     *field48;           /* 0x48  receives the speed table */
-    uint8_t   _pad4c[0x10];
-    int       field5c;           /* 0x5c  what is_stick_down sets */
-} MK3OBJ;
+ * Its local MK3OBJ named 0x1c, 0x40, 0x44, 0x48 and 0x5c, and the shared one
+ * names all five. Only the spelling changes -- 0x44 is `a10` there. */
 
 /* The reaction threads gup2 suspends into. Three of these are reached through
  * pointer slots in __DATA rather than directly — see the note on gup2. */
@@ -83,7 +47,7 @@ void init_anirate(MK3OBJ *obj);
 void next_anirate(MK3OBJ *obj);
 void joystick_in_a0(MK3OBJ *obj);
 
-long gup2(PROC *proc);
+long gup2(MK3THREAD *thread);
 
 
 /* ------------------------------------------------------------------ gup2
@@ -161,11 +125,11 @@ long gup2(PROC *proc);
  * stubbed identically on both sides -- their addresses are compared by
  * identity, since a host build cannot hold the binary's own code pointers.
  */
-long gup2(PROC *proc)
+long gup2(MK3THREAD *thread)
 {
-    long     sp  = proc->switchSP;              /* +0xa4 */
-    MK3OBJ  *obj = proc->obj;                   /* +0x108 */
-    uint32_t code = proc->stack[sp + 1].code;
+    uint32_t sp   = thread->frame;              /* +0xa4 */
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;     /* +0x108 */
+    uint32_t code = *mk3_frame(thread, sp + 1);
     uint32_t next;
 
     switch (code) {
@@ -174,21 +138,21 @@ long gup2(PROC *proc)
 
     /* ---------------------------------------------------- first entry */
     case 0:
-        obj->field48 = getup_speeds;
-        obj->field44 = (void *)obj->field40;
+        obj->field48 = (uint32_t)(uintptr_t)getup_speeds;
+        obj->a10 = obj->field40;
 
-        proc->stack[sp + 1].code   = 0x14d9u;
-        proc->switchSP             = sp + 1;
-        proc->stack[sp + 1].resume = t_check_stay_down;
-        proc->stack[sp + 2].code   = 0u;
+        *mk3_frame(thread, sp + 1) = 0x14d9u;
+        thread->frame = sp + 1;
+        mk3_frame(thread, sp + 1)[1] = (uint32_t)(uintptr_t)t_check_stay_down;
+        *mk3_frame(thread, sp + 2) = 0u;
         return 0;
 
     /* ------------------------------------- resumed after check_stay_down */
     case 0x14d9u:
-        proc->stack[sp + 1].code   = 0x14dau;
-        proc->switchSP             = sp + 1;
-        proc->stack[sp + 1].resume = t_check_winner_status;
-        proc->stack[sp + 2].code   = 0u;
+        *mk3_frame(thread, sp + 1) = 0x14dau;
+        thread->frame = sp + 1;
+        mk3_frame(thread, sp + 1)[1] = (uint32_t)(uintptr_t)t_check_winner_status;
+        *mk3_frame(thread, sp + 2) = 0u;
         return 0;
 
     /* ---------------------------------- resumed after local_reaction_exit
@@ -199,16 +163,16 @@ long gup2(PROC *proc)
      * tail without tracking which value of r2 reached it would put the resume
      * address one frame too high. */
     case 0x14ffu:
-        proc->stack[sp].resume   = t_local_reaction_exit;
-        proc->stack[sp + 1].code = 0u;
+        mk3_frame(thread, sp)[1] = (uint32_t)(uintptr_t)t_local_reaction_exit;
+        *mk3_frame(thread, sp + 1) = 0u;
         return 0;
 
     /* ------------------------------------ resumed after check_winner_status */
     case 0x14dau:
         back_to_normal(obj);
         if (am_i_joy(obj) == 0) {
-            proc->stack[sp].resume   = t_d_getup;
-            proc->stack[sp + 1].code = 0u;
+            mk3_frame(thread, sp)[1] = (uint32_t)(uintptr_t)t_d_getup;
+            *mk3_frame(thread, sp + 1) = 0u;
             return 0;
         }
         goto joystick_path;
@@ -222,8 +186,8 @@ long gup2(PROC *proc)
 joystick_path:
     is_stick_down(obj);
     if (obj->field5c != 0) {
-        proc->stack[sp].resume   = t_getup_stay_ducked;
-        proc->stack[sp + 1].code = 0u;
+        mk3_frame(thread, sp)[1] = (uint32_t)(uintptr_t)t_getup_stay_ducked;
+        *mk3_frame(thread, sp + 1) = 0u;
         return 0;
     }
 
@@ -233,27 +197,393 @@ joystick_path:
     next_anirate(obj);
 
 after_anirate:
-    next = *obj->field40;
-    obj->field1c = (int)next;
+    /* 0x40 holds the animation cursor; the shared struct types it as a
+     * word, so the dereference is spelled out. */
+    next = *(const uint32_t *)(uintptr_t)obj->field40;
+    obj->field1c = next;
 
     if (next == 0u) {
         /* the animation is done */
-        proc->stack[sp + 1].code = 0x14ffu;
-        proc->fieldfc            = 2;
+        *mk3_frame(thread, sp + 1) = 0x14ffu;
+        thread->fieldfc            = 2;
         return 2;
     }
 
-    if ((uintptr_t)obj->field44 != 0x17u) {
+    if ((uintptr_t)obj->a10 != 0x17u) {
         is_stick_down(obj);
         if (obj->field5c != 0) {
-            proc->stack[sp].resume   = t_joy_getup_abort;
-            proc->stack[sp + 1].code = 0u;
+            mk3_frame(thread, sp)[1] = (uint32_t)(uintptr_t)t_joy_getup_abort;
+            *mk3_frame(thread, sp + 1) = 0u;
             return 0;
         }
         joystick_in_a0(obj);
     }
 
-    proc->stack[sp + 1].code = 0x14fcu;
-    proc->fieldfc            = 1;
+    *mk3_frame(thread, sp + 1) = 0x14fcu;
+    thread->fieldfc            = 1;
     return 1;
 }
+
+
+/* --------------------------------------------------------------------
+ * What the readers could prove. See tools/pushfn.py, which executes
+ * a body symbolically, and tools/microfn.py, which matches whole
+ * bodies against templates. Both refuse anything they cannot account
+ * for instruction by instruction.
+ * -------------------------------------------------------------------- */
+
+long gup2(struct MK3THREAD *thread);
+long t_avoid_corner_trap(struct MK3THREAD *thread);
+long t_avoid_corner_trap_b(struct MK3THREAD *thread);
+long t_b_hard(struct MK3THREAD *thread);
+long t_block2(struct MK3THREAD *thread);
+long t_block_shake_n_exit(struct MK3THREAD *thread);
+long t_r_boss_hit1(struct MK3THREAD *thread);
+long t_r_kano_swipe(struct MK3THREAD *thread);
+long t_r_last_noogy(struct MK3THREAD *thread);
+long t_r_lia_zap(struct MK3THREAD *thread);
+long t_r_rocket(struct MK3THREAD *thread);
+long t_r_sw_zap(struct MK3THREAD *thread);
+long t_spear0(struct MK3THREAD *thread);
+long t_stumble_back_vel(struct MK3THREAD *thread);
+long t_zap_stumble(struct MK3THREAD *thread);
+
+/* t_r_smoke_spear -- armv7 0x000411c4, 60 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = 0x1f
+ *      frame[frame].handler = t_spear0
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_r_smoke_spear(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0x1f;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_spear0);
+}
+
+/* t_r_scorpion_spear -- armv7 0x00041200, 60 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = 0x11
+ *      frame[frame].handler = t_spear0
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_r_scorpion_spear(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0x11;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_spear0);
+}
+
+/* t_r_sk_punch -- armv7 0x000413dc, 52 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      frame[frame].handler = t_r_boss_hit1
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_r_sk_punch(MK3THREAD *thread)
+{
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_r_boss_hit1);
+}
+
+/* t_r_angle_kick -- armv7 0x0004154c, 52 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      frame[frame].handler = t_r_last_noogy
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_r_angle_kick(MK3THREAD *thread)
+{
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_r_last_noogy);
+}
+
+/* t_r_axe_horz -- armv7 0x00041590, 52 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      frame[frame].handler = t_r_kano_swipe
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_r_axe_horz(MK3THREAD *thread)
+{
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_r_kano_swipe);
+}
+
+/* t_cc_block_avoid_corner -- armv7 0x00041644, 60 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field20 = 0x1
+ *      frame[frame].handler = t_avoid_corner_trap_b
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_cc_block_avoid_corner(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field20 = 0x1;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_avoid_corner_trap_b);
+}
+
+/* t_cc_ken_masters -- armv7 0x00041680, 60 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field20 = 0x1
+ *      frame[frame].handler = t_avoid_corner_trap
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_cc_ken_masters(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field20 = 0x1;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_avoid_corner_trap);
+}
+
+/* t_cc_block_upcut -- armv7 0x000416bc, 56 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field20 = 0   (the register the guard proved)
+ *      frame[frame].handler = t_avoid_corner_trap
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_cc_block_upcut(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field20 = 0;   /* the guard proved this register */
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_avoid_corner_trap);
+}
+
+/* t_r_skull -- armv7 0x00041800, 52 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      frame[frame].handler = t_zap_stumble
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_r_skull(MK3THREAD *thread)
+{
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_zap_stumble);
+}
+
+/* t_r_ermac_zap -- armv7 0x00041834, 52 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      frame[frame].handler = t_zap_stumble
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_r_ermac_zap(MK3THREAD *thread)
+{
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_zap_stumble);
+}
+
+/* t_r_swat_bomb -- armv7 0x00041868, 52 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      frame[frame].handler = t_r_rocket
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_r_swat_bomb(MK3THREAD *thread)
+{
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_r_rocket);
+}
+
+/* t_r_ind_zap -- armv7 0x0004189c, 52 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      frame[frame].handler = t_r_lia_zap
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_r_ind_zap(MK3THREAD *thread)
+{
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_r_lia_zap);
+}
+
+/* t_r_lia_zap -- armv7 0x000418d0, 52 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      frame[frame].handler = t_r_sw_zap
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_r_lia_zap(MK3THREAD *thread)
+{
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_r_sw_zap);
+}
+
+/* t_stumble_back -- armv7 0x00041a78, 60 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = 0x30000
+ *      frame[frame].handler = t_stumble_back_vel
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_stumble_back(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0x30000;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_stumble_back_vel);
+}
+
+/* t_b_scream -- armv7 0x00041b0c, 52 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      frame[frame].handler = t_b_hard
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_b_scream(MK3THREAD *thread)
+{
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_b_hard);
+}
+
+/* t_b_hard_silent -- armv7 0x00041b40, 56 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field38 = 0   (the register the guard proved)
+ *      frame[frame].handler = t_block2
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_b_hard_silent(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field38 = 0;   /* the guard proved this register */
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_block2);
+}
+
+/* t_weak3 -- armv7 0x00041dc4, 64 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field48 = 0x2
+ *      obj->a10 = 0x3
+ *      frame[frame].handler = t_block_shake_n_exit
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_weak3(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field48 = 0x2;
+    obj->a10 = 0x3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_block_shake_n_exit);
+}
+
+/* t_getup_reaction_exit -- armv7 0x00041f8c, 60 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field40 = 0x21
+ *      frame[frame].handler = gup2
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_getup_reaction_exit(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field40 = 0x21;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)gup2);
+}
+
+/* t_sweepup_local_reaction_exit -- armv7 0x00041fc8, 60 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field40 = 0x22
+ *      frame[frame].handler = gup2
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_sweepup_local_reaction_exit(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field40 = 0x22;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)gup2);
+}
+
+
+

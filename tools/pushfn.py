@@ -364,7 +364,7 @@ def main(argv):
                     good = False
                     break
                 names.append(vn)
-            elif val.kind != "imm":
+            elif val.kind not in ("imm", "framew0"):
                 good = False
                 break
         if not good:
@@ -390,7 +390,14 @@ def main(argv):
             f = field(off)
             lhs = ("obj->%s" % f) if f else \
                   ("*(uint32_t *)((char *)obj + 0x%x)" % off)
-            if val.kind == "imm":
+            if val.kind == "framew0":
+                # The word the guard tested. Control only reaches here when it
+                # was zero, so storing it is storing a zero -- the compiler
+                # reusing a register it already knows the value of, which is
+                # why the disassembly has no `movs` before the store.
+                steps += " *      %s = 0   (the register the guard proved)\n" % lhs
+                body += "    %s = 0;   /* the guard proved this register */\n" % lhs
+            elif val.kind == "imm":
                 steps += " *      %s = 0x%x\n" % (lhs, val.a)
                 body += "    %s = 0x%x;\n" % (lhs, val.a)
             elif val.kind == "pcrel":

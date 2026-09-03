@@ -304,3 +304,101 @@ long tl_do_sky_ice_behind(MK3THREAD *thread)
 
 
 
+
+
+/* --------------------------------------------------------------------
+ * What the readers could prove. See tools/pushfn.py, which executes
+ * a body symbolically, and tools/microfn.py, which matches whole
+ * bodies against templates. Both refuse anything they cannot account
+ * for instruction by instruction.
+ * -------------------------------------------------------------------- */
+
+long t_doice5(struct MK3THREAD *thread);
+long t_new_spear_proc(struct MK3THREAD *thread);
+long tl_jzap3(struct MK3THREAD *thread);
+long tl_projectile_flight_call(struct MK3THREAD *thread);
+
+/* t_new_scorpion_spear_proc -- armv7 0x00074d7c, 60 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = 0   (the register the guard proved)
+ *      obj->field20 = 0   (the register the guard proved)
+ *      frame[frame].handler = t_new_spear_proc
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_new_scorpion_spear_proc(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0;   /* the guard proved this register */
+    obj->field20 = 0;   /* the guard proved this register */
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_new_spear_proc);
+}
+
+/* tl_do_jade_zap_med -- armv7 0x000750e8, 56 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = 0   (the register the guard proved)
+ *      frame[frame].handler = tl_jzap3
+ *      frame[frame+1].w0 = 0
+ */
+
+long tl_do_jade_zap_med(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0;   /* the guard proved this register */
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)tl_jzap3);
+}
+
+/* tl_do_sky_ice_on -- armv7 0x0007557c, 56 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field48 = 0   (the register the guard proved)
+ *      frame[frame].handler = t_doice5
+ *      frame[frame+1].w0 = 0
+ */
+
+long tl_do_sky_ice_on(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field48 = 0;   /* the guard proved this register */
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_doice5);
+}
+
+/* tl_projectile_flight -- armv7 0x0007562c, 56 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field34 = 0   (the register the guard proved)
+ *      frame[frame].handler = tl_projectile_flight_call
+ *      frame[frame+1].w0 = 0
+ */
+
+long tl_projectile_flight(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field34 = 0;   /* the guard proved this register */
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)tl_projectile_flight_call);
+}
+
+
+
