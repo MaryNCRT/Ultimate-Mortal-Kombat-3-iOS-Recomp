@@ -4692,3 +4692,266 @@ void react_xfer_him(MK3OBJ *obj)
 
     obj->field00->field00->field00->field10 |= 4u;
 }
+
+
+/* ---------------------------------------------------------- RaiseTurboBars
+ *
+ * armv7 0x00057a90, sixty-four bytes.  **Complete.**
+ *
+ *      for (i = 0; i < 2; i++) {
+ *          if (G[0x388 + i*4] != 0) { G[0x388 + i*4]--; continue; }
+ *          if (G[0x378 + i*4] > 47)  continue;
+ *          G[0x378 + i*4]++;
+ *          MKEvent_Add(3, 5, the new value, i);
+ *      }
+ *
+ * Two of each, walked with a stride of FOUR. Everything per-fighter found so
+ * far in G has been 0x158 apart -- the velocities, the objects, the two ring
+ * buffers -- so this is a second layout for the same idea and the first sight
+ * of it.
+ *
+ * The countdown at 0x388 gates the raise: while it is non-zero it ticks down
+ * and the bar does not move, so it is the delay between increments rather than
+ * a timer on the bar itself. The bar stops at 48, and the event carries the new
+ * value and which fighter it belongs to.
+ *
+ * No argument, like `no_edge_both_players`: both fighters are in the global.
+ */
+void RaiseTurboBars(void)
+{
+    int i;
+
+    for (i = 0; i < 2; i++) {
+        uint32_t *delay = (uint32_t *)(G_BYTES + 0x388 + i * 4);
+        uint32_t *bar   = (uint32_t *)(G_BYTES + 0x378 + i * 4);
+
+        if (*delay != 0) {
+            *delay = *delay - 1;
+            continue;
+        }
+        if ((int32_t)*bar > 0x2f)
+            continue;
+
+        *bar = *bar + 1;
+        MKEvent_Add(3, 5, (long)*bar, (uint32_t)i);
+    }
+}
+
+
+/* ------------------------------------------------------------- t_ship_proc
+ *
+ * armv7 0x00056164, sixty-four bytes.  **Complete.**
+ *
+ * The frame-push family with a table installed first: the PROC's 0x40 takes
+ * `_a_ship` before the handler `t_fani3` goes into the frame.
+ *
+ * 0x40 of a PROC is the ground `ground_player` copies out and
+ * `distance_off_ground` measures against. Here it takes the address of an
+ * animation table instead. Another offset carrying two unrelated things, and
+ * this one crosses a type -- a coordinate in one routine, a pointer in
+ * another.
+ *
+ * `_a_ship` is the eighth named table this file reaches.
+ */
+extern uint32_t a_ship[];               /* 0x0016f61c */
+void t_fani3(void);
+
+long t_ship_proc(MK3THREAD *thread)
+{
+    char *proc = (char *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    *(uint32_t *)(proc + 0x40) = (uint32_t)(uintptr_t)a_ship;
+
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_fani3;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ---------------------------------------------------------- UnstackSwitches
+ *
+ * armv7 0x000573e8, sixty-eight bytes.  **Complete.**
+ *
+ *      while (G[0xa4] <= 31) {
+ *          i  = G[0xa4]
+ *          id = G[0x24 + i*4]
+ *          G[0xa4] = i + 1
+ *          entry = &swtab[id * 4]
+ *          if ((int32_t)entry[0] < 0) continue
+ *          QueueAndJump(entry, id)
+ *      }
+ *
+ * One of the eight entry points this file's header lists, and the last of them
+ * to be written. A stack of at most thirty-two queued switches in G at 0x24
+ * with its cursor at 0xa4, and `_swtab` giving sixteen bytes for each.
+ *
+ * A negative first word in the table entry means "not this one": the cursor
+ * still advances and the loop continues, so the skip is per entry and not a
+ * break.
+ *
+ * The cursor is advanced BEFORE the jump. That is what lets `QueueAndJump`
+ * push more switches without this loop re-running the one it is standing on --
+ * the whole of the re-entrancy story, in one instruction, and the sort of
+ * ordering a rewrite loses by tidying the increment to the end.
+ *
+ * The bound is unsigned (`bhi`, `bls`), so a cursor above 31 -- including one
+ * that has gone negative -- ends the loop rather than indexing past the array.
+ *
+ * `_swtab` is the ninth named table this file reaches.
+ */
+extern uint32_t swtab[];                /* 0x0016f10c */
+void QueueAndJump(const uint32_t *entry, uint32_t id);
+
+void UnstackSwitches(void)
+{
+    while (*(const uint32_t *)(G_BYTES + 0xa4) <= 31u) {
+        uint32_t  i  = *(const uint32_t *)(G_BYTES + 0xa4);
+        uint32_t  id = *(const uint32_t *)(G_BYTES + 0x24 + i * 4);
+        const uint32_t *entry = &swtab[id * 4];
+
+        *(uint32_t *)(G_BYTES + 0xa4) = i + 1;
+
+        if ((int32_t)entry[0] < 0)
+            continue;
+
+        QueueAndJump(entry, id);
+    }
+}
+
+
+/* ------------------------------------------------------ am_i_facing_him_px
+ *
+ * armv7 0x000551ac, sixty-eight bytes.  **Complete.**
+ *
+ *      right = is_he_right(him)
+ *      mine  = (him->field08->field28 & 0x10) != 0
+ *      me->field5c = right ^ mine
+ *
+ * The compiler spells the exclusive-or as two branches -- `right && !mine` on
+ * one side and `!right && mine` on the other -- which is why sixty-eight bytes
+ * buy a single bit.
+ *
+ * The bit is worth the reading. `him->field08` is exactly the object
+ * `is_he_right` treats as "me", so what this reads is MY 0x28 and not his. He
+ * is to the right and my bit is clear: facing. He is to the left and my bit is
+ * set: facing. So **bit 4 of 0x28 set means facing LEFT.**
+ *
+ * The flip_multi trio toggles that bit and `set_facing_from_0e` writes the word
+ * it lives in; until now it was "the bit those three touch". It is a direction.
+ *
+ * `is_he_right` also writes 0x5c, so on the usual call where both arguments are
+ * the same carrier the answer here lands on top of its answer. Two parameters
+ * because the code reads two registers, not because the call sites need them
+ * distinct.
+ */
+long am_i_facing_him_px(MK3OBJ *me, MK3OBJ *him)
+{
+    long     right = is_he_right(him);
+    uint32_t mine  = him->field08->field28 & 0x10u;
+
+    me->field5c = ((right != 0) != (mine != 0)) ? 1u : 0u;
+    return (long)me->field5c;
+}
+
+
+/* ------------------------------------------------------------- pose_him_a0
+ *
+ * armv7 0x00059e34, sixty-eight bytes.  **Complete.**
+ *
+ *      save   obj->field00, obj->field08, obj->field40
+ *      obj->field08 = proc->him
+ *      obj->field00 = proc->field00->field00        ; his PROC
+ *      obj->field40 = obj->field1c
+ *      if (obj->field1c <= 255) get_char_ani(obj)
+ *      do_next_a9_frame(obj)
+ *      result = obj->field40
+ *      restore the three
+ *      proc->field00->field40 = result
+ *
+ * The trampoline again, but the compare in the middle is the find. A value at
+ * or below 255 in 0x1c is a character-relative animation NUMBER, which
+ * `get_char_ani` resolves into a pointer at 0x40; anything larger is already
+ * the pointer and is used as it stands.
+ *
+ * That is a tagged union with no tag -- the range IS the tag -- and it is one
+ * `cmp #0xff` deciding it. A port that always calls the resolver, or never
+ * does, is wrong in one direction or the other and looks like a character whose
+ * animations are somebody else's.
+ *
+ * The answer does not come back on the carrier: it goes into 0x40 of
+ * `proc->field00`, the opponent's own object. So this poses HIM and leaves the
+ * result where he keeps his frame, which is what separates it from
+ * `advance_him` -- that one carries the result back to 0x48 of the carrier.
+ */
+void pose_him_a0(MK3OBJ *obj)
+{
+    MK3OBJPROC *saved_proc  = obj->field00;
+    MK3OBJ     *saved_other = obj->field08;
+    uint32_t    saved_40    = obj->field40;
+    uint32_t    result;
+
+    obj->field08 = (MK3OBJ *)(uintptr_t)saved_proc->him;
+    obj->field00 = saved_proc->field00->field00;
+
+    obj->field40 = obj->field1c;
+    if ((int32_t)obj->field1c <= 0xff)          /* a number, not a pointer */
+        get_char_ani(obj);
+
+    do_next_a9_frame(obj);
+
+    result = obj->field40;
+    obj->field00 = saved_proc;
+    obj->field08 = saved_other;
+    saved_proc->field00->field40 = result;
+    obj->field40 = saved_40;
+}
+
+
+/* ------------------------------------------------------------------ swscan
+ *
+ * armv7 0x00055e90, sixty-eight bytes.  **Complete.**
+ *
+ *      now  = G[0x1c]
+ *      diff = G[0x20] ^ now
+ *      G[0x20] = now
+ *      if (diff == 0) return
+ *      if (diff & now)  stack_switch_bits(now, diff & now,  1)
+ *      if (diff & ~now) stack_switch_bits(now, diff & ~now, 0)
+ *
+ * The switch edge detector, and the other end of `UnstackSwitches`: this is
+ * what fills the stack at G+0x24 that the unstacker walks.
+ *
+ * G+0x1c is the live switch word and G+0x20 the previous frame's copy, so the
+ * pair is the standard "held" and "was held". `diff & now` are the bits that
+ * just went on, `diff & ~now` the ones that just went off -- the compiler gets
+ * the second with `bics`, which is why the two look asymmetric.
+ *
+ * **Presses are stacked before releases**, and both within the same frame. That
+ * ordering is not incidental: a switch tapped and let go inside one frame
+ * arrives as press-then-release rather than in whatever order the bits fall,
+ * and anything reading the stack sees a coherent sequence.
+ *
+ * The copy at 0x20 is updated BEFORE either call, so a handler that reads the
+ * switches sees the new state and not the one being reported.
+ */
+void stack_switch_bits(uint32_t now, uint32_t changed, uint32_t pressed);
+
+void swscan(void)
+{
+    uint32_t now  = *(const uint32_t *)(G_BYTES + 0x1c);
+    uint32_t diff = *(const uint32_t *)(G_BYTES + 0x20) ^ now;
+
+    *(uint32_t *)(G_BYTES + 0x20) = now;
+
+    if (diff == 0)
+        return;
+
+    if ((diff & now) != 0)
+        stack_switch_bits(now, diff & now, 1);
+
+    if ((diff & ~now) != 0)
+        stack_switch_bits(now, diff & ~now, 0);
+}
