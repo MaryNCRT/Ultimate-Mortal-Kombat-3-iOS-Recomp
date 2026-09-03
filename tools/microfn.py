@@ -70,6 +70,16 @@ def body(addr, end, text, starts):
     return out
 
 
+def cname(n):
+    """A legal C spelling of a Mach-O symbol.
+
+    The compiler numbered its own static functions `funcs.11119`, and a
+    dot is not an identifier. The real symbol is kept in each function's
+    comment; only the spelling changes.
+    """
+    return re.sub(r"[^A-Za-z0-9_]", "_", n)
+
+
 def sym(ins):
     """The name a resolved target carries, without its leading underscore."""
     if ins[2] is None:
