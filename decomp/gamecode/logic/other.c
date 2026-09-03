@@ -5296,9 +5296,15 @@ long t_fhs3(MK3THREAD *thread)
  * tail; which characters they are is not in this function and is not guessed
  * here.
  *
- * The two SIGNED halfwords at G+0x45e and G+0x460 are two bytes apart, so this
- * is a third per-fighter layout in G -- after the 0x158 blocks and the
- * four-byte pair `RaiseTurboBars` walks. Either being non-zero permits it.
+ * The two SIGNED halfwords at G+0x45e and G+0x460 are the **clock**: `t_clock3`
+ * writes the low digit into the first and the high into the second, packs them
+ * a nibble apart for the display, and calls `t_round_timeout` when both reach
+ * zero. So "either non-zero" is "there is time left", and the finisher is
+ * offered only while the clock is still running.
+ *
+ * That is why `t_round_timeout` clears them: not as a side effect but because
+ * clearing them IS the clock reaching zero. Three functions read at different
+ * times, and the meaning only appears with all three.
  *
  * The two character numbers are left behind in 0x1c and 0x20, written before
  * the test rather than after, so a caller can read them whatever the answer.
@@ -6864,4 +6870,122 @@ long t_print_round_number(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0x103c;
     thread->fieldfc = 0x30;
     return 0x30;
+}
+
+
+/* ------------------------------------------------------- t_wait_for_his_dog
+ *
+ * armv7 0x0005783c, one hundred and thirty-two bytes.  **Complete.**
+ *
+ *      token == 0:       park(0x17f6, 1)
+ *      token == 0x17f6:  get_his_dog(obj)
+ *                        if ((int32_t)obj->field1c > (int32_t)obj->a10)
+ *                            frame[frame].handler = t_wait_for_his_dog
+ *                        else
+ *                            unwind
+ *      otherwise:        return -3
+ *
+ * The first **polling loop** here: on the second entry it re-installs ITSELF
+ * at the current level, so the next tick runs it again with the slot above
+ * cleared -- back to the park, back to here, until the condition fails.
+ *
+ * Installing yourself is not the same as staying: the token above is cleared
+ * on the way, so the routine re-parks each time round rather than spinning.
+ * One tick per poll, which is the only rate a cooperative scheduler has.
+ *
+ * The condition compares two of the object's own slots, both signed, after
+ * `get_his_dog` has filled them. Nothing else in this file compares 0x1c
+ * against 0x44.
+ */
+void get_his_dog(MK3OBJ *obj);
+
+long t_wait_for_his_dog(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x17f6;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token != 0x17f6)
+        return -3;
+
+    get_his_dog(obj);
+
+    if ((int32_t)obj->field1c <= (int32_t)obj->a10)
+        return mk3_unwind(thread);
+
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_wait_for_his_dog;    /* poll again */
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ----------------------------------------------------------------- t_clock3
+ *
+ * armv7 0x00057de4, one hundred and thirty-six bytes.  **Complete**, and it is
+ * the round clock.
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      G[0x45e] = (uint16_t)obj->a10           ; the low digit
+ *      G[0x460] = (uint16_t)obj->field48       ; the high one
+ *      MKEvent_Add(3, 1, (obj->field48 << 4) + obj->a10, 0)
+ *      if ((int32_t)obj->field48 <= 1) tsound_func(obj, 0x17)
+ *      obj->field1c = obj->field48 + obj->a10
+ *      if (obj->field1c == 0) next = t_round_timeout
+ *      else { obj->field3c = obj->field40; next = t_clock4; }
+ *
+ * Two digits, kept in two slots of the object and mirrored into two halfwords
+ * of G. The event packs them a nibble apart -- `high * 16 + low` -- which is
+ * how a two-digit display takes them in one word.
+ *
+ * The warning sound fires while the high digit is 0 or 1, so it starts at ten
+ * remaining and keeps sounding, once per tick of this routine, rather than
+ * firing once.
+ *
+ * Zero on BOTH digits ends the round, and it is tested as a sum rather than
+ * two comparisons -- which works only because neither digit is ever negative.
+ *
+ * This is what `is_finish_him_allowed` was reading: the pair it needs non-zero
+ * is the time left. And it is what `t_round_timeout` clears -- not a side
+ * effect, but the clock reaching zero written down. Three functions read at
+ * three different times, and none of them alone says any of this.
+ *
+ * On the ordinary path 0x40 is copied to 0x3c before `t_clock4`, which is the
+ * animation slot being handed on.
+ */
+long t_clock4(MK3THREAD *thread);
+
+long t_clock3(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC next;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    *(int16_t *)(G_BYTES + 0x45e) = (int16_t)obj->a10;
+    *(int16_t *)(G_BYTES + 0x460) = (int16_t)obj->field48;
+
+    MKEvent_Add(3, 1, (long)((obj->field48 << 4) + obj->a10), 0);
+
+    if ((int32_t)obj->field48 <= 1)             /* ten seconds and under */
+        tsound_func((uint32_t)(uintptr_t)obj, 0x17);
+
+    obj->field1c = obj->field48 + obj->a10;
+
+    if (obj->field1c == 0) {
+        next = (MK3THREADFUNC)t_round_timeout;
+    } else {
+        obj->field3c = obj->field40;
+        next = (MK3THREADFUNC)t_clock4;
+    }
+
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)next;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
 }
