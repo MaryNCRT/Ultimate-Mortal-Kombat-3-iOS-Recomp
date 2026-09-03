@@ -140,7 +140,9 @@ typedef struct MK3OBJ {
      * way -- so the two are x and y as 16.16 fixed point, with the integer
      * part on top and a fraction underneath that only a copy preserves. */
     uint32_t    field10;         /* 0x10 */
-    uint8_t     _pad14[4];
+    uint32_t    field14;         /* 0x14  cleared with 0x18 by
+                                  *       strike_check_box, which is what
+                                  *       makes the pair a pair */
     uint32_t    field18;         /* 0x18  the A8 pair, cleared together */
     uint32_t    field1c;         /* 0x1c  and the high bound */
     uint32_t    field20;         /* 0x20  and the low one */
@@ -6230,4 +6232,140 @@ void Endurance_ClearPlayer(uint32_t i)
 
     Endurance_ClearStruct(Pp + i * PP_STRIDE,
                           Pp + i * PP_STRIDE + 0xc, PP_STRIDE);
+}
+
+
+/* -------------------------------------------------------- finish_him_or_her
+ *
+ * armv7 0x00058eec, one hundred and eight bytes.  **Complete.**
+ *
+ *      loser = (G[0x368] != 0) ? &GrObj[1] : &GrObj[0]
+ *      obj->field28 = loser
+ *      c = loser->field24                      ; the character
+ *      obj->field28 = c
+ *      obj->field1c = is_female(c) ? 0x12 : 0x11
+ *      create_fx(obj)
+ *
+ *      is_female(c):  c == 1 || c == 6 || c == 0xb ||
+ *                     c == 0xf || c == 0x10 || c == 0x11
+ *
+ * The loser is chosen by health: G+0x368 is player one's bar -- named by
+ * `recharge_bars`, which sets it to 166 and announces it -- so a zero there
+ * means player one lost and their own entry is read. Otherwise the entry 0x4c
+ * further on, which is `GROBJ_STRIDE`, so it is player two's.
+ *
+ * **Six characters** take the second effect, and the function's name says what
+ * separates them. Six is how many women the roster has. That is corroboration
+ * and not the derivation: which id is which character is not in this function
+ * and is not guessed here.
+ *
+ * The two effect numbers differ by one, 0x11 and 0x12, so whatever consumes
+ * 0x1c has them adjacent -- two entries of one table rather than two unrelated
+ * constants.
+ *
+ * 0x28 is written twice: first the entry pointer, then the character read out
+ * of it. The first store is dead. Transcribed because the second load reads
+ * 0x28 back rather than using the register, which is what makes the first
+ * store necessary to the compiler even though nothing else sees it.
+ *
+ * The comparisons are laid out as two (6 and 1, folded into one flag) and then
+ * four in a chain, which is the compiler's ordering and not a grouping of the
+ * characters.
+ */
+void create_fx(MK3OBJ *obj);
+
+void finish_him_or_her(MK3OBJ *obj)
+{
+    const char *loser = GrObj;
+    uint32_t c;
+
+    if (*(const uint32_t *)(G_BYTES + 0x368) != 0)
+        loser = GrObj + GROBJ_STRIDE;
+
+    obj->field28 = (uint32_t)(uintptr_t)loser;      /* dead, but written */
+    c = *(const uint32_t *)(loser + 0x24);
+    obj->field28 = c;
+
+    obj->field1c = (c == 6 || c == 1 || c == 0xb ||
+                    c == 0xf || c == 0x10 || c == 0x11) ? 0x12 : 0x11;
+
+    create_fx(obj);
+}
+
+
+/* -------------------------------------------------------- strike_check_box
+ *
+ * armv7 0x000595e4, one hundred and eight bytes.  **Complete.**
+ *
+ *      obj->field14 = obj->field18 = 0
+ *      saved20 = obj->field20
+ *      get_char_stk(obj)
+ *      obj->field20 = saved20                      ; put it straight back
+ *      obj->field54 = him->field30
+ *      if (him->field30 & MK3F_NOCOL) { obj->field5c = 0; return; }
+ *
+ *      packed = obj->field24
+ *      obj->field24 = (int32_t)saved20 >> 16       ; high half
+ *      obj->field20 = (int16_t)saved20             ; low half
+ *      obj->field2c = (int32_t)packed >> 16
+ *      obj->field28 = (int16_t)packed
+ *      obj->field1c += 0x10
+ *      strike_check_regs(obj)
+ *      restore obj->field1c, obj->a10, obj->field48
+ *
+ * Two packed words unpacked into four coordinates. Each half is taken by
+ * shifting -- right sixteen for the high one, left sixteen and back for the
+ * low -- so both are SIGN-EXTENDED and a box may sit at negative coordinates.
+ * A mask would have been wrong.
+ *
+ * `get_char_stk` is called for its other effects and its clobbering of 0x20 is
+ * undone on the next instruction, which is why 0x20 is saved before a call
+ * that appears not to need it.
+ *
+ * The opponent's flag word is copied to 0x54 whether or not it matters, and
+ * then bit 0x100 -- `MK3F_NOCOL` -- ends the routine with a clear answer. So
+ * "no collision" is checked on the TARGET and not on the striker.
+ *
+ * 0x1c is advanced by sixteen for the call and put back afterwards, which
+ * selects a second structure sixteen bytes on from the first. Three slots are
+ * saved and restored around the call and 0x14, 0x18, 0x54 and the four
+ * coordinates are left changed.
+ */
+void get_char_stk(MK3OBJ *obj);
+void strike_check_regs(MK3OBJ *obj);
+
+void strike_check_box(MK3OBJ *obj)
+{
+    uint32_t saved20 = obj->field20;
+    uint32_t saved1c, saved_a10, saved48, packed, flags;
+
+    obj->field14 = 0;
+    obj->field18 = 0;
+
+    get_char_stk(obj);
+
+    saved1c   = obj->field1c;
+    obj->field20 = saved20;
+    saved_a10 = obj->a10;
+    saved48   = obj->field48;
+
+    flags = ((MK3OBJ *)(uintptr_t)obj->field00->him)->field30;
+    obj->field54 = flags;
+    if ((flags & MK3F_NOCOL) != 0) {
+        obj->field5c = 0;
+        return;
+    }
+
+    packed = obj->field24;
+    obj->field24 = (uint32_t)((int32_t)saved20 >> 16);
+    obj->field20 = (uint32_t)(int32_t)(int16_t)saved20;
+    obj->field2c = (uint32_t)((int32_t)packed >> 16);
+    obj->field28 = (uint32_t)(int32_t)(int16_t)packed;
+
+    obj->field1c = saved1c + 0x10;
+    strike_check_regs(obj);
+
+    obj->field1c = saved1c;
+    obj->a10     = saved_a10;
+    obj->field48 = saved48;
 }
