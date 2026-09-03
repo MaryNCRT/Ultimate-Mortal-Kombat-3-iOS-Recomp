@@ -8233,16 +8233,21 @@ long t_do_duck(MK3THREAD *thread)
  */
 long t_bani2(MK3THREAD *thread);
 
-long t_backwards_ani(MK3THREAD *thread)
+/* `t_backwards_ani2` at 0x00055920 is the same one hundred and seventy-two
+ * bytes with `get_char_ani2` in place of `get_char_ani` and 0x7e1 for its
+ * token. The same pairing `t_animate_a9` and `t_animate2_a9` have, so the two
+ * share a body here and differ in a resolver and a number. */
+static long mk3_backwards_ani(MK3THREAD *thread, uint32_t token,
+                              void (*resolve)(MK3OBJ *))
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
-    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t seen = *mk3_frame(thread, thread->frame + 1);
     uint32_t argc;
 
-    if (token == 0x7d3)
+    if (seen == token)
         return mk3_unwind(thread);
 
-    if (token != 0)
+    if (seen != 0)
         return -3;
 
     argc = thread->fieldf8;
@@ -8250,11 +8255,77 @@ long t_backwards_ani(MK3THREAD *thread)
     thread->fieldf8 = argc + 1;
 
     if ((int32_t)obj->field40 <= 0x48)          /* a number, not a pointer */
-        get_char_ani(obj);
+        resolve(obj);
 
-    *mk3_frame(thread, thread->frame + 1) = 0x7d3;
+    *mk3_frame(thread, thread->frame + 1) = token;
     thread->frame = thread->frame + 1;                  /* push a level */
     mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_bani2;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
+}
+
+long t_backwards_ani(MK3THREAD *thread)
+{
+    return mk3_backwards_ani(thread, 0x7d3, get_char_ani);
+}
+
+long t_backwards_ani2(MK3THREAD *thread)
+{
+    return mk3_backwards_ani(thread, 0x7e1, get_char_ani2);
+}
+
+
+/* ---------------------------------------------------- t_is_endurance_possible
+ *
+ * armv7 0x0005768c, one hundred and eighty bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field5c = 0
+ *      if ((int32_t)obj->field48 <= 1
+ *          && (Pp[obj->field48].field10 & 1)
+ *          && (int8_t)RoundParam[0x18] >= 0)
+ *          obj->field5c = 1
+ *      unwind
+ *
+ * Three conditions and one answer, and every failing path falls through to the
+ * same unwind with 0x5c already zero -- so the routine is written as "assume
+ * no" and never has to write a negative.
+ *
+ * The middle one indexes `Pp` by the round result at 0x48, which is 0 or 1
+ * here: player one or player two. So the bit asked about is the WINNER's, and
+ * `Pp` is per-player rather than per-fighter-slot.
+ *
+ * The stride is 140 again, formed as `n*20` then `that*8 - that`, which is a
+ * third spelling of `PP_STRIDE` after `Endurance_ClearPlayer`'s and
+ * `DoSwitchJump`'s.
+ *
+ * The last condition is a SIGNED BYTE at RoundParam+0x18 tested for being zero
+ * or positive. The compiler spells it `mvn` then a logical shift right by 31 --
+ * the inverted sign bit -- which is why the disassembly has no comparison in
+ * it at all.
+ *
+ * That is a fourth field of RoundParam: 0x0c the difficulty `adjust_damage`
+ * indexes with, 0x10 the round `t_print_round_number` speaks, 0x14 the ladder
+ * order, and now 0x18. A byte among three words, and negative means no.
+ */
+long t_is_endurance_possible(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t who;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field5c = 0;
+
+    who = obj->field48;
+    if ((int32_t)who <= 1) {
+        const char *entry = Pp + who * PP_STRIDE;
+
+        if ((*(const uint32_t *)(entry + 0x10) & 1) != 0 &&
+            *(const int8_t *)((const char *)RoundParam + 0x18) >= 0)
+            obj->field5c = 1;
+    }
+
+    return mk3_unwind(thread);
 }
