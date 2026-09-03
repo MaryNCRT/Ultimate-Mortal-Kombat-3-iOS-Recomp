@@ -7981,3 +7981,158 @@ void is_he_blocking(MK3OBJ *obj)
 
     obj->field5c = 1;
 }
+
+
+/* ---------------------------------------------------------- t_turn_around
+ *
+ * armv7 0x0005825c, one hundred and sixty-four bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field40 = 3                    ; the animation
+ *          stop_me_player(obj)
+ *          disable_all_buttons(obj)
+ *          get_char_ani(obj)
+ *          obj->field1c = 2                    ; rate, and
+ *          obj->a10     = 2                    ; A10, from one register
+ *          frame[frame+1].w0 = 0x7ff
+ *          frame = frame + 1                   ; push
+ *          frame[frame].handler = t_mframew
+ *          frame[frame+1].w0 = 0
+ *      token == 0x7ff:  unwind
+ *      otherwise:       return -3
+ *
+ * Turning to face the other way: stop, take the controls, play animation 3.
+ * The controls are not given back here, exactly as in `t_mercy_start` -- the
+ * routine that regains them is somewhere past `t_mframew`.
+ *
+ * The animation number is set BEFORE `stop_me_player`, which is the only order
+ * that works if that call reads 0x40. Transcribed in the order written rather
+ * than grouped with the resolver it belongs to.
+ */
+long t_turn_around(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x7ff)
+        return mk3_unwind(thread);
+
+    if (token != 0)
+        return -3;
+
+    obj->field40 = 3;
+    stop_me_player(obj);
+    disable_all_buttons(obj);
+    get_char_ani(obj);
+    obj->field1c = 2;
+    obj->a10     = 2;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x7ff;
+    thread->frame = thread->frame + 1;                  /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ------------------------------------------------------- back_to_normal_px
+ *
+ * armv7 0x000596a8, one hundred and sixty-eight bytes.  **Complete**, and it
+ * checks six of this file's flag names in one instruction.
+ *
+ *      hits = obj->field00->p_hit
+ *      obj->field30 = hits
+ *      if (hits > 1) {
+ *          obj->field1c = 0xd
+ *          create_fx_param(obj,
+ *              ((obj->field00->field54 * 100 / 166) << 8) + hits)
+ *      }
+ *      his = other->field00
+ *      obj->field1c = 0
+ *      his->p_hit = his->field4c = his->field50 = his->field54 =
+ *          his->field18 = his->field58 = 0
+ *      player_normpal(other)
+ *      delete_slave(other)
+ *      f = other->field08->field30
+ *      f &= ~(NO_BLOCK|NOFLIP|NOCOL|NOEDGE|HALF_DAMAGE|QUARTER_DAMAGE)
+ *      if (!(other->field08->field30 & MK3F_INVISO)) f |= MK3F_SHADOW
+ *      other->field08->field30 = f
+ *      other->field08->field28 &= ~0x20
+ *      other->field00->field10 &= ~0x1e
+ *
+ * **The mask is the find.** The literal is 0xffffe2f3 and its complement is
+ * 0x1d0c, which is exactly
+ *
+ *      MK3F_NO_BLOCK | MK3F_NOFLIP | MK3F_NOCOL | MK3F_NOEDGE |
+ *      MK3F_HALF_DAMAGE | MK3F_QUARTER_DAMAGE
+ *
+ * -- six of the ten names this file assigned one routine at a time, each from
+ * its own single-bit clearer. A function called "back to normal" clearing
+ * precisely those six and nothing else is a check on all six readings at once,
+ * and it passes. The four it leaves alone are NOSCROLL, SHADOW, INVISO and
+ * IGNORE_Y, which are not damage or collision states.
+ *
+ * SHADOW is then put back unless INVISO is set. Those are the two the mask
+ * skips and they are handled together, which fits: a fighter who is invisible
+ * should not regain a shadow.
+ *
+ * The effect only fires when the hit count is above 1 -- a combo, not a single
+ * blow. The number it reports is `field54 * 100 / 166` in the high bits with
+ * the hit count in the low byte, and 166 is the full health `recharge_bars`
+ * writes, so it is a **percentage of a life bar**.
+ *
+ * The divide is a modular-inverse multiply by 827945503 with a shift of 37,
+ * which is ceil(2^37 / 166) exactly and not ceil(2^37 / 165). That is how the
+ * divisor is known to be the health value rather than something near it.
+ *
+ * Effect 0xd is below `create_fx_param`'s jump-table range, so it does nothing
+ * but send the event -- which is the point: this is a report, not an action.
+ *
+ * The six zeroes into the opponent's PROC come from one register and include
+ * 0x18, the action. So "back to normal" ends whatever he was doing as well as
+ * clearing the damage bookkeeping.
+ */
+void player_normpal(MK3OBJ *obj);
+void delete_slave(MK3OBJ *obj);
+
+void back_to_normal_px(MK3OBJ *obj, MK3OBJ *other)
+{
+    MK3OBJPROC *mine = obj->field00;
+    MK3OBJPROC *his;
+    uint32_t hits = mine->p_hit;
+    uint32_t f;
+
+    obj->field30 = hits;
+
+    if ((int32_t)hits > 1) {                    /* a combo, not one blow */
+        uint32_t percent = (mine->field54 * 100u) / 166u;
+
+        obj->field1c = 0xd;
+        create_fx_param(obj, (percent << 8) + hits);
+    }
+
+    his = other->field00;
+    obj->field1c = 0;
+    his->p_hit    = 0;
+    *(uint32_t *)((char *)his + 0x4c) = 0;
+    *(uint32_t *)((char *)his + 0x50) = 0;
+    his->field54  = 0;
+    his->field18  = 0;                          /* the action, too */
+    *(uint32_t *)((char *)his + 0x58) = 0;
+
+    player_normpal(other);
+    delete_slave(other);
+
+    f = other->field08->field30;
+    obj->field2c = f & ~(MK3F_NO_BLOCK | MK3F_NOFLIP | MK3F_NOCOL |
+                         MK3F_NOEDGE | MK3F_HALF_DAMAGE |
+                         MK3F_QUARTER_DAMAGE);
+    if ((f & MK3F_INVISO) == 0)                 /* no shadow if invisible */
+        obj->field2c |= MK3F_SHADOW;
+    other->field08->field30 = obj->field2c;
+
+    other->field08->field28 &= ~0x20u;
+
+    obj->field2c = other->field00->field10 & ~0x1eu;
+    other->field00->field10 = obj->field2c;
+}
