@@ -41,3 +41,56 @@ long t_r_kitana_decap(MK3THREAD *thread)
 
 
 
+
+
+/* --------------------------------------------------------------------
+ * What the readers could prove. See tools/pushfn.py, which executes
+ * a body symbolically, and tools/microfn.py, which matches whole
+ * bodies against templates. Both refuse anything they cannot account
+ * for instruction by instruction.
+ * -------------------------------------------------------------------- */
+
+long t_shake_ob_up(struct MK3THREAD *thread);
+long t_wait_forever(struct MK3THREAD *thread);
+
+/* t_head_pop_off -- armv7 0x000a0cb8, 52 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      frame[frame].handler = t_wait_forever
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_head_pop_off(MK3THREAD *thread)
+{
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_wait_forever);
+}
+
+/* t_spider_shake_jsrp -- armv7 0x000a0cec, 68 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = 0x6
+ *      obj->field20 = 0x3
+ *      obj->field24 = 0x10
+ *      frame[frame].handler = t_shake_ob_up
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_spider_shake_jsrp(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0x6;
+    obj->field20 = 0x3;
+    obj->field24 = 0x10;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_shake_ob_up);
+}
+
+
+

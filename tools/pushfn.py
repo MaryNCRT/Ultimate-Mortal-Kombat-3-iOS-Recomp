@@ -141,6 +141,18 @@ class Run(object):
             else:
                 self.r[dst] = UNK
             return 1
+        # A second constant reached by subtracting from the first. The
+        # compiler does this rather than load two literals, which is why the
+        # disassembly makes the second look derived when it is just a number.
+        if op in ("subs", "sub.w", "sub") and len(a) in (2, 3):
+            d = a[0]
+            src = self.get(a[1]) if len(a) == 3 else self.get(a[0])
+            k = imm(a[-1])
+            if k is not None and src.kind == "imm":
+                self.r[d] = V("imm", (src.a - k) & 0xffffffff)
+            else:
+                self.r[d] = UNK
+            return 1
         if op in ("lsls", "lsl.w") and len(a) == 3 and imm(a[2]) == 3:
             s = self.get(a[1])
             self.r[a[0]] = V("frame8", s.a) if s.kind == "frame" else UNK
