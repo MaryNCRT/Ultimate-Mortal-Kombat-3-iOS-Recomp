@@ -11052,3 +11052,130 @@ long t_game_finished(MK3THREAD *thread)
     thread->fieldfc = 6;
     return 6;
 }
+
+
+/* -------------------------------------------------------- t_master_proc_mercy
+ *
+ * armv7 0x00058bf0, three hundred and eighty-four bytes.  **Complete.**
+ *
+ *      token 0:
+ *          obj->field1c = 0
+ *          G[0x44e] = (uint16_t)0
+ *          G[0x452] = (uint16_t)obj->field1c
+ *          obj->a10 = (G[0x368] != 0) ? GrObj[0].field24 : GrObj[1].field24
+ *          obj->field24 = G[0x368]
+ *          obj->field30 = G + 0x368; obj->field34 = H + 4
+ *          restore_power(obj)
+ *          obj->field30 = G + 0x36c; obj->field34 = H
+ *          restore_power(obj)
+ *          MKEvent_Add(3, 0, G[0x368], 0)
+ *          MKEvent_Add(3, 0, G[0x36c], 1)
+ *          obj->field1c = (int16_t)G[0x460]
+ *          if (obj->field1c <= 3) obj->field1c = 4
+ *          G[0x460] = (uint16_t)obj->field1c
+ *          obj->field1c = 0x1d
+ *          create_fx_param(obj, obj->a10)
+ *          park(0x17d0, 0x40)
+ *      token 0x17d0:
+ *          StartProcAt(&Plyr[0], t_mercy_start)
+ *          StartProcAt(&Plyr[1], t_mercy_start)
+ *          park(0x17de, 0x40)
+ *      token 0x17de:
+ *          obj->field1c = 0
+ *          G[0x45c] = (uint16_t)0
+ *          reset_proc_stack(obj)
+ *          frame[frame].handler = t_play3
+ *          frame[frame+1].w0 = 0
+ *          frame = frame + 1                   ; push
+ *          frame[frame].handler = t_master_mercy_entry
+ *      otherwise:  return -3
+ *
+ * Mercy, granted from above: clear the two fatality halfwords, put both health
+ * bars back, make sure the clock has at least four on it, announce effect 0x1d
+ * -- which `create_fx_param` maps to `t_fx_mercy` -- and start both fighters on
+ * `t_mercy_start`.
+ *
+ * The character handed to the effect is whoever still has health: player one's
+ * if their bar is non-zero and player two's otherwise. The one granting mercy.
+ *
+ * **Each bar is restored against the OTHER player's tally.** 0x368 is paired
+ * with `H + 4` and 0x36c with `H`, and H[0] and H[1] are player one's and
+ * player two's round wins. The crossing is written out in two adjacent calls
+ * with two adjacent constants, so it is not a slip of one offset -- but what
+ * `restore_power` does with the pair is in another function and nothing here
+ * says why they cross.
+ *
+ * The clock floor of 4 is applied to the high digit alone, so mercy always
+ * leaves at least forty on the timer.
+ *
+ * The last arm is the call-with-continuation shape: install `t_play3` at this
+ * level, then push `t_master_mercy_entry` on top of it. Mercy runs, and when it
+ * unwinds the round ends normally.
+ */
+void restore_power(MK3OBJ *obj);
+void reset_proc_stack(MK3OBJ *obj);
+
+long t_master_proc_mercy(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x17d0) {
+        StartProcAt((MK3OBJ *)Plyr, (MK3THREADFUNC)t_mercy_start);
+        StartProcAt((MK3OBJ *)(Plyr + PLYR_STRIDE),
+                    (MK3THREADFUNC)t_mercy_start);
+        *mk3_frame(thread, thread->frame + 1) = 0x17de;
+        thread->fieldfc = 0x40;
+        return 0x40;
+    }
+
+    if (token == 0x17de) {
+        obj->field1c = 0;
+        *(uint16_t *)(G_BYTES + 0x45c) = 0;     /* nobody has won */
+        reset_proc_stack(obj);
+
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_play3;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+
+        thread->frame = thread->frame + 1;              /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_master_mercy_entry;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field1c = 0;
+    *(uint16_t *)(G_BYTES + 0x44e) = 0;
+    *(uint16_t *)(G_BYTES + 0x452) = (uint16_t)obj->field1c;
+
+    obj->field24 = *(const uint32_t *)(G_BYTES + 0x368);
+    obj->a10 = obj->field24 != 0
+                 ? *(const uint32_t *)(GrObj + 0x24)            /* player one */
+                 : *(const uint32_t *)(GrObj + GROBJ_STRIDE + 0x24);
+
+    obj->field30 = (uint32_t)(uintptr_t)(G_BYTES + 0x368);
+    obj->field34 = (uint32_t)(uintptr_t)(H + 4);        /* the other tally */
+    restore_power(obj);
+
+    obj->field30 = (uint32_t)(uintptr_t)(G_BYTES + 0x36c);
+    obj->field34 = (uint32_t)(uintptr_t)H;
+    restore_power(obj);
+
+    MKEvent_Add(3, 0, (long)*(const uint32_t *)(G_BYTES + 0x368), 0);
+    MKEvent_Add(3, 0, (long)*(const uint32_t *)(G_BYTES + 0x36c), 1);
+
+    obj->field1c = (uint32_t)(int32_t)*(const int16_t *)(G_BYTES + 0x460);
+    if ((int32_t)obj->field1c <= 3)
+        obj->field1c = 4;                       /* at least forty seconds */
+    *(uint16_t *)(G_BYTES + 0x460) = (uint16_t)obj->field1c;
+
+    obj->field1c = 0x1d;                        /* -> t_fx_mercy */
+    create_fx_param(obj, obj->a10);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x17d0;
+    thread->fieldfc = 0x40;
+    return 0x40;
+}
