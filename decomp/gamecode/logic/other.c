@@ -8906,3 +8906,95 @@ long t_spawn_endurance_guy(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------------ t_bani2
+ *
+ * armv7 0x00058514, two hundred and twelve bytes.  **Complete.**
+ *
+ *      token 0:
+ *          obj->a10 = obj->field40             ; remember the base
+ *          p = obj->field40
+ *          do { obj->field40 = p + 1;
+ *               obj->field1c = p[1];
+ *               p++; } while (p[0] != 0)       ; walk to the terminator
+ *          fall through
+ *      step back:
+ *          obj->field40 = --p
+ *          obj->field1c = p[0]
+ *          ani2(obj)
+ *          obj->field1c = args[argc-1]         ; peek the saved rate
+ *          park(0x7c1, obj->field1c)
+ *      token 0x7c1:
+ *          if (obj->field40 != obj->a10) step back
+ *          obj->field1c = args[--argc]         ; pop
+ *          unwind
+ *      otherwise:  return -3
+ *
+ * The animation run in reverse, and **there is no length**. The first entry
+ * walks forward from the base until it finds the zero that ends the script --
+ * the same terminator `stance_setup` scans for -- and then plays entries
+ * backwards, one per tick, until the cursor is back where it started.
+ *
+ * The comparison happens before the step, so the entry AT the base is never
+ * played. Written out as it stands; whether that is intended is not something
+ * this function says.
+ *
+ * The rate comes off the argument stack, where `t_backwards_ani` left it
+ * before pushing this -- the only place in the file where a value crosses
+ * between frames on that stack rather than being saved and restored in one
+ * routine. It is peeked on every tick with the pop-and-push-back the mframew
+ * family uses, and popped for real on the way out.
+ *
+ * The park duration is that saved rate and not whatever `ani2` leaves in 0x1c,
+ * because the peek overwrites 0x1c between the two.
+ *
+ * A10 holds the base for the life of the animation, which is the same use
+ * `t_jump_up_land_jsrp` makes of it -- a pointer surviving across a park in
+ * the object rather than on the stack.
+ */
+void ani2(MK3OBJ *obj);
+
+long t_bani2(MK3THREAD *thread)
+{
+    MK3OBJ   *obj   = (MK3OBJ *)thread->proc;
+    uint32_t  token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t *p;
+    uint32_t  argc;
+
+    if (token != 0 && token != 0x7c1)
+        return -3;
+
+    if (token == 0x7c1) {
+        if (obj->field40 == obj->a10) {         /* back at the start */
+            argc = thread->fieldf8 - 1;
+            thread->fieldf8 = argc;
+            obj->field1c = *mk3_arg(thread, argc);
+            return mk3_unwind(thread);
+        }
+    } else {
+        obj->a10 = obj->field40;                /* remember the base */
+        p = (uint32_t *)(uintptr_t)obj->field40;
+        do {                                    /* walk to the terminator */
+            obj->field40 = (uint32_t)(uintptr_t)(p + 1);
+            obj->field1c = p[1];
+            p++;
+        } while (p[0] != 0);
+    }
+
+    p = (uint32_t *)(uintptr_t)obj->field40;
+    p--;
+    obj->field40 = (uint32_t)(uintptr_t)p;
+    obj->field1c = p[0];
+    ani2(obj);
+
+    argc = thread->fieldf8 - 1;                 /* peek the saved rate */
+    thread->fieldf8 = argc;
+    obj->field1c = *mk3_arg(thread, argc);
+    *mk3_arg(thread, argc) = obj->field1c;
+    thread->fieldf8 = argc + 1;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x7c1;
+    thread->fieldfc = obj->field1c;
+    return (long)obj->field1c;
+}
