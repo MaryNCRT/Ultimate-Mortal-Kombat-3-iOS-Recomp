@@ -9548,3 +9548,114 @@ long t_clock_ran_out(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------ t_flight_loop
+ *
+ * armv7 0x0005aa1c, two hundred and fifty-two bytes.  **Complete**, and the
+ * first routine here to install a handler that is not a link-time constant.
+ *
+ *      token 0:       park(0x1b5, 1)
+ *      token 0x1b5:
+ *          obj->field34 = obj->field00->field34
+ *          if (obj->field34 != 0) {
+ *              args[argc++] = obj->a10
+ *              frame[frame+1].w0 = 0x1bb
+ *              frame = frame + 1                   ; push
+ *              frame[frame].handler = obj->field34 ; from DATA
+ *              frame[frame+1].w0 = 0
+ *              return 0
+ *          }
+ *          fall through
+ *      token 0x1bb:
+ *          obj->a10 = args[--argc]
+ *          fall through
+ *      common:
+ *          next_anirate(obj)
+ *          y = (int16_t)obj->field08->field12
+ *          obj->field20 = y
+ *          obj->field1c = obj->field00->field40            ; the ground
+ *          if (obj->field00->field40 > y) park(0x1b5, 1)   ; still airborne
+ *          obj->field1c = 0
+ *          obj->field08->field20 = 0
+ *          stop_me_player(obj)
+ *          ground_player(obj)
+ *          unwind
+ *      otherwise:  return -3
+ *
+ * The body of a jump. One tick per pass: advance the animation rate, look at
+ * y, and either park again or land.
+ *
+ * **The PROC's 0x34 is a callback.** Everywhere else a handler is a constant
+ * the linker fixed; here one is read out of the object and pushed as a frame,
+ * so a flight can carry a routine of its own -- and it is optional, because
+ * zero there skips the push and falls straight into the common part.
+ * `t_flight` clears that slot before starting, so a flight with no callback is
+ * the default.
+ *
+ * The A10 is stacked around that call and popped when the callback unwinds,
+ * which is why the two tokens have to be different: 0x1b5 means "I am waiting"
+ * and 0x1bb means "my callback just finished, there is something to pop".
+ *
+ * Landing is `ground > y`, on the PROC's 0x40 -- the same ground `ground_player`
+ * copies out and `distance_off_ground` measures against. So y grows downward
+ * and the test is "the floor is still below me".
+ *
+ * The zero into `obj->field08->field20` is on the other object, not this one,
+ * and is not restored.
+ */
+long t_flight_loop(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t argc;
+    int32_t  y, ground;
+
+    if (token != 0 && token != 0x1b5 && token != 0x1bb)
+        return -3;
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x1b5;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0x1b5) {
+        obj->field34 = *(const uint32_t *)((char *)obj->field00 + 0x34);
+
+        if (obj->field34 != 0) {                /* an optional callback */
+            argc = thread->fieldf8;
+            *mk3_arg(thread, argc) = obj->a10;
+            thread->fieldf8 = argc + 1;
+
+            *mk3_frame(thread, thread->frame + 1) = 0x1bb;
+            thread->frame = thread->frame + 1;          /* push a level */
+            mk3_frame(thread, thread->frame)[1] = obj->field34;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+    } else {                                    /* 0x1bb: it just finished */
+        argc = thread->fieldf8 - 1;
+        thread->fieldf8 = argc;
+        obj->a10 = *mk3_arg(thread, argc);
+    }
+
+    next_anirate(obj);
+
+    y = (int32_t)(int16_t)MK3_FIELD12(obj->field08);
+    obj->field20 = (uint32_t)y;
+    ground = (int32_t)obj->field00->field40;
+    obj->field1c = (uint32_t)ground;
+
+    if (ground > y) {                           /* the floor is still below */
+        *mk3_frame(thread, thread->frame + 1) = 0x1b5;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    obj->field1c = 0;
+    obj->field08->field20 = 0;
+    stop_me_player(obj);
+    ground_player(obj);
+    return mk3_unwind(thread);
+}
