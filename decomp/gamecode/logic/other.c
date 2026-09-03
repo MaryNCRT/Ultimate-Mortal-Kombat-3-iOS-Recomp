@@ -9286,3 +9286,77 @@ long t_clock4(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------ t_results_retp
+ *
+ * armv7 0x000569f0, two hundred and forty-four bytes.  **Complete.**
+ *
+ *      token 0:
+ *          w = (int16_t)G[0x45c]                   ; the winner, 1 or 2
+ *          obj->field1c = w
+ *          if (RoundParam[0x3c] != 0
+ *              && (uint16_t)(w - 1) <= 1
+ *              && (Pp[w - 1].field10 & 1)
+ *              && H[w - 1] == 2) {
+ *              frame[frame+1].w0 = 0x121f
+ *              frame = frame + 1                   ; push
+ *              frame[frame].handler = t_game_finished
+ *          } else unwind
+ *      token 0x121f:  unwind
+ *      otherwise:     return -3
+ *
+ * What runs after a round is won -- `t_player_1_won` and `t_player_2_won` both
+ * install it -- and what it decides is whether the MATCH is over.
+ *
+ * **Two round wins ends it.** `H[0]` and `H[1]` are the tallies those two
+ * routines increment, and this compares one of them against 2. That is
+ * best-of-three, and it is the only place the number appears.
+ *
+ * The winner in G+0x45c is one-based, so it is turned into an index by
+ * subtracting one -- and the bounds check is done on the UNSIGNED difference:
+ * `(uint16_t)(w - 1) <= 1` accepts 1 and 2 and rejects 0 in a single
+ * comparison, because 0 - 1 wraps to 0xffff. A signed test would have needed
+ * two.
+ *
+ * `Pp[w-1].field10 & 1` is the same bit `t_is_endurance_possible` reads on the
+ * same struct, so that flag gates both the endurance queue and the end of the
+ * match. What it means is not in either function.
+ *
+ * RoundParam+0x3c gates the whole thing -- a sixth field of that struct, after
+ * 0x0c, 0x10, 0x14, 0x18 and 0x2c. With it clear the match never ends here.
+ */
+long t_game_finished(MK3THREAD *thread);
+
+long t_results_retp(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    int32_t  w;
+
+    if (token == 0x121f)
+        return mk3_unwind(thread);
+
+    if (token != 0)
+        return -3;
+
+    w = *(const int16_t *)(G_BYTES + 0x45c);
+    obj->field1c = (uint32_t)w;
+
+    if (((const uint32_t *)RoundParam)[0x3c / 4] != 0 &&
+        (uint16_t)(w - 1) <= 1) {
+        uint32_t i = (uint32_t)(w - 1);
+
+        if ((*(const uint32_t *)(Pp + i * PP_STRIDE + 0x10) & 1) != 0 &&
+            ((const uint32_t *)H)[i] == 2) {            /* best of three */
+            *mk3_frame(thread, thread->frame + 1) = 0x121f;
+            thread->frame = thread->frame + 1;          /* push a level */
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)t_game_finished;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+    }
+
+    return mk3_unwind(thread);
+}
