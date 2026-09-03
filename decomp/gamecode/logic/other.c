@@ -8455,22 +8455,32 @@ long t_jump_up_land_jsrp(MK3THREAD *thread)
  * Both entries share everything after the initial push, which the second one
  * skips -- so the rate is stacked once and read on every tick.
  */
-long t_double_mframew(MK3THREAD *thread)
+/* `t_mframew` at 0x0005a25c is the same one hundred and ninety-two bytes with
+ * `do_next_a9_frame` in place of `double_next_a9` and 0x6a6 for its token, so
+ * the two share this body.
+ *
+ * That one is the routine four others push as a call -- `t_act_mframew`,
+ * `t_duck_turnaround`, `t_fani3` and `t_turn_around` -- and this is all it
+ * does: play the animation, one frame per tick, come back when it ends. The
+ * whole of "run an animation to completion" in this engine is a loop that
+ * parks for the current frame's own rate. */
+static long mk3_mframew(MK3THREAD *thread, uint32_t token,
+                        long (*advance)(MK3OBJ *))
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
-    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t seen = *mk3_frame(thread, thread->frame + 1);
     uint32_t argc;
 
-    if (token != 0 && token != 0x6e8)
+    if (seen != 0 && seen != token)
         return -3;
 
-    if (token == 0) {
+    if (seen == 0) {
         argc = thread->fieldf8;
         *mk3_arg(thread, argc) = obj->field1c;
         thread->fieldf8 = argc + 1;
     }
 
-    if (double_next_a9(obj) == 0) {             /* the animation is done */
+    if (advance(obj) == 0) {                    /* the animation is done */
         argc = thread->fieldf8 - 1;
         thread->fieldf8 = argc;
         obj->field1c = *mk3_arg(thread, argc);
@@ -8483,7 +8493,17 @@ long t_double_mframew(MK3THREAD *thread)
     *mk3_arg(thread, argc) = obj->field1c;
     thread->fieldf8 = argc + 1;
 
-    *mk3_frame(thread, thread->frame + 1) = 0x6e8;
+    *mk3_frame(thread, thread->frame + 1) = token;
     thread->fieldfc = obj->field1c;             /* wait this animation's rate */
     return (long)obj->field1c;
+}
+
+long t_double_mframew(MK3THREAD *thread)
+{
+    return mk3_mframew(thread, 0x6e8, double_next_a9);
+}
+
+long t_mframew(MK3THREAD *thread)
+{
+    return mk3_mframew(thread, 0x6a6, do_next_a9_frame);
 }
