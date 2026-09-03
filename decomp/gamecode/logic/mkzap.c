@@ -414,3 +414,60 @@ long tl_projectile_flight(MK3THREAD *thread)
 
 
 
+
+
+/* --------------------------------------------------------------------
+ * What the readers could prove. See tools/pushfn.py, which executes
+ * a body symbolically, and tools/microfn.py, which matches whole
+ * bodies against templates. Both refuse anything they cannot account
+ * for instruction by instruction.
+ * -------------------------------------------------------------------- */
+
+long t_sai3(struct MK3THREAD *thread);
+
+/* t_air_sai_proc -- armv7 0x00074cbc, 64 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = 0x1a
+ *      obj->field20 = 0x10
+ *      frame[frame].handler = t_sai3
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_air_sai_proc(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0x1a;
+    obj->field20 = 0x10;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_sai3);
+}
+
+/* t_sai_proc -- armv7 0x00074cfc, 64 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = 0x3a
+ *      obj->field20 = 0x16
+ *      frame[frame].handler = t_sai3
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_sai_proc(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0x3a;
+    obj->field20 = 0x16;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_sai3);
+}
+
+
+

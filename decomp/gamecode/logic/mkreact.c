@@ -1079,3 +1079,60 @@ void repell_one_of_us(MK3OBJ *obj)
     obj->field1c = obj->field20;
     call_for_him(obj, away_x_vel);      /* cornered: he moves */
 }
+
+
+/* --------------------------------------------------------------------
+ * What the readers could prove. See tools/pushfn.py, which executes
+ * a body symbolically, and tools/microfn.py, which matches whole
+ * bodies against templates. Both refuse anything they cannot account
+ * for instruction by instruction.
+ * -------------------------------------------------------------------- */
+
+long t_ccp3(struct MK3THREAD *thread);
+
+/* t_cc_hi_punch -- armv7 0x000415c4, 64 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field30 = 0x6
+ *      obj->field34 = 0x4
+ *      frame[frame].handler = t_ccp3
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_cc_hi_punch(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field30 = 0x6;
+    obj->field34 = 0x4;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_ccp3);
+}
+
+/* t_cc_lo_punch -- armv7 0x00041604, 64 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field30 = 0x5
+ *      obj->field34 = 0x3
+ *      frame[frame].handler = t_ccp3
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_cc_lo_punch(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field30 = 0x5;
+    obj->field34 = 0x3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_ccp3);
+}
+
+
+
