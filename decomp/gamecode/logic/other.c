@@ -10245,3 +10245,137 @@ MK3THREAD *NewThread(void *owner_p, MK3THREADFUNC func)
 
     return th;
 }
+
+
+/* --------------------------------------------------------------- bar_reducer
+ *
+ * armv7 0x00059154, three hundred bytes.  **Complete**, and it is where damage
+ * actually lands.
+ *
+ *      if (G[0x368] == 0 || G[0x36c] == 0) { obj->field5c = 1; return; }
+ *      dmg = obj->a10
+ *      if (dmg == 0x28) dmg = MotaroPunchDamage()
+ *      i = obj->field34
+ *      if ((Pp[i].field10 & 1) && !(Pp[1 - i].field10 & 1))
+ *          dmg = adjust_damage(dmg)
+ *      obj->field38 = &G[0x368 + i*4]
+ *      obj->field24 = GrObj[i].field24
+ *      f = GrObj[i].field30
+ *      if ((f & 0x1000) || (f & 0x800)) {
+ *          dmg >>= 2
+ *          if (dmg <= 0) dmg = 1
+ *      }
+ *      h = *obj->field38 - dmg
+ *      if (h < 0) h = 0
+ *      *obj->field38 = h
+ *      MKEvent_Add(3, 0, h, i)
+ *      if (h <= 0) { obj->field5c = 1; return; }
+ *      if (h <= 6) {
+ *          obj->field30 = i + 1
+ *          if (((int16_t)G[0x454] & (i + 1)) == 0) {
+ *              G[0x454] = i + 1
+ *              obj->field1c = 0x27
+ *              create_fx_param(obj, i)
+ *          }
+ *      }
+ *      obj->field5c = 0
+ *
+ * The health bar is G+0x368 indexed by the fighter, exactly as `recharge_bars`
+ * fills it and `t_clock4` tests it, and the event is the same (3, 0) with the
+ * new value and the player.
+ *
+ * **A damage of 40 is a sentinel.** It is replaced by whatever
+ * `MotaroPunchDamage` returns -- a function in another translation unit --
+ * rather than being used. So one attack's damage is computed elsewhere and 40
+ * is how this routine is told to go and ask.
+ *
+ * The difficulty and ladder scaling is applied only when **this** entry has
+ * bit 0 of Pp's 0x10 and the other does not. The same bit gates the endurance
+ * queue and the end of the match; what it means is still not stated anywhere,
+ * but the asymmetry here says the two fighters are not alike and only one
+ * side's damage is scaled.
+ *
+ * The two flag bits `back_to_normal_px` clears as HALF_DAMAGE and
+ * QUARTER_DAMAGE **both branch to the same `asrs #2`**. One behaviour, two
+ * names, and the names come from the symbol table. Written down as observed
+ * rather than reconciled: either the half case is unimplemented or the naming
+ * is off, and nothing here says which.
+ *
+ * The floor of 1 is applied to the reduced damage, so a quartered hit still
+ * takes a point -- the same floor `adjust_damage` puts on its own result.
+ *
+ * At six health or less the routine fires effect 0x27 once per player per
+ * round, remembering it as a bit in the signed halfword at G+0x454. The bit is
+ * `i + 1`, so player 0 uses bit 0 and player 1 uses bit 1 -- and the store is a
+ * plain assignment, not an OR, so setting one clears the other.
+ */
+long MotaroPunchDamage(void);
+
+void bar_reducer(MK3OBJ *obj)
+{
+    uint32_t i;
+    int32_t dmg, h;
+    uint32_t f;
+
+    if (*(const uint32_t *)(G_BYTES + 0x368) == 0 ||
+        *(const uint32_t *)(G_BYTES + 0x36c) == 0) {
+        obj->field5c = 1;                       /* somebody is already down */
+        return;
+    }
+
+    dmg = (int32_t)obj->a10;
+    if (dmg == 0x28) {                          /* ask somebody else */
+        dmg = MotaroPunchDamage();
+        obj->a10 = (uint32_t)dmg;
+    }
+
+    i = obj->field34;
+
+    if ((*(const uint32_t *)(Pp + i * PP_STRIDE + 0x10) & 1) != 0 &&
+        (*(const uint32_t *)(Pp + (1 - i) * PP_STRIDE + 0x10) & 1) == 0) {
+        dmg = adjust_damage(dmg);
+        obj->a10 = (uint32_t)dmg;
+    }
+
+    obj->field38 = (uint32_t)(uintptr_t)(G_BYTES + 0x368 + i * 4);
+    obj->field20 = (uint32_t)(uintptr_t)(GrObj + i * GROBJ_STRIDE);
+    obj->field24 = *(const uint32_t *)(GrObj + i * GROBJ_STRIDE + 0x24);
+
+    f = *(const uint32_t *)(GrObj + i * GROBJ_STRIDE + 0x30);
+    obj->field20 = f;
+
+    if ((f & MK3F_QUARTER_DAMAGE) != 0 || (f & MK3F_HALF_DAMAGE) != 0) {
+        dmg = dmg >> 2;                         /* both bits, one shift */
+        if (dmg <= 0)
+            dmg = 1;
+        obj->a10 = (uint32_t)dmg;
+    }
+
+    h = (int32_t)*(const uint32_t *)(uintptr_t)obj->field38 - dmg;
+    if (h < 0)
+        h = 0;
+    obj->field20 = (uint32_t)h;
+    *(uint32_t *)(uintptr_t)obj->field38 = (uint32_t)h;
+
+    MKEvent_Add(3, 0, (long)*(const uint32_t *)(G_BYTES + 0x368 + i * 4),
+                (uint32_t)i);
+
+    if (h <= 0) {
+        obj->field5c = 1;                       /* that was the last of it */
+        return;
+    }
+
+    if (h <= 6) {                               /* the low-health warning */
+        uint32_t bit = i + 1;
+
+        obj->field30 = bit;
+        if ((*(const int16_t *)(G_BYTES + 0x454) & (int16_t)bit) == 0) {
+            obj->field20 = bit;
+            *(int16_t *)(G_BYTES + 0x454) = (int16_t)bit;
+            obj->field1c = 0x27;
+            create_fx_param(obj, obj->field34);
+        }
+    }
+
+    obj->field5c = 0;
+}
