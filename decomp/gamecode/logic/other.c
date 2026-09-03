@@ -9205,3 +9205,84 @@ long t_back_to_shang_form(MK3THREAD *thread)
     thread->fieldfc = 4;
     return 4;
 }
+
+
+/* ----------------------------------------------------------------- t_clock4
+ *
+ * armv7 0x000562c0, two hundred and thirty-two bytes.  **Complete**, and it is
+ * the countdown that `t_clock3` displays.
+ *
+ *      token 0:       park(0x10e2, 3)
+ *      token 0x10e2:
+ *          obj->field1c = 0
+ *          if ((int32_t)G[0x368] <= 0)  next = t_round_is_over
+ *          else if ((int32_t)G[0x36c] <= 0) next = t_round_is_over
+ *          else if (RoundParam[0x2c] & 1)   next = t_clock4     ; frozen
+ *          else if (--obj->field3c > 0)     next = t_clock4
+ *          else if (--obj->a10 >= 0)        next = t_clock3
+ *          else { obj->a10 = 9; obj->field48 -= 1; next = t_clock3 }
+ *      otherwise:     return -3
+ *
+ * A two-digit decimal countdown written out in full. 0x3c counts ticks down to
+ * the next second; `a10` is the units digit and rolls from 0 back to 9;
+ * `field48` is the tens. `t_clock3` reads those two and packs them a nibble
+ * apart for the display, so the two functions agree about which digit is which
+ * from opposite ends.
+ *
+ * Either health reaching zero ends the round before the clock is touched, so a
+ * knockout on the same tick as a second boundary is a knockout.
+ *
+ * **Bit 0 of RoundParam+0x2c freezes the clock**: the routine reinstalls
+ * itself and the digits never move. That is a fifth field of that struct --
+ * 0x0c difficulty, 0x10 the round, 0x14 the ladder order, 0x18 the endurance
+ * queue, and now 0x2c -- and it is what a "no time limit" option would set.
+ *
+ * The self-install and the two-digit paths write different registers into the
+ * slot above, all of them zero, which is why the disassembly stores three
+ * different names into one place.
+ *
+ * The tick reload is not visible here: 0x3c is decremented and, when it
+ * reaches zero, the digit moves -- but nothing in this function puts a fresh
+ * count back into 0x3c. Whatever does is elsewhere, and it is left as a gap
+ * rather than assumed.
+ */
+long t_clock4(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    MK3THREADFUNC next;
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x10e2;
+        thread->fieldfc = 3;
+        return 3;
+    }
+
+    if (token != 0x10e2)
+        return -3;
+
+    obj->field1c = 0;
+
+    if ((int32_t)*(const uint32_t *)(G_BYTES + 0x368) <= 0 ||
+        (int32_t)*(const uint32_t *)(G_BYTES + 0x36c) <= 0) {
+        next = (MK3THREADFUNC)t_round_is_over;
+    } else if ((((const uint32_t *)RoundParam)[0x2c / 4] & 1) != 0) {
+        next = (MK3THREADFUNC)t_clock4;         /* the clock is frozen */
+    } else {
+        obj->field3c = obj->field3c - 1;
+        if ((int32_t)obj->field3c > 0) {
+            next = (MK3THREADFUNC)t_clock4;     /* not a second yet */
+        } else {
+            obj->a10 = obj->a10 - 1;            /* the units digit */
+            if ((int32_t)obj->a10 < 0) {
+                obj->a10 = 9;                   /* roll, and carry */
+                obj->field48 = obj->field48 - 1;
+            }
+            next = (MK3THREADFUNC)t_clock3;
+        }
+    }
+
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)next;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
