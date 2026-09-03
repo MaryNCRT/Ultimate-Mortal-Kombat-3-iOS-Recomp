@@ -7800,3 +7800,184 @@ void cbox_squeeze(MK3OBJ *obj, uint32_t flags, MK3OBJ *other)
     obj->field38 = saved38;
     obj->field28 = (uint32_t)((int32_t)obj->field28 - q);
 }
+
+
+/* ------------------------------------------------------------- t_do_backup
+ *
+ * armv7 0x00055ce0, one hundred and fifty-two bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field20 = 0x301
+ *          obj->field00->field18 = 0x301       ; the action, from one register
+ *          obj->field40 = 4                    ; the animation
+ *          obj->field1c = 2                    ; formed as 4 - 2
+ *          frame[frame+1].w0 = 0x8e7
+ *          frame = frame + 1                   ; push
+ *          frame[frame].handler = t_backwards_ani
+ *          frame[frame+1].w0 = 0
+ *      token == 0x8e7:  unwind
+ *      otherwise:       return -3
+ *
+ * Walking backwards. The same shape as `t_duck_turnaround` with an action set
+ * as well, and the same trick as `t_master_mercy_entry`: the rate is loaded as
+ * 4 and then reduced by 2 rather than loaded twice.
+ *
+ * 0x301 goes to both the object's 0x20 and the PROC's action, which is the
+ * pairing `t_angle_jump_land_jsrp` does with 0x304 -- so 0x30N is a family of
+ * ordinary movement actions.
+ */
+long t_backwards_ani(MK3THREAD *thread);
+
+long t_do_backup(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x8e7)
+        return mk3_unwind(thread);
+
+    if (token != 0)
+        return -3;
+
+    obj->field20 = 0x301;
+    obj->field00->field18 = 0x301;
+    obj->field40 = 4;
+    obj->field1c = 2;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x8e7;
+    thread->frame = thread->frame + 1;                  /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_backwards_ani;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ---------------------------------------------------------- is_he_blocking
+ *
+ * armv7 0x0005837c, one hundred and sixty bytes.  **Complete**, and it answers
+ * one question two ways.
+ *
+ *      obj->field14 = 0
+ *      obj->field1c = (int16_t)H[0x1c]
+ *      if (H[0x1c] != 0) { obj->field5c = 0; return; }     ; nobody blocks
+ *
+ *      is_he_joy(obj)
+ *      if (!obj->field5c) {                                ; the AI
+ *          act = obj->field1c->field00->field18
+ *          obj->field20 = act
+ *          if (act == 0x700)      { obj->field5c = 1; return; }
+ *          if (act != 0x701)      { obj->field5c = 0; return; }
+ *          obj->field14 = 1;        obj->field5c = 1; return;
+ *      }
+ *                                                          ; a human
+ *      is_he_airborn(obj)
+ *      if (obj->field5c) { obj->field5c = 0; return; }
+ *      proc = obj->field00
+ *      obj->field1c = him->field30
+ *      if (him->field30 & MK3F_NO_BLOCK) { obj->field5c = 0; return; }
+ *      obj->field00 = proc->field00->field00               ; borrow
+ *      check_block_bit(obj)
+ *      obj->field00 = proc
+ *      if (!obj->field5c) return
+ *      i = proc->field00->field00->field08
+ *      obj->field1c = G[i]
+ *      if (G[i] & 2)          { obj->field14 = 1; obj->field5c = 1; return; }
+ *      if (obj->field30 & 2)  { obj->field5c = 0; return; }
+ *      obj->field5c = 1
+ *
+ * **Two definitions of blocking.** For a person it is a button, reached
+ * through `check_block_bit`, plus three conditions -- not airborne, the
+ * NO_BLOCK flag clear, and a bit in G. For the computer it is nothing but the
+ * action: 0x700 or 0x701 and no other evidence is consulted.
+ *
+ * That asymmetry is the whole of what makes an AI opponent in a fighting game.
+ * A port that unifies the two -- giving the computer a button, or the player an
+ * action test -- would be simpler and would not be this game.
+ *
+ * 0x701 sets 0x14 as well as 0x5c, and so does the human path when bit 1 of
+ * G[index] is set. So 0x14 is the low block, told apart from the high one, and
+ * the two paths reach the same output from unrelated evidence.
+ *
+ * The halfword at H+0x1c short-circuits everything: while it is non-zero
+ * nobody is blocking at all, whichever kind of player they are.
+ *
+ * The PROC is swapped for the opponent's around `check_block_bit` and put
+ * back -- the borrow-and-restore this file does everywhere, here across a call
+ * in another translation unit.
+ *
+ * G is indexed by word from its base, so the bit tested lives in the first two
+ * words of the whole structure. Everything else in this file reaches G at
+ * three-digit offsets.
+ */
+long is_he_joy(MK3OBJ *obj);
+void check_block_bit(MK3OBJ *obj);
+
+void is_he_blocking(MK3OBJ *obj)
+{
+    MK3OBJPROC *proc;
+    uint32_t flags, i;
+
+    obj->field14 = 0;
+    obj->field1c = (uint32_t)(int32_t)*(const int16_t *)(H + 0x1c);
+    if (*(const uint16_t *)(H + 0x1c) != 0) {
+        obj->field5c = 0;
+        return;
+    }
+
+    is_he_joy(obj);
+
+    if (obj->field5c == 0) {                    /* the computer */
+        uint32_t act = ((MK3OBJ *)(uintptr_t)obj->field1c)->field00->field18;
+
+        obj->field20 = act;
+        if (act == 0x700) {
+            obj->field5c = 1;
+            return;
+        }
+        if (act != 0x701) {
+            obj->field5c = 0;
+            return;
+        }
+        obj->field14 = 1;                       /* the low block */
+        obj->field5c = 1;
+        return;
+    }
+
+    is_he_airborn(obj);                         /* a person */
+    if (obj->field5c != 0) {
+        obj->field5c = 0;
+        return;
+    }
+
+    proc = obj->field00;
+    flags = ((MK3OBJ *)(uintptr_t)proc->him)->field30;
+    obj->field1c = flags;
+    if ((flags & MK3F_NO_BLOCK) != 0) {
+        obj->field5c = 0;
+        return;
+    }
+
+    obj->field00 = proc->field00->field00;      /* borrow his PROC */
+    check_block_bit(obj);
+    obj->field00 = proc;
+
+    if (obj->field5c == 0)
+        return;
+
+    i = proc->field00->field00->field08;
+    obj->field1c = ((const uint32_t *)G_BYTES)[i];
+
+    if ((obj->field1c & 2) != 0) {
+        obj->field14 = 1;                       /* the low block again */
+        obj->field5c = 1;
+        return;
+    }
+
+    if ((obj->field30 & 2) != 0) {
+        obj->field5c = 0;
+        return;
+    }
+
+    obj->field5c = 1;
+}
