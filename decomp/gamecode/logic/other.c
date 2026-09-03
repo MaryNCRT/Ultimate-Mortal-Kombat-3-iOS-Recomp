@@ -9927,3 +9927,117 @@ long t_animate_a0_frames(MK3THREAD *thread)
     thread->fieldfc = obj->field1c;
     return (long)obj->field1c;
 }
+
+
+/* ------------------------------------------------------------ t_flight_call
+ *
+ * armv7 0x00055aec, two hundred and eighty bytes.  **Complete**, and it sets a
+ * flight up.
+ *
+ *      token 0:
+ *          args[argc++] = obj->field28
+ *          if (obj->field20 != 0xd) obj->field08->field1c = obj->field20
+ *          if (obj->field24 != 0xd) obj->field08->field20 = obj->field24
+ *          if (obj->field1c != 0xd) away_x_vel(obj)
+ *          a = obj->field40
+ *          if ((int32_t)a <= 0x48) get_char_ani(obj)
+ *          else if ((uint16_t)a <= 0x47 && (int32_t)a >> 16 == 1) {
+ *              obj->field40 = (uint16_t)a
+ *              get_char_ani2(obj)
+ *          }
+ *          obj->field1c = args[--argc]
+ *          if (obj->field1c != 0xd) init_anirate(obj)
+ *          obj->field00->field34 = obj->field34        ; the callback
+ *          y = (int16_t)obj->field08->field12
+ *          if (obj->field00->field40 < y)
+ *              obj->field08->field12 = obj->field00->field40
+ *          frame[frame+1].w0 = 0x1f9
+ *          frame = frame + 1                           ; push
+ *          frame[frame].handler = t_flight_loop
+ *      token 0x1f9:  unwind
+ *      otherwise:    return -3
+ *
+ * **0xd is a sentinel.** Four slots are compared against it and skipped when
+ * they match: the two velocities the caller may or may not want set, the rate,
+ * and the horizontal push. So 13 is not a value in those fields, it is "leave
+ * this alone", and a caller fills the ones it cares about and puts 0xd in the
+ * rest. `t_do_jump_up` sets all three of its numbers, so none of them is 0xd
+ * there -- the sentinel only shows when some other caller wants a partial
+ * flight.
+ *
+ * It installs the callback `t_flight_loop` reads: the PROC's 0x34 takes the
+ * object's 0x34, which `t_do_jump_up` loaded out of 0x48 before starting. That
+ * is the whole path by which a jump gets a routine of its own, and it crosses
+ * three functions.
+ *
+ * The animation resolution is a THIRD form of the tagged union: at or below
+ * 0x48 it is a plain number for `get_char_ani`; above that, if the low half is
+ * at or below 0x47 AND the high half is exactly 1, the low half is a number
+ * for `get_char_ani2`. Two halves and two resolvers, chosen by a value in the
+ * high half rather than by a range.
+ *
+ * The last step clamps y up to the ground when it has gone past -- `strh` under
+ * `lt`, so it only ever moves the fighter back onto the floor and never off it.
+ *
+ * 0x28 goes onto the argument stack at the start and comes off at the end,
+ * across the calls in between; it is a real pop, not the peek the mframew
+ * family uses.
+ */
+void away_x_vel(MK3OBJ *obj);
+long t_flight_loop(MK3THREAD *thread);
+
+long t_flight_call(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t argc, a;
+    int32_t  y, ground;
+
+    if (token == 0x1f9)
+        return mk3_unwind(thread);
+
+    if (token != 0)
+        return -3;
+
+    argc = thread->fieldf8;
+    *mk3_arg(thread, argc) = obj->field28;
+    thread->fieldf8 = argc + 1;
+
+    if (obj->field20 != 0xd)                    /* 0xd: leave it alone */
+        obj->field08->field1c = obj->field20;
+    if (obj->field24 != 0xd)
+        obj->field08->field20 = obj->field24;
+    if (obj->field1c != 0xd)
+        away_x_vel(obj);
+
+    a = obj->field40;
+    if ((int32_t)a <= 0x48) {
+        get_char_ani(obj);
+    } else if ((uint16_t)a <= 0x47 && ((int32_t)a >> 16) == 1) {
+        obj->field40 = (uint16_t)a;
+        get_char_ani2(obj);
+    }
+
+    argc = thread->fieldf8 - 1;
+    thread->fieldf8 = argc;
+    obj->field1c = *mk3_arg(thread, argc);
+    if (obj->field1c != 0xd)
+        init_anirate(obj);
+
+    /* What t_flight_loop will run once a tick, or nothing if it is zero. */
+    *(uint32_t *)((char *)obj->field00 + 0x34) = obj->field34;
+
+    y = (int32_t)(int16_t)MK3_FIELD12(obj->field08);
+    obj->field20 = (uint32_t)y;
+    ground = (int32_t)obj->field00->field40;
+    obj->field1c = (uint32_t)ground;
+    if (ground < y)                             /* never off the floor */
+        MK3_SET_FIELD12(obj->field08, (uint32_t)ground);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x1f9;
+    thread->frame = thread->frame + 1;                  /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_flight_loop;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
