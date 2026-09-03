@@ -3538,3 +3538,31 @@ long sz_lk_close(MK3OBJ *obj)
     return slide_check(obj);
 }
 
+
+
+/* --------------------------------------------------------------------
+ * What the readers could prove. See tools/pushfn.py, which executes
+ * a body symbolically, and tools/microfn.py, which matches whole
+ * bodies against templates. Both refuse anything they cannot account
+ * for instruction by instruction.
+ * -------------------------------------------------------------------- */
+
+long t_do_robo_tele(struct MK3THREAD *thread);
+
+/* t_do_smoke_tele -- armv7 0x0005091c, 52 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      frame[frame].handler = t_do_robo_tele
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_do_smoke_tele(MK3THREAD *thread)
+{
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_do_robo_tele);
+}
+
+
+

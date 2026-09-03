@@ -1,5 +1,5 @@
 /*
- * joy.c -- gamecode/logic/joy.c, decompiled.
+ * mkstat.c -- gamecode/logic/mkstat.c, decompiled.
  *
  * Part of the fight engine. *
  * This first pass was read by two programs rather than by eye, because most of
@@ -22,34 +22,27 @@
 
 #include "mk3logic.h"
 
-long t_joyd3(struct MK3THREAD *thread);
+long t_retract_strike_act(struct MK3THREAD *thread);
 
-/* t_joy_getup_entry -- armv7 0x0002edfc, 52 bytes.  **Complete.**
+/* t_retract_strike -- armv7 0x0004cb48, 56 bytes.  **Complete.**
  *
  *      if (frame[frame+1].w0 != 0) return -3
- *      frame[frame].handler = t_joyd3
+ *      obj->field20 = 0   (the register the guard proved)
+ *      frame[frame].handler = t_retract_strike_act
  *      frame[frame+1].w0 = 0
  */
 
-long t_joy_getup_entry(MK3THREAD *thread)
+long t_retract_strike(MK3THREAD *thread)
 {
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
     if (*mk3_frame(thread, thread->frame + 1) != 0)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_joyd3);
+    obj->field20 = 0;   /* the guard proved this register */
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_retract_strike_act);
 }
-
-
-
-
-
-/* --------------------------------------------------------------------
- * What the readers could prove. See tools/pushfn.py, which executes
- * a body symbolically, and tools/microfn.py, which matches whole
- * bodies against templates. Both refuse anything they cannot account
- * for instruction by instruction.
- * -------------------------------------------------------------------- */
-
 
 
 

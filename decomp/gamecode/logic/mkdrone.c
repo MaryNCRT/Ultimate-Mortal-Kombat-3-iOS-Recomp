@@ -1582,3 +1582,102 @@ long t_d_leg_grab(MK3THREAD *thread)
 }
 
 
+
+
+/* --------------------------------------------------------------------
+ * What the readers could prove. See tools/pushfn.py, which executes
+ * a body symbolically, and tools/microfn.py, which matches whole
+ * bodies against templates. Both refuse anything they cannot account
+ * for instruction by instruction.
+ * -------------------------------------------------------------------- */
+
+long t_d_bflip_scan_jsrp(struct MK3THREAD *thread);
+long t_d_fflip_scan_jsrp(struct MK3THREAD *thread);
+long t_d_hi_kick(struct MK3THREAD *thread);
+long t_d_jumpup(struct MK3THREAD *thread);
+long t_if_u_can(struct MK3THREAD *thread);
+
+/* t_d_jumpup_nocall -- armv7 0x00068164, 56 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field48 = 0   (the register the guard proved)
+ *      frame[frame].handler = t_d_jumpup
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_d_jumpup_nocall(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field48 = 0;   /* the guard proved this register */
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_d_jumpup);
+}
+
+/* t_d_bflip_noscan_jsrp -- armv7 0x00068208, 56 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field34 = 0   (the register the guard proved)
+ *      frame[frame].handler = t_d_bflip_scan_jsrp
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_d_bflip_noscan_jsrp(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field34 = 0;   /* the guard proved this register */
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_d_bflip_scan_jsrp);
+}
+
+/* t_d_fflip_noscan_jsrp -- armv7 0x000682a8, 56 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field34 = 0   (the register the guard proved)
+ *      frame[frame].handler = t_d_fflip_scan_jsrp
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_d_fflip_noscan_jsrp(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field34 = 0;   /* the guard proved this register */
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_d_fflip_scan_jsrp);
+}
+
+/* t_nr_hikick_if_u_can -- armv7 0x00068c00, 68 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = 0   (the register the guard proved)
+ *      obj->a10 = t_d_hi_kick
+ *      frame[frame].handler = t_if_u_can
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_nr_hikick_if_u_can(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0;   /* the guard proved this register */
+    obj->a10 = (uint32_t)(uintptr_t)t_d_hi_kick;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_if_u_can);
+}
+
+
+
