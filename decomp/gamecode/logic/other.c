@@ -10087,6 +10087,365 @@ long t_gravity_ani(MK3THREAD *thread)
 }
 
 
+/* --------------------------------------------------------------- bar_reducer
+ *
+ * armv7 0x00059154, three hundred bytes.  **Complete**, and it is where damage
+ * actually lands.
+ *
+ *      if (G[0x368] == 0 || G[0x36c] == 0) { obj->field5c = 1; return; }
+ *      dmg = obj->a10
+ *      if (dmg == 0x28) dmg = MotaroPunchDamage()
+ *      i = obj->field34
+ *      if ((Pp[i].field10 & 1) && !(Pp[1 - i].field10 & 1))
+ *          dmg = adjust_damage(dmg)
+ *      obj->field38 = &G[0x368 + i*4]
+ *      obj->field24 = GrObj[i].field24
+ *      f = GrObj[i].field30
+ *      if ((f & 0x1000) || (f & 0x800)) {
+ *          dmg >>= 2
+ *          if (dmg <= 0) dmg = 1
+ *      }
+ *      h = *obj->field38 - dmg
+ *      if (h < 0) h = 0
+ *      *obj->field38 = h
+ *      MKEvent_Add(3, 0, h, i)
+ *      if (h <= 0) { obj->field5c = 1; return; }
+ *      if (h <= 6) {
+ *          obj->field30 = i + 1
+ *          if (((int16_t)G[0x454] & (i + 1)) == 0) {
+ *              G[0x454] = i + 1
+ *              obj->field1c = 0x27
+ *              create_fx_param(obj, i)
+ *          }
+ *      }
+ *      obj->field5c = 0
+ *
+ * The health bar is G+0x368 indexed by the fighter, exactly as `recharge_bars`
+ * fills it and `t_clock4` tests it, and the event is the same (3, 0) with the
+ * new value and the player.
+ *
+ * **A damage of 40 is a sentinel.** It is replaced by whatever
+ * `MotaroPunchDamage` returns -- a function in another translation unit --
+ * rather than being used. So one attack's damage is computed elsewhere and 40
+ * is how this routine is told to go and ask.
+ *
+ * The difficulty and ladder scaling is applied only when **this** entry has
+ * bit 0 of Pp's 0x10 and the other does not. The same bit gates the endurance
+ * queue and the end of the match; what it means is still not stated anywhere,
+ * but the asymmetry here says the two fighters are not alike and only one
+ * side's damage is scaled.
+ *
+ * The two flag bits `back_to_normal_px` clears as HALF_DAMAGE and
+ * QUARTER_DAMAGE **both branch to the same `asrs #2`**. One behaviour, two
+ * names, and the names come from the symbol table. Written down as observed
+ * rather than reconciled: either the half case is unimplemented or the naming
+ * is off, and nothing here says which.
+ *
+ * The floor of 1 is applied to the reduced damage, so a quartered hit still
+ * takes a point -- the same floor `adjust_damage` puts on its own result.
+ *
+ * At six health or less the routine fires effect 0x27 once per player per
+ * round, remembering it as a bit in the signed halfword at G+0x454. The bit is
+ * `i + 1`, so player 0 uses bit 0 and player 1 uses bit 1 -- and the store is a
+ * plain assignment, not an OR, so setting one clears the other.
+ */
+long MotaroPunchDamage(void);
+
+void bar_reducer(MK3OBJ *obj)
+{
+    uint32_t i;
+    int32_t dmg, h;
+    uint32_t f;
+
+    if (*(const uint32_t *)(G_BYTES + 0x368) == 0 ||
+        *(const uint32_t *)(G_BYTES + 0x36c) == 0) {
+        obj->field5c = 1;                       /* somebody is already down */
+        return;
+    }
+
+    dmg = (int32_t)obj->a10;
+    if (dmg == 0x28) {                          /* ask somebody else */
+        dmg = MotaroPunchDamage();
+        obj->a10 = (uint32_t)dmg;
+    }
+
+    i = obj->field34;
+
+    if ((*(const uint32_t *)(Pp + i * PP_STRIDE + 0x10) & 1) != 0 &&
+        (*(const uint32_t *)(Pp + (1 - i) * PP_STRIDE + 0x10) & 1) == 0) {
+        dmg = adjust_damage(dmg);
+        obj->a10 = (uint32_t)dmg;
+    }
+
+    obj->field38 = (uint32_t)(uintptr_t)(G_BYTES + 0x368 + i * 4);
+    obj->field20 = (uint32_t)(uintptr_t)(GrObj + i * GROBJ_STRIDE);
+    obj->field24 = *(const uint32_t *)(GrObj + i * GROBJ_STRIDE + 0x24);
+
+    f = *(const uint32_t *)(GrObj + i * GROBJ_STRIDE + 0x30);
+    obj->field20 = f;
+
+    if ((f & MK3F_QUARTER_DAMAGE) != 0 || (f & MK3F_HALF_DAMAGE) != 0) {
+        dmg = dmg >> 2;                         /* both bits, one shift */
+        if (dmg <= 0)
+            dmg = 1;
+        obj->a10 = (uint32_t)dmg;
+    }
+
+    h = (int32_t)*(const uint32_t *)(uintptr_t)obj->field38 - dmg;
+    if (h < 0)
+        h = 0;
+    obj->field20 = (uint32_t)h;
+    *(uint32_t *)(uintptr_t)obj->field38 = (uint32_t)h;
+
+    MKEvent_Add(3, 0, (long)*(const uint32_t *)(G_BYTES + 0x368 + i * 4),
+                (uint32_t)i);
+
+    if (h <= 0) {
+        obj->field5c = 1;                       /* that was the last of it */
+        return;
+    }
+
+    if (h <= 6) {                               /* the low-health warning */
+        uint32_t bit = i + 1;
+
+        obj->field30 = bit;
+        if ((*(const int16_t *)(G_BYTES + 0x454) & (int16_t)bit) == 0) {
+            obj->field20 = bit;
+            *(int16_t *)(G_BYTES + 0x454) = (int16_t)bit;
+            obj->field1c = 0x27;
+            create_fx_param(obj, obj->field34);
+        }
+    }
+
+    obj->field5c = 0;
+}
+
+
+/* -------------------------------------------------------------- t_one_on_one
+ *
+ * armv7 0x00056b28, three hundred bytes.  **Complete**, and it is the match
+ * loop.
+ *
+ *      token 0:
+ *          frame[frame+1].w0 = 0x129b
+ *          push t_play_1_round
+ *      token 0x129b or 0x12b1:
+ *          frame[frame+1].w0 = 0x12a1
+ *          push t_is_endurance_possible
+ *      token 0x12a1:
+ *          if (obj->field5c == 0) {
+ *              frame[frame].handler = t_play3          ; the loop ends
+ *              frame[frame+1].w0 = 0
+ *          } else if ((Pp[0].field10 & 0x200) != 0
+ *                     && GrObj[0].field24 != 0xc) {
+ *              G[0x3fc] = (uint16_t)0                  ; order the morph
+ *              park(0x12ac, 1)
+ *          } else {
+ *              frame[frame+1].w0 = 0x12b1
+ *              push t_spawn_endurance_guy
+ *          }
+ *      token 0x12ac:
+ *          if (GrObj[0].field24 != 0xc) park(0x12ac, 1)
+ *          else { frame[frame+1].w0 = 0x12b1; push t_spawn_endurance_guy; }
+ *      otherwise:  return -3
+ *
+ * Play a round, ask whether endurance continues, spawn the next opponent, ask
+ * again -- and 0x12b1 rejoins at the same place as 0x129b, which is what makes
+ * it a loop rather than a sequence. When `t_is_endurance_possible` says no, the
+ * routine becomes `t_play3` at the current level instead.
+ *
+ * **The wait is the interesting part.** If the fighter is not currently
+ * character 0xc, this zeroes the halfword at G+0x3fc and then polls until it
+ * IS. That address is exactly the table `t_back_to_shang_check` looks up
+ * through `get_tsl_px`, and `get_tsl_px` treats a zero entry as a hole and
+ * answers 0x780 -- comfortably above the 0x200 that check demands. So writing
+ * the zero is how this routine **orders** the morph back to Shang, and the
+ * poll is it waiting for the morph to finish before the next opponent walks
+ * on.
+ *
+ * Three functions had to be read to see that: the writer here, the reader in
+ * `t_back_to_shang_check`, and the lookup in `get_tsl_px`. None of them says
+ * it alone.
+ *
+ * Bit 0x200 of Pp's 0x10 gates the whole morph branch -- a second bit of that
+ * word, after the 1 that gates endurance and the end of the match.
+ *
+ * The dispatch is a binary search: equal, less-than, then two more equals, with
+ * 0x129b formed as 0x12a1 - 6 and 0x12b1 as 0x12ac + 5. That is why the
+ * disassembly reaches its constants by arithmetic.
+ */
+long t_one_on_one(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token != 0 && token != 0x129b && token != 0x12a1 &&
+        token != 0x12ac && token != 0x12b1)
+        return -3;
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x129b;
+        thread->frame = thread->frame + 1;              /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_play_1_round;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x129b || token == 0x12b1) {           /* round the loop */
+        *mk3_frame(thread, thread->frame + 1) = 0x12a1;
+        thread->frame = thread->frame + 1;              /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_is_endurance_possible;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x12a1) {
+        if (obj->field5c == 0) {                        /* no more opponents */
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)t_play3;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+
+        if ((*(const uint32_t *)(Pp + 0x10) & 0x200) != 0 &&
+            *(const uint32_t *)(GrObj + 0x24) != MK3_CHAR_SHANG) {
+            /* Zeroing that entry makes t_back_to_shang_check's lookup pass.
+             * Only here: the polling arm below does not repeat it. */
+            *(uint16_t *)(G_BYTES + 0x3fc) = 0;
+            *mk3_frame(thread, thread->frame + 1) = 0x12ac;
+            thread->fieldfc = 1;
+            return 1;
+        }
+    } else if (*(const uint32_t *)(GrObj + 0x24) != MK3_CHAR_SHANG) {
+        *mk3_frame(thread, thread->frame + 1) = 0x12ac; /* still waiting */
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = 0x12b1;
+    thread->frame = thread->frame + 1;                  /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_spawn_endurance_guy;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ------------------------------------------------------------- QueueAndJump
+ *
+ * armv7 0x000572b8, three hundred and four bytes.  **Complete**, and it is
+ * where `UnstackSwitches` lands.
+ *
+ * A `_swtab` entry is four words: `[0]` the switch id, `[1]` an argument,
+ * `[2]` the player, `[3]` a table for `DoSwitchJump`.
+ *
+ *      r = SwitchQueue(e[0], e[1])
+ *      if (e[3] != 0) {
+ *          h = Plyr[who].field60
+ *          if (h != NULL && h[id] != NULL
+ *              && (int16_t)Pp[who].field7e == 0) {
+ *              mytc[who].frame   = 0
+ *              mytc[who].func    = h[id]
+ *              mytc[who].field08 = 0
+ *          }
+ *      }
+ *      last_switch_ram[id * 2    ][who] = r        ; halfwords
+ *      last_switch_ram[id * 2 + 1][who] = r
+ *      if ((int16_t)Plyr[who].field00->field7c != 0) {
+ *          if (id == 0)      DoSwitchJump(e[3], who, 1)
+ *          else if (id == 3) DoSwitchJump(e[3], who, 4)
+ *          f = my_func(&Plyr[who])
+ *          if (f == t_do_shake || f == t_do_fatality_1 || f == t_do_fatality_2)
+ *              return
+ *      }
+ *      DoSwitchJump(e[3], who, id)
+ *
+ * **Three routines are not to be interrupted.** The function currently
+ * installed on the player's thread is compared against `t_do_shake`,
+ * `t_do_fatality_1` and `t_do_fatality_2` -- all three named in the symbol
+ * table, the fatalities in `mkfatal.c` and the shake in `moves.c` -- and if it
+ * is any of them the switch is queued and recorded but never dispatched. A
+ * button pressed during a fatality goes nowhere.
+ *
+ * That comparison is by ADDRESS, through three pointer slots, which is exactly
+ * why the pop family has four identical bodies at four addresses: identity is
+ * how this engine asks what a thread is doing.
+ *
+ * **A third four-button hook.** With the gate at 0x7c set, switches 0 and 3
+ * fire an extra `DoSwitchJump` with ids 1 and 4 before the ordinary one --
+ * after `four_button_bits` folding the bits and `get_tsl_px` swapping the
+ * tables, this dispatches twice. All three read the same halfword.
+ *
+ * The guard test is only reached under that gate, so on the four-button scheme
+ * a fatality is protected and on the six-button one it is not. Transcribed as
+ * written; nothing here says whether that is intended.
+ *
+ * `_last_switch_ram` is a table of POINTERS, indexed twice: entry `id*2` and
+ * entry `id*2+1`, each a halfword array indexed by player. The same value goes
+ * to both, so the pair is a current-and-previous kept side by side.
+ *
+ * The per-switch handler at `Plyr[who].field60` is installed straight into
+ * `mytc[who]` -- the thread array `my_func` indexes with a stride of 268 -- and
+ * only when `Pp[who].field7e` is zero. That is a fifth place a handler comes
+ * out of data.
+ */
+extern uint16_t **last_switch_ram;      /* 0x0016f50c */
+void t_do_shake(void);
+void t_do_fatality_1(void);
+void t_do_fatality_2(void);
+
+void QueueAndJump(const uint32_t *e, uint32_t unused)
+{
+    uint32_t id  = e[0];
+    uint32_t who = e[2];
+    char *plyr   = Plyr + who * PLYR_STRIDE;
+    uint16_t r;
+
+    (void)unused;
+
+    /* The low half of what SwitchQueue builds: the counter at G+0xa8. */
+    r = (uint16_t)SwitchQueue((uint16_t)id, (SWITCHQUEUE *)(uintptr_t)e[1]);
+
+    if (e[3] != 0) {
+        MK3THREADFUNC *h = *(MK3THREADFUNC **)(plyr + 0x60);
+
+
+        if (h != NULL && h[id] != NULL &&
+            *(const int16_t *)(Pp + who * PP_STRIDE + 0x7e) == 0) {
+            MK3THREAD *th =
+                (MK3THREAD *)((char *)mytc + who * MK3THREAD_STRIDE);
+
+            th->frame   = 0;
+            th->func    = h[id];
+            th->field08 = 0;
+        }
+    }
+
+    last_switch_ram[id * 2][who]     = r;
+    last_switch_ram[id * 2 + 1][who] = r;
+
+    if (*(const int16_t *)((char *)(*(MK3OBJPROC **)plyr) + 0x7c) != 0) {
+        if (id == 0)                            /* the four-button scheme */
+            DoSwitchJump((long)e[3], who, 1);
+        else if (id == 3)
+            DoSwitchJump((long)e[3], who, 4);
+
+        {
+            const void *f = my_func((MK3OBJ *)plyr);
+
+            if (f == (const void *)t_do_shake ||
+                f == (const void *)t_do_fatality_1 ||
+                f == (const void *)t_do_fatality_2)
+                return;                         /* do not interrupt these */
+        }
+    }
+
+    DoSwitchJump((long)e[3], who, id);
+}
+
+
 /* ------------------------------- NewThread, getprc_z and getprc_x
  *
  * armv7 0x00058a10, 0x00059ae8 and 0x000599b4 -- two hundred and ninety-six,
