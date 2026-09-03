@@ -9829,3 +9829,101 @@ MK3OBJ *getprc_z(MK3OBJ *obj)
 
     return (MK3OBJ *)plyr;
 }
+
+
+/* ------------------------------------------------------- t_animate_a0_frames
+ *
+ * armv7 0x0005a070, two hundred and sixty-four bytes.  **Complete.**
+ *
+ *      token 0:
+ *          args[argc++] = obj->a10
+ *          obj->field20 = obj->field1c >> 16       ; the rate
+ *          args[argc++] = obj->field20
+ *          obj->a10 = (uint16_t)obj->field1c       ; the frame count
+ *          if (do_next_a9_frame(obj) == 0) goto done
+ *          goto tick
+ *      token 0x730:
+ *          obj->a10 = obj->a10 - 1
+ *          if ((int32_t)obj->a10 < 0) goto done
+ *          if (do_next_a9_frame(obj) == 0) goto done
+ *          goto tick
+ *      tick:
+ *          obj->field1c = args[argc-1]             ; peek the rate
+ *          park(0x730, obj->field1c)
+ *      done:
+ *          obj->field1c = args[--argc]
+ *          obj->a10     = args[--argc]
+ *          unwind
+ *      otherwise:  return -3
+ *
+ * The mframew family with a count and a caller's rate. 0x1c arrives **packed**:
+ * the low half is how many frames to play and the high half is how long each
+ * one lasts. `t_animate_a9` packs 0x40 the same way, so a halfword pair in one
+ * slot is this file's habit rather than a one-off.
+ *
+ * `t_mframew` parks for whatever rate the animation itself carries; this parks
+ * for the rate the caller supplied and stops after the count -- or when the
+ * animation ends, whichever comes first. Two ways out and the same unwind, so
+ * a caller cannot tell which happened.
+ *
+ * The count lives in A10 for the duration, which is only safe because the old
+ * A10 is the first thing pushed. Both words stay on the argument stack across
+ * every tick and come off in the right order at the end.
+ *
+ * The rate is peeked with the pop-and-push-back the family uses everywhere,
+ * and it is the value that goes into 0xfc -- a duration read out of a caller's
+ * word, which is the second runtime value that field takes.
+ *
+ * On the way out 0x1c is left holding the rate, not the packed word it
+ * arrived as. Transcribed; nothing here puts the pair back together.
+ */
+long t_animate_a0_frames(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t argc;
+    int      done = 0;
+
+    if (token != 0 && token != 0x730)
+        return -3;
+
+    if (token == 0) {
+        argc = thread->fieldf8;
+        *mk3_arg(thread, argc) = obj->a10;
+        thread->fieldf8 = argc + 1;
+
+        obj->field20 = obj->field1c >> 16;              /* the rate */
+        argc = thread->fieldf8;
+        *mk3_arg(thread, argc) = obj->field20;
+        thread->fieldf8 = argc + 1;
+
+        obj->a10 = (uint16_t)obj->field1c;              /* the count */
+
+        if (do_next_a9_frame(obj) == 0)
+            done = 1;
+    } else {
+        obj->a10 = obj->a10 - 1;
+        if ((int32_t)obj->a10 < 0 || do_next_a9_frame(obj) == 0)
+            done = 1;
+    }
+
+    if (done) {
+        argc = thread->fieldf8 - 1;
+        thread->fieldf8 = argc;
+        obj->field1c = *mk3_arg(thread, argc);
+        argc = thread->fieldf8 - 1;
+        thread->fieldf8 = argc;
+        obj->a10 = *mk3_arg(thread, argc);
+        return mk3_unwind(thread);
+    }
+
+    argc = thread->fieldf8 - 1;                 /* peek the rate */
+    thread->fieldf8 = argc;
+    obj->field1c = *mk3_arg(thread, argc);
+    *mk3_arg(thread, argc) = obj->field1c;
+    thread->fieldf8 = argc + 1;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x730;
+    thread->fieldfc = obj->field1c;
+    return (long)obj->field1c;
+}
