@@ -4601,3 +4601,94 @@ long t_fatal_no(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------- t_p1_won and t_round_tied
+ *
+ * armv7 0x0005643c and 0x000564c0, fifty-six and sixty bytes.  **Complete.**
+ *
+ * The frame-push family with a result written first:
+ *
+ *      t_p1_won:      proc->field48 = 0
+ *      t_round_tied:  proc->field48 = 2
+ *
+ * and both install `t_prend`. So 0x48 is the round's outcome and t_prend is
+ * what runs afterwards regardless -- the two functions differ only in what
+ * they record.
+ *
+ * Two values in use and a gap at 1, which is very likely the other player
+ * winning. Written down as a gap: nothing here shows it, and a third function
+ * would.
+ *
+ * `t_p1_won` takes its zero from the frame-above test, which had to be zero to
+ * get past the guard; `t_round_tied` loads a 2. That is why one is fifty-six
+ * bytes and the other sixty.
+ */
+void t_prend(void);
+
+long t_p1_won(MK3THREAD *thread)
+{
+    char *proc = (char *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    *(uint32_t *)(proc + 0x48) = 0;
+
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_prend;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+long t_round_tied(MK3THREAD *thread)
+{
+    char *proc = (char *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    *(uint32_t *)(proc + 0x48) = 2;
+
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_prend;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ----------------------------------------------------------- react_xfer_him
+ *
+ * armv7 0x000589d4, sixty bytes.  **Complete.**
+ *
+ *      clear_queues(his_proc->field08)
+ *      obj->field38 = reaction_table[obj->byte_at_0x49]
+ *      xfer_otherguy(obj)
+ *      his_proc->field10 |= 4
+ *
+ * A reaction chosen from a named table, installed in 0x38 -- the slot
+ * `fastxfer_thread` reads a thread entry point out of -- and then the transfer
+ * that uses it. So this is "make him react like this", and the three steps are
+ * clear his queues, pick the routine, hand it over.
+ *
+ * The index is a BYTE at 0x49, inside the word at 0x48 that `t_p1_won` and
+ * `t_round_tied` write the round result into. One offset, two widths, two
+ * meanings -- the third time in this file.
+ *
+ * The final bit 2 into his 0x10 is the flag word `am_i_joy` reads bit 0 of and
+ * `am_i_shang` bit 9. A third bit of it, and still no name for the word.
+ *
+ * `_reaction_table` is the seventh named table this file reaches.
+ */
+extern uint32_t reaction_table[];       /* 0x00166fc0 */
+void clear_queues(uint32_t what);
+
+void react_xfer_him(MK3OBJ *obj)
+{
+    MK3OBJPROC *his = obj->field00->field00->field00;
+
+    clear_queues(his->field08);
+
+    obj->field38 = reaction_table[((const uint8_t *)obj)[0x49]];
+    xfer_otherguy(obj);
+
+    obj->field00->field00->field00->field10 |= 4u;
+}
