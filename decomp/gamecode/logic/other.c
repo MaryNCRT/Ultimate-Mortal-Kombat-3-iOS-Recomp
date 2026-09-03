@@ -10781,3 +10781,132 @@ long t_fx_mercy(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------------ t_play3
+ *
+ * armv7 0x00057c34, three hundred and fifty-six bytes.  **Complete**, and it
+ * is the end of a round.
+ *
+ *      token 0:
+ *          frame[frame+1].w0 = 0x12bc
+ *          push t_results_of_round
+ *      token 0x12bc:
+ *          obj->field1c = H[0]
+ *          obj->field20 = H[1]
+ *          if (H[0] == 2 || H[1] == 2) {
+ *              a = (int16_t)G[0x45e]
+ *              b = (int16_t)G[0x460]
+ *              obj->field1c = a
+ *              obj->field20 = a + b
+ *              if (a + b != 0) {
+ *                  frame[frame+1].w0 = 0x12ca
+ *                  push t_finish_him_sequence
+ *              }
+ *          }
+ *          fall to the tail
+ *      token 0x12ca:
+ *          set_winner_status(obj)
+ *          fall to the tail
+ *      tail:
+ *          obj->field1c = 1
+ *          G[0x452] = (int16_t)1
+ *          frame[frame+1].w0 = 0x12d0
+ *          push t_bonus_count
+ *      token 0x12d0:
+ *          MKEvent_Add(3, 4, 0, 0)
+ *          obj->field1c = H[0]; obj->field20 = H[1]
+ *          if (H[0] == 2 || H[1] == 2) end_of_match_chores(obj)
+ *          frame[frame].handler = t_round_loop
+ *      otherwise:  return -3
+ *
+ * **Two conditions gate the finisher and both are here.** Somebody must have
+ * two round wins -- `H[0]` and `H[1]` are the tallies the winner routines
+ * increment, and 2 is the same number `t_results_retp` ends the match on -- and
+ * the clock must not have run out, tested as the sum of its two digits. So
+ * "Finish him" is offered on the last round only and only with time left,
+ * which is what `is_finish_him_allowed` was checking from the other side.
+ *
+ * Adding the two clock digits to test for zero is the same trick `t_clock3`
+ * uses, and it works for the same reason: neither digit is ever negative.
+ *
+ * The tail writes 1 into G+0x452 whatever happened, so by the time the bonus
+ * count runs no fatality is pending. `t_fatality_wait` reads that halfword as
+ * "no".
+ *
+ * `t_bonus_count` comes through a pointer slot rather than as a link-time
+ * constant, like `t_make_db_tone` in `t_fx_mercy`.
+ *
+ * Both exits install `t_round_loop`; the match-over one runs
+ * `end_of_match_chores` first. So the loop is left the same way whether or not
+ * the match ended, and the difference is one call.
+ */
+extern MK3THREADFUNC t_bonus_count;     /* through the slot at 0x000f3214 */
+long t_round_loop(MK3THREAD *thread);
+void set_winner_status(MK3OBJ *obj);
+void end_of_match_chores(MK3OBJ *obj);
+
+long t_play3(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    const uint32_t *h = (const uint32_t *)H;
+
+    if (token != 0 && token != 0x12bc && token != 0x12ca && token != 0x12d0)
+        return -3;
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x12bc;
+        thread->frame = thread->frame + 1;              /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_results_of_round;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x12d0) {
+        MKEvent_Add(3, 4, 0, 0);
+        obj->field1c = h[0];
+        obj->field20 = h[1];
+        if (h[0] == 2 || h[1] == 2)
+            end_of_match_chores(obj);
+
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_round_loop;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x12bc) {
+        obj->field1c = h[0];
+        obj->field20 = h[1];
+
+        if (h[0] == 2 || h[1] == 2) {           /* the match is over */
+            int32_t a = *(const int16_t *)(G_BYTES + 0x45e);
+            int32_t b = *(const int16_t *)(G_BYTES + 0x460);
+
+            obj->field1c = (uint32_t)a;
+            obj->field20 = (uint32_t)(a + b);
+
+            if (a + b != 0) {                   /* and there is time left */
+                *mk3_frame(thread, thread->frame + 1) = 0x12ca;
+                thread->frame = thread->frame + 1;      /* push a level */
+                mk3_frame(thread, thread->frame)[1] =
+                    (uint32_t)(uintptr_t)t_finish_him_sequence;
+                *mk3_frame(thread, thread->frame + 1) = 0;
+                return 0;
+            }
+        }
+    } else {                                    /* 0x12ca */
+        set_winner_status(obj);
+    }
+
+    obj->field1c = 1;
+    *(int16_t *)(G_BYTES + 0x452) = 1;          /* no fatality pending */
+
+    *mk3_frame(thread, thread->frame + 1) = 0x12d0;
+    thread->frame = thread->frame + 1;                  /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_bonus_count;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
