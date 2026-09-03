@@ -12,6 +12,16 @@
 
 #include "mk3logic.h"
 
+#define MK3_CHAR_SHAO_KAHN  0x19
+
+long group_sound(MK3OBJ *obj);
+long am_i_short(MK3OBJ *obj);
+long shake_a11(MK3OBJ *obj);
+long pose_a9_manual(MK3OBJ *obj);
+long rsnd_func(uint32_t obj, uint32_t which);
+void *FindThreadProc(uint32_t pid);
+void match_ani_points_ob_ob(uint32_t a, uint32_t b);
+
 /* gup2 was read before other.c existed, and it worked the thread struct out
  * on its own: a frame array at the head, the index at 0xa4, a word at 0xfc
  * that mirrors the return, and the object at 0x108. That is MK3THREAD field
@@ -586,4 +596,349 @@ long t_sweepup_local_reaction_exit(MK3THREAD *thread)
 }
 
 
+/* ---------------------------------------------------------------- inc_p_hit
+ *
+ * armv7 0x00041ab4, twelve bytes.  **Complete.**
+ *
+ *      n = obj->field00->p_hit + 1
+ *      obj->field1c = n
+ *      obj->field00->p_hit = n
+ *
+ * The hit counter `back_to_normal_px` reads to decide whether a combo
+ * happened, and `t_gravity_ani` clears on landing. Both stores come from one
+ * register, so the caller sees the new value in 0x1c without a second load.
+ */
+void inc_p_hit(MK3OBJ *obj)
+{
+    MK3OBJPROC *proc = obj->field00;
+    uint32_t n = proc->p_hit + 1;
 
+    obj->field1c = n;
+    proc->p_hit = n;
+}
+
+
+/* -------------------------------------------------------------- inc_p_block
+ *
+ * armv7 0x00041580, sixteen bytes.  **Complete.**
+ *
+ *      obj->field00->field4c += 1
+ *      obj->field1c = obj->field00->field4c
+ *
+ * `inc_p_hit`'s twin for blocks, at 0x4c of the PROC -- one of the six words
+ * `back_to_normal_px` clears when a fighter goes back to normal. So a block
+ * count and a hit count sit side by side and are reset together.
+ *
+ * Unlike its twin this one RE-READS the field for the copy rather than reusing
+ * the register, which is four bytes more and the same answer.
+ */
+void inc_p_block(MK3OBJ *obj)
+{
+    uint32_t *n = (uint32_t *)((char *)obj->field00 + 0x4c);
+
+    *n = *n + 1;
+    obj->field1c = *(const uint32_t *)((char *)obj->field00 + 0x4c);
+}
+
+
+/* -------------------------------------------------------- if_shao_then_pass
+ *
+ * armv7 0x00041354, sixteen bytes.  **Complete**, and it names a character.
+ *
+ *      c = obj->field08->field24
+ *      obj->field1c = c
+ *      if (c == 0x19) obj->field34 = 0
+ *
+ * **Character 0x19 is Shao Kahn.** The function's name says so and its body
+ * tests that one number -- the same way `t_back_to_shang_form` established
+ * 0xc for Shang Tsung. Read off the symbol table rather than guessed from the
+ * roster, which is the only way this project will name a character.
+ *
+ * 0x19 is also one of the three ids `is_finish_him_allowed` refuses, so the
+ * two readings agree: the character with no finisher is the boss.
+ *
+ * The zero is formed as `c - 0x19`, which is zero exactly because the branch
+ * that reaches it tested for equality. One register, no constant.
+ */
+void if_shao_then_pass(MK3OBJ *obj)
+{
+    uint32_t c = obj->field08->field24;
+
+    obj->field1c = c;
+    if (c == MK3_CHAR_SHAO_KAHN)
+        obj->field34 = 0;               /* formed as c - 0x19 */
+}
+
+
+/* -------------------------------------------------------- rsnd_react_voice
+ *
+ * armv7 0x000420e4, sixteen bytes.  **Complete.**
+ *
+ *      obj->field1c = 6
+ *      group_sound(obj)
+ *
+ * Group six is the reaction voice. `t_do_jump_up` uses group 1 the same way,
+ * so 0x1c is which group and `group_sound` picks from it.
+ */
+long rsnd_react_voice(MK3OBJ *obj)
+{
+    obj->field1c = 6;
+    return group_sound(obj);
+}
+
+
+/* -------------------------------------------------------- tall_or_short_ani
+ *
+ * armv7 0x00044820, twenty bytes.  **Complete.**
+ *
+ *      am_i_short(obj)
+ *      if (obj->field5c != 0) obj->field40 = obj->field30
+ *
+ * Two animations for one reaction, chosen by height: a short character takes
+ * the one parked in 0x30 and everybody else keeps whatever 0x40 already held.
+ * So the caller sets both and this picks, which is why the tall case has no
+ * store at all.
+ */
+void tall_or_short_ani(MK3OBJ *obj)
+{
+    am_i_short(obj);
+    if (obj->field5c != 0)
+        obj->field40 = obj->field30;
+}
+
+
+/* --------------------------------------------------- at_least_ground_level
+ *
+ * armv7 0x000410e0, twenty-four bytes.  **Complete.**
+ *
+ *      y = (int16_t)obj->field08->field12
+ *      obj->field1c = y
+ *      g = obj->field00->field40
+ *      obj->field20 = g
+ *      if (g < y) obj->field08->field12 = g
+ *
+ * The clamp `t_flight_call` ends on, on its own: if the ground is above y the
+ * fighter has sunk through the floor and is put back on it. `strh` under `lt`,
+ * so it only ever moves upward and never off the floor.
+ *
+ * Both numbers are left behind, in 0x1c and 0x20, whether or not the clamp
+ * fired -- so a caller can see how far under he was.
+ */
+void at_least_ground_level(MK3OBJ *obj)
+{
+    int32_t y = (int32_t)(int16_t)MK3_FIELD12(obj->field08);
+    int32_t g = (int32_t)obj->field00->field40;
+
+    obj->field1c = (uint32_t)y;
+    obj->field20 = (uint32_t)g;
+
+    if (g < y)
+        MK3_SET_FIELD12(obj->field08, (uint32_t)g);
+}
+
+
+/* ------------------------------------------------------------ is_he_flipped
+ *
+ * armv7 0x000410f8, twenty-four bytes.  **Complete.**
+ *
+ *      f = him->field28
+ *      obj->field2c = f
+ *      obj->field5c = ((f >> 4) ^ 1) & 1
+ *
+ * Bit 4 of 0x28 is the facing `am_i_facing_him_px` gave a direction to: set
+ * means facing left. So "flipped" is its complement, and this answers 1 when
+ * he faces right.
+ *
+ * The whole flag word is left in 0x2c on the way past, which is how a caller
+ * gets at the other bits without a second load.
+ */
+void is_he_flipped(MK3OBJ *obj)
+{
+    uint32_t f = ((MK3OBJ *)(uintptr_t)obj->field00->him)->field28;
+
+    obj->field2c = f;
+    obj->field5c = ((f >> 4) ^ 1u) & 1u;
+}
+
+
+/* ----------------------------------------------------------- move_slave_too
+ *
+ * armv7 0x0004761c, twenty-four bytes.  **Complete.**
+ *
+ *      s = obj->field00->slave
+ *      obj->field1c = s
+ *      if (s != 0) match_ani_points_ob_ob(obj->field08, s)
+ *
+ * Whatever just moved the fighter, the slave follows. The PROC's 0x68 is the
+ * slave object `slave_ani` drives and the opcode-11 arm of the animation
+ * interpreter creates; a zero there means there is none and the call is
+ * skipped.
+ */
+void move_slave_too(MK3OBJ *obj)
+{
+    uint32_t s = obj->field00->slave;
+
+    obj->field1c = s;
+    if (s != 0)
+        match_ani_points_ob_ob((uint32_t)(uintptr_t)obj->field08, s);
+}
+
+
+/* --------------------------------------------------------------- combo_setup
+ *
+ * armv7 0x000424e0, twenty-eight bytes.  **Complete.**
+ *
+ *      obj->field1c = 2
+ *      group_sound(obj)
+ *      obj->field48 = 0x60006
+ *      shake_a11(obj)
+ *
+ * **The shake's two amplitudes are one word.** 0x60006 is 6 in each half, and
+ * `t_shake2` splits exactly that slot -- the low half into the animation at
+ * 0x40 and the high half into the A10 -- which `t_shake3` then uses as the
+ * horizontal and vertical displacement. One `mov.w` and the screen shakes six
+ * each way.
+ *
+ * Sound group 2 first, so the noise starts on the same tick as the shake.
+ */
+long combo_setup(MK3OBJ *obj)
+{
+    obj->field1c = 2;
+    group_sound(obj);
+
+    obj->field48 = 0x60006;             /* six each way, packed */
+    return shake_a11(obj);
+}
+
+
+/* -------------------------------------------------- pose_stumble_frame_1
+ *
+ * armv7 0x00047ad8, twenty-eight bytes.  **Complete.**
+ *
+ *      obj->field40 = 0x20
+ *      pose_a9_manual(obj)
+ *      obj->field1c = 2
+ *      group_sound(obj)
+ *
+ * Animation 0x20 posed by hand rather than run, then the same sound group 2
+ * `combo_setup` uses. The pose comes first, so the frame is on screen before
+ * the noise.
+ */
+long pose_stumble_frame_1(MK3OBJ *obj)
+{
+    obj->field40 = 0x20;
+    pose_a9_manual(obj);
+
+    obj->field1c = 2;
+    return group_sound(obj);
+}
+
+
+/* -------------------------------------------------------------- shake_n_sound
+ *
+ * armv7 0x000424fc, twenty-eight bytes.  **Complete.**
+ *
+ *      obj->field48 = 0x60006
+ *      shake_a11(obj)
+ *      rsnd_func(obj, 0xd)
+ *
+ * `combo_setup` without the group sound and with a single effect instead: the
+ * same 0x60006 -- six each way, packed as two halves of one word -- and then
+ * sound 0xd directly rather than through a group.
+ */
+long shake_n_sound(MK3OBJ *obj)
+{
+    obj->field48 = 0x60006;             /* six each way, packed */
+    shake_a11(obj);
+    return rsnd_func((uint32_t)(uintptr_t)obj, 0xd);
+}
+
+
+/* ---------------------------------------------------------- get_his_floor_ice
+ *
+ * armv7 0x000495cc, thirty-two bytes.  **Complete.**
+ *
+ *      i = obj->field00->field00->field00->field08
+ *      obj->field1c = i + 0x707
+ *      obj->field1c = FindThreadProc(i + 0x707)
+ *
+ * **A pid is a base plus the fighter's index.** `FindThreadProc` walks the
+ * thread list comparing 0x104, and what it is given here is 0x707 plus the
+ * opponent's index -- so a thread of this kind is registered under a
+ * predictable number and found by arithmetic rather than by being remembered.
+ *
+ * The pid is left in 0x1c and then overwritten by the answer, so a caller sees
+ * the proc and not the number it was found by.
+ */
+void get_his_floor_ice(MK3OBJ *obj)
+{
+    uint32_t pid = obj->field00->field00->field00->field08 + 0x707;
+
+    obj->field1c = pid;
+    obj->field1c = (uint32_t)(uintptr_t)FindThreadProc(pid);
+}
+
+
+/* ------------------------------------------------------------- get_my_hitq
+ *
+ * armv7 0x00041ac0, thirty-two bytes.  **Complete.**
+ *
+ *      obj->field1c = G + 0x390 + obj->field00->field08 * 12
+ *
+ * A per-fighter array in G with a stride of TWELVE -- a sixth layout in that
+ * struct, after the 0x158 blocks, the four-byte bar pairs, the three clock
+ * halfwords, the four queues at 0xc0 and the four tables at 0x3a8.
+ *
+ * `uhq_entry` says what twelve bytes are for: six halfwords. The stride is the
+ * size, so each fighter's queue is its own array rather than a window on a
+ * longer one.
+ *
+ * The multiply is `i*16 - i*4`, which is the compiler's way of reaching twelve
+ * without a multiply instruction.
+ */
+void get_my_hitq(MK3OBJ *obj)
+{
+    uint32_t i = obj->field00->field08;
+
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x390 + i * 12);
+}
+
+
+/* --------------------------------------------------------------- uhq_entry
+ *
+ * armv7 0x00041ae0, forty-four bytes.  **Complete.**
+ *
+ *      obj->field38 = obj->field00->field48
+ *      get_my_hitq(obj)
+ *      q = (uint16_t *)obj->field1c
+ *      q[5] = q[4];  q[4] = q[3];  q[3] = q[2]
+ *      q[2] = q[1];  q[1] = q[0]
+ *      q[0] = (uint16_t)obj->field38
+ *
+ * The hit queue's push, written out: five moves down and one write at the
+ * front, unrolled rather than looped. Six halfwords, oldest at the end, and
+ * the sixth falls off.
+ *
+ * What goes in is the PROC's 0x48. `back_to_normal_px` clears that slot along
+ * with the hit and block counters, so it is part of the same bookkeeping -- a
+ * record of what has been landing, one entry per hit.
+ *
+ * The moves run high to low, which is the only order that does not overwrite
+ * an entry before it has been copied.
+ */
+void uhq_entry(MK3OBJ *obj)
+{
+    uint16_t *q;
+
+    obj->field38 = *(const uint32_t *)((char *)obj->field00 + 0x48);
+
+    get_my_hitq(obj);
+    q = (uint16_t *)(uintptr_t)obj->field1c;
+
+    q[5] = q[4];                        /* high to low, or it eats itself */
+    q[4] = q[3];
+    q[3] = q[2];
+    q[2] = q[1];
+    q[1] = q[0];
+    q[0] = (uint16_t)obj->field38;
+}
