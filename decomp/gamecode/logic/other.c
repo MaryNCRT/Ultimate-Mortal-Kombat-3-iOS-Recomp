@@ -94,7 +94,12 @@ typedef struct MK3OBJPROC {
                                   *       init_special_act writes */
     uint32_t field1c;            /* 0x1c  the animation rate */
     uint32_t field20;            /* 0x20  its counter, normally 1 */
-    uint8_t  _pad24[0x1c];
+    uint8_t  _pad24[4];
+    uint32_t field28;            /* 0x28  who the shake is about: the shake
+                                  *       pair write `him` or the object's
+                                  *       0x08 here and differ in nothing
+                                  *       else */
+    uint8_t  _pad2c[0x14];
     uint16_t field40;            /* 0x40  ground_player copies it out */
     uint8_t  _pad42[2];
     uint32_t p_hit;              /* 0x44  per zero_my_p_hit */
@@ -7451,4 +7456,75 @@ long t_fani3(MK3THREAD *thread)
     mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
+}
+
+
+/* ------------------------------------- t_shake_him_up and t_shake_ob_up
+ *
+ * armv7 0x00056fdc and 0x00056d68, one hundred and forty-four bytes each.
+ * **Complete**, and one body with one store swapped.
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      args[argc++] = obj->field40
+ *      args[argc++] = obj->a10
+ *      args[argc++] = obj->field48
+ *      args[argc++] = obj->field20
+ *      proc->field28 = <him>                   ; the only difference
+ *      frame[frame].handler = t_shake2
+ *      frame[frame+1].w0 = 0
+ *
+ *      t_shake_him_up:  proc->field28 = proc->him
+ *      t_shake_ob_up:   proc->field28 = obj->field08
+ *
+ * Two notions of "the other guy" -- the PROC's `him` at 0x04 and the object's
+ * 0x08 -- and a pair of functions because they are not always the same object.
+ * The names say which is which, and that is what gives 0x28 its meaning: who
+ * this shake is about.
+ *
+ * Four words pushed, the largest push here: the animation at 0x40, the A10 at
+ * 0x44, 0x48 and 0x20. `t_striker` pushes two and `t_animate_a9` one, so four
+ * of the twenty slots is still well inside the array.
+ *
+ * The cursor is stored after every push rather than once at the end, as in
+ * `t_striker`. Not observable and transcribed as written.
+ */
+long t_shake2(MK3THREAD *thread);
+
+static long mk3_shake_up(MK3THREAD *thread, uint32_t about)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t argc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    argc = thread->fieldf8;
+    *mk3_arg(thread, argc) = obj->field40;
+    thread->fieldf8 = ++argc;
+    *mk3_arg(thread, argc) = obj->a10;
+    thread->fieldf8 = ++argc;
+    *mk3_arg(thread, argc) = obj->field48;
+    thread->fieldf8 = ++argc;
+    *mk3_arg(thread, argc) = obj->field20;
+    thread->fieldf8 = ++argc;
+
+    obj->field00->field28 = about;
+
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_shake2;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+long t_shake_him_up(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    return mk3_shake_up(thread, obj->field00->him);
+}
+
+long t_shake_ob_up(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    return mk3_shake_up(thread, (uint32_t)(uintptr_t)obj->field08);
 }
