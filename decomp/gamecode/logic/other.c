@@ -239,8 +239,10 @@ extern GAMESTATE *G;                       /* 0x0038c1fc */
 
 /* The second global, beside G and reached the same way -- through the pointer
  * slot at 0x000f349c, whose word is 0x0038c674 and whose symbol is `_H`. Four
- * words of it are cleared at the end of a match; nothing else here touches it,
- * so it is a byte array for the same reason G is. */
+ * words of it are cleared at the end of a match, and the two winner routines
+ * say what they are: player 1 increments H[0] and H[2], player 2 increments
+ * H[1] and H[3]. Two counters each, side by side, and the clear at the end of
+ * a match resets exactly those four. */
 extern char *H;                            /* 0x0038c674 */
 
 /* The third global reached from this file, beside G and H, through the pointer
@@ -4635,6 +4637,10 @@ long t_fatal_no(MK3THREAD *thread)
  * winning. Written down as a gap: nothing here shows it, and a third function
  * would.
  *
+ * (`t_results_of_round`, further down, is that function. It dispatches on this
+ * slot and sends 1 to `t_player_2_won`, so the guess was right and the gap is
+ * closed. The note is kept as it was because the reasoning is the point.)
+ *
  * `t_p1_won` takes its zero from the frame-above test, which had to be zero to
  * get past the guard; `t_round_tied` loads a 2. That is why one is fifty-six
  * bytes and the other sixty.
@@ -6005,6 +6011,111 @@ long t_fx_friendship(MK3THREAD *thread)
     obj->field40 = (uint32_t)(uintptr_t)a_friend;
 
     mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_fani3;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ------------------------------------- t_player_1_won and t_player_2_won
+ *
+ * armv7 0x000567e8 and 0x0005684c, one hundred bytes each.  **Complete.**
+ *
+ *      obj->field20 = n                    ; 1 or 2
+ *      G[0x45c] = (int16_t)n
+ *      H[n - 1] += 1
+ *      H[n + 1] += 1
+ *      frame[frame].handler = t_results_retp
+ *      frame[frame+1].w0 = 0
+ *
+ * The pair differ only in the number, and the number is 1 for the first player
+ * and 2 for the second -- a one-based winner, not a zero-based index, which is
+ * worth saying because the round RESULT two functions away is zero-based.
+ *
+ * Each bumps two counters in H, and they are the four words a match's end
+ * clears: H[0] and H[2] for player 1, H[1] and H[3] for player 2. Two parallel
+ * tallies per player, kept in one array interleaved by player rather than
+ * grouped by tally.
+ *
+ * G+0x45c is a signed halfword, immediately below the pair at 0x45e and 0x460
+ * that `is_finish_him_allowed` reads and `t_round_timeout` clears. Three
+ * halfwords in a row, and this is the one that says who won.
+ *
+ * The compiler keeps the winner in a register and reuses it as the +1 for both
+ * increments, which is why player 1's additions look like `add ip` and player
+ * 2's like `adds #1`.
+ */
+long t_results_retp(MK3THREAD *thread);
+
+static long mk3_player_won(MK3THREAD *thread, uint32_t who)
+{
+    MK3OBJ   *obj = (MK3OBJ *)thread->proc;
+    uint32_t *h   = (uint32_t *)H;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field20 = who;
+    *(int16_t *)(G_BYTES + 0x45c) = (int16_t)who;
+
+    h[who - 1] += 1;
+    h[who + 1] += 1;
+
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_results_retp;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+long t_player_1_won(MK3THREAD *thread) { return mk3_player_won(thread, 1); }
+long t_player_2_won(MK3THREAD *thread) { return mk3_player_won(thread, 2); }
+
+
+/* -------------------------------------------------------- t_results_of_round
+ *
+ * armv7 0x00056784, one hundred bytes.  **Complete**, and it closes the
+ * enumeration this file has been assembling one writer at a time.
+ *
+ *      switch (obj->field48) {
+ *      case 0:  next = t_player_1_won;  break;
+ *      case 1:  next = t_player_2_won;  break;
+ *      case 2:  next = t_its_a_tie;     break;
+ *      default: next = t_clock_ran_out; break;
+ *      }
+ *      frame[frame].handler = next
+ *      frame[frame+1].w0 = 0
+ *
+ * The reader of 0x48. The writers were found first and separately --
+ * `t_p1_won` and `t_fatal_no` write 0, `t_round_tied` writes 2,
+ * `t_round_timeout` writes 3 -- and the value 1 was left as a gap with a guess
+ * beside it. This dispatcher sends 1 to `t_player_2_won`, which is the guess,
+ * and it sends everything above 2 to `t_clock_ran_out`, which is why 3 works
+ * without being named.
+ *
+ * So the enumeration is: 0 player one, 1 player two, 2 a tie, anything else
+ * the clock. Four writers and one reader, read in that order, and the reader
+ * is what makes the set closed rather than merely observed.
+ *
+ * The default arm is a range and not a value, so a fifth outcome would land on
+ * the clock rather than crash -- and there may be no fifth.
+ */
+long t_clock_ran_out(MK3THREAD *thread);
+
+long t_results_of_round(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC next;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    switch (obj->field48) {
+    case 0:  next = (MK3THREADFUNC)t_player_1_won;  break;
+    case 1:  next = (MK3THREADFUNC)t_player_2_won;  break;
+    case 2:  next = (MK3THREADFUNC)t_its_a_tie;     break;
+    default: next = (MK3THREADFUNC)t_clock_ran_out; break;
+    }
+
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)next;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
