@@ -4492,3 +4492,112 @@ void advance_him(MK3OBJ *obj)
     obj->field40 = saved_frame;
     obj->field48 = result;
 }
+
+
+/* ------------------------------------------------------------ damage_to_him
+ *
+ * armv7 0x00059670, fifty-six bytes.  **Complete.**
+ *
+ *      save   obj->field00, obj->field08, obj->a10
+ *      obj->field08 = proc->him
+ *      obj->field00 = proc->field00->field00       ; his PROC
+ *      obj->a10     = obj->field1c
+ *      obj->field10 = 0
+ *      damage_to_me(obj)
+ *      restore
+ *
+ * The trampoline with an argument passed through 0x44 -- the A10 slot doing
+ * what its name says for once, carrying the amount into the call.
+ *
+ * The zero into 0x10 is on the SUBJECT, not the target. On a fighter 0x10 is
+ * the y coordinate; on this object it is a slot like every other, which is
+ * what these carrier objects are for. It is not restored.
+ */
+void damage_to_him(MK3OBJ *obj)
+{
+    MK3OBJPROC *saved_proc  = obj->field00;
+    MK3OBJ     *saved_other = obj->field08;
+    uint32_t    saved_a10   = obj->a10;
+
+    obj->field08 = (MK3OBJ *)(uintptr_t)saved_proc->him;
+    obj->field00 = saved_proc->field00->field00;
+    obj->a10 = obj->field1c;
+    obj->field10 = 0;
+
+    damage_to_me(obj);
+
+    obj->field08 = saved_other;
+    obj->field00 = saved_proc;
+    obj->a10 = saved_a10;
+}
+
+
+/* ----------------------------------------------------------------- randper
+ *
+ * armv7 0x000586dc, fifty-six bytes.  **Complete.**
+ *
+ *      chance = obj->field1c
+ *      mk_random(obj)                                  ; 0x1c = random32()
+ *      mpyu(1000, obj->field1c, &obj->field1c, NULL)   ; scale to 0..999
+ *      obj->field5c = (chance > obj->field1c)
+ *
+ * The constant is 0x3e8 -- ONE THOUSAND. So what the name calls a percentage
+ * is a per-mille chance, and a table entry of 50 is five per cent and not
+ * fifty. A port that reads the name instead of the constant gets an AI that
+ * almost never does anything, and nothing in the tables says which it is.
+ *
+ * Both 0x20 and 0x24 are borrowed for the working values and restored, so the
+ * only lasting effects are 0x1c and the answer in 0x5c.
+ *
+ * It inherits `random32`'s missing low two bits through the same multiply-high
+ * `randu` uses.
+ */
+void randper(MK3OBJ *obj)
+{
+    uint32_t saved20 = obj->field20;
+    uint32_t saved24 = obj->field24;
+    uint32_t chance;
+
+    obj->field24 = obj->field1c;
+    mk_random(obj);
+
+    obj->field20 = 1000;
+    mpyu(1000, obj->field1c, &obj->field1c, NULL);
+
+    chance = obj->field24;
+    obj->field20 = saved20;
+    obj->field24 = saved24;
+
+    obj->field5c = ((int32_t)chance > (int32_t)obj->field1c) ? 1u : 0u;
+}
+
+
+/* -------------------------------------------------------------- t_fatal_no
+ *
+ * armv7 0x00056610, fifty-six bytes.  **Complete.**
+ *
+ * The frame-push family with one extra store: the thread's proc gets a zero at
+ * 0x48 before the handler goes in. The handler is `t_fatal_yes`, so the pair
+ * is a question already answered -- "no" installs the routine that runs when
+ * the answer is yes, and the zero at 0x48 is what makes it a no.
+ *
+ * The zero comes from the frame-above test, which had to be zero to get here.
+ * The compiler reuses that register rather than loading a constant, which is
+ * why the store looks like it writes an arbitrary value.
+ */
+void t_fatal_yes(void);
+
+long t_fatal_no(MK3THREAD *thread)
+{
+    uint32_t current = thread->frame;
+    char    *proc    = (char *)thread->proc;
+
+    if (*mk3_frame(thread, current + 1) != 0)
+        return -3;
+
+    *(uint32_t *)(proc + 0x48) = 0;
+
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_fatal_yes;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
