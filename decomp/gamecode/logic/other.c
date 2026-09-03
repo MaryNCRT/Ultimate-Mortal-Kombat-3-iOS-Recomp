@@ -801,11 +801,17 @@ long t_self_terminate(MK3THREAD *thread)
  * the thread into the proc at 0x108, passing a null through.
  *
  * `FindThread`'s argument is a pid -- see its body below, which walks a list
- * comparing 0x104. `NewThread`'s arguments are not named: this wrapper does
- * not read them.
+ * comparing 0x104.
+ *
+ * `NewThread` takes an owner and a thread entry point. Neither wrapper reads
+ * its arguments, so neither says so, and the signature was written as `void`
+ * until `t_fx_friendship` called `NewThread` directly with a proc and a
+ * function -- and `NewThread`'s own body stores its second argument at the
+ * thread's 0x04, which is the handler slot. The wrappers were forwarding them
+ * all along.
  */
 MK3THREAD *FindThread(uint32_t pid);
-MK3THREAD *NewThread(void);
+MK3THREAD *NewThread(void *owner, MK3THREADFUNC func);
 
 void *FindThreadProc(uint32_t pid)
 {
@@ -813,9 +819,9 @@ void *FindThreadProc(uint32_t pid)
     return t ? t->proc : NULL;
 }
 
-void *NewThreadProc(void)
+void *NewThreadProc(void *owner, MK3THREADFUNC func)
 {
-    MK3THREAD *t = NewThread();
+    MK3THREAD *t = NewThread(owner, func);
     return t ? t->proc : NULL;
 }
 
@@ -2508,11 +2514,10 @@ int GetFrameHeight(uint32_t ani)
  * the thread's 0x104 before the proc at 0x108 is returned. So 0x104 is the pid
  * and this is the only routine here that sets one.
  */
-void *NewThreadProcPid(uint32_t a, uint32_t b, uint32_t pid)
+void *NewThreadProcPid(void *owner, MK3THREADFUNC func, uint32_t pid)
 {
-    MK3THREAD *t = NewThread();
+    MK3THREAD *t = NewThread(owner, func);
 
-    (void)a; (void)b;
     if (t == NULL)
         return NULL;
 
@@ -4765,7 +4770,7 @@ void RaiseTurboBars(void)
  * `_a_ship` is the eighth named table this file reaches.
  */
 extern uint32_t a_ship[];               /* 0x0016f61c */
-void t_fani3(void);
+long t_fani3(struct MK3THREAD *thread);
 
 long t_ship_proc(MK3THREAD *thread)
 {
@@ -5183,8 +5188,12 @@ long t_wait_fatality_finish(MK3THREAD *thread);
  *
  * Two numbers, and they are not the same kind of thing:
  *
- *   - `token` identifies WHO is parked. It is compared only against itself,
- *     so any distinct value would do and each routine has its own.
+ *   - `token` identifies WHERE the routine is parked -- a resume point, not
+ *     just an owner. `t_fx_babality` parks twice in one function with 0xf28
+ *     and then 0xf2a, and each entry recognises exactly one of them, so the
+ *     token is that function's program counter and these routines are
+ *     coroutines. The ones with a single park have a single resume point,
+ *     which is why one value looked like an identity.
  *
  *   - `mask` says WHAT is being waited for. It is stored at 0xfc and also
  *     returned, and the three known values are single distinct bits --
@@ -5295,8 +5304,9 @@ long is_finish_him_allowed(MK3OBJ *obj)
  * `t_multi_dummy_proc` is the same loop with a different bit, which is what a
  * thread that exists only to hold a slot open would look like.
  *
- * The masks are single bits and no routine here sets two, so whether 0xfc ever
- * carries a combination is not visible from this file.
+ * These three masks are single bits, but 0xfc is not a bitmask: `t_fx_babality`
+ * writes 0x60 and then 0x16462, which is neither a single bit nor a
+ * combination of the others. Whatever reads 0xfc takes a value, not a set.
  */
 long t_multi_dummy_wake(MK3THREAD *thread);
 long t_wait_forever_wake(MK3THREAD *thread);
@@ -5816,4 +5826,185 @@ void stack_switch_bits(uint32_t now, uint32_t changed, uint32_t pressed)
     }
 
     *(uint32_t *)(G_BYTES + 0xa4) = cursor;
+}
+
+
+/* ------------------------------------------------------------- stance_setup
+ *
+ * armv7 0x000553c4, one hundred bytes.  **Complete.**
+ *
+ *      obj->field00->field18 = 0x303       ; the action
+ *      obj->field30 = obj->field40         ; save where the animation was
+ *      obj->field40 = 0
+ *      get_char_ani(obj)                   ; animation 0 is the stance
+ *      obj->field38 = obj->field40
+ *      obj->field1c = 6
+ *      init_anirate(obj)
+ *
+ *      p = obj->field38                    ; follow the jumps
+ *      while (p[0] == 8) p = (uint32_t *)p[2]
+ *      p += 0x18 / 4                       ; past the header
+ *      do { p++; } while (*p != 1)         ; to the terminator
+ *
+ *      saved = obj->field30
+ *      if (saved <= (uint32_t)p && saved >= obj->field40)
+ *          obj->field40 = saved
+ *
+ * Two things come out of this that nothing else has shown.
+ *
+ * **The animation script has a format.** Opcode 8 at word 0 is a jump whose
+ * target is at word 2 -- followed in a loop, so a chain of them resolves. Past
+ * that, an 0x18-byte header, and then a scan in words for the value 1, which
+ * ends it. Each word read is left in 0x1c on the way past, which is how the
+ * caller sees the last one.
+ *
+ * **The stance resumes.** The animation position is saved before the stance is
+ * loaded and put back afterwards, but only if it falls between the script's
+ * base and its terminator -- that is, only if it was already a position inside
+ * this same stance. A fighter returning to stance from a stance carries on;
+ * one arriving from anywhere else starts at the beginning. Both comparisons
+ * are needed and each alone would be wrong.
+ *
+ * The comparison mixes an animation slot with an address, which is only
+ * coherent because a resolved animation IS an address -- the large case of the
+ * tagged union `t_attk3` tests with 0x47.
+ *
+ * 0x303 into the PROC's action is written before anything else and never
+ * conditionally, so the stance is committed to before the script is read.
+ */
+void init_anirate(MK3OBJ *obj);
+
+void stance_setup(MK3OBJ *obj)
+{
+    const uint32_t *p;
+    uint32_t saved;
+
+    obj->field00->field18 = 0x303;
+
+    obj->field30 = obj->field40;        /* where the animation stood */
+    obj->field40 = 0;
+    get_char_ani(obj);                  /* animation 0 is the stance */
+
+    obj->field38 = obj->field40;
+    obj->field1c = 6;
+    init_anirate(obj);
+
+    p = (const uint32_t *)(uintptr_t)obj->field38;
+    while ((obj->field1c = p[0]) == 8) {        /* a jump: follow it */
+        p = (const uint32_t *)(uintptr_t)p[2];
+        obj->field38 = (uint32_t)(uintptr_t)p;
+    }
+
+    p = (const uint32_t *)((const char *)p + 0x18);      /* past the header */
+    obj->field38 = (uint32_t)(uintptr_t)p;
+    do {
+        p++;
+        obj->field38 = (uint32_t)(uintptr_t)p;
+        obj->field1c = *p;
+    } while (*p != 1);                          /* to the terminator */
+
+    saved = obj->field30;
+    if (saved <= (uint32_t)(uintptr_t)p && saved >= obj->field40)
+        obj->field40 = saved;                   /* inside: carry on */
+}
+
+
+/* ----------------------------------------------------------- t_fx_babality
+ *
+ * armv7 0x00058040, one hundred bytes.  **Complete**, and it is a coroutine.
+ *
+ *      token == 0:      proc->field28 = 0x43
+ *                       send_code_a3(proc)
+ *                       park(token 0xf28, mask 0x60)
+ *      token == 0xf28:  tsound_func(proc, 0x65)
+ *                       park(token 0xf2a, mask 0x16462)
+ *      otherwise:       return -3
+ *
+ * The first routine here that parks **twice in one function**, and it never
+ * installs a handler at all. Each entry looks at the token, recognises exactly
+ * one value, does that step's work and parks with the next.
+ *
+ * So the token is a resume point -- a program counter for a routine that is
+ * written as a state machine because the language had no coroutines. 0xf28 and
+ * 0xf2a are two apart, consecutive labels in whatever generated them.
+ *
+ * The masks are 0x60 and 0x16462. Neither is a single bit and the second is
+ * not a combination of anything seen before, so what reads 0xfc takes a value
+ * rather than a set of flags. The three earlier parks each happened to write
+ * one bit and that is all they proved.
+ *
+ * 0x43 into the object's 0x28 is a code and 0x65 the sound; both are constants
+ * this routine does not compute.
+ */
+long t_fx_babality(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field28 = 0x43;
+        send_code_a3(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0xf28;
+        thread->fieldfc = 0x60;
+        return 0x60;
+    }
+
+    if (token != 0xf28)
+        return -3;
+
+    tsound_func((uint32_t)(uintptr_t)obj, 0x65);
+    *mk3_frame(thread, thread->frame + 1) = 0xf2a;
+    thread->fieldfc = 0x16462;
+    return 0x16462;
+}
+
+
+/* ---------------------------------------------------------- t_fx_friendship
+ *
+ * armv7 0x00059950, one hundred bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      NewThread(proc, t_friendship_speech)
+ *      NewThread(proc, t_ship_proc)
+ *      proc->field40 = a_friend
+ *      frame[frame].handler = t_fani3
+ *      frame[frame+1].w0 = 0
+ *
+ * Two threads started on the same proc and then the caller continues as a
+ * third -- the speech and the ship run alongside the animation rather than in
+ * sequence. This is the first place in the file where one routine fans out.
+ *
+ * `proc->field40 = a_friend` is written AFTER `t_ship_proc` is created and
+ * before it can have run: a new thread is queued, not entered. `t_ship_proc`
+ * writes `a_ship` into the same slot when it does run, so the two do not
+ * collide -- but the order is only safe because creation is not a call, and it
+ * is transcribed in the order the code has it.
+ *
+ * `_a_friend` is the tenth named table this file reaches, and the second of
+ * the animation tables that go into 0x40 whole.
+ *
+ * This settled `NewThread`'s signature: it is called here with a proc and a
+ * function, and the wrappers that had made it look argumentless were only
+ * forwarding.
+ */
+extern uint32_t a_friend[];             /* 0x0016f5c4 */
+long t_friendship_speech(MK3THREAD *thread);
+long t_fani3(MK3THREAD *thread);
+long t_ship_proc(MK3THREAD *thread);
+
+long t_fx_friendship(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    NewThread(obj, (MK3THREADFUNC)t_friendship_speech);
+    NewThread(obj, (MK3THREADFUNC)t_ship_proc);
+
+    obj->field40 = (uint32_t)(uintptr_t)a_friend;
+
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_fani3;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
 }
