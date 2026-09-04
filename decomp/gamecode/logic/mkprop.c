@@ -69,6 +69,12 @@ void create_fx(MK3OBJ *obj);
 long t_suspend_wait_action(MK3THREAD *thread);
 long tl_do_scorp_tele(MK3THREAD *thread);
 long t_local_reaction_exit(MK3THREAD *thread);
+void match_me_with_him(MK3OBJ *obj);
+void multi_adjust_xy(MK3OBJ *obj);
+void is_he_left(MK3OBJ *obj);
+void is_he_right(MK3OBJ *obj);
+void face_opponent(MK3OBJ *obj);
+long t_tele_scan(MK3THREAD *thread);
 
 /* --------------------------------------------------------------------
  * Added by a later sweep -- tools/sweep.py, running the same
@@ -565,4 +571,224 @@ long t_do_body_propell(MK3THREAD *thread)
     }
 
     return mk3_push_handler(thread, h);
+}
+
+
+/* ------------------------------------------------------------ t_upball_x_damping
+ *
+ * armv7 0x0003c988, 96 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      v = obj->field08->field18
+ *      obj->field20 = v >> 3
+ *      obj->field1c = v - (v >> 3)
+ *      set_x_vel_player(obj)
+ *      if (thread->frame > 0) { thread->frame -= 1; return 0 }
+ *      frame[frame].handler = t_local_reaction_exit
+ *
+ * `jade_prop_damping` -- the same seven-eighths damping, same `asrs #3` and
+ * same `rsb` for the remainder -- wrapped in the return-up shape, so it runs
+ * once per frame while the thread stays where it is and only ends when there
+ * is no caller left to return to.
+ *
+ * Three routines in this file now damp the same way with different shifts:
+ * 3 here and in `jade_prop_damping`, 6 in `zoom_damping`.
+ */
+long t_upball_x_damping(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    int32_t v;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    v = (int32_t)obj->field08->field18;
+    obj->field20 = (uint32_t)(v >> 3);
+    obj->field1c = (uint32_t)(v - (v >> 3));
+    set_x_vel_player(obj);
+
+    if ((long)thread->frame > 0) {
+        thread->frame -= 1;
+        return 0;
+    }
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* --------------------------------------------------------------- teleport_next_to
+ *
+ * armv7 0x0003e534, 112 bytes.  **Complete.**
+ *
+ *      obj->field40 = 0x54
+ *      him  = obj->field00->him
+ *      obj->field1c = him
+ *      hisx = (int16_t)him[+0x0e]
+ *      obj->field28 = hisx
+ *
+ *      obj->field20 = |(*(long *)(G + 0xb4) + 0x18f) - hisx|
+ *      if (obj->field20 > 0x80) {
+ *          obj->field20 = |*(long *)(G + 0xb0) - hisx|
+ *          if (obj->field20 > 0x80)
+ *              obj->field40 = -obj->field40
+ *      }
+ *
+ *      match_me_with_him(obj)
+ *      obj->field20 = 0
+ *      obj->field1c = obj->field40
+ *      multi_adjust_xy(obj)
+ *
+ * **Which side of the opponent to land on.** 0x54 is the offset, positive by
+ * default, and it is negated only when he is far from BOTH bounds in the
+ * global state -- more than 0x80 from `G + 0xb4` plus 0x18f, and more than
+ * 0x80 from `G + 0xb0`. Near either one the default side stands, which is what
+ * keeps a teleport from putting the attacker through a wall.
+ *
+ * Both distances are made positive the same way, with `rsblt` in an IT block
+ * rather than a branch, and both are compared against the same 0x80.
+ *
+ * The 0x18f is built as `+0x18c` then `+3`, two instructions for one constant,
+ * because 0x18f is not a single Thumb immediate.
+ */
+void teleport_next_to(MK3OBJ *obj)
+{
+    MK3OBJ *him;
+    int32_t hisx, d;
+
+    obj->field40 = 0x54;
+
+    him = (MK3OBJ *)(uintptr_t)obj->field00->him;
+    obj->field1c = (uint32_t)(uintptr_t)him;
+
+    hisx = *(int16_t *)((char *)him + 0x0e);
+    obj->field28 = (uint32_t)hisx;
+
+    d = (*(int32_t *)(G_BYTES + 0xb4) + 0x18f) - hisx;
+    obj->field20 = (uint32_t)(d < 0 ? -d : d);
+
+    if ((int32_t)obj->field20 > 0x80) {
+        d = *(int32_t *)(G_BYTES + 0xb0) - hisx;
+        obj->field20 = (uint32_t)(d < 0 ? -d : d);
+
+        if ((int32_t)obj->field20 > 0x80)
+            obj->field40 = (uint32_t)(-(int32_t)obj->field40);
+    }
+
+    match_me_with_him(obj);
+
+    obj->field20 = 0;
+    obj->field1c = obj->field40;
+    multi_adjust_xy(obj);
+}
+
+
+/* ----------------------------------------------------------------- t_tele_scan2
+ *
+ * armv7 0x0003c07c, 96 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      v = obj->field08->field1c
+ *      obj->field1c = v
+ *      if (v < 0) {
+ *          frame[frame].handler = t_tele_scan
+ *      } else if (thread->frame > 0) {
+ *          thread->frame -= 1
+ *          return 0
+ *      } else {
+ *          frame[frame].handler = t_local_reaction_exit
+ *      }
+ *      frame[frame+1].w0 = 0
+ *
+ * **A sign test picks between going back and going round again.** A negative
+ * value at the other object's 0x1c installs `t_tele_scan` -- the scan runs
+ * another pass -- and anything else returns up a level, or ends if there is
+ * no level to return to.
+ *
+ * `t_tele_scan` is reached as a direct pc-relative address rather than through
+ * a pointer slot, so it is in this file; `t_local_reaction_exit` comes through
+ * the slot at 0x000f3708, so it is not.
+ */
+long t_tele_scan2(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    int32_t v;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    v = (int32_t)obj->field08->field1c;
+    obj->field1c = (uint32_t)v;
+
+    if (v >= 0) {
+        if ((long)thread->frame > 0) {
+            thread->frame -= 1;         /* back up a level */
+            return 0;
+        }
+        return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_tele_scan);
+}
+
+
+/* --------------------------------------------------------------- flight_move_ani
+ *
+ * armv7 0x0003cf24, 112 bytes.  **Complete.**
+ *
+ *      obj->field1c = |obj->field08->field18|
+ *      if (obj->field1c < 0x60000) return
+ *      m = obj->field00[+0x30]
+ *      obj->field20 = m
+ *      if (m == 1 || m == 2) return
+ *      obj->field1c = 1
+ *      obj->field34 = (obj->field48 < 0) ? is_he_left : is_he_right
+ *      ((void (*)(MK3OBJ *))obj->field34)(obj)
+ *      if (obj->field5c == 0) obj->field1c = 2
+ *      saved = obj->field1c
+ *      face_opponent(obj)
+ *      obj->field1c = saved
+ *      set_float_ani(obj)
+ *
+ * **A function pointer chosen by a sign, parked in 0x34 and called through.**
+ * `is_he_left` and `is_he_right` are the same question asked two ways, and
+ * which one runs is decided by the sign of 0x48 -- so the answer at 0x5c means
+ * "is he on the side I am moving toward" rather than a fixed direction. Both
+ * arrive through pointer slots, so neither is in this file.
+ *
+ * The two early exits are a speed floor and a mode filter: nothing happens
+ * below 0x60000 -- six units in the 16.16 this directory uses -- and nothing
+ * happens in modes 1 or 2, whatever PROC+0x30 counts.
+ *
+ * 0x1c is written four times with four meanings: a magnitude, then 1, then 2
+ * on one branch, then restored around `face_opponent` because that routine
+ * uses the slot itself. The save into r5 is the only reason the value survives.
+ */
+void flight_move_ani(MK3OBJ *obj)
+{
+    int32_t  v = (int32_t)obj->field08->field18;
+    uint32_t m, saved;
+
+    obj->field1c = (uint32_t)(v < 0 ? -v : v);
+    if ((int32_t)obj->field1c < 0x60000)        /* a speed floor */
+        return;
+
+    m = *(uint32_t *)((char *)obj->field00 + 0x30);
+    obj->field20 = m;
+    if (m == 1 || m == 2)                       /* not in those modes */
+        return;
+
+    obj->field1c = 1;
+    obj->field34 = (uint32_t)(uintptr_t)
+                   (((int32_t)obj->field48 < 0) ? is_he_left : is_he_right);
+
+    ((void (*)(MK3OBJ *))(uintptr_t)obj->field34)(obj);
+
+    if (obj->field5c == 0)
+        obj->field1c = 2;
+
+    saved = obj->field1c;
+    face_opponent(obj);                 /* which uses 0x1c itself */
+    obj->field1c = saved;
+
+    set_float_ani(obj);
 }
