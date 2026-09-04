@@ -877,4 +877,167 @@ long t_initial_skeleton_shake(MK3THREAD *thread)
  * instruction; see tools/pushfn.py and tools/leaffn.py.
  * -------------------------------------------------------------------- */
 
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
 
+long t_mframew(MK3THREAD *thread);
+long t_r_jax_stomp(MK3THREAD *thread);
+void tsound_func(MK3OBJ *obj, uint32_t arg);
+
+/* t_light_animator -- armv7 0x0003315c, 116 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field1c = 0x6
+ *          token := 0x154a, then descend into t_mframew
+ *      token == 0x154a:
+ *          park(token 0x154b, duration 0x16462)   and never wakes
+ *      otherwise:  return -3
+ */
+long t_light_animator(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 0x6;
+        *mk3_frame(thread, thread->frame + 1) = 0x154a;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x154a)
+        return -3;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x154b;
+    thread->fieldfc = 0x16462;          /* and never wakes */
+    return 0x16462;
+}
+
+/* t_crush_blood -- armv7 0x000331d0, 92 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field1c = 0x1
+ *          park(token 0x15a1, duration 0x4)
+ *      token == 0x15a1:
+ *          obj->field1c = 0x1
+ *          park(token 0x15a4, duration 0x16462)   and never wakes
+ *      otherwise:  return -3
+ */
+long t_crush_blood(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 0x1;
+        *mk3_frame(thread, thread->frame + 1) = 0x15a1;
+        thread->fieldfc = 0x4;
+        return 0x4;
+    }
+
+    if (token != 0x15a1)
+        return -3;
+
+    obj->field1c = 0x1;
+    *mk3_frame(thread, thread->frame + 1) = 0x15a4;
+    thread->fieldfc = 0x16462;          /* and never wakes */
+    return 0x16462;
+}
+
+/* t_make_db_tone -- armv7 0x00033c30, 88 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          park(token 0x1c04, duration 0x2)
+ *      token == 0x1c04:
+ *          obj->field28 = 0x36
+ *          send_code_a3(obj)
+ *          park(token 0x1c08, duration 0x16462)   and never wakes
+ *      otherwise:  return -3
+ */
+long t_make_db_tone(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x1c04;
+        thread->fieldfc = 0x2;
+        return 0x2;
+    }
+
+    if (token != 0x1c04)
+        return -3;
+
+    obj->field28 = 0x36;
+    send_code_a3(obj);
+    *mk3_frame(thread, thread->frame + 1) = 0x1c08;
+    thread->fieldfc = 0x16462;          /* and never wakes */
+    return 0x16462;
+}
+
+/* t_r_mk_game_crush -- armv7 0x000350b8, 100 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          center_around_me(obj)
+ *          park(token 0xa1f, duration 0x14)
+ *      token == 0xa1f:
+ *          death_scream(obj)
+ *          frame[frame].handler = t_r_jax_stomp
+ *      otherwise:  return -3
+ */
+long t_r_mk_game_crush(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        center_around_me(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0xa1f;
+        thread->fieldfc = 0x14;
+        return 0x14;
+    }
+
+    if (token != 0xa1f)
+        return -3;
+
+    death_scream(obj);
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_r_jax_stomp);
+}
+
+/* t_flesh_rip_sound -- armv7 0x00036368, 96 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          tsound_func(obj, 0x70)
+ *          park(token 0x12d1, duration 0x40)
+ *      token == 0x12d1:
+ *          tsound_func(obj, 0x70)
+ *          park(token 0x12d3, duration 0x16462)   and never wakes
+ *      otherwise:  return -3
+ */
+long t_flesh_rip_sound(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        tsound_func(obj, 0x70);
+        *mk3_frame(thread, thread->frame + 1) = 0x12d1;
+        thread->fieldfc = 0x40;
+        return 0x40;
+    }
+
+    if (token != 0x12d1)
+        return -3;
+
+    tsound_func(obj, 0x70);
+    *mk3_frame(thread, thread->frame + 1) = 0x12d3;
+    thread->fieldfc = 0x16462;          /* and never wakes */
+    return 0x16462;
+}

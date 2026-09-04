@@ -102,3 +102,35 @@ long t_combo_miss(MK3THREAD *thread)
 
     return mk3_push_handler(thread, (MK3THREADFUNC)t_combo_2_late);
 }
+
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
+
+/* t_combo_2_late -- armv7 0x00032a00, 76 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          park(token 0x847, duration 0x5)
+ *      token == 0x847:
+ *          frame[frame].handler = t_combo_exit
+ *      otherwise:  return -3
+ */
+long t_combo_2_late(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x847;
+        thread->fieldfc = 0x5;
+        return 0x5;
+    }
+
+    if (token != 0x847)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_combo_exit);
+}

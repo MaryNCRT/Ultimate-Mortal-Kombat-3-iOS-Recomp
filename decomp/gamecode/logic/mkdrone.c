@@ -3171,3 +3171,76 @@ long t_d_land(MK3THREAD *thread)
 
     return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
+
+long t_drone_entry(MK3THREAD *thread);
+long t_wait_for_start(MK3THREAD *thread);
+void d_init(MK3OBJ *obj);
+
+/* t_drone_proc -- armv7 0x00067b30, 124 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          d_init(obj)
+ *          token := 0x346, then descend into t_wait_for_start
+ *      token == 0x346:
+ *          frame[frame].handler = t_drone_entry
+ *      otherwise:  return -3
+ */
+long t_drone_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        d_init(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x346;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_wait_for_start;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x346)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_drone_entry);
+}
+
+/* c_tusk_blur_sd -- armv7 0x0006a020, 124 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->a10 = 0x40
+ *          obj->field48 = 0x40
+ *          token := 0xd71, then descend into t_d_run_a11
+ *      token == 0xd71:
+ *          frame[frame].handler = t_d_knee
+ *      otherwise:  return -3
+ */
+long c_tusk_blur_sd(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->a10 = 0x40;
+        obj->field48 = 0x40;
+        *mk3_frame(thread, thread->frame + 1) = 0xd71;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_d_run_a11;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xd71)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_d_knee);
+}
