@@ -119,6 +119,8 @@ void flip_multi(MK3OBJ *obj);
 void multi_adjust_xy(MK3OBJ *obj);
 void create_fx_xy(MK3OBJ *obj, long x, long y);
 void send_code_a3(MK3OBJ *obj);
+void ground_player(MK3OBJ *obj);
+void init_special(MK3OBJ *obj);
 
 /* t_scorp_skeleton_burn -- armv7 0x0003424c, 64 bytes.  **Complete.**
  *
@@ -584,4 +586,147 @@ void death_blow_complete(MK3OBJ *obj)
         obj->field28 = 0x37;
 
     send_code_a3(obj);
+}
+
+
+/* single_obj_thudd_1 -- armv7 0x0003ab30, 64 bytes.  **Complete.**
+ *
+ *      obj->field40 = 0x47
+ *      get_char_ani(obj)                   ; 0x40 becomes a pointer
+ *      a = *(uint32_t *)obj->field40       ; the animation's first word
+ *      obj->field40 = a
+ *      obj->field08->field2c = a & 0x3fff
+ *      match_me_with_him(obj)
+ *      ground_player(obj)
+ *      obj->field20 = 0
+ *      obj->field1c = 0xd
+ *      multi_adjust_xy(obj)
+ *      flip_multi(obj)
+ *
+ * **The animation number is fourteen bits.** The first word of an animation
+ * is masked with 0x3fff before it becomes the other object's current
+ * animation, so the top eighteen bits of that word are something else --
+ * flags this file does not use. Worth knowing before anything compares a
+ * raw first word against an animation id.
+ *
+ * 0x40 is a number on the way in and a pointer on the way out: `get_char_ani`
+ * looks up 0x47 for this character and leaves the address there. The same
+ * slot then takes the word it points at.
+ */
+void single_obj_thudd_1(MK3OBJ *obj)
+{
+    uint32_t a;
+
+    obj->field40 = 0x47;
+    get_char_ani(obj);                      /* 0x40: number in, pointer out */
+
+    a = *(uint32_t *)(uintptr_t)obj->field40;
+    obj->field40 = a;
+    obj->field08->field2c = a & 0x3fff;     /* fourteen bits of animation */
+
+    match_me_with_him(obj);
+    ground_player(obj);
+
+    obj->field20 = 0;
+    obj->field1c = 0xd;
+    multi_adjust_xy(obj);
+    flip_multi(obj);
+}
+
+
+/* t_post_sliced_up -- armv7 0x000330f4, 68 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      other = ((MK3OBJ *)thread->proc)->field08
+ *      other->field2c = other->field24 + 0x1ad6
+ *      frame[frame].handler = t_wait_forever
+ *      frame[frame+1].w0 = 0
+ *
+ * **Animation by character number.** 0x24 is the character and 0x2c is the
+ * animation, and this adds a base to one to get the other -- so the
+ * post-slice animations sit consecutively from 0x1ad6, one per character,
+ * and the id doubles as the index.
+ *
+ * The constant arrives in two instructions, `add.w #0x1ac0` then `adds #0x16`,
+ * because 0x1ad6 is not one Thumb immediate.
+ *
+ * Then the thread parks forever. Being sliced up is not a state anything
+ * recovers from, so the handler that runs next is the one that never
+ * finishes -- reached here through the pointer slot at 0x000f3724, the same
+ * one `wfe_him` uses.
+ */
+long t_post_sliced_up(MK3THREAD *thread)
+{
+    MK3OBJ *other;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    other = ((MK3OBJ *)thread->proc)->field08;
+    other->field2c = other->field24 + 0x1ad6;   /* one per character */
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_wait_forever);
+}
+
+
+/* ============================================ t_do_fatality_1, t_do_fatality_2
+ *
+ * armv7 0x000334b4 and 0x00033468, 76 bytes each.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj = thread->proc
+ *      init_special(obj)
+ *      h = ochar_fatalitiesN[obj->field08->field24]
+ *      obj->field1c = h
+ *      frame[frame].handler = h
+ *      frame[frame+1].w0 = 0
+ *
+ * One function written twice, differing only in which table it indexes:
+ * `_ochar_fatalities1` at 0x00166e68 and `_ochar_fatalities2` at 0x00166ed0.
+ *
+ * **The tables are 26 entries of four bytes.** 0x00166ed0 - 0x00166e68 is
+ * 0x68, which is 104, which is 26 pointers -- so the second table begins
+ * exactly where the first ends, and the roster is 26 characters. The index is
+ * 0x24 on the other object, the same field `get_block_ani_offset` tests
+ * against 0xb and `t_post_sliced_up` turns into an animation number.
+ *
+ * See docs/FATALITY-TABLES.md for both tables read out. They are the clearest
+ * character-id list in the binary, because every entry is a named symbol.
+ *
+ * The chosen handler is written to 0x1c as well as installed. Nothing here
+ * reads it back, but the fatality routines run with it there.
+ */
+extern MK3THREADFUNC ochar_fatalities1[26];    /* 0x00166e68 */
+extern MK3THREADFUNC ochar_fatalities2[26];    /* 0x00166ed0 */
+
+long t_do_fatality_1(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    init_special(obj);
+
+    h = ochar_fatalities1[obj->field08->field24];
+    obj->field1c = (uint32_t)(uintptr_t)h;
+
+    return mk3_push_handler(thread, h);
+}
+
+long t_do_fatality_2(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    init_special(obj);
+
+    h = ochar_fatalities2[obj->field08->field24];
+    obj->field1c = (uint32_t)(uintptr_t)h;
+
+    return mk3_push_handler(thread, h);
 }
