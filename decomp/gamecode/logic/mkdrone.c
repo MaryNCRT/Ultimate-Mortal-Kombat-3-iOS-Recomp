@@ -3244,3 +3244,44 @@ long c_tusk_blur_sd(MK3THREAD *thread)
 
     return mk3_push_handler(thread, (MK3THREADFUNC)t_d_knee);
 }
+
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
+
+long t_d_attack_close(MK3THREAD *thread);
+
+/* t_stalk_in_close -- armv7 0x000677b8, 132 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->a10 = 0x1900
+ *          obj->field48 = 0x40
+ *          token := 0x202, then descend into t_d_stalk_a11
+ *      token == 0x202:
+ *          frame[frame].handler = t_d_attack_close
+ *      otherwise:  return -3
+ */
+long t_stalk_in_close(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->a10 = 0x1900;
+        obj->field48 = 0x40;
+        *mk3_frame(thread, thread->frame + 1) = 0x202;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_d_stalk_a11;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x202)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_d_attack_close);
+}

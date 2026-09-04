@@ -118,3 +118,53 @@ long t_liz_fly_hit(MK3THREAD *thread)
     away_x_vel(obj);
     return mk3_push_handler(thread, (MK3THREADFUNC)t_square3);
 }
+
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
+
+long t_flight(MK3THREAD *thread);
+long t_jump_up_land_jsrp(MK3THREAD *thread);
+
+/* t_air_grab_cancel -- armv7 0x0003d76c, 152 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field40 = 0x19
+ *          pose_a9_manual(obj)
+ *          obj->field1c = 0xd
+ *          obj->field20 = 0xd
+ *          obj->field24 = 0x8000
+ *          obj->field28 = 0xfff
+ *          token := 0x83f, then descend into t_flight
+ *      token == 0x83f:
+ *          frame[frame].handler = t_jump_up_land_jsrp
+ *      otherwise:  return -3
+ */
+long t_air_grab_cancel(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field40 = 0x19;
+        pose_a9_manual(obj);
+        obj->field1c = 0xd;
+        obj->field20 = 0xd;
+        obj->field24 = 0x8000;
+        obj->field28 = 0xfff;
+        *mk3_frame(thread, thread->frame + 1) = 0x83f;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x83f)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_jump_up_land_jsrp);
+}

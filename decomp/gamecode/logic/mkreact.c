@@ -1876,3 +1876,224 @@ long t_block_shake_n_exit(MK3THREAD *thread)
 
     return mk3_push_handler(thread, (MK3THREADFUNC)t_block_exit);
 }
+
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
+
+long t_flight(MK3THREAD *thread);
+long t_land_on_my_back(MK3THREAD *thread);
+long t_reaction_land(MK3THREAD *thread);
+
+/* t_airborn_hit_no_sound -- armv7 0x0004176c, 148 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field1c = 0x38000
+ *          obj->field20 = 0xfffa0000
+ *          obj->field24 = 0x8000
+ *          obj->field28 = 0x5
+ *          obj->field40 = 0x1e
+ *          token := 0x1073, then descend into t_flight
+ *      token == 0x1073:
+ *          frame[frame].handler = t_land_on_my_back
+ *      otherwise:  return -3
+ */
+long t_airborn_hit_no_sound(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 0x38000;
+        obj->field20 = 0xfffa0000;
+        obj->field24 = 0x8000;
+        obj->field28 = 0x5;
+        obj->field40 = 0x1e;
+        *mk3_frame(thread, thread->frame + 1) = 0x1073;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x1073)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_land_on_my_back);
+}
+
+/* t_r_post_shake -- armv7 0x00041904, 148 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field1c = 0x40000
+ *          obj->field20 = 0xfffc0000
+ *          obj->field24 = 0x8000
+ *          obj->field28 = 0x5
+ *          obj->field40 = 0x1e
+ *          token := 0x113b, then descend into t_flight
+ *      token == 0x113b:
+ *          frame[frame].handler = t_reaction_land
+ *      otherwise:  return -3
+ */
+long t_r_post_shake(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 0x40000;
+        obj->field20 = 0xfffc0000;
+        obj->field24 = 0x8000;
+        obj->field28 = 0x5;
+        obj->field40 = 0x1e;
+        *mk3_frame(thread, thread->frame + 1) = 0x113b;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x113b)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_reaction_land);
+}
+
+/* t_r_post_bike -- armv7 0x00041998, 148 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field1c = 0x40000
+ *          obj->field20 = 0xfffa0000
+ *          obj->field24 = 0xa000
+ *          obj->field28 = 0x5
+ *          obj->field40 = 0x1e
+ *          token := 0x1145, then descend into t_flight
+ *      token == 0x1145:
+ *          frame[frame].handler = t_reaction_land
+ *      otherwise:  return -3
+ */
+long t_r_post_bike(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 0x40000;
+        obj->field20 = 0xfffa0000;
+        obj->field24 = 0xa000;
+        obj->field28 = 0x5;
+        obj->field40 = 0x1e;
+        *mk3_frame(thread, thread->frame + 1) = 0x1145;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x1145)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_reaction_land);
+}
+
+/* t_combo_airborn_hit -- armv7 0x0004289c, 176 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field1c = 0x2
+ *          group_sound(obj)
+ *          rsnd_func(obj, 0xa)
+ *          obj->field48 = 0x60006
+ *          shake_a11(obj)
+ *          obj->field1c = 0x50000
+ *          obj->field20 = 0xfffd0000
+ *          obj->field24 = 0x8000
+ *          obj->field28 = 0x5
+ *          obj->field40 = 0x1e
+ *          token := 0x1061, then descend into t_flight
+ *      token == 0x1061:
+ *          frame[frame].handler = t_land_on_my_back
+ *      otherwise:  return -3
+ */
+long t_combo_airborn_hit(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 0x2;
+        group_sound(obj);
+        rsnd_func(obj, 0xa);
+        obj->field48 = 0x60006;
+        shake_a11(obj);
+        obj->field1c = 0x50000;
+        obj->field20 = 0xfffd0000;
+        obj->field24 = 0x8000;
+        obj->field28 = 0x5;
+        obj->field40 = 0x1e;
+        *mk3_frame(thread, thread->frame + 1) = 0x1061;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x1061)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_land_on_my_back);
+}
+
+/* t_combo2 -- armv7 0x00046944, 172 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field1c = 0x4
+ *          create_blood_proc(obj)
+ *          set_half_damage(obj)
+ *          obj->field1c = 0xe
+ *          create_fx(obj)
+ *          obj->field1c = 0x40000
+ *          obj->field20 = 0xfff80000
+ *          obj->field24 = 0x8000
+ *          obj->field28 = 0x5
+ *          obj->field40 = 0x1e
+ *          token := 0xca9, then descend into t_flight
+ *      token == 0xca9:
+ *          frame[frame].handler = t_land_on_my_back
+ *      otherwise:  return -3
+ */
+long t_combo2(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 0x4;
+        create_blood_proc(obj);
+        set_half_damage(obj);
+        obj->field1c = 0xe;
+        create_fx(obj);
+        obj->field1c = 0x40000;
+        obj->field20 = 0xfff80000;
+        obj->field24 = 0x8000;
+        obj->field28 = 0x5;
+        obj->field40 = 0x1e;
+        *mk3_frame(thread, thread->frame + 1) = 0xca9;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xca9)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_land_on_my_back);
+}
