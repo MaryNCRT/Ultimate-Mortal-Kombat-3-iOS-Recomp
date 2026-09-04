@@ -1248,11 +1248,28 @@ int LIME_TriggerEvent(SCENEEVENTTRACK *track, limeMATRIX44 *m1,
  * by a name for the mode, because one compare against one value is not enough to
  * say what the mode means.
  */
-void LIME_TriggerEventsFromSceneOffsetIfFollowing(long a0, long a1,
-                                                  SCENEINFO *scene, long a3)
+/* **It takes ELEVEN arguments**, and this was written with four. The frame is
+ * `push {r4,r5,r6,r7,lr}` (20) + `push.w {r8,sl,fp}` (12) + `sub sp, #0x68`
+ * (104) = 136 = 0x88, so `[sp, #0x88]` is the caller's first stacked argument
+ * -- and the body reads that and every word up to `[sp, #0xa0]`, which is
+ * seven more. GameCode.c had always declared eleven, with names.
+ *
+ * The body below still only models the first four. The rest are named so the
+ * interface is right and marked unused so it is obvious which half is read.
+ */
+void LIME_TriggerEventsFromSceneOffsetIfFollowing(long slot, long follow,
+                                                  SCENEINFO *scene, long frame,
+                                                  const float *m,
+                                                  const float *m2,
+                                                  long mirror, long one,
+                                                  void *skin, long e,
+                                                  long inToggleRange)
 {
     SCENEEVENTS *events;
     long i;
+
+    (void)m; (void)m2; (void)mirror; (void)one;
+    (void)skin; (void)e; (void)inToggleRange;
 
     if (scene == NULL)
         return;
@@ -1272,9 +1289,9 @@ void LIME_TriggerEventsFromSceneOffsetIfFollowing(long a0, long a1,
 
         if (*(const int *)(track + 0x24) == 1)
             LIME_TriggerEvent((SCENEEVENTTRACK *)track, (limeMATRIX44 *)m,
-                              NULL, a0, a1, a3, NULL, NULL, 0);
+                              NULL, slot, follow, frame, NULL, NULL, 0);
         else
             LIME_TriggerEvent((SCENEEVENTTRACK *)track, (limeMATRIX44 *)m,
-                              NULL, a0, a1, a3, NULL, NULL, 0);
+                              NULL, slot, follow, frame, NULL, NULL, 0);
     }
 }

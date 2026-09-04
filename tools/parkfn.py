@@ -45,6 +45,12 @@ that ends an install, not a token. Testing for a token first ate every clear
 in the directory, and this reader accepted nothing at all until that was the
 other way round.
 
+Three spellings of the same thing had to be accepted before the yield stopped
+looking like a rules problem: the dispatch is `cbnz rTok, RESUME` or
+`cmp rTok, #0` with `bne RESUME`; the token check is `cmp` or `cmp.w`. Each
+of those cost between forty and eighty functions on its own. **When a reader's
+yield is surprisingly low, suspect the spelling before the logic.**
+
     python tools/parkfn.py --file mkfatal.c [--max 256] [--emit] [--rest]
 """
 
@@ -172,7 +178,7 @@ def split(b):
         return None, "not the park shape"
 
     # The comparison feeding it, and the value compared against.
-    if pair < 1 or b[pair - 1][1] != "cmp":
+    if pair < 1 or b[pair - 1][1] not in ("cmp", "cmp.w"):
         return None, "the token check has no cmp"
     cmp_at = pair - 1
     lhs, _, rhs = b[cmp_at][2].partition(",")
@@ -190,11 +196,16 @@ def split(b):
         token = int(v.strip()[1:], 0)
         first = cmp_at - 1
 
-    # The dispatch branch: the last cbz/cbnz before that block.
-    disp = None
+    # The dispatch branch, in either of the two spellings the compiler used:
+    # `cbnz rTok, RESUME`, or `cmp rTok, #0` and `bne RESUME`. They mean the
+    # same thing, and taking only the compact one lost seventy-nine functions.
+    disp, taken = None, None
     for i in range(first):
         if b[i][1] in ("cbz", "cbnz"):
-            disp = i
+            disp, taken = i, b[i][1] == "cbnz"
+        elif b[i][1] in ("cmp", "cmp.w") and b[i][2].endswith(", #0") \
+                and i + 1 < first and b[i + 1][1] in ("bne", "beq"):
+            disp, taken = i + 1, b[i + 1][1] == "bne"
     if disp is None:
         return None, "no dispatch branch"
     tgt = branch_target(b[disp][2])
@@ -202,10 +213,10 @@ def split(b):
         return None, "the dispatch goes somewhere unmapped"
 
     resume = at[tgt]
-    if b[disp][1] == "cbnz":
+    if taken:
         s0 = (disp + 1, resume)         # fall through on token == 0
     else:
-        return None, "cbz dispatch, which this has not seen"
+        return None, "the zero arm is the branch, which this has not seen"
     if resume != first:
         return None, "the resume does not start at the token check"
 
@@ -231,6 +242,25 @@ class ParkRun(pushfn.Run):
 
     def __init__(self, b, starts):
         pushfn.Run.__init__(self, [[r[1], r[2], r[3]] for r in b], starts)
+
+    def step(self, i):
+        """One extra rule, the same one `leaffn` needed: a load through the
+        OBJECT keeps its provenance.
+
+        `pushfn` only tracks where the thread's fields go, so a load from the
+        object falls through to unknown and every store of that value is
+        refused for not being a constant. `obj->field20 = obj->field1c` is
+        ordinary in these routines and worth being able to write.
+        """
+        op, args, _tgt = self.b[i]
+        dst, _, rest = args.partition(",")
+        dst, rest = dst.strip(), rest.strip()
+        if op in ("ldr", "ldr.w"):
+            m = re.match(r"^\[(\w+), #(0x[0-9a-fA-F]+|\d+)\]$", rest)
+            if m and self.get(m.group(1)).kind == "proc":
+                self.r[dst] = V("objload", int(m.group(2), 0))
+                return 1
+        return pushfn.Run.step(self, i)
 
 
 def classify(effects, starts):
@@ -286,11 +316,19 @@ def classify(effects, starts):
                 return None, "the handler is not an address"
             handler = val
         elif base.kind == "proc":
-            if val.kind != "imm":
+            if val.kind not in ("imm", "objload"):
                 return None, "a store whose value is not a constant"
             out.append(("store", off, val))
         else:
             return None, "a store this does not model"
+
+    # A value read from a field this state also writes is a SAVED value being
+    # put back, not a re-read -- the same trap `leaffn` fell into once. Without
+    # the loads in order the two cannot be told apart, so refuse.
+    written = set(x[1] for x in out if x[0] == "store")
+    for x in out:
+        if x[0] == "store" and x[2].kind == "objload" and x[2].a in written:
+            return None, "a saved value, not a re-read"
 
     if token is not None and dur is not None and handler is None and not bumped:
         return ("park", out, token, dur), None
@@ -318,7 +356,9 @@ def read(name, a, e, starts):
     try:
         i = 0
         while i <= disp:
-            if b[i][1] in ("cbz", "cbnz"):
+            # The dispatch itself is not an effect. Its `cmp` and branch are
+            # accounted for by `split`, and the interpreter models neither.
+            if b[i][1] in ("cbz", "cbnz", "cmp", "cmp.w", "bne", "beq"):
                 i += 1
                 continue
             i += run.step(i)
@@ -350,6 +390,15 @@ def read(name, a, e, starts):
     return (e0, token, eT), None
 
 
+def rhs(val):
+    """The right-hand side of a store: a constant, or a field of the object."""
+    if val.kind == "imm":
+        return "0x%x" % val.a
+    f = field(val.a)
+    return ("obj->%s" % f) if f else \
+           ("*(uint32_t *)((char *)obj + 0x%02x)" % val.a)
+
+
 def work(eff, indent):
     """The stores and calls a state does before it parks or descends."""
     out = ""
@@ -365,7 +414,7 @@ def work(eff, indent):
             f = field(off)
             lhs = ("obj->%s" % f) if f else \
                   ("*(uint32_t *)((char *)obj + 0x%02x)" % off)
-            out += "%s%s = 0x%x" % (indent, lhs, val.a)
+            out += "%s%s = %s" % (indent, lhs, rhs(val))
         out += "\n"
     return out
 
@@ -403,7 +452,7 @@ def code(state, starts, indent="        "):
             f = field(off)
             lhs = ("obj->%s" % f) if f else \
                   ("*(uint32_t *)((char *)obj + 0x%02x)" % off)
-            out += "%s%s = 0x%x;\n" % (indent, lhs, val.a)
+            out += "%s%s = %s;\n" % (indent, lhs, rhs(val))
     if kind == "park":
         _, _, token, dur = state
         out += ("%s*mk3_frame(thread, thread->frame + 1) = 0x%x;\n"
