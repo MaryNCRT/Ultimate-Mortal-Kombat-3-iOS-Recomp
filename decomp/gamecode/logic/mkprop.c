@@ -95,6 +95,10 @@ void adjust_him_xy(MK3OBJ *obj);
 void strike_check_a0(MK3OBJ *obj);
 long t_lao_angle_hit(MK3THREAD *thread);
 long t_shake_ob_up(MK3THREAD *thread);
+void find_ani2_part2(MK3OBJ *obj);
+long t_air_sleep3(MK3THREAD *thread);
+long t_land_on_yer_feet(MK3THREAD *thread);
+long t_lao_angle_blocked(MK3THREAD *thread);
 
 /* --------------------------------------------------------------------
  * Added by a later sweep -- tools/sweep.py, running the same
@@ -1201,4 +1205,132 @@ long t_blb8(MK3THREAD *thread)
         (uint32_t)(uintptr_t)t_shake_ob_up;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
+}
+
+
+/* ------------------------------------------------------------- tl_do_robo_air_grab
+ *
+ * armv7 0x0003cf94, 152 bytes.  **Complete.**
+ *
+ *      token == 0:       obj->field20          = 0x209
+ *                        obj->field00->field18 = 0x209
+ *                        air_init_special(obj)
+ *                        obj->field1c = 0x23
+ *                        ochar_sound(obj)
+ *                        obj->field40 = 6
+ *                        find_ani2_part2(obj)
+ *                        do_next_a9_frame(obj)
+ *                        park(token 0x7ee, duration 3)
+ *
+ *      token == 0x7ee:   obj->field1c = 4
+ *                        init_anirate(obj)
+ *                        obj->a10     = obj->field00->him
+ *                        obj->field48 = 6
+ *                        frame[frame].handler = t_air_sleep3
+ *
+ *      otherwise:        return -3
+ *
+ * Entry 9 of the propell table. **It parks on one state and installs on the
+ * other**, which is the mixed shape: three ticks of nothing after the grab
+ * animation starts, then the opponent is written into the argument slot and
+ * the thread hands over to the air sleep.
+ *
+ * 0x209 goes to the object's 0x20 and the PROC's 0x18 from one register, the
+ * action pair this file writes together everywhere.
+ *
+ * The animation is found with `find_ani2_part2` -- the *2* variant, matching
+ * the `get_char_ani2` family -- rather than the plain one used by the ground
+ * moves.
+ */
+long tl_do_robo_air_grab(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token != 0) {
+        if (token != 0x7ee)
+            return -3;
+
+        obj->field1c = 4;
+        init_anirate(obj);
+
+        obj->a10     = obj->field00->him;
+        obj->field48 = 6;
+
+        return mk3_push_handler(thread, (MK3THREADFUNC)t_air_sleep3);
+    }
+
+    obj->field20          = 0x209;
+    obj->field00->field18 = 0x209;
+    air_init_special(obj);
+
+    obj->field1c = 0x23;
+    ochar_sound(obj);
+
+    obj->field40 = 6;
+    find_ani2_part2(obj);
+    do_next_a9_frame(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x7ee;
+    thread->fieldfc = 3;
+    return 3;
+}
+
+
+/* ----------------------------------------------------------------- t_lao_angle_hit
+ *
+ * armv7 0x0003cc30, 152 bytes.  **Complete.**
+ *
+ *      token == 0:       stop_me_player(obj)
+ *                        if (obj->field18 != 0)
+ *                            frame[frame].handler = t_lao_angle_blocked
+ *                        else
+ *                            park(token 0x8d1, duration 6)
+ *
+ *      token == 0x8d1:   obj->field24 = 0x8000
+ *                        obj->field28 = 0xfff
+ *                        obj->field1c = 0
+ *                        obj->field20 = 0
+ *                        frame[frame].handler = t_land_on_yer_feet
+ *
+ *      otherwise:        return -3
+ *
+ * The other half of `t_lao_angle_scan`, which installs this when the hat
+ * connects. **0x18 decides whether it counted**: non-zero and the move goes
+ * to the blocked routine straight away, zero and the thread waits six ticks
+ * before setting up the landing.
+ *
+ * `t_lao_angle_blocked` is a direct pc-relative address, so it is in this
+ * file; `t_land_on_yer_feet` comes through the slot at 0x000f3778, so it is
+ * not.
+ *
+ * The two zeros on the resume path are `str r0` with r0 already zero from the
+ * `movs r0, #0` that also feeds the slot clear -- one constant, three uses.
+ */
+long t_lao_angle_hit(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token != 0) {
+        if (token != 0x8d1)
+            return -3;
+
+        obj->field24 = 0x8000;
+        obj->field28 = 0xfff;
+        obj->field1c = 0;
+        obj->field20 = 0;
+
+        return mk3_push_handler(thread, (MK3THREADFUNC)t_land_on_yer_feet);
+    }
+
+    stop_me_player(obj);
+
+    if (obj->field18 != 0)              /* he blocked it */
+        return mk3_push_handler(thread,
+                                (MK3THREADFUNC)t_lao_angle_blocked);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x8d1;
+    thread->fieldfc = 6;
+    return 6;
 }
