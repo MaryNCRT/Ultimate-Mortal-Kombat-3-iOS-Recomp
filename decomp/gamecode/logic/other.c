@@ -4277,12 +4277,25 @@ void damage_to_him(MK3OBJ *obj)
  *
  * It inherits `random32`'s missing low two bits through the same multiply-high
  * `randu` uses.
+ *
+ * **It also RETURNS the answer**, which this was first written without.
+ * `bossrandper_org` is nothing but `return randper(obj)`, and the tail says
+ * why that works:
+ *
+ *      movle r0, #0
+ *      movgt r0, #1
+ *      str   r0, [r4, #0x5c]           ; into the field
+ *      pop   {r4, r5, r6, r7, pc}      ; and r0 still holds it
+ *
+ * The store is not the only output. Callers use both, and reading it as void
+ * silently dropped the one the boss AI depends on.
  */
-void randper(MK3OBJ *obj)
+long randper(MK3OBJ *obj)
 {
     uint32_t saved20 = obj->field20;
     uint32_t saved24 = obj->field24;
     uint32_t chance;
+    long answer;
 
     obj->field24 = obj->field1c;
     mk_random(obj);
@@ -4294,7 +4307,9 @@ void randper(MK3OBJ *obj)
     obj->field20 = saved20;
     obj->field24 = saved24;
 
-    obj->field5c = ((int32_t)chance > (int32_t)obj->field1c) ? 1u : 0u;
+    answer = ((int32_t)chance > (int32_t)obj->field1c) ? 1 : 0;
+    obj->field5c = (uint32_t)answer;
+    return answer;
 }
 
 
@@ -10030,7 +10045,7 @@ long t_one_on_one(MK3THREAD *thread)
  * out of data.
  */
 extern uint16_t **last_switch_ram;      /* 0x0016f50c */
-void t_do_shake(void);
+long t_do_shake(void);
 void t_do_fatality_1(void);
 void t_do_fatality_2(void);
 

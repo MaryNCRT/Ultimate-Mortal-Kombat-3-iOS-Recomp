@@ -104,6 +104,17 @@ for f in $(LC_ALL=C grep -rlaP '[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]' --include='*.c
 done
 [ "$stray" = "0" ] && echo "  none"
 
+# Each file is compiled ALONE above, so a prototype that contradicts a
+# definition in another file passes every check here. That is how one function
+# came to have three prototypes in three files, one of them passing a pointer
+# where the definition took an integer, and how two functions that return a
+# value were written as `void` -- the callers using the value were in other
+# files. Cross-file agreement needs its own pass.
+echo
+echo "=== prototypes against their definitions ==="
+python tools/protos.py --quiet || true
+echo "  (tools/protos.py, without --quiet, says which)"
+
 echo
 rm -f "$OBJ"
 echo "TOTAL: $errors errors, $warnings warnings"

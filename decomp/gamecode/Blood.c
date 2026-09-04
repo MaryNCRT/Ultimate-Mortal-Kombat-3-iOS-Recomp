@@ -605,10 +605,10 @@ extern void *SLDie2Scene;              /* pointer slot -> 0x001aba7c */
 #define M_Z               (0x38 / 4)
 
 GAMEEVENT *GetNewEvent(long type);
-long  get_csound(long a, long b);
+uint32_t  get_csound(long a, long b);
 long  get_rsound(long id, long seed);
 long  get_gsound(long group, long variant, long seed);
-void  achievementsUnlock(long id);
+int  achievementsUnlock(int id);
 void  achievementsIncreaseSubzeroXerox(void);
 void  EASDK_LogEventEnumEnumString(long id, long a, const char *s1,
                                    long b, const char *s2);
@@ -630,7 +630,7 @@ long  isParent(void);
 long  isParentBasedOnSpeed(void);
 const char *GameTextNoHeader(long id);
 const char *UC(const char *s);
-void  usprintf(char *dst, const char *fmt, ...);
+long  usprintf(char *dst, const char *fmt, ...);
 
 /* The matrix every effect arm starts from. What goes in m[X] and m[Z] after
  * this is the arm's own business -- see the header. */

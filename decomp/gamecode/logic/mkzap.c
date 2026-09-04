@@ -489,8 +489,8 @@ long t_rocket2_proc(struct MK3THREAD *thread);
 long t_rzap3(struct MK3THREAD *thread);
 long tl_bomb33(struct MK3THREAD *thread);
 long get_bomb_vel(MK3OBJ *obj);
-long get_char_ani2(MK3OBJ *obj);
-long ochar_sound(MK3OBJ *obj);
+void get_char_ani2(MK3OBJ *obj);
+void ochar_sound(MK3OBJ *obj);
 long q_his_react_flag_set(MK3OBJ *obj);
 long zap_init_special_act(MK3OBJ *obj);
 

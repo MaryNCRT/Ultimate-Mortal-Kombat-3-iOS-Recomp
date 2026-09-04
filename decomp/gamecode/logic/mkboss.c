@@ -194,12 +194,12 @@ long t_motaro_slided(struct MK3THREAD *thread);
 long t_motaro_stupid_stance(struct MK3THREAD *thread);
 long t_sk_kick(struct MK3THREAD *thread);
 long bossrandper(MK3OBJ *obj);
-long group_sound(MK3OBJ *obj);
+void group_sound(MK3OBJ *obj);
 long is_he_airborn(MK3OBJ *obj);
 long motaro_randper(MK3OBJ *obj);
 long q_is_this_a_joke(MK3OBJ *obj);
-long randu_minimum(MK3OBJ *obj);
-long shake_a11(MK3OBJ *obj);
+void randu_minimum(MK3OBJ *obj);
+void shake_a11(MK3OBJ *obj);
 
 /* t_motaro_grab_punch -- armv7 0x000a8eac, 104 bytes.  **Complete.**
  *

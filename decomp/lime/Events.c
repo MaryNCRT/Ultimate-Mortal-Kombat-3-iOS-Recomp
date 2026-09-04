@@ -356,9 +356,17 @@ void LIME_FreeEvents(SCENEEVENTS *events)
  * loader fills from the matching `.events` file. So the chain the format work
  * described from the file side -- every scene owns one `.events` -- is the same
  * chain the runtime walks.
+ *
+ * **It takes eight arguments and reads four.** This was written with four,
+ * which was wrong: `AnimateBG` sets up `[sp]`, `[sp+4]`, `[sp+8]` and
+ * `[sp+0xc]` before both of its calls, so four more arrive past the registers.
+ * The body never touches `r7`, so it never loads them -- but they are part of
+ * the interface and every caller pushes them. Two call sites agree, which is
+ * what makes this the signature rather than one caller's mistake.
  */
 void LIME_TriggerEventsFromScene(SCENEINFO *scene, int frame,
-                                 limeMATRIX44 *m, long flags)
+                                 limeMATRIX44 *m, long flags,
+                                 long a4, long a5, long a6, long a7)
 {
     int index;
 
@@ -371,6 +379,7 @@ void LIME_TriggerEventsFromScene(SCENEINFO *scene, int frame,
 
     /* the per-track dispatch runs off scene->events (+0x84) */
     (void)m; (void)flags;
+    (void)a4; (void)a5; (void)a6; (void)a7;     /* passed, never loaded */
 }
 
 
@@ -485,9 +494,19 @@ void LIME_UpdateEvents(void)
          * fields go on the stack (+0x60, +0x48, +0xe8, +0xec) and are not
          * broken out. */
         if (ev->state != 0 && frame != ev->frameB)      /* +0x0c */
+            /* Eight arguments, four of them past the registers -- the
+             * binary stores +0x60, +0x48, +0xe8 and +0xec to [sp], [sp+4],
+             * [sp+8] and [sp+0xc] before the call. +0x48 is the same group
+             * number LIME_RenderEvents filters on, so the update path hands
+             * the trigger the group the render path will ask for.
+             * +0x60 has no name yet; it falls inside the unnamed run. */
             LIME_TriggerEventsFromScene(ev->scene, frame,
                                         (limeMATRIX44 *)((char *)ev + 0x68),
-                                        ev->field40);
+                                        ev->field40,
+                                        *(const int *)((const char *)ev + 0x60),
+                                        ev->field48,
+                                        (long)(uintptr_t)ev->flushTexture,
+                                        ev->fieldEC);
 
         scene = ev->scene;              /* +0x10 */
         ev->frameB = ev->frameA;
@@ -962,7 +981,23 @@ EVENTSINFO *LIME_LoadEvents(const char *filename, long arg1, long arg2)
  * the *next* event drawn at the wrong place, not this one -- which is the kind
  * of off-by-one-object error that looks like bad data.
  */
-void LIME_RenderEvents(void)
+/* **It takes an argument, and it is a filter.** This was written with none.
+ * The binary keeps it in `fp` across the whole loop and tests every event
+ * against it:
+ *
+ *      ldr r3, [r4]        ; ev->state
+ *      cmp r3, #0
+ *      beq next            ; skip when zero
+ *      blt next            ; and when negative -- so the test is state > 0
+ *      ldr r3, [r4, #0x48]
+ *      cmp r3, fp          ; the argument
+ *      bne next            ; only this group is drawn
+ *
+ * So a caller renders one group of events at a time rather than the whole
+ * pool, and `+0x48` is which group an event belongs to. `tools/protos.py`
+ * found the missing parameter; the filter came from reading what it is for.
+ */
+void LIME_RenderEvents(long group)
 {
     int i;
 
@@ -970,7 +1005,9 @@ void LIME_RenderEvents(void)
         EVENT *ev = &SceneEvents[i];        /* the pool, stride 0xf8 */
         limeMATRIX44 m;
 
-        if (ev->state == 0)
+        if (ev->state <= 0)                 /* beq AND blt, so not just == 0 */
+            continue;
+        if (ev->field48 != group)           /* +0x48, this pass only */
             continue;
         if (ev->delay != 0)                 /* +0x38, still waiting */
             continue;

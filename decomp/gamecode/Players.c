@@ -1289,7 +1289,7 @@ extern limeVECTOR3 *RenderVerts;        /* pointer slot */
 /* The two skinning generators are defined above. */
 void LIME_RenderMeshSingleIndexed(void *frame, void *tex, float grey,
                                   void *arg, long flag);
-void LIME_printf(long level, const char *fmt, ...);
+void LIME_printf(int window, const char *fmt, ...);
 void glColor4f(float r, float g, float b, float a);
 void glTranslatef(float x, float y, float z);
 void glScalef(float x, float y, float z);

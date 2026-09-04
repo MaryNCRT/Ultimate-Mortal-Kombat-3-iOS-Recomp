@@ -776,7 +776,7 @@ void   LIME_PopMatrix(int count);
 extern uint8_t *g_vertexColourScratch;
 extern limeVECTOR3 g_fadeOffset;
 
-void   LIME_RenderMesh(MESHSETINFO *set, int index, TEXTURE *t0, TEXTURE *t1);
+void   LIME_RenderMesh(MESHSETINFO *set, int index, TEXTURE *tex0, TEXTURE *tex1, long flags);
 void   ConvertQSTMatrixtoPCMatrix(const QSTMATRIX *src, float *dst);
 void   LerpQSTMatrix(const QSTMATRIX *a, const QSTMATRIX *b, float t,
                      QSTMATRIX *out);

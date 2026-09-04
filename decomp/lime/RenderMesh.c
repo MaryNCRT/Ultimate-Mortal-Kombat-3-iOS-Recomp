@@ -242,12 +242,24 @@ MESHSETINFO *LIME_LoadMeshSet(const char *filename, int useLighting)
  * It is a tail call, so the whole function is four loads and a branch -- the
  * only thing it really contributes is the constant 1.0f, which is how the
  * opaque path and the fade path share one renderer.
+ *
+ * **It takes five arguments**, and this was first written with four, with the
+ * fifth read as a hardcoded zero. The binary forwards it:
+ *
+ *      ldr r1, [sp, #0xc]      ; the caller's fifth argument
+ *      str r1, [sp]            ; which becomes RenderMeshSingle's fifth
+ *
+ * After `push {r7, lr}` and `sub sp, #4` the stack pointer sits twelve bytes
+ * below where the caller left it, so `[sp, #0xc]` is the first stacked
+ * argument and not a local. Reading it as a local is what turned a value
+ * passed straight through into a constant. `tools/protos.py` found it: the
+ * callers in GameCode.c had always declared five.
  */
 void LIME_RenderMesh(MESHSETINFO *set, int index,
-                     TEXTURE *tex0, TEXTURE *tex1)
+                     TEXTURE *tex0, TEXTURE *tex1, long flags)
 {
     MESHINFO *mesh = set->meshes[index];       /* MESHSETINFO+0x48 */
-    LIME_RenderMeshSingle(mesh, tex0, tex1, 1.0f, 0);
+    LIME_RenderMeshSingle(mesh, tex0, tex1, 1.0f, flags);
 }
 
 

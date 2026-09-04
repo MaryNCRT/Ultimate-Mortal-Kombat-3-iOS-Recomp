@@ -2716,7 +2716,7 @@ long TouchAreaWH(int x, int y, int w, int h)
 }
 
 
-long limeGetStringWidthUCNoHeader(void *font, const char *text);
+float limeGetStringWidthUCNoHeader(void *font, const char *text);
 
 
 /* ---------------------------------------------------- CreateWrappedTextArrays
@@ -4618,15 +4618,14 @@ extern char   TheFECharacters[];          /* pointer slot -> 0x0020e634 */
 extern float  PlayerSize;               /* pointer slot */
 
 void ClearDebugWindow(int index);
-void LIME_Slider(int window, float *value, const char *label,
-                 float lo, float hi, long step, long e);
+void LIME_Slider(int window, float *value, const char *label, float lo, float hi, long step, long e);
 void LIME_PushMatrix(void);
-void LIME_PopMatrix(void);
+void LIME_PopMatrix(int count);
 void limeGetCurrentModelMatrix(float *out);
 void glMatrixMode(unsigned mode);
 void glLoadIdentity(void);
 void glRotatef(float angle, float x, float y, float z);
-void RenderPlayer(void *player, long a, long b);
+long RenderPlayer(void *player, long a, long b);
 
 void RenderFECharacters(long slot0, long slot1)
 {
@@ -4706,7 +4705,10 @@ void RenderFECharacters(long slot0, long slot1)
         *(long *)(ch + 0x57c) = *(const long *)(ch + 0x5d0);
         *(long *)(ch + 0x580) = *(const long *)(ch + 0x5cc);
 
-        LIME_PopMatrix();
+        /* `movs r0, #1` sits twelve instructions earlier, hoisted clear of
+         * the stores between it and the call. Reading only the instructions
+         * next to a `bl` is how this argument went missing. */
+        LIME_PopMatrix(1);
 
         *(float *)(ch + 0x5d8) = 0.65f;
         *(float *)(ch + 0x5dc) = 0.65f;
@@ -12456,7 +12458,7 @@ extern char  *Versus_Names2[];          /* 0x000ffe74 */
 extern char  *Versus_Names_LOW[];       /* 0x00100140 */
 extern char  *Versus_Names2_LOW[];      /* 0x00100420 */
 
-long  LoadFrontEndCharacters(long which);
+void  LoadFrontEndCharacters(long which);
 void *LIME_LoadMeshSet(const char *name);
 void *limeLoadTexture(const char *name, long a, long b);
 long  limeLoadSound(const char *name);
