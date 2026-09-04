@@ -67,6 +67,33 @@ long t_retract_strike(MK3THREAD *thread)
  * for instruction by instruction.
  * -------------------------------------------------------------------- */
 
+/* --------------------------------------------------------------------
+ * Straight-line leaves, read by tools/leaffn.py: stores, calls and
+ * a return, with every instruction accounted for. It refuses
+ * anything that branches, any return value it cannot prove, and any
+ * value read from a field the function also writes -- that is a
+ * saved value being put back, not a re-read.
+ * -------------------------------------------------------------------- */
+
+void create_blood_proc(MK3OBJ *obj);
+
+/* upcut_blood_me -- armv7 0x0004f05c, 16 bytes.  **Complete.**
+ *
+ *      obj->field1c = 0x1
+ *      create_blood_proc(obj)
+ */
+void upcut_blood_me(MK3OBJ *obj)
+{
+    obj->field1c = 0x1;
+    create_blood_proc(obj);
+}
 
 
-
+/* jade_normpal -- armv7 0x0004fd00, 12 bytes.  **Complete.**
+ *
+ *      player_normpal(obj)
+ */
+void jade_normpal(MK3OBJ *obj)
+{
+    player_normpal(obj);
+}

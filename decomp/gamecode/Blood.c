@@ -616,7 +616,9 @@ void  SaveUnclaimedTreasure(long treasure);
 void  DumpAltCostume(char *player);
 void  LoadGameCharacterCheckCache(char *player, const PLAYERDEF *def,
                                   long *stats);
-void  HUDANIM_TriggerAnim(long anim);
+/* HUDANIM is `typedef int` in HudAnim.c, so int is that same type rather
+ * than a second copy of the typedef here. */
+void  HUDANIM_TriggerAnim(int anim);
 void  StopCameraTracking(void);
 void  SetCameraOverridePosFrom2d(float x, float y, float z);
 void  limeMatrixLoadIdentity(float *mtx);

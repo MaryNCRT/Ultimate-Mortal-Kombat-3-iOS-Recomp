@@ -2058,5 +2058,96 @@ long t_drone_begin(MK3THREAD *thread)
     return mk3_push_handler(thread, (MK3THREADFUNC)t_drone_proc);
 }
 
+/* --------------------------------------------------------------------
+ * Straight-line leaves, read by tools/leaffn.py: stores, calls and
+ * a return, with every instruction accounted for. It refuses
+ * anything that branches, any return value it cannot prove, and any
+ * value read from a field the function also writes -- that is a
+ * saved value being put back, not a re-read.
+ * -------------------------------------------------------------------- */
+
+void beh1(MK3OBJ *obj);
+void bossck(MK3OBJ *obj, MK3OBJ * arg);
+void dwset3(MK3OBJ *obj);
+void get_char_ani(MK3OBJ *obj);
+void get_my_dfe(MK3OBJ *obj);
+void get_walk_info_b(MK3OBJ *obj);
+void get_walk_info_f(MK3OBJ *obj);
+void init_anirate(MK3OBJ *obj);
+void q_is_he_lower(MK3OBJ *obj);
+void set_x_vel_player(MK3OBJ *obj);
+
+/* q_am_i_a_boss -- armv7 0x00068e14, 12 bytes.  **Complete.**
+ *
+ *      bossck(obj, obj->field08)
+ */
+void q_am_i_a_boss(MK3OBJ *obj)
+{
+    bossck(obj, obj->field08);
+}
 
 
+/* q_square_lower -- armv7 0x00068e64, 16 bytes.  **Complete.**
+ *
+ *      obj->field38 = 0x50
+ *      q_is_he_lower(obj)
+ */
+void q_square_lower(MK3OBJ *obj)
+{
+    obj->field38 = 0x50;
+    q_is_he_lower(obj);
+}
+
+
+/* d_behind_me_a5 -- armv7 0x00070f44, 20 bytes.  **Complete.**
+ *
+ *      get_my_dfe(obj)
+ *      beh1(obj)
+ */
+void d_behind_me_a5(MK3OBJ *obj)
+{
+    get_my_dfe(obj);
+    beh1(obj);
+}
+
+
+/* dwset3 -- armv7 0x000724a4, 32 bytes.  **Complete.**
+ *
+ *      obj->field40 = obj->field24
+ *      init_anirate(obj)
+ *      obj->field1c = obj->field20
+ *      set_x_vel_player(obj)
+ *      get_char_ani(obj)
+ */
+void dwset3(MK3OBJ *obj)
+{
+    obj->field40 = obj->field24;
+    init_anirate(obj);
+    obj->field1c = obj->field20;
+    set_x_vel_player(obj);
+    get_char_ani(obj);
+}
+
+
+/* d_walkb_setup -- armv7 0x000724c4, 20 bytes.  **Complete.**
+ *
+ *      get_walk_info_b(obj)
+ *      dwset3(obj)
+ */
+void d_walkb_setup(MK3OBJ *obj)
+{
+    get_walk_info_b(obj);
+    dwset3(obj);
+}
+
+
+/* d_walkf_setup -- armv7 0x00072928, 20 bytes.  **Complete.**
+ *
+ *      get_walk_info_f(obj)
+ *      dwset3(obj)
+ */
+void d_walkf_setup(MK3OBJ *obj)
+{
+    get_walk_info_f(obj);
+    dwset3(obj);
+}

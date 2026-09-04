@@ -285,6 +285,37 @@ long t_do_duck_block(MK3THREAD *thread)
  * for instruction by instruction.
  * -------------------------------------------------------------------- */
 
+/* --------------------------------------------------------------------
+ * Straight-line leaves, read by tools/leaffn.py: stores, calls and
+ * a return, with every instruction accounted for. It refuses
+ * anything that branches, any return value it cannot prove, and any
+ * value read from a field the function also writes -- that is a
+ * saved value being put back, not a re-read.
+ * -------------------------------------------------------------------- */
 
+void group_sound(MK3OBJ *obj);
+void init_anirate(MK3OBJ *obj);
+void towards_x_vel(MK3OBJ *obj);
 
-
+/* run_setup -- armv7 0x00030fbc, 48 bytes.  **Complete.**
+ *
+ *      obj->field40 = 0x46
+ *      get_char_ani(obj)
+ *      obj->field1c = 0x3
+ *      init_anirate(obj)
+ *      obj->field1c = 0x80000
+ *      towards_x_vel(obj)
+ *      obj->field1c = 0x7
+ *      group_sound(obj)
+ */
+void run_setup(MK3OBJ *obj)
+{
+    obj->field40 = 0x46;
+    get_char_ani(obj);
+    obj->field1c = 0x3;
+    init_anirate(obj);
+    obj->field1c = 0x80000;
+    towards_x_vel(obj);
+    obj->field1c = 0x7;
+    group_sound(obj);
+}

@@ -6855,7 +6855,8 @@ void *LIME_LoadMeshSet(const char *name, long a);
 void  LIME_LoadMeshSetTextures(void *ms, long a);
 void  InitParticles(void);
 void  InitGameEvents(void);
-void  LoadLevelCharacters(long p1, long p2);
+/* EPLAYER is `typedef int` in Players.c; same reasoning. */
+void  LoadLevelCharacters(int p1, int p2);
 void  PreloadGameCharacters(long *list, long which);
 void  HUDANIM_Init(void);
 void  mk3_init_game(void);

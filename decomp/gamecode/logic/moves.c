@@ -3578,6 +3578,23 @@ long t_do_kano_zap(MK3THREAD *thread)
  * for instruction by instruction.
  * -------------------------------------------------------------------- */
 
+/* --------------------------------------------------------------------
+ * Straight-line leaves, read by tools/leaffn.py: stores, calls and
+ * a return, with every instruction accounted for. It refuses
+ * anything that branches, any return value it cannot prove, and any
+ * value read from a field the function also writes -- that is a
+ * saved value being put back, not a re-read.
+ * -------------------------------------------------------------------- */
 
-
-
+/* q_taser_fatal -- armv7 0x000534d4, 20 bytes.  **Complete.**
+ *
+ *      obj->field30 = 0x100
+ *      obj->field34 = 0x130
+ *      q_fatal_dist(obj)
+ */
+void q_taser_fatal(MK3OBJ *obj)
+{
+    obj->field30 = 0x100;
+    obj->field34 = 0x130;
+    q_fatal_dist(obj);
+}

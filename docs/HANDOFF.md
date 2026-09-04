@@ -7,7 +7,7 @@ Read this, then [METHODOLOGY.md](METHODOLOGY.md). Everything else is reference.
 
 ## Where the project actually stands
 
-**62.31% of the total estimated effort. Nothing is playable.** The arithmetic is
+**62.59% of the total estimated effort. Nothing is playable.** The arithmetic is
 in the [README](../README.md#overall-progress) and the weights are a judgement
 call; the completion figures are measured by `tools/progress.py` on every run.
 
@@ -242,6 +242,40 @@ Not open searches any more — each has a named function behind it:
 | `tools/animate.py` | name the clips in an animation stream and play them |
 | `tools/finishers.py` | the fatality/babality catalogue with frame indices |
 | `tools/armrecomp/recomp.py` | the verification oracle |
+| `tools/dumpfn.py` | disassemble one function by name -- the thing you will run most |
+| `tools/pending.py` | what is left, smallest first: `--logic mkzap.c 40` |
+| `tools/protos.py` | every declaration against its definition; `--fix` corrects return types |
+| `tools/samefn.py` | group functions by shape, so identical bodies are read once |
+
+### The three readers, and what each will not do
+
+Most of `gamecode/logic` is one function written many times, so three programs
+read the repetitive parts and refuse the rest. `tools/genfile.py <file>.c` runs
+all three and appends what they proved.
+
+| | takes | refuses |
+|---|---|---|
+| `tools/pushfn.py` | the frame-push shape: a guard, stores, a handler installed | one instruction it cannot model, a handler that is not an address, a store it cannot place |
+| `tools/microfn.py` | fixed templates -- a tail call, a constant into 0x5c, a table handed to a search routine | anything with an instruction out of place |
+| `tools/leaffn.py` | straight-line leaves: stores, calls, a return | anything that branches, any return value it cannot prove, any value read from a field the function also writes |
+
+**The refusals are the point.** Each was added because guessing there produced
+something wrong:
+
+- `leaffn` refuses a value read from a field the function also writes because
+  that is the borrow-and-restore idiom -- a value saved at the top and put back
+  at the end. Written as a re-read it becomes `obj->field40 = obj->field40`,
+  which it did, once, before the rule existed.
+- `leaffn` calls a function `void` only when it can PROVE the last thing to
+  touch r0 was a call, so what is left there is the callee's leftover. Assuming
+  otherwise is what hid `randper`'s return value and `DrawSkinnedMesh2`'s count
+  for months.
+- `pushfn` masks its arithmetic to 32 bits because Python's does not, and
+  `0xffffffb8 + 0x5d` came out as a 33-bit constant in a `uint32_t` field.
+
+**If a reader accepts something, check one against `dumpfn.py` before trusting
+a batch.** Every bug above was found that way or by a compiler, not by
+reasoning about the tool.
 
 ---
 
