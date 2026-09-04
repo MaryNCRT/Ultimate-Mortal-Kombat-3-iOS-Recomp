@@ -2293,3 +2293,101 @@ long t_pounce_hit(MK3THREAD *thread)
 
     return mk3_push_handler(thread, (MK3THREADFUNC)t_pounce_fall);
 }
+
+
+/* ------------------------------------------------------------------ t_zoom_blocked
+ *
+ * armv7 0x0003e8bc, 224 bytes.  **Complete.**
+ *
+ *      token == 0:       obj->field1c          = 0x61e
+ *                        obj->field00->field18 = 0x61e
+ *                        match_me_with_him(obj)
+ *                        f = obj->field08->field28 & ~0x10
+ *                        obj->field2c          = f
+ *                        obj->field08->field28 = f
+ *                        obj->field1c = 0x10
+ *                        v = obj->field08->field18
+ *                        obj->field20 = 0
+ *                        obj->field28 = v
+ *                        if (v >= 0) obj->field1c = -0x10
+ *                        multi_adjust_xy(obj)
+ *                        face_opponent(obj)
+ *                        obj->field40 = 0x1a
+ *                        get_char_ani(obj)
+ *                        obj->field40 += 4
+ *                        obj->field1c = 0x00010000
+ *                        obj->field20 = 0xfff80000
+ *                        obj->field24 = 0x00006000
+ *                        obj->field28 = 2
+ *                        token := 0x3f6, then descend into t_flight
+ *
+ *      token == 0x3f6:   frame[frame].handler = t_jump_up_land_jump
+ *
+ *      otherwise:        return -3
+ *
+ * **It forces the flip bit OFF rather than toggling it.** `bic r3, r3, #0x10`
+ * on the other object's 0x28 clears the same bit `flip_multi_ob` XORs, and the
+ * result is written to both that field and this object's 0x2c. A blocked zoom
+ * must end facing a known way, and a toggle could not guarantee that.
+ *
+ * The push-back distance is **signed by which side he is on**: 0x10 is written
+ * first, and `mvnge r3, #0xf` replaces it with -0x10 when the other object's
+ * 0x18 is not negative. One `mvn` for the negative constant, in an IT block
+ * rather than a branch.
+ *
+ * The three velocity components are one literal and two steps once more:
+ * 0x10000, then `sub #0x90000` reaches 0xfff80000, then `add #0x86000` reaches
+ * 0x6000 -- 1.0, -8.0 and 0.375. That is the fourth routine in this file built
+ * that way.
+ *
+ * It ends like `t_lao_angle_blocked`: descend into the shared flight and come
+ * back to `t_jump_up_land_jump`. Blocked specials land in a jump.
+ */
+long t_zoom_blocked(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t f;
+    int32_t  v;
+
+    if (token != 0) {
+        if (token != 0x3f6)
+            return -3;
+        return mk3_push_handler(thread,
+                                (MK3THREADFUNC)t_jump_up_land_jump);
+    }
+
+    obj->field1c          = 0x61e;
+    obj->field00->field18 = 0x61e;
+    match_me_with_him(obj);
+
+    f = obj->field08->field28 & ~0x10u;         /* cleared, not toggled */
+    obj->field2c          = f;
+    obj->field08->field28 = f;
+
+    obj->field1c = 0x10;
+    v = (int32_t)obj->field08->field18;
+    obj->field20 = 0;
+    obj->field28 = (uint32_t)v;
+    if (v >= 0)
+        obj->field1c = (uint32_t)(-0x10);       /* mvnge r3, #0xf */
+
+    multi_adjust_xy(obj);
+    face_opponent(obj);
+
+    obj->field40 = 0x1a;
+    get_char_ani(obj);
+    obj->field40 += 4;                  /* an offset from what was resolved */
+
+    obj->field1c = 0x00010000;          /*  1.000 */
+    obj->field20 = 0xfff80000u;         /* -8.000, by sub #0x90000 */
+    obj->field24 = 0x00006000;          /*  0.375, by add #0x86000 on that */
+    obj->field28 = 2;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x3f6;
+    thread->frame = thread->frame + 1;          /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_flight;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
