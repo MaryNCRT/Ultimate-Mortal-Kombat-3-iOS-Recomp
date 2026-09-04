@@ -195,7 +195,6 @@ long t_backwards_ani(MK3THREAD *thread);
  */
 long t_spider_shake(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {
@@ -253,7 +252,6 @@ long t_unmorph_and_exit(MK3THREAD *thread)
  */
 long tl_null_animal(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {

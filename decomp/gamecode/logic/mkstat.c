@@ -232,7 +232,6 @@ long t_ret9(MK3THREAD *thread);
  */
 long t_retract_strike_act(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {
@@ -260,7 +259,6 @@ long t_retract_strike_act(MK3THREAD *thread)
  */
 long t_jump_up_land_jump(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {
@@ -276,4 +274,49 @@ long t_jump_up_land_jump(MK3THREAD *thread)
         return -3;
 
     return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
+
+long t_mframew(MK3THREAD *thread);
+long tl_delete_proj_and_die(MK3THREAD *thread);
+void get_char_ani2(MK3OBJ *obj);
+
+/* t_scream_wave -- armv7 0x0004d8c0, 136 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field40 = 0x1
+ *          get_char_ani2(obj)
+ *          obj->field1c = 0x5
+ *          token := 0x643, then descend into t_mframew
+ *      token == 0x643:
+ *          frame[frame].handler = tl_delete_proj_and_die
+ *      otherwise:  return -3
+ */
+long t_scream_wave(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field40 = 0x1;
+        get_char_ani2(obj);
+        obj->field1c = 0x5;
+        *mk3_frame(thread, thread->frame + 1) = 0x643;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x643)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
 }

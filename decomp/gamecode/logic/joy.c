@@ -349,7 +349,6 @@ long t_stat_do_sweep_kick(MK3THREAD *thread);
  */
 long t_joy_sweep_kick(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {
@@ -377,7 +376,6 @@ long t_joy_sweep_kick(MK3THREAD *thread)
  */
 long t_jdblk2(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {
@@ -405,7 +403,6 @@ long t_jdblk2(MK3THREAD *thread)
  */
 long t_joy_toss(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {

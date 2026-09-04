@@ -770,4 +770,98 @@ void zap_air_init_special(MK3OBJ *obj)
  * instruction; see tools/pushfn.py and tools/leaffn.py.
  * -------------------------------------------------------------------- */
 
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
 
+long t_sz_zap_hit(MK3THREAD *thread);
+long tl_delete_proj_and_die(MK3THREAD *thread);
+void create_fx(MK3OBJ *obj);
+void get_char_ani(MK3OBJ *obj);
+void init_anirate(MK3OBJ *obj);
+void set_proj_vel(MK3OBJ *obj);
+
+/* t_sz_zap_proc -- armv7 0x00075e08, 144 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field1c = 0x4
+ *          init_anirate(obj)
+ *          obj->field1c = 0xa0000
+ *          set_proj_vel(obj)
+ *          obj->field48 = 0x13
+ *          token := 0x810, then descend into tl_projectile_flight
+ *      token == 0x810:
+ *          frame[frame].handler = t_sz_zap_hit
+ *      otherwise:  return -3
+ */
+long t_sz_zap_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 0x4;
+        init_anirate(obj);
+        obj->field1c = 0xa0000;
+        set_proj_vel(obj);
+        obj->field48 = 0x13;
+        *mk3_frame(thread, thread->frame + 1) = 0x810;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)tl_projectile_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x810)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_sz_zap_hit);
+}
+
+/* t_photon_proc -- armv7 0x000769b0, 164 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field40 = 0x3f
+ *          get_char_ani(obj)
+ *          obj->field1c = 0xa0000
+ *          obj->field20 = 0x3
+ *          set_proj_vel(obj)
+ *          obj->field48 = 0x11
+ *          token := 0xbaa, then descend into tl_projectile_flight
+ *      token == 0xbaa:
+ *          obj->field1c = 0x5
+ *          create_fx(obj)
+ *          frame[frame].handler = tl_delete_proj_and_die
+ *      otherwise:  return -3
+ */
+long t_photon_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field40 = 0x3f;
+        get_char_ani(obj);
+        obj->field1c = 0xa0000;
+        obj->field20 = 0x3;
+        set_proj_vel(obj);
+        obj->field48 = 0x11;
+        *mk3_frame(thread, thread->frame + 1) = 0xbaa;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)tl_projectile_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xbaa)
+        return -3;
+
+    obj->field1c = 0x5;
+    create_fx(obj);
+    return mk3_push_handler(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+}

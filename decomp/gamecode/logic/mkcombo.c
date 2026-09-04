@@ -88,7 +88,6 @@ long t_combo_exit(MK3THREAD *thread);
  */
 long t_combo_miss(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {
@@ -120,7 +119,6 @@ long t_combo_miss(MK3THREAD *thread)
  */
 long t_combo_2_late(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {
