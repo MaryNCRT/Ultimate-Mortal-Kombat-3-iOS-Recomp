@@ -38,7 +38,11 @@ long tl_ssp2(struct MK3THREAD *thread);
  *
  *      if (frame[frame+1].w0 != 0) return -3
  *      obj->field1c = 0xffffffb8
- *      obj->field20 = 0x100000015
+ *      obj->field20 = 0x15            (0xffffffb8 + 0x5d, wrapped)
+ *
+ * The second constant is reached by adding 0x5d to the first rather than
+ * loading it: 0xffffffb8 + 0x5d = 0x15, with the carry falling off the end
+ * of a 32-bit register. One `adds` instead of a second `mvn`.
  *      frame[frame].handler = t_new_spear_proc
  *      frame[frame+1].w0 = 0
  */
@@ -51,7 +55,7 @@ long t_new_smoke_spear_proc(MK3THREAD *thread)
         return -3;
 
     obj->field1c = 0xffffffb8;
-    obj->field20 = 0x100000015;
+    obj->field20 = 0x15;                /* 0xffffffb8 + 0x5d, wrapped */
 
     return mk3_push_handler(thread, (MK3THREADFUNC)t_new_spear_proc);
 }
@@ -314,8 +318,6 @@ long tl_do_sky_ice_behind(MK3THREAD *thread)
  * -------------------------------------------------------------------- */
 
 long t_doice5(struct MK3THREAD *thread);
-long t_new_spear_proc(struct MK3THREAD *thread);
-long tl_jzap3(struct MK3THREAD *thread);
 long tl_projectile_flight_call(struct MK3THREAD *thread);
 
 /* t_new_scorpion_spear_proc -- armv7 0x00074d7c, 60 bytes.  **Complete.**
@@ -468,6 +470,215 @@ long t_sai_proc(MK3THREAD *thread)
 
     return mk3_push_handler(thread, (MK3THREADFUNC)t_sai3);
 }
+
+
+
+
+
+/* --------------------------------------------------------------------
+ * What the readers could prove. See tools/pushfn.py, which executes
+ * a body symbolically, and tools/microfn.py, which matches whole
+ * bodies against templates. Both refuse anything they cannot account
+ * for instruction by instruction.
+ * -------------------------------------------------------------------- */
+
+long t_backwards_ani(struct MK3THREAD *thread);
+long t_rbomb4(struct MK3THREAD *thread);
+long t_rocket1_proc(struct MK3THREAD *thread);
+long t_rocket2_proc(struct MK3THREAD *thread);
+long t_rzap3(struct MK3THREAD *thread);
+long tl_bomb33(struct MK3THREAD *thread);
+long get_bomb_vel(MK3OBJ *obj);
+long get_char_ani2(MK3OBJ *obj);
+long ochar_sound(MK3OBJ *obj);
+long q_his_react_flag_set(MK3OBJ *obj);
+long zap_init_special_act(MK3OBJ *obj);
+
+/* t_robo_bomb_full -- armv7 0x00075424, 64 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      get_bomb_vel(obj)
+ *      frame[frame].handler = t_rbomb4
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_robo_bomb_full(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    get_bomb_vel(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_rbomb4);
+}
+
+/* t_robo_open_chest_fast -- armv7 0x00075844, 108 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = 0x2
+ *      q_his_react_flag_set(obj)
+ *      frame[frame].handler = t_robo_open_chest
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_robo_open_chest_fast(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0x2;
+    q_his_react_flag_set(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_robo_open_chest);
+}
+
+/* t_robo_close_chest -- armv7 0x00077eb4, 76 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field40 = 0   (the register the guard proved)
+ *      get_char_ani2(obj)
+ *      obj->field1c = 0x4
+ *      frame[frame].handler = t_backwards_ani
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_robo_close_chest(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field40 = 0;   /* the guard proved this register */
+    get_char_ani2(obj);
+    obj->field1c = 0x4;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_backwards_ani);
+}
+
+/* tl_do_robo_zap -- armv7 0x00079bbc, 84 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field20 = 0x9
+ *      obj->a10 = 0   (the register the guard proved)
+ *      zap_init_special_act(obj)
+ *      obj->field38 = t_rocket1_proc
+ *      frame[frame].handler = t_rzap3
+ *      frame[frame+1].w0 = 0
+ */
+
+long tl_do_robo_zap(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field20 = 0x9;
+    obj->a10 = 0;   /* the guard proved this register */
+    zap_init_special_act(obj);
+    obj->field38 = (uint32_t)(uintptr_t)t_rocket1_proc;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_rzap3);
+}
+
+/* tl_do_robo_zap2 -- armv7 0x00079c10, 92 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field20 = 0x8
+ *      obj->a10 = 0   (the register the guard proved)
+ *      zap_init_special_act(obj)
+ *      obj->field1c = 0xc
+ *      ochar_sound(obj)
+ *      obj->field38 = t_rocket2_proc
+ *      frame[frame].handler = t_rzap3
+ *      frame[frame+1].w0 = 0
+ */
+
+long tl_do_robo_zap2(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field20 = 0x8;
+    obj->a10 = 0;   /* the guard proved this register */
+    zap_init_special_act(obj);
+    obj->field1c = 0xc;
+    ochar_sound(obj);
+    obj->field38 = (uint32_t)(uintptr_t)t_rocket2_proc;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_rzap3);
+}
+
+/* tl_do_swat_bomb_hi -- armv7 0x0007a704, 76 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field20 = 0x18
+ *      obj->a10 = 0   (the register the guard proved)
+ *      zap_init_special_act(obj)
+ *      obj->field48 = 0x1
+ *      frame[frame].handler = tl_bomb33
+ *      frame[frame+1].w0 = 0
+ */
+
+long tl_do_swat_bomb_hi(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field20 = 0x18;
+    obj->a10 = 0;   /* the guard proved this register */
+    zap_init_special_act(obj);
+    obj->field48 = 0x1;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)tl_bomb33);
+}
+
+/* tl_do_swat_bomb_lo -- armv7 0x0007a750, 76 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field20 = 0x19
+ *      obj->a10 = 0   (the register the guard proved)
+ *      zap_init_special_act(obj)
+ *      obj->field48 = 0   (the register the guard proved)
+ *      frame[frame].handler = tl_bomb33
+ *      frame[frame+1].w0 = 0
+ */
+
+long tl_do_swat_bomb_lo(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field20 = 0x19;
+    obj->a10 = 0;   /* the guard proved this register */
+    zap_init_special_act(obj);
+    obj->field48 = 0;   /* the guard proved this register */
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)tl_bomb33);
+}
+
+
+
+
+
+/* --------------------------------------------------------------------
+ * What the readers could prove. See tools/pushfn.py, which executes
+ * a body symbolically, and tools/microfn.py, which matches whole
+ * bodies against templates. Both refuse anything they cannot account
+ * for instruction by instruction.
+ * -------------------------------------------------------------------- */
+
 
 
 

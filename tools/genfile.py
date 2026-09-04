@@ -72,10 +72,33 @@ HEAD = '''/*
 
 body = push + "\n" + micro + "\n"
 
+def drop_known(text, already):
+    """Remove declarations of functions the file already names.
+
+    `written()` stops the readers re-DEFINING what is there, but a called
+    function can be declared here and defined -- or declared differently --
+    higher up the same file. Two spellings of one prototype is an error, and
+    the one already in the file is the one that was read by hand.
+    """
+    keep = []
+    for line in text.split("
+"):
+        m = re.match(r"^(?:long|void) (\w+)\(.*\);$", line)
+        if m and m.group(1) in already:
+            continue
+        keep.append(line)
+    return "
+".join(keep)
+
+
 if os.path.exists(out):
     # The file already holds functions read by hand. Append rather than
     # replace: `written()` has already stopped the readers re-emitting any of
     # them, so everything arriving here is new.
+    prior = io.open(out, encoding="utf-8").read()
+    prior += io.open("decomp/gamecode/logic/mk3logic.h",
+                     encoding="utf-8").read()
+    body = drop_known(body, set(re.findall(r"^(?:long|void) (\w+)\(", prior, re.M)))
     io.open(out, "a", encoding="utf-8", newline="").write(
         "\n\n/* " + "-" * 68 + "\n"
         " * What the readers could prove. See tools/pushfn.py, which executes\n"

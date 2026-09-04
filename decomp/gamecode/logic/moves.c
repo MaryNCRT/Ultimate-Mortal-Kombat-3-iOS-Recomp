@@ -86,7 +86,6 @@ long t_do_ermac_slam(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f3154 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_stationary(struct MK3THREAD *thread);
 
 long t_do_reptile_inv(MK3THREAD *thread)
 {
@@ -108,7 +107,6 @@ long t_do_reptile_inv(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f3154 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_stationary(struct MK3THREAD *thread);
 
 long t_do_jade_flash(MK3THREAD *thread)
 {
@@ -130,7 +128,6 @@ long t_do_jade_flash(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f3154 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_stationary(struct MK3THREAD *thread);
 
 long t_do_fan_lift(MK3THREAD *thread)
 {
@@ -152,7 +149,6 @@ long t_do_fan_lift(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f3154 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_stationary(struct MK3THREAD *thread);
 
 long t_do_baby(MK3THREAD *thread)
 {
@@ -174,7 +170,6 @@ long t_do_baby(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f3154 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_stationary(struct MK3THREAD *thread);
 
 long t_do_swat_gun(MK3THREAD *thread)
 {
@@ -196,7 +191,6 @@ long t_do_swat_gun(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f3154 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_stationary(struct MK3THREAD *thread);
 
 long t_do_kano_swipe(MK3THREAD *thread)
 {
@@ -218,7 +212,6 @@ long t_do_kano_swipe(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f3154 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_stationary(struct MK3THREAD *thread);
 
 long t_do_leg_throw(MK3THREAD *thread)
 {
@@ -240,7 +233,6 @@ long t_do_leg_throw(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f3154 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_stationary(struct MK3THREAD *thread);
 
 long t_do_inviso(MK3THREAD *thread)
 {
@@ -262,7 +254,6 @@ long t_do_inviso(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f3154 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_stationary(struct MK3THREAD *thread);
 
 long t_do_quake(MK3THREAD *thread)
 {
@@ -284,7 +275,6 @@ long t_do_quake(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f3154 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_stationary(struct MK3THREAD *thread);
 
 long t_do_noogy(MK3THREAD *thread)
 {
@@ -306,7 +296,6 @@ long t_do_noogy(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f3154 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_stationary(struct MK3THREAD *thread);
 
 long t_do_shake(MK3THREAD *thread)
 {
@@ -328,7 +317,6 @@ long t_do_shake(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f3154 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_stationary(struct MK3THREAD *thread);
 
 long t_do_reflect(MK3THREAD *thread)
 {
@@ -350,7 +338,6 @@ long t_do_reflect(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f3154 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_stationary(struct MK3THREAD *thread);
 
 long t_do_axe_up(MK3THREAD *thread)
 {
@@ -372,7 +359,6 @@ long t_do_axe_up(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f3154 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_stationary(struct MK3THREAD *thread);
 
 long t_do_lia_scream(MK3THREAD *thread)
 {
@@ -416,7 +402,6 @@ long t_do_bike(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f31a0 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_body_propell(struct MK3THREAD *thread);
 
 long t_do_ind_charge(MK3THREAD *thread)
 {
@@ -438,7 +423,6 @@ long t_do_ind_charge(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f31a0 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_body_propell(struct MK3THREAD *thread);
 
 long t_jax_dash_punch(MK3THREAD *thread)
 {
@@ -460,7 +444,6 @@ long t_jax_dash_punch(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f31a0 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_body_propell(struct MK3THREAD *thread);
 
 long t_do_sz_decoy(MK3THREAD *thread)
 {
@@ -482,7 +465,6 @@ long t_do_sz_decoy(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f31a0 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_body_propell(struct MK3THREAD *thread);
 
 long t_do_lia_fly(MK3THREAD *thread)
 {
@@ -504,7 +486,6 @@ long t_do_lia_fly(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f31a0 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_body_propell(struct MK3THREAD *thread);
 
 long t_do_lao_tele(MK3THREAD *thread)
 {
@@ -526,7 +507,6 @@ long t_do_lao_tele(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f31a0 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_body_propell(struct MK3THREAD *thread);
 
 long t_do_lao_angle_kick(MK3THREAD *thread)
 {
@@ -548,7 +528,6 @@ long t_do_lao_angle_kick(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f31a0 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_body_propell(struct MK3THREAD *thread);
 
 long t_do_robo_tele(MK3THREAD *thread)
 {
@@ -570,7 +549,6 @@ long t_do_robo_tele(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f31a0 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_body_propell(struct MK3THREAD *thread);
 
 long t_do_robo_air_grab(MK3THREAD *thread)
 {
@@ -592,7 +570,6 @@ long t_do_robo_air_grab(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f31a0 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_body_propell(struct MK3THREAD *thread);
 
 long t_do_tele_explode(MK3THREAD *thread)
 {
@@ -614,7 +591,6 @@ long t_do_tele_explode(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f31a0 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_body_propell(struct MK3THREAD *thread);
 
 long t_do_square_wave(MK3THREAD *thread)
 {
@@ -636,7 +612,6 @@ long t_do_square_wave(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f31a0 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_body_propell(struct MK3THREAD *thread);
 
 long t_lk_bike_kick(MK3THREAD *thread)
 {
@@ -658,7 +633,6 @@ long t_lk_bike_kick(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f31a0 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_body_propell(struct MK3THREAD *thread);
 
 long t_do_super_kang(MK3THREAD *thread)
 {
@@ -680,7 +654,6 @@ long t_do_super_kang(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f31a0 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_body_propell(struct MK3THREAD *thread);
 
 long t_do_sg_pounce(MK3THREAD *thread)
 {
@@ -702,7 +675,6 @@ long t_do_sg_pounce(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f31a0 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_body_propell(struct MK3THREAD *thread);
 
 long t_do_slide(MK3THREAD *thread)
 {
@@ -724,7 +696,6 @@ long t_do_slide(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f31a0 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_body_propell(struct MK3THREAD *thread);
 
 long t_do_swat_zoom(MK3THREAD *thread)
 {
@@ -746,7 +717,6 @@ long t_do_swat_zoom(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f31a0 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_body_propell(struct MK3THREAD *thread);
 
 long t_do_stick_sweep(MK3THREAD *thread)
 {
@@ -768,7 +738,6 @@ long t_do_stick_sweep(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f31a0 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_body_propell(struct MK3THREAD *thread);
 
 long t_do_tusk_blur(MK3THREAD *thread)
 {
@@ -790,7 +759,6 @@ long t_do_tusk_blur(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f31a0 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_body_propell(struct MK3THREAD *thread);
 
 long t_do_sg_quake(MK3THREAD *thread)
 {
@@ -812,7 +780,6 @@ long t_do_sg_quake(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f31a0 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_body_propell(struct MK3THREAD *thread);
 
 long t_do_ninja_slide(MK3THREAD *thread)
 {
@@ -834,7 +801,6 @@ long t_do_ninja_slide(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f31a0 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_body_propell(struct MK3THREAD *thread);
 
 long t_do_scorp_tele(MK3THREAD *thread)
 {
@@ -856,7 +822,6 @@ long t_do_scorp_tele(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f31a0 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_body_propell(struct MK3THREAD *thread);
 
 long t_do_reptile_dash(MK3THREAD *thread)
 {
@@ -878,7 +843,6 @@ long t_do_reptile_dash(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f31a0 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_body_propell(struct MK3THREAD *thread);
 
 long t_do_jade_prop(MK3THREAD *thread)
 {
@@ -900,7 +864,6 @@ long t_do_jade_prop(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f31a0 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_body_propell(struct MK3THREAD *thread);
 
 long t_do_mileena_tele(MK3THREAD *thread)
 {
@@ -922,7 +885,6 @@ long t_do_mileena_tele(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f31a0 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_body_propell(struct MK3THREAD *thread);
 
 long t_do_mileena_roll(MK3THREAD *thread)
 {
@@ -944,7 +906,6 @@ long t_do_mileena_roll(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f31a0 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_body_propell(struct MK3THREAD *thread);
 
 long t_do_ermac_tele(MK3THREAD *thread)
 {
@@ -966,7 +927,6 @@ long t_do_ermac_tele(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f31a0 rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_body_propell(struct MK3THREAD *thread);
 
 long t_do_kano_upball(MK3THREAD *thread)
 {
@@ -1010,7 +970,6 @@ long t_do_sonya_zap(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_jax_zap1(MK3THREAD *thread)
 {
@@ -1032,7 +991,6 @@ long t_do_jax_zap1(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_jax_zap2(MK3THREAD *thread)
 {
@@ -1054,7 +1012,6 @@ long t_do_jax_zap2(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_ind_zap(MK3THREAD *thread)
 {
@@ -1076,7 +1033,6 @@ long t_do_ind_zap(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_sky_ice_on(MK3THREAD *thread)
 {
@@ -1098,7 +1054,6 @@ long t_do_sky_ice_on(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_sky_ice_behind(MK3THREAD *thread)
 {
@@ -1120,7 +1075,6 @@ long t_do_sky_ice_behind(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_sky_ice_front(MK3THREAD *thread)
 {
@@ -1142,7 +1096,6 @@ long t_do_sky_ice_front(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_robo_zap(MK3THREAD *thread)
 {
@@ -1164,7 +1117,6 @@ long t_do_robo_zap(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_robo_zap2(MK3THREAD *thread)
 {
@@ -1186,7 +1138,6 @@ long t_do_robo_zap2(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_robo_net(MK3THREAD *thread)
 {
@@ -1208,7 +1159,6 @@ long t_do_robo_net(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_sz_forward_zap(MK3THREAD *thread)
 {
@@ -1230,7 +1180,6 @@ long t_do_sz_forward_zap(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_lia_anglez(MK3THREAD *thread)
 {
@@ -1252,7 +1201,6 @@ long t_do_lia_anglez(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_lao_zap(MK3THREAD *thread)
 {
@@ -1274,7 +1222,6 @@ long t_do_lao_zap(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_bomb_full(MK3THREAD *thread)
 {
@@ -1296,7 +1243,6 @@ long t_do_bomb_full(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_bomb_mid(MK3THREAD *thread)
 {
@@ -1318,7 +1264,6 @@ long t_do_bomb_mid(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_tusk_zap(MK3THREAD *thread)
 {
@@ -1340,7 +1285,6 @@ long t_do_tusk_zap(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_summon(MK3THREAD *thread)
 {
@@ -1362,7 +1306,6 @@ long t_do_summon(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_st_zap1(MK3THREAD *thread)
 {
@@ -1384,7 +1327,6 @@ long t_do_st_zap1(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_st_zap2(MK3THREAD *thread)
 {
@@ -1406,7 +1348,6 @@ long t_do_st_zap2(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_st_zap3(MK3THREAD *thread)
 {
@@ -1428,7 +1369,6 @@ long t_do_st_zap3(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_lk_zap_hi(MK3THREAD *thread)
 {
@@ -1450,7 +1390,6 @@ long t_lk_zap_hi(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_lk_zap_lo(MK3THREAD *thread)
 {
@@ -1472,7 +1411,6 @@ long t_lk_zap_lo(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_sg_zap(MK3THREAD *thread)
 {
@@ -1494,7 +1432,6 @@ long t_do_sg_zap(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_swat_bomb_hi(MK3THREAD *thread)
 {
@@ -1516,7 +1453,6 @@ long t_do_swat_bomb_hi(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_swat_bomb_lo(MK3THREAD *thread)
 {
@@ -1538,7 +1474,6 @@ long t_do_swat_bomb_lo(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_lia_forward(MK3THREAD *thread)
 {
@@ -1560,7 +1495,6 @@ long t_do_lia_forward(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_floor_blade(MK3THREAD *thread)
 {
@@ -1582,7 +1516,6 @@ long t_do_floor_blade(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_smoke_spear(MK3THREAD *thread)
 {
@@ -1604,7 +1537,6 @@ long t_do_smoke_spear(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_kitana_zap(MK3THREAD *thread)
 {
@@ -1626,7 +1558,6 @@ long t_do_kitana_zap(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_jade_zap_med(MK3THREAD *thread)
 {
@@ -1648,7 +1579,6 @@ long t_do_jade_zap_med(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_reptile_orb(MK3THREAD *thread)
 {
@@ -1670,7 +1600,6 @@ long t_do_reptile_orb(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_spit(MK3THREAD *thread)
 {
@@ -1692,7 +1621,6 @@ long t_do_spit(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_scorpion_spear(MK3THREAD *thread)
 {
@@ -1714,7 +1642,6 @@ long t_do_scorpion_spear(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_jade_zap_hi(MK3THREAD *thread)
 {
@@ -1736,7 +1663,6 @@ long t_do_jade_zap_hi(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_jade_zap_lo(MK3THREAD *thread)
 {
@@ -1758,7 +1684,6 @@ long t_do_jade_zap_lo(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_jade_zap_ret(MK3THREAD *thread)
 {
@@ -1780,7 +1705,6 @@ long t_do_jade_zap_ret(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_reptile_orb_fast(MK3THREAD *thread)
 {
@@ -1802,7 +1726,6 @@ long t_do_reptile_orb_fast(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_mileena_zap(MK3THREAD *thread)
 {
@@ -1824,7 +1747,6 @@ long t_do_mileena_zap(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_osz_zap(MK3THREAD *thread)
 {
@@ -1846,7 +1768,6 @@ long t_do_osz_zap(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_floor_ice(MK3THREAD *thread)
 {
@@ -1868,7 +1789,6 @@ long t_do_floor_ice(MK3THREAD *thread)
  *
  * The handler comes through the pointer slot at 0x000f314c rather than as a
  * link-time constant, so it lives in another translation unit. */
-long t_do_zap(struct MK3THREAD *thread);
 
 long t_do_ermac_zap(MK3THREAD *thread)
 {
@@ -3547,7 +3467,6 @@ long sz_lk_close(MK3OBJ *obj)
  * for instruction by instruction.
  * -------------------------------------------------------------------- */
 
-long t_do_robo_tele(struct MK3THREAD *thread);
 
 /* t_do_smoke_tele -- armv7 0x0005091c, 52 bytes.  **Complete.**
  *
@@ -3575,9 +3494,6 @@ long t_do_smoke_tele(MK3THREAD *thread)
  * for instruction by instruction.
  * -------------------------------------------------------------------- */
 
-long t_do_body_propell(struct MK3THREAD *thread);
-long t_do_stationary(struct MK3THREAD *thread);
-long t_do_zap(struct MK3THREAD *thread);
 
 /* t_do_lao_spin -- armv7 0x00050700, 60 bytes.  **Complete.**
  *
@@ -3638,6 +3554,18 @@ long t_do_kano_zap(MK3THREAD *thread)
 
     return mk3_push_handler(thread, (MK3THREADFUNC)t_do_zap);
 }
+
+
+
+
+
+/* --------------------------------------------------------------------
+ * What the readers could prove. See tools/pushfn.py, which executes
+ * a body symbolically, and tools/microfn.py, which matches whole
+ * bodies against templates. Both refuse anything they cannot account
+ * for instruction by instruction.
+ * -------------------------------------------------------------------- */
+
 
 
 

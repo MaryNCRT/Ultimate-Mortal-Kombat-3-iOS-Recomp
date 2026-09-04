@@ -9,6 +9,7 @@ add_executable(umk3
     runtime/lime/meshset.c
     runtime/lime/limemath.c
     runtime/lime/pvr.c
+    runtime/lime/png.c
     runtime/lime/light.c
 )
 

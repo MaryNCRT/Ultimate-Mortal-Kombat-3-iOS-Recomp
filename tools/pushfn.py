@@ -80,7 +80,9 @@ class Run(object):
         self.b = body
         self.starts = starts
         self.r = {"r0": THREAD}
-        self.stores = []        # (base V, offset, value V, width)
+        # Calls and stores in the order they happen: a call between two
+        # stores is not the same function as one after both.
+        self.effects = []
 
     def get(self, name):
         return self.r.get(name, UNK)
@@ -124,7 +126,12 @@ class Run(object):
             return 1
 
         # ---- arithmetic used by the frame arithmetic
-        if op in ("adds", "add") and len(a) == 3 and a[2] == "r0" \
+        #
+        # The slot address is frame*8 plus the thread. Which register holds
+        # the thread depends on the prologue -- a function that saved it in
+        # r4 adds r4 here -- so the test is on the tracked value, not the name.
+        if op in ("adds", "add") and len(a) == 3 \
+                and self.get(a[2]).kind == "thread" \
                 and self.get(a[1]).kind == "frame8":
             self.r[a[0]] = V("slot", self.get(a[1]).a)
             return 1
@@ -133,7 +140,7 @@ class Run(object):
             src = self.get(a[1]) if len(a) == 3 else self.get(a[0])
             k = imm(a[-1])
             if k is not None and src.kind == "imm":
-                self.r[dst] = V("imm", src.a + k)
+                self.r[dst] = V("imm", (src.a + k) & 0xffffffff)
             elif k is not None and src.kind == "frame":
                 self.r[dst] = V("frame", src.a + k)
             elif k is not None and src.kind == "pcrel":
@@ -199,21 +206,37 @@ class Run(object):
             val = self.get(dst)
             m = re.match(r"^\[(\w+), #(0x[0-9a-fA-F]+|\d+)\]$", rest)
             if m:
-                self.stores.append((self.get(m.group(1)),
-                                    int(m.group(2), 0), val, op))
+                self.effects.append(("store", self.get(m.group(1)),
+                                     int(m.group(2), 0), val, op))
                 return 1
             m = re.match(r"^\[(\w+), (\w+), lsl #3\]$", rest)
             if m and self.get(m.group(1)).kind == "thread":
                 f = self.get(m.group(2))
                 if f.kind != "frame":
                     raise Refuse("store to a frame we did not track")
-                self.stores.append((V("framew0", f.a), 0, val, op))
+                self.effects.append(("store", V("framew0", f.a), 0, val, op))
                 return 1
             m = re.match(r"^\[(\w+)\]$", rest)
             if m:
-                self.stores.append((self.get(m.group(1)), 0, val, op))
+                self.effects.append(("store", self.get(m.group(1)), 0, val, op))
                 return 1
             raise Refuse("store %s" % args)
+
+        # ---- a call
+        #
+        # What it does inside is not modelled and does not need to be: the
+        # proof is about THIS function's shape, and a call with a known target
+        # and known arguments is part of that shape. Afterwards r0-r3 and ip
+        # are gone, which is the ABI, so anything read from them later makes
+        # the function refuse rather than be guessed at.
+        if op == "bl":
+            if tgt is None or not tgt[1]:
+                raise Refuse("a call to nowhere named")
+            args_now = [self.get("r0"), self.get("r1")]
+            self.effects.append(("call", tgt[1].lstrip("_"), args_now))
+            for clobbered in ("r0", "r1", "r2", "r3", "ip", "lr"):
+                self.r[clobbered] = UNK
+            return 1
 
         if op in ("bx", "b", "nop", "pop", "push", "cbz", "cbnz"):
             return 1
@@ -226,53 +249,84 @@ GUARD_B = ["ldr.w", "add.w", "ldr.w", "cbz", "mvn", "bx"]
 GUARD_C = ["ldr.w", "adds", "ldr.w", "cbz", "mvn", "bx"]
 
 
-def split_guard(b):
-    """(proc_reg or None, index after the guard) -- or None if it is not one."""
-    ops = [i[0] for i in b]
-    if ops[:7] == GUARD_A and re.match(r"^\w+, \[r0, #0xa4\]$", b[0][1]) \
-            and re.match(r"^(\w+), \[r0, #0x108\]$", b[1][1]) \
-            and b[5][1] == "r0, #2" and b[6][1] == "lr":
-        return (b[1][1].split(",")[0], 4, 7)
-    if ops[:6] == GUARD_B and re.match(r"^\w+, \[r0, #0xa4\]$", b[0][1]) \
-            and b[4][1] == "r0, #2" and b[5][1] == "lr":
-        return (None, 3, 6)
-    # A third spelling: the frame loaded and incremented in place, with no
-    # proc. Same three instructions of work, one register fewer.
-    if ops[:6] == GUARD_C and re.match(r"^\w+, \[r0, #0xa4\]$", b[0][1]) \
-            and b[4][1] == "r0, #2" and b[5][1] == "lr":
-        return (None, 3, 6)
-    return None
+def find_guard(b):
+    """Is the guard in here anywhere, and where is its `mvn r0, #2`?
+
+    Four spellings had accumulated as fixed opcode lists, and each new
+    prologue needed a fifth. So the guard is looked for by what it DOES
+    instead: load the frame index, add one, load the word there, and branch on
+    it -- in whatever registers, wherever it sits, behind whatever prologue.
+    The `-3` return is the other half and must be present too.
+
+    Returns the index of `mvn r0, #2`, which is the one instruction that must
+    not be executed: it clobbers the thread pointer on a path that has no
+    effects.
+    """
+    # A prologue that saves the thread in a callee-saved register means the
+    # guard reads the frame through THAT register, not r0. Follow the copies.
+    alias = set(["r0"])
+    frame_regs = set()
+    plus_one = set()
+    tested = set()
+    mvn_at = None
+
+    for i, (op, args, _t) in enumerate(b):
+        if op in ("mov", "mov.w") and \
+                re.match(r"^\w+, r0$", args) and "r0" in alias:
+            alias.add(args.split(",")[0].strip())
+            continue
+        m = re.match(r"^(\w+), \[(\w+), #0xa4\]$", args)
+        if op in ("ldr", "ldr.w") and m and m.group(2) in alias:
+            frame_regs.add(m.group(1))
+        elif op in ("adds", "add.w", "add"):
+            a = [x.strip() for x in args.split(",")]
+            if imm(a[-1]) == 1 and (a[1] if len(a) == 3 else a[0]) in frame_regs:
+                plus_one.add(a[0])
+        elif op in ("ldr", "ldr.w"):
+            m = re.match(r"^(\w+), \[(\w+), (\w+), lsl #3\]$", args)
+            if m and m.group(2) in alias and m.group(3) in plus_one:
+                tested.add(m.group(1))
+        elif op in ("cbz", "cbnz"):
+            if args.split(",")[0].strip() in tested:
+                pass
+        elif op == "mvn" and args == "r0, #2":
+            mvn_at = i
+
+    if not tested or mvn_at is None:
+        return None
+    return mvn_at
 
 
 def read(name, a, e, starts):
-    """The stores and the handler, or None with a reason."""
+    """The effects and the handler, or None with a reason."""
     b = microfn.body(a, e, dumpfn.disasm(a, e), starts)
-    g = split_guard(b)
-    if g is None:
+    mvn_at = find_guard(b)
+    if mvn_at is None:
         return None, "not the guard"
-    proc_reg, pre, start = g
 
     run = Run(b, starts)
-    if proc_reg:
-        run.r[proc_reg] = V("proc")
     try:
-        # The guard's loads run too -- GUARD_B keeps the frame in a register
-        # the body reuses -- but not its `mvn r0, #2`, which would clobber the
-        # thread pointer.
         i = 0
-        while i < pre:
-            i += run.step(i)
-        i = start
         while i < len(b):
+            if i == mvn_at:
+                # The `-3` return. Skipping it linearises across the early
+                # exit, which is sound because that path has no effects -- and
+                # executing it would clobber the thread pointer.
+                i += 1
+                continue
             i += run.step(i)
     except Refuse as why:
         return None, str(why)
 
-    # The tail must be the push: a handler into frame[frame].handler and a
-    # zero into frame[frame+1].w0, and nothing else.
+    # What is left must be: some calls and stores into the object, then the
+    # handler and the cleared slot that make a push.
     handler = None
-    stores = []
-    for base, off, val, width in run.stores:
+    effects = []
+    for eff in run.effects:
+        if eff[0] == "call":
+            effects.append(eff)
+            continue
+        _, base, off, val, width = eff
         if base.kind == "slot" and off == 4:
             if val.kind != "pcrel":
                 return None, "handler is not an address"
@@ -281,13 +335,13 @@ def read(name, a, e, starts):
             if not (val.kind == "framew0" or (val.kind == "imm" and val.a == 0)):
                 return None, "the slot above is not cleared"
         elif base.kind == "proc":
-            stores.append((off, val, width))
+            effects.append(("store", off, val, width))
         else:
             return None, "a store this does not model"
 
     if handler is None:
         return None, "no handler"
-    return (stores, handler), None
+    return (effects, handler), None
 
 
 FIELD = {0x04: "thread", 0x44: "a10"}
@@ -374,14 +428,29 @@ def main(argv):
     # a handler stored into an object field is discovered while emitting, and
     # a declaration printed after its use is no declaration at all.
     decl = {}
+    calls = {}
     emit_list = []
-    for a, e, n, (stores, h) in ok:
+    for a, e, n, (effects, h) in ok:
         hn = name_of(h, starts)
         if hn is None:
             continue
         names = [hn]
         good = True
-        for off, val, width in stores:
+        for eff in effects:
+            if eff[0] == "call":
+                _, fname, argv = eff
+                # The first argument has to be the object and the second a
+                # constant or nothing. A call whose arguments this cannot
+                # account for is not written down with a guess in it.
+                if argv[0].kind != "proc":
+                    good = False
+                    break
+                if argv[1].kind not in ("imm", "unknown", "proc"):
+                    good = False
+                    break
+                calls.setdefault(fname, argv[1].kind == "imm")
+                continue
+            _, off, val, width = eff
             if val.kind == "pcrel":
                 vn = name_of(val, starts)
                 if vn is None:
@@ -395,22 +464,37 @@ def main(argv):
             continue
         for x in names:
             decl.setdefault(x, True)
-        emit_list.append((a, e, n, stores, h, hn))
+        emit_list.append((a, e, n, effects, h, hn))
 
     # Declare everything, including what this file goes on to define: a
     # handler used two hundred lines above its definition needs a declaration,
     # and one that matches is harmless.
     for hn in sorted(decl):
         print("long %s(struct MK3THREAD *thread);" % cname(hn))
+    for fn in sorted(calls):
+        if fn in decl:
+            continue
+        print("long %s(MK3OBJ *obj%s);"
+              % (cname(fn), ", uint32_t arg" if calls[fn] else ""))
     print("")
 
-    for a, e, n, stores, h, _hn in emit_list:
+    for a, e, n, effects, h, _hn in emit_list:
         hn = name_of(h, starts)
         if hn is None:
             continue
         steps = ""
         body = ""
-        for off, val, width in stores:
+        for eff in effects:
+            if eff[0] == "call":
+                _, fname, argv = eff
+                if argv[1].kind == "imm":
+                    steps += " *      %s(obj, 0x%x)\n" % (fname, argv[1].a)
+                    body += "    %s(obj, 0x%x);\n" % (cname(fname), argv[1].a)
+                else:
+                    steps += " *      %s(obj)\n" % fname
+                    body += "    %s(obj);\n" % cname(fname)
+                continue
+            _, off, val, width = eff
             f = field(off)
             lhs = ("obj->%s" % f) if f else \
                   ("*(uint32_t *)((char *)obj + 0x%x)" % off)

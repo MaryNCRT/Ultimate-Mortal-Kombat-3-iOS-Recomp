@@ -89,3 +89,112 @@ long t_null_fatality(MK3THREAD *thread)
 
 
 
+
+
+/* --------------------------------------------------------------------
+ * What the readers could prove. See tools/pushfn.py, which executes
+ * a body symbolically, and tools/microfn.py, which matches whole
+ * bodies against templates. Both refuse anything they cannot account
+ * for instruction by instruction.
+ * -------------------------------------------------------------------- */
+
+long t_wait_forever(struct MK3THREAD *thread);
+long away_x_vel(MK3OBJ *obj);
+long back_to_normal(MK3OBJ *obj);
+long center_around_me(MK3OBJ *obj);
+long create_fx(MK3OBJ *obj);
+long death_scream(MK3OBJ *obj);
+long get_char_ani2(MK3OBJ *obj);
+long pose_a9_manual(MK3OBJ *obj);
+long set_inviso(MK3OBJ *obj);
+
+/* t_scorp_skeleton_burn -- armv7 0x0003424c, 64 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      center_around_me(obj)
+ *      frame[frame].handler = t_sb_skeleton_burn
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_scorp_skeleton_burn(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    center_around_me(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_sb_skeleton_burn);
+}
+
+/* t_r_vomit -- armv7 0x0003511c, 88 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      set_inviso(obj)
+ *      obj->a10 = 0x5
+ *      obj->field1c = 0x14
+ *      create_fx(obj)
+ *      death_scream(obj)
+ *      frame[frame].handler = t_wait_forever
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_r_vomit(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    set_inviso(obj);
+    obj->a10 = 0x5;
+    obj->field1c = 0x14;
+    create_fx(obj);
+    death_scream(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_wait_forever);
+}
+
+/* t_about_2b_ripped -- armv7 0x0003a9cc, 92 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      face_opponent(obj)
+ *      back_to_normal(obj)
+ *      obj->field40 = 0x25
+ *      pose_a9_manual(obj)
+ *      do_next_a9_frame(obj)
+ *      frame[frame].handler = t_wait_forever
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_about_2b_ripped(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    face_opponent(obj);
+    back_to_normal(obj);
+    obj->field40 = 0x25;
+    pose_a9_manual(obj);
+    do_next_a9_frame(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_wait_forever);
+}
+
+
+
+
+
+/* --------------------------------------------------------------------
+ * What the readers could prove. See tools/pushfn.py, which executes
+ * a body symbolically, and tools/microfn.py, which matches whole
+ * bodies against templates. Both refuse anything they cannot account
+ * for instruction by instruction.
+ * -------------------------------------------------------------------- */
+
+
+
+

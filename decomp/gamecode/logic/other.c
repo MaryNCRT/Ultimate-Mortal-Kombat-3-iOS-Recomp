@@ -1428,10 +1428,11 @@ void mpyu(uint32_t a, uint32_t b, uint32_t *hi_out, uint32_t *lo_out)
  *      MKEvent_Add(2, 2, arg, 0)
  *
  * The caller's second argument becomes the event's third and everything else
- * is a literal. The object is not passed at all, so this is a sound request
- * that belongs to nobody.
+ * is a literal. The object reaches r0 at every call site and is then ignored,
+ * so this is a sound request that belongs to nobody -- the parameter is typed
+ * for what the callers pass, not for what this function does with it.
  */
-void rsnd_func(uint32_t unused, uint32_t which)
+void rsnd_func(MK3OBJ *unused, uint32_t which)
 {
     (void)unused;
     MKEvent_Add(2, 2, (long)which, 0);
@@ -2185,7 +2186,7 @@ long strike_check_a0_core(MK3OBJ *obj, long test_only)
  */
 void sweep_sounds(MK3OBJ *obj)
 {
-    rsnd_func((uint32_t)(uintptr_t)obj, 0xf);
+    rsnd_func(obj, 0xf);
     obj->field1c = 0;
     group_sound(obj);
 }
@@ -5049,8 +5050,6 @@ long is_finish_him_allowed(MK3OBJ *obj)
  * writes 0x60 and then 0x16462, and `t_double_mframew` writes the animation
  * rate straight out of the object. It is a duration.
  */
-long t_multi_dummy_wake(MK3THREAD *thread);
-long t_wait_forever_wake(MK3THREAD *thread);
 
 long t_multi_dummy_proc(MK3THREAD *thread)
 {
@@ -5613,7 +5612,6 @@ void stack_switch_bits(uint32_t now, uint32_t changed, uint32_t pressed)
  * 0x303 into the PROC's action is written before anything else and never
  * conditionally, so the stance is committed to before the script is read.
  */
-void init_anirate(MK3OBJ *obj);
 
 void stance_setup(MK3OBJ *obj)
 {
@@ -5734,8 +5732,6 @@ long t_fx_babality(MK3THREAD *thread)
  */
 extern uint32_t a_friend[];             /* 0x0016f5c4 */
 long t_friendship_speech(MK3THREAD *thread);
-long t_fani3(MK3THREAD *thread);
-long t_ship_proc(MK3THREAD *thread);
 
 long t_fx_friendship(MK3THREAD *thread)
 {
@@ -5984,7 +5980,6 @@ void Endurance_ClearPlayer(uint32_t i)
  * four in a chain, which is the compiler's ordering and not a grouping of the
  * characters.
  */
-void create_fx(MK3OBJ *obj);
 
 void finish_him_or_her(MK3OBJ *obj)
 {
@@ -6043,7 +6038,6 @@ void finish_him_or_her(MK3OBJ *obj)
  * saved and restored around the call and 0x14, 0x18, 0x54 and the four
  * coordinates are left changed.
  */
-void get_char_stk(MK3OBJ *obj);
 long strike_check_regs(MK3OBJ *obj, const uint32_t *p);
 
 void strike_check_box(MK3OBJ *obj)
@@ -6280,7 +6274,6 @@ void get_tsl_px(MK3OBJ *obj, MK3OBJ *ref)
  * Both continue into `t_mframew`.
  */
 long t_mframew(MK3THREAD *thread);
-void get_char_ani2(MK3OBJ *obj);
 
 static long mk3_animate_a9(MK3THREAD *thread, void (*resolve)(MK3OBJ *))
 {
@@ -6598,7 +6591,6 @@ long t_print_round_number(MK3THREAD *thread)
  * `get_his_dog` has filled them. Nothing else in this file compares 0x1c
  * against 0x44.
  */
-void get_his_dog(MK3OBJ *obj);
 
 long t_wait_for_his_dog(MK3THREAD *thread)
 {
@@ -6721,9 +6713,6 @@ long t_clock3(MK3THREAD *thread)
  * below this file -- so the button state is not private to the fight logic.
  */
 long t_wait_for_start(MK3THREAD *thread);
-void back_to_normal(MK3OBJ *obj);
-void face_opponent(MK3OBJ *obj);
-void disable_all_buttons(MK3OBJ *obj);
 
 long t_mercy_start(MK3THREAD *thread)
 {
@@ -7001,8 +6990,6 @@ long t_act_mframew(MK3THREAD *thread)
  * If it needs to know, it has to look at the action itself -- and 0x20 still
  * holds it, because `get_his_action` left it there.
  */
-void get_his_action(MK3OBJ *obj);
-long is_he_airborn(MK3OBJ *obj);
 
 long t_wait_for_landing(MK3THREAD *thread)
 {
@@ -7125,7 +7112,6 @@ long t_wait_for_start(MK3THREAD *thread)
  * The two coordinates are written as halfwords into 0x0e and 0x12 of the
  * OTHER object at 0x08, not this one.
  */
-void set_noscroll(MK3OBJ *obj);
 
 long t_fani3(MK3THREAD *thread)
 {
@@ -7184,7 +7170,6 @@ long t_fani3(MK3THREAD *thread)
  * The cursor is stored after every push rather than once at the end, as in
  * `t_striker`. Not observable and transcribed as written.
  */
-long t_shake2(MK3THREAD *thread);
 
 static long mk3_shake_up(MK3THREAD *thread, uint32_t about)
 {
@@ -7257,7 +7242,6 @@ long t_shake_ob_up(MK3THREAD *thread)
  * The animation number is 0x1a, well under the 0x47 that makes it a number
  * rather than a pointer.
  */
-void allow_moves(MK3OBJ *obj);
 
 long t_angle_jump_land_jsrp(MK3THREAD *thread)
 {
@@ -7606,7 +7590,6 @@ long t_do_backup(MK3THREAD *thread)
  * words of the whole structure. Everything else in this file reaches G at
  * three-digit offsets.
  */
-long is_he_joy(MK3OBJ *obj);
 void check_block_bit(MK3OBJ *obj);
 
 void is_he_blocking(MK3OBJ *obj)
@@ -7788,8 +7771,6 @@ long t_turn_around(MK3THREAD *thread)
  * 0x18, the action. So "back to normal" ends whatever he was doing as well as
  * clearing the damage bookkeeping.
  */
-void player_normpal(MK3OBJ *obj);
-void delete_slave(MK3OBJ *obj);
 
 void back_to_normal_px(MK3OBJ *obj, MK3OBJ *other)
 {
@@ -8386,7 +8367,6 @@ long t_play_1_round(MK3THREAD *thread)
  * found to be zero, which is why the disassembly stores three different
  * registers into the same place.
  */
-long t_fatal_no(MK3THREAD *thread);
 
 long t_fatality_wait(MK3THREAD *thread)
 {
@@ -8625,7 +8605,6 @@ long t_spawn_endurance_guy(MK3THREAD *thread)
  * `t_jump_up_land_jsrp` makes of it -- a pointer surviving across a park in
  * the object rather than on the stack.
  */
-void ani2(MK3OBJ *obj);
 
 long t_bani2(MK3THREAD *thread)
 {
@@ -8819,11 +8798,6 @@ long t_back_to_shang_check(MK3THREAD *thread)
  */
 extern uint32_t ochar_ground_offsets[];  /* 0x0016ef04, one word a character */
 
-void init_special_act(MK3OBJ *obj);
-void clear_inviso(MK3OBJ *obj);
-void borrow_ochar_sound(MK3OBJ *obj);
-void do_first_a9_frame(MK3OBJ *obj);
-void ground_ochar(MK3OBJ *obj);
 
 #define MK3_CHAR_SHANG  0xc
 
@@ -9088,7 +9062,6 @@ long t_results_retp(MK3THREAD *thread)
  * The two pushes never pop between them, so the flight and the landing run at
  * the same depth one after the other rather than nested.
  */
-void group_sound(MK3OBJ *obj);
 
 long t_do_jump_up(MK3THREAD *thread)
 {
@@ -9575,8 +9548,6 @@ long t_animate_a0_frames(MK3THREAD *thread)
  * across the calls in between; it is a real pop, not the peek the mframew
  * family uses.
  */
-void away_x_vel(MK3OBJ *obj);
-long t_flight_loop(MK3THREAD *thread);
 
 long t_flight_call(MK3THREAD *thread)
 {
@@ -10396,7 +10367,6 @@ long t_finish_him_sequence(MK3THREAD *thread)
  */
 extern uint32_t a_mercy[];              /* 0x0016f6a8 */
 extern MK3THREADFUNC t_make_db_tone;    /* through the slot at 0x000f3200 */
-void center_obj_x(MK3OBJ *obj);
 
 long t_fx_mercy(MK3THREAD *thread)
 {
@@ -10509,9 +10479,6 @@ long t_fx_mercy(MK3THREAD *thread)
  * the match ended, and the difference is one call.
  */
 extern MK3THREADFUNC t_bonus_count;     /* through the slot at 0x000f3214 */
-long t_round_loop(MK3THREAD *thread);
-void set_winner_status(MK3OBJ *obj);
-void end_of_match_chores(MK3OBJ *obj);
 
 long t_play3(MK3THREAD *thread)
 {
@@ -10646,7 +10613,6 @@ long t_play3(MK3THREAD *thread)
  * The 0x41 is formed as -1 + 0x42, reusing the register the two stores just
  * used, which is why the disassembly makes it look derived.
  */
-void KillProc(MK3OBJ *obj);
 
 long t_game_finished(MK3THREAD *thread)
 {
@@ -10779,7 +10745,6 @@ long t_game_finished(MK3THREAD *thread)
  * level, then push `t_master_mercy_entry` on top of it. Mercy runs, and when it
  * unwinds the round ends normally.
  */
-void restore_power(MK3OBJ *obj);
 void reset_proc_stack(MK3OBJ *obj);
 
 long t_master_proc_mercy(MK3THREAD *thread)
@@ -11034,8 +10999,6 @@ long t_shake3(MK3THREAD *thread)
  * `t_multi_dummy_proc`, and matches the two up. The slave the `slave_ani`
  * opcodes then drive.
  */
-void ochar_sound(MK3OBJ *obj);
-void rsnd_func(uint32_t obj, uint32_t which);
 
 long do_next_a9_frame_pxob(MK3OBJ *obj, MK3OBJ *ref, MK3OBJ *other)
 {
@@ -11157,7 +11120,7 @@ long do_next_a9_frame_pxob(MK3OBJ *obj, MK3OBJ *ref, MK3OBJ *other)
 
         case 18:
             obj->field1c = *cursor++;
-            rsnd_func((uint32_t)(uintptr_t)obj, obj->field1c);
+            rsnd_func(obj, obj->field1c);
             break;
         }
     }
@@ -11223,12 +11186,6 @@ long do_next_a9_frame_pxob(MK3OBJ *obj, MK3OBJ *ref, MK3OBJ *other)
  * write is what `intersect` compares.
  */
 extern uint32_t *block_xfers;           /* through the slot at 0x000f3208 */
-void disable_his_buttons(MK3OBJ *obj);
-void add_combo_damage(MK3OBJ *obj);
-void highest_mpart_ob(MK3OBJ *obj, MK3OBJ *him);
-void lowest_mpart_ob(MK3OBJ *obj, MK3OBJ *him);
-void leftmost_mpart_ob(MK3OBJ *obj, MK3OBJ *him);
-void rightmost_mpart_ob(MK3OBJ *obj, MK3OBJ *him);
 
 long strike_check_regs(MK3OBJ *obj, const uint32_t *p)
 {
@@ -11394,9 +11351,6 @@ long strike_check_regs(MK3OBJ *obj, const uint32_t *p)
  * `next_anirate` rather than in ticks -- the routine parks for one each time
  * and decrements, so the stance plays for 128 frames before the thread lets go.
  */
-void set_noedge(MK3OBJ *obj);
-void set_x_vel_player(MK3OBJ *obj);
-long t_gravity_ani(MK3THREAD *thread);
 
 long t_spawn_wingman(MK3THREAD *thread)
 {

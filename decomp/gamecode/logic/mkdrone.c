@@ -1593,9 +1593,7 @@ long t_d_leg_grab(MK3THREAD *thread)
 
 long t_d_bflip_scan_jsrp(struct MK3THREAD *thread);
 long t_d_fflip_scan_jsrp(struct MK3THREAD *thread);
-long t_d_hi_kick(struct MK3THREAD *thread);
 long t_d_jumpup(struct MK3THREAD *thread);
-long t_if_u_can(struct MK3THREAD *thread);
 
 /* t_d_jumpup_nocall -- armv7 0x00068164, 56 bytes.  **Complete.**
  *
@@ -1691,7 +1689,6 @@ long t_nr_hikick_if_u_can(MK3THREAD *thread)
  * -------------------------------------------------------------------- */
 
 long is_he_airborn(struct MK3THREAD *thread);
-long t_stance_wait_no(struct MK3THREAD *thread);
 
 /* t_swait_land_jsrp -- armv7 0x0006b404, 72 bytes.  **Complete.**
  *
@@ -1778,6 +1775,287 @@ long t_d_rapid_hi(MK3THREAD *thread)
     obj->field40 = 0xe;
 
     return mk3_push_handler(thread, (MK3THREADFUNC)t_d_punch);
+}
+
+
+
+
+
+/* --------------------------------------------------------------------
+ * What the readers could prove. See tools/pushfn.py, which executes
+ * a body symbolically, and tools/microfn.py, which matches whole
+ * bodies against templates. Both refuse anything they cannot account
+ * for instruction by instruction.
+ * -------------------------------------------------------------------- */
+
+long funcs_13619(struct MK3THREAD *thread);
+long funcs_14239(struct MK3THREAD *thread);
+long rpt_cornered(struct MK3THREAD *thread);
+long rpt_elbow_knee(struct MK3THREAD *thread);
+long t_d_bflip_jump(struct MK3THREAD *thread);
+long t_d_fflip_kick_jump(struct MK3THREAD *thread);
+long t_d_zap_now(struct MK3THREAD *thread);
+long t_drone_proc(struct MK3THREAD *thread);
+long t_react_jump_table(struct MK3THREAD *thread);
+long t_run_in_close_now(struct MK3THREAD *thread);
+long t_stalk_in_close(struct MK3THREAD *thread);
+long ask_mr_diff(MK3OBJ *obj);
+long get_his_action(MK3OBJ *obj);
+long get_x_dist(MK3OBJ *obj);
+long is_throwing_allowed(MK3OBJ *obj);
+long is_towards_me(MK3OBJ *obj);
+long ochar_begin_calls(MK3OBJ *obj);
+long q_am_i_cornered(MK3OBJ *obj);
+long q_will_he_reach_me(MK3OBJ *obj);
+
+/* t_d_zap -- armv7 0x00067f90, 80 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      is_throwing_allowed(obj)
+ *      frame[frame].handler = t_d_zap_now
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_d_zap(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    is_throwing_allowed(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_d_zap_now);
+}
+
+/* t_react_jump_table_act -- armv7 0x0006c5ac, 64 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      get_his_action(obj)
+ *      frame[frame].handler = t_react_jump_table
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_react_jump_table_act(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    get_his_action(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_react_jump_table);
+}
+
+/* t_cornered_attack -- armv7 0x0006cd3c, 112 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = rpt_cornered
+ *      ask_mr_diff(obj)
+ *      frame[frame].handler = t_stalk_in_close
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_cornered_attack(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = (uint32_t)(uintptr_t)rpt_cornered;
+    ask_mr_diff(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_stalk_in_close);
+}
+
+/* t_d_avoid_elbow_knee -- armv7 0x0006d4c0, 96 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = rpt_elbow_knee
+ *      ask_mr_diff(obj)
+ *      get_x_dist(obj)
+ *      frame[frame].handler = t_d_block
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_d_avoid_elbow_knee(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = (uint32_t)(uintptr_t)rpt_elbow_knee;
+    ask_mr_diff(obj);
+    get_x_dist(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_d_block);
+}
+
+/* c_floor_blade -- armv7 0x0006e044, 64 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      get_x_dist(obj)
+ *      frame[frame].handler = t_run_in_close_now
+ *      frame[frame+1].w0 = 0
+ */
+
+long c_floor_blade(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    get_x_dist(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_run_in_close_now);
+}
+
+/* t_ct_leg -- armv7 0x0006e9e8, 80 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      q_will_he_reach_me(obj)
+ *      frame[frame].handler = t_d_block
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_ct_leg(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    q_will_he_reach_me(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_d_block);
+}
+
+/* c_axe_up -- armv7 0x0006ea38, 92 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      q_will_he_reach_me(obj)
+ *      *(uint32_t *)((char *)obj + 0x68) = funcs.14239
+ *      frame[frame].handler = t_react_jump_table_act
+ *      frame[frame+1].w0 = 0
+ */
+
+long c_axe_up(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    q_will_he_reach_me(obj);
+    *(uint32_t *)((char *)obj + 0x68) = (uint32_t)(uintptr_t)funcs_14239;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_react_jump_table_act);
+}
+
+/* c_uppercut -- armv7 0x0006ebc4, 92 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      q_will_he_reach_me(obj)
+ *      *(uint32_t *)((char *)obj + 0x68) = funcs.13619
+ *      frame[frame].handler = t_react_jump_table_act
+ *      frame[frame+1].w0 = 0
+ */
+
+long c_uppercut(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    q_will_he_reach_me(obj);
+    *(uint32_t *)((char *)obj + 0x68) = (uint32_t)(uintptr_t)funcs_13619;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_react_jump_table_act);
+}
+
+/* t_close_airborn -- armv7 0x00070b8c, 104 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      is_towards_me(obj)
+ *      frame[frame].handler = t_d_fflip_kick_jump
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_close_airborn(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    is_towards_me(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_d_fflip_kick_jump);
+}
+
+/* t_av_sweep -- armv7 0x00070f70, 104 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      q_am_i_cornered(obj)
+ *      frame[frame].handler = t_d_bflip_jump
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_av_sweep(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    q_am_i_cornered(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_d_bflip_jump);
+}
+
+/* t_sq_quake_abort -- armv7 0x0007113c, 104 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      q_am_i_cornered(obj)
+ *      frame[frame].handler = t_d_bflip_jump
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_sq_quake_abort(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    q_am_i_cornered(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_d_bflip_jump);
+}
+
+/* t_drone_begin -- armv7 0x000721e4, 64 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      ochar_begin_calls(obj)
+ *      frame[frame].handler = t_drone_proc
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_drone_begin(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    ochar_begin_calls(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_drone_proc);
 }
 
 

@@ -189,6 +189,7 @@ void face_opponent(MK3OBJ *obj);
 void set_no_block(MK3OBJ *obj);
 void me_in_front(MK3OBJ *obj);
 void player_normpal(MK3OBJ *obj);
+void rsnd_func(MK3OBJ *unused, uint32_t which);
 void disable_all_buttons(MK3OBJ *obj);
 
 /*
