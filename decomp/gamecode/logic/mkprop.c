@@ -99,6 +99,11 @@ void find_ani2_part2(MK3OBJ *obj);
 long t_air_sleep3(MK3THREAD *thread);
 long t_land_on_yer_feet(MK3THREAD *thread);
 long t_lao_angle_blocked(MK3THREAD *thread);
+void sans_repell_3(MK3OBJ *obj);
+void q_is_he_a_boss(MK3OBJ *obj);
+long t_pounce_hit(MK3THREAD *thread);
+long t_liz_fly_hit(MK3THREAD *thread);
+long t_square3(MK3THREAD *thread);
 
 /* --------------------------------------------------------------------
  * Added by a later sweep -- tools/sweep.py, running the same
@@ -1333,4 +1338,119 @@ long t_lao_angle_hit(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0x8d1;
     thread->fieldfc = 6;
     return 6;
+}
+
+
+/* ------------------------------------------------------------------- t_pounce_scan
+ *
+ * armv7 0x0003d224, 152 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      sans_repell_3(obj)
+ *      obj->field1c = 0x12
+ *      q_is_he_a_boss(obj)
+ *      if (obj->field5c != 0)
+ *          obj->field1c = 0x13         ; a boss gets a different box
+ *      strike_check_a0(obj)
+ *      if (obj->field5c != 0) {
+ *          frame[frame].handler = t_pounce_hit
+ *          return 0
+ *      }
+ *      if (thread->frame > 0) { thread->frame -= 1; return 0 }
+ *      frame[frame].handler = t_local_reaction_exit
+ *
+ * **The strike box depends on who the opponent is.** 0x12 is written first,
+ * `q_is_he_a_boss` answers into 0x5c, and a boss replaces it with 0x13 before
+ * the check runs. So the pounce reaches a boss differently from anyone else,
+ * and it is one number's difference.
+ *
+ * 0x5c carries two unrelated answers in six instructions -- first whether he
+ * is a boss, then whether the strike connected -- because both routines write
+ * their result there. Nothing saves the first one, and nothing needs to.
+ *
+ * `t_pounce_hit` is a direct pc-relative address, so it is in this file.
+ */
+long t_pounce_scan(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    sans_repell_3(obj);
+
+    obj->field1c = 0x12;
+    q_is_he_a_boss(obj);
+    if (obj->field5c != 0)
+        obj->field1c = 0x13;            /* a boss gets its own box */
+
+    strike_check_a0(obj);
+    if (obj->field5c != 0)
+        return mk3_push_handler(thread, (MK3THREADFUNC)t_pounce_hit);
+
+    if ((long)thread->frame > 0) {
+        thread->frame -= 1;             /* back up a level */
+        return 0;
+    }
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* ----------------------------------------------------------------------- t_lfly4
+ *
+ * armv7 0x0003d02c, 160 bytes.  **Complete.**
+ *
+ *      token == 0:       park(token 0x6dc, duration 1)
+ *
+ *      token == 0x6dc:   next_anirate(obj)
+ *                        obj->field1c = 0x11
+ *                        strike_check_a0(obj)
+ *                        if (obj->field5c != 0) {
+ *                            frame[frame].handler = t_liz_fly_hit
+ *                            return 0
+ *                        }
+ *                        if (--obj->field48 > 0)
+ *                            park(token 0x6dc, duration 1)
+ *                        else
+ *                            frame[frame].handler = t_square3
+ *
+ *      otherwise:        return -3
+ *
+ * **A one-tick poll with a countdown.** The flight checks for a strike once a
+ * frame and re-parks with its own token, so 0x6dc is both what it waits on and
+ * what it wakes into. 0x48 is the number of frames left; it is decremented and
+ * written back every pass, and when it runs out the thread hands over to
+ * `t_square3` instead.
+ *
+ * Entry and re-park share one piece of code -- the `beq` from the guard lands
+ * on the same three instructions the countdown falls into -- which is why the
+ * first tick and every later one cost the same.
+ *
+ * Both handlers are direct pc-relative addresses, so both are in this file.
+ */
+long t_lfly4(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token != 0) {
+        if (token != 0x6dc)
+            return -3;
+
+        next_anirate(obj);
+
+        obj->field1c = 0x11;
+        strike_check_a0(obj);
+        if (obj->field5c != 0)
+            return mk3_push_handler(thread, (MK3THREADFUNC)t_liz_fly_hit);
+
+        obj->field48 -= 1;
+        if ((int32_t)obj->field48 <= 0)         /* out of frames */
+            return mk3_push_handler(thread, (MK3THREADFUNC)t_square3);
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = 0x6dc;
+    thread->fieldfc = 1;                        /* look again next tick */
+    return 1;
 }
