@@ -554,3 +554,79 @@ long t_joy_uppercut(MK3THREAD *thread)
 
     return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
+
+long t_do_backup(MK3THREAD *thread);
+long t_mframew(MK3THREAD *thread);
+
+/* t_unhip1 -- armv7 0x0002f704, 136 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          find_part2(obj)
+ *          find_part2(obj)
+ *          obj->field1c = 0x2
+ *          token := 0x7ac, then descend into t_mframew
+ *      token == 0x7ac:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_unhip1(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        find_part2(obj);
+        find_part2(obj);
+        obj->field1c = 0x2;
+        *mk3_frame(thread, thread->frame + 1) = 0x7ac;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x7ac)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* t_joy_back_up -- armv7 0x000305b0, 132 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          disable_all_buttons(obj)
+ *          face_opponent(obj)
+ *          token := 0x179, then descend into t_do_backup
+ *      token == 0x179:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_joy_back_up(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        disable_all_buttons(obj);
+        face_opponent(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x179;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_do_backup;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x179)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}

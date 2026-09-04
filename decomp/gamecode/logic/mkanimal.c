@@ -267,3 +267,103 @@ long tl_null_animal(MK3THREAD *thread)
 
     return mk3_push_handler(thread, (MK3THREADFUNC)t_animality_complete);
 }
+
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
+
+long t_flight(MK3THREAD *thread);
+long t_land_on_my_back(MK3THREAD *thread);
+long t_white_flash(MK3THREAD *thread);
+long create_blood_proc(MK3OBJ *obj);
+void create_fx(MK3OBJ *obj);
+void death_scream(MK3OBJ *obj);
+
+/* t_dino_bucked -- armv7 0x000a2b50, 184 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field1c = 0x1
+ *          create_blood_proc(obj)
+ *          obj->field48 = 0x60006
+ *          shake_a11(obj)
+ *          death_scream(obj)
+ *          rsnd_func(obj, 0x3)
+ *          obj->field1c = 0x30000
+ *          obj->field20 = 0xffeb0000
+ *          obj->field24 = 0x5000
+ *          obj->field28 = 0x4
+ *          obj->field40 = 0x1e
+ *          token := 0x52f, then descend into t_flight
+ *      token == 0x52f:
+ *          frame[frame].handler = t_land_on_my_back
+ *      otherwise:  return -3
+ */
+long t_dino_bucked(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 0x1;
+        create_blood_proc(obj);
+        obj->field48 = 0x60006;
+        shake_a11(obj);
+        death_scream(obj);
+        rsnd_func(obj, 0x3);
+        obj->field1c = 0x30000;
+        obj->field20 = 0xffeb0000;
+        obj->field24 = 0x5000;
+        obj->field28 = 0x4;
+        obj->field40 = 0x1e;
+        *mk3_frame(thread, thread->frame + 1) = 0x52f;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x52f)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_land_on_my_back);
+}
+
+/* t_r_egg -- armv7 0x000a2fc0, 144 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          death_scream(obj)
+ *          set_inviso(obj)
+ *          obj->field1c = 0x18
+ *          create_fx(obj)
+ *          token := 0x295, then descend into t_white_flash
+ *      token == 0x295:
+ *          frame[frame].handler = t_wait_forever
+ *      otherwise:  return -3
+ */
+long t_r_egg(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        death_scream(obj);
+        set_inviso(obj);
+        obj->field1c = 0x18;
+        create_fx(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x295;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_white_flash;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x295)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_wait_forever);
+}

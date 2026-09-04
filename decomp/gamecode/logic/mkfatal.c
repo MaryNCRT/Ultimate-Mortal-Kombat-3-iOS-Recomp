@@ -1041,3 +1041,278 @@ long t_flesh_rip_sound(MK3THREAD *thread)
     thread->fieldfc = 0x16462;          /* and never wakes */
     return 0x16462;
 }
+
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
+
+long t_collapse_on_ground(MK3THREAD *thread);
+void clear_inviso(MK3OBJ *obj);
+void find_ani_part2(MK3OBJ *obj);
+void find_part2(MK3OBJ *obj);
+
+/* t_death_shake -- armv7 0x0003326c, 136 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field1c = 0x3
+ *          obj->field20 = 0x3
+ *          obj->field24 = 0x4
+ *          token := 0x1769, then descend into t_shake_ob_up
+ *      token == 0x1769:
+ *          frame[frame].handler = t_wait_forever
+ *      otherwise:  return -3
+ */
+long t_death_shake(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 0x3;
+        obj->field20 = 0x3;
+        obj->field24 = 0x4;
+        *mk3_frame(thread, thread->frame + 1) = 0x1769;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_shake_ob_up;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x1769)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_wait_forever);
+}
+
+/* t_r_jax_stomp -- armv7 0x00035174, 156 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field40 = 0x4
+ *          get_char_ani(obj)
+ *          obj->field1c = 0x3
+ *          token := 0x10ab, then descend into t_mframew
+ *      token == 0x10ab:
+ *          set_inviso(obj)
+ *          obj->field1c = 0x21
+ *          create_fx(obj)
+ *          frame[frame].handler = t_wait_forever
+ *      otherwise:  return -3
+ */
+long t_r_jax_stomp(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field40 = 0x4;
+        get_char_ani(obj);
+        obj->field1c = 0x3;
+        *mk3_frame(thread, thread->frame + 1) = 0x10ab;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x10ab)
+        return -3;
+
+    set_inviso(obj);
+    obj->field1c = 0x21;
+    create_fx(obj);
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_wait_forever);
+}
+
+/* t_crush_stuggle -- armv7 0x00035bac, 148 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          face_opponent(obj)
+ *          death_scream(obj)
+ *          obj->field40 = 0x20
+ *          find_ani_part2(obj)
+ *          obj->field1c = 0x4
+ *          token := 0x159a, then descend into t_mframew
+ *      token == 0x159a:
+ *          frame[frame].handler = t_wait_forever
+ *      otherwise:  return -3
+ */
+long t_crush_stuggle(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        face_opponent(obj);
+        death_scream(obj);
+        obj->field40 = 0x20;
+        find_ani_part2(obj);
+        obj->field1c = 0x4;
+        *mk3_frame(thread, thread->frame + 1) = 0x159a;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x159a)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_wait_forever);
+}
+
+/* t_r_scared_of_scorp -- armv7 0x00035da0, 140 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          scared_pose(obj)
+ *          obj->field1c = 0x40000
+ *          obj->field20 = 0x3
+ *          obj->field24 = 0xc
+ *          token := 0x407, then descend into t_shake_ob_up
+ *      token == 0x407:
+ *          frame[frame].handler = t_wait_forever
+ *      otherwise:  return -3
+ */
+long t_r_scared_of_scorp(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        scared_pose(obj);
+        obj->field1c = 0x40000;
+        obj->field20 = 0x3;
+        obj->field24 = 0xc;
+        *mk3_frame(thread, thread->frame + 1) = 0x407;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_shake_ob_up;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x407)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_wait_forever);
+}
+
+/* t_r_scared_of_skunk -- armv7 0x00035e2c, 140 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          scared_pose(obj)
+ *          obj->field1c = 0x40000
+ *          obj->field20 = 0x3
+ *          obj->field24 = 0xc
+ *          token := 0x3fe, then descend into t_shake_ob_up
+ *      token == 0x3fe:
+ *          frame[frame].handler = t_collapse_on_ground
+ *      otherwise:  return -3
+ */
+long t_r_scared_of_skunk(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        scared_pose(obj);
+        obj->field1c = 0x40000;
+        obj->field20 = 0x3;
+        obj->field24 = 0xc;
+        *mk3_frame(thread, thread->frame + 1) = 0x3fe;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_shake_ob_up;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x3fe)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_collapse_on_ground);
+}
+
+/* t_frozen_half_ani -- armv7 0x0003791c, 164 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          flip_multi(obj)
+ *          find_part2(obj)
+ *          find_part2(obj)
+ *          obj->field1c = 0x2
+ *          token := 0x1462, then descend into t_mframew
+ *      token == 0x1462:
+ *          token := 0x1463, then descend into t_wait_forever
+ *      otherwise:  return -3
+ */
+long t_frozen_half_ani(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        flip_multi(obj);
+        find_part2(obj);
+        find_part2(obj);
+        obj->field1c = 0x2;
+        *mk3_frame(thread, thread->frame + 1) = 0x1462;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x1462)
+        return -3;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x1463;
+    thread->frame = thread->frame + 1;      /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_wait_forever;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+/* t_kang_reform -- armv7 0x0003a7dc, 148 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          clear_inviso(obj)
+ *          obj->field40 = 0x6
+ *          get_char_ani2(obj)
+ *          obj->field1c = 0x4
+ *          token := 0xa7a, then descend into t_mframew
+ *      token == 0xa7a:
+ *          death_blow_complete(obj)
+ *          frame[frame].handler = t_null_fatality
+ *      otherwise:  return -3
+ */
+long t_kang_reform(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        clear_inviso(obj);
+        obj->field40 = 0x6;
+        get_char_ani2(obj);
+        obj->field1c = 0x4;
+        *mk3_frame(thread, thread->frame + 1) = 0xa7a;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xa7a)
+        return -3;
+
+    death_blow_complete(obj);
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_null_fatality);
+}
