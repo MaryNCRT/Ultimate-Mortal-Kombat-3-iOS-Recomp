@@ -492,7 +492,7 @@ long get_bomb_vel(MK3OBJ *obj);
 void get_char_ani2(MK3OBJ *obj);
 void ochar_sound(MK3OBJ *obj);
 long q_his_react_flag_set(MK3OBJ *obj);
-long zap_init_special_act(MK3OBJ *obj);
+void zap_init_special_act(MK3OBJ *obj);
 
 /* t_robo_bomb_full -- armv7 0x00075424, 64 bytes.  **Complete.**
  *
@@ -679,6 +679,63 @@ long tl_do_swat_bomb_lo(MK3THREAD *thread)
  * for instruction by instruction.
  * -------------------------------------------------------------------- */
 
+/* --------------------------------------------------------------------
+ * Straight-line leaves, read by tools/leaffn.py: stores, calls and
+ * a return, with every instruction accounted for. It refuses
+ * anything that branches, any return value it cannot prove, and any
+ * value read from a field the function also writes -- that is a
+ * saved value being put back, not a re-read.
+ * -------------------------------------------------------------------- */
+
+void air_init_special(MK3OBJ *obj);
+void init_special(MK3OBJ *obj);
+void init_special_act(MK3OBJ *obj);
+void leftmost_mpart_ob(MK3OBJ *obj);
+void zinit3(MK3OBJ *obj);
+
+/* a3_leftmost_mpart_ob -- armv7 0x00075e98, 16 bytes.  **Complete.**
+ *
+ *      leftmost_mpart_ob(obj)
+ *      obj->field28 = obj->field24
+ */
+void a3_leftmost_mpart_ob(MK3OBJ *obj)
+{
+    leftmost_mpart_ob(obj);
+    obj->field28 = obj->field24;
+}
 
 
+/* zap_init_special -- armv7 0x000792fc, 20 bytes.  **Complete.**
+ *
+ *      init_special(obj)
+ *      zinit3(obj)
+ */
+void zap_init_special(MK3OBJ *obj)
+{
+    init_special(obj);
+    zinit3(obj);
+}
 
+
+/* zap_init_special_act -- armv7 0x00079590, 20 bytes.  **Complete.**
+ *
+ *      init_special_act(obj)
+ *      zinit3(obj)
+ */
+void zap_init_special_act(MK3OBJ *obj)
+{
+    init_special_act(obj);
+    zinit3(obj);
+}
+
+
+/* zap_air_init_special -- armv7 0x0007b2a4, 20 bytes.  **Complete.**
+ *
+ *      air_init_special(obj)
+ *      zinit3(obj)
+ */
+void zap_air_init_special(MK3OBJ *obj)
+{
+    air_init_special(obj);
+    zinit3(obj);
+}

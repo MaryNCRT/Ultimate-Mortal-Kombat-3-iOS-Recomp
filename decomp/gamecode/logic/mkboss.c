@@ -346,6 +346,57 @@ long t_skc_sg_pounce_sd(MK3THREAD *thread)
  * for instruction by instruction.
  * -------------------------------------------------------------------- */
 
+/* --------------------------------------------------------------------
+ * Straight-line leaves, read by tools/leaffn.py: stores, calls and
+ * a return, with every instruction accounted for. It refuses
+ * anything that branches, any return value it cannot prove, and any
+ * value read from a field the function also writes -- that is a
+ * saved value being put back, not a re-read.
+ * -------------------------------------------------------------------- */
+
+/* motaro_easy_randper -- armv7 0x000ab6e8, 16 bytes.  **Complete.**
+ *
+ *      obj->field1c = 0x15e
+ *      bossrandper(obj)
+ */
+void motaro_easy_randper(MK3OBJ *obj)
+{
+    obj->field1c = 0x15e;
+    bossrandper(obj);
+}
 
 
+/* motaro_joke_randper -- armv7 0x000ab7f4, 16 bytes.  **Complete.**
+ *
+ *      obj->field1c = 0x64
+ *      bossrandper(obj)
+ */
+void motaro_joke_randper(MK3OBJ *obj)
+{
+    obj->field1c = 0x64;
+    bossrandper(obj);
+}
 
+
+/* sk_counter_joke -- armv7 0x000abce0, 16 bytes.  **Complete.**
+ *
+ *      obj->field1c = 0x4b
+ *      bossrandper(obj)
+ */
+void sk_counter_joke(MK3OBJ *obj)
+{
+    obj->field1c = 0x4b;
+    bossrandper(obj);
+}
+
+
+/* q_boss_stupid -- armv7 0x000abdf0, 16 bytes.  **Complete.**
+ *
+ *      obj->field1c = 0x4b
+ *      bossrandper(obj)
+ */
+void q_boss_stupid(MK3OBJ *obj)
+{
+    obj->field1c = 0x4b;
+    bossrandper(obj);
+}

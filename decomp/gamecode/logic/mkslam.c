@@ -92,5 +92,54 @@ long t_thrown_by_jax(MK3THREAD *thread)
     return mk3_push_handler(thread, (MK3THREADFUNC)t_common_slam);
 }
 
+/* --------------------------------------------------------------------
+ * Straight-line leaves, read by tools/leaffn.py: stores, calls and
+ * a return, with every instruction accounted for. It refuses
+ * anything that branches, any return value it cannot prove, and any
+ * value read from a field the function also writes -- that is a
+ * saved value being put back, not a re-read.
+ * -------------------------------------------------------------------- */
+
+void do_next_a9_frame(MK3OBJ *obj);
+void find_last_frame(MK3OBJ *obj);
+void get_char_ani(MK3OBJ *obj);
+void group_sound(MK3OBJ *obj);
+
+/* throw_voice -- armv7 0x00049fdc, 16 bytes.  **Complete.**
+ *
+ *      obj->field1c = 0x4
+ *      group_sound(obj)
+ */
+void throw_voice(MK3OBJ *obj)
+{
+    obj->field1c = 0x4;
+    group_sound(obj);
+}
 
 
+/* grab_voice -- armv7 0x00049fec, 16 bytes.  **Complete.**
+ *
+ *      obj->field1c = 0x3
+ *      group_sound(obj)
+ */
+void grab_voice(MK3OBJ *obj)
+{
+    obj->field1c = 0x3;
+    group_sound(obj);
+}
+
+
+/* last_knockdown_frame -- armv7 0x0004b6b8, 28 bytes.  **Complete.**
+ *
+ *      obj->field40 = 0x1e
+ *      get_char_ani(obj)
+ *      find_last_frame(obj)
+ *      do_next_a9_frame(obj)
+ */
+void last_knockdown_frame(MK3OBJ *obj)
+{
+    obj->field40 = 0x1e;
+    get_char_ani(obj);
+    find_last_frame(obj);
+    do_next_a9_frame(obj);
+}

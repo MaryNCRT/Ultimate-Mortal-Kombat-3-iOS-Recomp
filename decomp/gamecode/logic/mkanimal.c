@@ -92,5 +92,23 @@ long t_spider_shake_jsrp(MK3THREAD *thread)
     return mk3_push_handler(thread, (MK3THREADFUNC)t_shake_ob_up);
 }
 
+/* --------------------------------------------------------------------
+ * Straight-line leaves, read by tools/leaffn.py: stores, calls and
+ * a return, with every instruction accounted for. It refuses
+ * anything that branches, any return value it cannot prove, and any
+ * value read from a field the function also writes -- that is a
+ * saved value being put back, not a re-read.
+ * -------------------------------------------------------------------- */
 
+void send_code_a3(MK3OBJ *obj);
 
+/* animality_tune -- armv7 0x000a0fe8, 16 bytes.  **Complete.**
+ *
+ *      obj->field28 = 0x3a
+ *      send_code_a3(obj)
+ */
+void animality_tune(MK3OBJ *obj)
+{
+    obj->field28 = 0x3a;
+    send_code_a3(obj);
+}
