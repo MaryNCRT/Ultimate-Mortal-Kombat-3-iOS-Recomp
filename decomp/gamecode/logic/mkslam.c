@@ -71,7 +71,6 @@ long t_thrown_by_lao(MK3THREAD *thread)
  * for instruction by instruction.
  * -------------------------------------------------------------------- */
 
-long t_common_slam(struct MK3THREAD *thread);
 
 /* t_thrown_by_jax -- armv7 0x00049df0, 56 bytes.  **Complete.**
  *

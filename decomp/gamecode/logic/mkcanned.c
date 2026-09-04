@@ -108,7 +108,6 @@ long t_generic_victory(MK3THREAD *thread)
  * for instruction by instruction.
  * -------------------------------------------------------------------- */
 
-long t_plwins(struct MK3THREAD *thread);
 
 /* t_player_1_wins -- armv7 0x0007cedc, 56 bytes.  **Complete.**
  *

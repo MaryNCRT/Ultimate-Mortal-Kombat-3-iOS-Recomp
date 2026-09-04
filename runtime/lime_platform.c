@@ -460,7 +460,7 @@ void glVertexPointer(int s, unsigned t, int st, const void *p)   { (void)s; (voi
 void glTexCoordPointer(int s, unsigned t, int st, const void *p) { (void)s; (void)t; (void)st; (void)p; }
 void glColorPointer(int s, unsigned t, int st, const void *p)    { (void)s; (void)t; (void)st; (void)p; }
 void glColor4f(float r, float g, float b, float a){ (void)r; (void)g; (void)b; (void)a; }
-void glDepthMask(int flag)                        { (void)flag; }
+void glDepthMask(unsigned char flag)              { (void)flag; }
 void glShadeModel(unsigned mode)                  { (void)mode; }
 void glCullFace(unsigned mode)                    { (void)mode; }
 

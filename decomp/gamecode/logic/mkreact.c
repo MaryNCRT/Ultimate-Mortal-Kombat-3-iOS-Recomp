@@ -18,7 +18,6 @@ long group_sound(MK3OBJ *obj);
 long am_i_short(MK3OBJ *obj);
 long shake_a11(MK3OBJ *obj);
 long pose_a9_manual(MK3OBJ *obj);
-long rsnd_func(uint32_t obj, uint32_t which);
 void *FindThreadProc(uint32_t pid);
 void away_x_vel(MK3OBJ *obj);
 void match_ani_points_ob_ob(uint32_t a, uint32_t b);
@@ -43,8 +42,8 @@ extern char t_check_stay_down[];
 extern char t_check_winner_status[];
 extern char t_local_reaction_exit[];
 extern char t_d_getup[];
-extern char t_getup_stay_ducked[];
-extern char t_joy_getup_abort[];
+long t_getup_stay_ducked(MK3THREAD *thread);
+long t_joy_getup_abort(MK3THREAD *thread);
 
 /* A data table, not a resume target. */
 extern char getup_speeds[];
@@ -243,7 +242,6 @@ after_anirate:
  * for instruction by instruction.
  * -------------------------------------------------------------------- */
 
-long gup2(struct MK3THREAD *thread);
 long t_avoid_corner_trap(struct MK3THREAD *thread);
 long t_avoid_corner_trap_b(struct MK3THREAD *thread);
 long t_b_hard(struct MK3THREAD *thread);
@@ -847,11 +845,11 @@ long pose_stumble_frame_1(MK3OBJ *obj)
  * same 0x60006 -- six each way, packed as two halves of one word -- and then
  * sound 0xd directly rather than through a group.
  */
-long shake_n_sound(MK3OBJ *obj)
+void shake_n_sound(MK3OBJ *obj)
 {
     obj->field48 = 0x60006;             /* six each way, packed */
     shake_a11(obj);
-    return rsnd_func((uint32_t)(uintptr_t)obj, 0xd);
+    rsnd_func(obj, 0xd);
 }
 
 
@@ -1133,6 +1131,534 @@ long t_cc_lo_punch(MK3THREAD *thread)
 
     return mk3_push_handler(thread, (MK3THREADFUNC)t_ccp3);
 }
+
+
+
+
+
+/* --------------------------------------------------------------------
+ * What the readers could prove. See tools/pushfn.py, which executes
+ * a body symbolically, and tools/microfn.py, which matches whole
+ * bodies against templates. Both refuse anything they cannot account
+ * for instruction by instruction.
+ * -------------------------------------------------------------------- */
+
+long t_airborn_hit_no_sound(struct MK3THREAD *thread);
+long t_b_combo(struct MK3THREAD *thread);
+long t_b_weak_silent(struct MK3THREAD *thread);
+long t_combo43(struct MK3THREAD *thread);
+long t_fall_on_my_back(struct MK3THREAD *thread);
+long t_joy_down(struct MK3THREAD *thread);
+long t_joy_getup_entry(struct MK3THREAD *thread);
+long t_ken_masters_xfer(struct MK3THREAD *thread);
+long t_r_freeze(struct MK3THREAD *thread);
+long t_rek3(struct MK3THREAD *thread);
+long t_rup3(struct MK3THREAD *thread);
+long am_i_airborn(MK3OBJ *obj);
+long create_blood_proc(MK3OBJ *obj);
+long create_fx(MK3OBJ *obj);
+long do_next_a9_frame(MK3OBJ *obj);
+long find_ani_last_frame(MK3OBJ *obj);
+long get_his_action(MK3OBJ *obj);
+long his_ochar_sound(MK3OBJ *obj);
+long ochar_sound_c(MK3OBJ *obj, uint32_t arg);
+long set_half_damage(MK3OBJ *obj);
+
+/* t_r_lk_zap -- armv7 0x00042190, 68 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = 0x2
+ *      group_sound(obj)
+ *      frame[frame].handler = t_zap_stumble
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_r_lk_zap(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0x2;
+    group_sound(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_zap_stumble);
+}
+
+/* t_pit_abort -- armv7 0x000421d4, 68 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = 0x2
+ *      group_sound(obj)
+ *      frame[frame].handler = t_rup3
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_pit_abort(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0x2;
+    group_sound(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_rup3);
+}
+
+/* t_b_knee_elbow -- armv7 0x00042310, 72 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field48 = 0x40004
+ *      shake_a11(obj)
+ *      frame[frame].handler = t_b_combo
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_b_knee_elbow(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field48 = 0x40004;
+    shake_a11(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_b_combo);
+}
+
+/* t_r_rocket -- armv7 0x00042400, 72 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field48 = 0x60006
+ *      shake_a11(obj)
+ *      frame[frame].handler = t_zap_stumble
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_r_rocket(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field48 = 0x60006;
+    shake_a11(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_zap_stumble);
+}
+
+/* t_b_weak -- armv7 0x00042778, 68 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      rsnd_func(obj, 0x6)
+ *      frame[frame].handler = t_b_weak_silent
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_b_weak(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    rsnd_func(obj, 0x6);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_b_weak_silent);
+}
+
+/* t_b_hard_ken_masters -- armv7 0x000427bc, 80 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      rsnd_func(obj, 0x5)
+ *      obj->field38 = t_cc_block_avoid_corner
+ *      frame[frame].handler = t_block2
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_b_hard_ken_masters(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    rsnd_func(obj, 0x5);
+    obj->field38 = (uint32_t)(uintptr_t)t_cc_block_avoid_corner;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_block2);
+}
+
+/* t_b_hard -- armv7 0x0004280c, 68 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      rsnd_func(obj, 0x5)
+ *      frame[frame].handler = t_b_hard_silent
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_b_hard(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    rsnd_func(obj, 0x5);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_b_hard_silent);
+}
+
+/* t_generic_airborn_hit -- armv7 0x00042850, 76 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      rsnd_func(obj, 0x8)
+ *      rsnd_react_voice(obj)
+ *      frame[frame].handler = t_airborn_hit_no_sound
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_generic_airborn_hit(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    rsnd_func(obj, 0x8);
+    rsnd_react_voice(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_airborn_hit_no_sound);
+}
+
+/* t_r_elbow_knee -- armv7 0x00042ed4, 68 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      rsnd_func(obj, 0x8)
+ *      frame[frame].handler = t_rek3
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_r_elbow_knee(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    rsnd_func(obj, 0x8);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_rek3);
+}
+
+/* t_separate_us -- armv7 0x00043250, 104 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      am_i_close_to_edge(obj)
+ *      obj->field1c = 0x30000
+ *      obj->field38 = t_ken_masters_xfer
+ *      takeover_him(obj)
+ *      frame[frame].handler = t_stumble_back_vel
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_separate_us(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    am_i_close_to_edge(obj);
+    obj->field1c = 0x30000;
+    obj->field38 = (uint32_t)(uintptr_t)t_ken_masters_xfer;
+    takeover_him(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_stumble_back_vel);
+}
+
+/* t_block3 -- armv7 0x00043698, 92 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field48 = 0x40004
+ *      shake_a11(obj)
+ *      obj->field1c = 0x20000
+ *      away_x_vel(obj)
+ *      obj->field48 = 0x2
+ *      obj->a10 = 0x3
+ *      frame[frame].handler = t_block_shake_n_exit
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_block3(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field48 = 0x40004;
+    shake_a11(obj);
+    obj->field1c = 0x20000;
+    away_x_vel(obj);
+    obj->field48 = 0x2;
+    obj->a10 = 0x3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_block_shake_n_exit);
+}
+
+/* t_joy_getup_abort -- armv7 0x000443c4, 68 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      player_normpal(obj)
+ *      frame[frame].handler = t_joy_down
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_joy_getup_abort(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    player_normpal(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_joy_down);
+}
+
+/* t_getup_stay_ducked -- armv7 0x00044408, 84 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      back_to_normal(obj)
+ *      obj->field40 = 0x4
+ *      find_ani_last_frame(obj)
+ *      do_next_a9_frame(obj)
+ *      frame[frame].handler = t_joy_getup_entry
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_getup_stay_ducked(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    back_to_normal(obj);
+    obj->field40 = 0x4;
+    find_ani_last_frame(obj);
+    do_next_a9_frame(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_joy_getup_entry);
+}
+
+/* t_r_boss_hit1 -- armv7 0x00045230, 80 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = 0x4
+ *      create_blood_proc(obj)
+ *      obj->field1c = 0x1
+ *      create_blood_proc(obj)
+ *      frame[frame].handler = t_combo43
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_r_boss_hit1(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0x4;
+    create_blood_proc(obj);
+    obj->field1c = 0x1;
+    create_blood_proc(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_combo43);
+}
+
+/* t_r_bike_kicked_done -- armv7 0x000461ac, 92 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      am_i_airborn(obj)
+ *      obj->field1c = 0   (the register the guard proved)
+ *      obj->field24 = 0x6000
+ *      obj->field20 = 0   (the register the guard proved)
+ *      obj->field28 = 0x5
+ *      frame[frame].handler = t_fall_on_my_back
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_r_bike_kicked_done(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    am_i_airborn(obj);
+    obj->field1c = 0;   /* the guard proved this register */
+    obj->field24 = 0x6000;
+    obj->field20 = 0;   /* the guard proved this register */
+    obj->field28 = 0x5;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_fall_on_my_back);
+}
+
+/* t_r_decoy_freeze -- armv7 0x00046208, 80 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = 0x3
+ *      create_fx(obj)
+ *      obj->field1c = 0x5
+ *      his_ochar_sound(obj)
+ *      frame[frame].handler = t_r_freeze
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_r_decoy_freeze(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0x3;
+    create_fx(obj);
+    obj->field1c = 0x5;
+    his_ochar_sound(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_r_freeze);
+}
+
+/* t_r_sonya_zap -- armv7 0x00046258, 68 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = 0x1
+ *      his_ochar_sound(obj)
+ *      frame[frame].handler = t_r_ermac_zap
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_r_sonya_zap(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0x1;
+    his_ochar_sound(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_r_ermac_zap);
+}
+
+/* t_r_sg_zap -- armv7 0x0004629c, 68 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = 0x2
+ *      his_ochar_sound(obj)
+ *      frame[frame].handler = t_zap_stumble
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_r_sg_zap(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0x2;
+    his_ochar_sound(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_zap_stumble);
+}
+
+/* t_r_kano_zap -- armv7 0x000462e0, 68 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = 0x2
+ *      his_ochar_sound(obj)
+ *      frame[frame].handler = t_zap_stumble
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_r_kano_zap(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0x2;
+    his_ochar_sound(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_zap_stumble);
+}
+
+/* t_r_mileena_zap -- armv7 0x00046710, 80 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = 0x9
+ *      ochar_sound_c(obj, 0x11)
+ *      set_half_damage(obj)
+ *      frame[frame].handler = t_zap_stumble
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_r_mileena_zap(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0x9;
+    ochar_sound_c(obj, 0x11);
+    set_half_damage(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_zap_stumble);
+}
+
+/* t_r_combo4 -- armv7 0x00046808, 64 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      set_half_damage(obj)
+ *      frame[frame].handler = t_combo43
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_r_combo4(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    set_half_damage(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_combo43);
+}
+
+
+
+
+
+/* --------------------------------------------------------------------
+ * What the readers could prove. See tools/pushfn.py, which executes
+ * a body symbolically, and tools/microfn.py, which matches whole
+ * bodies against templates. Both refuse anything they cannot account
+ * for instruction by instruction.
+ * -------------------------------------------------------------------- */
+
 
 
 

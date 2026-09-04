@@ -899,7 +899,9 @@ void glTexCoordPointer(int size, unsigned type, int stride, const void *p);
 void glColorPointer(int size, unsigned type, int stride, const void *p);
 void glDrawElements(unsigned mode, int count, unsigned type, const void *idx);
 void glColor4f(float r, float g, float b, float a);
-void glDepthMask(int flag);
+void glDepthMask(unsigned char flag);   /* GLboolean, not int -- the real
+                                           header says so and the two
+                                           declarations have to agree */
 void glShadeModel(unsigned mode);
 
 void glPushMatrix(void);
