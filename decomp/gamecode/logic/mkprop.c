@@ -104,6 +104,7 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+long t_reptile_dash_hit(MK3THREAD *thread);
 void distance_off_ground(MK3OBJ *obj);
 void towards_x_vel(MK3OBJ *obj);
 void shake_a11(MK3OBJ *obj);
@@ -2110,4 +2111,98 @@ long t_pounce_miss(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0x50b;
     thread->fieldfc = 0xc;
     return 0xc;
+}
+
+
+/* ------------------------------------------------------------- tl_do_reptile_dash
+ *
+ * armv7 0x0003ef90, 212 bytes.  **Complete.**
+ *
+ *      token == 0:       obj->field20 = 0x216
+ *                        init_special_act(obj)
+ *                        obj->field40 = 0x46
+ *                        get_char_ani(obj)
+ *                        obj->field1c = 0xd0000
+ *                        towards_x_vel(obj)
+ *                        obj->a10 = 0x10
+ *                        park(token 0x236, duration 1)
+ *
+ *      token == 0x236:   do_next_a9_frame(obj)
+ *                        sans_repell_3(obj)
+ *                        is_he_airborn(obj)
+ *                        if (obj->field5c == 0) {
+ *                            obj->field1c = 0x15
+ *                            strike_check_a0(obj)
+ *                            if (obj->field5c != 0) {
+ *                                frame[frame].handler = t_reptile_dash_hit
+ *                                return 0
+ *                            }
+ *                        }
+ *                        if (--obj->a10 > 0)
+ *                            park(token 0x236, duration 1)
+ *                        else
+ *                            frame[frame].handler = t_local_reaction_exit
+ *
+ *      otherwise:        return -3
+ *
+ * Entry 23 of the propell table. A one-tick loop for sixteen frames: advance
+ * the animation, cancel the repel, and look for a strike.
+ *
+ * **The dash only strikes an opponent who is on the ground.** `is_he_airborn`
+ * answers into 0x5c and a non-zero there skips the check entirely -- so a
+ * jumping opponent is passed under rather than hit, and the dash still runs
+ * its full sixteen frames.
+ *
+ * **0x44 is a frame counter here, not the argument slot.** The struct calls it
+ * `a10` because that is what it usually is; this routine sets it to 0x10 and
+ * counts it down, which is worth knowing before anyone reads a value out of
+ * it expecting an argument.
+ *
+ * The park is shared between the entry and the countdown -- the `bgt` jumps
+ * back to the same three instructions state 0 falls into -- so the first tick
+ * and every later one cost the same.
+ *
+ * 0xd0000 is 13.0 in the 16.16 this directory uses.
+ */
+long tl_do_reptile_dash(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token != 0) {
+        if (token != 0x236)
+            return -3;
+
+        do_next_a9_frame(obj);
+        sans_repell_3(obj);
+
+        is_he_airborn(obj);
+        if (obj->field5c == 0) {        /* only a grounded opponent is hit */
+            obj->field1c = 0x15;
+            strike_check_a0(obj);
+            if (obj->field5c != 0)
+                return mk3_push_handler(thread,
+                                        (MK3THREADFUNC)t_reptile_dash_hit);
+        }
+
+        obj->a10 -= 1;
+        if ((int32_t)obj->a10 <= 0)     /* out of frames */
+            return mk3_push_handler(thread,
+                                    (MK3THREADFUNC)t_local_reaction_exit);
+    } else {
+        obj->field20 = 0x216;
+        init_special_act(obj);
+
+        obj->field40 = 0x46;
+        get_char_ani(obj);
+
+        obj->field1c = 0xd0000;         /* 13.0 */
+        towards_x_vel(obj);
+
+        obj->a10 = 0x10;                /* sixteen frames, counted down */
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = 0x236;
+    thread->fieldfc = 1;
+    return 1;
 }
