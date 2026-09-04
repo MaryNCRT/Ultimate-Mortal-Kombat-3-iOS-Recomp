@@ -50,8 +50,21 @@ def plain(sym):
     return m.group(2)[:int(m.group(1))] if m else b
 
 
-def written():
-    """Every function name the decomp already defines."""
+_WRITTEN = None
+
+
+def written(refresh=False):
+    """Every function name the decomp already defines.
+
+    Memoised. This reads every .c file under decomp/ -- some megabytes -- and
+    each of the three readers asks for it once per file, so a sweep over
+    fourteen files was doing forty-two full scans of the tree for an answer
+    that cannot change while it runs. Pass refresh=True after writing a file
+    if the caller needs the new state.
+    """
+    global _WRITTEN
+    if _WRITTEN is not None and not refresh:
+        return _WRITTEN
     import glob
     pat = re.compile(r'^[A-Za-z_][\w \*]*?\**\s*(\w+)\s*\([^;{}]*\)\s*\{', re.M)
     done = set()
@@ -61,6 +74,7 @@ def written():
                                   errors="replace").read()):
             done.add(n)
             done.add(n.lstrip("_"))
+    _WRITTEN = done
     return done
 
 

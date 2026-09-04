@@ -100,7 +100,7 @@ long t_thrown_by_jax(MK3THREAD *thread)
  * saved value being put back, not a re-read.
  * -------------------------------------------------------------------- */
 
-void do_next_a9_frame(MK3OBJ *obj);
+long do_next_a9_frame(MK3OBJ *obj);
 void find_last_frame(MK3OBJ *obj);
 void get_char_ani(MK3OBJ *obj);
 void group_sound(MK3OBJ *obj);
@@ -142,4 +142,34 @@ void last_knockdown_frame(MK3OBJ *obj)
     get_char_ani(obj);
     find_last_frame(obj);
     do_next_a9_frame(obj);
+}
+
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
+
+long t_njsl3(struct MK3THREAD *thread);
+long body_slam_init(MK3OBJ *obj);
+
+/* t_nj_slam -- armv7 0x0004a3ac, 64 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      body_slam_init(obj)
+ *      frame[frame].handler = t_njsl3
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_nj_slam(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    body_slam_init(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_njsl3);
 }

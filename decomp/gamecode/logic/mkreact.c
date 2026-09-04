@@ -1659,6 +1659,11 @@ long t_r_combo4(MK3THREAD *thread)
  * for instruction by instruction.
  * -------------------------------------------------------------------- */
 
-
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
 
 

@@ -129,5 +129,38 @@ long t_player_1_wins(MK3THREAD *thread)
     return mk3_push_handler(thread, (MK3THREADFUNC)t_plwins);
 }
 
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
 
+long t_vicjump(struct MK3THREAD *thread);
+void am_i_shang(MK3OBJ *obj);
+void clear_inviso(MK3OBJ *obj);
+void init_special(MK3OBJ *obj);
 
+/* t_victory_animation -- armv7 0x0007d3a4, 116 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      clear_inviso(obj)
+ *      init_special(obj)
+ *      am_i_shang(obj)
+ *      frame[frame].handler = t_vicjump
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_victory_animation(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    clear_inviso(obj);
+    init_special(obj);
+    am_i_shang(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_vicjump);
+}

@@ -112,3 +112,66 @@ void animality_tune(MK3OBJ *obj)
     obj->field28 = 0x3a;
     send_code_a3(obj);
 }
+
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
+
+long t_victory_animation(struct MK3THREAD *thread);
+void death_blow_complete(MK3OBJ *obj);
+void set_inviso(MK3OBJ *obj);
+void shake_a11(MK3OBJ *obj);
+void tsound_func(MK3OBJ *obj, uint32_t arg);
+
+/* t_eaten_by_snake -- armv7 0x000a2f60, 96 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      tsound_func(obj, 0x24)
+ *      tsound_func(obj, 0x25)
+ *      obj->field48 = 0xa000a
+ *      shake_a11(obj)
+ *      set_inviso(obj)
+ *      frame[frame].handler = t_wait_forever
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_eaten_by_snake(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    tsound_func(obj, 0x24);
+    tsound_func(obj, 0x25);
+    obj->field48 = 0xa000a;
+    shake_a11(obj);
+    set_inviso(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_wait_forever);
+}
+
+/* t_animality_complete -- armv7 0x000a3050, 76 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      death_blow_complete(obj)
+ *      player_normpal(obj)
+ *      frame[frame].handler = t_victory_animation
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_animality_complete(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    death_blow_complete(obj);
+    player_normpal(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_victory_animation);
+}

@@ -75,7 +75,7 @@ long t_retract_strike(MK3THREAD *thread)
  * saved value being put back, not a re-read.
  * -------------------------------------------------------------------- */
 
-void create_blood_proc(MK3OBJ *obj);
+long create_blood_proc(MK3OBJ *obj);
 
 /* upcut_blood_me -- armv7 0x0004f05c, 16 bytes.  **Complete.**
  *
@@ -96,4 +96,118 @@ void upcut_blood_me(MK3OBJ *obj)
 void jade_normpal(MK3OBJ *obj)
 {
     player_normpal(obj);
+}
+
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
+
+void set_half_damage(struct MK3THREAD *thread);
+long t_act_mframew(struct MK3THREAD *thread);
+long t_axeup3(struct MK3THREAD *thread);
+long t_local_reaction_exit(struct MK3THREAD *thread);
+long t_victory_animation(struct MK3THREAD *thread);
+void call_a0_for_him(MK3OBJ *obj);
+void clear_inviso(MK3OBJ *obj);
+void death_blow_complete(MK3OBJ *obj);
+void get_char_ani(MK3OBJ *obj);
+void stop_me_player(MK3OBJ *obj);
+
+/* t_do_block_hi -- armv7 0x0004cea0, 88 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      stop_me_player(obj)
+ *      obj->field40 = 0xc
+ *      get_char_ani(obj)
+ *      obj->field1c = 0x3
+ *      obj->field20 = 0x700
+ *      frame[frame].handler = t_act_mframew
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_do_block_hi(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    stop_me_player(obj);
+    obj->field40 = 0xc;
+    get_char_ani(obj);
+    obj->field1c = 0x3;
+    obj->field20 = 0x700;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_act_mframew);
+}
+
+/* tl_stat_do_fast_axe_up -- armv7 0x0004d078, 88 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = set_half_damage
+ *      call_a0_for_him(obj)
+ *      obj->field40 = 0x20002
+ *      obj->field48 = 0x4
+ *      frame[frame].handler = t_axeup3
+ *      frame[frame+1].w0 = 0
+ */
+
+long tl_stat_do_fast_axe_up(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = (uint32_t)(uintptr_t)set_half_damage;
+    call_a0_for_him(obj);
+    obj->field40 = 0x20002;
+    obj->field48 = 0x4;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_axeup3);
+}
+
+/* t_do_un_inviso -- armv7 0x0004f684, 68 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      clear_inviso(obj)
+ *      frame[frame].handler = t_local_reaction_exit
+ *      frame[frame+1].w0 = 0
+ */
+
+long t_do_un_inviso(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    clear_inviso(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* tl_babality_complete -- armv7 0x0004fcb4, 76 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      death_blow_complete(obj)
+ *      player_normpal(obj)
+ *      frame[frame].handler = t_victory_animation
+ *      frame[frame+1].w0 = 0
+ */
+
+long tl_babality_complete(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    death_blow_complete(obj);
+    player_normpal(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_victory_animation);
 }

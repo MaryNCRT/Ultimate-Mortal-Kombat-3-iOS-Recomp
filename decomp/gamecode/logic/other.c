@@ -1481,7 +1481,9 @@ void shake_a11(MK3OBJ *obj)
     MKEvent_Add(1, 0, (long)obj->field48, 0);
 }
 
-void tsound_func(uint32_t unused, uint32_t which)
+/* r0 is ignored, and every call site has the object in it -- so the parameter
+ * is typed for what the callers pass, as with `rsnd_func` above. */
+void tsound_func(MK3OBJ *unused, uint32_t which)
 {
     (void)unused;
     MKEvent_Add(2, 0, (long)which, 0);
@@ -5710,7 +5712,7 @@ long t_fx_babality(MK3THREAD *thread)
     if (token != 0xf28)
         return -3;
 
-    tsound_func((uint32_t)(uintptr_t)obj, 0x65);
+    tsound_func(obj, 0x65);
     *mk3_frame(thread, thread->frame + 1) = 0xf2a;
     thread->fieldfc = 0x16462;
     return 0x16462;
@@ -6444,14 +6446,14 @@ long t_friendship_speech(MK3THREAD *thread)
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0xf69) {
-        tsound_func((uint32_t)(uintptr_t)obj, 0x69);
+        tsound_func(obj, 0x69);
         *mk3_frame(thread, thread->frame + 1) = 0xf70;
         thread->fieldfc = 0x40;
         return 0x40;
     }
 
     if (token == 0xf70) {
-        tsound_func((uint32_t)(uintptr_t)obj, 0x6a);
+        tsound_func(obj, 0x6a);
         *mk3_frame(thread, thread->frame + 1) = 0xf78;
         thread->fieldfc = 0x16462;
         return 0x16462;
@@ -6460,7 +6462,7 @@ long t_friendship_speech(MK3THREAD *thread)
     if (token != 0)
         return -3;
 
-    tsound_func((uint32_t)(uintptr_t)obj, 0x68);
+    tsound_func(obj, 0x68);
     *mk3_frame(thread, thread->frame + 1) = 0xf69;
     thread->fieldfc = 0x40;
     return 0x40;
@@ -6573,7 +6575,7 @@ long t_print_round_number(MK3THREAD *thread)
 
     if ((int32_t)round <= 4) {                  /* five and up are silent */
         obj->field1c = round + 0x10;
-        tsound_func((uint32_t)(uintptr_t)obj, round + 0x10);
+        tsound_func(obj, round + 0x10);
     }
 
     *mk3_frame(thread, thread->frame + 1) = 0x103c;
@@ -6682,7 +6684,7 @@ long t_clock3(MK3THREAD *thread)
     MKEvent_Add(3, 1, (long)((obj->field48 << 4) + obj->a10), 0);
 
     if ((int32_t)obj->field48 <= 1)             /* ten seconds and under */
-        tsound_func((uint32_t)(uintptr_t)obj, 0x17);
+        tsound_func(obj, 0x17);
 
     obj->field1c = obj->field48 + obj->a10;
 
@@ -6911,11 +6913,11 @@ void create_fx_param(MK3OBJ *obj, uint32_t param)
 {
     switch (obj->field1c) {
     case 0x16:
-        tsound_func((uint32_t)(uintptr_t)obj, 0x62);
+        tsound_func(obj, 0x62);
         break;
     case 0x18:
-        tsound_func((uint32_t)(uintptr_t)obj, 0);
-        tsound_func((uint32_t)(uintptr_t)obj, 1);
+        tsound_func(obj, 0);
+        tsound_func(obj, 1);
         break;
     case 0x1c:
         NewThread(obj, (MK3THREADFUNC)t_fx_animality);
@@ -7273,7 +7275,7 @@ long t_angle_jump_land_jsrp(MK3THREAD *thread)
     obj->field00->field18 = 0x304;
 
     face_opponent(obj);
-    tsound_func((uint32_t)(uintptr_t)obj, 0x18);
+    tsound_func(obj, 0x18);
 
     obj->field40 = 0x1a;
     get_char_ani(obj);
@@ -8081,7 +8083,7 @@ long t_jump_up_land_jsrp(MK3THREAD *thread)
 
     obj->field20 = 0x304;
     obj->field00->field18 = 0x304;
-    tsound_func((uint32_t)(uintptr_t)obj, 0x18);
+    tsound_func(obj, 0x18);
 
     obj->field40 = 0x16;
     get_char_ani(obj);
@@ -8235,7 +8237,7 @@ long t_round_intro_fx(MK3THREAD *thread)
     }
 
     if (token == 0x104b) {
-        tsound_func((uint32_t)(uintptr_t)obj, 0x10);
+        tsound_func(obj, 0x10);
         *mk3_frame(thread, thread->frame + 1) = 0x104d;
         thread->fieldfc = 0x20;
         return 0x20;
@@ -8473,7 +8475,7 @@ long t_fx_animality(MK3THREAD *thread)
     }
 
     if (token == 0xfb4) {
-        tsound_func((uint32_t)(uintptr_t)obj, 0x64);
+        tsound_func(obj, 0x64);
         mk3_frame(thread, thread->frame)[1] =
             (uint32_t)(uintptr_t)t_wait_forever;
         *mk3_frame(thread, thread->frame + 1) = 0;
@@ -8483,7 +8485,7 @@ long t_fx_animality(MK3THREAD *thread)
     if (token != 0)
         return -3;
 
-    tsound_func((uint32_t)(uintptr_t)obj, 0x95);
+    tsound_func(obj, 0x95);
 
     obj->field08->field2c = 0xf40;
     MK3_SET_FIELD0E(obj->field08, 0x50);
@@ -10045,9 +10047,9 @@ long t_one_on_one(MK3THREAD *thread)
  * out of data.
  */
 extern uint16_t **last_switch_ram;      /* 0x0016f50c */
-long t_do_shake(void);
-void t_do_fatality_1(void);
-void t_do_fatality_2(void);
+long t_do_shake(MK3THREAD *thread);
+long t_do_fatality_1(MK3THREAD *thread);
+long t_do_fatality_2(MK3THREAD *thread);
 
 void QueueAndJump(const uint32_t *e, uint32_t unused)
 {
@@ -10399,7 +10401,7 @@ long t_fx_mercy(MK3THREAD *thread)
 
     if (token == 0xff6) {
         obj->field1c = obj->a10 + 0x99;         /* the per-character line */
-        tsound_func((uint32_t)(uintptr_t)obj, obj->field1c);
+        tsound_func(obj, obj->field1c);
         *mk3_frame(thread, thread->frame + 1) = 0xffd;
         thread->fieldfc = 8;
         return 8;
@@ -10412,7 +10414,7 @@ long t_fx_mercy(MK3THREAD *thread)
     }
 
     if (token == 0xfde) {
-        tsound_func((uint32_t)(uintptr_t)obj, 0x94);
+        tsound_func(obj, 0x94);
         obj->field08->field2c = 0x104;
         center_obj_x(obj);
         set_noscroll(obj);
@@ -11440,7 +11442,7 @@ long t_spawn_wingman(MK3THREAD *thread)
     obj->field08->field24 = c;
 
     ground_ochar(obj);
-    tsound_func((uint32_t)(uintptr_t)obj, c + 0x28);    /* his name */
+    tsound_func(obj, c + 0x28);    /* his name */
 
     obj->field00->field40 = (uint16_t)MK3_FIELD12(obj->field08);
 

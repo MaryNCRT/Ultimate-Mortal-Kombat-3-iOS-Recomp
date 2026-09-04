@@ -690,18 +690,27 @@ long tl_do_swat_bomb_lo(MK3THREAD *thread)
 void air_init_special(MK3OBJ *obj);
 void init_special(MK3OBJ *obj);
 void init_special_act(MK3OBJ *obj);
-void leftmost_mpart_ob(MK3OBJ *obj);
+void leftmost_mpart_ob(MK3OBJ *out, MK3OBJ *src);
 void zinit3(MK3OBJ *obj);
 
 /* a3_leftmost_mpart_ob -- armv7 0x00075e98, 16 bytes.  **Complete.**
  *
- *      leftmost_mpart_ob(obj)
- *      obj->field28 = obj->field24
+ *      leftmost_mpart_ob(out, src)
+ *      out->field28 = out->field24
+ *
+ * **It takes two arguments and forwards both.** Nothing in the body sets r1:
+ * it arrives as this function's second argument and goes straight on to
+ * `leftmost_mpart_ob`, which takes two.
+ *
+ * `tools/leaffn.py` wrote this with one, because it seeds only r0 with the
+ * object and reads an untouched r1 as dead rather than as an argument passing
+ * through. From a call site alone the two are indistinguishable; what settled
+ * it was `tools/protos.py` putting this against the definition in other.c.
  */
-void a3_leftmost_mpart_ob(MK3OBJ *obj)
+void a3_leftmost_mpart_ob(MK3OBJ *out, MK3OBJ *src)
 {
-    leftmost_mpart_ob(obj);
-    obj->field28 = obj->field24;
+    leftmost_mpart_ob(out, src);
+    out->field28 = out->field24;
 }
 
 
@@ -739,3 +748,12 @@ void zap_air_init_special(MK3OBJ *obj)
     air_init_special(obj);
     zinit3(obj);
 }
+
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
+
+
