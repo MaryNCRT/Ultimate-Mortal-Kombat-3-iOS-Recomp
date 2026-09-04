@@ -2048,13 +2048,27 @@ extern float limeFPSScaleFactor;        /* 0x00171acc */
  *
  * **The step is 0.1 divided by the frame-rate scale, and it is computed in
  * DOUBLE precision** -- the offset is widened with `vcvt.f64.f32`, the divide
- * and add are `.f64`, and only the result is narrowed back. At 30 fps the slide
- * takes ten frames; at any other rate it takes whatever keeps the wall-clock
- * duration the same. This is one of the few places in the tree that is already
- * frame-rate independent, so a 60 fps port must not "fix" it.
+ * and add are `.f64`, and only the result is narrowed back. So the slide takes
+ * ten ticks at a scale of 1.0, and at any other scale it takes whatever keeps
+ * the wall-clock duration the same. This is one of the few places in the tree
+ * that is already frame-rate independent, so a 60 fps port must not "fix" it.
  *
- * The two literals are exact: +0.1 and -0.1 as doubles, in separate pool
- * entries. Neither is derived from the other by negation at run time.
+ * **How long that is in SECONDS is not established from the binary.** The tick
+ * rate is: `lime.m` holds one `1.0/60.0` double and the binary has
+ * `setAnimationInterval:` to pass it to, so the game ran at 60 Hz and ten ticks
+ * is a sixth of a second each way, a third for the round trip. But what
+ * `limeFPSScaleFactor` HOLDS at run time is set by a writer in `lime.m` --
+ * Objective-C, outside the decompiled set -- and the only two places its
+ * address appears in the entire binary are pointer slots, so nothing here pins
+ * it down. `runtime/lime_menu.c` fixes it at 1.0 by decision, not measurement,
+ * and says so. An earlier version of this note said "at 30 fps", which was a
+ * guess at that value dressed as a fact.
+ *
+ * The two literals are exact: +0.1 at 0x55d0 and -0.1 at 0x55d8, separate pool
+ * entries, neither derived from the other by negation at run time. Re-read
+ * against the disassembly on 2026-09-04: the divide really is `vdiv.f64`, the
+ * outward test is `vcmpe` then `blt` so it is `>= 1.0f`, and the return test is
+ * `vcmpe #0` then `bhi` so it is the strict `> 0` written below.
  *
  * The task switch happens at the far end of the slide-out, not at the start:
  * the screen is fully covered before the new task is pushed, and `dir` is set
