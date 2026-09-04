@@ -579,7 +579,7 @@ void FlushTranspMeshList(TEXTURE *texture, const SKINMATRIX43 *matrix)
         /* 0x5f6f4: the mesh chooses whose texture wins. */
         tex = (mesh->field48 != 0) ? texture : mesh->texture;
 
-        LIME_RenderMesh(set, (int)item->meshIndex, tex, NULL);
+        LIME_RenderMesh(set, (int)item->meshIndex, tex, NULL, 0);
 
         LIME_PopMatrix(1);               /* one push, one pop, always balanced */
     }
@@ -940,7 +940,7 @@ void LIME_RenderSceneOverrideTextures(SCENEINFO *scene, TEXTURE **textures,
         ConvertQSTMatrixtoPCMatrix(GetMatrixFromPalette(key->paletteIndex, scene),
                                    m);
         glMultMatrixf(m);               /* untransposed: QST arrives GL-ready */
-        LIME_RenderMesh(scene->meshset, index, textures[index], NULL);
+        LIME_RenderMesh(scene->meshset, index, textures[index], NULL, 0);
         LIME_PopMatrix(1);
         continue;
 

@@ -14,10 +14,10 @@
 
 #define MK3_CHAR_SHAO_KAHN  0x19
 
-long group_sound(MK3OBJ *obj);
-long am_i_short(MK3OBJ *obj);
-long shake_a11(MK3OBJ *obj);
-long pose_a9_manual(MK3OBJ *obj);
+void group_sound(MK3OBJ *obj);
+void am_i_short(MK3OBJ *obj);
+void shake_a11(MK3OBJ *obj);
+void pose_a9_manual(MK3OBJ *obj);
 void *FindThreadProc(uint32_t pid);
 void away_x_vel(MK3OBJ *obj);
 void match_ani_points_ob_ob(uint32_t a, uint32_t b);
@@ -50,12 +50,12 @@ extern char getup_speeds[];
 
 /* Decompiled elsewhere; this file owns the sequencing, not the steps. */
 void back_to_normal(MK3OBJ *obj);
-int  am_i_joy(MK3OBJ *obj);
-void is_stick_down(MK3OBJ *obj);
+long  am_i_joy(MK3OBJ *obj);
+long is_stick_down(MK3OBJ *obj);
 void get_char_ani(MK3OBJ *obj);
 void init_anirate(MK3OBJ *obj);
-void next_anirate(MK3OBJ *obj);
-void joystick_in_a0(MK3OBJ *obj);
+long next_anirate(MK3OBJ *obj);
+long joystick_in_a0(MK3OBJ *obj);
 
 long gup2(MK3THREAD *thread);
 
@@ -679,10 +679,10 @@ void if_shao_then_pass(MK3OBJ *obj)
  * Group six is the reaction voice. `t_do_jump_up` uses group 1 the same way,
  * so 0x1c is which group and `group_sound` picks from it.
  */
-long rsnd_react_voice(MK3OBJ *obj)
+void rsnd_react_voice(MK3OBJ *obj)
 {
     obj->field1c = 6;
-    return group_sound(obj);
+    group_sound(obj);
 }
 
 
@@ -800,13 +800,13 @@ void move_slave_too(MK3OBJ *obj)
  *
  * Sound group 2 first, so the noise starts on the same tick as the shake.
  */
-long combo_setup(MK3OBJ *obj)
+void combo_setup(MK3OBJ *obj)
 {
     obj->field1c = 2;
     group_sound(obj);
 
     obj->field48 = 0x60006;             /* six each way, packed */
-    return shake_a11(obj);
+    shake_a11(obj);
 }
 
 
@@ -823,13 +823,13 @@ long combo_setup(MK3OBJ *obj)
  * `combo_setup` uses. The pose comes first, so the frame is on screen before
  * the noise.
  */
-long pose_stumble_frame_1(MK3OBJ *obj)
+void pose_stumble_frame_1(MK3OBJ *obj)
 {
     obj->field40 = 0x20;
     pose_a9_manual(obj);
 
     obj->field1c = 2;
-    return group_sound(obj);
+    group_sound(obj);
 }
 
 
@@ -1156,13 +1156,13 @@ long t_rek3(struct MK3THREAD *thread);
 long t_rup3(struct MK3THREAD *thread);
 long am_i_airborn(MK3OBJ *obj);
 long create_blood_proc(MK3OBJ *obj);
-long create_fx(MK3OBJ *obj);
+void create_fx(MK3OBJ *obj);
 long do_next_a9_frame(MK3OBJ *obj);
-long find_ani_last_frame(MK3OBJ *obj);
-long get_his_action(MK3OBJ *obj);
-long his_ochar_sound(MK3OBJ *obj);
-long ochar_sound_c(MK3OBJ *obj, uint32_t arg);
-long set_half_damage(MK3OBJ *obj);
+void find_ani_last_frame(MK3OBJ *obj);
+void get_his_action(MK3OBJ *obj);
+void his_ochar_sound(MK3OBJ *obj);
+void ochar_sound_c(MK3OBJ *obj, uint32_t arg);
+void set_half_damage(MK3OBJ *obj);
 
 /* t_r_lk_zap -- armv7 0x00042190, 68 bytes.  **Complete.**
  *

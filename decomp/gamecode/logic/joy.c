@@ -67,10 +67,10 @@ long t_jdblk2(struct MK3THREAD *thread);
 long t_jhp5(struct MK3THREAD *thread);
 long t_jmp5(struct MK3THREAD *thread);
 long t_unhip1(struct MK3THREAD *thread);
-long find_ani_part2(MK3OBJ *obj);
-long find_part2(MK3OBJ *obj);
-long get_char_ani(MK3OBJ *obj);
-long stop_me_player(MK3OBJ *obj);
+void find_ani_part2(MK3OBJ *obj);
+void find_part2(MK3OBJ *obj);
+void get_char_ani(MK3OBJ *obj);
+void stop_me_player(MK3OBJ *obj);
 
 /* t_joy_duck_block -- armv7 0x0002f220, 64 bytes.  **Complete.**
  *

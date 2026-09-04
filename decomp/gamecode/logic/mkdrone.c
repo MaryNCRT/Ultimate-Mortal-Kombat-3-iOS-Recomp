@@ -1800,7 +1800,7 @@ long t_react_jump_table(struct MK3THREAD *thread);
 long t_run_in_close_now(struct MK3THREAD *thread);
 long t_stalk_in_close(struct MK3THREAD *thread);
 long ask_mr_diff(MK3OBJ *obj);
-long get_his_action(MK3OBJ *obj);
+void get_his_action(MK3OBJ *obj);
 long get_x_dist(MK3OBJ *obj);
 long is_throwing_allowed(MK3OBJ *obj);
 long is_towards_me(MK3OBJ *obj);

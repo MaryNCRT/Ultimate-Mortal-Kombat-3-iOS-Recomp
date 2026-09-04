@@ -1561,8 +1561,7 @@ typedef struct limeMATRIX44 limeMATRIX44;
 typedef struct MESHSETINFO  MESHSETINFO;
 
 void LIMEDS_SetObjectOrientation(limeMATRIX44 *m, limeVECTOR3 *pos);
-void LIME_RenderMesh(MESHSETINFO *ms, long n, TEXTURE *t0, TEXTURE *t1,
-                     long flags);
+void LIME_RenderMesh(MESHSETINFO *set, int index, TEXTURE *tex0, TEXTURE *tex1, long flags);
 void glPushMatrix(void);
 void glPopMatrix(void);
 void glScalef(float x, float y, float z);
@@ -2944,7 +2943,7 @@ typedef struct ANIMATEDCHARACTER {
 
 typedef struct PLAYER PLAYER;
 
-long IsFrameVisible(ANIMATEDCHARACTER *c, long a, long b);
+int IsFrameVisible(ANIMATEDCHARACTER *c, long a, long b);
 void RenderAnimatedCharacter(char *name, ANIMATEDCHARACTER *c,
                              long frameA, long frameB, float t,
                              float y, float grey, limeVECTOR3 *pos,
@@ -2953,7 +2952,7 @@ extern float AttachTransforms[];        /* 0x0018ee00 */
 extern float **MatrixPalette2;          /* pointer slot */
 
 void LIME_PushMatrix(void);
-void LIME_PopMatrix(long n);
+void LIME_PopMatrix(int count);
 void LIME_KillAllLights(void);
 void LIME_RenderScene(long a, void *scene, long frameA, long frameB, float t,
                       long b, long c, long d, void *tex, long e, float *att);
@@ -3113,8 +3112,8 @@ void RotMatrixX(float *m, float angle);
 void limeMatrixLoadIdentity(float *m);
 void limeMatrixMult(const float *a, const float *b, float *out);
 void limeScaleMatrix(float *m, float s);
-void LIME_TriggerEventsFromScene(void *scene, long frame, const float *m,
-                                 long a, long b, long c, long d, long e);
+void LIME_TriggerEventsFromScene(void *scene, int frame, const float *m,
+                                 long flags, long a4, long a5, long a6, long a7);
 
 
 /* ------------------------------------------------------------------ AnimateBG
@@ -3750,9 +3749,8 @@ extern float  ShadowHeightFromGround;   /* 0x00171364 */
 void ClearDebugWindow(int index);   /* lime.h names the argument; this file
                                      * had it as void until RenderLevelBG
                                      * called it with 1 */
-void LIME_printf(long level, const char *fmt, ...);
-void LIME_Slider(long a, float *value, const char *label, float lo,
-                 float hi, long step, long b);
+void LIME_printf(int window, const char *fmt, ...);
+void LIME_Slider(int window, float *value, const char *label, float lo, float hi, long step, long e);
 void LightPlayers(void);
 
 
@@ -5743,7 +5741,7 @@ void mk3_dizzy(void);
 
 void limeMemoryReport(const char *label);
 void InitVarEdit(void);
-long LIME_CountActiveEvents(void);
+int LIME_CountActiveEvents(void);
 void LIME_KillAllEvents(void);
 void ResetFightData(void);
 void heartbeatSetIncoming(long n);
@@ -6487,7 +6485,7 @@ void RenderLevelBG(void)
  */
 extern void *MoveIconsTexture;          /* 0x001abb70 */
 
-long limeFontStrLen(const char *s);
+int limeFontStrLen(const char *s);
 float limeGetStringWidth(void *font, const char *s);   /* a FLOAT -- see
                                          * decomp/lime/limeFont.c, and the
                                          * unconverted `vmov s10, r0` in
@@ -7427,7 +7425,7 @@ typedef struct {
 
 extern MOVESLISTENTRY MovesListTab[];   /* 0x0010d918, thirteen words each */
 
-void asciiToUnicode(const char *src, char *dst, long len);
+int asciiToUnicode(const char *src, char *dst, long len);
 void DrawMoveListIcons(int y, const int *seq, const char *caption,
                        int rightAlign);
 
@@ -8564,7 +8562,7 @@ void FreeLevelCharacters(void);
 void LIME_FreeMeshSet(void *meshset);
 void LIME_FreeMeshSetTextures(void *meshset);
 void LIME_FreeScene(void *scene);
-long GetNextLevel(long level);
+int GetNextLevel(int cur);
 void disableHeartbeat(void);
 
 #define GAMEDESTROY_LAYERS   8
@@ -9389,7 +9387,7 @@ void RenderIntroCharacterPlayer(void);
 void MaintainLevelScenes(void);
 void RenderLevelBG(void);
 void EndIntro(void);
-long areAchievementsViewing(void);
+int areAchievementsViewing(void);
 void LIMEDS_Set3dMode(void);
 
 void IntroRender(void)

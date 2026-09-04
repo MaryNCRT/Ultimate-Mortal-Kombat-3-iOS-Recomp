@@ -99,14 +99,14 @@ long t_null_fatality(MK3THREAD *thread)
  * -------------------------------------------------------------------- */
 
 long t_wait_forever(struct MK3THREAD *thread);
-long away_x_vel(MK3OBJ *obj);
-long back_to_normal(MK3OBJ *obj);
-long center_around_me(MK3OBJ *obj);
-long create_fx(MK3OBJ *obj);
+void away_x_vel(MK3OBJ *obj);
+void back_to_normal(MK3OBJ *obj);
+void center_around_me(MK3OBJ *obj);
+void create_fx(MK3OBJ *obj);
 long death_scream(MK3OBJ *obj);
-long get_char_ani2(MK3OBJ *obj);
-long pose_a9_manual(MK3OBJ *obj);
-long set_inviso(MK3OBJ *obj);
+void get_char_ani2(MK3OBJ *obj);
+void pose_a9_manual(MK3OBJ *obj);
+void set_inviso(MK3OBJ *obj);
 
 /* t_scorp_skeleton_burn -- armv7 0x0003424c, 64 bytes.  **Complete.**
  *

@@ -261,8 +261,14 @@ void CreateMatrixPaletteRecurse2(BONE *bone, SKINMATRIX43 *parent)
  *
  * Output strides, from the cursor arithmetic at the loop tail: 24 bytes per
  * vertex on one cursor, 48 on another, 6 on the third.
+ *
+ * **It returns a count**, which this was first written without. The epilogue
+ * is `mov r0, r4` and then the pops, so whatever r4 accumulated is the answer.
+ * `Players.c` had always used it -- `size2 = DrawSkinnedMesh2(..., 0, 1)`,
+ * measured once on mesh 0 and reused -- and the two readings disagreed until
+ * `tools/protos.py` put them side by side.
  */
-void DrawSkinnedMesh2(SKININFO *skin, unsigned a, unsigned b, long flags,
+long DrawSkinnedMesh2(SKININFO *skin, unsigned a, unsigned b, long flags,
                       limeVECTOR3 *outPos, limeVECTOR2 *outUV,
                       unsigned char *outCol, long e, long f)
 {
