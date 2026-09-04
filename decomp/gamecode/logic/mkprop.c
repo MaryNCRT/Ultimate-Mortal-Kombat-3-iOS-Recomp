@@ -64,6 +64,11 @@ long tl_do_ninja_slide(MK3THREAD *thread)
 
 long am_i_airborn(MK3OBJ *obj);
 void set_inviso(MK3OBJ *obj);
+void inc_p_hit(MK3OBJ *obj);
+void create_fx(MK3OBJ *obj);
+long t_suspend_wait_action(MK3THREAD *thread);
+long tl_do_scorp_tele(MK3THREAD *thread);
+long t_local_reaction_exit(MK3THREAD *thread);
 
 /* --------------------------------------------------------------------
  * Added by a later sweep -- tools/sweep.py, running the same
@@ -383,4 +388,181 @@ void accelerate_x(MK3OBJ *obj)
 
     obj->field1c = obj->field20;
     set_x_vel_player(obj);
+}
+
+
+/* --------------------------------------------------------------- t_biked_suspend
+ *
+ * armv7 0x0003fa2c, 80 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      inc_p_hit(obj)
+ *      obj->field1c          = 0x20d
+ *      *(uint32_t *)((char *)obj->field00 + 0x48) = 0x20d
+ *      frame[frame].handler = t_suspend_wait_action
+ *      frame[frame+1].w0 = 0
+ *
+ * A hit is counted, the same number goes to the object's 0x1c and to the
+ * PROC's 0x48, and then the thread hands over to the routine that waits for
+ * an action. Writing one value to a slot on each struct is how this directory
+ * makes something visible both to the thread that set it and to whatever
+ * reads the PROC.
+ */
+long t_biked_suspend(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    inc_p_hit(obj);
+
+    obj->field1c          = 0x20d;
+    /* PROC+0x48 falls in the unnamed run there; written by offset rather
+     * than given a field one store is not enough to establish. */
+    *(uint32_t *)((char *)obj->field00 + 0x48) = 0x20d;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_suspend_wait_action);
+}
+
+
+/* -------------------------------------------------------------- tl_do_ermac_tele
+ *
+ * armv7 0x00040a48, 88 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      am_i_airborn(obj)
+ *      if (obj->field5c == 0) {        ; on the ground
+ *          obj->field1c = 0x1e
+ *          create_fx(obj)
+ *      }
+ *      set_inviso(obj)
+ *      frame[frame].handler = tl_do_scorp_tele
+ *      frame[frame+1].w0 = 0
+ *
+ * **Ermac's teleport ends by installing SCORPION's.** The two characters share
+ * the rest of the move; what is different is only this preamble, and even that
+ * is one conditional effect. Reached through a direct pc-relative address
+ * rather than a pointer slot, so `tl_do_scorp_tele` is in this same file.
+ *
+ * The effect only spawns when the fighter is on the ground: `am_i_airborn`
+ * answers into 0x5c and a zero there takes the branch. The 0x1e is derived
+ * from that same zero with `adds r3, #0x1e` -- the register already held the
+ * answer, so the constant costs no load.
+ */
+long tl_do_ermac_tele(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    am_i_airborn(obj);
+
+    if (obj->field5c == 0) {            /* on the ground: leave a puff */
+        obj->field1c = 0x1e;            /* adds r3, #0x1e on the zero */
+        create_fx(obj);
+    }
+
+    set_inviso(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)tl_do_scorp_tele);
+}
+
+
+/* -------------------------------------------------------------- t_bike_scan_call
+ *
+ * armv7 0x0003c0ec, 92 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = 3
+ *      *(uint16_t *)(G + 0x456) = 3
+ *      if (thread->frame > 0) { thread->frame -= 1; return 0 }
+ *      frame[frame].handler = t_local_reaction_exit
+ *      frame[frame+1].w0 = 0
+ *
+ * Three into the object's 0x1c and into the halfword at G+0x456 -- the same
+ * global slot the `sans_repell` family writes, and the same constant into
+ * both, held in `ip` across the pair.
+ *
+ * Then the return-up shape: the frame index is DECREMENTED to go back to the
+ * caller, and the handler is only installed when there is nowhere to go back
+ * to. `frame` is signed here -- `cmp #0` then `ble`, not `cbz`.
+ */
+long t_bike_scan_call(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 3;
+    *(uint16_t *)(G_BYTES + 0x456) = 3;
+
+    if ((long)thread->frame > 0) {      /* cmp #0 / ble: signed */
+        thread->frame -= 1;             /* back up a level */
+        return 0;
+    }
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* ------------------------------------------------------------- t_do_body_propell
+ *
+ * armv7 0x0003c148, 92 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      n = obj->field1c
+ *      if (n <= 0x1c) { h = propell_table[n]; obj->field1c = h }
+ *      else           { h = t_local_reaction_exit }
+ *      frame[frame].handler = h
+ *      frame[frame+1].w0 = 0
+ *
+ * **This is where every special move is dispatched from.** 0x1c arrives as a
+ * move number, `_propell_table` at 0x00166f4c turns it into a handler, and the
+ * thread hands over to it. Out of range falls back to the reaction exit, so a
+ * bad number ends the move instead of jumping somewhere.
+ *
+ * The chosen handler is written back into 0x1c as well as installed -- the
+ * same address in both places -- and only on the in-range path.
+ *
+ * The bound is `bhi` on 0x1c, so **twenty-nine entries, 0 through 0x1c**, and
+ * every one of them is a named symbol:
+ *
+ *       0 tl_kano_cannon_ball     10 tl_do_tele_explode     20 tl_do_sg_quake
+ *       1 tl_sonya_bike_kick      11 tl_do_lia_stay_afloat  21 tl_do_ninja_slide
+ *       2 tl_ind_charge           12 tl_do_square_wave      22 tl_do_scorp_tele
+ *       3 tl_jax_dash_punch       13 tl_do_lk_bike          23 tl_do_reptile_dash
+ *       4 tl_do_sz_decoy          14 tl_do_super_kang       24 tl_do_jade_prop
+ *       5 tl_do_lia_fly           15 tl_do_sg_pounce        25 tl_do_mileena_tele
+ *       6 tl_do_lao_tele          16 tl_do_slide            26 tl_do_mileena_prop
+ *       7 tl_do_lao_angle         17 tl_do_swat_zoom        27 tl_do_ermac_tele
+ *       8 tl_do_robo_tele         18 tl_do_stick_sweep      28 tl_do_kano_upball
+ *       9 tl_do_robo_air_grab     19 tl_do_tusk_blur
+ *
+ * That is the catalogue of the dashes, teleports and charges, and it is worth
+ * reading next to `tl_do_ermac_tele` a few functions up: entry 27 ends by
+ * installing entry 22, so Ermac's teleport is Scorpion's with a preamble.
+ */
+extern MK3THREADFUNC propell_table[0x1d];   /* 0x00166f4c */
+
+long t_do_body_propell(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+    uint32_t      n;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    n = obj->field1c;
+    if (n <= 0x1c) {
+        h = propell_table[n];
+        obj->field1c = (uint32_t)(uintptr_t)h;
+    } else {
+        h = (MK3THREADFUNC)t_local_reaction_exit;
+    }
+
+    return mk3_push_handler(thread, h);
 }
