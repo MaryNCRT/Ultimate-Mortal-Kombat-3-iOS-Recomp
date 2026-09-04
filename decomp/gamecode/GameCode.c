@@ -6852,7 +6852,11 @@ extern void (*FrameID_GetBBoxPtr)(void);
 void *LIME_LoadScene(const char *name, long a, long b, long c);
 void *LIME_LoadSceneWithTextures(const char *name, long a);
 void *LIME_LoadMeshSet(const char *name, long a);
-void  LIME_LoadMeshSetTextures(void *ms, long a);
+/* The second argument is a STRING, not a word: the body does
+ * `sprintf(buf, "%s_DIFF", it)`. Both call sites here pass 0, which the
+ * body checks for with `cbz` before using it, so a null suffix is the
+ * normal case and the type was never exercised. */
+void  LIME_LoadMeshSetTextures(void *ms, const char *suffix);
 void  InitParticles(void);
 void  InitGameEvents(void);
 /* EPLAYER is `typedef int` in Players.c; same reasoning. */
@@ -6982,7 +6986,7 @@ long GameInit_LoadABit(long step)
 
         BGSceneHandle = LIME_LoadScene(name, 0, 0, 0);
         if (BGSceneHandle != 0)
-            LIME_LoadMeshSetTextures(((void **)BGSceneHandle)[0x80 / 4], 0);
+            LIME_LoadMeshSetTextures(((void **)BGSceneHandle)[0x80 / 4], NULL);
         BGSceneLoops[0] = *(const long *)(rec + 0x20);
         return 0;
     }
@@ -6995,7 +6999,7 @@ long GameInit_LoadABit(long step)
 
         BGSceneHandle2 = LIME_LoadScene(name, 0, 0, 0);
         if (BGSceneHandle2 != 0)
-            LIME_LoadMeshSetTextures(((void **)BGSceneHandle2)[0x80 / 4], 0);
+            LIME_LoadMeshSetTextures(((void **)BGSceneHandle2)[0x80 / 4], NULL);
         BGSceneLoops[1] = *(const long *)(rec + 0x54);
         return 0;
     }

@@ -247,7 +247,7 @@ Not open searches any more — each has a named function behind it:
 | `tools/protos.py` | every declaration against its definition; `--fix` corrects return types |
 | `tools/samefn.py` | group functions by shape, so identical bodies are read once |
 
-### The three readers, and what each will not do
+### The four readers, and what each will not do
 
 Most of `gamecode/logic` is one function written many times, so three programs
 read the repetitive parts and refuse the rest. `tools/genfile.py <file>.c` runs
@@ -258,6 +258,7 @@ all three and appends what they proved.
 | `tools/pushfn.py` | the frame-push shape: a guard, stores, a handler installed | one instruction it cannot model, a handler that is not an address, a store it cannot place |
 | `tools/microfn.py` | fixed templates -- a tail call, a constant into 0x5c, a table handed to a search routine | anything with an instruction out of place |
 | `tools/leaffn.py` | straight-line leaves: stores, calls, a return | anything that branches, any return value it cannot prove, any value read from a field the function also writes |
+| `tools/parkfn.py` | the token dispatch -- `it ne` / `mvnne r0, #2` -- and its two states | a state that is not exactly one of park, descend or install; a token, duration or handler that is not constant |
 
 **The refusals are the point.** Each was added because guessing there produced
 something wrong:
@@ -272,6 +273,17 @@ something wrong:
   for months.
 - `pushfn` masks its arithmetic to 32 bits because Python's does not, and
   `0xffffffb8 + 0x5d` came out as a 33-bit constant in a `uint32_t` field.
+- `parkfn` tests for the CLEAR before the token, because a zero into the token
+  slot is the clear that ends an install. Testing for a token first ate every
+  clear in the directory and the reader accepted nothing at all.
+
+**Two of `parkfn`'s three bugs were in the parsing, not the logic**, and both
+came from copying a piece of `microfn` without the pass that follows it: a
+`bl` carries its target on the same line rather than as a `; ->`
+continuation, and `ldr rX, [pc, #n]` with no `add rX, pc` after it loads a
+word rather than an address. Ninety-five functions were lost to the first and
+every 0x16462 park to the second. If a reader's yield is surprisingly low,
+suspect the parser before the rules.
 
 **If a reader accepts something, check one against `dumpfn.py` before trusting
 a batch.** Every bug above was found that way or by a compiler, not by
