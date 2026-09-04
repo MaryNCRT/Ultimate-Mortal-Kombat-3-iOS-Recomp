@@ -88,6 +88,7 @@ int main(int argc, char **argv)
     long  step;
     int   was_down = 0;
     double t0;
+    double last, acc = 0.0;
 
     setvbuf(stdout, NULL, _IONBF, 0);
 
@@ -112,9 +113,21 @@ int main(int argc, char **argv)
     printf("loaded at step %ld\n", step);
 
     t0 = plat_time();
+    last = t0;
     while (plat_poll()) {
         int mx, my, down;
         int ww, wh;
+
+        /* Is a tick due? `Task_FEMain` both advances the menu and draws it,
+         * so a pass with no tick has nothing to put on the screen. Clearing
+         * and swapping anyway is a black frame between good ones -- which on
+         * a display faster than 60 Hz is most of them. */
+        acc += plat_time() - last;
+        last = plat_time();
+        if (acc > 0.25)                 /* a stall is not repaid all at once */
+            acc = 0.25;
+        if (acc < 1.0 / 60.0)
+            continue;
 
         plat_size(&ww, &wh);
         glViewport(0, 0, ww, wh);
@@ -139,18 +152,41 @@ int main(int argc, char **argv)
         }
         was_down = down;
 
-        Task_FEMain();
+        /* **A fixed 60 Hz tick, not one tick per displayed frame.**
+         *
+         * The animations are counted in ticks, not seconds: `AnimateBG`
+         * advances the background with `BGSceneFrame[i] += 1.0f`, and the
+         * binary really does add a hardcoded one -- `vmov.f32 s12, #1.0` then
+         * `vadd.f32` -- with no frame-rate scaling anywhere near it. So the
+         * background runs at exactly the rate this loop calls it.
+         *
+         * The original called it sixty times a second. `lime.m` holds one
+         * `1.0/60.0` double, in limeBegin's literal pool, and the binary has
+         * `setAnimationInterval:` to pass it to. Ticking once per swap instead
+         * runs at whatever the display does: right at 60 Hz, and nearly two
+         * and a half times too fast on a 144 Hz monitor.
+         *
+         * The cap keeps a stall from being repaid all at once.
+         *
+         * A shot needs the ticks to have happened, so it counts them rather
+         * than swaps. */
+        while (acc >= 1.0 / 60.0) {
+            Task_FEMain();
+            acc -= 1.0 / 60.0;
+            frames++;
+        }
 
-        if (!plat_swap())
-            break;
-
-        /* UMK3_SHOT=<n> renders n frames, saves the buffer and quits. The
-         * first frames are not representative -- textures upload on demand and
+        /* UMK3_SHOT=<n> ticks n times, saves the buffer and quits. Before the
+         * swap: after it the back buffer is no longer what was just drawn. The
+         * first ticks are not representative -- textures upload on demand and
          * the menus fade in -- so a shot is worth taking a little later. */
-        if (shot_at > 0 && ++frames >= shot_at) {
+        if (shot_at > 0 && frames >= shot_at) {
             save_shot(ww, wh);
             break;
         }
+
+        if (!plat_swap())
+            break;
 
         if (plat_time() - t0 > 1.0) {
             printf("screen %d  sprites %ld  fills %ld\n",

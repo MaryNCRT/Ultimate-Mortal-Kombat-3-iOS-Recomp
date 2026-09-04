@@ -755,12 +755,30 @@ void limeDrawFONTAtAngle(FONT *font, const char *text, float x, float y,
     limeVECTOR3 pos;
     const char *p;
     float pen = 0.0f;                   /* distance along the rotated line */
-    float ca, sa;
+    float rad, ca, sa;
 
     if (font == NULL || text == NULL || font->codesW == NULL)
         return;
 
-    RotMatrixZ(rot, angle);             /* Matrix.cpp, verified */
+    /* **The angle is in TURNS.** Not degrees, not radians. The binary's first
+     * act is to multiply it by a literal pi and then double the result:
+     *
+     *      vldr     s14, [pc, #0x298]      ; 3.14159274
+     *      vmul.f32 s14, s28, s14          ; angle * pi
+     *      vadd.f32 s14, s14, s14          ; and doubled -- angle * 2pi
+     *      bl       RotMatrixZ
+     *
+     * so RotMatrixZ receives radians, which is what its cosf/sinf want.
+     *
+     * This was first written as degrees and the menu paid for it. The main
+     * menu's five entries pass -0.021, -0.0021, 0.008, 0.023 and 0.015. As
+     * turns those are -7.6, -0.8, 2.9, 8.3 and 5.4 degrees, which is the tilt
+     * the button art is drawn with. Read as degrees they are a 360th of that:
+     * text that looks perfectly straight and gives no hint anything is wrong.
+     */
+    rad = angle * 6.28318530717958647692f;      /* turns -> radians */
+
+    RotMatrixZ(rot, rad);               /* Matrix.cpp, verified */
 
     /* See the note in limeDrawFONT: the three alignment cases are read off the
      * call sites, not off the disassembly. */
@@ -774,10 +792,10 @@ void limeDrawFONTAtAngle(FONT *font, const char *text, float x, float y,
                                          * existing declaration's order */
 
     /* The advance runs along the line, which is tilted, so it is added as a
-     * rotated offset rather than to pos.x. RotMatrixZ's angle is in degrees,
-     * the same as everywhere else in Matrix.cpp. */
-    ca = (float)cos((double)angle * 3.14159265358979323846 / 180.0);
-    sa = (float)sin((double)angle * 3.14159265358979323846 / 180.0);
+     * rotated offset rather than to pos.x -- through the same radians the
+     * matrix was built from, not a second conversion. */
+    ca = (float)cos((double)rad);
+    sa = (float)sin((double)rad);
 
     p = text;
     if ((uint8_t)p[0] == 0xff && (uint8_t)p[1] == 0xfe)

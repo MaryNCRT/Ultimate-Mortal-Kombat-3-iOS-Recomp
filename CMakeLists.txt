@@ -15,6 +15,31 @@ add_executable(umk3
 
 target_include_directories(umk3 PRIVATE runtime)
 
+# The front end, in a window. `runtime/menu_main.c` and `runtime/draw_gl.c`
+# have existed for a while but were never a build target, so the only way to
+# see the menu was to remember the gcc line in menu_main.c's header. It is a
+# separate executable rather than a mode of `umk3` because it links the whole
+# of decomp/gamecode and decomp/lime, which the mesh viewer has no use for.
+#
+# UMK3_REAL_GL is what swaps the counting platform layer for the drawing one.
+file(GLOB UMK3_MENU_GAMECODE decomp/gamecode/*.c)
+file(GLOB UMK3_MENU_LIME     decomp/lime/*.c)
+file(GLOB UMK3_MENU_RUNLIME  runtime/lime/*.c)
+
+add_executable(umk3-menu
+    runtime/menu_main.c
+    runtime/draw_gl.c
+    runtime/gamecode_globals.c
+    runtime/gamecode_stubs.c
+    runtime/lime_menu.c
+    runtime/lime_platform.c
+    ${UMK3_MENU_GAMECODE}
+    ${UMK3_MENU_LIME}
+    ${UMK3_MENU_RUNLIME}
+)
+target_include_directories(umk3-menu PRIVATE runtime decomp/lime)
+target_compile_definitions(umk3-menu PRIVATE UMK3_REAL_GL)
+
 # win32 needs nothing installed and is what the vertical slice was built on;
 # sdl2 is the portable path. Both implement platform.h and nothing else.
 if(WIN32)
@@ -31,10 +56,15 @@ if(UMK3_BACKEND STREQUAL "win32")
     endif()
     target_sources(umk3 PRIVATE runtime/platform/win32_gl.c)
     target_link_libraries(umk3 PRIVATE opengl32 gdi32)
+    target_sources(umk3-menu PRIVATE runtime/platform/win32_gl.c)
+    target_link_libraries(umk3-menu PRIVATE opengl32 gdi32)
 elseif(UMK3_BACKEND STREQUAL "sdl2")
     find_package(SDL2 REQUIRED)
     find_package(OpenGL REQUIRED)
     target_sources(umk3 PRIVATE runtime/platform/sdl_gl.c)
+    target_sources(umk3-menu PRIVATE runtime/platform/sdl_gl.c)
+    target_include_directories(umk3-menu PRIVATE ${SDL2_INCLUDE_DIRS})
+    target_link_libraries(umk3-menu PRIVATE ${SDL2_LIBRARIES} OpenGL::GL m)
     # SDL2_INCLUDE_DIRS is the spelling the Debian/Ubuntu config module uses;
     # the imported target covers the rest.
     target_include_directories(umk3 PRIVATE ${SDL2_INCLUDE_DIRS})
