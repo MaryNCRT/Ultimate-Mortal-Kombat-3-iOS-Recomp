@@ -104,6 +104,8 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+void group_sound(MK3OBJ *obj);
+long t_flight_call(MK3THREAD *thread);
 void get_char_ani(MK3OBJ *obj);
 long t_jump_up_land_jump(MK3THREAD *thread);
 void ground_player(MK3OBJ *obj);
@@ -1655,6 +1657,148 @@ long t_lao_angle_blocked(MK3THREAD *thread)
     thread->frame = thread->frame + 1;          /* push a level */
     mk3_frame(thread, thread->frame)[1] =
         (uint32_t)(uintptr_t)t_flight;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ------------------------------------------------------------------- t_tele_scan
+ *
+ * armv7 0x0003c868, 184 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      n = obj->field00->field28
+ *      obj->field1c = n
+ *      if (n == 0) {
+ *          obj->field00->field18 = 0x622
+ *          obj->field1c = 0x13
+ *          strike_check_a0(obj)
+ *          if (obj->field5c != 0) {
+ *              obj->field00[+0x2c]   = obj->field18
+ *              obj->field1c          = 1
+ *              obj->field00->field28 = 1
+ *          }
+ *      }
+ *      if (thread->frame > 0) { thread->frame -= 1; return 0 }
+ *      frame[frame].handler = t_local_reaction_exit
+ *
+ * **PROC+0x28 is a once-only flag here.** The scan strikes only while it reads
+ * zero, and sets it to 1 on a hit -- so a teleport can connect once and then
+ * keeps running without hitting again on later frames.
+ *
+ * Every path ends the same way: return up a level, or install the reaction
+ * exit if there is no level left. The compiler emitted that ending THREE
+ * times, once per path, each with its own load of the same pointer slot at
+ * 0x000f3708. Written once here, because the three copies do the same thing.
+ *
+ * PROC+0x2c is written by byte offset: it falls inside the unnamed run at
+ * 0x2c and this is the second store to reach it, which is still not enough to
+ * name it.
+ */
+long t_tele_scan(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t n;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    n = obj->field00->field28;
+    obj->field1c = n;
+
+    if (n == 0) {                       /* it has not connected yet */
+        obj->field00->field18 = 0x622;
+
+        obj->field1c = 0x13;
+        strike_check_a0(obj);
+
+        if (obj->field5c != 0) {        /* and it does now */
+            *(uint32_t *)((char *)obj->field00 + 0x2c) = obj->field18;
+            obj->field1c          = 1;
+            obj->field00->field28 = 1;  /* not again */
+        }
+    }
+
+    if ((long)thread->frame > 0) {
+        thread->frame -= 1;             /* back up a level */
+        return 0;
+    }
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* -------------------------------------------------------------- tl_do_lao_angle
+ *
+ * armv7 0x0003e99c, 192 bytes.  **Complete.**
+ *
+ *      token == 0:       obj->field20          = 0x20c
+ *                        obj->field00->field18 = 0x20c
+ *                        air_init_special(obj)
+ *                        obj->field1c = 0; group_sound(obj)
+ *                        obj->field1c = 0; ochar_sound(obj)
+ *                        obj->field40 = 0x19
+ *                        obj->field1c = 0xfff80000
+ *                        obj->field20 = 0x00030000
+ *                        obj->field24 = 0x00004000
+ *                        obj->field28 = 2
+ *                        obj->field34 = t_lao_angle_scan
+ *                        token := 0x8f8, then descend into t_flight_call
+ *
+ *      token == 0x8f8:   frame[frame].handler = t_jump_up_land_jsrp
+ *
+ *      otherwise:        return -3
+ *
+ * Entry 7 of the propell table, and the clearest example in this file of how a
+ * special move is set up: the action pair, two sounds, an animation, three
+ * velocity components, **a callback**, and then a descend.
+ *
+ * **0x34 is the callback slot.** `t_lao_angle_scan` is written there and
+ * `t_flight_call` is what runs it -- so the flight routine is generic and the
+ * per-move behaviour is the function it is handed. `flight_move_ani` writes
+ * the same slot with `is_he_left` or `is_he_right` and calls it directly.
+ *
+ * The three velocity components are one literal and two steps again:
+ * 0xfff80000, then `add #0xb0000` reaches 0x30000, then `sub #0x2c000` reaches
+ * 0x4000 -- -8.0, 3.0 and 0.25 in 16.16.
+ *
+ * Both sounds are asked for with 0 in 0x1c, written from the register the
+ * guard already proved was zero.
+ */
+long tl_do_lao_angle(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token != 0) {
+        if (token != 0x8f8)
+            return -3;
+        return mk3_push_handler(thread,
+                                (MK3THREADFUNC)t_jump_up_land_jsrp);
+    }
+
+    obj->field20          = 0x20c;
+    obj->field00->field18 = 0x20c;
+    air_init_special(obj);
+
+    obj->field1c = 0;
+    group_sound(obj);
+    obj->field1c = 0;
+    ochar_sound(obj);
+
+    obj->field40 = 0x19;
+
+    obj->field1c = 0xfff80000u;         /* -8.00 */
+    obj->field20 = 0x00030000;          /*  3.00, by add #0xb0000 */
+    obj->field24 = 0x00004000;          /*  0.25, by sub #0x2c000 */
+    obj->field28 = 2;
+
+    obj->field34 = (uint32_t)(uintptr_t)t_lao_angle_scan;   /* the callback */
+
+    *mk3_frame(thread, thread->frame + 1) = 0x8f8;
+    thread->frame = thread->frame + 1;          /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_flight_call;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
