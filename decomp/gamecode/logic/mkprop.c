@@ -104,6 +104,8 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+void distance_off_ground(MK3OBJ *obj);
+void towards_x_vel(MK3OBJ *obj);
 void shake_a11(MK3OBJ *obj);
 long t_mframew(MK3THREAD *thread);
 void group_sound(MK3OBJ *obj);
@@ -1955,4 +1957,80 @@ long t_blur_catchup(MK3THREAD *thread)
         (uint32_t)(uintptr_t)t_mframew;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
+}
+
+
+/* ----------------------------------------------------------------------- t_lfly5
+ *
+ * armv7 0x0003ea5c, 200 bytes.  **Complete.**
+ *
+ *      token == 0:       park(token 0x6c4, duration 1)
+ *
+ *      token == 0x6c4:   distance_off_ground(obj)
+ *                        if (obj->field1c <= 0x5f) {
+ *                            frame[frame].handler = t_lfly5   ; itself
+ *                        } else {
+ *                            obj->field1c = 0; group_sound(obj)
+ *                            obj->field1c          = 0
+ *                            obj->field08->field1c = 0
+ *                            obj->field40 = 3; get_char_ani2(obj)
+ *                            obj->field1c = 3; init_anirate(obj)
+ *                            obj->field1c = 0xa0000
+ *                            towards_x_vel(obj)
+ *                            face_opponent(obj)
+ *                            obj->field48 = 0x1a
+ *                            frame[frame].handler = t_lfly4
+ *                        }
+ *
+ *      otherwise:        return -3
+ *
+ * **It waits for height by installing itself.** Below 0x5f off the ground the
+ * handler it installs is `t_lfly5` -- the same function, at a direct
+ * pc-relative 0x0003ea5d, which is this function's own address with the Thumb
+ * bit. Installing also clears the slot above, so the token goes back to zero,
+ * the next entry parks with 0x6c4 again, and the check repeats every two
+ * ticks until the fighter is high enough.
+ *
+ * Once he is, the move is set up in full and handed to `t_lfly4`, which is the
+ * one-tick strike poll with the countdown at 0x48 -- and 0x1a is the number of
+ * frames written here for it to count down.
+ *
+ * 0xa0000 is 10.0 in the 16.16 this directory uses for velocity.
+ */
+long t_lfly5(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x6c4;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token != 0x6c4)
+        return -3;
+
+    distance_off_ground(obj);
+    if ((long)obj->field1c <= 0x5f)     /* not high enough yet */
+        return mk3_push_handler(thread, (MK3THREADFUNC)t_lfly5);
+
+    obj->field1c = 0;
+    group_sound(obj);
+
+    obj->field1c          = 0;
+    obj->field08->field1c = 0;
+
+    obj->field40 = 3;
+    get_char_ani2(obj);
+    obj->field1c = 3;
+    init_anirate(obj);
+
+    obj->field1c = 0xa0000;             /* 10.0 */
+    towards_x_vel(obj);
+    face_opponent(obj);
+
+    obj->field48 = 0x1a;                /* the frames t_lfly4 counts down */
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_lfly4);
 }
