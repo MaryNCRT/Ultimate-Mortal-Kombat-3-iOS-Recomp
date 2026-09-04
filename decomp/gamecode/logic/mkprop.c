@@ -104,6 +104,8 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+void get_char_ani(MK3OBJ *obj);
+long t_jump_up_land_jump(MK3THREAD *thread);
 void ground_player(MK3OBJ *obj);
 void clear_nocol(MK3OBJ *obj);
 
@@ -1525,4 +1527,134 @@ long t_cyrax_implode(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0x722;
     thread->fieldfc = 0xa;
     return 0xa;
+}
+
+
+/* --------------------------------------------------------------------- t_square3
+ *
+ * armv7 0x0003d804, 164 bytes.  **Complete.**
+ *
+ *      token == 0:       obj->field40 = 0x10016
+ *                        pose_a9_manual(obj)
+ *                        face_opponent(obj)
+ *                        obj->field1c = 0
+ *                        obj->field20 = 0x20000
+ *                        obj->field24 = 0x8000
+ *                        obj->field28 = 0xfff
+ *                        token := 0x6ee, then descend into t_flight
+ *
+ *      token == 0x6ee:   frame[frame].handler = t_jump_up_land_jsrp
+ *
+ *      otherwise:        return -3
+ *
+ * The end of the square wave: pose, face the opponent, set a velocity and go
+ * down a level into the shared flight routine; when that returns, land.
+ *
+ * **0x8000 is derived from 0x20000 by subtraction** -- `sub.w r3, r3, #0x18000`
+ * on the value already in the register -- so 2.0 and 0.5 in the 16.16 this
+ * directory uses for velocity cost one literal between them.
+ *
+ * 0x10016 into 0x40 is the packed shape 0x40 takes when it is a number rather
+ * than a pointer: 1 in the high half and 0x16 in the low.
+ *
+ * `t_flight` and `t_jump_up_land_jsrp` both arrive through pointer slots, so
+ * neither is in this file. `t_flight` is the routine in other.c that pushes a
+ * level and keeps its place -- this is one of its callers.
+ */
+long t_square3(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token != 0) {
+        if (token != 0x6ee)
+            return -3;
+        return mk3_push_handler(thread,
+                                (MK3THREADFUNC)t_jump_up_land_jsrp);
+    }
+
+    obj->field40 = 0x10016;             /* 1 high, 0x16 low */
+    pose_a9_manual(obj);
+    face_opponent(obj);
+
+    obj->field1c = 0;
+    obj->field20 = 0x20000;             /* 2.0 */
+    obj->field24 = 0x8000;              /* 0.5, reached by subtraction */
+    obj->field28 = 0xfff;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x6ee;
+    thread->frame = thread->frame + 1;          /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_flight;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ------------------------------------------------------------- t_lao_angle_blocked
+ *
+ * armv7 0x0003c1a4, 172 bytes.  **Complete.**
+ *
+ *      token == 0:       obj->field1c          = 0x60f
+ *                        obj->field00->field18 = 0x60f
+ *                        obj->field40 = 0x1a
+ *                        get_char_ani(obj)
+ *                        obj->field40 += 4
+ *                        obj->field1c = 0x4000
+ *                        obj->field20 = 0xfff90000
+ *                        obj->field24 = 0x6000
+ *                        obj->field28 = 3
+ *                        token := 0x8c5, then descend into t_flight
+ *
+ *      token == 0x8c5:   frame[frame].handler = t_jump_up_land_jump
+ *
+ *      otherwise:        return -3
+ *
+ * What happens when the hat is blocked: the action pair goes to 0x60f, an
+ * animation is resolved and then offset by 4, a velocity is set, and the
+ * thread descends into the shared flight routine. When that comes back it
+ * lands in a jump rather than on its feet -- `t_jump_up_land_jump`, where
+ * `t_lao_angle_hit` used `t_land_on_yer_feet`. Blocked and connected end
+ * differently.
+ *
+ * **The three velocity components are one literal and two arithmetic steps**:
+ * 0x4000, then `sub #0x74000` reaches 0xfff90000, then `add #0x76000` on THAT
+ * reaches 0x6000. In the 16.16 this directory uses that is 0.25, -7.0 and
+ * 0.38 -- three numbers with nothing in common, produced by a chain because
+ * each fits an immediate where the value itself would need a pool entry.
+ *
+ * 0x40 is resolved by `get_char_ani` and then has 4 ADDED to it, the same
+ * offset-from-the-resolved-animation shape `tl_do_lia_stay_afloat` uses with
+ * 0x18.
+ */
+long t_lao_angle_blocked(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token != 0) {
+        if (token != 0x8c5)
+            return -3;
+        return mk3_push_handler(thread,
+                                (MK3THREADFUNC)t_jump_up_land_jump);
+    }
+
+    obj->field1c          = 0x60f;
+    obj->field00->field18 = 0x60f;
+
+    obj->field40 = 0x1a;
+    get_char_ani(obj);
+    obj->field40 += 4;                  /* an offset from what was resolved */
+
+    obj->field1c = 0x4000;              /*  0.25 */
+    obj->field20 = 0xfff90000u;         /* -7.00, by sub #0x74000 */
+    obj->field24 = 0x6000;              /*  0.38, by add #0x76000 on that */
+    obj->field28 = 3;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x8c5;
+    thread->frame = thread->frame + 1;          /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_flight;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
 }
