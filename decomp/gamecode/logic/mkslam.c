@@ -173,3 +173,90 @@ long t_nj_slam(MK3THREAD *thread)
 
     return mk3_push_handler(thread, (MK3THREADFUNC)t_njsl3);
 }
+
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
+
+long t_flight(MK3THREAD *thread);
+long t_land_on_my_back(MK3THREAD *thread);
+void damage_to_me(MK3OBJ *obj);
+
+/* t_post_broken_back -- armv7 0x00049ebc, 152 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field1c = 0x38000
+ *          obj->field20 = 0xfff80000
+ *          obj->field24 = 0xa000
+ *          obj->field28 = 0xfff
+ *          token := 0x429, then descend into t_flight
+ *      token == 0x429:
+ *          frame[frame].handler = t_land_on_my_back
+ *      otherwise:  return -3
+ */
+long t_post_broken_back(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 0x38000;
+        obj->field20 = 0xfff80000;
+        obj->field24 = 0xa000;
+        obj->field28 = 0xfff;
+        *mk3_frame(thread, thread->frame + 1) = 0x429;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x429)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_land_on_my_back);
+}
+
+/* t_thrown_by_sz -- armv7 0x0004b6d4, 156 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field1c = 0x60000
+ *          obj->field20 = 0xfffa0000
+ *          obj->field24 = 0xa000
+ *          obj->field28 = 0xfff
+ *          token := 0x413, then descend into t_flight
+ *      token == 0x413:
+ *          obj->a10 = 0x19
+ *          damage_to_me(obj)
+ *          frame[frame].handler = t_land_on_my_back
+ *      otherwise:  return -3
+ */
+long t_thrown_by_sz(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 0x60000;
+        obj->field20 = 0xfffa0000;
+        obj->field24 = 0xa000;
+        obj->field28 = 0xfff;
+        *mk3_frame(thread, thread->frame + 1) = 0x413;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x413)
+        return -3;
+
+    obj->a10 = 0x19;
+    damage_to_me(obj);
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_land_on_my_back);
+}

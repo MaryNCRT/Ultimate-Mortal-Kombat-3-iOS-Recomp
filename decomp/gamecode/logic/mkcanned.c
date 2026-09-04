@@ -164,3 +164,73 @@ long t_victory_animation(MK3THREAD *thread)
 
     return mk3_push_handler(thread, (MK3THREADFUNC)t_vicjump);
 }
+
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
+
+long t_dizzy_wake(MK3THREAD *thread);
+long t_mframew(MK3THREAD *thread);
+long t_wait_forever(MK3THREAD *thread);
+void get_char_ani(MK3OBJ *obj);
+
+/* t_dizzy_sleep -- armv7 0x0007ce58, 72 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          park(token 0x154, duration 0x1)
+ *      token == 0x154:
+ *          frame[frame].handler = t_dizzy_wake
+ *      otherwise:  return -3
+ */
+long t_dizzy_sleep(MK3THREAD *thread)
+{
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x154;
+        thread->fieldfc = 0x1;
+        return 0x1;
+    }
+
+    if (token != 0x154)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_dizzy_wake);
+}
+
+/* t_vic7 -- armv7 0x0007d418, 136 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field40 = 0xd
+ *          get_char_ani(obj)
+ *          obj->field1c = obj->a10
+ *          token := 0x276, then descend into t_mframew
+ *      token == 0x276:
+ *          frame[frame].handler = t_wait_forever
+ *      otherwise:  return -3
+ */
+long t_vic7(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field40 = 0xd;
+        get_char_ani(obj);
+        obj->field1c = obj->a10;
+        *mk3_frame(thread, thread->frame + 1) = 0x276;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x276)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_wait_forever);
+}

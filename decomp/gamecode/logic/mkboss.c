@@ -430,7 +430,6 @@ long t_swait_land_jsrp(MK3THREAD *thread);
  */
 long t_boss_wait_land(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {

@@ -1689,7 +1689,6 @@ long t_suspend_wait_wake(MK3THREAD *thread);
  */
 long t_r_bike_kicked(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {
@@ -1714,7 +1713,6 @@ long t_r_bike_kicked(MK3THREAD *thread)
  */
 long t_net_sleep(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {
@@ -1769,7 +1767,6 @@ long t_r_airborn_duck_kick(MK3THREAD *thread)
  */
 long t_rhat_sleep(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {
@@ -1794,7 +1791,6 @@ long t_rhat_sleep(MK3THREAD *thread)
  */
 long t_susp3(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {
@@ -1819,7 +1815,6 @@ long t_susp3(MK3THREAD *thread)
  */
 long t_suspend_wait_action(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {

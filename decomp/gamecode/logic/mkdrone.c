@@ -2194,7 +2194,6 @@ long tl_stat_do_lia_scream(MK3THREAD *thread);
  */
 long t_d_hi_kick(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {
@@ -2222,7 +2221,6 @@ long t_d_hi_kick(MK3THREAD *thread)
  */
 long t_d_backup_jump(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {
@@ -2250,7 +2248,6 @@ long t_d_backup_jump(MK3THREAD *thread)
  */
 long t_very_far_airborn(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {
@@ -2308,7 +2305,6 @@ long t_d_do_floor_ice(MK3THREAD *thread)
  */
 long t_d_bflip_jump(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {
@@ -2336,7 +2332,6 @@ long t_d_bflip_jump(MK3THREAD *thread)
  */
 long t_d_fflip_scan_jump(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {
@@ -2364,7 +2359,6 @@ long t_d_fflip_scan_jump(MK3THREAD *thread)
  */
 long t_watch_flip_punch(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {
@@ -2392,7 +2386,6 @@ long t_watch_flip_punch(MK3THREAD *thread)
  */
 long t_watch_flip_kick(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {
@@ -2420,7 +2413,6 @@ long t_watch_flip_kick(MK3THREAD *thread)
  */
 long t_d_fflip_jump(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {
@@ -2448,7 +2440,6 @@ long t_d_fflip_jump(MK3THREAD *thread)
  */
 long t_d_punch(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {
@@ -2566,7 +2557,6 @@ long t_d_lk_hi_zap_jump(MK3THREAD *thread)
  */
 long t_d_zap_jump(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {
@@ -2686,7 +2676,6 @@ long t_sz_sky_zap(MK3THREAD *thread)
  */
 long t_d_quake(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {
@@ -2714,7 +2703,6 @@ long t_d_quake(MK3THREAD *thread)
  */
 long c_icharge_sd(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {
@@ -2742,7 +2730,6 @@ long c_icharge_sd(MK3THREAD *thread)
  */
 long c_stzap23(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {
@@ -2954,7 +2941,6 @@ long t_run_in_and_slam(MK3THREAD *thread)
  */
 long t_drone_sweep_closeup_sd(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {
@@ -2982,7 +2968,6 @@ long t_drone_sweep_closeup_sd(MK3THREAD *thread)
  */
 long t_d_lia_scream(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {
@@ -3010,7 +2995,6 @@ long t_d_lia_scream(MK3THREAD *thread)
  */
 long c_kroll_sd(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {
@@ -3068,7 +3052,6 @@ long t_av_robo_tele(MK3THREAD *thread)
  */
 long t_kick_will_miss(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {
@@ -3096,7 +3079,6 @@ long t_kick_will_miss(MK3THREAD *thread)
  */
 long t_ct_quake(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {
@@ -3124,7 +3106,6 @@ long t_ct_quake(MK3THREAD *thread)
  */
 long t_ct_axe_up(MK3THREAD *thread)
 {
-    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {
@@ -3284,4 +3265,187 @@ long t_stalk_in_close(MK3THREAD *thread)
         return -3;
 
     return mk3_push_handler(thread, (MK3THREADFUNC)t_d_attack_close);
+}
+
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
+
+long t_do_jump_up(MK3THREAD *thread);
+long t_stat_do_lo_kick(MK3THREAD *thread);
+long t_stat_do_uppercut(MK3THREAD *thread);
+
+/* t_d_lo_kick -- armv7 0x00067634, 108 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          token := 0x172, then descend into t_stat_do_lo_kick
+ *      token == 0x172:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_d_lo_kick(MK3THREAD *thread)
+{
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x172;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_stat_do_lo_kick;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x172)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* t_d_uppercut -- armv7 0x000676a0, 108 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          token := 0x184, then descend into t_stat_do_uppercut
+ *      token == 0x184:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_d_uppercut(MK3THREAD *thread)
+{
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x184;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_stat_do_uppercut;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x184)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* t_d_walk_in_4_combos -- armv7 0x00067ab0, 128 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->a10 = 0x30
+ *          obj->field48 = 0x4a
+ *          token := 0x30c, then descend into t_d_stalk_a11
+ *      token == 0x30c:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_d_walk_in_4_combos(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->a10 = 0x30;
+        obj->field48 = 0x4a;
+        *mk3_frame(thread, thread->frame + 1) = 0x30c;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_d_stalk_a11;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x30c)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* t_d_jumpup -- armv7 0x0006819c, 108 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          token := 0x558, then descend into t_do_jump_up
+ *      token == 0x558:
+ *          frame[frame].handler = t_d_land
+ *      otherwise:  return -3
+ */
+long t_d_jumpup(MK3THREAD *thread)
+{
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x558;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_do_jump_up;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x558)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_d_land);
+}
+
+/* t_d_stalk_crossk -- armv7 0x000685b0, 144 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->a10 = 0x40
+ *          obj->field48 = 0x40
+ *          token := 0x690, then descend into t_d_stalk_a11
+ *      token == 0x690:
+ *          frame[frame].handler = t_crossover_scan
+ *      otherwise:  return -3
+ */
+long t_d_stalk_crossk(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->a10 = 0x40;
+        obj->field48 = 0x40;
+        *mk3_frame(thread, thread->frame + 1) = 0x690;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_d_stalk_a11;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x690)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_crossover_scan);
+}
+
+/* t_d_fflip_kick_jump -- armv7 0x00068744, 104 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          token := 0x6c0, then descend into t_d_fflip_kick_jsrp
+ *      token == 0x6c0:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_d_fflip_kick_jump(MK3THREAD *thread)
+{
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x6c0;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_d_fflip_kick_jsrp;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x6c0)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }

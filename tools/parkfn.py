@@ -487,7 +487,7 @@ def render(name, a, size, s0, token, sT, starts):
             " */\n"
             "long %s(MK3THREAD *thread)\n"
             "{\n"
-            "    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;\n"
+            "%s"
             "    uint32_t token = *mk3_frame(thread, thread->frame + 1);\n"
             "\n"
             "    if (token == 0) {\n%s    }\n"
@@ -497,6 +497,11 @@ def render(name, a, size, s0, token, sT, starts):
             % (name, a, size,
                steps(s0, starts), token, steps(sT, starts),
                cname(name),
+               # Only declare the object when a state actually touches it. A
+               # routine that does nothing but park and install never does,
+               # and an unused local is a warning for no reason.
+               "    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;\n"
+               if (s0[1] or sT[1]) else "",
                code(s0, starts), token,
                code(sT, starts, "    ")))
     calls = [(x[1], x[2][1].kind == "imm")
