@@ -626,7 +626,7 @@ void  limeMatrixCopy(const float *src, float *dst);
 void  limeScaleMatrix(float *mtx, float s);
 void  RotMatrixX(float *mtx, float angle);
 void  LIME_PlayFBXAtPos(float *mtx, long a, void *scene, long b);
-void  LIME_TriggerEventsFromScene(void *scene, long frame, const float *mtx,
+void  LIME_TriggerEventsFromScene(void *scene, int frame, const float *mtx,
                                   long flags, long a, long b, long c, long d);
 long  isParent(void);
 long  isParentBasedOnSpeed(void);
