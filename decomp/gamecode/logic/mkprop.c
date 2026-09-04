@@ -104,6 +104,8 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+void reset_proc_stack(MK3THREAD *thread);
+long t_pounce_fall(MK3THREAD *thread);
 long t_reptile_dash_hit(MK3THREAD *thread);
 void distance_off_ground(MK3OBJ *obj);
 void towards_x_vel(MK3OBJ *obj);
@@ -2205,4 +2207,89 @@ long tl_do_reptile_dash(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0x236;
     thread->fieldfc = 1;
     return 1;
+}
+
+
+/* -------------------------------------------------------------------- t_pounce_hit
+ *
+ * armv7 0x0003e36c, 232 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      <collapse one level>            ; twice, inline
+ *      <collapse one level>
+ *      reset_proc_stack(thread)
+ *      obj->field20 = 0xd
+ *      obj->field24 = 0xd
+ *      obj->field28 = 0xd
+ *      obj->field1c = 0
+ *      obj->field34 = t_pounce_adjust_him
+ *      frame[frame].handler = t_pounce_fall
+ *      frame[frame+1].w0 = 0
+ *
+ * **It unwinds TWO levels of the thread's frame stack**, and that is the whole
+ * point of the function. `t_pounce_scan` is running nested inside whatever
+ * launched the pounce; when the strike connects, the fall must not stay nested
+ * under it, so two levels are collapsed before the fall handler is installed.
+ *
+ * One collapse is:
+ *
+ *      if (thread->frame > 0)
+ *          thread->frame -= 1
+ *      else
+ *          frame[frame].handler = t_local_reaction_exit, slot cleared
+ *
+ *      n = thread->frame
+ *      h = frame[n+1].handler          ; the level above
+ *      frame[n+1].w0 = frame[n+2].w0   ; its token comes down
+ *      frame[n].handler = h            ; and so does its handler
+ *
+ * so the level above is moved down onto this one. The binary has that block
+ * written out TWICE, in full, one after the other; it is a static function
+ * here because two identical copies read worse than one named thing used
+ * twice, and nothing else in the file needs it.
+ *
+ * At the bottom of the stack the else-branch installs the reaction exit
+ * instead of decrementing, so a pounce that connects with nothing left to
+ * unwind still ends cleanly rather than running off the end.
+ *
+ * 0xd goes to three fields from one register, and 0x34 -- the callback slot --
+ * gets `t_pounce_adjust_him`, which is the routine `t_pounce_fall` will run
+ * each frame to keep the opponent under the attacker.
+ */
+static void pounce_collapse_one(MK3THREAD *thread)
+{
+    uint32_t n;
+    uint32_t h;
+
+    if ((long)thread->frame > 0)
+        thread->frame -= 1;
+    else
+        mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    n = thread->frame;
+    h = mk3_frame(thread, n + 1)[1];            /* the level above */
+    *mk3_frame(thread, n + 1) = *mk3_frame(thread, n + 2);
+    mk3_frame(thread, n)[1] = h;
+}
+
+long t_pounce_hit(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    pounce_collapse_one(thread);        /* written out twice in the binary */
+    pounce_collapse_one(thread);
+
+    reset_proc_stack(thread);
+
+    obj->field20 = 0xd;
+    obj->field24 = 0xd;
+    obj->field28 = 0xd;
+    obj->field1c = 0;
+
+    obj->field34 = (uint32_t)(uintptr_t)t_pounce_adjust_him;    /* callback */
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_pounce_fall);
 }
