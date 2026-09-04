@@ -121,6 +121,10 @@ void create_fx_xy(MK3OBJ *obj, long x, long y);
 void send_code_a3(MK3OBJ *obj);
 void ground_player(MK3OBJ *obj);
 void init_special(MK3OBJ *obj);
+void frame_a9(MK3OBJ *obj);
+long t_local_reaction_exit(MK3THREAD *thread);
+long t_animate_a0_frames(MK3THREAD *thread);
+long t_shake_ob_up(MK3THREAD *thread);
 
 /* t_scorp_skeleton_burn -- armv7 0x0003424c, 64 bytes.  **Complete.**
  *
@@ -729,4 +733,139 @@ long t_do_fatality_2(MK3THREAD *thread)
     obj->field1c = (uint32_t)(uintptr_t)h;
 
     return mk3_push_handler(thread, h);
+}
+
+
+/* t_pumped -- armv7 0x00033018, 76 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj   = thread->proc
+ *      other = obj->field08
+ *      other->field2c = ((uint32_t *)obj->field48)[other->field24]
+ *      frame[frame].handler = t_wait_forever
+ *      frame[frame+1].w0 = 0
+ *
+ * The animation comes out of a **table the caller left in 0x48**, indexed by
+ * the character -- so whoever installed this handler chose which table, and
+ * this only does the lookup.
+ *
+ * **0x48 is a pointer here and a packed pair of offsets in `skinny_spawn`.**
+ * Both readings are certain from their own instructions -- one indexes with
+ * `lsl #2`, the other sign-extends two halves -- so the slot is scratch space
+ * whose meaning belongs to whoever wrote it, like 0x38 already turned out to
+ * be. Nothing on the object says which is in there.
+ */
+long t_pumped(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    MK3OBJ *other;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    other = obj->field08;
+    other->field2c = ((const uint32_t *)(uintptr_t)obj->field48)[other->field24];
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_wait_forever);
+}
+
+
+/* t_double_flame_ani -- armv7 0x0003b748, 80 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      frame_a9(obj)
+ *      if (thread->frame > 0) { thread->frame -= 1; return 0 }
+ *      frame[frame].handler = t_local_reaction_exit
+ *      frame[frame+1].w0 = 0
+ *
+ * **The opposite of the push shape.** Everything else in this directory
+ * INCREMENTS the frame index to call down a level; this one DECREMENTS it to
+ * return up. One animation frame is advanced, and then the thread goes back
+ * to whoever called it.
+ *
+ * The install is what happens when there is nowhere to go back to. `frame` is
+ * signed here -- the test is `cmp #0` then `ble`, not `cbz` -- so a negative
+ * index takes the same path as zero.
+ */
+long t_double_flame_ani(MK3THREAD *thread)
+{
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    frame_a9((MK3OBJ *)thread->proc);
+
+    if ((long)thread->frame > 0) {      /* cmp #0 / ble: signed */
+        thread->frame -= 1;             /* back up a level */
+        return 0;
+    }
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* t_normal_spin_intro -- armv7 0x00034958, 80 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field40 = 2
+ *      get_char_ani2(obj)
+ *      obj->field1c = 0x10020
+ *      frame[frame].handler = t_animate_a0_frames
+ *      frame[frame+1].w0 = 0
+ *
+ * 0x10020 is `ldr r3, [pc, #0x24]` with **no `add r3, pc` after it** -- so it
+ * is the literal itself and not an address. Every other pc-relative load in
+ * this file is followed by that add, which is what turns an offset into an
+ * address; missing the difference makes a constant into a pointer.
+ *
+ * The value reads as two packed halves, 1 and 0x20, which is a shape 0x1c
+ * takes elsewhere in this directory. Nothing here says which half is which.
+ */
+long t_normal_spin_intro(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field40 = 2;
+    get_char_ani2(obj);
+    obj->field1c = 0x10020;             /* a literal, not an address */
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_animate_a0_frames);
+}
+
+
+/* t_initial_skeleton_shake -- armv7 0x0003891c, 84 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = 0x8000
+ *      away_x_vel(obj)
+ *      obj->field1c = 3
+ *      obj->field20 = 3
+ *      obj->field24 = 6
+ *      frame[frame].handler = t_shake_ob_up
+ *      frame[frame+1].w0 = 0
+ *
+ * A push away, then three numbers for the shake: 3, 3 and 6. The 6 is
+ * `adds r3, r3, r3` on the 3 already in the register -- doubled rather than
+ * loaded, the one-instruction saving this file makes everywhere.
+ *
+ * 0x8000 in 0x1c is the distance `away_x_vel` reads as its argument; the
+ * three that follow belong to `t_shake_ob_up`.
+ */
+long t_initial_skeleton_shake(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0x8000;
+    away_x_vel(obj);
+
+    obj->field1c = 3;
+    obj->field20 = 3;
+    obj->field24 = 6;                   /* adds r3, r3, r3 */
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_shake_ob_up);
 }
