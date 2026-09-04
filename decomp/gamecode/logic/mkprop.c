@@ -2034,3 +2034,80 @@ long t_lfly5(MK3THREAD *thread)
 
     return mk3_push_handler(thread, (MK3THREADFUNC)t_lfly4);
 }
+
+
+/* ------------------------------------------------------------------ t_pounce_miss
+ *
+ * armv7 0x0003fd10, 212 bytes.  **Complete.**
+ *
+ *      token == 0:       obj->field1c          = 0x62f
+ *                        obj->field00->field18 = 0x62f
+ *                        set_no_block(obj)
+ *                        park(token 0x50b, duration 0xc)
+ *
+ *      token == 0x50b:   do_next_a9_frame(obj)
+ *                        park(token 0x50d, duration 4)
+ *
+ *      token == 0x50d:   q_is_he_a_boss(obj)
+ *                        if (obj->field5c != 0)
+ *                            park(token 0x512, duration 8)
+ *                        else
+ *                            frame[frame].handler = t_local_reaction_exit
+ *
+ *      token == 0x512:   frame[frame].handler = t_local_reaction_exit
+ *
+ *      otherwise:        return -3
+ *
+ * **Four states, and the fourth only exists against a boss.** The recovery
+ * from a missed pounce is twelve ticks, then four, and then it ends -- unless
+ * `q_is_he_a_boss` answers yes, in which case there are eight more before the
+ * exit. Missing a boss costs longer than missing anyone else, and that is the
+ * whole difference between the two endings.
+ *
+ * The dispatch is a **sorted comparison chain**, not a flat run of equality
+ * tests: `cmp` against 0x50b, then `ble` for everything below it, then 0x50d,
+ * then `adds r2, #5` to reach 0x512 from the constant already in the register.
+ * With four tokens the compiler ordered them instead of testing each in turn.
+ *
+ * The last state addresses the frame through r1, the index read in the first
+ * instruction, and `adds r3, r3, r0` with r0 still holding the thread -- that
+ * path never touched either, so nothing had to be re-read.
+ */
+long t_pounce_miss(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x50b) {
+        do_next_a9_frame(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x50d;
+        thread->fieldfc = 4;
+        return 4;
+    }
+
+    if (token == 0x50d) {
+        q_is_he_a_boss(obj);
+        if (obj->field5c != 0) {        /* a boss takes longer */
+            *mk3_frame(thread, thread->frame + 1) = 0x512;
+            thread->fieldfc = 8;
+            return 8;
+        }
+        return mk3_push_handler(thread,
+                                (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (token == 0x512)
+        return mk3_push_handler(thread,
+                                (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token != 0)
+        return -3;
+
+    obj->field1c          = 0x62f;
+    obj->field00->field18 = 0x62f;
+    set_no_block(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x50b;
+    thread->fieldfc = 0xc;
+    return 0xc;
+}
