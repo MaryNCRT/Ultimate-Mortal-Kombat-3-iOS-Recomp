@@ -104,6 +104,8 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+void ground_player(MK3OBJ *obj);
+void clear_nocol(MK3OBJ *obj);
 
 /* --------------------------------------------------------------------
  * Added by a later sweep -- tools/sweep.py, running the same
@@ -119,7 +121,6 @@ long t_square3(MK3THREAD *thread);
  * instruction; see tools/pushfn.py and tools/leaffn.py.
  * -------------------------------------------------------------------- */
 
-long t_square3(MK3THREAD *thread);
 void away_x_vel(MK3OBJ *obj);
 void pose_a9_manual(MK3OBJ *obj);
 void stop_me_player(MK3OBJ *obj);
@@ -1453,4 +1454,75 @@ long t_lfly4(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0x6dc;
     thread->fieldfc = 1;                        /* look again next tick */
     return 1;
+}
+
+
+/* --------------------------------------------------------------- t_cyrax_implode
+ *
+ * armv7 0x0003d4f8, 164 bytes.  **Complete.**
+ *
+ *      token == 0:       obj->field08[+0x2c] = 0x422
+ *                        ground_player(obj)
+ *                        obj->field48 = obj->field1c
+ *                        obj->field1c = 9
+ *                        create_fx(obj)
+ *                        park(token 0x722, duration 0xa)
+ *
+ *      token == 0x722:   clear_nocol(obj)
+ *                        park(token 0x724, duration 9)
+ *
+ *      token == 0x724:   if (thread->frame > 0) { thread->frame -= 1; return 0 }
+ *                        frame[frame].handler = t_local_reaction_exit
+ *
+ *      otherwise:        return -3
+ *
+ * **Three states, not two.** Every other coroutine read in this directory so
+ * far has an entry and one resume; this one runs 0 -> 0x722 -> 0x724 and only
+ * then returns up a level. `tools/parkfn.py` models two states and refuses
+ * anything with a second token check, which is why routines like this stay
+ * hand-read.
+ *
+ * The timing is ten ticks then nine: the effect is spawned and left alone for
+ * ten, collision is cleared and left for nine more, and the move ends.
+ *
+ * 0x1c is saved into 0x48 before being overwritten with the effect number, so
+ * whatever the caller left there survives the implosion.
+ *
+ * The frame index is read ONCE at the top into r1 and reused on every path,
+ * including both parks -- so all three states address the same slot without
+ * re-reading 0xa4, which the two-state routines do not bother to avoid.
+ */
+long t_cyrax_implode(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x722) {
+        clear_nocol(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x724;
+        thread->fieldfc = 9;
+        return 9;
+    }
+
+    if (token == 0x724) {
+        if ((long)thread->frame > 0) {
+            thread->frame -= 1;         /* back up a level */
+            return 0;
+        }
+        return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (token != 0)
+        return -3;
+
+    *(uint32_t *)((char *)obj->field08 + 0x2c) = 0x422;
+    ground_player(obj);
+
+    obj->field48 = obj->field1c;        /* kept across the effect */
+    obj->field1c = 9;
+    create_fx(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x722;
+    thread->fieldfc = 0xa;
+    return 0xa;
 }
