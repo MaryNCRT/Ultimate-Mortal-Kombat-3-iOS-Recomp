@@ -104,6 +104,7 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+long t_mframew(MK3THREAD *thread);
 void group_sound(MK3OBJ *obj);
 long t_flight_call(MK3THREAD *thread);
 void get_char_ani(MK3OBJ *obj);
@@ -1801,4 +1802,83 @@ long tl_do_lao_angle(MK3THREAD *thread)
         (uint32_t)(uintptr_t)t_flight_call;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
+}
+
+
+/* ------------------------------------------------------------- t_super_kick_land
+ *
+ * armv7 0x0003ccc8, 196 bytes.  **Complete.**
+ *
+ *      token == 0:       obj->field20          = 0x612
+ *                        obj->field00->field18 = 0x612
+ *                        stop_me_player(obj)
+ *                        park(token 0x5d7, duration 0x14)
+ *
+ *      token == 0x5d7:   obj->field1c = 0
+ *                        obj->field24 = 0xa000
+ *                        obj->field20 = 0
+ *                        obj->field34 = 0
+ *                        obj->field28 = 0xfff
+ *                        token := 0x5de, then descend into t_flight
+ *
+ *      token == 0x5de:   obj->field40 = 3
+ *                        find_ani2_part2(obj)
+ *                        obj->field1c = 3
+ *                        frame[frame].handler = t_mframew
+ *
+ *      otherwise:        return -3
+ *
+ * **Three states**, like `t_cyrax_implode`: stop and wait twenty ticks, then
+ * fall through `t_flight`, then pick the landing animation. Two tokens and a
+ * descend between them.
+ *
+ * **0x34 is CLEARED before the descend.** That is the callback slot -- the one
+ * `tl_do_lao_angle` fills with `t_lao_angle_scan` so the flight has something
+ * per-move to run. Zeroing it here says this flight has none, which is the
+ * other half of what that slot means.
+ *
+ * 0xa000 is 0.625 in the 16.16 this directory uses. It is the only velocity
+ * component set; 0x1c and 0x20 are zeroed from the same register beside it.
+ *
+ * The frame index is shifted by `lsls r3, r6` with r6 holding 3, rather than
+ * by an immediate -- the register was already 3 for `obj->field40`, so the
+ * shift borrows it.
+ */
+long t_super_kick_land(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x5d7) {
+        obj->field1c = 0;
+        obj->field24 = 0xa000;          /* 0.625 */
+        obj->field20 = 0;
+        obj->field34 = 0;               /* no callback for this flight */
+        obj->field28 = 0xfff;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x5de;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x5de) {
+        obj->field40 = 3;
+        find_ani2_part2(obj);
+        obj->field1c = 3;
+        return mk3_push_handler(thread, (MK3THREADFUNC)t_mframew);
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field20          = 0x612;
+    obj->field00->field18 = 0x612;
+    stop_me_player(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x5d7;
+    thread->fieldfc = 0x14;
+    return 0x14;
 }
