@@ -787,13 +787,33 @@ void limeDrawFONTAtAngle(FONT *font, const char *text, float x, float y,
     else if (alignment == 2)
         x -= limeGetStringWidth(font, text) * scale;
 
+    /* **The ANCHOR is not rotated.** What goes through the matrix is the unit
+     * vector (1,0,0) -- the direction the glyphs advance along:
+     *
+     *      add   r0, sp, #0x28          ; the matrix RotMatrixZ just built
+     *      add   r1, sp, #0x74          ; in
+     *      add   r2, sp, #0x68          ; out
+     *      mov.w r3, #0x3f800000
+     *      str   r3, [sp, #0x74]        ; in = (1, 0, 0)
+     *      movs  r3, #0
+     *      str   r3, [sp, #0x78]
+     *      str   r3, [sp, #0x7c]
+     *      bl    RotVector
+     *
+     * so the caller's x and y are where the text starts, full stop, and the
+     * angle only decides which way it runs from there.
+     *
+     * This was first written rotating `pos` about the screen origin, which
+     * drags every line left and up in proportion to how far down the screen it
+     * is. On the main menu that put OPTIONS within a pixel of right and
+     * MORE GAMES twenty-eight pixels short: 167 became 139, and 190 became
+     * 152 for EXTRAS. The reference build puts them at 167 and 189.
+     */
     pos.x = x; pos.y = y; pos.z = 0.0f;
-    RotVector(rot, &pos, &pos);         /* (matrix, in, out) -- the
-                                         * existing declaration's order */
 
-    /* The advance runs along the line, which is tilted, so it is added as a
-     * rotated offset rather than to pos.x -- through the same radians the
-     * matrix was built from, not a second conversion. */
+    /* The advance runs along the tilted line, so it is added as a rotated
+     * offset rather than to pos.x -- through the same radians the matrix was
+     * built from, not a second conversion. */
     ca = (float)cos((double)rad);
     sa = (float)sin((double)rad);
 
