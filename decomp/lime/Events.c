@@ -584,7 +584,31 @@ void LIME_UpdateEvents(void)
  * Two independent functions, one field, consistent meaning. That is the
  * standard this project holds field identifications to, and it is met here.
  */
-void LIME_PlayFBXAtPos(long arg0, long arg1, long arg2, long arg3)
+/* **The forwarding call was wrong, and this is what fixed it.** The argument
+ * list below was written shifted: `NULL` stood where the CALLER'S MATRIX goes,
+ * everything after it moved up one, and `t->scene` stood where the caller's
+ * scene goes -- a field this function never writes. The binary is plain about
+ * all of it:
+ *
+ *      mov   fp, r2                ; the scene, kept across the body
+ *      ...
+ *      movs  r3, #1                ; a6 is 1, not 0
+ *      mov   r0, fp                ; scene := the third argument
+ *      mov   r1, r4                ; track := the scratch track
+ *      mov   r2, r6                ; m1    := the scratch matrix
+ *      ldr   r3, [sp, #0x1c]       ; m2    := the FIRST argument
+ *      str.w r8, [sp]              ; a4    := the second
+ *      str   sl, [sp, #0xc]        ; a7    := the fourth
+ *
+ * Nothing stores to `[r4, #4]` anywhere in the body, so `t->scene` was never
+ * set and the old call passed whatever the previous caller left there.
+ *
+ * The parameters are typed for what the call sites pass -- a matrix and a
+ * scene, in GameCode.c and Blood.c -- rather than as the four words the
+ * registers happen to hold. `tools/protos.py` is what put the two side by
+ * side.
+ */
+void LIME_PlayFBXAtPos(limeMATRIX44 *m, long arg1, SCENEINFO *scene, long arg3)
 {
     SCENEEVENTTRACK *t = &g_fbxScratchTrack;    /* static, reused every call */
 
@@ -603,8 +627,8 @@ void LIME_PlayFBXAtPos(long arg0, long arg1, long arg2, long arg3)
 
     limeMatrixLoadIdentity(g_fbxScratchMatrix);   /* limeMATRIX44 is float[16] */
 
-    LIME_TriggerEventFromSceneH(t->scene, t, &g_fbxScratchMatrix, NULL,
-                                arg0, arg1, 0, arg3, NULL, NULL, 0);
+    LIME_TriggerEventFromSceneH(scene, t, &g_fbxScratchMatrix, m,
+                                arg1, 0, 1, arg3, NULL, NULL, 0);
 }
 
 
