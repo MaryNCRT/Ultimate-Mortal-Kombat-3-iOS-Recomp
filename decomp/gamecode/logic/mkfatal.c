@@ -107,7 +107,7 @@ void death_scream(MK3OBJ *obj);
 void get_char_ani2(MK3OBJ *obj);
 void pose_a9_manual(MK3OBJ *obj);
 void set_inviso(MK3OBJ *obj);
-void create_blood_proc(MK3OBJ *obj);
+long create_blood_proc(MK3OBJ *obj);
 void face_opponent_px(MK3OBJ *obj, MK3OBJ *target);
 void group_sound(MK3OBJ *obj);
 void call_for_him(MK3OBJ *obj, void (*fn)(MK3OBJ *));
@@ -117,7 +117,7 @@ void ochar_sound(MK3OBJ *obj);
 void match_me_with_him(MK3OBJ *obj);
 void flip_multi(MK3OBJ *obj);
 void multi_adjust_xy(MK3OBJ *obj);
-void create_fx_xy(MK3OBJ *obj, long x, long y);
+void create_fx_xy(MK3OBJ *obj, uint32_t x, uint32_t y);
 void send_code_a3(MK3OBJ *obj);
 void ground_player(MK3OBJ *obj);
 void init_special(MK3OBJ *obj);
@@ -869,3 +869,12 @@ long t_initial_skeleton_shake(MK3THREAD *thread)
 
     return mk3_push_handler(thread, (MK3THREADFUNC)t_shake_ob_up);
 }
+
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
+
+

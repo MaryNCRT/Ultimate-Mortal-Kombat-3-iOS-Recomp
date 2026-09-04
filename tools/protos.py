@@ -28,6 +28,32 @@ DEF = re.compile(r"^(%s[\w \*]*?)\s(\w+)\(([^;{}]*)\)\s*\{" % TYPE, re.M)
 DECL = re.compile(r"^(%s[\w \*]*?)\s(\w+)\(([^;{}]*)\);$" % TYPE, re.M)
 
 
+_ALIAS = None
+
+
+def aliases():
+    """Simple `typedef base name;` pairs found anywhere in the tree.
+
+    `HUDANIM` is `typedef int HUDANIM;` in HudAnim.c and `EPLAYER` is
+    `typedef int EPLAYER;` in Players.c. A declaration in another file writes
+    `int`, because the typedef is not visible there and copying it would be a
+    second definition of one name. Those are the same type, and reporting them
+    is noise that buries the real disagreements.
+    """
+    global _ALIAS
+    if _ALIAS is not None:
+        return _ALIAS
+    _ALIAS = {}
+    for f in (glob.glob(os.path.join(ROOT, "decomp", "**", "*.c"), recursive=True) +
+              glob.glob(os.path.join(ROOT, "decomp", "**", "*.h"), recursive=True)):
+        text = io.open(f, encoding="utf-8", errors="replace").read()
+        for base, name in re.findall(
+                r"^typedef\s+(unsigned\s+\w+|signed\s+\w+|\w+)\s+(\w+);$",
+                text, re.M):
+            _ALIAS[name] = base
+    return _ALIAS
+
+
 def norm(ty):
     """One spelling for one type.
 
@@ -39,6 +65,10 @@ def norm(ty):
     ty = ty.replace("struct ", "")
     if ty.endswith("*"):
         return "PTR"
+    seen = 0
+    while ty in aliases() and seen < 4:      # typedefs can chain
+        ty = aliases()[ty]
+        seen += 1
     return ty
 
 
