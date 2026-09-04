@@ -422,3 +422,135 @@ long t_joy_toss(MK3THREAD *thread)
 
     return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
+
+long t_do_duck(MK3THREAD *thread);
+long t_do_flip_kick(MK3THREAD *thread);
+long t_do_jumpup_punch(MK3THREAD *thread);
+long t_stat_do_uppercut(MK3THREAD *thread);
+
+/* t_joy_down -- armv7 0x0002ed80, 124 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          disable_all_buttons(obj)
+ *          token := 0x159, then descend into t_do_duck
+ *      token == 0x159:
+ *          frame[frame].handler = t_joy_getup_entry
+ *      otherwise:  return -3
+ */
+long t_joy_down(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        disable_all_buttons(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x159;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_do_duck;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x159)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_joy_getup_entry);
+}
+
+/* t_joy_flip_kick -- armv7 0x0002ef60, 124 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          disable_all_buttons(obj)
+ *          token := 0x1c9, then descend into t_do_flip_kick
+ *      token == 0x1c9:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_joy_flip_kick(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        disable_all_buttons(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x1c9;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_do_flip_kick;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x1c9)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* t_jumpup_punch -- armv7 0x0002f054, 124 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          disable_all_buttons(obj)
+ *          token := 0x1db, then descend into t_do_jumpup_punch
+ *      token == 0x1db:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_jumpup_punch(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        disable_all_buttons(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x1db;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_do_jumpup_punch;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x1db)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* t_joy_uppercut -- armv7 0x0002f2c8, 124 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          disable_all_buttons(obj)
+ *          token := 0x2a1, then descend into t_stat_do_uppercut
+ *      token == 0x2a1:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_joy_uppercut(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        disable_all_buttons(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x2a1;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_stat_do_uppercut;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x2a1)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}

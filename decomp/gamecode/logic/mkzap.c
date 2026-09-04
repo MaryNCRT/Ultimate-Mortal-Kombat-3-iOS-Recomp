@@ -763,4 +763,11 @@ void zap_air_init_special(MK3OBJ *obj)
  * instruction; see tools/pushfn.py and tools/leaffn.py.
  * -------------------------------------------------------------------- */
 
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
+
 

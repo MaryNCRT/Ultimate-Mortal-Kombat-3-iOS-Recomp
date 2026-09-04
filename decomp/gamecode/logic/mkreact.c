@@ -1836,3 +1836,43 @@ long t_suspend_wait_action(MK3THREAD *thread)
 
     return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
+
+long t_block_exit(MK3THREAD *thread);
+long t_block_shake(MK3THREAD *thread);
+
+/* t_block_shake_n_exit -- armv7 0x00044864, 120 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          get_block_ani_offset(obj)
+ *          token := 0x13eb, then descend into t_block_shake
+ *      token == 0x13eb:
+ *          frame[frame].handler = t_block_exit
+ *      otherwise:  return -3
+ */
+long t_block_shake_n_exit(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        get_block_ani_offset(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x13eb;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_block_shake;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x13eb)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_block_exit);
+}

@@ -72,4 +72,49 @@ void set_inviso(MK3OBJ *obj);
  * instruction; see tools/pushfn.py and tools/leaffn.py.
  * -------------------------------------------------------------------- */
 
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
 
+long t_square3(MK3THREAD *thread);
+void away_x_vel(MK3OBJ *obj);
+void pose_a9_manual(MK3OBJ *obj);
+void stop_me_player(MK3OBJ *obj);
+
+/* t_liz_fly_hit -- armv7 0x0003f280, 124 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          stop_me_player(obj)
+ *          obj->field40 = 0x20018
+ *          pose_a9_manual(obj)
+ *          park(token 0x6f5, duration 0xa)
+ *      token == 0x6f5:
+ *          obj->field1c = 0x20000
+ *          away_x_vel(obj)
+ *          frame[frame].handler = t_square3
+ *      otherwise:  return -3
+ */
+long t_liz_fly_hit(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        stop_me_player(obj);
+        obj->field40 = 0x20018;
+        pose_a9_manual(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x6f5;
+        thread->fieldfc = 0xa;
+        return 0xa;
+    }
+
+    if (token != 0x6f5)
+        return -3;
+
+    obj->field1c = 0x20000;
+    away_x_vel(obj);
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_square3);
+}
