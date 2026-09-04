@@ -104,6 +104,7 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+void shake_a11(MK3OBJ *obj);
 long t_mframew(MK3THREAD *thread);
 void group_sound(MK3OBJ *obj);
 long t_flight_call(MK3THREAD *thread);
@@ -1881,4 +1882,77 @@ long t_super_kick_land(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0x5d7;
     thread->fieldfc = 0x14;
     return 0x14;
+}
+
+
+/* -------------------------------------------------------------- t_blur_catchup
+ *
+ * armv7 0x0003d6a4, 200 bytes.  **Complete.**
+ *
+ *      token == 0:       obj->field1c = 1
+ *                        ochar_sound(obj)
+ *                        obj->field48 = 0x00070004
+ *                        shake_a11(obj)
+ *                        obj->field38 = 0x12
+ *                        *(uint16_t *)(G + 0x456) = 0x12
+ *                        obj->field40 = 0
+ *                        get_char_ani2(obj)
+ *                        find_part2(obj)
+ *                        obj->field1c = 3
+ *                        token := 0x536, then descend into t_mframew
+ *
+ *      token == 0x536:   if (thread->frame > 0) { thread->frame -= 1; return 0 }
+ *                        frame[frame].handler = t_local_reaction_exit
+ *
+ *      otherwise:        return -3
+ *
+ * 0x48 gets **another packed pair, 7 high and 4 low**, and `shake_a11` is what
+ * reads it -- so the shake's two amplitudes come from one word, the same shape
+ * `skinny_spawn` unpacks and `bike_hit_call` passes on.
+ *
+ * 0x12 goes to the object's 0x38 and to the halfword at G+0x456 from one
+ * register, which is the third routine in this file to write that global slot
+ * alongside a field of its own.
+ *
+ * The zero into 0x40 comes from the guard's register, so `get_char_ani2`
+ * resolves animation zero without a constant being loaded for it.
+ */
+long t_blur_catchup(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token != 0) {
+        if (token != 0x536)
+            return -3;
+
+        if ((long)thread->frame > 0) {
+            thread->frame -= 1;         /* back up a level */
+            return 0;
+        }
+        return mk3_push_handler(thread,
+                                (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    obj->field1c = 1;
+    ochar_sound(obj);
+
+    obj->field48 = 0x00070004;          /* 7 high, 4 low */
+    shake_a11(obj);
+
+    obj->field38 = 0x12;
+    *(uint16_t *)(G_BYTES + 0x456) = 0x12;
+
+    obj->field40 = 0;                   /* the guard's zero */
+    get_char_ani2(obj);
+    find_part2(obj);
+
+    obj->field1c = 3;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x536;
+    thread->frame = thread->frame + 1;          /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
 }
