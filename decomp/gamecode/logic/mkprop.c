@@ -89,6 +89,12 @@ void match_him_with_me_f(MK3OBJ *obj);
 void adjust_him_a0(MK3OBJ *obj);
 long next_anirate(MK3OBJ *obj);
 void advance_him(MK3OBJ *obj);
+void is_he_airborn(MK3OBJ *obj);
+void match_him_with_me(MK3OBJ *obj);
+void adjust_him_xy(MK3OBJ *obj);
+void strike_check_a0(MK3OBJ *obj);
+long t_lao_angle_hit(MK3THREAD *thread);
+long t_shake_ob_up(MK3THREAD *thread);
 
 /* --------------------------------------------------------------------
  * Added by a later sweep -- tools/sweep.py, running the same
@@ -1028,4 +1034,171 @@ long t_s_t_scroller(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0x29c;
     thread->fieldfc = 0x16462;          /* and never wakes */
     return 0x16462;
+}
+
+
+/* ------------------------------------------------------------- t_pounce_adjust_him
+ *
+ * armv7 0x00040090, 136 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      is_he_airborn(obj)
+ *      if (obj->field5c == 0) {
+ *          pounce_ground_him(obj)          ; on the ground
+ *      } else {
+ *          stop_him(obj)                   ; in the air
+ *          match_him_with_me(obj)
+ *          obj->field1c = 0
+ *          obj->field20 = 0x20
+ *          adjust_him_xy(obj)
+ *      }
+ *      if (thread->frame > 0) { thread->frame -= 1; return 0 }
+ *      frame[frame].handler = t_local_reaction_exit
+ *
+ * **Two ways to put the opponent where the pounce needs him**, chosen by
+ * whether he is already off the ground. Grounded, the whole job is handed to
+ * `pounce_ground_him`, which copies a position across and grounds him.
+ * Airborne, he is stopped, matched, and moved by a fixed 0x20 through
+ * `adjust_him_xy`.
+ *
+ * The zero into 0x1c is `str r6` -- the guard value the entry test already
+ * proved is zero -- so the constant costs no instruction of its own. This
+ * directory does that everywhere the guard's register is still live.
+ *
+ * Both branches then meet at the same ending, and the compiler emitted the
+ * pointer-slot load for `t_local_reaction_exit` TWICE, once per path, rather
+ * than sharing one. Same slot, 0x000f3708, both times.
+ */
+long t_pounce_adjust_him(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    is_he_airborn(obj);
+
+    if (obj->field5c == 0) {
+        pounce_ground_him(obj);         /* he is standing on it */
+    } else {
+        stop_him(obj);
+        match_him_with_me(obj);
+        obj->field1c = 0;               /* str r6: the guard's zero */
+        obj->field20 = 0x20;
+        adjust_him_xy(obj);
+    }
+
+    if ((long)thread->frame > 0) {
+        thread->frame -= 1;             /* back up a level */
+        return 0;
+    }
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* ---------------------------------------------------------------- t_lao_angle_scan
+ *
+ * armv7 0x0003c7e0, 136 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      w = *(uint32_t *)obj->field40       ; the animation's first word
+ *      obj->field1c = w
+ *      if (w == 0) {
+ *          obj->field1c = 0x12
+ *          strike_check_a0(obj)
+ *          if (obj->field5c != 0) {
+ *              frame[frame].handler = t_lao_angle_hit
+ *              frame[frame+1].w0 = 0
+ *              return 0
+ *          }
+ *      }
+ *      if (thread->frame > 0) { thread->frame -= 1; return 0 }
+ *      frame[frame].handler = t_local_reaction_exit
+ *
+ * **The scan only tests for a hit once the animation has run out.** 0x40 holds
+ * a pointer here, not a number, and its first word being zero is what says the
+ * frames are finished -- so the hat is checked against the opponent on the
+ * frame the animation ends, and on every other frame the thread just returns
+ * up a level.
+ *
+ * `strike_check_a0` answers into 0x5c, the same slot the `is_he_*` family uses.
+ * A hit installs `t_lao_angle_hit`, reached as a direct pc-relative address so
+ * it is in this file; a miss takes the same ending as an unfinished animation.
+ *
+ * The zero written to the slot above comes from r6, which still holds the word
+ * the test proved was zero -- no constant is loaded for it.
+ */
+long t_lao_angle_scan(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t w;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    w = *(uint32_t *)(uintptr_t)obj->field40;
+    obj->field1c = w;
+
+    if (w == 0) {                       /* the animation has run out */
+        obj->field1c = 0x12;
+        strike_check_a0(obj);
+
+        if (obj->field5c != 0)          /* and it connected */
+            return mk3_push_handler(thread, (MK3THREADFUNC)t_lao_angle_hit);
+    }
+
+    if ((long)thread->frame > 0) {
+        thread->frame -= 1;             /* back up a level */
+        return 0;
+    }
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* ------------------------------------------------------------------------ t_blb8
+ *
+ * armv7 0x0003bf88, 140 bytes.  **Complete.**
+ *
+ *      token == 0:       obj->field1c = 4
+ *                        obj->field24 = 4
+ *                        obj->field20 = 3
+ *                        token := 0x32c, then descend into t_shake_ob_up
+ *      token == 0x32c:   frame[frame].handler = t_local_reaction_exit
+ *      otherwise:        return -3
+ *
+ * The two-state shape: go down a level into the shake, and when the token
+ * comes back, hand over to the exit.
+ *
+ * **The resume installs at the ORIGINAL frame index**, held in `ip` from the
+ * first instruction of the function, rather than re-reading 0xa4. That is not
+ * an optimisation -- it is the same index either way, because the descend
+ * happened on a different entry and this one never touched it -- but it is
+ * why the resume path has no second load.
+ *
+ * 4 goes to both 0x1c and 0x24 from one register, and 3 to 0x20; three stores,
+ * two constants.
+ */
+long t_blb8(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token != 0) {
+        if (token != 0x32c)
+            return -3;
+        return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    obj->field1c = 4;
+    obj->field24 = 4;
+    obj->field20 = 3;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x32c;
+    thread->frame = thread->frame + 1;          /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_shake_ob_up;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
 }
