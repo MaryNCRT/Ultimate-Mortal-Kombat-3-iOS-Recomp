@@ -95,10 +95,10 @@ The menu runs headless. Three things follow, in this order:
 ## Overall progress
 
 ```
-██████████████████████████░░░░░░░░░░░░░░  64.26%
+██████████████████████████░░░░░░░░░░░░░░  64.31%
 ```
 
-**64.26% of the total estimated effort. Nothing is playable yet.**
+**64.31% of the total estimated effort. Nothing is playable yet.**
 
 Weights are our judgement of how much of the total each area represents. The
 three decompilation figures are **measured from the tree** by
@@ -118,7 +118,7 @@ done; the second says the fight engine has barely been touched.
 | Asset format specifications | 8% | 100% | `██████████` |
 | `lime/common` — engine core (109 fn) | 12% | **100%** | `██████████` |
 | `gamecode` — game logic (291 fn) | 18% | **100%** | `██████████` |
-| `gamecode/logic` — fight engine (2,172 fn) | 28% | 44.84% (974) | `████░░░░░░` |
+| `gamecode/logic` — fight engine (2,172 fn) | 28% | 45.03% (978) | `█████░░░░░` |
 | Native PC platform layer (161 fn to rewrite) | 17% | 10% | `█░░░░░░░░░` |
 | EA SDK stubs (~1,412 fn) | 5% | 0% | `░░░░░░░░░░` |
 

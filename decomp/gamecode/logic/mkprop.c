@@ -75,6 +75,20 @@ void is_he_left(MK3OBJ *obj);
 void is_he_right(MK3OBJ *obj);
 void face_opponent(MK3OBJ *obj);
 long t_tele_scan(MK3THREAD *thread);
+void air_init_special(MK3OBJ *obj);
+void find_part2(MK3OBJ *obj);
+void back_to_normal(MK3OBJ *obj);
+void init_special_act(MK3OBJ *obj);
+void ochar_sound(MK3OBJ *obj);
+void find_ani_last_frame(MK3OBJ *obj);
+void do_next_a9_frame(MK3OBJ *obj);
+long t_main_hover_loop(MK3THREAD *thread);
+long t_lfly5(MK3THREAD *thread);
+void MKEvent_Add(long a, long b, long c, long d);
+void match_him_with_me_f(MK3OBJ *obj);
+void adjust_him_a0(MK3OBJ *obj);
+long next_anirate(MK3OBJ *obj);
+void advance_him(MK3OBJ *obj);
 
 /* --------------------------------------------------------------------
  * Added by a later sweep -- tools/sweep.py, running the same
@@ -791,4 +805,227 @@ void flight_move_ani(MK3OBJ *obj)
     obj->field1c = saved;
 
     set_float_ani(obj);
+}
+
+
+/* ------------------------------------------------------------ tl_do_lia_stay_afloat
+ *
+ * armv7 0x0003df1c, 108 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      air_init_special(obj)
+ *      obj->field40 = 2
+ *      get_char_ani2(obj)
+ *      find_part2(obj)
+ *      obj->field40 += 0x18
+ *      back_to_normal(obj)
+ *      obj->field20          = 0x203
+ *      obj->field00->field18 = 0x203
+ *      frame[frame].handler = t_main_hover_loop
+ *
+ * Entry 11 of the propell table -- the one that keeps her in the air. The
+ * animation is found in two steps: 2 into 0x40 and `get_char_ani2` resolves
+ * it, then `find_part2` picks the part, then **0x18 is ADDED to whatever 0x40
+ * holds afterwards**. So the second number is an offset from the resolved
+ * animation, not an animation of its own.
+ *
+ * 0x203 goes to the object's 0x20 and to the PROC's 0x18, the action pair this
+ * directory writes together so the value is visible from both structs.
+ *
+ * `t_main_hover_loop` is a direct pc-relative address, so it lives here.
+ */
+long tl_do_lia_stay_afloat(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    air_init_special(obj);
+
+    obj->field40 = 2;
+    get_char_ani2(obj);
+    find_part2(obj);
+    obj->field40 += 0x18;               /* an offset from what was resolved */
+
+    back_to_normal(obj);
+
+    obj->field20          = 0x203;
+    obj->field00->field18 = 0x203;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_main_hover_loop);
+}
+
+
+/* --------------------------------------------------------------- tl_do_square_wave
+ *
+ * armv7 0x0003f3e4, 112 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field20 = 0x207
+ *      init_special_act(obj)
+ *      obj->field1c = 4
+ *      ochar_sound(obj)
+ *      obj->field40 = 0x16
+ *      find_ani_last_frame(obj)
+ *      do_next_a9_frame(obj)
+ *      obj->field1c          = 0xfff40000
+ *      obj->field08->field1c = 0xfff40000
+ *      frame[frame].handler = t_lfly5
+ *
+ * Entry 12 of the propell table. **0xfff40000 is -12.0** in the 16.16 this
+ * directory uses, written to the object's 0x1c and to the other object's, both
+ * from one register -- so the launch speed is set on both sides in one go.
+ *
+ * The animation is started rather than chosen: 0x16 into 0x40,
+ * `find_ani_last_frame` to place it, and `do_next_a9_frame` to run a frame
+ * before the handler takes over.
+ *
+ * `t_lfly5` is a direct pc-relative address, so it is in this file.
+ */
+long tl_do_square_wave(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field20 = 0x207;
+    init_special_act(obj);
+
+    obj->field1c = 4;
+    ochar_sound(obj);
+
+    obj->field40 = 0x16;
+    find_ani_last_frame(obj);
+    do_next_a9_frame(obj);
+
+    obj->field1c          = 0xfff40000u;    /* -12.0 in 16.16 */
+    obj->field08->field1c = 0xfff40000u;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_lfly5);
+}
+
+
+/* ------------------------------------------------------------------ bike_hit_call
+ *
+ * armv7 0x0003d980, 124 bytes.  **Complete.**
+ *
+ *      obj->field1c = 3
+ *      *(uint16_t *)(G + 0x456) = 3
+ *      n = obj->field00[+0x2c] - 1
+ *      obj->field1c = n
+ *      if (n == 0) return
+ *      obj->field00[+0x2c] = n
+ *      match_him_with_me_f(obj)
+ *      obj->field1c = 0xffe0ffd0
+ *      adjust_him_a0(obj)
+ *      ((MK3OBJ *)obj->a10)->field20 = obj->field08->field20
+ *      ((MK3OBJ *)obj->a10)->field18 = obj->field08->field18
+ *      ((MK3OBJ *)obj->a10)->field1c = obj->field08->field1c
+ *      obj->field30 = obj->field40
+ *      next_anirate(obj)
+ *      if (obj->field40 != obj->field30) advance_him(obj)
+ *
+ * **A counter at PROC+0x2c that runs down and stops the call.** It is read,
+ * decremented, and written back only if it did not reach zero -- so the last
+ * hit leaves the counter at 1 rather than 0, and the routine simply returns
+ * on the pass that would have taken it to zero.
+ *
+ * 0xffe0ffd0 is another **packed pair of signed halves**: -32 high and -48
+ * low, the same shape `skinny_spawn` reads out of 0x48. Here it goes into 0x1c
+ * for `adjust_him_a0` rather than being unpacked in place.
+ *
+ * Three fields are copied one at a time from the object at 0x08 to the one at
+ * 0x44, each with its own pair of loads -- 0x20, 0x18 and 0x1c -- because the
+ * compiler reloaded both pointers between every copy.
+ *
+ * The last test compares 0x40 against the 0x30 it was just copied into: if
+ * `next_anirate` moved 0x40, the opponent is advanced too.
+ */
+void bike_hit_call(MK3OBJ *obj)
+{
+    uint32_t n;
+
+    obj->field1c = 3;
+    *(uint16_t *)(G_BYTES + 0x456) = 3;
+
+    n = *(uint32_t *)((char *)obj->field00 + 0x2c) - 1;
+    obj->field1c = n;
+    if (n == 0)                         /* the pass that would zero it */
+        return;
+
+    *(uint32_t *)((char *)obj->field00 + 0x2c) = n;
+
+    match_him_with_me_f(obj);
+    obj->field1c = 0xffe0ffd0u;         /* -32 high, -48 low */
+    adjust_him_a0(obj);
+
+    /* 0x44 is the argument slot, a word, and here it carries an object
+     * address -- so the copies go through a cast rather than a field the
+     * struct types as a pointer. */
+    {
+        MK3OBJ *dst = (MK3OBJ *)(uintptr_t)obj->a10;
+
+        dst->field20 = obj->field08->field20;
+        dst->field18 = obj->field08->field18;
+        dst->field1c = obj->field08->field1c;
+    }
+
+    obj->field30 = obj->field40;
+    next_anirate(obj);
+    if (obj->field40 != obj->field30)
+        advance_him(obj);
+}
+
+
+/* ----------------------------------------------------------------- t_s_t_scroller
+ *
+ * armv7 0x0003c3b8, 124 bytes.  **Complete.**
+ *
+ *      token == 0:       MKEvent_Add(1, 3, obj->field00->field08, 0)
+ *                        (and on into the shared part)
+ *      token == 0x297:   the shared part only
+ *      otherwise:        return -3
+ *
+ *      shared:
+ *          if ((*(MK3OBJ **)&obj->field48)->field18 == 0x215)
+ *              park(token 0x297, duration 1)
+ *          else {
+ *              MKEvent_Add(1, 4, 0, 0)
+ *              park(token 0x29c, duration 0x16462)
+ *          }
+ *
+ * **A coroutine that re-parks with its own token until a state changes.**
+ * 0x297 wakes it after one tick straight back into the shared part, so it
+ * polls the field at +0x18 of whatever 0x48 points at, once a frame, for as
+ * long as that reads 0x215. When it stops, the second event goes out and it
+ * parks on 0x16462 with a token its own dispatch rejects -- the never-wake
+ * ending this directory uses when a sequence must not unwind to its caller.
+ *
+ * The first event is only sent on the way in, not on the polling passes, which
+ * is what the two entry points are for.
+ */
+long t_s_t_scroller(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token != 0 && token != 0x297)
+        return -3;
+
+    if (token == 0)
+        MKEvent_Add(1, 3, (long)obj->field00->field08, 0);
+
+    if ((*(MK3OBJ **)(uintptr_t)&obj->field48)->field18 == 0x215) {
+        *mk3_frame(thread, thread->frame + 1) = 0x297;
+        thread->fieldfc = 1;            /* look again next tick */
+        return 1;
+    }
+
+    MKEvent_Add(1, 4, 0, 0);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x29c;
+    thread->fieldfc = 0x16462;          /* and never wakes */
+    return 0x16462;
 }
