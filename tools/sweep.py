@@ -47,6 +47,7 @@ def emit(mod, src, cap):
 
 
 def main(argv):
+    import parkfn
     import pushfn
 
     cap = int(argv[argv.index("--max") + 1]) if "--max" in argv else 128
@@ -69,16 +70,25 @@ def main(argv):
 
         dumpfn.written(refresh=True)
         push = emit(pushfn, src, cap)
+        park = emit(parkfn, src, cap)
         leaf = emit(leaffn, src, min(cap, 96))
 
-        taken = set(re.findall(r"^(?:long|void) (\w+)\(\w", push, re.M))
-        kept = []
-        for block in leaf.split("\n\n"):
-            m = re.search(r"^(?:long|void) (\w+)\(", block, re.M)
-            if m and m.group(1) in taken:
-                continue
-            kept.append(block)
-        body = push.rstrip("\n") + "\n\n" + "\n\n".join(kept)
+        body = ""
+        taken = set()
+        for chunk in (push, park, leaf):
+            kept = []
+            # Split on a blank line FOLLOWED BY a comment opener, not on any
+            # blank line. parkfn's functions have blank lines inside them, and
+            # splitting on those cut functions in half and then dropped the
+            # halves as duplicates -- which compiled to nothing but errors.
+            for block in re.split(r"\n\n+(?=/\*)", chunk):
+                m = re.search(r"^(?:long|void) (\w+)\(", block, re.M)
+                if m and m.group(1) in taken:
+                    continue
+                if m:
+                    taken.add(m.group(1))
+                kept.append(block)
+            body += "\n\n".join(kept).rstrip("\n") + "\n\n"
 
         n = len(set(re.findall(r"^(?:long|void) (\w+)\(\w", body, re.M)))
         if not n:

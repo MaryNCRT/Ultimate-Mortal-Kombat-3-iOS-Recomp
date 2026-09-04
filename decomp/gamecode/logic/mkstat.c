@@ -211,3 +211,69 @@ long tl_babality_complete(MK3THREAD *thread)
 
     return mk3_push_handler(thread, (MK3THREADFUNC)t_victory_animation);
 }
+
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
+
+long t_jump_up_land_jsrp(MK3THREAD *thread);
+long t_ret9(MK3THREAD *thread);
+
+/* t_retract_strike_act -- armv7 0x0004cadc, 108 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          token := 0x737, then descend into t_act_mframew
+ *      token == 0x737:
+ *          frame[frame].handler = t_ret9
+ *      otherwise:  return -3
+ */
+long t_retract_strike_act(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x737;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_act_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x737)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_ret9);
+}
+
+/* t_jump_up_land_jump -- armv7 0x0004cd30, 112 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          token := 0x9ad, then descend into t_jump_up_land_jsrp
+ *      token == 0x9ad:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_jump_up_land_jump(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x9ad;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_jump_up_land_jsrp;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x9ad)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}

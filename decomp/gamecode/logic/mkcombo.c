@@ -68,6 +68,37 @@ long t_comb9(MK3THREAD *thread)
  * for instruction by instruction.
  * -------------------------------------------------------------------- */
 
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
 
+long t_combo_2_late(MK3THREAD *thread);
+long t_combo_exit(MK3THREAD *thread);
 
+/* t_combo_miss -- armv7 0x000329b4, 76 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          park(token 0x844, duration 0x10)
+ *      token == 0x844:
+ *          frame[frame].handler = t_combo_2_late
+ *      otherwise:  return -3
+ */
+long t_combo_miss(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x844;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (token != 0x844)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_combo_2_late);
+}

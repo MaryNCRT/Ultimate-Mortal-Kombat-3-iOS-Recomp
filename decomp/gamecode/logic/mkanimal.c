@@ -175,3 +175,95 @@ long t_animality_complete(MK3THREAD *thread)
 
     return mk3_push_handler(thread, (MK3THREADFUNC)t_victory_animation);
 }
+
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
+
+long t_backwards_ani(MK3THREAD *thread);
+
+/* t_spider_shake -- armv7 0x000a0d30, 104 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          token := 0x713, then descend into t_spider_shake_jsrp
+ *      token == 0x713:
+ *          frame[frame].handler = t_wait_forever
+ *      otherwise:  return -3
+ */
+long t_spider_shake(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x713;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_spider_shake_jsrp;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x713)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_wait_forever);
+}
+
+/* t_unmorph_and_exit -- armv7 0x000a0d98, 128 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field1c = 0x5
+ *          token := 0x836, then descend into t_backwards_ani
+ *      token == 0x836:
+ *          frame[frame].handler = t_animality_complete
+ *      otherwise:  return -3
+ */
+long t_unmorph_and_exit(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 0x5;
+        *mk3_frame(thread, thread->frame + 1) = 0x836;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_backwards_ani;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x836)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_animality_complete);
+}
+
+/* tl_null_animal -- armv7 0x000a0e18, 76 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          park(token 0x8c3, duration 0x40)
+ *      token == 0x8c3:
+ *          frame[frame].handler = t_animality_complete
+ *      otherwise:  return -3
+ */
+long tl_null_animal(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x8c3;
+        thread->fieldfc = 0x40;
+        return 0x40;
+    }
+
+    if (token != 0x8c3)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_animality_complete);
+}

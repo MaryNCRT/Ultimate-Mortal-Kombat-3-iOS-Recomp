@@ -78,6 +78,22 @@ def written(refresh=False):
     return done
 
 
+_IMAGE = None
+
+
+def word(vmaddr):
+    """The 32-bit word at a virtual address.
+
+    A literal pool entry is data, not an instruction, so reading one means
+    going back to the file. vmaddr = file offset + 0x1000 for this binary.
+    """
+    global _IMAGE
+    if _IMAGE is None:
+        _IMAGE = open(BINARY, "rb").read()
+    import struct
+    return struct.unpack_from("<I", _IMAGE, vmaddr - 0x1000)[0]
+
+
 def disasm(start, end):
     out = subprocess.run(
         [sys.executable, os.path.join(ROOT, "tools", "disasm_range.py"),

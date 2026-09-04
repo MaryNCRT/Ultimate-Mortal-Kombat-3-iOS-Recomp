@@ -408,4 +408,72 @@ void q_boss_stupid(MK3OBJ *obj)
  * instruction; see tools/pushfn.py and tools/leaffn.py.
  * -------------------------------------------------------------------- */
 
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
 
+long t_boss1(MK3THREAD *thread);
+long t_sk_airborn_check(MK3THREAD *thread);
+long t_stumble_back_vel(MK3THREAD *thread);
+long t_swait_land_jsrp(MK3THREAD *thread);
+
+/* t_boss_wait_land -- armv7 0x000a86fc, 108 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          token := 0x1c5, then descend into t_swait_land_jsrp
+ *      token == 0x1c5:
+ *          frame[frame].handler = t_boss1
+ *      otherwise:  return -3
+ */
+long t_boss_wait_land(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x1c5;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_swait_land_jsrp;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x1c5)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_boss1);
+}
+
+/* t_sk_stumble -- armv7 0x000a8bf0, 120 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          token := 0x85b, then descend into t_sk_airborn_check
+ *      token == 0x85b:
+ *          obj->field1c = 0x40000
+ *          frame[frame].handler = t_stumble_back_vel
+ *      otherwise:  return -3
+ */
+long t_sk_stumble(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x85b;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_sk_airborn_check;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x85b)
+        return -3;
+
+    obj->field1c = 0x40000;
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_stumble_back_vel);
+}
