@@ -2151,3 +2151,1023 @@ void d_walkf_setup(MK3OBJ *obj)
     get_walk_info_f(obj);
     dwset3(obj);
 }
+
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
+
+long c_tusk_blur_sd(MK3THREAD *thread);
+long t_d_backup_jsrp(MK3THREAD *thread);
+long t_d_beware_mframew(MK3THREAD *thread);
+long t_d_bflip_jsrp(MK3THREAD *thread);
+long t_d_fflip_jsrp(MK3THREAD *thread);
+long t_d_knee(MK3THREAD *thread);
+long t_d_run_a11(MK3THREAD *thread);
+long t_d_slam(MK3THREAD *thread);
+long t_d_stance_pause(MK3THREAD *thread);
+long t_do_flip_kick(MK3THREAD *thread);
+long t_do_flip_punch(MK3THREAD *thread);
+long t_do_mercy(MK3THREAD *thread);
+long t_do_quake(MK3THREAD *thread);
+long t_do_zap(MK3THREAD *thread);
+long t_dont_zap_teles(MK3THREAD *thread);
+long t_drone_rfp(MK3THREAD *thread);
+long t_duck_under_mproj(MK3THREAD *thread);
+long t_fatality_align(MK3THREAD *thread);
+long t_local_reaction_exit(MK3THREAD *thread);
+long t_nr_attack_sd(MK3THREAD *thread);
+long t_return_to_beware(MK3THREAD *thread);
+long t_stat_do_hi_kick(MK3THREAD *thread);
+long t_willy_go_round(MK3THREAD *thread);
+long tl_stat_do_lia_scream(MK3THREAD *thread);
+
+/* t_d_hi_kick -- armv7 0x0006770c, 112 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          token := 0x189, then descend into t_stat_do_hi_kick
+ *      token == 0x189:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_d_hi_kick(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x189;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_stat_do_hi_kick;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x189)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* t_d_backup_jump -- armv7 0x000678e8, 104 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          token := 0x269, then descend into t_d_backup_jsrp
+ *      token == 0x269:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_d_backup_jump(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x269;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_d_backup_jsrp;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x269)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* t_very_far_airborn -- armv7 0x00067d08, 104 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          token := 0x3c6, then descend into t_dont_zap_teles
+ *      token == 0x3c6:
+ *          frame[frame].handler = t_d_zap
+ *      otherwise:  return -3
+ */
+long t_very_far_airborn(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x3c6;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_dont_zap_teles;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x3c6)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_d_zap);
+}
+
+/* t_d_do_floor_ice -- armv7 0x0006807c, 128 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field1c = 0x2b
+ *          token := 0x53b, then descend into t_do_zap
+ *      token == 0x53b:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_d_do_floor_ice(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 0x2b;
+        *mk3_frame(thread, thread->frame + 1) = 0x53b;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_do_zap;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x53b)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* t_d_bflip_jump -- armv7 0x000680fc, 104 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          token := 0x54e, then descend into t_d_bflip_jsrp
+ *      token == 0x54e:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_d_bflip_jump(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x54e;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_d_bflip_jsrp;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x54e)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* t_d_fflip_scan_jump -- armv7 0x00068240, 104 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          token := 0x56b, then descend into t_d_fflip_scan_jsrp
+ *      token == 0x56b:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_d_fflip_scan_jump(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x56b;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_d_fflip_scan_jsrp;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x56b)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* t_watch_flip_punch -- armv7 0x00068334, 112 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          token := 0x57e, then descend into t_do_flip_punch
+ *      token == 0x57e:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_watch_flip_punch(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x57e;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_do_flip_punch;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x57e)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* t_watch_flip_kick -- armv7 0x000683a4, 112 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          token := 0x583, then descend into t_do_flip_kick
+ *      token == 0x583:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_watch_flip_kick(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x583;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_do_flip_kick;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x583)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* t_d_fflip_jump -- armv7 0x00068414, 104 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          token := 0x5a6, then descend into t_d_fflip_jsrp
+ *      token == 0x5a6:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_d_fflip_jump(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x5a6;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_d_fflip_jsrp;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x5a6)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* t_d_punch -- armv7 0x00068838, 104 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          token := 0x6de, then descend into t_drone_rfp
+ *      token == 0x6de:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_d_punch(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x6de;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_drone_rfp;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x6de)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* t_drone_mercy -- armv7 0x00069364, 124 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field1c = 0xa0
+ *          token := 0xa1f, then descend into t_fatality_align
+ *      token == 0xa1f:
+ *          frame[frame].handler = t_do_mercy
+ *      otherwise:  return -3
+ */
+long t_drone_mercy(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 0xa0;
+        *mk3_frame(thread, thread->frame + 1) = 0xa1f;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_fatality_align;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xa1f)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_do_mercy);
+}
+
+/* t_do_fast_orb -- armv7 0x00069708, 128 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field1c = 0x28
+ *          token := 0xc49, then descend into t_do_zap
+ *      token == 0xc49:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_do_fast_orb(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 0x28;
+        *mk3_frame(thread, thread->frame + 1) = 0xc49;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_do_zap;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xc49)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* t_d_lk_hi_zap_jump -- armv7 0x00069788, 128 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field1c = 0x16
+ *          token := 0xc4f, then descend into t_do_zap
+ *      token == 0xc4f:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_d_lk_hi_zap_jump(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 0x16;
+        *mk3_frame(thread, thread->frame + 1) = 0xc4f;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_do_zap;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xc4f)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* t_d_zap_jump -- armv7 0x00069808, 112 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          token := 0xc54, then descend into t_do_zap
+ *      token == 0xc54:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_d_zap_jump(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0xc54;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_do_zap;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xc54)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* t_run_in_juk -- armv7 0x00069878, 128 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->a10 = 0x30
+ *          obj->field48 = 0x70
+ *          token := 0xc5b, then descend into t_d_run_a11
+ *      token == 0xc5b:
+ *          frame[frame].handler = t_d_jump_up_kick
+ *      otherwise:  return -3
+ */
+long t_run_in_juk(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->a10 = 0x30;
+        obj->field48 = 0x70;
+        *mk3_frame(thread, thread->frame + 1) = 0xc5b;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_d_run_a11;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xc5b)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_d_jump_up_kick);
+}
+
+/* t_swat_zap_hi -- armv7 0x00069c18, 128 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field1c = 0x19
+ *          token := 0xd17, then descend into t_do_zap
+ *      token == 0xd17:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_swat_zap_hi(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 0x19;
+        *mk3_frame(thread, thread->frame + 1) = 0xd17;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_do_zap;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xd17)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* t_sz_sky_zap -- armv7 0x00069c98, 128 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field1c = 0x7
+ *          token := 0xd1d, then descend into t_do_zap
+ *      token == 0xd1d:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_sz_sky_zap(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 0x7;
+        *mk3_frame(thread, thread->frame + 1) = 0xd1d;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_do_zap;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xd1d)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* t_d_quake -- armv7 0x00069dc8, 112 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          token := 0xd3e, then descend into t_do_quake
+ *      token == 0xd3e:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_d_quake(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0xd3e;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_do_quake;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xd3e)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* c_icharge_sd -- armv7 0x00069fb8, 104 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          token := 0xd6c, then descend into t_nr_uppercut_if_u_can
+ *      token == 0xd6c:
+ *          frame[frame].handler = c_tusk_blur_sd
+ *      otherwise:  return -3
+ */
+long c_icharge_sd(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0xd6c;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_nr_uppercut_if_u_can;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xd6c)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)c_tusk_blur_sd);
+}
+
+/* c_stzap23 -- armv7 0x0006a144, 104 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          token := 0xd94, then descend into t_nr_sweep_if_u_can
+ *      token == 0xd94:
+ *          frame[frame].handler = t_duck_under_mproj
+ *      otherwise:  return -3
+ */
+long c_stzap23(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0xd94;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_nr_sweep_if_u_can;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xd94)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_duck_under_mproj);
+}
+
+/* t_indian_reflect -- armv7 0x0006a694, 128 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field1c = 0x4
+ *          token := 0xedd, then descend into t_do_stationary
+ *      token == 0xedd:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_indian_reflect(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 0x4;
+        *mk3_frame(thread, thread->frame + 1) = 0xedd;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_do_stationary;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xedd)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* t_do_mystic_drop -- armv7 0x0006a714, 128 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field1c = 0x1c
+ *          token := 0xef6, then descend into t_do_stationary
+ *      token == 0xef6:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_do_mystic_drop(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 0x1c;
+        *mk3_frame(thread, thread->frame + 1) = 0xef6;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_do_stationary;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xef6)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* t_cyrax_counter_zap -- armv7 0x0006a794, 124 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field1c = 0xa
+ *          token := 0xefc, then descend into t_d_body_propell
+ *      token == 0xefc:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_cyrax_counter_zap(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 0xa;
+        *mk3_frame(thread, thread->frame + 1) = 0xefc;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_d_body_propell;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xefc)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* t_jade_anti_zap -- armv7 0x0006a844, 128 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field1c = 0x1a
+ *          token := 0xf03, then descend into t_do_stationary
+ *      token == 0xf03:
+ *          frame[frame].handler = t_run_in_close_now
+ *      otherwise:  return -3
+ */
+long t_jade_anti_zap(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 0x1a;
+        *mk3_frame(thread, thread->frame + 1) = 0xf03;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_do_stationary;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xf03)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_run_in_close_now);
+}
+
+/* t_run_in_fk -- armv7 0x0006a8f8, 128 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->a10 = 0x40
+ *          obj->field48 = 0xd0
+ *          token := 0xf46, then descend into t_d_run_a11
+ *      token == 0xf46:
+ *          frame[frame].handler = t_d_fflip_kick_jump
+ *      otherwise:  return -3
+ */
+long t_run_in_fk(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->a10 = 0x40;
+        obj->field48 = 0xd0;
+        *mk3_frame(thread, thread->frame + 1) = 0xf46;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_d_run_a11;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xf46)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_d_fflip_kick_jump);
+}
+
+/* t_run_in_and_slam -- armv7 0x0006a978, 124 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->a10 = 0x40
+ *          obj->field48 = 0x40
+ *          token := 0xf55, then descend into t_d_run_a11
+ *      token == 0xf55:
+ *          frame[frame].handler = t_d_slam
+ *      otherwise:  return -3
+ */
+long t_run_in_and_slam(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->a10 = 0x40;
+        obj->field48 = 0x40;
+        *mk3_frame(thread, thread->frame + 1) = 0xf55;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_d_run_a11;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xf55)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_d_slam);
+}
+
+/* t_drone_sweep_closeup_sd -- armv7 0x0006ae74, 104 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          token := 0x10ab, then descend into t_nr_sweep_if_u_can
+ *      token == 0x10ab:
+ *          frame[frame].handler = t_return_to_beware
+ *      otherwise:  return -3
+ */
+long t_drone_sweep_closeup_sd(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x10ab;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_nr_sweep_if_u_can;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x10ab)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_return_to_beware);
+}
+
+/* t_d_lia_scream -- armv7 0x0006af5c, 112 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          token := 0x10da, then descend into tl_stat_do_lia_scream
+ *      token == 0x10da:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_d_lia_scream(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x10da;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)tl_stat_do_lia_scream;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x10da)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* c_kroll_sd -- armv7 0x0006b128, 104 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          token := 0x1129, then descend into t_nr_attack_sd
+ *      token == 0x1129:
+ *          frame[frame].handler = t_willy_go_round
+ *      otherwise:  return -3
+ */
+long c_kroll_sd(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x1129;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_nr_attack_sd;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x1129)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_willy_go_round);
+}
+
+/* t_av_robo_tele -- armv7 0x0006b4cc, 120 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->a10 = 0x6
+ *          token := 0x1222, then descend into t_d_stance_pause
+ *      token == 0x1222:
+ *          frame[frame].handler = t_d_block
+ *      otherwise:  return -3
+ */
+long t_av_robo_tele(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->a10 = 0x6;
+        *mk3_frame(thread, thread->frame + 1) = 0x1222;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_d_stance_pause;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x1222)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_d_block);
+}
+
+/* t_kick_will_miss -- armv7 0x0006be5c, 104 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          token := 0x1414, then descend into t_nr_sweep_if_u_can
+ *      token == 0x1414:
+ *          frame[frame].handler = t_return_to_beware
+ *      otherwise:  return -3
+ */
+long t_kick_will_miss(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x1414;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_nr_sweep_if_u_can;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x1414)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_return_to_beware);
+}
+
+/* t_ct_quake -- armv7 0x0006bf78, 104 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          token := 0x142b, then descend into t_nr_hikick_if_u_can
+ *      token == 0x142b:
+ *          frame[frame].handler = t_d_jumpup_nocall
+ *      otherwise:  return -3
+ */
+long t_ct_quake(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x142b;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_nr_hikick_if_u_can;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x142b)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_d_jumpup_nocall);
+}
+
+/* t_ct_axe_up -- armv7 0x0006c0a0, 104 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          token := 0x1465, then descend into t_nr_sweep_if_u_can
+ *      token == 0x1465:
+ *          frame[frame].handler = t_d_block
+ *      otherwise:  return -3
+ */
+long t_ct_axe_up(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x1465;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_nr_sweep_if_u_can;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x1465)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_d_block);
+}
+
+/* t_d_land -- armv7 0x0006c1d0, 124 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field1c = 0x2
+ *          token := 0x149b, then descend into t_d_beware_mframew
+ *      token == 0x149b:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_d_land(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 0x2;
+        *mk3_frame(thread, thread->frame + 1) = 0x149b;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_d_beware_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x149b)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}

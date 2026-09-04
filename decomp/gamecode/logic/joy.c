@@ -327,4 +327,98 @@ void run_setup(MK3OBJ *obj)
  * instruction; see tools/pushfn.py and tools/leaffn.py.
  * -------------------------------------------------------------------- */
 
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
 
+long t_do_body_slam(MK3THREAD *thread);
+long t_joy_duck_block_loop(MK3THREAD *thread);
+long t_local_reaction_exit(MK3THREAD *thread);
+long t_stat_do_sweep_kick(MK3THREAD *thread);
+
+/* t_joy_sweep_kick -- armv7 0x0002f1b4, 108 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          token := 0x22e, then descend into t_stat_do_sweep_kick
+ *      token == 0x22e:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_joy_sweep_kick(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x22e;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_stat_do_sweep_kick;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x22e)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* t_jdblk2 -- armv7 0x0002f260, 104 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          token := 0x253, then descend into t_do_duck_block
+ *      token == 0x253:
+ *          frame[frame].handler = t_joy_duck_block_loop
+ *      otherwise:  return -3
+ */
+long t_jdblk2(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x253;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_do_duck_block;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x253)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_joy_duck_block_loop);
+}
+
+/* t_joy_toss -- armv7 0x0002f410, 108 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          token := 0x7b7, then descend into t_do_body_slam
+ *      token == 0x7b7:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_joy_toss(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x7b7;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_do_body_slam;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x7b7)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}

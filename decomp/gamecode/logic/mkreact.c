@@ -40,7 +40,7 @@ void match_ani_points_ob_ob(uint32_t a, uint32_t b);
  * holding pointers; they are code and a table. */
 extern char t_check_stay_down[];
 extern char t_check_winner_status[];
-extern char t_local_reaction_exit[];
+long t_local_reaction_exit(MK3THREAD *thread);
 extern char t_d_getup[];
 long t_getup_stay_ducked(MK3THREAD *thread);
 long t_joy_getup_abort(MK3THREAD *thread);
@@ -1666,4 +1666,173 @@ long t_r_combo4(MK3THREAD *thread)
  * instruction; see tools/pushfn.py and tools/leaffn.py.
  * -------------------------------------------------------------------- */
 
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
 
+long t_local_reaction_exit(MK3THREAD *thread);
+long t_net_struggle(MK3THREAD *thread);
+long t_rhat_wake(MK3THREAD *thread);
+long t_suspend_wait_action_jsrp(MK3THREAD *thread);
+long t_suspend_wait_wake(MK3THREAD *thread);
+
+/* t_r_bike_kicked -- armv7 0x000412bc, 76 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          park(token 0x4be, duration 0x80)
+ *      token == 0x4be:
+ *          frame[frame].handler = t_r_bike_kicked_done
+ *      otherwise:  return -3
+ */
+long t_r_bike_kicked(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x4be;
+        thread->fieldfc = 0x80;
+        return 0x80;
+    }
+
+    if (token != 0x4be)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_r_bike_kicked_done);
+}
+
+/* t_net_sleep -- armv7 0x00041308, 76 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          park(token 0x4cd, duration 0x1)
+ *      token == 0x4cd:
+ *          frame[frame].handler = t_net_struggle
+ *      otherwise:  return -3
+ */
+long t_net_sleep(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x4cd;
+        thread->fieldfc = 0x1;
+        return 0x1;
+    }
+
+    if (token != 0x4cd)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_net_struggle);
+}
+
+/* t_r_airborn_duck_kick -- armv7 0x000416f4, 120 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field20 = 0x1
+ *          token := 0x1067, then descend into t_avoid_corner_trap
+ *      token == 0x1067:
+ *          frame[frame].handler = t_generic_airborn_hit
+ *      otherwise:  return -3
+ */
+long t_r_airborn_duck_kick(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field20 = 0x1;
+        *mk3_frame(thread, thread->frame + 1) = 0x1067;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_avoid_corner_trap;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x1067)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_generic_airborn_hit);
+}
+
+/* t_rhat_sleep -- armv7 0x00041a2c, 76 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          park(token 0x11ea, duration 0x1)
+ *      token == 0x11ea:
+ *          frame[frame].handler = t_rhat_wake
+ *      otherwise:  return -3
+ */
+long t_rhat_sleep(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x11ea;
+        thread->fieldfc = 0x1;
+        return 0x1;
+    }
+
+    if (token != 0x11ea)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_rhat_wake);
+}
+
+/* t_susp3 -- armv7 0x00041e48, 76 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          park(token 0x1453, duration 0x2)
+ *      token == 0x1453:
+ *          frame[frame].handler = t_suspend_wait_wake
+ *      otherwise:  return -3
+ */
+long t_susp3(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x1453;
+        thread->fieldfc = 0x2;
+        return 0x2;
+    }
+
+    if (token != 0x1453)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_suspend_wait_wake);
+}
+
+/* t_suspend_wait_action -- armv7 0x00041e94, 104 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          token := 0x145c, then descend into t_suspend_wait_action_jsrp
+ *      token == 0x145c:
+ *          frame[frame].handler = t_local_reaction_exit
+ *      otherwise:  return -3
+ */
+long t_suspend_wait_action(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x145c;
+        thread->frame = thread->frame + 1;      /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_suspend_wait_action_jsrp;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x145c)
+        return -3;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}

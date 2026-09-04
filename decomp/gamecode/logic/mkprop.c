@@ -64,3 +64,12 @@ long tl_do_ninja_slide(MK3THREAD *thread)
 
 long am_i_airborn(MK3OBJ *obj);
 void set_inviso(MK3OBJ *obj);
+
+/* --------------------------------------------------------------------
+ * Added by a later sweep -- tools/sweep.py, running the same
+ * readers again after one of them learned something. Each still
+ * refuses anything it cannot account for instruction by
+ * instruction; see tools/pushfn.py and tools/leaffn.py.
+ * -------------------------------------------------------------------- */
+
+
