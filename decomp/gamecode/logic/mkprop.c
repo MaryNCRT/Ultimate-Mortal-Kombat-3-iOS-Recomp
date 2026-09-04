@@ -2391,3 +2391,83 @@ long t_zoom_blocked(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* -------------------------------------------------------------- t_tusk_blur_blocked
+ *
+ * armv7 0x0003fe00, 216 bytes.  **Complete.**
+ *
+ *      token == 0:       blur_blocked_setup(obj)
+ *                        w = *(uint32_t *)obj->field40
+ *                        obj->field1c = w
+ *                        if (w != 0) {
+ *                            obj->field1c = 1
+ *                            token := 0x321, descend into t_mframew
+ *                        }
+ *                        ; and otherwise falls into the 0x321 body below
+ *
+ *      token == 0x321:   obj->field40 = 1
+ *                        find_ani2_part2(obj)
+ *                        obj->field1c = 1
+ *                        token := 0x326, descend into t_mframew
+ *
+ *      token == 0x326:   frame[frame].handler = t_blb8
+ *
+ *      otherwise:        return -3
+ *
+ * Three states, and the first one **falls into the second's body** when the
+ * animation at 0x40 has already run out. That is why the entry has two exits:
+ * a first word still there means one pass through `t_mframew` under token
+ * 0x321 before the second animation is chosen, and a zero means the second
+ * animation is chosen straight away.
+ *
+ * The first word of an animation being zero is the same end-of-frames test
+ * `t_lao_angle_scan` uses; there it decides whether to check for a hit, here
+ * whether a wait is needed at all.
+ *
+ * `adds r3, r3, r6` reaches frame+1 through the register that already holds 1
+ * for `obj->field40`, which is the same borrowing `t_super_kick_land` does
+ * with its 3.
+ */
+long t_tusk_blur_blocked(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x326)
+        return mk3_push_handler(thread, (MK3THREADFUNC)t_blb8);
+
+    if (token != 0 && token != 0x321)
+        return -3;
+
+    if (token == 0) {
+        uint32_t w;
+
+        blur_blocked_setup(obj);
+
+        w = *(uint32_t *)(uintptr_t)obj->field40;
+        obj->field1c = w;
+
+        if (w != 0) {                   /* frames left: wait one pass */
+            obj->field1c = 1;
+            *mk3_frame(thread, thread->frame + 1) = 0x321;
+            thread->frame = thread->frame + 1;      /* push a level */
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)t_mframew;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+        /* and otherwise straight on into the 0x321 body */
+    }
+
+    obj->field40 = 1;
+    find_ani2_part2(obj);
+    obj->field1c = 1;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x326;
+    thread->frame = thread->frame + 1;              /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
