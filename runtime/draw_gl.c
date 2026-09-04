@@ -250,6 +250,21 @@ void limeSet2DDrawing(void)
     glLoadIdentity();
     glDisable(GL_DEPTH_TEST);
     glEnable(GL_TEXTURE_2D);
+
+    /* **MODULATE, explicitly.** The front end colours its text by handing the
+     * sprite call a row of `mmfontcol` and letting it multiply against a white
+     * glyph -- that is how "More Games" comes out red while the other four are
+     * white, and how a held entry turns yellow. Under GL_REPLACE the texture
+     * wins, the vertex colour is discarded, and every string draws white,
+     * which is exactly what this was doing.
+     *
+     * The spec's default is MODULATE, which is why this looked unnecessary. It
+     * is not: nothing says what the last thing to touch the texture unit left
+     * behind. The original does not rely on the default either -- Particles.c
+     * sets it by hand, and so does runtime/main.c. This was the one draw path
+     * that assumed. */
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+
     limeEnableAlphaBlending_Basic();
 }
 
