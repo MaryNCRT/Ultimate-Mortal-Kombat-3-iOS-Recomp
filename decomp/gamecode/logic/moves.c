@@ -34,6 +34,8 @@
  * conflict here, which is what the check is for. */
 void q_animal_dist(MK3OBJ *obj);
 void q_fatal_dist(MK3OBJ *obj);
+long four_button_bits(MK3OBJ *obj);
+void DoASpecial(MK3OBJ *obj, uint32_t which);
 void q_is_he_a_boss(MK3OBJ *obj);
 void check_sonya_legs(MK3OBJ *obj);
 void q_is_he_cornered(MK3OBJ *obj);
@@ -4508,4 +4510,58 @@ void buttons_in_a2(MK3OBJ *obj)
     if (obj->field00->field08 != 0)
         obj->field28 = 0x00707000u;
     obj->field24 = obj->field24 & obj->field28;
+}
+
+
+/* illegal_button_check -- armv7 0x0005277c, 48 bytes.  **Complete.**
+ *
+ *      buttons_in_a2(obj)                      ; fills obj->field24
+ *      obj->field1c = obj->field00->field08 ? second : first
+ *      obj->field1c = ~four_button_bits(obj)
+ *      obj->field24 &= obj->field1c
+ *      return obj->field24
+ *
+ * **Which of the two arguments is used depends on the strength index**, the
+ * same field buttons_in_a2 uses to pick its mask one call earlier -- so the
+ * player asking selects twice, once for the button word and once for the
+ * pattern tested against it.
+ *
+ * The result of four_button_bits is inverted before it is stored and before it
+ * is ANDed, so this REMOVES the bits that routine found rather than keeping
+ * them: the name is about what is not allowed. The masked word goes back into
+ * 0x24 and is also the return value -- a value this routine really computes,
+ * with the AND that produces it. */
+long illegal_button_check(MK3OBJ *obj, uint32_t first, uint32_t second)
+{
+    buttons_in_a2(obj);
+    obj->field1c = obj->field00->field08 ? second : first;
+    obj->field1c = (uint32_t)~four_button_bits(obj);
+    obj->field24 = obj->field24 & obj->field1c;
+    return (long)obj->field24;
+}
+
+/* DoSpecial -- armv7 0x000524f0, 48 bytes.  **Complete.**
+ *
+ *      if (obj->field00->field10 & 0x10) return
+ *      if (*(int16_t *)((char *)obj->field00 + 0x80) != 0) return
+ *      DoASpecial(obj, *(uint32_t *)(G + 8 + obj->field00->field08 * 4))
+ *
+ * **The halfword at proc+0x80 gates every special move, and five routines in
+ * this file clear it.** fatality_xfer, animality_xfer, airborn_xfer and
+ * restricted_xfer all write zero there before handing a thread over; this is
+ * what that clear is FOR. While it holds anything, DoSpecial returns without
+ * looking anything up.
+ *
+ * Bit 4 of the proc's 0x10 is the other gate, tested first and read from the
+ * same load. The table is words at G + 8 indexed by the strength index --
+ * shifted left two, where q_friend's halfword table is shifted left one. */
+void DoSpecial(MK3OBJ *obj)
+{
+    if ((obj->field00->field10 & 0x10u) != 0)
+        return;
+    if (*(int16_t *)((char *)obj->field00 + 0x80) != 0)
+        return;
+
+    DoASpecial(obj, *(uint32_t *)(G_BYTES + 8
+                                  + obj->field00->field08 * 4));
 }
