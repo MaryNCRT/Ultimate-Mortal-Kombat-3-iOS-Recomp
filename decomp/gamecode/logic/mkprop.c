@@ -104,6 +104,7 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+long t_bike_call(MK3THREAD *thread);
 void set_nocol(MK3OBJ *obj);
 long t_animate2_a9(MK3THREAD *thread);
 long tl_bike3(MK3THREAD *thread);
@@ -2656,4 +2657,85 @@ long tl_do_sg_pounce(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0x4d9;
     thread->fieldfc = 1;                /* look again next tick */
     return 1;
+}
+
+
+/* ------------------------------------------------------------------ tl_do_lk_bike
+ *
+ * armv7 0x0003f2fc, 232 bytes.  **Complete.**
+ *
+ *      token == 0:       obj->field20 = 0x20d
+ *                        init_special_act(obj)
+ *                        obj->field1c = 4; ochar_sound(obj)
+ *                        obj->field1c = 0xfff70000
+ *                        away_x_vel(obj)
+ *                        obj->field1c = 0xfff70000
+ *                        obj->field28 = 4
+ *                        obj->field40 = 0x00010002
+ *                        obj->field20 = 0xfffc8000
+ *                        obj->field24 = obj->field20 + 0x3b000
+ *                        obj->field34 = t_bike_call
+ *                        obj->field48 = 6
+ *                        token := 0x6b1, then descend into t_flight_call
+ *
+ *      token == 0x6b1:   if (thread->frame > 0) { thread->frame -= 1; return 0 }
+ *                        frame[frame].handler = t_local_reaction_exit
+ *
+ *      otherwise:        return -3
+ *
+ * Entry 13 of the propell table, and the second routine in this file to hand a
+ * callback to `t_flight_call`: 0x34 gets `t_bike_call`, exactly as
+ * `tl_do_lao_angle` gives it `t_lao_angle_scan`.
+ *
+ * -9.0 is used **twice from one register** -- once as the argument to
+ * `away_x_vel` and once left in 0x1c afterwards -- which is why r8 holds it
+ * across the call rather than the value being reloaded.
+ *
+ * -3.5 and its neighbour are the derived pair again: `add #0x3b000` on
+ * 0xfffc8000 reaches 0x00003800, so 0.22 costs no literal of its own.
+ *
+ * 0x40 takes the packed number shape once more, 1 high and 2 low.
+ */
+long tl_do_lk_bike(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token != 0) {
+        if (token != 0x6b1)
+            return -3;
+
+        if ((long)thread->frame > 0) {
+            thread->frame -= 1;         /* back up a level */
+            return 0;
+        }
+        return mk3_push_handler(thread,
+                                (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    obj->field20 = 0x20d;
+    init_special_act(obj);
+
+    obj->field1c = 4;
+    ochar_sound(obj);
+
+    obj->field1c = 0xfff70000u;         /* -9.0, kept in r8 across the call */
+    away_x_vel(obj);
+    obj->field1c = 0xfff70000u;
+
+    obj->field28 = 4;
+    obj->field40 = 0x00010002;          /* 1 high, 2 low */
+
+    obj->field20 = 0xfffc8000u;         /* -3.50 */
+    obj->field24 = obj->field20 + 0x3b000;
+
+    obj->field34 = (uint32_t)(uintptr_t)t_bike_call;    /* the callback */
+    obj->field48 = 6;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x6b1;
+    thread->frame = thread->frame + 1;          /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_flight_call;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
 }
