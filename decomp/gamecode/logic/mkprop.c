@@ -104,6 +104,10 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+void clear_noflip(MK3OBJ *obj);
+void set_no_block(MK3OBJ *obj);
+void pose2_a9_manual(MK3OBJ *obj);
+long t_wait_for_landing(MK3THREAD *thread);
 void get_his_action(MK3OBJ *obj);
 void edge_pick_a0(MK3OBJ *obj);
 long t_r_pounce2(MK3THREAD *thread);
@@ -5915,4 +5919,177 @@ long t_pounce_fall(MK3THREAD *thread)
     mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight_call;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
+}
+
+
+/* ----------------------------------------------------------------- tl_do_slide
+ *
+ * armv7 0x00040498, 500 bytes.  **Complete.**
+ *
+ * The slide. Twenty-eight frames long, of which the first eight cannot hit.
+ *
+ *      token == 0:      obj->field20 = 0x210 ; init_special_act(obj)
+ *                       obj->field1c = 8.0
+ *                       obj->field54 = obj->field08->field24
+ *                       if (obj->field54 == 0x15) obj->field1c = 11.0
+ *                       towards_x_vel(obj)
+ *                       obj->field40 = 2 ; get_char_ani2(obj)
+ *                       obj->field1c = 4 ; init_anirate(obj)
+ *                       obj->field1c = 6 ; ochar_sound(obj)
+ *                       obj->a10 = 0x1c
+ *                       token := 0x445, park 1
+ *
+ *      token == 0x445:  next_anirate(obj)
+ *                       if (obj->a10 <= 0x14) {
+ *                           obj->field1c = 0x10 ; strike_check_a0(obj)
+ *                           if (obj->field5c != 0) {
+ *                               if (obj->field18 != 0) -- FINISH --
+ *                               obj->field40 = 0x20002
+ *                               pose2_a9_manual(obj)
+ *                               obj->field1c = obj->field08->field18 >> 1
+ *                               set_x_vel_player(obj)
+ *                               token := 0x45b, park 3
+ *                           }
+ *                       }
+ *                       if (--obj->a10 > 0) { token := 0x445, park 1 }
+ *                       -- FINISH --
+ *
+ *      FINISH:          stop_me_player(obj) ; clear_noflip(obj)
+ *                       set_no_block(obj)
+ *                       obj->field1c = obj->field00->field18 = 0x613
+ *                       token := 0x467, park 0x16
+ *
+ *      token == 0x45b:  stop_me_player(obj)
+ *                       token := 0x45d, descend into t_wait_for_landing
+ *
+ *      token == 0x45d:  obj->field40 = 0x10002 ; pose2_a9_manual(obj)
+ *      token == 0x467:  the same, both branch to one instruction
+ *                       token := 0x46c, park 4
+ *
+ *      token == 0x46c:  obj->field40 = 2 ; pose2_a9_manual(obj)
+ *                       token := 0x46f, park 4
+ *
+ *      token == 0x46f:  obj->field1c = &G + 0x400 ; update_tsl(obj)
+ *                       frame[frame].handler = t_local_reaction_exit
+ *
+ *      otherwise:       return -3
+ *
+ * **The speed is chosen by a number read out of the part.** 0x24 of the part
+ * goes into 0x54 and is compared against 0x15; matching makes the slide 11.0
+ * instead of 8.0. One character slides faster than the rest and the test for
+ * which is a single equality on a field the routine also keeps a copy of.
+ *
+ * **The two ways the slide ends meet at the same instruction.** A blocked hit
+ * and the counter running out both reach the stop-clear-unblock sequence, and
+ * the connecting case is the only one that leaves early -- through 0x45b, a
+ * landing wait, and two poses. So a slide that hits takes the long way home
+ * and a slide that misses does not.
+ *
+ * **On a clean hit the opponent's own speed is halved into him.** 0x18 of the
+ * part is arithmetic-shifted right one and handed to set_x_vel_player, so the
+ * push depends on how fast he was already going rather than on a constant.
+ *
+ * 0x45d and 0x467 are two tokens with one body, which is why the dispatch
+ * compares against 0x467 last and branches to the same address as 0x45d.
+ */
+long tl_do_slide(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    int      finish = 0;
+
+    if (token == 0x45d || token == 0x467) {
+        obj->field40 = 0x10002;
+        pose2_a9_manual(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x46c;
+        thread->fieldfc = 4;
+        return 4;
+    }
+
+    if (token == 0x46c) {
+        obj->field40 = 2;
+        pose2_a9_manual(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x46f;
+        thread->fieldfc = 4;
+        return 4;
+    }
+
+    if (token == 0x46f) {
+        obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x400);
+        update_tsl(obj);
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (token == 0x45b) {
+        stop_me_player(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x45d;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_wait_for_landing;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x445) {
+        next_anirate(obj);
+
+        if ((long)obj->a10 <= 0x14) {           /* past the eight-frame nose */
+            obj->field1c = 0x10;
+            strike_check_a0(obj);
+            if (obj->field5c != 0) {
+                if (obj->field18 != 0) {        /* blocked */
+                    finish = 1;
+                } else {
+                    obj->field40 = 0x20002;
+                    pose2_a9_manual(obj);
+                    obj->field1c = (uint32_t)
+                        ((int32_t)obj->field08->field18 >> 1);
+                    set_x_vel_player(obj);
+                    *mk3_frame(thread, thread->frame + 1) = 0x45b;
+                    thread->fieldfc = 3;
+                    return 3;
+                }
+            }
+        }
+
+        if (!finish) {
+            obj->a10 -= 1;
+            if ((long)obj->a10 > 0) {
+                *mk3_frame(thread, thread->frame + 1) = 0x445;
+                thread->fieldfc = 1;
+                return 1;
+            }
+        }
+
+        stop_me_player(obj);
+        clear_noflip(obj);
+        set_no_block(obj);
+        obj->field1c = 0x613;
+        obj->field00->field18 = 0x613;
+        *mk3_frame(thread, thread->frame + 1) = 0x467;
+        thread->fieldfc = 0x16;
+        return 0x16;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field20 = 0x210;
+    init_special_act(obj);
+    obj->field1c = 0x80000u;                    /* 8.0 */
+    obj->field54 = obj->field08->field24;
+    if (obj->field54 == 0x15)
+        obj->field1c = 0xb0000u;                /* 11.0 for one of them */
+    towards_x_vel(obj);
+    obj->field40 = 2;
+    get_char_ani2(obj);
+    obj->field1c = 4;
+    init_anirate(obj);
+    obj->field1c = 6;
+    ochar_sound(obj);
+    obj->a10 = 0x1c;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x445;
+    thread->fieldfc = 1;
+    return 1;
 }
