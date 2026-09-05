@@ -104,6 +104,7 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+long tl_do_tele_explode(MK3THREAD *thread);
 void set_ignore_y(MK3OBJ *obj);
 long tl_do_lia_fly(MK3THREAD *thread);
 long t_mileena_teleport_call(MK3THREAD *thread);
@@ -3481,4 +3482,109 @@ long tl_do_lia_fly(MK3THREAD *thread)
     mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_hover_sleep_1;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
+}
+
+
+/* --------------------------------------------------------- tl_do_tele_explode
+ *
+ * armv7 0x0003e790, 300 bytes.  **Complete.**
+ *
+ * Cyrax goes away in pieces and comes back next to you. Four states, three of
+ * them parks, and the timing of the whole move is three numbers:
+ *
+ *      token == 0:      obj->field30 = obj->field08->field18   ; save the pair
+ *                       obj->field34 = obj->field08->field1c
+ *                       arg[f8++] = obj->field30
+ *                       arg[f8++] = obj->field34
+ *                       obj->field20 = obj->field00->field18 = 0x20a
+ *                       air_init_special(obj)
+ *                       obj->field34 = arg[--f8]               ; put it back
+ *                       obj->field30 = arg[--f8]
+ *                       obj->field08->field18 = obj->field30
+ *                       obj->field08->field1c = obj->field34
+ *                       obj->field08->field2c = 0x420
+ *                       token := 0x70f, park 9
+ *
+ *      token == 0x70f:  obj->field1c = 8 ; create_fx(obj)
+ *                       token := 0x712, park 1
+ *
+ *      token == 0x712:  stop_me_player(obj) ; set_nocol(obj)
+ *                       token := 0x715, park 10
+ *
+ *      token == 0x715:  teleport_next_to(obj) ; face_opponent(obj)
+ *                       frame[frame].handler = t_cyrax_implode
+ *
+ *      otherwise:       return -3
+ *
+ * **Nine frames, then one, then ten.** The effect is created on the tenth
+ * frame and he is stopped and made non-colliding on the eleventh, which is one
+ * frame after the flash rather than with it -- so the explosion is visible
+ * before he stops being there. The teleport itself happens ten frames later
+ * still, and by then nothing can touch him.
+ *
+ * The four words at 0x18 and 0x1c of the OTHER object are saved and restored
+ * across air_init_special, which would otherwise overwrite them. They come
+ * back through 0x30 and 0x34 -- the object's own scratch -- as well as the
+ * argument stack, so the field pair is written twice and the stack pair once.
+ * The second write is not redundant: air_init_special reads 0x30/0x34 while it
+ * runs, so the copy has to be there and the restore has to come after.
+ *
+ * A park is a token plus `thread->fieldfc`, returned as the duration. All
+ * three durations are returned in r0 as well as stored, which is how the
+ * scheduler learns them.
+ */
+long tl_do_tele_explode(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x70f) {
+        obj->field1c = 8;
+        create_fx(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x712;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0x712) {
+        stop_me_player(obj);
+        set_nocol(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x715;
+        thread->fieldfc = 0xa;
+        return 0xa;
+    }
+
+    if (token == 0x715) {
+        teleport_next_to(obj);
+        face_opponent(obj);
+        return mk3_install(thread, (MK3THREADFUNC)t_cyrax_implode);
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field30 = obj->field08->field18;
+    obj->field34 = obj->field08->field1c;
+
+    *mk3_arg(thread, thread->fieldf8) = obj->field30;
+    thread->fieldf8 += 1;
+    *mk3_arg(thread, thread->fieldf8) = obj->field34;
+    thread->fieldf8 += 1;
+
+    obj->field20 = 0x20a;
+    obj->field00->field18 = 0x20a;
+    air_init_special(obj);
+
+    thread->fieldf8 -= 1;
+    obj->field34 = *mk3_arg(thread, thread->fieldf8);
+    thread->fieldf8 -= 1;
+    obj->field30 = *mk3_arg(thread, thread->fieldf8);
+
+    obj->field08->field18 = obj->field30;
+    obj->field08->field1c = obj->field34;
+    obj->field08->field2c = 0x420;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x70f;
+    thread->fieldfc = 9;
+    return 9;
 }
