@@ -4382,3 +4382,62 @@ void q_lk_friend(MK3OBJ *obj)
     else
         q_friend(obj);
 }
+
+
+/* q_reptile_orb_fast_four -- armv7 0x000528ac, 44 bytes.  **Complete.**
+ *
+ *      if ((int16)obj->field00->field7c == 0) q_no(obj)
+ *      else { obj->field1c = &G + 0x43c; qorb3(obj); }
+ *
+ * **A third caller writing a dead address into 0x1c.** q_reptile_orb_slow
+ * stores &G + 0x438 and both fast forms store &G + 0x43c, and qorb3 overwrites
+ * 0x1c with the opponent's character number before any of them is read. The
+ * two addresses are adjacent words and they differ between the slow and fast
+ * forms, which is worth knowing even though nothing here consumes them.
+ *
+ * The address is built with two adds, 0x430 then 0xc, rather than one. */
+void q_reptile_orb_fast_four(MK3OBJ *obj)
+{
+    if ((int16_t)obj->field00->field7c == 0) {
+        q_no(obj);
+        return;
+    }
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x430 + 0xc);
+    qorb3(obj);
+}
+
+/* q_reptile_orb_fast_six -- armv7 0x000528d8, 44 bytes.  **Complete.**
+ *
+ * The same forty-four bytes with cbz where the four form has cbnz -- the
+ * fourth pair in this file separated by exactly one instruction. */
+void q_reptile_orb_fast_six(MK3OBJ *obj)
+{
+    if ((int16_t)obj->field00->field7c != 0) {
+        q_no(obj);
+        return;
+    }
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x430 + 0xc);
+    qorb3(obj);
+}
+
+/* q_simple_shang -- armv7 0x000501bc, 44 bytes.  **Complete.**
+ *
+ *      c = ((MK3OBJ *)obj->field00->him)->field24
+ *      if (c <= 0x17 && c != 0xc) q_yes(obj); else q_no(obj);
+ *
+ * **Two conditions with no branch between them.** The compiler built the
+ * whole test out of flags: a subtract that leaves 1 unless the character is
+ * 0xc, then an if-then-else pair that zeroes the answer outright above 0x17
+ * and otherwise keeps that bit. One branch at the end, for the result.
+ *
+ * The range test is signed, and the excluded character sits inside the range
+ * rather than at either end. */
+void q_simple_shang(MK3OBJ *obj)
+{
+    long c = (long)((MK3OBJ *)(uintptr_t)obj->field00->him)->field24;
+
+    if (c <= 0x17 && c != 0xc)
+        q_yes(obj);
+    else
+        q_no(obj);
+}
