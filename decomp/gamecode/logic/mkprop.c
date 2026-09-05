@@ -104,6 +104,9 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+void distance_from_ground(MK3OBJ *obj);
+long t_hover_sleep_1(MK3THREAD *thread);
+long t_settle_down(MK3THREAD *thread);
 void flip_multi(MK3OBJ *obj);
 void update_tsl(MK3OBJ *obj);
 void set_noedge(MK3OBJ *obj);
@@ -2952,6 +2955,100 @@ long tl_do_scorp_tele(MK3THREAD *thread)
     thread->frame = thread->frame + 1;          /* push a level */
     mk3_frame(thread, thread->frame)[1] =
         (uint32_t)(uintptr_t)t_flight_call;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ------------------------------------------------------------------- t_settle_down
+ *
+ * armv7 0x0003d3f4, 260 bytes.  **Complete.**
+ *
+ *      token == 0:       token := 0x9b1, then descend into t_hover_sleep_1
+ *
+ *      token == 0x9b1:   v = obj->field08->field1c
+ *                        obj->field30 = v
+ *                        if (v < 0)
+ *                            frame[frame].handler = t_settle_down   ; itself
+ *                        else {
+ *                            distance_from_ground(obj)
+ *                            if (obj->field1c > 0xe0)
+ *                                frame[frame].handler = t_settle_down
+ *                            else {
+ *                                obj->field34          = 0xffffa000
+ *                                obj->field08->field20 = 0xffffa000
+ *                                token := 0x9bd, descend into t_hover_sleep_1
+ *                            }
+ *                        }
+ *
+ *      token == 0x9bd:   v = obj->field08->field1c
+ *                        obj->field30 = |v|
+ *                        if (obj->field30 > 0x10000)
+ *                            token := 0x9bd, descend into t_hover_sleep_1
+ *                        else if (thread->frame > 0) { frame -= 1; return 0 }
+ *                        else frame[frame].handler = t_local_reaction_exit
+ *
+ *      otherwise:        return -3
+ *
+ * **Two loops, and both are built out of installing something.** The first
+ * reinstalls THIS function when the fall is still going the wrong way or the
+ * fighter is still above 0xe0 -- installing clears the slot above, so the
+ * token returns to zero, state 0 runs again, and it descends into the hover
+ * once more. The second reinstalls the DESCEND itself, re-entering 0x9bd
+ * until the speed at 0x1c falls to 1.0 or less.
+ *
+ * The two states measure the same field differently: 0x9b1 keeps the SIGN --
+ * a negative speed means still rising, and that is a reason to wait -- while
+ * 0x9bd takes the magnitude, because by then only how fast matters.
+ *
+ * -0.375 goes into 0x34 and the other object's 0x20 from one register. This is
+ * the one place in the file where 0x34 takes a NUMBER rather than a callback
+ * address, which is worth knowing before reading it as a function pointer.
+ */
+long t_settle_down(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    int32_t  v;
+
+    if (token == 0x9b1) {
+        v = (int32_t)obj->field08->field1c;
+        obj->field30 = (uint32_t)v;
+
+        if (v < 0)                      /* still rising: wait again */
+            return mk3_push_handler(thread, (MK3THREADFUNC)t_settle_down);
+
+        distance_from_ground(obj);
+        if ((long)obj->field1c > 0xe0)  /* still too high */
+            return mk3_push_handler(thread, (MK3THREADFUNC)t_settle_down);
+
+        obj->field34          = 0xffffa000u;    /* -0.375, a number here */
+        obj->field08->field20 = 0xffffa000u;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x9bd;
+    } else if (token == 0x9bd) {
+        v = (int32_t)obj->field08->field1c;
+        obj->field30 = (uint32_t)(v < 0 ? -v : v);
+
+        if ((int32_t)obj->field30 <= 0x10000) { /* settled */
+            if ((long)thread->frame > 0) {
+                thread->frame -= 1;
+                return 0;
+            }
+            return mk3_push_handler(thread,
+                                    (MK3THREADFUNC)t_local_reaction_exit);
+        }
+
+        *mk3_frame(thread, thread->frame + 1) = 0x9bd;
+    } else {
+        if (token != 0)
+            return -3;
+        *mk3_frame(thread, thread->frame + 1) = 0x9b1;
+    }
+
+    thread->frame = thread->frame + 1;          /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_hover_sleep_1;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
