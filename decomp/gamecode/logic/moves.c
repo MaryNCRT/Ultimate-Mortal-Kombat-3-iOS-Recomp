@@ -34,6 +34,11 @@
  * conflict here, which is what the check is for. */
 long q_animal_dist(MK3OBJ *obj);
 long q_fatal_dist(MK3OBJ *obj);
+long get_x_dist(MK3OBJ *obj);
+long stick_look_lr(MK3OBJ *obj, uint32_t a, uint32_t b,
+                   uint32_t *pair);
+long button_bit_check(MK3OBJ *obj);
+long animality_xfer(MK3OBJ *obj, MK3OBJ *other);
 void q_friend(MK3OBJ *obj);
 void q_jade_flash(MK3OBJ *obj);
 void q_scorp_tele(MK3OBJ *obj);
@@ -3771,4 +3776,80 @@ void DbgTableDump(uint32_t *table)
     do {
         i += 1;
     } while ((uint32_t)(table[i] - 1) <= 8);
+}
+
+
+/* q_scorp_tele_six -- armv7 0x00052a44, 24 bytes.  **Complete.**
+ *
+ * `q_scorp_tele_four` with `cbz` where that has `cbnz` -- the second pair in
+ * this file to differ by exactly one instruction. */
+void q_scorp_tele_six(MK3OBJ *obj)
+{
+    if ((int16_t)obj->field00->field7c != 0)
+        q_no(obj);
+    else
+        q_scorp_tele(obj);
+}
+
+/* stick_look_lr2 -- armv7 0x000541e4, 24 bytes.  **Complete.**
+ *
+ *      pair[0] = c        ; r3, the fourth argument
+ *      pair[1] = d        ; [sp,#0x10], the fifth
+ *      return stick_look_lr(obj, a, b, pair)
+ *
+ * **A shim that turns two arguments into an array.** `stick_look_lr` takes its
+ * last argument by pointer, so this builds the two words on the stack and
+ * passes their address. The fifth argument is read from `[sp, #0x10]` --
+ * eight bytes of pushed registers plus the eight this routine subtracts --
+ * which is where the caller's first stacked argument lands. */
+long stick_look_lr2(MK3OBJ *obj, uint32_t a, uint32_t b,
+                    uint32_t c, uint32_t d)
+{
+    uint32_t pair[2];
+
+    pair[0] = c;
+    pair[1] = d;
+    return stick_look_lr(obj, a, b, pair);
+}
+
+/* close_animality_xfer -- armv7 0x00054b5c, 28 bytes.  **Complete.**
+ *
+ *      get_x_dist(obj)
+ *      if (obj->field28 <= 0x50) animality_xfer(obj, other)
+ *
+ * Both arguments are kept in callee-saved registers across `get_x_dist` and
+ * handed on unchanged. Too far apart and nothing happens at all -- the
+ * routine has no other exit. */
+void close_animality_xfer(MK3OBJ *obj, MK3OBJ *other)
+{
+    get_x_dist(obj);
+    if ((long)obj->field28 <= 0x50)
+        animality_xfer(obj, other);
+}
+
+/* q_both_punches -- armv7 0x00052858, 28 bytes.  **Complete.**
+ *
+ *      obj->field1c = 0x00010010
+ *      obj->field20 = 0x00101000
+ *      return button_bit_check(obj)
+ *
+ * Two packed words in the argument slots and one call. Each is a pair of
+ * halves -- (0x0001, 0x0010) and (0x0010, 0x1000) -- and what the halves
+ * select is button_bit_check's business, not this routine's. */
+long q_both_punches(MK3OBJ *obj)
+{
+    obj->field1c = 0x00010010u;
+    obj->field20 = 0x00101000u;
+    return button_bit_check(obj);
+}
+
+/* q_lp_block_lk -- armv7 0x0005283c, 28 bytes.  **Complete.**
+ *
+ * The same twenty-eight bytes as q_both_punches with two different constants:
+ * (0x0003, 0x0020) and (0x0030, 0x2000). */
+long q_lp_block_lk(MK3OBJ *obj)
+{
+    obj->field1c = 0x00030020u;
+    obj->field20 = 0x00302000u;
+    return button_bit_check(obj);
 }
