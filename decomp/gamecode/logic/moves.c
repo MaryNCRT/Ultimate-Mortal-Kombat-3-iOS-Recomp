@@ -34,7 +34,7 @@
  * conflict here, which is what the check is for. */
 void q_animal_dist(MK3OBJ *obj);
 void q_fatal_dist(MK3OBJ *obj);
-long four_button_bits(MK3OBJ *obj);
+uint32_t four_button_bits(MK3OBJ *obj, uint32_t bits);
 void DoASpecial(MK3OBJ *obj, uint32_t which);
 void q_is_he_a_boss(MK3OBJ *obj);
 void check_sonya_legs(MK3OBJ *obj);
@@ -50,7 +50,7 @@ long free_xfer(MK3OBJ *obj, MK3OBJ *other);
 long get_x_dist(MK3OBJ *obj);
 long stick_look_lr(MK3OBJ *obj, uint32_t a, uint32_t b,
                    uint32_t *pair);
-long button_bit_check(MK3OBJ *obj);
+void button_bit_check(MK3OBJ *obj);
 /* Its two paths disagree about producing a value -- one falls through
  * after q_mercy, the other tail-calls fatality_xfer -- so it computes
  * none. Declared long at first; the compiler caught it. */
@@ -3852,22 +3852,22 @@ void close_animality_xfer(MK3OBJ *obj, MK3OBJ *other)
  * Two packed words in the argument slots and one call. Each is a pair of
  * halves -- (0x0001, 0x0010) and (0x0010, 0x1000) -- and what the halves
  * select is button_bit_check's business, not this routine's. */
-long q_both_punches(MK3OBJ *obj)
+void q_both_punches(MK3OBJ *obj)
 {
     obj->field1c = 0x00010010u;
     obj->field20 = 0x00101000u;
-    return button_bit_check(obj);
+    button_bit_check(obj);
 }
 
 /* q_lp_block_lk -- armv7 0x0005283c, 28 bytes.  **Complete.**
  *
  * The same twenty-eight bytes as q_both_punches with two different constants:
  * (0x0003, 0x0020) and (0x0030, 0x2000). */
-long q_lp_block_lk(MK3OBJ *obj)
+void q_lp_block_lk(MK3OBJ *obj)
 {
     obj->field1c = 0x00030020u;
     obj->field20 = 0x00302000u;
-    return button_bit_check(obj);
+    button_bit_check(obj);
 }
 
 
@@ -4535,7 +4535,7 @@ long illegal_button_check(MK3OBJ *obj, uint32_t first, uint32_t second)
 {
     buttons_in_a2(obj);
     obj->field1c = obj->field00->field08 ? second : first;
-    obj->field1c = (uint32_t)~four_button_bits(obj);
+    obj->field1c = (uint32_t)~four_button_bits(obj, obj->field1c);
     obj->field24 = obj->field24 & obj->field1c;
     return (long)obj->field24;
 }
@@ -4564,4 +4564,75 @@ void DoSpecial(MK3OBJ *obj)
 
     DoASpecial(obj, *(uint32_t *)(G_BYTES + 8
                                   + obj->field00->field08 * 4));
+}
+
+
+/* button_bit_check -- armv7 0x000527ac, 52 bytes.  **Complete.**
+ *
+ *      if (obj->field00->field08 == 1) obj->field1c = obj->field20
+ *      obj->field1c = four_button_bits(obj, obj->field1c)
+ *      buttons_in_a2(obj)
+ *      obj->field5c = (obj->field24 == obj->field1c)
+ *
+ * **This is what the whole q_ family funnels into, and it explains the mask
+ * pairs.** The two words a caller puts in 0x1c and 0x20 are the same pattern
+ * for the two players: index 1 swaps the second in over the first, and
+ * buttons_in_a2 -- called one instruction later -- masks the live button word
+ * with its own per-player window. That is why the four measured pairs are the
+ * same halves at different shifts. One pattern, two players, two offsets.
+ *
+ * The answer is EQUALITY, not an overlap: every wanted bit present and no
+ * other. `four_button_bits` takes the chosen mask in r1 and reads it there
+ * (tst.w r1, #0x10000), which is how the two-argument shape was settled --
+ * two call sites load r1 and the callee uses it. */
+void button_bit_check(MK3OBJ *obj)
+{
+    if (obj->field00->field08 == 1)
+        obj->field1c = obj->field20;
+
+    obj->field1c = (uint32_t)four_button_bits(obj, obj->field1c);
+    buttons_in_a2(obj);
+    obj->field5c = (obj->field24 == obj->field1c) ? 1u : 0u;
+}
+
+/* q_scream_fatal -- armv7 0x0005336c, 48 bytes.  **Complete.**
+ *
+ * A third routine on the (0x0004, 0x0020) / (0x0040, 0x2000) pair, after
+ * q_bubble_fatal and q_lk_mk_fatal. All three are the same forty-eight bytes
+ * and part company only in which routine gets the yes -- q_earth_fatal,
+ * q_fatality_req and q_close_fatal. */
+void q_scream_fatal(MK3OBJ *obj)
+{
+    obj->field1c = 0x00040020u;
+    obj->field20 = 0x00402000u;
+    button_bit_check(obj);
+    if (obj->field5c == 0)
+        q_no(obj);
+    else
+        q_close_fatal(obj);
+}
+
+/* q_smoke_tele -- armv7 0x00052eb0, 48 bytes.  **Complete.**
+ *
+ *      get_his_p_hit(obj)
+ *      if (obj->field1c > 1) q_no(obj)
+ *      else {
+ *          get_his_action(obj)
+ *          if (obj->field20 == 0x616) q_no(obj); else q_yes(obj);
+ *      }
+ *
+ * Two conditions again, and the two refusals share one instruction: the action
+ * test branches back to the same q_no the count test falls into. */
+void q_smoke_tele(MK3OBJ *obj)
+{
+    get_his_p_hit(obj);
+    if ((long)obj->field1c > 1) {
+        q_no(obj);
+        return;
+    }
+    get_his_action(obj);
+    if (obj->field20 == 0x616)
+        q_no(obj);
+    else
+        q_yes(obj);
 }
