@@ -104,6 +104,8 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+void clear_shadow_bit(MK3OBJ *obj);
+long tl_ind_charge(MK3THREAD *thread);
 long get_rough_hypotenuse(MK3OBJ *obj);
 long get_x_dist(MK3OBJ *obj);
 long tl_do_tusk_blur(MK3THREAD *thread);
@@ -4064,4 +4066,131 @@ long t_air_sleep3(MK3THREAD *thread)
         return mk3_install(thread, (MK3THREADFUNC)t_air_sleep3);
 
     return mk3_install(thread, (MK3THREADFUNC)t_air_grab_cancel);
+}
+
+
+/* --------------------------------------------------------------- tl_ind_charge
+ *
+ * armv7 0x0003ddd8, 324 bytes.  **Complete.**
+ *
+ * The shoulder charge, in five states. Two frames of wind-up, two more, then
+ * run at nine until either the strike lands or twenty frames go by.
+ *
+ *      token == 0:      obj->field20 = 0x214 ; init_special_act(obj)
+ *                       obj->field40 = 4 ; get_char_ani2(obj)
+ *                       obj->field1c = 8 ; ochar_sound(obj)
+ *                       obj->field1c = 1 ; create_fx(obj)
+ *                       clear_shadow_bit(obj)
+ *                       obj->field1c = 1 ; towards_x_vel(obj)
+ *                       do_next_a9_frame(obj)
+ *                       token := 0xaa0, park 2
+ *
+ *      token == 0xaa0:  do_next_a9_frame(obj)
+ *                       token := 0xaa2, park 2
+ *
+ *      token == 0xaa2:  obj->field1c = 9.0 ; towards_x_vel(obj)
+ *                       do_next_a9_frame(obj)
+ *                       obj->field48 = 0x14
+ *                       token := 0xaaa, park 1
+ *
+ *      token == 0xaaa:  obj->field1c = 0x11 ; strike_check_a0(obj)
+ *                       if (obj->field5c == 0 && --obj->field48 > 0)
+ *                           token := 0xaaa, park 1
+ *                       else {
+ *                           stop_me_player(obj)
+ *                           obj->field1c = obj->field00->field18 = 0x605
+ *                           token := 0xab7, park 0x10
+ *                       }
+ *
+ *      token == 0xab7:  obj->field40 = 4 ; find_ani2_part2(obj)
+ *                       obj->field1c = 3
+ *                       frame[frame].handler = t_mframew
+ *
+ *      otherwise:       return -3
+ *
+ * **Hitting and running out of time end identically.** The miss path falls
+ * into the hit path's first instruction -- `b #0x3dee4` with nothing in
+ * between -- so a charge that connects and a charge that expires both stop the
+ * player, set action 0x605 and wait sixteen frames. Only the strike test
+ * differs, and it differs by one branch.
+ *
+ * 0x1c is written 1 twice in the entry state, once before create_fx and again
+ * before towards_x_vel, with clear_shadow_bit between them. The second store
+ * is not redundant: the argument register has to be re-established because the
+ * two calls in between are free to use it.
+ *
+ * The dispatch is a three-way compare rather than a chain: 0xaa2 first,
+ * everything below it split into 0 and 0xaa0, everything above into 0xaaa and
+ * 0xab7. Five states, three comparisons on the common path.
+ */
+long tl_ind_charge(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0xaa0) {
+        do_next_a9_frame(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0xaa2;
+        thread->fieldfc = 2;
+        return 2;
+    }
+
+    if (token == 0xaa2) {
+        obj->field1c = 0x90000u;                /* 9.0 */
+        towards_x_vel(obj);
+        do_next_a9_frame(obj);
+        obj->field48 = 0x14;
+        *mk3_frame(thread, thread->frame + 1) = 0xaaa;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0xaaa) {
+        obj->field1c = 0x11;
+        strike_check_a0(obj);
+
+        if (obj->field5c == 0) {                /* nothing there */
+            obj->field48 -= 1;
+            if ((long)obj->field48 > 0) {
+                *mk3_frame(thread, thread->frame + 1) = 0xaaa;
+                thread->fieldfc = 1;
+                return 1;
+            }
+        }
+
+        /* connected, or out of time -- the same ending either way */
+        stop_me_player(obj);
+        obj->field1c = 0x605;
+        obj->field00->field18 = 0x605;
+        *mk3_frame(thread, thread->frame + 1) = 0xab7;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (token == 0xab7) {
+        obj->field40 = 4;
+        find_ani2_part2(obj);
+        obj->field1c = 3;
+        return mk3_install(thread, (MK3THREADFUNC)t_mframew);
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field20 = 0x214;
+    init_special_act(obj);
+    obj->field40 = 4;
+    get_char_ani2(obj);
+    obj->field1c = 8;
+    ochar_sound(obj);
+    obj->field1c = 1;
+    create_fx(obj);
+    clear_shadow_bit(obj);
+    obj->field1c = 1;
+    towards_x_vel(obj);
+    do_next_a9_frame(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0xaa0;
+    thread->fieldfc = 2;
+    return 2;
 }
