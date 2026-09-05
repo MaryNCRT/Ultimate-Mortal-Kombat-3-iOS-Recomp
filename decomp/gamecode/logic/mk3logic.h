@@ -332,7 +332,7 @@ typedef struct MK3BOX {
 /* The frame array lives at the thread's own address, eight bytes an entry,
  * indexed by 0xa4 -- the same arithmetic `GetThreadFunc` and
  * `t_self_terminate` use. */
-static uint32_t *mk3_frame(MK3THREAD *thread, uint32_t n)
+static inline uint32_t *mk3_frame(MK3THREAD *thread, uint32_t n)
 {
     return (uint32_t *)((char *)thread + n * 8);
 }
@@ -348,7 +348,7 @@ static uint32_t *mk3_frame(MK3THREAD *thread, uint32_t n)
  *
  * Twenty of each. The pads were sized from the offsets that had been seen
  * before this array existed, and they came out right, which is the check. */
-static uint32_t *mk3_arg(MK3THREAD *thread, uint32_t n)
+static inline uint32_t *mk3_arg(MK3THREAD *thread, uint32_t n)
 {
     return (uint32_t *)((char *)thread + 0xa8 + n * 4);
 }
@@ -358,7 +358,7 @@ static uint32_t *mk3_arg(MK3THREAD *thread, uint32_t n)
  * up its place. `t_flight` and its kind INCREMENT the index instead, which is
  * a real call. The two differ by that one increment and most of this
  * directory is built out of the pair. */
-static long mk3_push_handler(MK3THREAD *thread, MK3THREADFUNC handler)
+static inline long mk3_push_handler(MK3THREAD *thread, MK3THREADFUNC handler)
 {
     uint32_t current = thread->frame;
 
@@ -366,6 +366,29 @@ static long mk3_push_handler(MK3THREAD *thread, MK3THREADFUNC handler)
         return -3;
 
     mk3_frame(thread, current)[1] = (uint32_t)(uintptr_t)handler;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* The same install with NO refusal in front of it.
+ *
+ * `mk3_push_handler` is really two things at once: the state-0 refusal and the
+ * install. A routine whose only state is entry wants both, and the binary
+ * agrees -- `t_attk5` tests the slot, returns -3 when it is dirty, and only
+ * then stores. But a dispatcher that has already matched a non-zero token
+ * cannot test it for zero: it IS non-zero, and the test would refuse every
+ * time. So those routines branch into a shared tail that stores the handler
+ * and clears the slot above, and nothing else. `t_settle_down` reaches that
+ * tail from three states and `t_pounce_jsrp` from one; both jump to the same
+ * six instructions the descend path falls through.
+ *
+ * Told apart in the disassembly by what reaches the store: a `cbz` on the slot
+ * with `mvn r0, #2` on the other side is push_handler, and a plain branch in
+ * is this. `tools/instck.py` looks for the sites where we picked wrong. */
+static inline long mk3_install(MK3THREAD *thread, MK3THREADFUNC handler)
+{
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)handler;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
