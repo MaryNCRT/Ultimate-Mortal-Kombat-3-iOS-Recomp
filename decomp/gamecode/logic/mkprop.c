@@ -104,6 +104,8 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+long t_decoy_proc(MK3THREAD *thread);
+long tl_do_sz_decoy(MK3THREAD *thread);
 long tl_do_stick_sweep(MK3THREAD *thread);
 long is_stick_right(MK3OBJ *obj);
 long is_stick_left(MK3OBJ *obj);
@@ -4696,6 +4698,119 @@ long tl_do_stick_sweep(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0x345;
     thread->frame = thread->frame + 1;
     mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* -------------------------------------------------------------- tl_do_sz_decoy
+ *
+ * armv7 0x0003c250, 360 bytes.  **Complete.**
+ *
+ * Sub-Zero leaves a copy of himself standing there and flies off. This is the
+ * side that makes the decoy; `t_decoy_proc` is what the decoy then runs, and
+ * `decoy_collision_check` is what the decoy uses to notice being touched.
+ *
+ *      token == 0:      air_init_special(obj)
+ *                       obj->field20 = obj->field00->field18 = 0x202
+ *                       obj->field1c = &G + 0x3f8 ; update_tsl(obj)
+ *                       decoy = NewThreadProc(obj, t_decoy_proc)
+ *                       get_x_dist(obj)
+ *                       decoy->field48       = obj->field28
+ *                       decoy->field08->field2c = obj->field08->field2c
+ *                       decoy->thread->pid   = obj->field00->field08 + 0x204
+ *                       obj->field1c = 4 ; ochar_sound(obj)
+ *                       obj->field40 = 0x1b ; get_char_ani(obj)
+ *                       obj->field40 += 4
+ *                       obj->field1c = 6.0
+ *                       obj->field20 = -6.0
+ *                       obj->field24 = 0.5
+ *                       obj->field28 = 3
+ *                       token := 0xd35, descend into t_flight
+ *
+ *      token == 0xd35:  obj->field20 = obj->field00->field18 = 0x304
+ *                       face_opponent(obj)
+ *                       obj->field40 = 0x1a ; get_char_ani(obj)
+ *                       do_next_a9_frame(obj)
+ *                       token := 0xd3f, park 3
+ *
+ *      token == 0xd3f:  MKEvent_Add(3, 0xd, 0, obj->field00->field08)
+ *                       if (thread->frame > 0) { frame -= 1; return 0 }
+ *                       frame[frame].handler = t_local_reaction_exit
+ *
+ *      otherwise:       return -3
+ *
+ * **Three things are handed to the decoy and nothing else is.** The horizontal
+ * distance to the opponent, one word from the part at 0x2c, and a pid built as
+ * `obj->field00->field08 + 0x204`. The decoy is otherwise a fresh object
+ * running its own thread; everything it needs to shake in the right place and
+ * be identified as belonging to this fighter goes across in those three
+ * stores, immediately after NewThreadProc and before anything else can run.
+ *
+ * The pid is derived, not copied: the strength index at proc+0x08 plus 0x204.
+ * So the decoy's pid moves with the fighter's strength, and two fighters can
+ * never produce the same one.
+ *
+ * The launch is one literal and two steps -- 0x60000, minus 0xc0000, plus
+ * 0x68000 -- giving 6.0 across, -6.0 up and 0.5 of whatever 0x24 is. The
+ * assembler only ever spelled the six.
+ */
+long tl_do_sz_decoy(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    MK3OBJ  *decoy;
+
+    if (token == 0xd35) {
+        obj->field20 = 0x304;
+        obj->field00->field18 = 0x304;
+        face_opponent(obj);
+        obj->field40 = 0x1a;
+        get_char_ani(obj);
+        do_next_a9_frame(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0xd3f;
+        thread->fieldfc = 3;
+        return 3;
+    }
+
+    if (token == 0xd3f) {
+        MKEvent_Add(3, 0xd, 0, (long)obj->field00->field08);
+        if ((long)thread->frame > 0) {
+            thread->frame -= 1;
+            return 0;
+        }
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (token != 0)
+        return -3;
+
+    air_init_special(obj);
+    obj->field20 = 0x202;
+    obj->field00->field18 = 0x202;
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x3f8);
+    update_tsl(obj);
+
+    decoy = NewThreadProc(obj, (MK3THREADFUNC)t_decoy_proc);
+    get_x_dist(obj);
+    decoy->field48 = obj->field28;
+    decoy->field08->field2c = obj->field08->field2c;
+    decoy->thread->pid = obj->field00->field08 + 0x204;
+
+    obj->field1c = 4;
+    ochar_sound(obj);
+    obj->field40 = 0x1b;
+    get_char_ani(obj);
+    obj->field40 = obj->field40 + 4;
+
+    obj->field1c = 0x60000u;                    /* 6.0 */
+    obj->field20 = 0x60000u - 0xc0000u;         /* -6.0 */
+    obj->field24 = (0x60000u - 0xc0000u) + 0x68000u;    /* 0.5 */
+    obj->field28 = 3;
+
+    *mk3_frame(thread, thread->frame + 1) = 0xd35;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
