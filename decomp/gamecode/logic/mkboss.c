@@ -444,7 +444,7 @@ long t_boss_wait_land(MK3THREAD *thread)
     if (token != 0x1c5)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_boss1);
+    return mk3_install(thread, (MK3THREADFUNC)t_boss1);
 }
 
 /* t_sk_stumble -- armv7 0x000a8bf0, 120 bytes.  **Complete.**
@@ -474,7 +474,7 @@ long t_sk_stumble(MK3THREAD *thread)
         return -3;
 
     obj->field1c = 0x40000;
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_stumble_back_vel);
+    return mk3_install(thread, (MK3THREADFUNC)t_stumble_back_vel);
 }
 
 /* --------------------------------------------------------------------
@@ -538,7 +538,7 @@ long t_motaro_hit_flight(MK3THREAD *thread)
     if (token != 0x79d)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_land_on_my_back);
+    return mk3_install(thread, (MK3THREADFUNC)t_land_on_my_back);
 }
 
 /* t_motaro_collapse -- armv7 0x000a8b6c, 132 bytes.  **Complete.**
@@ -568,7 +568,7 @@ long t_motaro_collapse(MK3THREAD *thread)
     if (token != 0x825)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_wait_forever);
+    return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
 }
 
 /* t_motaro_slided -- armv7 0x000a8c9c, 152 bytes.  **Complete.**
@@ -606,7 +606,7 @@ long t_motaro_slided(MK3THREAD *thread)
     if (token != 0x883)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_land_on_my_back);
+    return mk3_install(thread, (MK3THREADFUNC)t_land_on_my_back);
 }
 
 /* t_sk_hard_comboed -- armv7 0x000a9464, 160 bytes.  **Complete.**
@@ -646,7 +646,7 @@ long t_sk_hard_comboed(MK3THREAD *thread)
         return -3;
 
     obj->field1c = 0x50000;
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_stumble_back_vel);
+    return mk3_install(thread, (MK3THREADFUNC)t_stumble_back_vel);
 }
 
 /* t_sk_uppcutted -- armv7 0x000a95d0, 188 bytes.  **Complete.**
@@ -698,7 +698,7 @@ long t_sk_uppcutted(MK3THREAD *thread)
     if (token != 0x848)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_reaction_land);
+    return mk3_install(thread, (MK3THREADFUNC)t_reaction_land);
 }
 
 /* t_sk_laugh -- armv7 0x000aaf68, 160 bytes.  **Complete.**
@@ -738,5 +738,5 @@ long t_sk_laugh(MK3THREAD *thread)
     if (token != 0x2b6)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }

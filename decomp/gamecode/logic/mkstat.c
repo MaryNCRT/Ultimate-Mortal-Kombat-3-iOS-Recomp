@@ -246,7 +246,7 @@ long t_retract_strike_act(MK3THREAD *thread)
     if (token != 0x737)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_ret9);
+    return mk3_install(thread, (MK3THREADFUNC)t_ret9);
 }
 
 /* t_jump_up_land_jump -- armv7 0x0004cd30, 112 bytes.  **Complete.**
@@ -273,7 +273,7 @@ long t_jump_up_land_jump(MK3THREAD *thread)
     if (token != 0x9ad)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
 
 /* --------------------------------------------------------------------
@@ -318,5 +318,5 @@ long t_scream_wave(MK3THREAD *thread)
     if (token != 0x643)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+    return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
 }

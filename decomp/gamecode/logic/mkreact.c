@@ -1700,7 +1700,7 @@ long t_r_bike_kicked(MK3THREAD *thread)
     if (token != 0x4be)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_r_bike_kicked_done);
+    return mk3_install(thread, (MK3THREADFUNC)t_r_bike_kicked_done);
 }
 
 /* t_net_sleep -- armv7 0x00041308, 76 bytes.  **Complete.**
@@ -1724,7 +1724,7 @@ long t_net_sleep(MK3THREAD *thread)
     if (token != 0x4cd)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_net_struggle);
+    return mk3_install(thread, (MK3THREADFUNC)t_net_struggle);
 }
 
 /* t_r_airborn_duck_kick -- armv7 0x000416f4, 120 bytes.  **Complete.**
@@ -1754,7 +1754,7 @@ long t_r_airborn_duck_kick(MK3THREAD *thread)
     if (token != 0x1067)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_generic_airborn_hit);
+    return mk3_install(thread, (MK3THREADFUNC)t_generic_airborn_hit);
 }
 
 /* t_rhat_sleep -- armv7 0x00041a2c, 76 bytes.  **Complete.**
@@ -1778,7 +1778,7 @@ long t_rhat_sleep(MK3THREAD *thread)
     if (token != 0x11ea)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_rhat_wake);
+    return mk3_install(thread, (MK3THREADFUNC)t_rhat_wake);
 }
 
 /* t_susp3 -- armv7 0x00041e48, 76 bytes.  **Complete.**
@@ -1802,7 +1802,7 @@ long t_susp3(MK3THREAD *thread)
     if (token != 0x1453)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_suspend_wait_wake);
+    return mk3_install(thread, (MK3THREADFUNC)t_suspend_wait_wake);
 }
 
 /* t_suspend_wait_action -- armv7 0x00041e94, 104 bytes.  **Complete.**
@@ -1829,7 +1829,7 @@ long t_suspend_wait_action(MK3THREAD *thread)
     if (token != 0x145c)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
 
 /* --------------------------------------------------------------------
@@ -1869,7 +1869,7 @@ long t_block_shake_n_exit(MK3THREAD *thread)
     if (token != 0x13eb)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_block_exit);
+    return mk3_install(thread, (MK3THREADFUNC)t_block_exit);
 }
 
 /* --------------------------------------------------------------------
@@ -1918,7 +1918,7 @@ long t_airborn_hit_no_sound(MK3THREAD *thread)
     if (token != 0x1073)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_land_on_my_back);
+    return mk3_install(thread, (MK3THREADFUNC)t_land_on_my_back);
 }
 
 /* t_r_post_shake -- armv7 0x00041904, 148 bytes.  **Complete.**
@@ -1956,7 +1956,7 @@ long t_r_post_shake(MK3THREAD *thread)
     if (token != 0x113b)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_reaction_land);
+    return mk3_install(thread, (MK3THREADFUNC)t_reaction_land);
 }
 
 /* t_r_post_bike -- armv7 0x00041998, 148 bytes.  **Complete.**
@@ -1994,7 +1994,7 @@ long t_r_post_bike(MK3THREAD *thread)
     if (token != 0x1145)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_reaction_land);
+    return mk3_install(thread, (MK3THREADFUNC)t_reaction_land);
 }
 
 /* t_combo_airborn_hit -- armv7 0x0004289c, 176 bytes.  **Complete.**
@@ -2042,7 +2042,7 @@ long t_combo_airborn_hit(MK3THREAD *thread)
     if (token != 0x1061)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_land_on_my_back);
+    return mk3_install(thread, (MK3THREADFUNC)t_land_on_my_back);
 }
 
 /* t_combo2 -- armv7 0x00046944, 172 bytes.  **Complete.**
@@ -2090,5 +2090,5 @@ long t_combo2(MK3THREAD *thread)
     if (token != 0xca9)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_land_on_my_back);
+    return mk3_install(thread, (MK3THREADFUNC)t_land_on_my_back);
 }

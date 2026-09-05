@@ -246,6 +246,41 @@ Not open searches any more — each has a named function behind it:
 | `tools/pending.py` | what is left, smallest first: `--logic mkzap.c 40` |
 | `tools/protos.py` | every declaration against its definition; `--fix` corrects return types |
 | `tools/samefn.py` | group functions by shape, so identical bodies are read once |
+| `tools/instck.py` | installs that refuse where the binary does not -- see below |
+
+### The third detector: `tools/instck.py`
+
+There are now three things that read our C and disagree with it, and each
+found a class the other two are blind to.
+
+1. **The compiler.** It caught a 33-bit constant, and an optimising build
+   caught a nine-iteration walk off the end of an array.
+2. **`tools/protos.py`.** Files are compiled one at a time, so a declaration
+   that contradicts a definition in another file is invisible until something
+   compares them. Five real bugs.
+3. **`tools/instck.py`.** `mk3_push_handler` is two things at once: the state-0
+   refusal *and* the install. A routine whose only state is entry wants both,
+   and the binary agrees -- it tests the slot, returns -3 when it is dirty, and
+   only then stores. But a dispatcher that has already matched a non-zero token
+   cannot test that token for zero; it IS non-zero, and the guard would refuse
+   every single time. Those routines branch into a bare store instead.
+
+   **116 sites were wrong at once**, across twelve files. Every one of them
+   compiled, every prototype agreed, and every one of them would have returned
+   -3 where the game installs a handler -- a fighter that never leaves the
+   state it is in. Use `mk3_install` there; `mk3_push_handler` keeps the guard.
+
+   Told apart in the disassembly by what reaches the store: a `cbz` on the slot
+   with `mvn r0, #2` on the other side is push_handler; a plain branch in is
+   `mk3_install`. Both live in `mk3logic.h`, next to each other, with the
+   difference written down.
+
+The lesson generalises past this one helper. **A convenience that bundles a
+test with an action will be reached for by name, and the test comes along
+unnoticed.** When a helper is written for one shape, the next shape that looks
+similar is where the bug goes. Whenever you add a helper to `mk3logic.h`, ask
+what it silently asserts, and write a checker for the sites that cannot afford
+that assertion.
 
 ### The four readers, and what each will not do
 

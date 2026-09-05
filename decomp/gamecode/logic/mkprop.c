@@ -198,7 +198,7 @@ long t_liz_fly_hit(MK3THREAD *thread)
 
     obj->field1c = 0x20000;
     away_x_vel(obj);
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_square3);
+    return mk3_install(thread, (MK3THREADFUNC)t_square3);
 }
 
 /* --------------------------------------------------------------------
@@ -248,7 +248,7 @@ long t_air_grab_cancel(MK3THREAD *thread)
     if (token != 0x83f)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_jump_up_land_jsrp);
+    return mk3_install(thread, (MK3THREADFUNC)t_jump_up_land_jsrp);
 }
 
 
@@ -1238,7 +1238,7 @@ long t_blb8(MK3THREAD *thread)
     if (token != 0) {
         if (token != 0x32c)
             return -3;
-        return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
     }
 
     obj->field1c = 4;
@@ -1303,7 +1303,7 @@ long tl_do_robo_air_grab(MK3THREAD *thread)
         obj->a10     = obj->field00->him;
         obj->field48 = 6;
 
-        return mk3_push_handler(thread, (MK3THREADFUNC)t_air_sleep3);
+        return mk3_install(thread, (MK3THREADFUNC)t_air_sleep3);
     }
 
     obj->field20          = 0x209;
@@ -1367,13 +1367,13 @@ long t_lao_angle_hit(MK3THREAD *thread)
         obj->field1c = 0;
         obj->field20 = 0;
 
-        return mk3_push_handler(thread, (MK3THREADFUNC)t_land_on_yer_feet);
+        return mk3_install(thread, (MK3THREADFUNC)t_land_on_yer_feet);
     }
 
     stop_me_player(obj);
 
     if (obj->field18 != 0)              /* he blocked it */
-        return mk3_push_handler(thread,
+        return mk3_install(thread,
                                 (MK3THREADFUNC)t_lao_angle_blocked);
 
     *mk3_frame(thread, thread->frame + 1) = 0x8d1;
@@ -1484,11 +1484,11 @@ long t_lfly4(MK3THREAD *thread)
         obj->field1c = 0x11;
         strike_check_a0(obj);
         if (obj->field5c != 0)
-            return mk3_push_handler(thread, (MK3THREADFUNC)t_liz_fly_hit);
+            return mk3_install(thread, (MK3THREADFUNC)t_liz_fly_hit);
 
         obj->field48 -= 1;
         if ((int32_t)obj->field48 <= 0)         /* out of frames */
-            return mk3_push_handler(thread, (MK3THREADFUNC)t_square3);
+            return mk3_install(thread, (MK3THREADFUNC)t_square3);
     }
 
     *mk3_frame(thread, thread->frame + 1) = 0x6dc;
@@ -1607,7 +1607,7 @@ long t_square3(MK3THREAD *thread)
     if (token != 0) {
         if (token != 0x6ee)
             return -3;
-        return mk3_push_handler(thread,
+        return mk3_install(thread,
                                 (MK3THREADFUNC)t_jump_up_land_jsrp);
     }
 
@@ -1673,7 +1673,7 @@ long t_lao_angle_blocked(MK3THREAD *thread)
     if (token != 0) {
         if (token != 0x8c5)
             return -3;
-        return mk3_push_handler(thread,
+        return mk3_install(thread,
                                 (MK3THREADFUNC)t_jump_up_land_jump);
     }
 
@@ -1809,7 +1809,7 @@ long tl_do_lao_angle(MK3THREAD *thread)
     if (token != 0) {
         if (token != 0x8f8)
             return -3;
-        return mk3_push_handler(thread,
+        return mk3_install(thread,
                                 (MK3THREADFUNC)t_jump_up_land_jsrp);
     }
 
@@ -1964,7 +1964,7 @@ long t_blur_catchup(MK3THREAD *thread)
             thread->frame -= 1;         /* back up a level */
             return 0;
         }
-        return mk3_push_handler(thread,
+        return mk3_install(thread,
                                 (MK3THREADFUNC)t_local_reaction_exit);
     }
 
@@ -2045,7 +2045,7 @@ long t_lfly5(MK3THREAD *thread)
 
     distance_off_ground(obj);
     if ((long)obj->field1c <= 0x5f)     /* not high enough yet */
-        return mk3_push_handler(thread, (MK3THREADFUNC)t_lfly5);
+        return mk3_install(thread, (MK3THREADFUNC)t_lfly5);
 
     obj->field1c = 0;
     group_sound(obj);
@@ -2064,7 +2064,7 @@ long t_lfly5(MK3THREAD *thread)
 
     obj->field48 = 0x1a;                /* the frames t_lfly4 counts down */
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_lfly4);
+    return mk3_install(thread, (MK3THREADFUNC)t_lfly4);
 }
 
 
@@ -2212,13 +2212,13 @@ long tl_do_reptile_dash(MK3THREAD *thread)
             obj->field1c = 0x15;
             strike_check_a0(obj);
             if (obj->field5c != 0)
-                return mk3_push_handler(thread,
+                return mk3_install(thread,
                                         (MK3THREADFUNC)t_reptile_dash_hit);
         }
 
         obj->a10 -= 1;
         if ((int32_t)obj->a10 <= 0)     /* out of frames */
-            return mk3_push_handler(thread,
+            return mk3_install(thread,
                                     (MK3THREADFUNC)t_local_reaction_exit);
     } else {
         obj->field20 = 0x216;
@@ -2382,7 +2382,7 @@ long t_zoom_blocked(MK3THREAD *thread)
     if (token != 0) {
         if (token != 0x3f6)
             return -3;
-        return mk3_push_handler(thread,
+        return mk3_install(thread,
                                 (MK3THREADFUNC)t_jump_up_land_jump);
     }
 
@@ -2561,7 +2561,7 @@ long tl_sonya_bike_kick(MK3THREAD *thread)
 
         set_nocol(obj);                         /* no collision on the ride */
 
-        return mk3_push_handler(thread, (MK3THREADFUNC)tl_bike3);
+        return mk3_install(thread, (MK3THREADFUNC)tl_bike3);
     }
 
     obj->field20 = 0x204;
@@ -2655,7 +2655,7 @@ long tl_do_sg_pounce(MK3THREAD *thread)
 
             obj->field34 = (uint32_t)(uintptr_t)t_pounce_scan;  /* callback */
 
-            return mk3_push_handler(thread, (MK3THREADFUNC)t_pounce_fall);
+            return mk3_install(thread, (MK3THREADFUNC)t_pounce_fall);
         }
     } else {
         MK3OBJ *him;
@@ -2734,7 +2734,7 @@ long tl_do_lk_bike(MK3THREAD *thread)
             thread->frame -= 1;         /* back up a level */
             return 0;
         }
-        return mk3_push_handler(thread,
+        return mk3_install(thread,
                                 (MK3THREADFUNC)t_local_reaction_exit);
     }
 
@@ -2930,7 +2930,7 @@ long tl_do_scorp_tele(MK3THREAD *thread)
             thread->frame -= 1;         /* back up a level */
             return 0;
         }
-        return mk3_push_handler(thread,
+        return mk3_install(thread,
                                 (MK3THREADFUNC)t_local_reaction_exit);
     }
 

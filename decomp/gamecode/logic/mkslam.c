@@ -218,7 +218,7 @@ long t_post_broken_back(MK3THREAD *thread)
     if (token != 0x429)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_land_on_my_back);
+    return mk3_install(thread, (MK3THREADFUNC)t_land_on_my_back);
 }
 
 /* t_thrown_by_sz -- armv7 0x0004b6d4, 156 bytes.  **Complete.**
@@ -258,5 +258,5 @@ long t_thrown_by_sz(MK3THREAD *thread)
 
     obj->a10 = 0x19;
     damage_to_me(obj);
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_land_on_my_back);
+    return mk3_install(thread, (MK3THREADFUNC)t_land_on_my_back);
 }
