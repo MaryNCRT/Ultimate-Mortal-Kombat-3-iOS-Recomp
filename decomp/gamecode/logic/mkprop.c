@@ -104,6 +104,8 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+void set_ignore_y(MK3OBJ *obj);
+long tl_do_lia_fly(MK3THREAD *thread);
 long t_mileena_teleport_call(MK3THREAD *thread);
 void find_ani_part_a14(MK3OBJ *obj);
 long t_pounce_jsrp(MK3THREAD *thread);
@@ -3372,6 +3374,111 @@ long t_mileena_teleport_call(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0x13d;
     thread->frame = thread->frame + 1;
     mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* -------------------------------------------------------------- tl_do_lia_fly
+ *
+ * armv7 0x0003e0e8, 300 bytes.  **Complete.**
+ *
+ * Liu Kang goes up, hovers until the ground is far enough away, then settles.
+ * Three states, and the middle one is a loop built out of re-descending.
+ *
+ *      token == 0:      obj->field20 = 0x203
+ *                       init_special_act(obj)
+ *                       obj->field40 = 2
+ *                       get_char_ani2(obj)
+ *                       set_ignore_y(obj)
+ *                       obj->field1c = 0 ; set_float_ani(obj)
+ *                       obj->field1c = 5 ; ochar_sound(obj)
+ *                       obj->field1c = obj->field08->field20 = -0.375
+ *                       obj->a10     = 6.0
+ *                       obj->field48 = 0xd0
+ *                       -- falls into the descend --
+ *
+ *      token == 0xa02:  distance_from_ground(obj)
+ *                       if (obj->field1c <= 0xbf) -- fall into the descend
+ *                       else: back_to_normal(obj)
+ *                             obj->field20 = obj->field00->field18 = 0x203
+ *                             obj->field1c = 0 ; set_float_ani(obj)
+ *                             find_part2(obj)
+ *                             obj->field1c = obj->field08->field20 = 0.3125
+ *                             token := 0xa11, descend into t_settle_down
+ *
+ *      token == 0xa11:  frame[frame].handler = t_main_hover_loop
+ *
+ *      the descend:     token := 0xa02, descend into t_hover_sleep_1
+ *
+ *      otherwise:       return -3
+ *
+ * **The two ways in share one exit.** Setting up and looping both end at the
+ * same six instructions, so the entry state does not re-descend by jumping
+ * anywhere -- it just stops writing fields and falls through. The C keeps that
+ * shape rather than repeating the descend twice, because it is the shape:
+ * `0x3e14e` has two predecessors and no others.
+ *
+ * `0xbf` here reads the OPPOSITE way to the `0xe0` in t_settle_down. There, a
+ * distance above the threshold means keep waiting; here it means stop hovering
+ * and start settling. Recorded, not reconciled -- the two are different phases
+ * of the same move and nothing in either function says the field means the
+ * same thing at both moments.
+ *
+ * 0x1c is written five times with five unrelated things: a zero for
+ * set_float_ani, a 5 for ochar_sound, the -0.375 that is a velocity, whatever
+ * distance_from_ground leaves, and finally 0.3125. It is the argument register
+ * for everything here, not a field with a meaning.
+ */
+long tl_do_lia_fly(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0xa11)
+        return mk3_install(thread, (MK3THREADFUNC)t_main_hover_loop);
+
+    if (token == 0xa02) {
+        distance_from_ground(obj);
+        if ((long)obj->field1c > 0xbf) {        /* far enough: come down */
+            back_to_normal(obj);
+            obj->field20 = 0x203;
+            obj->field00->field18 = 0x203;
+            obj->field1c = 0;
+            set_float_ani(obj);
+            find_part2(obj);
+            obj->field1c = 0x5000u;             /* 0.3125 */
+            obj->field08->field20 = 0x5000u;
+
+            *mk3_frame(thread, thread->frame + 1) = 0xa11;
+            thread->frame = thread->frame + 1;
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)t_settle_down;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+    } else if (token != 0) {
+        return -3;
+    } else {
+        obj->field20 = 0x203;
+        init_special_act(obj);
+        obj->field40 = 2;
+        get_char_ani2(obj);
+        set_ignore_y(obj);
+        obj->field1c = 0;
+        set_float_ani(obj);
+        obj->field1c = 5;
+        ochar_sound(obj);
+        obj->field1c = 0xffffa000u;             /* -0.375 */
+        obj->field08->field20 = 0xffffa000u;
+        obj->a10 = 0x60000u;                    /* 6.0 */
+        obj->field48 = 0xd0;
+    }
+
+    /* both ways in land here */
+    *mk3_frame(thread, thread->frame + 1) = 0xa02;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_hover_sleep_1;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
