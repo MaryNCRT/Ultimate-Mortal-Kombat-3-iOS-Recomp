@@ -104,6 +104,7 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+long t_shake_and_collision(MK3THREAD *thread);
 long tl_do_tele_explode(MK3THREAD *thread);
 void set_ignore_y(MK3OBJ *obj);
 long tl_do_lia_fly(MK3THREAD *thread);
@@ -3698,4 +3699,123 @@ long t_sctele_calla_2(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0x267;
     thread->fieldfc = obj->field1c;
     return (long)obj->field1c;
+}
+
+
+/* ------------------------------------------------------ t_shake_and_collision
+ *
+ * armv7 0x0003c6a8, 312 bytes.  **Complete.**
+ *
+ * A decoy standing there shuddering, and solid the whole time.
+ *
+ *      token == 0:      obj->field08's x-high += 3
+ *                       obj->field48 = 3
+ *                       token := 0xc9a, park 1
+ *
+ *      token == 0xc9a:  decoy_collision_check(obj)
+ *                       if (obj->field5c != 0) -- touched, see below
+ *                       if (--obj->field48 != 0) { token := 0xc9a, park 1 }
+ *                       else { x-high -= 3 ; obj->field48 = 3
+ *                              token := 0xca5, park 1 }
+ *
+ *      token == 0xca5:  decoy_collision_check(obj)
+ *                       if (obj->field5c != 0) -- touched, see below
+ *                       if (--obj->field48 != 0) { token := 0xca5, park 1 }
+ *                       else if (--obj->field40 != 0)
+ *                           frame[frame].handler = t_shake_and_collision
+ *                       else -- finished, see below
+ *
+ *      touched, or finished:
+ *                       if (thread->frame > 0) { frame -= 1; return 0 }
+ *                       frame[frame].handler = t_local_reaction_exit
+ *
+ *      otherwise:       return -3
+ *
+ * **Three frames right, three frames left, N times.** 0x48 is the frame
+ * counter within a half-swing and 0x40 counts the swings; the displacement is
+ * a halfword add and subtract on the high half of 0x0c -- the integer part of
+ * the horizontal position -- so the decoy jitters three pixels and comes back
+ * exactly, with no drift, because the same 3 is added and taken away.
+ *
+ * The repeat is done by installing THIS function again, which clears the token
+ * slot and puts it back in state 0 -- so the next swing re-adds the +3 through
+ * the entry path rather than through a fourth state. Two states and a
+ * reinstall do the work of four.
+ *
+ * **The collision test runs on every frame of the shake, before the counters.**
+ * A decoy is not a decoration: walking into it during the shudder ends the
+ * routine at once, and by the same exit the finished shake uses.
+ *
+ * The 0x0e access is a halfword, unsigned (`ldrh`/`strh`), on a struct with no
+ * field there -- 0x0c is a word and this is its top half. Written as an offset
+ * rather than invented as a field.
+ */
+long t_shake_and_collision(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint16_t *x_hi;
+
+    if (token == 0xc9a) {
+        decoy_collision_check(obj);
+        if (obj->field5c != 0) {                /* somebody walked into it */
+            if ((long)thread->frame > 0) {
+                thread->frame -= 1;
+                return 0;
+            }
+            return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+        }
+
+        obj->field48 -= 1;
+        if (obj->field48 == 0) {
+            x_hi = (uint16_t *)((char *)obj->field08 + 0x0e);
+            *x_hi = (uint16_t)(*x_hi - 3);      /* and back again */
+            obj->field48 = 3;
+            *mk3_frame(thread, thread->frame + 1) = 0xca5;
+            thread->fieldfc = 1;
+            return 1;
+        }
+        *mk3_frame(thread, thread->frame + 1) = 0xc9a;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0xca5) {
+        decoy_collision_check(obj);
+        if (obj->field5c != 0) {
+            if ((long)thread->frame > 0) {
+                thread->frame -= 1;
+                return 0;
+            }
+            return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+        }
+
+        obj->field48 -= 1;
+        if (obj->field48 != 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0xca5;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        obj->field40 -= 1;
+        if (obj->field40 != 0)                  /* one more swing */
+            return mk3_install(thread,
+                               (MK3THREADFUNC)t_shake_and_collision);
+
+        if ((long)thread->frame > 0) {
+            thread->frame -= 1;
+            return 0;
+        }
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (token != 0)
+        return -3;
+
+    x_hi = (uint16_t *)((char *)obj->field08 + 0x0e);
+    *x_hi = (uint16_t)(*x_hi + 3);              /* three to the right */
+    obj->field48 = 3;
+    *mk3_frame(thread, thread->frame + 1) = 0xc9a;
+    thread->fieldfc = 1;
+    return 1;
 }
