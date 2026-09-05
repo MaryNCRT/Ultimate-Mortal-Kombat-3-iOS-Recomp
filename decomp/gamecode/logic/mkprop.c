@@ -3588,3 +3588,114 @@ long tl_do_tele_explode(MK3THREAD *thread)
     thread->fieldfc = 9;
     return 9;
 }
+
+
+/* ------------------------------------------------------------ t_sctele_calla_2
+ *
+ * armv7 0x0003ee5c, 308 bytes.  **Complete.**
+ *
+ * Scorpion's teleport punch from the caller's side. Throw the strike; on a hit
+ * either the blocked routine takes over or he launches, and the launch is
+ * timed differently depending on whether the opponent is already in the air.
+ *
+ *      token == 0:      sans_repell_3(obj)
+ *                       obj->field1c = 0x17
+ *                       strike_check_a0(obj)          ; answers in field5c
+ *                       if (obj->field5c == 0) {      ; missed
+ *                           if (thread->frame > 0) { frame -= 1; return 0 }
+ *                           frame[frame].handler = t_local_reaction_exit
+ *                       }
+ *                       reset_proc_stack(thread)
+ *                       if (obj->field18 != 0)
+ *                           frame[frame].handler = t_scorpion_tele_blocked
+ *                       else {
+ *                           stop_me_player(obj)
+ *                           obj->a10 = 6 ; obj->field48 = 0.5
+ *                           is_he_airborn(obj)        ; answers in field5c
+ *                           if (obj->field5c == 0) { obj->a10 = 4;
+ *                                                    obj->field48 = 0.75 }
+ *                           obj->field1c = obj->a10
+ *                           token := 0x267, park obj->field1c
+ *                       }
+ *
+ *      token == 0x267:  obj->field20 = 1.0
+ *                       obj->field1c = 0
+ *                       obj->field24 = obj->field48
+ *                       obj->field28 = 0x1e
+ *                       token := 0x26d, descend into t_flight
+ *
+ *      token == 0x26d:  frame[frame].handler = t_local_reaction_exit
+ *
+ *      otherwise:       return -3
+ *
+ * **The park duration is the launch parameter.** 0x44 is written with 6 or 4,
+ * copied into 0x1c, and that number is BOTH the frames to wait and, through
+ * 0x1c, what the state above reads. One field carrying two meanings at two
+ * moments -- and 0x48 carries the matching speed, 0.5 with the six or 0.75
+ * with the four. Longer wind-up, slower travel; shorter wind-up, faster.
+ * A grounded opponent gets the quick version.
+ *
+ * `is_he_airborn` is one of the routines that answers through obj->field5c
+ * rather than r0, and its result is read back the same way strike_check_a0's
+ * is, two calls earlier in the same function. The zero case is the airborne
+ * one -- the four goes in when field5c comes back CLEAR.
+ *
+ * Three of the four endings install and none may carry the state-0 refusal:
+ * two of them run with a non-zero token, and the third is reached after the
+ * binary has tested `frame > 0`, not the slot.
+ */
+long t_sctele_calla_2(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x267) {
+        obj->field20 = 0x10000u;                /* 1.0 */
+        obj->field1c = 0;
+        obj->field24 = obj->field48;
+        obj->field28 = 0x1e;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x26d;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x26d)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token != 0)
+        return -3;
+
+    sans_repell_3(obj);
+    obj->field1c = 0x17;
+    strike_check_a0(obj);
+
+    if (obj->field5c == 0) {                    /* the strike missed */
+        if ((long)thread->frame > 0) {
+            thread->frame -= 1;
+            return 0;
+        }
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    reset_proc_stack(thread);
+
+    if (obj->field18 != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_scorpion_tele_blocked);
+
+    stop_me_player(obj);
+    obj->a10     = 6;
+    obj->field48 = 0x8000u;                     /* 0.5 */
+    is_he_airborn(obj);
+    if (obj->field5c == 0) {                    /* he is on the ground */
+        obj->a10     = 4;
+        obj->field48 = 0xc000u;                 /* 0.75 */
+    }
+
+    obj->field1c = obj->a10;
+    *mk3_frame(thread, thread->frame + 1) = 0x267;
+    thread->fieldfc = obj->field1c;
+    return (long)obj->field1c;
+}
