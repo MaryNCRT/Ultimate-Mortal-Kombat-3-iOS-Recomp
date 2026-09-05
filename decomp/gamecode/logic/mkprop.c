@@ -104,6 +104,8 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+long get_rough_hypotenuse(MK3OBJ *obj);
+long get_x_dist(MK3OBJ *obj);
 long tl_do_tusk_blur(MK3THREAD *thread);
 long t_shake_and_collision(MK3THREAD *thread);
 long tl_do_tele_explode(MK3THREAD *thread);
@@ -3941,4 +3943,125 @@ long tl_do_tusk_blur(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0x2f5;
     thread->fieldfc = 1;
     return 1;
+}
+
+
+/* ---------------------------------------------------------------- t_air_sleep3
+ *
+ * armv7 0x0003ed20, 316 bytes.  **Complete.**
+ *
+ * Fly at whatever 0x44 points at, one frame at a time, and give up when the
+ * target lands or the patience runs out.
+ *
+ *      token == 0:      token := 0x7f6, park 1
+ *
+ *      token == 0x7f6:  next_anirate(obj)
+ *                       dx = ((MK3OBJ *)obj->a10)->x_hi - obj->field08->x_hi
+ *                       dy = ((MK3OBJ *)obj->a10)->y_hi - obj->field08->y_hi
+ *                       obj->field20 = dx ; obj->field28 = dy
+ *                       if (dx <= 1) obj->field20 = 2
+ *                       obj->field20 <<= 16 ; obj->field38 = obj->field20
+ *                       obj->field28 <<= 16 ; obj->field54 = obj->field28
+ *                       get_rough_hypotenuse(obj)
+ *                       obj->field54 >>= 16 ; if (0) obj->field54 = 1
+ *                       obj->field20 = (obj->field20 / obj->field54) * 12
+ *                       obj->field28 = (obj->field28 / obj->field54) * 12
+ *                       obj->field08->field18 = obj->field20
+ *                       obj->field08->field1c = obj->field28
+ *                       obj->field1c = obj->field20
+ *                       set_x_vel_player(obj)
+ *                       is_he_airborn(obj)               ; answers in field5c
+ *                       if (obj->field5c == 0)
+ *                           frame[frame].handler = t_air_grab_cancel
+ *                       get_x_dist(obj)
+ *                       if (obj->field28 > 0x45)
+ *                           frame[frame].handler = t_air_sleep3
+ *                       else if (--obj->field48 > 0)
+ *                           frame[frame].handler = t_air_sleep3
+ *                       else
+ *                           frame[frame].handler = t_air_grab_cancel
+ *
+ *      otherwise:       return -3
+ *
+ * **A normalised chase at a fixed speed of twelve.** The difference between
+ * the two objects' integer positions is promoted to 16.16, its length comes
+ * back from get_rough_hypotenuse through 0x54, and both components are divided
+ * by that length and multiplied by twelve. The multiply is `(v << 4) - (v << 2)`
+ * -- sixteen minus four -- and the divide is a call to `___divsi3`, because
+ * this binary has no hardware integer divide.
+ *
+ * **Two guards, both against a division that cannot happen yet.** `dx <= 1`
+ * forces the horizontal difference to 2 before anything is squared, and a
+ * length that rounds to zero is forced to 1. Neither is a special case in the
+ * flight: they are there so the two divides always have something to divide by.
+ *
+ * The loop is built out of reinstalling, so every frame re-enters through
+ * state 0 and parks again -- three exits, two of which install this same
+ * function and one of which hands over to t_air_grab_cancel. The patience is
+ * 0x48, decremented only once the target is within 0x45 horizontally: he gets
+ * unlimited time to close the distance and a fixed number of frames to finish.
+ */
+long t_air_sleep3(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    MK3OBJ  *target;
+    int32_t  dx, dy, q;
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x7f6;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token != 0x7f6)
+        return -3;
+
+    next_anirate(obj);
+
+    target = (MK3OBJ *)(uintptr_t)obj->a10;
+    dx = *(int16_t *)((char *)target + 0x0e)
+       - *(int16_t *)((char *)obj->field08 + 0x0e);
+    dy = *(int16_t *)((char *)target + 0x12)
+       - *(int16_t *)((char *)obj->field08 + 0x12);
+    obj->field20 = (uint32_t)dx;
+    obj->field28 = (uint32_t)dy;
+    if (dx <= 1)
+        obj->field20 = 2;                       /* never divide by nothing */
+
+    obj->field20 = obj->field20 << 16;          /* integers -> 16.16 */
+    obj->field38 = obj->field20;
+    obj->field28 = obj->field28 << 16;
+    obj->field54 = obj->field28;
+
+    get_rough_hypotenuse(obj);
+
+    obj->field54 = obj->field54 >> 16;
+    if (obj->field54 == 0)
+        obj->field54 = 1;
+
+    q = (int32_t)obj->field20 / (int32_t)obj->field54;   /* ___divsi3 */
+    obj->field20 = (uint32_t)q;
+    dy = (int32_t)obj->field28 / (int32_t)obj->field54;
+    obj->field20 = (uint32_t)((q << 4) - (q << 2));      /* twelve */
+    obj->field28 = (uint32_t)((dy << 4) - (dy << 2));
+
+    obj->field08->field18 = obj->field20;
+    obj->field08->field1c = obj->field28;
+    obj->field1c = obj->field20;
+    set_x_vel_player(obj);
+
+    is_he_airborn(obj);
+    if (obj->field5c == 0)                      /* he came down */
+        return mk3_install(thread, (MK3THREADFUNC)t_air_grab_cancel);
+
+    get_x_dist(obj);
+    if ((long)obj->field28 > 0x45)              /* still closing */
+        return mk3_install(thread, (MK3THREADFUNC)t_air_sleep3);
+
+    obj->field48 -= 1;
+    if ((long)obj->field48 > 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_air_sleep3);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_air_grab_cancel);
 }
