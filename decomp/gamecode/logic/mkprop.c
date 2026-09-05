@@ -104,6 +104,7 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+void check_block_bit(MK3OBJ *obj);
 void clear_shadow_bit(MK3OBJ *obj);
 long tl_ind_charge(MK3THREAD *thread);
 long get_rough_hypotenuse(MK3OBJ *obj);
@@ -4193,4 +4194,121 @@ long tl_ind_charge(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0xaa0;
     thread->fieldfc = 2;
     return 2;
+}
+
+
+/* ------------------------------------------------------------- t_hover_sleep_1
+ *
+ * armv7 0x0003e214, 344 bytes.  **Complete.**
+ *
+ * The wait that t_settle_down and tl_do_lia_fly both descend into. It sleeps a
+ * frame, then every frame asks whether the fighter is blocking, and the answer
+ * decides whether the hover ends quietly or turns into a flight.
+ *
+ *      token == 0:      obj->field1c = 2
+ *                       *(uint16_t *)(G + 0x456) = 2
+ *                       token := 0x985, park 1
+ *
+ *      token == 0x985:  next_anirate(obj)
+ *                       check_block_bit(obj)          ; answers in field5c
+ *                       if (obj->field5c == 0) {
+ *                           if (thread->frame > 0) { frame -= 1; return 0 }
+ *                           frame[frame].handler = t_local_reaction_exit
+ *                       }
+ *                       if (thread->frame > 0) frame -= 1
+ *                       else { frame[frame].handler = t_local_reaction_exit
+ *                              frame[frame+1].w0 = 0 }
+ *                       -- collapse one level, see below --
+ *                       obj->field1c = 0 ; set_float_ani(obj)
+ *                       face_opponent(obj)
+ *                       obj->field1c = obj->field20 = 0xd
+ *                       obj->field24 = 0.625 ; obj->field28 = 4
+ *                       token := 0x996, descend into t_flight
+ *
+ *      token == 0x996:  reset_proc_stack(thread)
+ *                       frame[frame].handler = t_jump_up_land_jump
+ *
+ *      otherwise:       return -3
+ *
+ * **The collapse is new here and appears nowhere else in the file:**
+ *
+ *      handler          = frame[frame+1].handler
+ *      frame[frame+1].w0 = frame[frame+2].w0
+ *      frame[frame].handler = handler
+ *
+ * It pulls the level above down into the current one -- the handler and the
+ * token that goes with it -- so after `frame -= 1` the routine that WAS
+ * running one level up is now running here. A return that keeps the callee
+ * rather than the caller. It is the only place in mkprop.c that writes a frame
+ * slot from another frame slot.
+ *
+ * **One oddity, transcribed rather than tidied.** When the fighter is blocking
+ * and the frame index is already 0, the binary installs t_local_reaction_exit
+ * at level 0 and then falls into the collapse, which immediately overwrites
+ * that same handler with whatever level 1 holds. The store is dead on that
+ * path. Both the install and the collapse are in the binary, in that order,
+ * and nothing here explains why -- so both are here, in that order.
+ *
+ * 0x456 of G takes a 2 on the way in. The sans_repell family writes the same
+ * halfword with other values; two is this move's.
+ */
+long t_hover_sleep_1(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t below, handler;
+
+    if (token == 0x996) {
+        reset_proc_stack(thread);
+        return mk3_install(thread, (MK3THREADFUNC)t_jump_up_land_jump);
+    }
+
+    if (token != 0x985) {
+        if (token != 0)
+            return -3;
+        obj->field1c = 2;
+        *(uint16_t *)(G_BYTES + 0x456) = 2;
+        *mk3_frame(thread, thread->frame + 1) = 0x985;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    next_anirate(obj);
+    check_block_bit(obj);
+
+    if (obj->field5c == 0) {                    /* not blocking: just leave */
+        if ((long)thread->frame > 0) {
+            thread->frame -= 1;
+            return 0;
+        }
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if ((long)thread->frame > 0) {
+        thread->frame -= 1;
+    } else {
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_local_reaction_exit;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+    }
+
+    /* pull the level above down into this one, handler and token together */
+    below   = thread->frame;
+    handler = mk3_frame(thread, below + 1)[1];
+    *mk3_frame(thread, below + 1) = *mk3_frame(thread, below + 2);
+    mk3_frame(thread, below)[1] = handler;
+
+    obj->field1c = 0;
+    set_float_ani(obj);
+    face_opponent(obj);
+    obj->field1c = 0xd;
+    obj->field20 = 0xd;
+    obj->field24 = 0xa000u;                     /* 0.625 */
+    obj->field28 = 4;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x996;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
 }
