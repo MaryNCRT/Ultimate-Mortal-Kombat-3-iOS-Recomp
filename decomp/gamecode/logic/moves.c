@@ -34,6 +34,7 @@
  * conflict here, which is what the check is for. */
 void q_animal_dist(MK3OBJ *obj);
 void q_fatal_dist(MK3OBJ *obj);
+extern long *RoundParam;                 /* pointer slot -> 0x0038ed04 */
 void get_tsl_px(MK3OBJ *obj, MK3OBJ *ref);
 uint32_t four_button_bits(MK3OBJ *obj, uint32_t bits);
 void DoASpecial(MK3OBJ *obj, uint32_t which);
@@ -4691,6 +4692,100 @@ void q_kabal_animal(MK3OBJ *obj)
     get_tsl_px(obj, obj);
     if ((long)obj->field20 > 0x3f)
         q_yes(obj);
+    else
+        q_no(obj);
+}
+
+
+/* q_kano_animal -- armv7 0x000533bc, 52 bytes.  **Complete.**
+ *
+ * The get_tsl_px family again: &G + 0x3a8 and a threshold of 0x3f, the same
+ * pair q_kabal_animal uses, handing the yes to q_close_animal instead of
+ * answering directly. Two routines reading the same place with the same
+ * threshold and doing different things with the result. */
+void q_kano_animal(MK3OBJ *obj)
+{
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x3a8);
+    get_tsl_px(obj, obj);
+    if ((long)obj->field20 > 0x3f)
+        q_close_animal(obj);
+    else
+        q_no(obj);
+}
+
+/* q_kit_fan -- armv7 0x00052d18, 52 bytes.  **Complete.**  &G + 0x414, > 0x9f. */
+void q_kit_fan(MK3OBJ *obj)
+{
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x410 + 4);
+    get_tsl_px(obj, obj);
+    if ((long)obj->field20 > 0x9f)
+        q_yes(obj);
+    else
+        q_no(obj);
+}
+
+/* q_skel_fatal -- armv7 0x00053304, 52 bytes.  **Complete.**  &G + 0x3ac,
+ * > 0x3f, yes to q_close_fatal. */
+void q_skel_fatal(MK3OBJ *obj)
+{
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x3ac);
+    get_tsl_px(obj, obj);
+    if ((long)obj->field20 > 0x3f)
+        q_close_fatal(obj);
+    else
+        q_no(obj);
+}
+
+/* q_sherip_fatal -- armv7 0x00053338, 52 bytes.  **Complete.**  &G + 0x3b4,
+ * > 0x3f, yes to q_close_fatal.
+ *
+ * **Eight routines now share these fifty-two bytes**, and the whole family is
+ * three numbers: an address in G, a threshold, and which routine gets the yes.
+ * The addresses seen so far run 0x3a8, 0x3ac, 0x3b4, 0x410, 0x414, 0x41c and
+ * 0x440 -- word-spaced in two clusters -- and the thresholds are 0x37, 0x3f,
+ * 0x7f and 0x9f. */
+void q_sherip_fatal(MK3OBJ *obj)
+{
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x3b4);
+    get_tsl_px(obj, obj);
+    if ((long)obj->field20 > 0x3f)
+        q_close_fatal(obj);
+    else
+        q_no(obj);
+}
+
+/* q_st_zap -- armv7 0x000529d0, 52 bytes.  **Complete.**  &G + 0x440, > 0x37 --
+ * the lowest threshold in the family. */
+void q_st_zap(MK3OBJ *obj)
+{
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x440);
+    get_tsl_px(obj, obj);
+    if ((long)obj->field20 > 0x37)
+        q_yes(obj);
+    else
+        q_no(obj);
+}
+
+/* q_pit_fatal_ez -- armv7 0x00050348, 52 bytes.  **Complete.**
+ *
+ *      c = RoundParam[9]
+ *      if (c >= 1 && c <= 4) q_fatality_req(obj); else q_no(obj);
+ *
+ * **Not a get_tsl_px routine at all**, despite matching the others byte for
+ * byte in length. It reads a word out of RoundParam rather than G, and the
+ * range test is built entirely from flags: a subtract that leaves 1 unless the
+ * value is 1, an unsigned compare that zeroes the answer for 3 and 4, and then
+ * a separate equality for 2. Four values reach the yes and they are reached
+ * three different ways, which is what the compiler made of one range.
+ *
+ * RoundParam is the pointer slot Blood.c already indexes as an array of words,
+ * so 0x24 is element nine. */
+void q_pit_fatal_ez(MK3OBJ *obj)
+{
+    long c = RoundParam[9];
+
+    if (c >= 1 && c <= 4)
+        q_fatality_req(obj);
     else
         q_no(obj);
 }
