@@ -5116,3 +5116,154 @@ long tl_do_sg_quake(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ---------------------------------------------------------- t_reptile_dash_hit
+ *
+ * armv7 0x0003fed8, 440 bytes.  **Complete.**
+ *
+ * Reptile's dash, from the first frame to the recovery. Seven states, and the
+ * frame counter at 0x44 is reused for two different lengths.
+ *
+ *      token == 0:      if (obj->field18 != 0) {          ; he blocked it
+ *                           blur_blocked_setup(obj)
+ *                           obj->field40 = 0x30046
+ *                           pose_a9_manual(obj)
+ *                           frame[frame].handler = t_blb8
+ *                       }
+ *                       obj->a10 = 0xe
+ *                       token := 0x1fa, park 1
+ *
+ *      token == 0x1fa:  do_next_a9_frame(obj) ; sans_repell_3(obj)
+ *                       if (--obj->a10 > 0) { token := 0x1fa, park 1 }
+ *                       stop_me_player(obj)
+ *                       token := 0x203, park 6
+ *
+ *      token == 0x203:  face_opponent(obj)
+ *                       obj->field40 = 0xb ; get_char_ani2(obj)
+ *                       obj->field1c = 2
+ *                       token := 0x209, descend into t_mframew
+ *
+ *      token == 0x209:  obj->field1c = 13.0 ; towards_x_vel(obj)
+ *                       obj->a10 = 0x14
+ *                       token := 0x20f, park 1
+ *
+ *      token == 0x20f:  obj->field1c = 0x16 ; strike_check_a0(obj)
+ *                       if (obj->field5c == 0 && --obj->a10 > 0)
+ *                           { token := 0x20f, park 1 }
+ *                       stop_me_player(obj)
+ *                       token := 0x21a, park 0x14
+ *
+ *      token == 0x21a:  obj->field1c = 3
+ *                       token := 0x21d, descend into t_mframew
+ *
+ *      token == 0x21d:  frame[frame].handler = t_local_reaction_exit
+ *
+ *      otherwise:       return -3
+ *
+ * **The block is decided before anything else happens.** State 0 reads 0x18
+ * first, and a non-zero there ends the move on its first frame -- pose, hand
+ * over to t_blb8, and the dash never starts. Everything below assumes it did.
+ *
+ * **0x44 counts two different things.** Fourteen frames of wind-up in the
+ * first half and twenty frames of travel in the second, in the same field,
+ * with two separate `park 1` loops around it. Nothing distinguishes them but
+ * the token, which is what the token is for.
+ *
+ * **Hitting and running out of travel share an ending**: connecting jumps
+ * straight to the stop-and-park, and so does the counter reaching zero. As in
+ * tl_ind_charge, the fighter pays the same recovery either way.
+ *
+ * The dispatch reuses the register holding 0x209 on its low branch and
+ * reloads it with 0x21a on the high one, so state 0x203 parks with 0x209 and
+ * state 0x20f parks with 0x21a -- the same register, two values, decided by
+ * which side of the first comparison the token fell.
+ */
+long t_reptile_dash_hit(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x1fa) {
+        do_next_a9_frame(obj);
+        sans_repell_3(obj);
+        obj->a10 -= 1;
+        if ((long)obj->a10 > 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0x1fa;
+            thread->fieldfc = 1;
+            return 1;
+        }
+        stop_me_player(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x203;
+        thread->fieldfc = 6;
+        return 6;
+    }
+
+    if (token == 0x203) {
+        face_opponent(obj);
+        obj->field40 = 0xb;
+        get_char_ani2(obj);
+        obj->field1c = 2;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x209;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x209) {
+        obj->field1c = 0xd0000u;                /* 13.0 */
+        towards_x_vel(obj);
+        obj->a10 = 0x14;
+        *mk3_frame(thread, thread->frame + 1) = 0x20f;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0x20f) {
+        obj->field1c = 0x16;
+        strike_check_a0(obj);
+
+        if (obj->field5c == 0) {                /* nothing yet */
+            obj->a10 -= 1;
+            if ((long)obj->a10 > 0) {
+                *mk3_frame(thread, thread->frame + 1) = 0x20f;
+                thread->fieldfc = 1;
+                return 1;
+            }
+        }
+
+        stop_me_player(obj);                    /* hit, or out of travel */
+        *mk3_frame(thread, thread->frame + 1) = 0x21a;
+        thread->fieldfc = 0x14;
+        return 0x14;
+    }
+
+    if (token == 0x21a) {
+        obj->field1c = 3;
+        *mk3_frame(thread, thread->frame + 1) = 0x21d;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x21d)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token != 0)
+        return -3;
+
+    if (obj->field18 != 0) {                    /* blocked on the first frame */
+        blur_blocked_setup(obj);
+        obj->field40 = 0x30046;
+        pose_a9_manual(obj);
+        return mk3_install(thread, (MK3THREADFUNC)t_blb8);
+    }
+
+    obj->a10 = 0xe;
+    *mk3_frame(thread, thread->frame + 1) = 0x1fa;
+    thread->fieldfc = 1;
+    return 1;
+}
