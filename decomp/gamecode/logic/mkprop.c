@@ -104,6 +104,9 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+void init_special(MK3OBJ *obj);
+void set_noflip(MK3OBJ *obj);
+long tl_kano_cannon_ball(MK3THREAD *thread);
 void check_block_bit(MK3OBJ *obj);
 void clear_shadow_bit(MK3OBJ *obj);
 long tl_ind_charge(MK3THREAD *thread);
@@ -4311,4 +4314,127 @@ long t_hover_sleep_1(MK3THREAD *thread)
     mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
+}
+
+
+/* --------------------------------------------------------- tl_kano_cannon_ball
+ *
+ * armv7 0x0003d0cc, 344 bytes.  **Complete.**
+ *
+ * Kano rolls. Twenty-six frames, and the first six of them cannot hurt anyone.
+ *
+ *      token == 0:      init_special(obj)
+ *                       obj->field1c = 4 ; ochar_sound(obj)
+ *                       set_noflip(obj)
+ *                       obj->field00->field18 = 0x20b
+ *                       obj->field1c = 10.0 ; towards_x_vel(obj)
+ *                       obj->field1c = 0 ; obj->field20 = 0x10
+ *                       multi_adjust_xy(obj)
+ *                       obj->field40 = 0x1a ; get_char_ani(obj)
+ *                       obj->field40 += 4
+ *                       obj->field1c = 3 ; init_anirate(obj)
+ *                       obj->field48 = 0x1a
+ *                       token := 0xbc0, park 1
+ *
+ *      token == 0xbc0:  if (obj->field48 <= 0x14) {
+ *                           obj->field1c = 0x13 ; strike_check_a0(obj)
+ *                           if (obj->field5c != 0) {
+ *                               obj->field00->field18 = 0x602
+ *                               obj->field1c = 5.0
+ *                               obj->field20 = -8.0
+ *                               if (obj->field18 != 0) obj->field1c = 1.0
+ *                               obj->field24 = 0.375 ; obj->field28 = 2
+ *                               token := 0xbe6, descend into t_flight
+ *                           }
+ *                       }
+ *                       next_anirate(obj)
+ *                       if (--obj->field48 > 0) { token := 0xbc0, park 1 }
+ *                       stop_me_player(obj) ; ground_player(obj)
+ *                       frame[frame].handler = t_local_reaction_exit
+ *
+ *      token == 0xbe6:  frame[frame].handler = t_jump_up_land_jsrp
+ *
+ *      otherwise:       return -3
+ *
+ * **The roll has a six-frame nose.** 0x48 counts down from 0x1a and the strike
+ * is only attempted once it is 0x14 or less, so the first six frames are Kano
+ * getting down and moving, and they pass through the opponent harmlessly. The
+ * counter is one thing doing two jobs: the wind-up gate and the length of the
+ * whole move.
+ *
+ * **The launch on a hit is graded by 0x18.** Both cases fly at -8.0 with the
+ * same 0.375 and the same 2; only 0x1c differs, 5.0 against 1.0, and the small
+ * one is for when 0x18 is set. Same arc, a fifth of the something -- one
+ * constant is the whole difference between the two outcomes.
+ *
+ * `obj->field40` is written 0x1a, handed to get_char_ani, and then has 4 added
+ * to whatever came back. The add is on the field, not on the literal: the call
+ * is free to change it and the +4 applies to the result.
+ */
+long tl_kano_cannon_ball(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0xbe6)
+        return mk3_install(thread, (MK3THREADFUNC)t_jump_up_land_jsrp);
+
+    if (token == 0xbc0) {
+        if ((long)obj->field48 <= 0x14) {       /* past the nose */
+            obj->field1c = 0x13;
+            strike_check_a0(obj);
+            if (obj->field5c != 0) {
+                obj->field00->field18 = 0x602;
+                obj->field1c = 0x50000u;        /* 5.0 */
+                obj->field20 = 0xfff80000u;     /* -8.0 */
+                if (obj->field18 != 0)
+                    obj->field1c = 0x10000u;    /* 1.0 */
+                obj->field24 = 0x6000u;         /* 0.375 */
+                obj->field28 = 2;
+
+                *mk3_frame(thread, thread->frame + 1) = 0xbe6;
+                thread->frame = thread->frame + 1;
+                mk3_frame(thread, thread->frame)[1] =
+                    (uint32_t)(uintptr_t)t_flight;
+                *mk3_frame(thread, thread->frame + 1) = 0;
+                return 0;
+            }
+        }
+
+        next_anirate(obj);
+        obj->field48 -= 1;
+        if ((long)obj->field48 > 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0xbc0;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        stop_me_player(obj);
+        ground_player(obj);
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (token != 0)
+        return -3;
+
+    init_special(obj);
+    obj->field1c = 4;
+    ochar_sound(obj);
+    set_noflip(obj);
+    obj->field00->field18 = 0x20b;
+    obj->field1c = 0xa0000u;                    /* 10.0 */
+    towards_x_vel(obj);
+    obj->field1c = 0;
+    obj->field20 = 0x10;
+    multi_adjust_xy(obj);
+    obj->field40 = 0x1a;
+    get_char_ani(obj);
+    obj->field40 = obj->field40 + 4;
+    obj->field1c = 3;
+    init_anirate(obj);
+    obj->field48 = 0x1a;
+
+    *mk3_frame(thread, thread->frame + 1) = 0xbc0;
+    thread->fieldfc = 1;
+    return 1;
 }
