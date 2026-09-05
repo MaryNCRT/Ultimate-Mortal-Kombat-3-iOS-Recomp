@@ -32,8 +32,13 @@
 /* The callees these reach, declared from what the call sites
  * pass. One written later with a different signature will
  * conflict here, which is what the check is for. */
-long q_animal_dist(MK3OBJ *obj);
-long q_fatal_dist(MK3OBJ *obj);
+void q_animal_dist(MK3OBJ *obj);
+void q_fatal_dist(MK3OBJ *obj);
+void check_sonya_legs(MK3OBJ *obj);
+void q_is_he_cornered(MK3OBJ *obj);
+extern uint32_t sm_sz_lpc[];              /* 0x0016c640 */
+long am_i_airborn(MK3OBJ *obj);
+void get_his_action(MK3OBJ *obj);
 long is_stick_away(MK3OBJ *obj);
 long is_stick_down(MK3OBJ *obj);
 void q_mercy(MK3OBJ *obj);
@@ -43,7 +48,10 @@ long get_x_dist(MK3OBJ *obj);
 long stick_look_lr(MK3OBJ *obj, uint32_t a, uint32_t b,
                    uint32_t *pair);
 long button_bit_check(MK3OBJ *obj);
-long animality_xfer(MK3OBJ *obj, MK3OBJ *other);
+/* Its two paths disagree about producing a value -- one falls through
+ * after q_mercy, the other tail-calls fatality_xfer -- so it computes
+ * none. Declared long at first; the compiler caught it. */
+void animality_xfer(MK3OBJ *obj, MK3OBJ *other);
 void q_friend(MK3OBJ *obj);
 void q_jade_flash(MK3OBJ *obj);
 void q_scorp_tele(MK3OBJ *obj);
@@ -1833,11 +1841,11 @@ void tusk_lp_close(MK3OBJ *obj)
  *
  * The second constant is formed by adding to the first, which is how the
  * compiler gets two numbers out of one `movs`. */
-long q_smoke_animal(MK3OBJ *obj)
+void q_smoke_animal(MK3OBJ *obj)
 {
     obj->field30 = 160;
     obj->field34 = 336;
-    return q_animal_dist(obj);
+    q_animal_dist(obj);
 }
 
 /* q_lk_animal -- armv7 0x000531f0, 20 bytes.  **Complete.**
@@ -1848,11 +1856,11 @@ long q_smoke_animal(MK3OBJ *obj)
  *
  * The second constant is formed by adding to the first, which is how the
  * compiler gets two numbers out of one `movs`. */
-long q_lk_animal(MK3OBJ *obj)
+void q_lk_animal(MK3OBJ *obj)
 {
     obj->field30 = 88;
     obj->field34 = 144;
-    return q_animal_dist(obj);
+    q_animal_dist(obj);
 }
 
 /* q_swat_animal -- armv7 0x00053204, 20 bytes.  **Complete.**
@@ -1863,11 +1871,11 @@ long q_lk_animal(MK3OBJ *obj)
  *
  * The second constant is formed by adding to the first, which is how the
  * compiler gets two numbers out of one `movs`. */
-long q_swat_animal(MK3OBJ *obj)
+void q_swat_animal(MK3OBJ *obj)
 {
     obj->field30 = 88;
     obj->field34 = 120;
-    return q_animal_dist(obj);
+    q_animal_dist(obj);
 }
 
 /* q_kit_animal -- armv7 0x00053218, 20 bytes.  **Complete.**
@@ -1878,11 +1886,11 @@ long q_swat_animal(MK3OBJ *obj)
  *
  * The second constant is formed by adding to the first, which is how the
  * compiler gets two numbers out of one `movs`. */
-long q_kit_animal(MK3OBJ *obj)
+void q_kit_animal(MK3OBJ *obj)
 {
     obj->field30 = 72;
     obj->field34 = 112;
-    return q_animal_dist(obj);
+    q_animal_dist(obj);
 }
 
 /* q_half_screen_fatal -- armv7 0x000532c8, 20 bytes.  **Complete.**
@@ -1893,11 +1901,11 @@ long q_kit_animal(MK3OBJ *obj)
  *
  * The second constant is formed by adding to the first, which is how the
  * compiler gets two numbers out of one `movs`. */
-long q_half_screen_fatal(MK3OBJ *obj)
+void q_half_screen_fatal(MK3OBJ *obj)
 {
     obj->field30 = 128;
     obj->field34 = 176;
-    return q_fatal_dist(obj);
+    q_fatal_dist(obj);
 }
 
 /* q_close_fatal_pit -- armv7 0x000532dc, 20 bytes.  **Complete.**
@@ -1908,11 +1916,11 @@ long q_half_screen_fatal(MK3OBJ *obj)
  *
  * The second constant is formed by adding to the first, which is how the
  * compiler gets two numbers out of one `movs`. */
-long q_close_fatal_pit(MK3OBJ *obj)
+void q_close_fatal_pit(MK3OBJ *obj)
 {
     obj->field30 = 32;
     obj->field34 = 78;
-    return q_fatal_dist(obj);
+    q_fatal_dist(obj);
 }
 
 /* q_close_fatal -- armv7 0x000532f0, 20 bytes.  **Complete.**
@@ -1923,11 +1931,11 @@ long q_close_fatal_pit(MK3OBJ *obj)
  *
  * The second constant is formed by adding to the first, which is how the
  * compiler gets two numbers out of one `movs`. */
-long q_close_fatal(MK3OBJ *obj)
+void q_close_fatal(MK3OBJ *obj)
 {
     obj->field30 = 32;
     obj->field34 = 80;
-    return q_fatal_dist(obj);
+    q_fatal_dist(obj);
 }
 
 /* q_far_fatal -- armv7 0x000533f0, 20 bytes.  **Complete.**
@@ -1938,11 +1946,11 @@ long q_close_fatal(MK3OBJ *obj)
  *
  * The second constant is formed by adding to the first, which is how the
  * compiler gets two numbers out of one `movs`. */
-long q_far_fatal(MK3OBJ *obj)
+void q_far_fatal(MK3OBJ *obj)
 {
     obj->field30 = 240;
     obj->field34 = 336;
-    return q_fatal_dist(obj);
+    q_fatal_dist(obj);
 }
 
 /* q_skull_fatal -- armv7 0x00053404, 20 bytes.  **Complete.**
@@ -1953,11 +1961,11 @@ long q_far_fatal(MK3OBJ *obj)
  *
  * The second constant is formed by adding to the first, which is how the
  * compiler gets two numbers out of one `movs`. */
-long q_skull_fatal(MK3OBJ *obj)
+void q_skull_fatal(MK3OBJ *obj)
 {
     obj->field30 = 160;
     obj->field34 = 224;
-    return q_fatal_dist(obj);
+    q_fatal_dist(obj);
 }
 
 /* q_vomit_fatal -- armv7 0x00053418, 20 bytes.  **Complete.**
@@ -1968,11 +1976,11 @@ long q_skull_fatal(MK3OBJ *obj)
  *
  * The second constant is formed by adding to the first, which is how the
  * compiler gets two numbers out of one `movs`. */
-long q_vomit_fatal(MK3OBJ *obj)
+void q_vomit_fatal(MK3OBJ *obj)
 {
     obj->field30 = 96;
     obj->field34 = 128;
-    return q_fatal_dist(obj);
+    q_fatal_dist(obj);
 }
 
 /* q_grow_fatal -- armv7 0x0005342c, 20 bytes.  **Complete.**
@@ -1983,11 +1991,11 @@ long q_vomit_fatal(MK3OBJ *obj)
  *
  * The second constant is formed by adding to the first, which is how the
  * compiler gets two numbers out of one `movs`. */
-long q_grow_fatal(MK3OBJ *obj)
+void q_grow_fatal(MK3OBJ *obj)
 {
     obj->field30 = 208;
     obj->field34 = 320;
-    return q_fatal_dist(obj);
+    q_fatal_dist(obj);
 }
 
 /* q_lia_hair_fatal -- armv7 0x00053440, 20 bytes.  **Complete.**
@@ -1998,11 +2006,11 @@ long q_grow_fatal(MK3OBJ *obj)
  *
  * The second constant is formed by adding to the first, which is how the
  * compiler gets two numbers out of one `movs`. */
-long q_lia_hair_fatal(MK3OBJ *obj)
+void q_lia_hair_fatal(MK3OBJ *obj)
 {
     obj->field30 = 80;
     obj->field34 = 144;
-    return q_fatal_dist(obj);
+    q_fatal_dist(obj);
 }
 
 /* q_lao_hat_fatal -- armv7 0x00053454, 20 bytes.  **Complete.**
@@ -2013,11 +2021,11 @@ long q_lia_hair_fatal(MK3OBJ *obj)
  *
  * The second constant is formed by adding to the first, which is how the
  * compiler gets two numbers out of one `movs`. */
-long q_lao_hat_fatal(MK3OBJ *obj)
+void q_lao_hat_fatal(MK3OBJ *obj)
 {
     obj->field30 = 32;
     obj->field34 = 112;
-    return q_fatal_dist(obj);
+    q_fatal_dist(obj);
 }
 
 /* q_earth_fatal -- armv7 0x00053468, 20 bytes.  **Complete.**
@@ -2028,11 +2036,11 @@ long q_lao_hat_fatal(MK3OBJ *obj)
  *
  * The second constant is formed by adding to the first, which is how the
  * compiler gets two numbers out of one `movs`. */
-long q_earth_fatal(MK3OBJ *obj)
+void q_earth_fatal(MK3OBJ *obj)
 {
     obj->field30 = 208;
     obj->field34 = 320;
-    return q_fatal_dist(obj);
+    q_fatal_dist(obj);
 }
 
 /* q_ermac_decap -- armv7 0x000534c0, 20 bytes.  **Complete.**
@@ -2043,11 +2051,11 @@ long q_earth_fatal(MK3OBJ *obj)
  *
  * The second constant is formed by adding to the first, which is how the
  * compiler gets two numbers out of one `movs`. */
-long q_ermac_decap(MK3OBJ *obj)
+void q_ermac_decap(MK3OBJ *obj)
 {
     obj->field30 = 48;
     obj->field34 = 80;
-    return q_fatal_dist(obj);
+    q_fatal_dist(obj);
 }
 
 /* q_robo_flame_fatal -- armv7 0x000534e8, 20 bytes.  **Complete.**
@@ -2058,11 +2066,11 @@ long q_ermac_decap(MK3OBJ *obj)
  *
  * The second constant is formed by adding to the first, which is how the
  * compiler gets two numbers out of one `movs`. */
-long q_robo_flame_fatal(MK3OBJ *obj)
+void q_robo_flame_fatal(MK3OBJ *obj)
 {
     obj->field30 = 192;
     obj->field34 = 256;
-    return q_fatal_dist(obj);
+    q_fatal_dist(obj);
 }
 
 /* q_robo_crush_fatal -- armv7 0x000534fc, 20 bytes.  **Complete.**
@@ -2073,11 +2081,11 @@ long q_robo_flame_fatal(MK3OBJ *obj)
  *
  * The second constant is formed by adding to the first, which is how the
  * compiler gets two numbers out of one `movs`. */
-long q_robo_crush_fatal(MK3OBJ *obj)
+void q_robo_crush_fatal(MK3OBJ *obj)
 {
     obj->field30 = 96;
     obj->field34 = 144;
-    return q_fatal_dist(obj);
+    q_fatal_dist(obj);
 }
 
 /* robo2_lk_close -- armv7 0x0005380c, 20 bytes.  **Complete.**
@@ -3684,11 +3692,11 @@ long osm_hk_close(MK3OBJ *obj, uint32_t arg)
  * The second constant is the first doubled in place (`adds r3, r3, r3`), so
  * the near and far bounds of the range are one instruction apart and cannot
  * drift. */
-long q_ermac_fatal(MK3OBJ *obj)
+void q_ermac_fatal(MK3OBJ *obj)
 {
     obj->field30 = 0x60;
     obj->field34 = 0x60 + 0x60;
-    return q_fatal_dist(obj);
+    q_fatal_dist(obj);
 }
 
 
@@ -4101,4 +4109,186 @@ void q_fatality_req(MK3OBJ *obj)
         q_yes(obj);
     else
         q_no(obj);
+}
+
+
+/* q_kano_swipe -- armv7 0x00052fbc, 36 bytes.  **Complete.**
+ *
+ *      get_his_action(obj)
+ *      if (obj->field20 == 0x60c) q_no(obj); else q_yes(obj);
+ *
+ * **The equal case is the NO.** These read as "is he not doing that", which
+ * is why the yes is the fall-through and the no is the branch target.
+ * q_lao_spin and q_pounce_ok_now are the same thirty-six bytes with 0x62b and
+ * 0x503 -- three routines whose whole difference is one `movw`. */
+void q_kano_swipe(MK3OBJ *obj)
+{
+    get_his_action(obj);
+    if (obj->field20 == 0x60c)
+        q_no(obj);
+    else
+        q_yes(obj);
+}
+
+/* q_lao_spin -- armv7 0x00052f98, 36 bytes.  **Complete.**  See q_kano_swipe. */
+void q_lao_spin(MK3OBJ *obj)
+{
+    get_his_action(obj);
+    if (obj->field20 == 0x62b)
+        q_no(obj);
+    else
+        q_yes(obj);
+}
+
+/* q_pounce_ok_now -- armv7 0x00053048, 36 bytes.  **Complete.**  See
+ * q_kano_swipe. */
+void q_pounce_ok_now(MK3OBJ *obj)
+{
+    get_his_action(obj);
+    if (obj->field20 == 0x503)
+        q_no(obj);
+    else
+        q_yes(obj);
+}
+
+/* animality_xfer -- armv7 0x00054b38, 36 bytes.  **Complete.**
+ *
+ *      *(uint16_t *)((char *)other->field00 + 0x80) = 0
+ *      q_mercy(obj)
+ *      if (obj->field5c != 0) fatality_xfer(obj, other)
+ *
+ * **Five routines in this file clear the same halfword.** fatality_xfer,
+ * animality_xfer, close_animality_xfer (through animality_xfer), airborn_xfer
+ * and restricted_xfer all write zero to `other->field00 + 0x80` before doing
+ * anything else, and the two that chain do it twice. The clear is
+ * unconditional in every one of them; only what follows is gated.
+ *
+ * Both arguments are held in callee-saved registers across q_mercy and handed
+ * on unchanged. */
+void animality_xfer(MK3OBJ *obj, MK3OBJ *other)
+{
+    *(uint16_t *)((char *)other->field00 + 0x80) = 0;
+    q_mercy(obj);
+    if (obj->field5c != 0)
+        fatality_xfer(obj, other);
+}
+
+/* restricted_xfer -- armv7 0x00054678, 36 bytes.  **Complete.**
+ *
+ *      *(uint16_t *)((char *)other->field00 + 0x80) = 0
+ *      am_i_airborn(obj)
+ *      if (obj->field5c == 0) airborn_xfer(obj, other)
+ *
+ * **The name and the test point opposite ways.** The transfer to
+ * `airborn_xfer` happens when am_i_airborn comes back CLEAR -- on the ground,
+ * not in the air. `cbnz` skips the call, so the reading is not in doubt; what
+ * the two names mean together is left as it stands.
+ *
+ * The halfword at 0x80 is cleared here and then cleared again by
+ * airborn_xfer, which is harmless and is what the two routines separately do. */
+void restricted_xfer(MK3OBJ *obj, MK3OBJ *other)
+{
+    *(uint16_t *)((char *)other->field00 + 0x80) = 0;
+    am_i_airborn(obj);
+    if (obj->field5c == 0)
+        airborn_xfer(obj, other);
+}
+
+
+/* q_fatal_dist -- armv7 0x0005322c, 40 bytes.  **Complete.**
+ *
+ *      get_x_dist(obj)
+ *      d = obj->field28
+ *      if (d < obj->field30 || d > obj->field34) q_no(obj)
+ *      else q_fatality_req(obj)
+ *
+ * **The band comes in through 0x30 and 0x34 and the caller sets it.**
+ * q_ermac_fatal writes 0x60 and 0xc0 into those two fields and then calls
+ * this; q_inflate_fatal writes 0x60 and 0xe0. Reading the two sides together
+ * settles what the pair is for: a near bound and a far one, inclusive at both
+ * ends, tested with `blt` then `ble`. */
+void q_fatal_dist(MK3OBJ *obj)
+{
+    long d;
+
+    get_x_dist(obj);
+    d = (long)obj->field28;
+    if (d < (long)obj->field30 || d > (long)obj->field34)
+        q_no(obj);
+    else
+        q_fatality_req(obj);
+}
+
+/* q_animal_dist -- armv7 0x00053178, 40 bytes.  **Complete.**
+ *
+ * The same forty bytes as q_fatal_dist with `q_animal_req` in place of
+ * `q_fatality_req`. */
+void q_animal_dist(MK3OBJ *obj)
+{
+    long d;
+
+    get_x_dist(obj);
+    d = (long)obj->field28;
+    if (d < (long)obj->field30 || d > (long)obj->field34)
+        q_no(obj);
+    else
+        q_animal_req(obj);
+}
+
+/* q_inflate_fatal -- armv7 0x00054bfc, 40 bytes.  **Complete.**
+ *
+ *      q_is_he_cornered(obj)
+ *      if (obj->field5c != 0) q_no(obj)
+ *      else { obj->field30 = 0x60; obj->field34 = 0xe0; q_fatal_dist(obj) }
+ *
+ * A cornered opponent is refused outright; otherwise the band is built the
+ * same way q_ermac_fatal builds its own -- a constant and then an add on the
+ * register that already holds it, so the two bounds cannot drift apart. The
+ * far bound is 0x80 above the near one here and 0x60 above it there. */
+void q_inflate_fatal(MK3OBJ *obj)
+{
+    q_is_he_cornered(obj);
+    if (obj->field5c != 0) {
+        q_no(obj);
+        return;
+    }
+    obj->field30 = 0x60;
+    obj->field34 = 0x60 + 0x80;
+    q_fatal_dist(obj);
+}
+
+/* sonya_block_close -- armv7 0x000549ac, 36 bytes.  **Complete.**
+ *
+ *      check_sonya_legs(obj)
+ *      if (obj->field5c != 0) {
+ *          obj->field38 = t_do_leg_throw
+ *          restricted_xfer(obj, other)
+ *      }
+ *
+ * The handler goes into 0x38 one instruction before the transfer, which is the
+ * slot that family reads -- the same order tl_do_swat_zoom uses to hand a
+ * thread over. Nothing happens at all when the check comes back clear. */
+void sonya_block_close(MK3OBJ *obj, MK3OBJ *other)
+{
+    check_sonya_legs(obj);
+    if (obj->field5c != 0) {
+        obj->field38 = (uint32_t)(uintptr_t)t_do_leg_throw;
+        restricted_xfer(obj, other);
+    }
+}
+
+/* sz_lp_close -- armv7 0x00054808, 36 bytes.  **Complete.**
+ *
+ *      slide_check(obj)
+ *      if (obj->field5c == 0) secret_move_search(obj, arg, sm_sz_lpc)
+ *
+ * A member of the osm_/ind_ table family with a gate in front of it, and the
+ * gate is the CLEAR case: a slide already in progress stops the search. The
+ * table address is passed as it stands, without the 0x48 that makes
+ * osm_hk_close different from its own siblings. */
+void sz_lp_close(MK3OBJ *obj, uint32_t arg)
+{
+    slide_check(obj);
+    if (obj->field5c == 0)
+        secret_move_search(obj, arg, sm_sz_lpc);
 }
