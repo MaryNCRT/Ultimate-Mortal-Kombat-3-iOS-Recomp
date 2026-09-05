@@ -104,6 +104,7 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+long tl_do_robo_tele(MK3THREAD *thread);
 void clear_noflip(MK3OBJ *obj);
 void set_no_block(MK3OBJ *obj);
 void pose2_a9_manual(MK3OBJ *obj);
@@ -5722,9 +5723,9 @@ long tl_do_lao_tele(MK3THREAD *thread)
     if (token == 0x944) {
         y = *(int16_t *)((char *)obj->field08 + 0x12) - 0x10;
         obj->field1c = (uint32_t)y;
-        obj->field20 = obj->field00->field40;
+        obj->field20 = *(uint32_t *)((char *)obj->field00 + 0x40);
 
-        if ((int32_t)obj->field00->field40 < y) {       /* still falling */
+        if (*(int32_t *)((char *)obj->field00 + 0x40) < y) {    /* still falling */
             *mk3_frame(thread, thread->frame + 1) = 0x944;
             thread->fieldfc = 1;
             return 1;
@@ -6090,6 +6091,194 @@ long tl_do_slide(MK3THREAD *thread)
     obj->a10 = 0x1c;
 
     *mk3_frame(thread, thread->frame + 1) = 0x445;
+    thread->fieldfc = 1;
+    return 1;
+}
+
+
+/* ------------------------------------------------------------- tl_do_robo_tele
+ *
+ * armv7 0x0003eb24, 508 bytes.  **Complete.**
+ *
+ * The robots' teleport: rise, drop through the floor, come up under the
+ * opponent, and scan for him twice on the way.
+ *
+ *      token == 0:      obj->field20 = obj->field00->field18 = 0x208
+ *                       air_init_special(obj)
+ *                       obj->field1c = 7 ; ochar_sound(obj)
+ *                       obj->field40 = 0xd ; get_char_ani(obj)
+ *                       find_last_frame(obj) ; do_next_a9_frame(obj)
+ *                       obj->field08->field1c = 7.0
+ *                       obj->field1c = obj->field08->field20 = 0.6875
+ *                       token := 0x878, park 1
+ *
+ *      token == 0x878:  distance_from_ground(obj)
+ *                       if (obj->field1c > 0) { token := 0x878, park 1 }
+ *                       -- THROUGH THE FLOOR, below --
+ *
+ *      token == 0x89b:  next_anirate(obj)
+ *                       y = (int16)obj->field08->field12
+ *                       obj->field1c = y
+ *                       obj->field20 = *(proc + 0x40)
+ *                       obj->field24 = y - obj->field20
+ *                       if (obj->field24 > 0x30) -- the 0x8a3 body --
+ *                       token := 0x8a3, descend into t_tele_scan
+ *
+ *      token == 0x8a3:  if (obj->field1c > obj->field20)
+ *                           { token := 0x89b, park 1 }
+ *                       obj->field1c = 0.9375
+ *                       obj->field20 = *(proc + 0x2c)
+ *                       if (obj->field20 != 0) obj->field1c = 0.6875
+ *                       obj->field08->field20 = obj->field1c
+ *                       obj->field20 = obj->field24 = 0xd
+ *                       obj->field1c = 0
+ *                       obj->field28 = obj->field00->field1c
+ *                       obj->field34 = t_tele_scan2
+ *                       token := 0x8b4, descend into t_flight_call
+ *
+ *      token == 0x8b4:  frame[frame].handler = t_jump_up_land_jsrp
+ *
+ *      THROUGH THE FLOOR:
+ *                       match_me_with_him(obj)
+ *                       obj->field20 = 0
+ *                       h = ((MK3OBJ *)obj->field00->him)->field18
+ *                       obj->field1c = ((h << 4) >> 16) - 0x10
+ *                       multi_adjust_xy(obj) ; face_opponent(obj)
+ *                       obj->field20 = *(G + 0xac)
+ *                       (int16)obj->field08->field12 = obj->field20
+ *                       obj->field08->field1c = -9.0
+ *                       obj->field1c = obj->field08->field20 = -0.375
+ *                       obj->field40 = 3 ; get_char_ani2(obj)
+ *                       obj->field1c = 5 ; init_anirate(obj)
+ *                       obj->field1c = obj->field00->field28 = 0
+ *                       token := 0x89b, park 1
+ *
+ *      otherwise:       return -3
+ *
+ * **It scans twice, through two different routines.** 0x89b measures the gap
+ * between the sprite and proc+0x40; a gap over 0x30 goes straight into the
+ * 0x8a3 body, and anything smaller descends into `t_tele_scan` first. Then
+ * 0x8a3 stores `t_tele_scan2` into 0x34 and descends into `t_flight_call`,
+ * which runs it. Two scans, one before the rise and one during it, and the
+ * second is a callback rather than a call.
+ *
+ * **0.9375 or 0.6875, decided by proc+0x2c.** The same two-branch shape as
+ * every other move in this file, on a field the struct has no name for.
+ *
+ * The horizontal placement comes from the OPPONENT's 0x18 put through
+ * `(h << 4) >> 16` -- a shift pair that truncates the top nibble before
+ * sign-extending, not a plain divide -- and then twenty-two less. Transcribed
+ * as the two shifts the binary uses.
+ *
+ * proc+0x40 is read here with `ldr`, a full word, though mk3logic.h declares a
+ * halfword at that offset on other evidence. Reached as an offset so neither
+ * reading is lost.
+ */
+long tl_do_robo_tele(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    int32_t  y, h;
+    int      rise = 0;
+
+    if (token == 0x8b4)
+        return mk3_install(thread, (MK3THREADFUNC)t_jump_up_land_jsrp);
+
+    if (token == 0x89b) {
+        next_anirate(obj);
+        y = *(int16_t *)((char *)obj->field08 + 0x12);
+        obj->field1c = (uint32_t)y;
+        obj->field20 = *(uint32_t *)((char *)obj->field00 + 0x40);
+        obj->field24 = (uint32_t)(y - (int32_t)obj->field20);
+
+        if ((int32_t)obj->field24 <= 0x30) {    /* close enough: scan first */
+            *mk3_frame(thread, thread->frame + 1) = 0x8a3;
+            thread->frame = thread->frame + 1;
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)t_tele_scan;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+        rise = 1;
+    }
+
+    if (rise || token == 0x8a3) {
+        if ((int32_t)obj->field1c > (int32_t)obj->field20) {
+            *mk3_frame(thread, thread->frame + 1) = 0x89b;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        obj->field1c = 0xf000u;                 /* 0.9375 */
+        obj->field20 = *(uint32_t *)((char *)obj->field00 + 0x2c);
+        if (obj->field20 != 0)
+            obj->field1c = 0xb000u;             /* 0.6875 */
+        obj->field08->field20 = obj->field1c;
+
+        obj->field20 = 0xd;
+        obj->field24 = 0xd;
+        obj->field1c = 0;
+        obj->field28 = obj->field00->field1c;
+        obj->field34 = (uint32_t)(uintptr_t)t_tele_scan2;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x8b4;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_flight_call;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0 && token != 0x878)
+        return -3;
+
+    if (token == 0x878) {
+        distance_from_ground(obj);
+        if ((long)obj->field1c > 0) {           /* not down yet */
+            *mk3_frame(thread, thread->frame + 1) = 0x878;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        match_me_with_him(obj);
+        obj->field20 = 0;
+        h = (int32_t)((MK3OBJ *)(uintptr_t)obj->field00->him)->field18;
+        obj->field1c = (uint32_t)((((int32_t)(h << 4)) >> 16) - 0x10);
+        multi_adjust_xy(obj);
+        face_opponent(obj);
+
+        obj->field20 = *(uint32_t *)(G_BYTES + 0xac);
+        *(int16_t *)((char *)obj->field08 + 0x12) = (int16_t)obj->field20;
+        obj->field08->field1c = 0xfff70000u;    /* -9.0 */
+        obj->field1c = 0xffffa000u;             /* -0.375 */
+        obj->field08->field20 = obj->field1c;
+
+        obj->field40 = 3;
+        get_char_ani2(obj);
+        obj->field1c = 5;
+        init_anirate(obj);
+        obj->field1c = 0;
+        obj->field00->field28 = 0;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x89b;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    obj->field20 = 0x208;
+    obj->field00->field18 = 0x208;
+    air_init_special(obj);
+    obj->field1c = 7;
+    ochar_sound(obj);
+    obj->field40 = 0xd;
+    get_char_ani(obj);
+    find_last_frame(obj);
+    do_next_a9_frame(obj);
+    obj->field08->field1c = 0x70000u;           /* 7.0 */
+    obj->field1c = 0x70000u - 0x65000u;         /* 0.6875 */
+    obj->field08->field20 = obj->field1c;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x878;
     thread->fieldfc = 1;
     return 1;
 }

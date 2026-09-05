@@ -87,7 +87,12 @@ typedef struct MK3OBJPROC {
                                   *       0x08 here and differ in nothing
                                   *       else */
     uint8_t  _pad2c[0x14];
-    uint16_t field40;            /* 0x40  ground_player copies it out */
+    /* 0x40  ground_player copies it out as a HALFWORD, but
+     * tl_do_lao_tele and tl_do_robo_tele both read it with `ldr`, a
+     * full word, and compare the result against a signed y. Two
+     * readings of one offset; neither is discarded. The word users
+     * reach it as an offset rather than through this field. */
+    uint16_t field40;
     uint8_t  _pad42[2];
     uint32_t p_hit;              /* 0x44  per zero_my_p_hit */
     uint8_t  _pad48[0x0c];
