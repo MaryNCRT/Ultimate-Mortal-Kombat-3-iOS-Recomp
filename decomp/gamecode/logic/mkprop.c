@@ -104,6 +104,10 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+void player_swpal(MK3OBJ *obj, uint32_t frozen);
+void do_first_a9_frame(MK3OBJ *obj);
+void find_last_frame(MK3OBJ *obj);
+long tl_do_jade_prop(MK3THREAD *thread);
 long t_animate_a9(MK3THREAD *thread);
 long tl_do_mileena_tele(MK3THREAD *thread);
 void damage_to_him(MK3OBJ *obj);
@@ -5422,6 +5426,179 @@ long tl_do_mileena_tele(MK3THREAD *thread)
     obj->field08->field1c = 0x50000u;
 
     *mk3_frame(thread, thread->frame + 1) = 0x151;
+    thread->fieldfc = 1;
+    return 1;
+}
+
+
+/* ------------------------------------------------------------- tl_do_jade_prop
+ *
+ * armv7 0x00040b74, 480 bytes.  **Complete.**
+ *
+ * Jade's staff thrust: five frames of wind-up, one frame that can hit, then
+ * seven damped frames that can still hit, then eight more of follow-through.
+ *
+ *      token == 0:      obj->field20 = 0x217 ; init_special_act(obj)
+ *                       player_swpal(obj, 4)
+ *                       obj->field1c = 6 ; ochar_sound(obj)
+ *                       obj->field1c = 0x30 ; create_fx(obj)
+ *                       obj->field40 = 0x12 ; get_char_ani(obj)
+ *                       obj->field1c = 1 ; init_anirate(obj)
+ *                       obj->field1c = 8.0 ; towards_x_vel(obj)
+ *                       obj->a10 = 5
+ *                       token := 0x1a6, park 1
+ *
+ *      token == 0x1a6:  next_anirate(obj)
+ *                       if (--obj->a10 > 0) { token := 0x1a6, park 1 }
+ *                       token := 0x1ac, park 1
+ *
+ *      token == 0x1ac:  next_anirate(obj)
+ *                       obj->field1c = 0x10 ; strike_check_a0(obj)
+ *                       if (obj->field5c != 0) -- CONNECTED --
+ *                       obj->a10 = 7
+ *                       token := 0x1b5, park 1
+ *
+ *      token == 0x1b5:  jade_prop_damping(obj) ; next_anirate(obj)
+ *                       obj->field1c = 0x10 ; strike_check_a0(obj)
+ *                       if (obj->field5c != 0) -- CONNECTED --
+ *                       if (--obj->a10 > 0) { token := 0x1b5, park 1 }
+ *                       obj->field1c = obj->field00->field18 = 0x605
+ *                       obj->a10 = 8
+ *                       token := 0x1c6, park 1
+ *
+ *      token == 0x1c6:  jade_prop_damping(obj)
+ *                       if (--obj->a10 > 0) { token := 0x1c6, park 1 }
+ *                       stop_me_player(obj)
+ *                       token := 0x1cd, park 0x20
+ *
+ *      token == 0x1cd:  frame[frame].handler = t_local_reaction_exit
+ *      token == 0x1dc:  frame[frame].handler = t_local_reaction_exit
+ *
+ *      CONNECTED:       obj->field40 = 0x12 ; do_first_a9_frame(obj)
+ *                       find_last_frame(obj) ; do_next_a9_frame(obj)
+ *                       stop_me_player(obj)
+ *                       obj->field1c = (obj->field18 != 0) ? 0x10 : 0x20
+ *                       token := 0x1dc, park obj->field1c
+ *
+ *      otherwise:       return -3
+ *
+ * **The strike window is eight frames wide and only the last seven are
+ * damped.** 0x1ac tests once with no damping and then hands over to 0x1b5,
+ * which tests again on each of seven frames with jade_prop_damping in front of
+ * it. The first frame of the thrust is the undamped one.
+ *
+ * **A blocked hit recovers in 16 frames and a clean one in 32** -- the
+ * opposite of the usual arrangement, and it is the clean hit that costs more.
+ * `obj->field18` set means blocked, and the `adds r3, #0x20` that doubles the
+ * wait runs only when it is clear.
+ *
+ * Both 0x1cd and 0x1dc install the same exit, from the same shared six
+ * instructions. They are separate tokens because they are reached from
+ * different waits, not because they do different things.
+ *
+ * 0x44 counts three separate stretches here -- 5, then 7, then 8 -- one field
+ * doing the whole shape of the move.
+ */
+long tl_do_jade_prop(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    int      connected = 0;
+
+    if (token == 0x1cd || token == 0x1dc)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token == 0x1a6) {
+        next_anirate(obj);
+        obj->a10 -= 1;
+        *mk3_frame(thread, thread->frame + 1) =
+            ((long)obj->a10 > 0) ? 0x1a6 : 0x1ac;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0x1ac) {
+        next_anirate(obj);
+        obj->field1c = 0x10;
+        strike_check_a0(obj);
+        if (obj->field5c != 0) {
+            connected = 1;
+        } else {
+            obj->a10 = 7;
+            *mk3_frame(thread, thread->frame + 1) = 0x1b5;
+            thread->fieldfc = 1;
+            return 1;
+        }
+    } else if (token == 0x1b5) {
+        jade_prop_damping(obj);
+        next_anirate(obj);
+        obj->field1c = 0x10;
+        strike_check_a0(obj);
+        if (obj->field5c != 0) {
+            connected = 1;
+        } else {
+            obj->a10 -= 1;
+            if ((long)obj->a10 > 0) {
+                *mk3_frame(thread, thread->frame + 1) = 0x1b5;
+                thread->fieldfc = 1;
+                return 1;
+            }
+            obj->field1c = 0x605;
+            obj->field00->field18 = 0x605;
+            obj->a10 = 8;
+            *mk3_frame(thread, thread->frame + 1) = 0x1c6;
+            thread->fieldfc = 1;
+            return 1;
+        }
+    } else if (token == 0x1c6) {
+        jade_prop_damping(obj);
+        obj->a10 -= 1;
+        if ((long)obj->a10 > 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0x1c6;
+            thread->fieldfc = 1;
+            return 1;
+        }
+        stop_me_player(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x1cd;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (connected) {
+        obj->field40 = 0x12;
+        do_first_a9_frame(obj);
+        find_last_frame(obj);
+        do_next_a9_frame(obj);
+        stop_me_player(obj);
+
+        obj->field1c = 0x10;
+        if (obj->field18 == 0)                  /* not blocked: hold longer */
+            obj->field1c = 0x20;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1dc;
+        thread->fieldfc = obj->field1c;
+        return (long)obj->field1c;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field20 = 0x217;
+    init_special_act(obj);
+    player_swpal(obj, 4);
+    obj->field1c = 6;
+    ochar_sound(obj);
+    obj->field1c = 0x30;
+    create_fx(obj);
+    obj->field40 = 0x12;
+    get_char_ani(obj);
+    obj->field1c = 1;
+    init_anirate(obj);
+    obj->field1c = 0x80000u;                    /* 8.0 */
+    towards_x_vel(obj);
+    obj->a10 = 5;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x1a6;
     thread->fieldfc = 1;
     return 1;
 }
