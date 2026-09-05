@@ -104,6 +104,8 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+void player_froze_pal(MK3OBJ *obj);
+long is_he_joy(MK3OBJ *obj);
 long t_decoy_proc(MK3THREAD *thread);
 long tl_do_sz_decoy(MK3THREAD *thread);
 long tl_do_stick_sweep(MK3THREAD *thread);
@@ -4813,4 +4815,163 @@ long tl_do_sz_decoy(MK3THREAD *thread)
     mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
+}
+
+
+/* --------------------------------------------------------------- t_decoy_proc
+ *
+ * armv7 0x0003c538, 368 bytes.  **Complete.**
+ *
+ * What the decoy runs. `tl_do_sz_decoy` spawns it and hands it three things;
+ * this is the whole life of the copy afterwards.
+ *
+ *      token == 0:      if (obj->field48 > 0x4f) {
+ *                           player_froze_pal(obj)
+ *                           obj->field1c = 3 ; create_fx(obj)
+ *                           obj->a10 = 0xa
+ *                           -- NUDGE --
+ *                       } else -- FLASH AND STOP --
+ *
+ *      token == 0xcd8:  if (--obj->a10 != 0) -- NUDGE --
+ *                       q_is_he_a_boss(obj)
+ *                       if (obj->field5c != 0) -- GO AWAY --
+ *                       obj->field48 = 0x2a
+ *                       is_he_joy(obj)
+ *                       if (obj->field5c == 0) obj->field48 = 0x20
+ *                       -- WATCH --
+ *
+ *      token == 0xcea:  decoy_collision_check(obj)
+ *                       if (obj->field5c != 0) -- GO AWAY --
+ *                       if (--obj->field48 != 0) -- WATCH --
+ *                       obj->field40 = 6
+ *                       token := 0xcf3, descend into t_shake_and_collision
+ *
+ *      token == 0xcf3:  -- GO AWAY --
+ *      token == 0xcfd:  token := 0xd03, park 0x16462
+ *      token == 0xd03:  -- FLASH AND STOP --
+ *      otherwise:       return -3
+ *
+ *      NUDGE          obj->field1c = -4 ; obj->field20 = 0
+ *                     multi_adjust_xy(obj) ; token := 0xcd8, park 1
+ *      WATCH          token := 0xcea, park 1
+ *      GO AWAY        obj->field1c = 4 ; ochar_sound(obj)
+ *                     obj->field1c = 3 ; create_fx(obj)
+ *                     token := 0xcfd, park 0xc
+ *      FLASH AND STOP obj->field1c = 3 ; create_fx(obj)
+ *                     token := 0xd09, park 0x16462
+ *
+ * **How long the decoy stands there is decided by who the opponent is.**
+ * 0x2a frames normally and 0x20 if `is_he_joy` comes back clear -- ten frames
+ * shorter -- and a boss gets no decoy at all: it goes away the moment the
+ * ten-frame nudge finishes.
+ *
+ * **0x16462 is park-and-never-wake**, and it appears twice with different
+ * tokens. The 0xcfd state parks with 0xd03, which this dispatch DOES accept,
+ * so waking would flash and park again; FLASH AND STOP parks with 0xd09, which
+ * it does not, so waking would return -3. Ninety-one thousand frames is a
+ * quarter of an hour -- neither ever happens inside a round, and the two
+ * spellings amount to the same thing.
+ *
+ * The shake gets `obj->field40 = 6` written one instruction before the descend,
+ * and t_shake_and_collision counts its swings down in exactly that field. The
+ * decoy shudders six times and then this routine takes it away.
+ *
+ * The dispatch's low branch reuses the register still holding 0xcea, so the
+ * value it tests is 0xcea - 0x12 = 0xcd8 -- NOT 0xcf3 - 0x12. Getting that
+ * wrong invents a state the routine does not have.
+ */
+long t_decoy_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    int      gone  = 0;
+
+    if (token == 0xcea) {
+        decoy_collision_check(obj);
+        if (obj->field5c == 0) {
+            obj->field48 -= 1;
+            if (obj->field48 == 0) {
+                obj->field40 = 6;               /* six swings */
+                *mk3_frame(thread, thread->frame + 1) = 0xcf3;
+                thread->frame = thread->frame + 1;
+                mk3_frame(thread, thread->frame)[1] =
+                    (uint32_t)(uintptr_t)t_shake_and_collision;
+                *mk3_frame(thread, thread->frame + 1) = 0;
+                return 0;
+            }
+            *mk3_frame(thread, thread->frame + 1) = 0xcea;      /* WATCH */
+            thread->fieldfc = 1;
+            return 1;
+        }
+        gone = 1;                               /* somebody touched it */
+    } else if (token == 0xcd8) {
+        obj->a10 -= 1;
+        if (obj->a10 != 0) {
+            obj->field1c = (uint32_t)-4;        /* NUDGE */
+            obj->field20 = 0;
+            multi_adjust_xy(obj);
+            *mk3_frame(thread, thread->frame + 1) = 0xcd8;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        q_is_he_a_boss(obj);
+        if (obj->field5c == 0) {
+            obj->field48 = 0x2a;
+            is_he_joy(obj);
+            if (obj->field5c == 0)
+                obj->field48 = 0x20;            /* ten frames shorter */
+            *mk3_frame(thread, thread->frame + 1) = 0xcea;      /* WATCH */
+            thread->fieldfc = 1;
+            return 1;
+        }
+        gone = 1;                               /* a boss gets no decoy */
+    }
+
+    if (gone || token == 0xcf3) {               /* GO AWAY */
+        obj->field1c = 4;
+        ochar_sound(obj);
+        obj->field1c = 3;
+        create_fx(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0xcfd;
+        thread->fieldfc = 0xc;
+        return 0xc;
+    }
+
+    if (token == 0xcfd) {
+        *mk3_frame(thread, thread->frame + 1) = 0xd03;
+        thread->fieldfc = 0x16462;              /* never */
+        return 0x16462;
+    }
+
+    if (token == 0xd03) {                       /* FLASH AND STOP */
+        obj->field1c = 3;
+        create_fx(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0xd09;
+        thread->fieldfc = 0x16462;
+        return 0x16462;
+    }
+
+    if (token != 0 && token != 0xcea && token != 0xcd8)
+        return -3;
+
+    if ((long)obj->field48 > 0x4f) {
+        player_froze_pal(obj);
+        obj->field1c = 3;
+        create_fx(obj);
+        obj->a10 = 0xa;
+
+        obj->field1c = (uint32_t)-4;            /* NUDGE */
+        obj->field20 = 0;
+        multi_adjust_xy(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0xcd8;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    obj->field1c = 3;                           /* FLASH AND STOP */
+    create_fx(obj);
+    *mk3_frame(thread, thread->frame + 1) = 0xd09;
+    thread->fieldfc = 0x16462;
+    return 0x16462;
 }
