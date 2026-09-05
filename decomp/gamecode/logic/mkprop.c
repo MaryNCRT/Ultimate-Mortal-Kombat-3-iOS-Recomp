@@ -104,6 +104,14 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+void zero_turbo_bar(MK3OBJ *obj);
+void lights_on_hit(MK3OBJ *obj);
+long is_he_facing_me(MK3OBJ *obj);
+void call_for_him(MK3OBJ *obj, void (*fn)(MK3OBJ *));
+void adjust_him_x(MK3OBJ *obj);
+void away_x_vel_him(MK3OBJ *obj);
+long do_his_next_a9_frame(MK3OBJ *obj);
+long t_r_bike_kicked_done(MK3THREAD *thread);
 void call_a0_for_him(MK3OBJ *obj);
 void find_part_a14(MK3OBJ *obj);
 void get_his_a11_ani(MK3OBJ *obj);
@@ -7712,6 +7720,334 @@ long tl_bike3(MK3THREAD *thread)
     }
 
     *mk3_frame(thread, thread->frame + 1) = 0xb0b;
+    thread->fieldfc = 1;
+    return 1;
+}
+
+
+/* ---------------------------------------------------------------- t_bike_call
+ *
+ * armv7 0x0003f630, 1020 bytes.  **Complete.** The largest routine in the file.
+ *
+ * The bike kick from the caller's side: line the opponent up, take him over,
+ * and then run the ride frame by frame until his counter runs out.
+ *
+ *      token == 0:      if (obj->field48 != 0) {
+ *                           obj->field48 -= 1
+ *                           -- UP A LEVEL --
+ *                       }
+ *                       obj->field1c = 0x12 ; strike_check_a0(obj)
+ *                       if (obj->field5c == 0) -- UP A LEVEL --
+ *                       -- CAUGHT HIM, below --
+ *
+ *      token == 0x640:  obj->a10 = obj->field00->him
+ *                       obj->field40 = 2 ; get_char_ani2(obj)
+ *                       obj->field1c = 3 ; init_anirate(obj)
+ *                       obj->field00->field2c = 8
+ *                       obj->field1c = 0x30
+ *                       -- RIDE --
+ *
+ *      token == 0x673:  sans_repell_3(obj)
+ *                       obj->field1c = obj->field00->field28 - 1
+ *                       if (obj->field1c != 0) -- RIDE --
+ *                       obj->field1c = &G + 0x444 ; update_tsl(obj)
+ *                       obj->field38 = t_r_bike_kicked_done
+ *                       takeover_him(obj)
+ *                       obj->field1c = obj->field20 = 0
+ *                       obj->field24 = 0.25 ; obj->field28 = 4
+ *                       token := 0x686, descend into t_flight
+ *
+ *      token == 0x686:  zero_turbo_bar(obj)
+ *                       frame[frame].handler = t_local_reaction_exit
+ *
+ *      token == 0x697:  frame[frame].handler = t_jump_up_land_jump
+ *
+ *      RIDE:            obj->field00->field28 = obj->field1c
+ *                       next_anirate(obj)
+ *                       obj->field1c = obj->field00->field2c - 1
+ *                       if (obj->field1c == 0) {
+ *                           rsnd_func(obj, 8) ; obj->field1c = 8
+ *                       }
+ *                       obj->field00->field2c = obj->field1c
+ *                       obj->field1c = obj->field00->field20
+ *                       if (obj->field1c == 3) -- SHAKE, below --
+ *                       obj->field1c = obj->field00->him->field18
+ *                       if (obj->field1c == 0) {
+ *                           get_x_dist(obj)
+ *                           if (obj->field28 <= 0x30) stop_me_player(obj)
+ *                       }
+ *                       token := 0x673, park 1
+ *
+ *      SHAKE:           arg[f8++] = obj->field48
+ *                       obj->field48 = 0x30003 ; shake_a11(obj)
+ *                       obj->field48 = arg[--f8]
+ *                       arg[f8++] = obj->field40
+ *                       obj->field40 = obj->field48
+ *                       do_his_next_a9_frame(obj)
+ *                       obj->field48 = obj->field40
+ *                       obj->field40 = arg[--f8]
+ *                       -- rejoin the RIDE at the him->field18 test --
+ *
+ *      CAUGHT HIM:      -- UP A LEVEL, twice, each followed by a COLLAPSE --
+ *                       stop_me_player(obj) ; lights_on_hit(obj)
+ *                       if (obj->field18 != 0) {              ; blocked
+ *                           obj->field00->field18 = 0x61d
+ *                           obj->field40 = 0x10002
+ *                           obj->field1c = 1.0
+ *                           obj->field20 = -5.0
+ *                           obj->field24 = 0.25 ; obj->field28 = 4
+ *                           token := 0x697, descend into t_flight
+ *                       }
+ *                       obj->field1c = 0x20d
+ *                       obj->field38 = t_biked_suspend ; takeover_him(obj)
+ *                       is_he_facing_me(obj)
+ *                       if (!facing) call_for_him(obj, flip_multi)
+ *                       is_he_airborn(obj)
+ *                       if (!airborne) {
+ *                           match_him_with_me_f(obj) ; ground_him(obj)
+ *                           obj->field1c = -0x20 ; adjust_him_x(obj)
+ *                       } else {
+ *                           get_x_dist(obj)
+ *                           if (obj->field28 <= 0x30) {
+ *                               obj->field38 = (int16)him->field12
+ *                               match_him_with_me_f(obj)
+ *                               (int16)him->field12 = (uint16)obj->field38
+ *                               obj->field1c = -0x20 ; adjust_him_x(obj)
+ *                           }
+ *                       }
+ *                       obj->field40 = 0x20 ; get_his_char_ani(obj)
+ *                       find_part2(obj) ; obj->field48 = obj->field40
+ *                       obj->field1c = -5.0 ; away_x_vel(obj)
+ *                       obj->field1c = 5.0 ; away_x_vel_him(obj)
+ *                       token := 0x640, park 1
+ *
+ *      UP A LEVEL:      if (thread->frame > 0) frame -= 1
+ *                       else frame[frame].handler = t_local_reaction_exit
+ *
+ *      COLLAPSE:        handler          = frame[frame+1].handler
+ *                       frame[frame+1].w0 = frame[frame+2].w0
+ *                       frame[frame].handler = handler
+ *
+ *      otherwise:       return -3
+ *
+ * **Catching him unwinds two levels, not one.** The hit path goes up a level,
+ * collapses the level above down into it, and then does both again -- so the
+ * two frames the call was made through are folded away before the ride starts.
+ * It is the same collapse t_hover_sleep_1 uses, run twice in a row, and it is
+ * the only place in the file where it appears more than once.
+ *
+ * **Three fields of the opponent's proc drive the whole ride.** 0x28 is the
+ * frame counter, 0x2c is a sub-counter that fires a sound every eight frames
+ * and resets to 8, and 0x20 is a mode: exactly 3 means shake him this frame.
+ * None of them belongs to the fighter doing the kicking.
+ *
+ * **The shake borrows two fields in a nest.** 0x48 goes on the argument stack
+ * across `shake_a11`, comes back, and is copied into 0x40 -- and 0x40's old
+ * value goes on the same stack across `do_his_next_a9_frame` before being
+ * restored. Two callees, two fields, one stack, and the pushes do not overlap.
+ *
+ * **Lining him up has three cases and they share their tail.** Not facing gets
+ * a flip; on the ground gets matched, grounded and nudged; in the air gets
+ * nudged only when he is within 0x30, and then only after his height is saved
+ * and put back around the match. All three fall into the same six calls that
+ * set the animation and the two velocities.
+ *
+ * `obj->field38` is a handler slot in one place and a saved sixteen-bit height
+ * in another, four instructions apart in the same state.
+ */
+long t_bike_call(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    MK3OBJ  *him;
+    uint32_t below, handler;
+    int      ride = 0, caught = 0;
+
+    if (token == 0x697)
+        return mk3_install(thread, (MK3THREADFUNC)t_jump_up_land_jump);
+
+    if (token == 0x686) {
+        zero_turbo_bar(obj);
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (token == 0x673) {
+        sans_repell_3(obj);
+        obj->field1c = obj->field00->field28 - 1;
+        if (obj->field1c != 0) {
+            ride = 1;
+        } else {
+            obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x440 + 4);
+            update_tsl(obj);
+            obj->field38 = (uint32_t)(uintptr_t)t_r_bike_kicked_done;
+            takeover_him(obj);
+            obj->field1c = 0;
+            obj->field20 = 0;
+            obj->field24 = 0x4000u;             /* 0.25 */
+            obj->field28 = 4;
+
+            *mk3_frame(thread, thread->frame + 1) = 0x686;
+            thread->frame = thread->frame + 1;
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)t_flight;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+    } else if (token == 0x640) {
+        obj->a10 = obj->field00->him;
+        obj->field40 = 2;
+        get_char_ani2(obj);
+        obj->field1c = 3;
+        init_anirate(obj);
+        *(uint32_t *)((char *)obj->field00 + 0x2c) = 8;
+        obj->field1c = 0x30;
+        ride = 1;
+    } else if (token == 0) {
+        if (obj->field48 != 0) {
+            obj->field48 -= 1;
+        } else {
+            obj->field1c = 0x12;
+            strike_check_a0(obj);
+            if (obj->field5c != 0)
+                caught = 1;
+        }
+
+        if (!caught) {                          /* UP A LEVEL */
+            if ((long)thread->frame > 0) {
+                thread->frame -= 1;
+                return 0;
+            }
+            return mk3_install(thread,
+                               (MK3THREADFUNC)t_local_reaction_exit);
+        }
+    } else {
+        return -3;
+    }
+
+    if (ride) {
+        obj->field00->field28 = obj->field1c;
+        next_anirate(obj);
+
+        obj->field1c = *(uint32_t *)((char *)obj->field00 + 0x2c) - 1;
+        if (obj->field1c == 0) {
+            rsnd_func(obj, 8);
+            obj->field1c = 8;
+        }
+        *(uint32_t *)((char *)obj->field00 + 0x2c) = obj->field1c;
+
+        obj->field1c = obj->field00->field20;
+        if (obj->field1c == 3) {                /* shake him this frame */
+            *mk3_arg(thread, thread->fieldf8) = obj->field48;
+            thread->fieldf8 += 1;
+            obj->field48 = 0x30003;
+            shake_a11(obj);
+            thread->fieldf8 -= 1;
+            obj->field48 = *mk3_arg(thread, thread->fieldf8);
+
+            *mk3_arg(thread, thread->fieldf8) = obj->field40;
+            thread->fieldf8 += 1;
+            obj->field40 = obj->field48;
+            do_his_next_a9_frame(obj);
+            obj->field48 = obj->field40;
+            thread->fieldf8 -= 1;
+            obj->field40 = *mk3_arg(thread, thread->fieldf8);
+        }
+
+        him = (MK3OBJ *)(uintptr_t)obj->field00->him;
+        obj->field1c = him->field18;
+        if (obj->field1c == 0) {
+            get_x_dist(obj);
+            if ((long)obj->field28 <= 0x30)
+                stop_me_player(obj);
+        }
+
+        *mk3_frame(thread, thread->frame + 1) = 0x673;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    /* caught him: up a level and collapse, twice */
+    if ((long)thread->frame > 0) {
+        thread->frame -= 1;
+    } else {
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_local_reaction_exit;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+    }
+    below   = thread->frame;
+    handler = mk3_frame(thread, below + 1)[1];
+    *mk3_frame(thread, below + 1) = *mk3_frame(thread, below + 2);
+    mk3_frame(thread, below)[1] = handler;
+
+    if ((long)thread->frame > 0) {
+        thread->frame -= 1;
+    } else {
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_local_reaction_exit;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+    }
+    below   = thread->frame;
+    handler = mk3_frame(thread, below + 1)[1];
+    *mk3_frame(thread, below + 1) = *mk3_frame(thread, below + 2);
+    mk3_frame(thread, below)[1] = handler;
+
+    stop_me_player(obj);
+    lights_on_hit(obj);
+
+    if (obj->field18 != 0) {                    /* he blocked it */
+        obj->field00->field18 = 0x61d;
+        obj->field40 = 0x10002;
+        obj->field1c = 0x10002u - 2;            /* 1.0 */
+        obj->field20 = (0x10002u - 2) - 0x60000u;       /* -5.0 */
+        obj->field24 = ((0x10002u - 2) - 0x60000u) + 0x54000u;  /* 0.25 */
+        obj->field28 = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x697;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    obj->field1c = 0x20d;
+    obj->field38 = (uint32_t)(uintptr_t)t_biked_suspend;
+    takeover_him(obj);
+
+    is_he_facing_me(obj);
+    if (obj->field5c == 0)
+        call_for_him(obj, flip_multi);          /* turn him round first */
+
+    is_he_airborn(obj);
+    if (obj->field5c == 0) {                    /* on the ground */
+        match_him_with_me_f(obj);
+        ground_him(obj);
+        obj->field1c = (uint32_t)-0x20;
+        adjust_him_x(obj);
+    } else {
+        get_x_dist(obj);
+        if ((long)obj->field28 <= 0x30) {       /* close enough to place */
+            him = (MK3OBJ *)(uintptr_t)obj->field00->him;
+            obj->field38 = (uint32_t)(int32_t)
+                *(int16_t *)((char *)him + 0x12);
+            match_him_with_me_f(obj);
+            him = (MK3OBJ *)(uintptr_t)obj->field00->him;
+            *(int16_t *)((char *)him + 0x12) =
+                (int16_t)(uint16_t)obj->field38;
+            obj->field1c = (uint32_t)-0x20;
+            adjust_him_x(obj);
+        }
+    }
+
+    obj->field40 = 0x20;
+    get_his_char_ani(obj);
+    find_part2(obj);
+    obj->field48 = obj->field40;
+    obj->field1c = 0xfffb0000u;                 /* -5.0 */
+    away_x_vel(obj);
+    obj->field1c = 0x50000u;                    /* 5.0 */
+    away_x_vel_him(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x640;
     thread->fieldfc = 1;
     return 1;
 }
