@@ -104,6 +104,12 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+void pose_him_a9(MK3OBJ *obj);
+void get_his_char_ani(MK3OBJ *obj);
+void rsnd_func(MK3OBJ *unused, uint32_t which);
+long t_double_mframew(MK3THREAD *thread);
+long t_r_zoom_flipped(MK3THREAD *thread);
+long tl_do_swat_zoom(MK3THREAD *thread);
 long tl_do_super_kang(MK3THREAD *thread);
 long t_do_backup(MK3THREAD *thread);
 long tl_do_mileena_prop(MK3THREAD *thread);
@@ -7167,6 +7173,224 @@ long tl_do_super_kang(MK3THREAD *thread)
     obj->a10 = 8;
 
     *mk3_frame(thread, thread->frame + 1) = 0x598;
+    thread->fieldfc = 1;
+    return 1;
+}
+
+
+/* ------------------------------------------------------------- tl_do_swat_zoom
+ *
+ * armv7 0x0004068c, 688 bytes.  **Complete.**
+ *
+ * Stryker's low charge. It closes at twelve, catches the opponent, poses him,
+ * and hands his thread away.
+ *
+ *      token == 0:      obj->field20 = 0x211 ; init_special_act(obj)
+ *                       obj->field40 = 1 ; get_char_ani2(obj)
+ *                       do_next_a9_frame(obj)
+ *                       obj->field1c = 2 ; ochar_sound(obj)
+ *                       obj->field1c = 12.0 ; towards_x_vel(obj)
+ *                       obj->field08->field1c = -2.0
+ *                       obj->field1c = obj->field08->field20 = 0x2400
+ *                       sans_repell_3(obj)
+ *                       obj->field1c = obj->field00->field28 = 0
+ *                       token := 0x384, park 1
+ *
+ *      token == 0x384:  sans_repell_3(obj) ; zoom_damping(obj)
+ *                       q_is_he_a_boss(obj)
+ *                       if (!boss) {
+ *                           obj->field1c = 0x15 ; strike_check_a0(obj)
+ *                           if (obj->field5c != 0) {
+ *                               if (obj->field18 != 0)
+ *                                   frame[frame].handler = t_zoom_blocked
+ *                               obj->field1c = 4 ; ochar_sound(obj)
+ *                               stop_him(obj)
+ *                               token := 0x3a7, park 1
+ *                           }
+ *                       }
+ *                       obj->field20 = (int16)obj->field08->field12
+ *                       obj->field1c = *(proc + 0x40)
+ *                       if (obj->field1c > obj->field20)
+ *                           { token := 0x384, park 1 }
+ *                       stop_me_player(obj) ; ground_player(obj)
+ *                       if (thread->frame > 0) { frame -= 1; return 0 }
+ *                       frame[frame].handler = t_local_reaction_exit
+ *
+ *      token == 0x3a7:  sans_repell_3(obj) ; match_him_with_me_f(obj)
+ *                       obj->field40 = 0x1001e ; pose_him_a9(obj)
+ *                       obj->field20 = 0 ; obj->field1c = 0x40
+ *                       adjust_him_xy(obj)
+ *                       stop_me_player(obj) ; ground_player(obj)
+ *                       stop_him(obj)
+ *                       obj->field40 = 0x42 ; get_his_char_ani(obj)
+ *                       obj->field48 = obj->field40
+ *                       obj->a10 = obj->field00->him
+ *                       obj->field40 = 1 ; get_char_ani2(obj)
+ *                       find_part2(obj)
+ *                       obj->field1c = 4 ; group_sound(obj)
+ *                       rsnd_func(obj, 0xf)
+ *                       obj->field1c = 3
+ *                       token := 0x3ce, descend into t_double_mframew
+ *
+ *      token == 0x3ce:  obj->field38 = t_r_zoom_flipped
+ *                       xfer_otherguy(obj)
+ *                       obj->field00->field00->field40 = obj->field48
+ *                       do_next_a9_frame(obj)
+ *                       token := 0x3d3, park 0xa
+ *
+ *      token == 0x3d3:  obj->field1c = 6
+ *                       token := 0x3d5, descend into t_mframew
+ *
+ *      token == 0x3d5:  if (thread->frame > 0) { frame -= 1; return 0 }
+ *                       frame[frame].handler = t_local_reaction_exit
+ *
+ *      otherwise:       return -3
+ *
+ * **A boss is not hit and not missed -- he is skipped.** `q_is_he_a_boss`
+ * coming back set branches past the strike check entirely, straight to the
+ * height test, so the charge runs its course through him without ever asking
+ * whether it connected.
+ *
+ * **The animation number is saved and given to the opponent.** 0x42 goes into
+ * 0x40, `get_his_char_ani` turns it into a real animation, the result is kept
+ * in 0x48, and two states later it is written into `proc->field00->field40` --
+ * the other fighter's own slot -- immediately after `xfer_otherguy` hands his
+ * thread to `t_r_zoom_flipped`. The pose and the thread that plays it are
+ * transferred in that order, one state apart.
+ *
+ * **The dispatch's register is reloaded halfway.** 0x3a7 is in r8 for tokens
+ * at or below it and 0x3d3 for tokens above, so the clean-hit path parks with
+ * 0x3a7 and state 0x3ce parks with 0x3d3 -- the same instruction, two values,
+ * decided by which side of the first comparison the token fell. The same trap
+ * as t_reptile_dash_hit and t_decoy_proc.
+ */
+long tl_do_swat_zoom(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    int32_t  y;
+
+    if (token == 0x3ce) {
+        obj->field38 = (uint32_t)(uintptr_t)t_r_zoom_flipped;
+        xfer_otherguy(obj);
+        obj->field00->field00->field40 = obj->field48;
+        do_next_a9_frame(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x3d3;
+        thread->fieldfc = 0xa;
+        return 0xa;
+    }
+
+    if (token == 0x3d3) {
+        obj->field1c = 6;
+        *mk3_frame(thread, thread->frame + 1) = 0x3d5;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x3d5) {
+        if ((long)thread->frame > 0) {
+            thread->frame -= 1;
+            return 0;
+        }
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (token == 0x3a7) {
+        sans_repell_3(obj);
+        match_him_with_me_f(obj);
+        obj->field40 = 0x1001e;
+        pose_him_a9(obj);
+        obj->field20 = 0;
+        obj->field1c = 0x40;
+        adjust_him_xy(obj);
+        stop_me_player(obj);
+        ground_player(obj);
+        stop_him(obj);
+
+        obj->field40 = 0x42;
+        get_his_char_ani(obj);
+        obj->field48 = obj->field40;            /* keep it for two states */
+        obj->a10 = obj->field00->him;
+
+        obj->field40 = 1;
+        get_char_ani2(obj);
+        find_part2(obj);
+        obj->field1c = 4;
+        group_sound(obj);
+        rsnd_func(obj, 0xf);
+        obj->field1c = 3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x3ce;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_double_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x384) {
+        sans_repell_3(obj);
+        zoom_damping(obj);
+
+        q_is_he_a_boss(obj);
+        if (obj->field5c == 0) {                /* a boss is simply skipped */
+            obj->field1c = 0x15;
+            strike_check_a0(obj);
+            if (obj->field5c != 0) {
+                if (obj->field18 != 0)          /* blocked */
+                    return mk3_install(thread,
+                                       (MK3THREADFUNC)t_zoom_blocked);
+                obj->field1c = 4;
+                ochar_sound(obj);
+                stop_him(obj);
+                *mk3_frame(thread, thread->frame + 1) = 0x3a7;
+                thread->fieldfc = 1;
+                return 1;
+            }
+        }
+
+        y = *(int16_t *)((char *)obj->field08 + 0x12);
+        obj->field20 = (uint32_t)y;
+        obj->field1c = *(uint32_t *)((char *)obj->field00 + 0x40);
+
+        if ((int32_t)obj->field1c > y) {         /* still above the floor */
+            *mk3_frame(thread, thread->frame + 1) = 0x384;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        stop_me_player(obj);
+        ground_player(obj);
+        if ((long)thread->frame > 0) {
+            thread->frame -= 1;
+            return 0;
+        }
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field20 = 0x211;
+    init_special_act(obj);
+    obj->field40 = 1;
+    get_char_ani2(obj);
+    do_next_a9_frame(obj);
+    obj->field1c = 2;
+    ochar_sound(obj);
+    obj->field1c = 0xc0000u;                    /* 12.0 */
+    towards_x_vel(obj);
+
+    obj->field08->field1c = 0xfffe0000u;        /* -2.0 */
+    obj->field1c = 0x2400u;
+    obj->field08->field20 = 0x2400u;
+    sans_repell_3(obj);
+    obj->field1c = 0;
+    obj->field00->field28 = 0;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x384;
     thread->fieldfc = 1;
     return 1;
 }
