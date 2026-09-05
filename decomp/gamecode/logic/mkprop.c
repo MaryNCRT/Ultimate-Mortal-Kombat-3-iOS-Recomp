@@ -104,6 +104,7 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+long tl_do_super_kang(MK3THREAD *thread);
 long t_do_backup(MK3THREAD *thread);
 long tl_do_mileena_prop(MK3THREAD *thread);
 long t_animate_a0_frames(MK3THREAD *thread);
@@ -6954,4 +6955,218 @@ long tl_do_mileena_prop(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0xb6;
     thread->fieldfc = 3;
     return 3;
+}
+
+
+/* ------------------------------------------------------------ tl_do_super_kang
+ *
+ * armv7 0x0003fa7c, 660 bytes.  **Complete.**
+ *
+ * Liu Kang's flying kick, and the only routine in this file that works out its
+ * own speed from how far away the opponent is.
+ *
+ *      token == 0:      obj->field20 = 0x20e ; init_special_act(obj)
+ *                       obj->field1c = 2 ; ochar_sound(obj)
+ *                       obj->field1c = 5 ; ochar_sound(obj)
+ *                       obj->field1c = 10.0 ; towards_x_vel(obj)
+ *                       get_x_dist(obj)
+ *                       d = obj->field28 - 0xa
+ *                       if (d <= 0) d = 1
+ *                       obj->field20 = 0xa
+ *                       n = ((d << 16) / 10) >> 16
+ *                       if (n <= 0) n = 1
+ *                       obj->field48 = n
+ *                       obj->field20 = 0x200000 / n
+ *                       if (obj->field20 > 4.0) obj->field20 = 4.0
+ *                       obj->field20 = -obj->field20
+ *                       obj->field08->field1c = obj->field20
+ *                       obj->field40 = 3 ; get_char_ani2(obj)
+ *                       obj->field1c = 1 ; init_anirate(obj)
+ *                       obj->a10 = 8
+ *                       token := 0x598, park 1
+ *
+ *      token == 0x598:  if (--obj->a10 == 0) {
+ *                           obj->a10 = 1
+ *                           obj->field1c = 0x13 ; strike_check_a0(obj)
+ *                           if (obj->field5c != 0) {
+ *                               obj->field1c = obj->field00->field18 = 0x306
+ *                               if (obj->field18 != 0) {          ; blocked
+ *                                   obj->field20 = obj->field00->field18 = 0x612
+ *                                   token := 0x5c8, descend into
+ *                                                   t_super_kick_land
+ *                               }
+ *                               token := 0x5bf, descend into t_super_kick_land
+ *                           }
+ *                       }
+ *                       next_anirate(obj)
+ *                       if (--obj->field48 > 0) { token := 0x598, park 1 }
+ *                       obj->field1c = obj->field20 = 0xd
+ *                       obj->field34 = 0
+ *                       obj->field24 = 0.625 ; obj->field28 = 0xfff
+ *                       token := 0x5af, descend into t_flight_call
+ *
+ *      token == 0x5af:  obj->field40 = 3 ; find_ani2_part2(obj)
+ *                       obj->field1c = 3
+ *                       token := 0x5b4, descend into t_mframew
+ *
+ *      token == 0x5c8:  obj->field40 = 0 ; get_char_ani(obj)
+ *                       do_next_a9_frame(obj) ; set_no_block(obj)
+ *                       token := 0x5cd, park 0xa
+ *
+ *      token == 0x5b4:  frame[frame].handler = t_local_reaction_exit
+ *      token == 0x5bf:  the same
+ *      token == 0x5cd:  the same
+ *
+ *      otherwise:       return -3
+ *
+ * **The kick is divided into steps and the speed falls out of the arithmetic.**
+ * The horizontal distance less ten is divided by ten to give a number of steps,
+ * that number goes into 0x48 as the frame counter, and 32.0 divided by it
+ * becomes the speed -- capped at 4.0 and then negated. So a distant opponent
+ * gets more frames at a lower speed and a near one fewer frames at a higher
+ * speed, and the product is roughly constant. The travel time varies; the
+ * distance covered does not.
+ *
+ * Both the divide by ten and the divide by the step count are calls in the
+ * binary: the first is the compiler's magic-number sequence (`0x66666667`,
+ * `smull`, `asr #2`, minus the sign) and the second is `___divsi3`, because
+ * this binary has no hardware integer divide.
+ *
+ * **Two clamps to one, in two different places.** A distance under ten and a
+ * step count that rounds to nothing both write 1 into 0x28 and rejoin -- the
+ * second one after the division has already been attempted. The move always
+ * has at least one step.
+ *
+ * The strike is only tried on ONE frame: 0x44 counts eight down to zero, and
+ * the check happens on the frame it reaches zero, after which 0x44 is set to 1
+ * so it never fires again. Everything after that is the counter at 0x48
+ * running the steps out.
+ */
+long tl_do_super_kang(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    int32_t  d, n;
+    int      step = 0;
+
+    if (token == 0x5b4 || token == 0x5bf || token == 0x5cd)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token == 0x5c8) {
+        obj->field40 = 0;
+        get_char_ani(obj);
+        do_next_a9_frame(obj);
+        set_no_block(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x5cd;
+        thread->fieldfc = 0xa;
+        return 0xa;
+    }
+
+    if (token == 0x5af) {
+        obj->field40 = 3;
+        find_ani2_part2(obj);
+        obj->field1c = 3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x5b4;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x598) {
+        obj->a10 -= 1;
+        if (obj->a10 == 0) {
+            obj->a10 = 1;                       /* and never again */
+            obj->field1c = 0x13;
+            strike_check_a0(obj);
+            if (obj->field5c != 0) {
+                obj->field1c = 0x306;
+                obj->field00->field18 = 0x306;
+
+                if (obj->field18 != 0) {        /* he blocked it */
+                    obj->field20 = 0x612;
+                    obj->field00->field18 = 0x612;
+                    *mk3_frame(thread, thread->frame + 1) = 0x5c8;
+                } else {
+                    *mk3_frame(thread, thread->frame + 1) = 0x5bf;
+                }
+
+                thread->frame = thread->frame + 1;
+                mk3_frame(thread, thread->frame)[1] =
+                    (uint32_t)(uintptr_t)t_super_kick_land;
+                *mk3_frame(thread, thread->frame + 1) = 0;
+                return 0;
+            }
+        }
+        step = 1;
+    } else if (token != 0) {
+        return -3;
+    }
+
+    if (step) {
+        next_anirate(obj);
+        obj->field48 -= 1;
+        if ((long)obj->field48 > 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0x598;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        obj->field1c = 0xd;
+        obj->field20 = 0xd;
+        obj->field34 = 0;
+        obj->field24 = 0xa000u;                 /* 0.625 */
+        obj->field28 = 0xfff;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x5af;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_flight_call;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    obj->field20 = 0x20e;
+    init_special_act(obj);
+    obj->field1c = 2;
+    ochar_sound(obj);
+    obj->field1c = 5;
+    ochar_sound(obj);
+    obj->field1c = 0xa0000u;                    /* 10.0 */
+    towards_x_vel(obj);
+
+    get_x_dist(obj);
+    d = (int32_t)obj->field28 - 0xa;
+    obj->field28 = (uint32_t)d;
+    if (d <= 0) {
+        d = 1;                                  /* right on top of him */
+        obj->field28 = 1;
+    }
+
+    obj->field20 = 0xa;
+    n = ((d << 16) / 10) >> 16;                 /* 0x66666667, smull, asr */
+    obj->field28 = (uint32_t)n;
+    if (n <= 0) {
+        n = 1;
+        obj->field28 = 1;
+    }
+
+    obj->field48 = (uint32_t)n;
+    obj->field20 = 0x200000u;
+    obj->field20 = (uint32_t)(0x200000 / n);    /* ___divsi3 */
+    if ((long)obj->field20 > 0x40000)
+        obj->field20 = 0x40000u;                /* 4.0 at most */
+    obj->field20 = (uint32_t)(-(int32_t)obj->field20);
+    obj->field08->field1c = obj->field20;
+
+    obj->field40 = 3;
+    get_char_ani2(obj);
+    obj->field1c = 1;
+    init_anirate(obj);
+    obj->a10 = 8;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x598;
+    thread->fieldfc = 1;
+    return 1;
 }
