@@ -34,6 +34,8 @@
  * conflict here, which is what the check is for. */
 long q_animal_dist(MK3OBJ *obj);
 long q_fatal_dist(MK3OBJ *obj);
+long is_he_joy(MK3OBJ *obj);
+long mercy_xfer(MK3OBJ *obj, MK3OBJ *other);
 long secret_move_search(MK3OBJ *obj, uint32_t arg, uint32_t *table);
 long slide_check(MK3OBJ *obj);
 
@@ -3597,4 +3599,81 @@ void q_taser_fatal(MK3OBJ *obj)
     obj->field30 = 0x100;
     obj->field34 = 0x130;
     q_fatal_dist(obj);
+}
+
+
+/* get_his_p_hit -- armv7 0x0005031c, 12 bytes.  **Complete.**
+ *
+ *      obj->field1c = obj->field00->field00->field00->p_hit
+ *
+ * Four loads to reach one field: this object's proc, the object that proc
+ * points back at, THAT object's proc, and its 0x44. The chain goes out to the
+ * opponent and back down, which is why a routine called "his" starts from the
+ * object it was handed. */
+void get_his_p_hit(MK3OBJ *obj)
+{
+    obj->field1c = obj->field00->field00->field00->p_hit;
+}
+
+/* q_four_button -- armv7 0x000502c0, 12 bytes.  **Complete.**
+ *
+ *      obj->field5c = (int16)obj->field00->field7c
+ *
+ * Read with `ldrsh`, so the gate at 0x7c is signed even though the field is
+ * declared as a halfword. Answers through 0x5c like the rest of the q_ family. */
+void q_four_button(MK3OBJ *obj)
+{
+    obj->field5c = (uint32_t)(int32_t)(int16_t)obj->field00->field7c;
+}
+
+/* q_jade_zap_ret -- armv7 0x00054c84, 12 bytes.  **Complete.**
+ *
+ * The whole body is a call to `is_he_joy` whose value is returned. It also
+ * answers through 0x5c, because that is what is_he_joy writes -- the return
+ * value and the field carry the same answer. */
+long q_jade_zap_ret(MK3OBJ *obj)
+{
+    return is_he_joy(obj);
+}
+
+/* fatality_xfer -- armv7 0x00054b24, 20 bytes.  **Complete.**
+ *
+ *      *(uint16_t *)((char *)other->field00 + 0x80) = 0
+ *      return mercy_xfer(obj, other)
+ *
+ * Clears a halfword in the OTHER fighter's proc and then hands over. 0x80 has
+ * no name in the struct, so it is reached as an offset. */
+long fatality_xfer(MK3OBJ *obj, MK3OBJ *other)
+{
+    *(uint16_t *)((char *)other->field00 + 0x80) = 0;
+    return mercy_xfer(obj, other);
+}
+
+/* osm_hk_close -- armv7 0x000539b0, 20 bytes.  **Complete.**
+ *
+ * `secret_move_search` with `_sm_ermac_hkc` (0x0016a070) in r2 -- **plus
+ * 0x48**. Every other member of this family passes the table's own address;
+ * this one starts eighteen words in, and the `adds r2, #0x48` that does it is
+ * the only instruction telling them apart. r0 and r1 are untouched, so the
+ * second argument is the caller's. */
+long osm_hk_close(MK3OBJ *obj, uint32_t arg)
+{
+    return secret_move_search(obj, arg,
+                              (uint32_t *)((char *)sm_ermac_hkc + 0x48));
+}
+
+/* q_ermac_fatal -- armv7 0x000534ac, 20 bytes.  **Complete.**
+ *
+ *      obj->field30 = 0x60
+ *      obj->field34 = 0xc0
+ *      return q_fatal_dist(obj)
+ *
+ * The second constant is the first doubled in place (`adds r3, r3, r3`), so
+ * the near and far bounds of the range are one instruction apart and cannot
+ * drift. */
+long q_ermac_fatal(MK3OBJ *obj)
+{
+    obj->field30 = 0x60;
+    obj->field34 = 0x60 + 0x60;
+    return q_fatal_dist(obj);
 }
