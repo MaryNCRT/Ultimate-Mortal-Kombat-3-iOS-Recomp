@@ -2555,3 +2555,105 @@ long tl_sonya_bike_kick(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ---------------------------------------------------------------- tl_do_sg_pounce
+ *
+ * armv7 0x0003e454, 224 bytes.  **Complete.**
+ *
+ *      token == 0:       obj->field20 = 0x20f
+ *                        init_special_act(obj)
+ *                        obj->field1c = 0; ochar_sound(obj)
+ *                        obj->field40 = 0; get_char_ani2(obj)
+ *                        do_next_a9_frame(obj)
+ *                        obj->field48 = (int16_t)obj->field00->him[+0x0e]
+ *                        obj->field08->field1c = 0xfff80000
+ *                        obj->field1c          = obj->field08->field1c + 0x70000
+ *                        obj->field08->field20 = that
+ *                        park(token 0x4d9, duration 1)
+ *
+ *      token == 0x4d9:   distance_off_ground(obj)
+ *                        if (obj->field1c <= 0xe7)
+ *                            park(token 0x4d9, duration 1)
+ *                        obj->field08[+0x0e] = (uint16_t)obj->field48
+ *                        obj->field40 = 0; get_char_ani2(obj)
+ *                        obj->field40 += 8
+ *                        obj->field1c = 0
+ *                        obj->field20 = 0x60000
+ *                        obj->field24 = 0x08000
+ *                        obj->field28 = 2
+ *                        obj->field34 = t_pounce_scan
+ *                        frame[frame].handler = t_pounce_fall
+ *
+ *      otherwise:        return -3
+ *
+ * Entry 15 of the propell table, and it **remembers where the opponent was**.
+ * The halfword at his +0x0e -- the integer part of a coordinate -- is saved
+ * into 0x48 on the way up and written back on the way down, so the pounce lands
+ * where he stood when it started rather than where he has moved to.
+ *
+ * The rise is a one-tick poll like `t_lfly5`'s, waiting for 0xe7 off the
+ * ground; the park is shared between the entry and the loop, so the height
+ * test costs the same every tick.
+ *
+ * 0x34 gets `t_pounce_scan` -- the callback `t_pounce_fall` runs each frame,
+ * and the routine that decides whether the landing connects. Both halves of
+ * that pair were read separately and only join up here.
+ *
+ * Two derived constants again: the descent's -8.0 has 0x70000 added to reach
+ * -1.0 for the horizontal pair, and 6.0 has 0x58000 subtracted to reach 0.5.
+ */
+long tl_do_sg_pounce(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token != 0) {
+        if (token != 0x4d9)
+            return -3;
+
+        distance_off_ground(obj);
+        if ((long)obj->field1c > 0xe7) {        /* high enough now */
+            MK3OBJ *other = obj->field08;
+
+            *(uint16_t *)((char *)other + 0x0e) = (uint16_t)obj->field48;
+
+            obj->field40 = 0;
+            get_char_ani2(obj);
+            obj->field40 += 8;          /* an offset from what was resolved */
+
+            obj->field1c = 0;
+            obj->field20 = 0x60000;     /* 6.0 */
+            obj->field24 = 0x08000;     /* 0.5, by sub #0x58000 */
+            obj->field28 = 2;
+
+            obj->field34 = (uint32_t)(uintptr_t)t_pounce_scan;  /* callback */
+
+            return mk3_push_handler(thread, (MK3THREADFUNC)t_pounce_fall);
+        }
+    } else {
+        MK3OBJ *him;
+
+        obj->field20 = 0x20f;
+        init_special_act(obj);
+
+        obj->field1c = 0;
+        ochar_sound(obj);
+
+        obj->field40 = 0;
+        get_char_ani2(obj);
+        do_next_a9_frame(obj);
+
+        him = (MK3OBJ *)(uintptr_t)obj->field00->him;
+        obj->field48 = (uint32_t)(int32_t)
+                       *(int16_t *)((char *)him + 0x0e);   /* where he stood */
+
+        obj->field08->field1c = 0xfff80000u;                /* -8.0 */
+        obj->field1c          = obj->field08->field1c + 0x70000;
+        obj->field08->field20 = obj->field1c;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = 0x4d9;
+    thread->fieldfc = 1;                /* look again next tick */
+    return 1;
+}
