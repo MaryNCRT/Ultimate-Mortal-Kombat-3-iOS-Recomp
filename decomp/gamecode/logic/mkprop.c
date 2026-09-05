@@ -104,6 +104,7 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+long tl_do_kano_upball(MK3THREAD *thread);
 long tl_do_robo_tele(MK3THREAD *thread);
 void clear_noflip(MK3OBJ *obj);
 void set_no_block(MK3OBJ *obj);
@@ -6279,6 +6280,210 @@ long tl_do_robo_tele(MK3THREAD *thread)
     obj->field08->field20 = obj->field1c;
 
     *mk3_frame(thread, thread->frame + 1) = 0x878;
+    thread->fieldfc = 1;
+    return 1;
+}
+
+
+/* ----------------------------------------------------------- tl_do_kano_upball
+ *
+ * armv7 0x0003f064, 540 bytes.  **Complete.**
+ *
+ * Kano's upward cannonball. Six states; the rise is a flight, the fall is
+ * watched by a damping routine, and the landing is a second flight with a
+ * null callback.
+ *
+ *      token == 0:      obj->field20 = 0x21a ; init_special_act(obj)
+ *                       obj->field1c = 4 ; ochar_sound(obj)
+ *                       set_noflip(obj)
+ *                       obj->field40 = 7.0
+ *                       is_he_airborn(obj)
+ *                       if (obj->field5c != 0) obj->field40 = 9.0
+ *                       obj->field1c = obj->field40 ; towards_x_vel(obj)
+ *                       obj->field08->field1c = -3.0
+ *                       obj->field08->field20 = -1.0
+ *                       obj->field1c = 0 ; obj->field20 = 0x18
+ *                       multi_adjust_xy(obj)
+ *                       obj->field40 = 0x1a ; get_char_ani(obj)
+ *                       obj->field40 += 4
+ *                       obj->field1c = 3 ; init_anirate(obj)
+ *                       obj->field48 = 0xa
+ *                       token := 0x6c, park 1
+ *
+ *      token == 0x6c:   if (obj->field48 <= 0x14) {
+ *                           obj->field1c = 0x13 ; strike_check_a0(obj)
+ *                           if (obj->field5c != 0) {
+ *                               obj->field00->field18 = 0x602
+ *                               obj->field1c = 3.0 ; obj->field20 = -8.0
+ *                               if (obj->field18 != 0) {
+ *                                   obj->field1c = 0 ; obj->field20 = -9.0
+ *                               }
+ *                               obj->field24 = 0.375 ; obj->field28 = 2
+ *                               token := 0xa6, descend into t_flight
+ *                           }
+ *                       }
+ *                       next_anirate(obj)
+ *                       if (--obj->field48 > 0) { token := 0x6c, park 1 }
+ *                       obj->field20 = obj->field00->field18 = 0x62d
+ *                       obj->field1c = obj->field08->field20 = 1.5
+ *                       token := 0x7f, park 1
+ *
+ *      token == 0x7f:   token := 0x80, descend into t_upball_x_damping
+ *
+ *      token == 0x80:   next_anirate(obj)
+ *                       obj->field1c = obj->field08->field1c
+ *                       if (obj->field1c < 0) { token := 0x7f, park 1 }
+ *                       obj->field1c = 0 ; set_x_vel_player(obj)
+ *                       obj->field08->field20 = 0.3125
+ *                       obj->field34 = 0
+ *                       obj->field1c = obj->field20 = obj->field24 = 0xd
+ *                       obj->field28 = 2
+ *                       token := 0x91, descend into t_flight_call
+ *
+ *      token == 0xa6:   frame[frame].handler = t_jump_up_land_jsrp
+ *      token == 0x91:   frame[frame].handler = t_jump_up_land_jump
+ *
+ *      otherwise:       return -3
+ *
+ * **A guard that can never fire.** 0x48 is written 0xa and only ever
+ * decrements, and the strike is skipped when it is above 0x14 -- which it
+ * never is. The test is in the binary and it is dead for every value this
+ * routine can produce. Transcribed rather than removed: the same shape gates a
+ * real six-frame nose in tl_kano_cannon_ball, so this is the idiom with the
+ * threshold left on the wrong side.
+ *
+ * **Being blocked replaces the whole launch, not part of it.** A clean hit
+ * flies at 3.0 across and -8.0 up; blocked, it is 0 across and -9.0 up. The
+ * second pair is written over the first by the same two instructions in
+ * sequence, so the arithmetic for the clean case runs whether or not it is
+ * used.
+ *
+ * **The landing descends into t_flight_call with 0x34 set to zero.** Every
+ * other user of that routine puts a function there first; this one clears it,
+ * so the callback is a null one. The flight still runs -- only the per-frame
+ * call has nothing to reach.
+ *
+ * Both -3.0 and -1.0 come from one pool word plus 0x20000, and both -8.0 and
+ * -9.0 from a subtraction off a number already in the register.
+ */
+long tl_do_kano_upball(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0xa6)
+        return mk3_install(thread, (MK3THREADFUNC)t_jump_up_land_jsrp);
+
+    if (token == 0x91)
+        return mk3_install(thread, (MK3THREADFUNC)t_jump_up_land_jump);
+
+    if (token == 0x7f) {
+        *mk3_frame(thread, thread->frame + 1) = 0x80;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_upball_x_damping;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x80) {
+        next_anirate(obj);
+        obj->field1c = obj->field08->field1c;
+        if ((int32_t)obj->field1c < 0) {        /* still going up */
+            *mk3_frame(thread, thread->frame + 1) = 0x7f;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        obj->field1c = 0;
+        set_x_vel_player(obj);
+        obj->field08->field20 = 0x5000u;        /* 0.3125 */
+        obj->field34 = 0;                       /* no callback this time */
+        obj->field1c = 0xd;
+        obj->field20 = 0xd;
+        obj->field24 = 0xd;
+        obj->field28 = 2;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x91;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_flight_call;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x6c) {
+        if ((long)obj->field48 <= 0x14) {       /* always true: 0x48 starts at 10 */
+            obj->field1c = 0x13;
+            strike_check_a0(obj);
+            if (obj->field5c != 0) {
+                obj->field00->field18 = 0x602;
+                obj->field1c = 0x30000u;        /* 3.0 */
+                obj->field20 = 0x30000u - 0xb0000u;     /* -8.0 */
+                if (obj->field18 != 0) {        /* blocked: a different launch */
+                    obj->field1c = 0;
+                    obj->field20 = 0u - 0x90000u;       /* -9.0 */
+                }
+                obj->field24 = 0x6000u;         /* 0.375 */
+                obj->field28 = 2;
+
+                *mk3_frame(thread, thread->frame + 1) = 0xa6;
+                thread->frame = thread->frame + 1;
+                mk3_frame(thread, thread->frame)[1] =
+                    (uint32_t)(uintptr_t)t_flight;
+                *mk3_frame(thread, thread->frame + 1) = 0;
+                return 0;
+            }
+        }
+
+        next_anirate(obj);
+        obj->field48 -= 1;
+        if ((long)obj->field48 > 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0x6c;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        obj->field20 = 0x62d;
+        obj->field00->field18 = 0x62d;
+        obj->field1c = 0x18000u;                /* 1.5 */
+        obj->field08->field20 = obj->field1c;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x7f;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field20 = 0x21a;
+    init_special_act(obj);
+    obj->field1c = 4;
+    ochar_sound(obj);
+    set_noflip(obj);
+
+    obj->field40 = 0x70000u;                    /* 7.0 */
+    is_he_airborn(obj);
+    if (obj->field5c != 0)
+        obj->field40 = 0x90000u;                /* 9.0 if he is in the air */
+    obj->field1c = obj->field40;
+    towards_x_vel(obj);
+
+    obj->field08->field1c = 0xfffd0000u;                /* -3.0 */
+    obj->field08->field20 = 0xfffd0000u + 0x20000u;     /* -1.0 */
+
+    obj->field1c = 0;
+    obj->field20 = 0x18;
+    multi_adjust_xy(obj);
+    obj->field40 = 0x1a;
+    get_char_ani(obj);
+    obj->field40 = obj->field40 + 4;
+    obj->field1c = 3;
+    init_anirate(obj);
+    obj->field48 = 0xa;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x6c;
     thread->fieldfc = 1;
     return 1;
 }
