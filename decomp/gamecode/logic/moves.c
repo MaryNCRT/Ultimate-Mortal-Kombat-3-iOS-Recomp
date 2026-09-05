@@ -34,6 +34,7 @@
  * conflict here, which is what the check is for. */
 void q_animal_dist(MK3OBJ *obj);
 void q_fatal_dist(MK3OBJ *obj);
+void get_tsl_px(MK3OBJ *obj, MK3OBJ *ref);
 uint32_t four_button_bits(MK3OBJ *obj, uint32_t bits);
 void DoASpecial(MK3OBJ *obj, uint32_t which);
 void q_is_he_a_boss(MK3OBJ *obj);
@@ -4635,4 +4636,61 @@ void q_smoke_tele(MK3OBJ *obj)
         q_no(obj);
     else
         q_yes(obj);
+}
+
+
+/* q_jax_zap -- armv7 0x00052af0, 52 bytes.  **Complete.**
+ *
+ *      obj->field1c = &G + 0x410
+ *      get_tsl_px(obj, obj)
+ *      if (obj->field20 > 0x7f) q_yes(obj); else q_no(obj);
+ *
+ * **A third family in this file, and this one really does use 0x1c.** The
+ * address goes in as an argument, get_tsl_px is handed the object twice --
+ * once as itself and once as the reference -- and the answer comes back in
+ * 0x20 to be compared against a threshold. Unlike the qorb3 callers, nothing
+ * overwrites the address before it is read.
+ *
+ * q_jade_flash and q_kabal_animal are the same fifty-two bytes with different
+ * addresses and different thresholds:
+ *
+ *      q_jax_zap        &G + 0x410    > 0x7f
+ *      q_jade_flash     &G + 0x41c    > 0x7f
+ *      q_kabal_animal   &G + 0x3a8    > 0x3f
+ *
+ * The jade_flash address is built with two adds, 0x410 then 0xc, the same way
+ * the reptile orb pair builds its own. */
+void q_jax_zap(MK3OBJ *obj)
+{
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x410);
+    get_tsl_px(obj, obj);
+    if ((long)obj->field20 > 0x7f)
+        q_yes(obj);
+    else
+        q_no(obj);
+}
+
+/* q_jade_flash -- armv7 0x00052b64, 52 bytes.  **Complete.**  See q_jax_zap. */
+void q_jade_flash(MK3OBJ *obj)
+{
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x410 + 0xc);
+    get_tsl_px(obj, obj);
+    if ((long)obj->field20 > 0x7f)
+        q_yes(obj);
+    else
+        q_no(obj);
+}
+
+/* q_kabal_animal -- armv7 0x00052abc, 52 bytes.  **Complete.**  See q_jax_zap.
+ *
+ * The one member of the three with a different threshold -- half the others'
+ * -- and an address 0x68 below theirs. */
+void q_kabal_animal(MK3OBJ *obj)
+{
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x3a8);
+    get_tsl_px(obj, obj);
+    if ((long)obj->field20 > 0x3f)
+        q_yes(obj);
+    else
+        q_no(obj);
 }
