@@ -34,6 +34,9 @@
  * conflict here, which is what the check is for. */
 long q_animal_dist(MK3OBJ *obj);
 long q_fatal_dist(MK3OBJ *obj);
+void q_mercy(MK3OBJ *obj);
+void q_fatality_req(MK3OBJ *obj);
+long free_xfer(MK3OBJ *obj, MK3OBJ *other);
 long get_x_dist(MK3OBJ *obj);
 long stick_look_lr(MK3OBJ *obj, uint32_t a, uint32_t b,
                    uint32_t *pair);
@@ -3852,4 +3855,88 @@ long q_lp_block_lk(MK3OBJ *obj)
     obj->field1c = 0x00030020u;
     obj->field20 = 0x00302000u;
     return button_bit_check(obj);
+}
+
+
+/* qorb3 -- armv7 0x00052874, 28 bytes.  **Complete.**
+ *
+ *      obj->field1c = ((MK3OBJ *)obj->field00->him)->field24
+ *      if (obj->field1c == 0x19) q_no(obj); else q_both_punches(obj);
+ *
+ * The character number is read out of the opponent and compared against 0x19;
+ * that one character cannot be answered and everything else falls through to
+ * the button test. The value is stored into 0x1c before the branch, so it is
+ * live for whichever call follows -- and q_both_punches overwrites it with its
+ * own masks straight away, which is what makes the store a scratch use rather
+ * than an argument.
+ *
+ * Both arms end in a call whose value this routine does not compute, so it
+ * answers only through 0x5c. */
+void qorb3(MK3OBJ *obj)
+{
+    obj->field1c = ((MK3OBJ *)(uintptr_t)obj->field00->him)->field24;
+    if (obj->field1c == 0x19)
+        q_no(obj);
+    else
+        q_both_punches(obj);
+}
+
+/* q_reptile_orb_slow -- armv7 0x00052890, 28 bytes.  **Complete.**
+ *
+ *      obj->field1c = &G + 0x438
+ *      qorb3(obj)
+ *
+ * **The address it stores is dead.** `qorb3` overwrites 0x1c with the
+ * opponent's character number on its first three instructions, before anything
+ * reads it. The store is in the binary and nothing between the two touches the
+ * field, so it is transcribed as it stands. */
+void q_reptile_orb_slow(MK3OBJ *obj)
+{
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x438);
+    qorb3(obj);
+}
+
+/* airborn_xfer -- armv7 0x0005442c, 32 bytes.  **Complete.**
+ *
+ *      *(uint16_t *)((char *)other->field00 + 0x80) = 0
+ *      if ((other->field00->field10 & 0x1c) == 0) free_xfer(obj, other)
+ *
+ * The same halfword `fatality_xfer` clears, cleared here too, and then three
+ * bits of the proc's 0x10 decide whether the transfer happens at all. The
+ * clear is unconditional; only the hand-over is gated. */
+void airborn_xfer(MK3OBJ *obj, MK3OBJ *other)
+{
+    *(uint16_t *)((char *)other->field00 + 0x80) = 0;
+    if ((other->field00->field10 & 0x1cu) == 0)
+        free_xfer(obj, other);
+}
+
+/* q_animal_req -- armv7 0x00050230, 32 bytes.  **Complete.**
+ *
+ *      q_mercy(obj)
+ *      if (obj->field5c == 0) q_no(obj); else q_fatality_req(obj);
+ *
+ * A question asked in front of another question: mercy first, and only if that
+ * answered yes is the fatality requirement asked. Both answer through 0x5c, so
+ * the second overwrites the first. */
+void q_animal_req(MK3OBJ *obj)
+{
+    q_mercy(obj);
+    if (obj->field5c == 0)
+        q_no(obj);
+    else
+        q_fatality_req(obj);
+}
+
+/* q_close_animal -- armv7 0x0005339c, 32 bytes.  **Complete.**
+ *
+ * The same thirty-two bytes as q_animal_req with `q_close_fatal` in place of
+ * `q_fatality_req`. */
+void q_close_animal(MK3OBJ *obj)
+{
+    q_mercy(obj);
+    if (obj->field5c == 0)
+        q_no(obj);
+    else
+        q_close_fatal(obj);
 }
