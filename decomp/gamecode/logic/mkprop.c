@@ -104,6 +104,7 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+long tl_do_stick_sweep(MK3THREAD *thread);
 long is_stick_right(MK3OBJ *obj);
 long is_stick_left(MK3OBJ *obj);
 long is_stick_up(MK3OBJ *obj);
@@ -4586,6 +4587,115 @@ long t_main_hover_loop(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0xa79;
     thread->frame = thread->frame + 1;
     mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_hover_sleep_1;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ----------------------------------------------------------- tl_do_stick_sweep
+ *
+ * armv7 0x0003cd8c, 360 bytes.  **Complete.**
+ *
+ * A sweep with the stick, and the recovery depends on whether it landed.
+ *
+ *      token == 0:      obj->field1c = &G + 0x418      ; an ADDRESS
+ *                       update_tsl(obj)
+ *                       obj->field20 = 0x212 ; init_special_act(obj)
+ *                       obj->field1c = 3 ; ochar_sound(obj)
+ *                       obj->field1c = 6.0 ; towards_x_vel(obj)
+ *                       obj->field40 = 2 ; get_char_ani2(obj)
+ *                       obj->field1c = 4
+ *                       token := 0x345, descend into t_mframew
+ *
+ *      token == 0x345:  stop_me_player(obj)
+ *                       obj->field1c = 0x17 ; strike_check_a0(obj)
+ *                       if (obj->field5c != 0 && obj->field18 == 0) {
+ *                           token := 0x34f, park 6
+ *                       } else {
+ *                           obj->field1c = obj->field00->field18 = 0x614
+ *                           do_next_a9_frame(obj)
+ *                           token := 0x35a, park 0x20
+ *                       }
+ *
+ *      token == 0x34f:  do_next_a9_frame(obj)
+ *                       token := 0x352, park 0x10
+ *
+ *      token == 0x352:  obj->field1c = 4
+ *                       frame[frame].handler = t_mframew
+ *
+ *      token == 0x35a:  obj->field1c = 4
+ *                       frame[frame].handler = t_mframew
+ *
+ *      otherwise:       return -3
+ *
+ * **A clean hit recovers in 6 + 16 frames; a miss or a block costs 32.** The
+ * two endings are the same two instructions and the binary shares the tail
+ * between them, so 0x352 and 0x35a differ only in how long the fighter stood
+ * there first. Landing the sweep is ten frames cheaper than not landing it.
+ *
+ * A block is treated exactly as a miss: `obj->field18 != 0` branches into the
+ * miss path's first instruction, not past it.
+ *
+ * **0x1c holds an address here.** `&G + 0x418` goes into the argument slot and
+ * update_tsl reads it from there -- the same field that carries a sound index
+ * three instructions later and a 16.16 speed three after that. The slot has no
+ * type; it has whatever the next call expects.
+ */
+long tl_do_stick_sweep(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x34f) {
+        do_next_a9_frame(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x352;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (token == 0x352 || token == 0x35a) {
+        obj->field1c = 4;
+        return mk3_install(thread, (MK3THREADFUNC)t_mframew);
+    }
+
+    if (token == 0x345) {
+        stop_me_player(obj);
+        obj->field1c = 0x17;
+        strike_check_a0(obj);
+
+        if (obj->field5c != 0 && obj->field18 == 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0x34f;
+            thread->fieldfc = 6;
+            return 6;
+        }
+
+        /* missed, or he blocked it -- the same ending */
+        obj->field1c = 0x614;
+        obj->field00->field18 = 0x614;
+        do_next_a9_frame(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x35a;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x418);
+    update_tsl(obj);
+    obj->field20 = 0x212;
+    init_special_act(obj);
+    obj->field1c = 3;
+    ochar_sound(obj);
+    obj->field1c = 0x60000u;                    /* 6.0 */
+    towards_x_vel(obj);
+    obj->field40 = 2;
+    get_char_ani2(obj);
+    obj->field1c = 4;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x345;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
