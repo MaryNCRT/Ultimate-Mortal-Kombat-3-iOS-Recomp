@@ -104,6 +104,7 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+long t_pounce_jsrp(MK3THREAD *thread);
 long is_jade_protected(MK3OBJ *obj);   /* q_yes/q_no leave the answer in r0 too */
 void is_he_blocking(MK3OBJ *obj);
 void disable_his_buttons(MK3OBJ *obj);
@@ -1548,7 +1549,7 @@ long t_cyrax_implode(MK3THREAD *thread)
             thread->frame -= 1;         /* back up a level */
             return 0;
         }
-        return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
     }
 
     if (token != 0)
@@ -1902,7 +1903,7 @@ long t_super_kick_land(MK3THREAD *thread)
         obj->field40 = 3;
         find_ani2_part2(obj);
         obj->field1c = 3;
-        return mk3_push_handler(thread, (MK3THREADFUNC)t_mframew);
+        return mk3_install(thread, (MK3THREADFUNC)t_mframew);
     }
 
     if (token != 0)
@@ -2123,12 +2124,12 @@ long t_pounce_miss(MK3THREAD *thread)
             thread->fieldfc = 8;
             return 8;
         }
-        return mk3_push_handler(thread,
+        return mk3_install(thread,
                                 (MK3THREADFUNC)t_local_reaction_exit);
     }
 
     if (token == 0x512)
-        return mk3_push_handler(thread,
+        return mk3_install(thread,
                                 (MK3THREADFUNC)t_local_reaction_exit);
 
     if (token != 0)
@@ -2463,7 +2464,7 @@ long t_tusk_blur_blocked(MK3THREAD *thread)
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0x326)
-        return mk3_push_handler(thread, (MK3THREADFUNC)t_blb8);
+        return mk3_install(thread, (MK3THREADFUNC)t_blb8);
 
     if (token != 0 && token != 0x321)
         return -3;
@@ -3026,11 +3027,11 @@ long t_settle_down(MK3THREAD *thread)
         obj->field30 = (uint32_t)v;
 
         if (v < 0)                      /* still rising: wait again */
-            return mk3_push_handler(thread, (MK3THREADFUNC)t_settle_down);
+            return mk3_install(thread, (MK3THREADFUNC)t_settle_down);
 
         distance_from_ground(obj);
         if ((long)obj->field1c > 0xe0)  /* still too high */
-            return mk3_push_handler(thread, (MK3THREADFUNC)t_settle_down);
+            return mk3_install(thread, (MK3THREADFUNC)t_settle_down);
 
         obj->field34          = 0xffffa000u;    /* -0.375, a number here */
         obj->field08->field20 = 0xffffa000u;
@@ -3045,7 +3046,7 @@ long t_settle_down(MK3THREAD *thread)
                 thread->frame -= 1;
                 return 0;
             }
-            return mk3_push_handler(thread,
+            return mk3_install(thread,
                                     (MK3THREADFUNC)t_local_reaction_exit);
         }
 
@@ -3176,4 +3177,98 @@ void decoy_collision_check(MK3OBJ *obj)
     obj->field38 = (uint32_t)(uintptr_t)t_r_decoy_freeze;
     xfer_otherguy(obj);
     obj->field5c = 1;
+}
+
+
+/* -------------------------------------------------------------- t_pounce_jsrp
+ *
+ * armv7 0x0003d59c, 264 bytes.  **Complete.**
+ *
+ * The pounce: a shake, a jump with real gravity, and a catch-up blur on the
+ * way down. "jsrp" is jsr-with-parameters, and this is the routine that shows
+ * what the thread's SECOND stack is for.
+ *
+ *      token == 0:
+ *          arg[f8++] = obj->field1c            ; save
+ *          arg[f8++] = obj->field48
+ *          obj->field48 = 0x80008              ; (8, 8) packed, the shake
+ *          shake_a11(obj)
+ *          do_next_a9_frame(obj)
+ *          obj->field48 = arg[--f8]            ; restore
+ *          obj->field1c = arg[--f8]
+ *          set_x_vel_player(obj)               ; reads the restored 0x1c
+ *          obj->field1c = 0xd
+ *          obj->field20 = -10.0
+ *          obj->field24 = 0.75
+ *          obj->field28 = 2
+ *          token := 0x524, descend into t_flight
+ *
+ *      token == 0x524:
+ *          obj->field38 = obj->field48
+ *          if (obj->field48 != 0) xfer_otherguy(obj)
+ *          frame[frame].handler = t_blur_catchup     ; install, NOT a descend
+ *
+ *      otherwise: return -3
+ *
+ * **The two words are saved because the shake needs 0x48 and set_x_vel_player
+ * needs 0x1c, and they cannot both be live.** 0x48 carries the shake as a
+ * packed pair of halves -- 0x80008 is (8, 8) -- and the routine has to give it
+ * back afterwards, because on the way out of the flight the same field holds a
+ * handler address. That is the whole reason for the stack: not recursion, but
+ * two callees that want the same slot for different things.
+ *
+ * The restore of 0x1c matters for exactly one instruction. set_x_vel_player
+ * reads it, and the very next store overwrites it with 13. Push, pop, use
+ * once, discard.
+ *
+ * -10.0 and 0.75 come from ONE pool word: 0xfff60000 is stored, then
+ * `add.w r3, r3, #0xac000` wraps it round to 0x0000c000. The wrap is the
+ * point -- the two constants are a subtraction apart and the assembler only
+ * had to spell one of them.
+ *
+ * The 0x524 state INSTALLS. It cannot use mk3_push_handler: the token is
+ * 0x524 by construction and the refusal that helper carries would fire every
+ * time. The binary branches straight into the store.
+ */
+long t_pounce_jsrp(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x524) {
+        obj->field38 = obj->field48;
+        if (obj->field48 != 0)
+            xfer_otherguy(obj);
+        return mk3_install(thread, (MK3THREADFUNC)t_blur_catchup);
+    }
+
+    if (token != 0)
+        return -3;
+
+    *mk3_arg(thread, thread->fieldf8) = obj->field1c;
+    thread->fieldf8 += 1;
+    *mk3_arg(thread, thread->fieldf8) = obj->field48;
+    thread->fieldf8 += 1;
+
+    obj->field48 = 0x80008u;                    /* (8, 8) */
+    shake_a11(obj);
+    do_next_a9_frame(obj);
+
+    thread->fieldf8 -= 1;
+    obj->field48 = *mk3_arg(thread, thread->fieldf8);
+    thread->fieldf8 -= 1;
+    obj->field1c = *mk3_arg(thread, thread->fieldf8);
+
+    set_x_vel_player(obj);
+
+    obj->field1c = 0xd;
+    obj->field20 = 0xfff60000u;                 /* -10.0 */
+    obj->field24 = 0xfff60000u + 0xac000u;      /* wraps to 0xc000 = 0.75 */
+    obj->field28 = 2;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x524;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
 }
