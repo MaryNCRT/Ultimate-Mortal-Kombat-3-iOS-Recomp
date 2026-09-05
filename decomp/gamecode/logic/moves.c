@@ -4441,3 +4441,71 @@ void q_simple_shang(MK3OBJ *obj)
     else
         q_no(obj);
 }
+
+
+/* q_bubble_fatal -- armv7 0x0005347c, 48 bytes.  **Complete.**
+ *
+ *      obj->field1c = 0x00040020
+ *      obj->field20 = 0x00402000
+ *      button_bit_check(obj)
+ *      if (obj->field5c == 0) q_no(obj); else q_earth_fatal(obj);
+ *
+ * **The mask pairs in this file have a shape, and four of them agree on it.**
+ * Each word is two 16-bit halves, and the second word is the first with the
+ * high half shifted left four and the low half shifted left eight:
+ *
+ *      q_both_punches   (0x0001, 0x0010) -> (0x0010, 0x1000)
+ *      q_lp_block_lk    (0x0003, 0x0020) -> (0x0030, 0x2000)
+ *      q_bubble_fatal   (0x0004, 0x0020) -> (0x0040, 0x2000)
+ *      buttons_in_a2    (0x0007, 0x0070) -> (0x0070, 0x7000)
+ *
+ * That is measured from the four pairs, not inferred from one. What the halves
+ * select is still button_bit_check's business. */
+void q_bubble_fatal(MK3OBJ *obj)
+{
+    obj->field1c = 0x00040020u;
+    obj->field20 = 0x00402000u;
+    button_bit_check(obj);
+    if (obj->field5c == 0)
+        q_no(obj);
+    else
+        q_earth_fatal(obj);
+}
+
+/* q_lk_mk_fatal -- armv7 0x000527e0, 48 bytes.  **Complete.**
+ *
+ * **The same forty-eight bytes as q_bubble_fatal with the same two masks**,
+ * differing only in the routine it hands the yes to: q_fatality_req instead of
+ * q_earth_fatal. Two moves share a button pattern and part company on what
+ * they then require. */
+void q_lk_mk_fatal(MK3OBJ *obj)
+{
+    obj->field1c = 0x00040020u;
+    obj->field20 = 0x00402000u;
+    button_bit_check(obj);
+    if (obj->field5c == 0)
+        q_no(obj);
+    else
+        q_fatality_req(obj);
+}
+
+/* buttons_in_a2 -- armv7 0x00052524, 48 bytes.  **Complete.**
+ *
+ *      obj->field24 = *(uint32_t *)(G + 0x1c)
+ *      obj->field28 = 0x00070070
+ *      if (obj->field00->field08 != 0) obj->field28 = 0x00707000
+ *      obj->field24 &= obj->field28
+ *
+ * A leaf with no frame at all -- it never pushes. The live button word comes
+ * out of G + 0x1c and is masked by one of two patterns chosen on the strength
+ * index: the low set when it is zero, the shifted set otherwise. The two masks
+ * are the same pair relationship the q_ family uses, so which player is asking
+ * decides which half of the button space is looked at. */
+void buttons_in_a2(MK3OBJ *obj)
+{
+    obj->field24 = *(uint32_t *)(G_BYTES + 0x1c);
+    obj->field28 = 0x00070070u;
+    if (obj->field00->field08 != 0)
+        obj->field28 = 0x00707000u;
+    obj->field24 = obj->field24 & obj->field28;
+}
