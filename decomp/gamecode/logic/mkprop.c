@@ -104,6 +104,16 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+long is_jade_protected(MK3OBJ *obj);   /* q_yes/q_no leave the answer in r0 too */
+void is_he_blocking(MK3OBJ *obj);
+void disable_his_buttons(MK3OBJ *obj);
+void xfer_otherguy(MK3OBJ *obj);
+void highest_mpart_ob(MK3OBJ *out, MK3OBJ *src);
+void lowest_mpart_ob(MK3OBJ *out, MK3OBJ *src);
+void leftmost_mpart_ob(MK3OBJ *out, MK3OBJ *src);
+void rightmost_mpart_ob(MK3OBJ *out, MK3OBJ *src);
+long t_r_decoy_freeze(MK3THREAD *thread);
+void decoy_collision_check(MK3OBJ *obj);
 void distance_from_ground(MK3OBJ *obj);
 long t_hover_sleep_1(MK3THREAD *thread);
 long t_settle_down(MK3THREAD *thread);
@@ -3051,4 +3061,119 @@ long t_settle_down(MK3THREAD *thread)
         (uint32_t)(uintptr_t)t_hover_sleep_1;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
+}
+
+
+/* ------------------------------------------------------- decoy_collision_check
+ *
+ * armv7 0x0003c434, 260 bytes.  **Complete.**
+ *
+ * Does the opponent touch the decoy? Smoke's decoy, and anything else that
+ * puts a standing double on the screen: on contact the decoy freezes him.
+ *
+ * **The answer comes back in obj->field5c, not in r0.** The two tests at the
+ * top call is_he_blocking and is_jade_protected for their SIDE EFFECT and then
+ * read 0x5c -- is_he_blocking writes the field itself, is_jade_protected ends
+ * in q_yes/q_no, which are two four-instruction routines that do nothing but
+ * store 1 or 0 there. Both of those mean "no hit", so the field is cleared and
+ * the routine leaves.
+ *
+ * The box is built twice into the SAME four fields:
+ *
+ *      highest_mpart_ob  -> obj->field1c      (part->field38 + part->field12)
+ *      lowest_mpart_ob   -> obj->field20      (part->field40 + part->field12)
+ *      leftmost_mpart_ob -> obj->field24      (flip-aware, part->field0e)
+ *      rightmost_mpart_ob-> obj->field28
+ *
+ * First for obj->field08, the decoy's own part; then, after the shrink and the
+ * copy, for obj->field00->him -- the opponent. So 0x1c..0x28 holds whoever was
+ * measured last and 0x2c..0x38 holds the decoy, which is what the four
+ * comparisons at the end read.
+ *
+ * **The decoy's box is shrunk to a quarter before it is saved.** Each axis
+ * gives up (span>>3) + (span>>2) -- three eighths -- off BOTH ends, so a
+ * quarter of the original span survives in each direction. That is a deliberately
+ * mean hit box: you have to walk into the middle of the decoy, not brush it.
+ *
+ * The store of `span >> 3` into 0x38 partway through the first axis is real and
+ * is dead: 0x38 is overwritten with the right edge before anything reads it,
+ * and the second axis computes the same quantity into a register without
+ * storing it anywhere. Transcribed as it stands rather than tidied away.
+ *
+ * On a hit the opponent loses his buttons, t_r_decoy_freeze goes into 0x38 --
+ * the one field the box arithmetic has just finished with -- and xfer_otherguy
+ * hands his thread over to run it. 0x38 is the handler slot for the transfer;
+ * that it is also the box's right edge is reuse, not coincidence, and it is
+ * why the pointer is written last.
+ */
+void decoy_collision_check(MK3OBJ *obj)
+{
+    int32_t left, right, top, bottom, span, adj;
+
+    is_he_blocking(obj);
+    if (obj->field5c != 0) {
+        obj->field5c = 0;
+        return;
+    }
+
+    is_jade_protected(obj);
+    if (obj->field5c != 0) {
+        obj->field5c = 0;
+        return;
+    }
+
+    /* the decoy's own box */
+    highest_mpart_ob(obj, obj->field08);
+    lowest_mpart_ob(obj, obj->field08);
+    leftmost_mpart_ob(obj, obj->field08);
+    rightmost_mpart_ob(obj, obj->field08);
+
+    left  = (int32_t)obj->field24;
+    right = (int32_t)obj->field28;
+    obj->field2c = (uint32_t)(left - right);
+    if ((int32_t)obj->field2c < 0)
+        obj->field2c = (uint32_t)(-(int32_t)obj->field2c);
+    span = (int32_t)obj->field2c;
+    obj->field38 = (uint32_t)(span >> 3);        /* dead: see the note above */
+    adj   = (span >> 3) + (span >> 2);
+    left  = left + adj;
+    right = right - adj;
+    obj->field24 = (uint32_t)left;
+
+    top    = (int32_t)obj->field1c;
+    bottom = (int32_t)obj->field20;
+    obj->field2c = (uint32_t)(top - bottom);
+    if ((int32_t)obj->field2c < 0)
+        obj->field2c = (uint32_t)(-(int32_t)obj->field2c);
+    span   = (int32_t)obj->field2c;
+    adj    = (span >> 3) + (span >> 2);
+    top    = top + adj;
+    bottom = bottom - adj;
+
+    obj->field20 = (uint32_t)bottom;
+    obj->field30 = (uint32_t)bottom;            /* the saved copy starts here */
+    obj->field1c = (uint32_t)top;
+    obj->field2c = (uint32_t)top;
+    obj->field28 = (uint32_t)right;
+    obj->field34 = (uint32_t)left;
+    obj->field38 = (uint32_t)right;
+
+    /* and now the opponent's, over the top of the live four */
+    highest_mpart_ob(obj, (MK3OBJ *)(uintptr_t)obj->field00->him);
+    lowest_mpart_ob(obj, (MK3OBJ *)(uintptr_t)obj->field00->him);
+    leftmost_mpart_ob(obj, (MK3OBJ *)(uintptr_t)obj->field00->him);
+    rightmost_mpart_ob(obj, (MK3OBJ *)(uintptr_t)obj->field00->him);
+
+    if ((int32_t)obj->field20 < (int32_t)obj->field2c ||
+        (int32_t)obj->field1c > (int32_t)obj->field30 ||
+        (int32_t)obj->field28 < (int32_t)obj->field34 ||
+        (int32_t)obj->field24 > (int32_t)obj->field38) {
+        obj->field5c = 0;                       /* no overlap */
+        return;
+    }
+
+    disable_his_buttons(obj);
+    obj->field38 = (uint32_t)(uintptr_t)t_r_decoy_freeze;
+    xfer_otherguy(obj);
+    obj->field5c = 1;
 }
