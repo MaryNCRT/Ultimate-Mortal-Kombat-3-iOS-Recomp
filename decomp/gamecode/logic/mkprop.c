@@ -104,6 +104,9 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+void set_nocol(MK3OBJ *obj);
+long t_animate2_a9(MK3THREAD *thread);
+long tl_bike3(MK3THREAD *thread);
 void reset_proc_stack(MK3THREAD *thread);
 long t_pounce_fall(MK3THREAD *thread);
 long t_reptile_dash_hit(MK3THREAD *thread);
@@ -2468,6 +2471,87 @@ long t_tusk_blur_blocked(MK3THREAD *thread)
     thread->frame = thread->frame + 1;              /* push a level */
     mk3_frame(thread, thread->frame)[1] =
         (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ------------------------------------------------------------- tl_sonya_bike_kick
+ *
+ * armv7 0x0003d8a8, 216 bytes.  **Complete.**
+ *
+ *      token == 0:       obj->field20 = 0x204
+ *                        init_special_act(obj)
+ *                        obj->field1c = 3; ochar_sound(obj)
+ *                        obj->field1c = 5; ochar_sound(obj)
+ *                        obj->field40 = 0x00020001
+ *                        token := 0xafc, then descend into t_animate2_a9
+ *
+ *      token == 0xafc:   obj->field1c = 4
+ *                        init_anirate(obj)
+ *                        obj->field1c = 0x40000
+ *                        towards_x_vel(obj)
+ *                        obj->field08->field1c = 0xfffe0000
+ *                        obj->field1c          = 0xffff4000
+ *                        obj->field08->field20 = 0xffff4000
+ *                        set_nocol(obj)
+ *                        frame[frame].handler = tl_bike3
+ *
+ *      otherwise:        return -3
+ *
+ * Entry 1 of the propell table. **Two sounds, 3 then 5**, both through
+ * `ochar_sound` with the number in 0x1c -- the only routine in this file so far
+ * to ask for two in a row from the same call.
+ *
+ * 0x40 gets 0x00020001, the packed shape it takes when it is a number: 2 in
+ * the high half and 1 in the low.
+ *
+ * The velocities are three separate pool literals here rather than a chain --
+ * 4.0 forward, then -2.0 into the other object's 0x1c and -0.75 into both this
+ * object's 0x1c and the other's 0x20. Nothing is derived from anything, which
+ * is the exception in this file.
+ *
+ * `set_nocol` turns collision off before the ride begins, and `tl_bike3` is a
+ * direct pc-relative address so it is in this file.
+ */
+long tl_sonya_bike_kick(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token != 0) {
+        if (token != 0xafc)
+            return -3;
+
+        obj->field1c = 4;
+        init_anirate(obj);
+
+        obj->field1c = 0x40000;                 /*  4.00 forward */
+        towards_x_vel(obj);
+
+        obj->field08->field1c = 0xfffe0000u;    /* -2.00 */
+        obj->field1c          = 0xffff4000u;    /* -0.75 */
+        obj->field08->field20 = 0xffff4000u;
+
+        set_nocol(obj);                         /* no collision on the ride */
+
+        return mk3_push_handler(thread, (MK3THREADFUNC)tl_bike3);
+    }
+
+    obj->field20 = 0x204;
+    init_special_act(obj);
+
+    obj->field1c = 3;
+    ochar_sound(obj);
+    obj->field1c = 5;
+    ochar_sound(obj);
+
+    obj->field40 = 0x00020001;          /* 2 high, 1 low */
+
+    *mk3_frame(thread, thread->frame + 1) = 0xafc;
+    thread->frame = thread->frame + 1;          /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_animate2_a9;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
