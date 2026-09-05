@@ -34,6 +34,8 @@
  * conflict here, which is what the check is for. */
 long q_animal_dist(MK3OBJ *obj);
 long q_fatal_dist(MK3OBJ *obj);
+long is_stick_away(MK3OBJ *obj);
+long is_stick_down(MK3OBJ *obj);
 void q_mercy(MK3OBJ *obj);
 void q_fatality_req(MK3OBJ *obj);
 long free_xfer(MK3OBJ *obj, MK3OBJ *other);
@@ -4006,4 +4008,97 @@ void q_fan_lift(MK3OBJ *obj)
         q_no(obj);
     else
         q_yes(obj);
+}
+
+
+/* q_smoke_friend -- armv7 0x00053118, 32 bytes.  **Complete.**
+ *
+ * A fourth distance gate in front of q_friend, at 0xcf and the far way round.
+ * With q_close_friend at 0x70, q_ind_friend at 0x9f and q_dinger_friend at
+ * 0xbf, the four thresholds are all different and only the first is a near
+ * test. */
+void q_smoke_friend(MK3OBJ *obj)
+{
+    get_x_dist(obj);
+    if ((long)obj->field28 <= 0xcf)
+        q_no(obj);
+    else
+        q_friend(obj);
+}
+
+/* q_sonya_friend -- armv7 0x0005367c, 32 bytes.  **Complete.**
+ *
+ *      is_stick_down(obj)
+ *      if (obj->field5c == 0) q_no(obj); else q_friend(obj);
+ *
+ * **Not every friendship gate is a distance.** The same thirty-two bytes as
+ * the four that measure a gap, with a stick reading where they have
+ * get_x_dist -- and the answer comes back in 0x5c instead of 0x28, so the
+ * comparison disappears entirely. */
+void q_sonya_friend(MK3OBJ *obj)
+{
+    is_stick_down(obj);
+    if (obj->field5c == 0)
+        q_no(obj);
+    else
+        q_friend(obj);
+}
+
+/* q_slide -- armv7 0x00053510, 32 bytes.  **Complete.**
+ *
+ *      is_stick_away(obj)
+ *      if (obj->field5c == 0) q_no(obj); else q_lp_block_lk(obj);
+ *
+ * The stick has to be held away before the button pattern is even looked at. */
+void q_slide(MK3OBJ *obj)
+{
+    is_stick_away(obj);
+    if (obj->field5c == 0)
+        q_no(obj);
+    else
+        q_lp_block_lk(obj);
+}
+
+/* q_mercy -- armv7 0x0005020c, 36 bytes.  **Complete.**
+ *
+ *      obj->field30 = (int16)*(uint16_t *)(G + 0x45a)
+ *      if (*(uint16_t *)(G + 0x45a) == 0) q_no(obj); else q_yes(obj);
+ *
+ * **Stored signed, tested unsigned.** The halfword is loaded with `ldrh`, kept
+ * for the test, and sign-extended with `sxth` only for the store -- so 0x30
+ * can come out negative while the yes/no answer never can. Nothing is lost
+ * either way, because both readings agree about zero. */
+void q_mercy(MK3OBJ *obj)
+{
+    uint16_t v = *(uint16_t *)(G_BYTES + 0x45a);
+
+    obj->field30 = (uint32_t)(int32_t)(int16_t)v;
+    if (v == 0)
+        q_no(obj);
+    else
+        q_yes(obj);
+}
+
+/* q_fatality_req -- armv7 0x000501e8, 36 bytes.  **Complete.**
+ *
+ *      obj->field2c = (int16)*(int16_t *)(G + 0x45c)
+ *      if (obj->field2c == 3) q_yes(obj); else q_no(obj);
+ *
+ * The neighbouring halfword to q_mercy's, two bytes along, and this one is
+ * loaded signed. Exactly three answers yes -- not "at least three".
+ *
+ * It is also **a writer of 0x2c**, which `tl_jax_dash_punch` reads without
+ * ever writing. That does not prove the two are the same use of the field, and
+ * nothing here settles it; it is noted so the next reader has somewhere to
+ * start.
+ *
+ * G + 0x456, 0x45a and 0x45c are three halfwords in a row: the sans_repell
+ * slot, the mercy flag and this. */
+void q_fatality_req(MK3OBJ *obj)
+{
+    obj->field2c = (uint32_t)(int32_t)*(int16_t *)(G_BYTES + 0x45c);
+    if (obj->field2c == 3)
+        q_yes(obj);
+    else
+        q_no(obj);
 }
