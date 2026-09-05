@@ -819,7 +819,7 @@ long t_sz_zap_proc(MK3THREAD *thread)
     if (token != 0x810)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_sz_zap_hit);
+    return mk3_install(thread, (MK3THREADFUNC)t_sz_zap_hit);
 }
 
 /* t_photon_proc -- armv7 0x000769b0, 164 bytes.  **Complete.**
@@ -863,5 +863,5 @@ long t_photon_proc(MK3THREAD *thread)
 
     obj->field1c = 0x5;
     create_fx(obj);
-    return mk3_push_handler(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+    return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
 }

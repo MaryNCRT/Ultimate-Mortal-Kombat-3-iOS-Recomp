@@ -1008,7 +1008,7 @@ long t_r_mk_game_crush(MK3THREAD *thread)
         return -3;
 
     death_scream(obj);
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_r_jax_stomp);
+    return mk3_install(thread, (MK3THREADFUNC)t_r_jax_stomp);
 }
 
 /* t_flesh_rip_sound -- armv7 0x00036368, 96 bytes.  **Complete.**
@@ -1085,7 +1085,7 @@ long t_death_shake(MK3THREAD *thread)
     if (token != 0x1769)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_wait_forever);
+    return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
 }
 
 /* t_r_jax_stomp -- armv7 0x00035174, 156 bytes.  **Complete.**
@@ -1125,7 +1125,7 @@ long t_r_jax_stomp(MK3THREAD *thread)
     set_inviso(obj);
     obj->field1c = 0x21;
     create_fx(obj);
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_wait_forever);
+    return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
 }
 
 /* t_crush_stuggle -- armv7 0x00035bac, 148 bytes.  **Complete.**
@@ -1163,7 +1163,7 @@ long t_crush_stuggle(MK3THREAD *thread)
     if (token != 0x159a)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_wait_forever);
+    return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
 }
 
 /* t_r_scared_of_scorp -- armv7 0x00035da0, 140 bytes.  **Complete.**
@@ -1199,7 +1199,7 @@ long t_r_scared_of_scorp(MK3THREAD *thread)
     if (token != 0x407)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_wait_forever);
+    return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
 }
 
 /* t_r_scared_of_skunk -- armv7 0x00035e2c, 140 bytes.  **Complete.**
@@ -1235,7 +1235,7 @@ long t_r_scared_of_skunk(MK3THREAD *thread)
     if (token != 0x3fe)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_collapse_on_ground);
+    return mk3_install(thread, (MK3THREADFUNC)t_collapse_on_ground);
 }
 
 /* t_frozen_half_ani -- armv7 0x0003791c, 164 bytes.  **Complete.**
@@ -1314,5 +1314,5 @@ long t_kang_reform(MK3THREAD *thread)
         return -3;
 
     death_blow_complete(obj);
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_null_fatality);
+    return mk3_install(thread, (MK3THREADFUNC)t_null_fatality);
 }

@@ -21,7 +21,10 @@ DEF = re.compile(r"^(?:static\s+)?(?:long|void|int32_t|uint32_t|float)\s+\**\w+\
 TOKEN_EQ = re.compile(r"\btoken\s*==\s*(0x[0-9a-fA-F]+|\d+)")
 TOKEN_NE = re.compile(r"\btoken\s*!=\s*(0x[0-9a-fA-F]+|\d+)")
 TOKEN_DECL = re.compile(r"\btoken\s*=[^=]")
-REFUSE = re.compile(r"if\s*\((.*?)\)\s*\n?\s*return\s+-3\s*;", re.S)
+# The condition may not contain ; { or }, or an `if (a) {` several statements
+# earlier pairs with THIS `return -3;` and swallows the real guard whole. That
+# is what hid 99 of these behind "no token test at all".
+REFUSE = re.compile(r"if\s*\(([^;{}]*?)\)\s*return\s+-3\s*;", re.S)
 
 
 def functions(text):

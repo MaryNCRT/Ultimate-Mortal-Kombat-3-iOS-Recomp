@@ -209,7 +209,7 @@ long t_spider_shake(MK3THREAD *thread)
     if (token != 0x713)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_wait_forever);
+    return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
 }
 
 /* t_unmorph_and_exit -- armv7 0x000a0d98, 128 bytes.  **Complete.**
@@ -239,7 +239,7 @@ long t_unmorph_and_exit(MK3THREAD *thread)
     if (token != 0x836)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_animality_complete);
+    return mk3_install(thread, (MK3THREADFUNC)t_animality_complete);
 }
 
 /* tl_null_animal -- armv7 0x000a0e18, 76 bytes.  **Complete.**
@@ -263,7 +263,7 @@ long tl_null_animal(MK3THREAD *thread)
     if (token != 0x8c3)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_animality_complete);
+    return mk3_install(thread, (MK3THREADFUNC)t_animality_complete);
 }
 
 /* --------------------------------------------------------------------
@@ -327,7 +327,7 @@ long t_dino_bucked(MK3THREAD *thread)
     if (token != 0x52f)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_land_on_my_back);
+    return mk3_install(thread, (MK3THREADFUNC)t_land_on_my_back);
 }
 
 /* t_r_egg -- armv7 0x000a2fc0, 144 bytes.  **Complete.**
@@ -363,5 +363,5 @@ long t_r_egg(MK3THREAD *thread)
     if (token != 0x295)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_wait_forever);
+    return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
 }

@@ -115,6 +115,15 @@ echo "=== prototypes against their definitions ==="
 python tools/protos.py --quiet || true
 echo "  (tools/protos.py, without --quiet, says which)"
 
+# A third pass, for a defect neither the compiler nor the prototypes can see.
+# mk3_push_handler carries the state-0 refusal with it, so reaching for it from
+# a dispatcher state whose token is non-zero refuses every time: it compiles,
+# the types agree, and the routine returns -3 where the binary installs. 116 of
+# these were live at once.
+echo
+echo "=== installs that refuse where the binary does not ==="
+python tools/instck.py | tail -1
+
 echo
 rm -f "$OBJ"
 echo "TOTAL: $errors errors, $warnings warnings"

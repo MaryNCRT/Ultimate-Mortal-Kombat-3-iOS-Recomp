@@ -99,7 +99,7 @@ long t_combo_miss(MK3THREAD *thread)
     if (token != 0x844)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_combo_2_late);
+    return mk3_install(thread, (MK3THREADFUNC)t_combo_2_late);
 }
 
 /* --------------------------------------------------------------------
@@ -130,5 +130,5 @@ long t_combo_2_late(MK3THREAD *thread)
     if (token != 0x847)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_combo_exit);
+    return mk3_install(thread, (MK3THREADFUNC)t_combo_exit);
 }

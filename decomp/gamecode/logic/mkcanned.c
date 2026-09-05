@@ -198,7 +198,7 @@ long t_dizzy_sleep(MK3THREAD *thread)
     if (token != 0x154)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_dizzy_wake);
+    return mk3_install(thread, (MK3THREADFUNC)t_dizzy_wake);
 }
 
 /* t_vic7 -- armv7 0x0007d418, 136 bytes.  **Complete.**
@@ -232,5 +232,5 @@ long t_vic7(MK3THREAD *thread)
     if (token != 0x276)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_wait_forever);
+    return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
 }

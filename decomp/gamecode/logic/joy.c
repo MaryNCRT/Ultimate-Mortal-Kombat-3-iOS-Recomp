@@ -363,7 +363,7 @@ long t_joy_sweep_kick(MK3THREAD *thread)
     if (token != 0x22e)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
 
 /* t_jdblk2 -- armv7 0x0002f260, 104 bytes.  **Complete.**
@@ -390,7 +390,7 @@ long t_jdblk2(MK3THREAD *thread)
     if (token != 0x253)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_joy_duck_block_loop);
+    return mk3_install(thread, (MK3THREADFUNC)t_joy_duck_block_loop);
 }
 
 /* t_joy_toss -- armv7 0x0002f410, 108 bytes.  **Complete.**
@@ -417,7 +417,7 @@ long t_joy_toss(MK3THREAD *thread)
     if (token != 0x7b7)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
 
 /* --------------------------------------------------------------------
@@ -459,7 +459,7 @@ long t_joy_down(MK3THREAD *thread)
     if (token != 0x159)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_joy_getup_entry);
+    return mk3_install(thread, (MK3THREADFUNC)t_joy_getup_entry);
 }
 
 /* t_joy_flip_kick -- armv7 0x0002ef60, 124 bytes.  **Complete.**
@@ -489,7 +489,7 @@ long t_joy_flip_kick(MK3THREAD *thread)
     if (token != 0x1c9)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
 
 /* t_jumpup_punch -- armv7 0x0002f054, 124 bytes.  **Complete.**
@@ -519,7 +519,7 @@ long t_jumpup_punch(MK3THREAD *thread)
     if (token != 0x1db)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
 
 /* t_joy_uppercut -- armv7 0x0002f2c8, 124 bytes.  **Complete.**
@@ -549,7 +549,7 @@ long t_joy_uppercut(MK3THREAD *thread)
     if (token != 0x2a1)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
 
 /* --------------------------------------------------------------------
@@ -593,7 +593,7 @@ long t_unhip1(MK3THREAD *thread)
     if (token != 0x7ac)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
 
 /* t_joy_back_up -- armv7 0x000305b0, 132 bytes.  **Complete.**
@@ -625,5 +625,5 @@ long t_joy_back_up(MK3THREAD *thread)
     if (token != 0x179)
         return -3;
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
