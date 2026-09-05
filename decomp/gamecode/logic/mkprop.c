@@ -104,6 +104,8 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+long t_animate_a0_frames(MK3THREAD *thread);
+long tl_jax_dash_punch(MK3THREAD *thread);
 long tl_do_kano_upball(MK3THREAD *thread);
 long tl_do_robo_tele(MK3THREAD *thread);
 void clear_noflip(MK3OBJ *obj);
@@ -6486,4 +6488,223 @@ long tl_do_kano_upball(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0x6c;
     thread->fieldfc = 1;
     return 1;
+}
+
+
+/* ----------------------------------------------------------- tl_jax_dash_punch
+ *
+ * armv7 0x0003c9e8, 584 bytes.  **Complete.**
+ *
+ * Jax's dash punch: eight frames of closing, then sixteen of pushing through,
+ * with the speed bleeding away a thirty-second at a time.
+ *
+ *      token == 0:      obj->field20 = 0x205 ; init_special_act(obj)
+ *                       obj->field1c = 3 ; ochar_sound(obj)
+ *                       obj->field40 = 2 ; get_char_ani2(obj)
+ *                       obj->a10 = obj->field40
+ *                       obj->field1c = 0x30002
+ *                       token := 0xbf9, descend into t_animate_a0_frames
+ *
+ *      token == 0xbf9:  obj->field48 = obj->field1c = 10.0
+ *                       towards_x_vel(obj) ; do_next_a9_frame(obj)
+ *                       obj->a10 = 8
+ *                       token := 0xc03, park 1
+ *
+ *      token == 0xc03:  obj->field1c = 0x10 ; strike_check_a0(obj)
+ *                       if (obj->field5c != 0) -- CONNECTED --
+ *                       if (--obj->a10 > 0) { token := 0xc03, park 1 }
+ *                       obj->field00->field28 = obj->field08->field18
+ *                       obj->a10 = 0x10
+ *                       token := 0xc13, park 1
+ *
+ *      token == 0xc13:  v = obj->field08->field18
+ *                       obj->field34 = v ; obj->field1c = v
+ *                       obj->field34 = v >> 31          ; the sign
+ *                       obj->field30 = obj->field00->field28 >> 31
+ *                       if (obj->field2c != obj->field34) obj->field1c = 0
+ *                       obj->field20 = obj->field1c >> 5
+ *                       obj->field1c -= obj->field20
+ *                       set_x_vel_player(obj)
+ *                       if (obj->a10 > 4) {
+ *                           obj->field1c = 0x10 ; strike_check_a0(obj)
+ *                           if (obj->field5c != 0) -- CONNECTED --
+ *                       } else
+ *                           obj->field1c = obj->field00->field18 = 0x62c
+ *                       if (--obj->a10 > 0) { token := 0xc13, park 1 }
+ *                       -- FINISH --
+ *
+ *      CONNECTED:       if (obj->field18 != 0) {        ; blocked
+ *                           stop_me_player(obj)
+ *                           token := 0xc4f, park 4
+ *                       }
+ *                       obj->field1c = |obj->field08->field18|
+ *                       if (obj->field1c >= 4.0) {
+ *                           obj->field1c = 4.0 ; towards_x_vel(obj)
+ *                       }
+ *                       obj->field1c = 0x20
+ *                       *(uint16 *)(G + 0x456) = 0x20
+ *                       token := 0xc44, park 4
+ *
+ *      FINISH (0xc44, 0xc4f too):
+ *                       obj->field40 = 2 ; find_ani2_part2(obj)
+ *                       obj->field1c = 5
+ *                       token := 0xc4a, descend into t_mframew
+ *
+ *      token == 0xc4a:  if (thread->frame > 0) { frame -= 1; return 0 }
+ *                       frame[frame].handler = t_local_reaction_exit
+ *
+ *      otherwise:       return -3
+ *
+ * **The push is a thirty-second decay, not a constant.** Each frame of 0xc13
+ * takes the current speed, shifts it right five, and subtracts -- so Jax slows
+ * geometrically for sixteen frames rather than being stopped by a timer. The
+ * shift is arithmetic, so it works on a leftward dash too.
+ *
+ * **The last four frames stop trying to hit.** `obj->a10 > 4` gates the strike
+ * check; below that the routine writes action 0x62c instead and just finishes
+ * the animation. The counter runs 0x10 down to 1 and the window closes at 4.
+ *
+ * **Two signs are computed and a third field is tested.** 0x34 gets the sign
+ * of the part's 0x18 and 0x30 the sign of the proc's 0x28, and then the
+ * comparison reads **0x2c**, which this routine never writes. Whatever is
+ * there decides whether the speed is zeroed. Both stores and the mismatched
+ * load are in the binary in that order; nothing here says what fills 0x2c, so
+ * it is transcribed and left as a question.
+ *
+ * Being blocked and connecting cleanly reach the same two-token ending from
+ * different waits -- 0xc4f after a stop, 0xc44 after the speed clamp -- and
+ * both run the same three instructions.
+ */
+long tl_jax_dash_punch(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    int32_t  v;
+    int      connected = 0, finish = 0;
+
+    if (token == 0xc4a) {
+        if ((long)thread->frame > 0) {
+            thread->frame -= 1;
+            return 0;
+        }
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (token == 0xbf9) {
+        obj->field48 = 0xa0000u;                /* 10.0 */
+        obj->field1c = 0xa0000u;
+        towards_x_vel(obj);
+        do_next_a9_frame(obj);
+        obj->a10 = 8;
+        *mk3_frame(thread, thread->frame + 1) = 0xc03;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0xc03) {
+        obj->field1c = 0x10;
+        strike_check_a0(obj);
+        if (obj->field5c != 0) {
+            connected = 1;
+        } else {
+            obj->a10 -= 1;
+            if ((long)obj->a10 > 0) {
+                *mk3_frame(thread, thread->frame + 1) = 0xc03;
+                thread->fieldfc = 1;
+                return 1;
+            }
+            obj->field00->field28 = obj->field08->field18;
+            obj->a10 = 0x10;
+            *mk3_frame(thread, thread->frame + 1) = 0xc13;
+            thread->fieldfc = 1;
+            return 1;
+        }
+    } else if (token == 0xc13) {
+        v = (int32_t)obj->field08->field18;
+        obj->field34 = (uint32_t)v;
+        obj->field1c = (uint32_t)v;
+        obj->field34 = (uint32_t)(v >> 31);             /* the sign */
+        obj->field30 = (uint32_t)((int32_t)obj->field00->field28 >> 31);
+        if (obj->field2c != obj->field34)               /* 0x2c, not 0x30 */
+            obj->field1c = 0;
+
+        obj->field20 = (uint32_t)((int32_t)obj->field1c >> 5);
+        obj->field1c = obj->field1c - obj->field20;     /* a thirty-second off */
+        set_x_vel_player(obj);
+
+        if ((long)obj->a10 > 4) {
+            obj->field1c = 0x10;
+            strike_check_a0(obj);
+            if (obj->field5c != 0)
+                connected = 1;
+        } else {
+            obj->field1c = 0x62c;
+            obj->field00->field18 = 0x62c;
+        }
+
+        if (!connected) {
+            obj->a10 -= 1;
+            if ((long)obj->a10 > 0) {
+                *mk3_frame(thread, thread->frame + 1) = 0xc13;
+                thread->fieldfc = 1;
+                return 1;
+            }
+            finish = 1;
+        }
+    }
+
+    if (connected) {
+        if (obj->field18 != 0) {                /* he blocked it */
+            stop_me_player(obj);
+            *mk3_frame(thread, thread->frame + 1) = 0xc4f;
+            thread->fieldfc = 4;
+            return 4;
+        }
+
+        v = (int32_t)obj->field08->field18;
+        obj->field1c = (uint32_t)v;
+        if (v < 0)
+            obj->field1c = (uint32_t)(-v);
+        if ((long)obj->field1c >= 0x40000) {    /* clamp to 4.0 */
+            obj->field1c = 0x40000u;
+            towards_x_vel(obj);
+        }
+        obj->field1c = 0x20;
+        *(uint16_t *)(G_BYTES + 0x456) = 0x20;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xc44;
+        thread->fieldfc = 4;
+        return 4;
+    }
+
+    if (finish || token == 0xc44 || token == 0xc4f) {
+        obj->field40 = 2;
+        find_ani2_part2(obj);
+        obj->field1c = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xc4a;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field20 = 0x205;
+    init_special_act(obj);
+    obj->field1c = 3;
+    ochar_sound(obj);
+    obj->field40 = 2;
+    get_char_ani2(obj);
+    obj->a10 = obj->field40;
+    obj->field1c = 0x30002;
+
+    *mk3_frame(thread, thread->frame + 1) = 0xbf9;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_animate_a0_frames;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
 }
