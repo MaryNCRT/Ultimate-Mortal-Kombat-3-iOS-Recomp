@@ -3940,3 +3940,70 @@ void q_close_animal(MK3OBJ *obj)
     else
         q_close_fatal(obj);
 }
+
+
+/* q_close_friend -- armv7 0x00053158, 32 bytes.  **Complete.**
+ *
+ *      get_x_dist(obj)
+ *      if (obj->field28 > 0x70) q_no(obj); else q_friend(obj);
+ *
+ * The near end of a family of three. See q_ind_friend for the rest. */
+void q_close_friend(MK3OBJ *obj)
+{
+    get_x_dist(obj);
+    if ((long)obj->field28 > 0x70)
+        q_no(obj);
+    else
+        q_friend(obj);
+}
+
+/* q_ind_friend -- armv7 0x000530f8, 32 bytes.  **Complete.**
+ *
+ *      get_x_dist(obj)
+ *      if (obj->field28 <= 0x9f) q_no(obj); else q_friend(obj);
+ *
+ * **Three routines, one shape, three thresholds -- and not all the same way
+ * round.** All of them measure the horizontal distance and hand off to
+ * q_friend, but q_close_friend answers yes when the gap is 0x70 or LESS while
+ * this one and q_dinger_friend answer yes when it is MORE, at 0x9f and 0xbf.
+ * The sense is carried by `ble` against `bgt`, one instruction, exactly as the
+ * four/six button pairs are. */
+void q_ind_friend(MK3OBJ *obj)
+{
+    get_x_dist(obj);
+    if ((long)obj->field28 <= 0x9f)
+        q_no(obj);
+    else
+        q_friend(obj);
+}
+
+/* q_dinger_friend -- armv7 0x00053138, 32 bytes.  **Complete.**
+ *
+ * The far end of the same family: yes above 0xbf. */
+void q_dinger_friend(MK3OBJ *obj)
+{
+    get_x_dist(obj);
+    if ((long)obj->field28 <= 0xbf)
+        q_no(obj);
+    else
+        q_friend(obj);
+}
+
+/* q_fan_lift -- armv7 0x00050328, 32 bytes.  **Complete.**
+ *
+ *      get_his_p_hit(obj)
+ *      if ((long)obj->field1c > 0) q_no(obj); else q_yes(obj);
+ *
+ * **The consumer of get_his_p_hit, and it settles where that routine leaves
+ * its answer.** get_his_p_hit walks four pointers to reach the opponent's
+ * proc and stores 0x44 into 0x1c; this reads 0x1c straight back. The lift is
+ * allowed only while his hit count is zero or below -- one hit and the answer
+ * turns to no. */
+void q_fan_lift(MK3OBJ *obj)
+{
+    get_his_p_hit(obj);
+    if ((long)obj->field1c > 0)
+        q_no(obj);
+    else
+        q_yes(obj);
+}
