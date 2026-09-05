@@ -104,6 +104,17 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+long am_i_joy(MK3OBJ *obj);
+void mk_random(MK3OBJ *obj);
+void stuff_buttons(MK3OBJ *obj, uint32_t buttons);
+long t_do_jumpup_punch(MK3THREAD *thread);
+long t_do_jumpup_kick(MK3THREAD *thread);
+long tl_do_lao_tele(MK3THREAD *thread);
+/* One of five button tables in __DATA, all exactly 0x28 apart -- bt_null,
+ * bt_angle_jump, bt_duck, bt_stance, bt_jump. The size is the spacing between
+ * consecutive symbols; the element type is not established, so it is declared
+ * as bytes. */
+extern uint8_t bt_jump[0x28];
 void player_swpal(MK3OBJ *obj, uint32_t frozen);
 void do_first_a9_frame(MK3OBJ *obj);
 void find_last_frame(MK3OBJ *obj);
@@ -5599,6 +5610,169 @@ long tl_do_jade_prop(MK3THREAD *thread)
     obj->a10 = 5;
 
     *mk3_frame(thread, thread->frame + 1) = 0x1a6;
+    thread->fieldfc = 1;
+    return 1;
+}
+
+
+/* -------------------------------------------------------------- tl_do_lao_tele
+ *
+ * armv7 0x0003e5a4, 492 bytes.  **Complete.**
+ *
+ * Kung Lao's teleport: rise off the ground, reappear above the opponent, fall,
+ * and finish with whatever the fighter is -- a chosen attack for a person, a
+ * random one for the machine.
+ *
+ *      token == 0:      obj->field20 = 0x206 ; init_special_act(obj)
+ *                       obj->field1c = 4 ; ochar_sound(obj)
+ *                       obj->field40 = 0 ; get_char_ani2(obj)
+ *                       do_next_a9_frame(obj)
+ *                       obj->field1c = 2 ; init_anirate(obj)
+ *                       obj->field08->field1c = -8.0
+ *                       obj->field1c = obj->field08->field20 = -1.0
+ *                       token := 0x931, park 1
+ *
+ *      token == 0x931:  next_anirate(obj) ; distance_off_ground(obj)
+ *                       if (obj->field1c <= 0xe7) { token := 0x931, park 1 }
+ *                       teleport_next_to(obj) ; face_opponent(obj)
+ *                       obj->field20 = *(G + 0xac) - 0x60
+ *                       (int16)obj->field08->field12 = obj->field20
+ *                       obj->field08->field20 = 0.5
+ *                       obj->field1c = obj->field08->field1c = -10.0
+ *                       token := 0x944, park 1
+ *
+ *      token == 0x944:  y = (int16)obj->field08->field12 - 0x10
+ *                       obj->field1c = y
+ *                       obj->field20 = obj->field00->field40
+ *                       if (obj->field00->field40 < y) { token := 0x944, park 1 }
+ *                       am_i_joy(obj)
+ *                       if (obj->field5c != 0) -- A PERSON, below --
+ *                       mk_random(obj)
+ *                       if (obj->field1c & 0x1000)
+ *                           frame[frame].handler = t_do_jumpup_punch
+ *                       else
+ *                           frame[frame].handler = t_do_jumpup_kick
+ *
+ *      A PERSON:        stuff_buttons(obj, bt_jump)
+ *                       obj->field40 = 0 ; find_ani2_part2(obj)
+ *                       obj->field1c = 0
+ *                       obj->field20 = obj->field08->field1c
+ *                       obj->field24 = obj->field08->field20
+ *                       obj->field28 = 5
+ *                       token := 0x957, descend into t_flight
+ *
+ *      token == 0x957:  if (thread->frame > 0) { frame -= 1; return 0 }
+ *                       frame[frame].handler = t_local_reaction_exit
+ *
+ *      otherwise:       return -3
+ *
+ * **The machine picks its follow-up with one bit of one random number.**
+ * mk_random leaves a value in 0x1c, bit 12 is tested, and the answer is a
+ * punch or a kick -- nothing weights it and nothing remembers the last one.
+ *
+ * **A person gets the buttons back instead.** am_i_joy coming back set means
+ * somebody is holding the stick, so the routine stuffs the jump table into the
+ * object and hands over to an ordinary flight: whatever they press on the way
+ * down is what happens. The same moment in the move is a decision for the AI
+ * and a hand-back for the player.
+ *
+ * Both velocity pairs are one literal and one add: -8.0 then +0x70000 gives
+ * -1.0, and 0.5 then -0xa8000 gives -10.0. The second wraps through zero and
+ * the assembler still spelled only one of them.
+ *
+ * The fall is watched against obj->field00->field40 rather than a ground
+ * constant, and 0x20 takes that field on every frame of the wait whether or
+ * not the comparison ends it.
+ */
+long tl_do_lao_tele(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    int32_t  y;
+
+    if (token == 0x931) {
+        next_anirate(obj);
+        distance_off_ground(obj);
+        if ((long)obj->field1c <= 0xe7) {       /* not high enough yet */
+            *mk3_frame(thread, thread->frame + 1) = 0x931;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        teleport_next_to(obj);
+        face_opponent(obj);
+        obj->field20 = *(uint32_t *)(G_BYTES + 0xac) - 0x60;
+        *(int16_t *)((char *)obj->field08 + 0x12) = (int16_t)obj->field20;
+        obj->field08->field20 = 0x8000u;                /* 0.5 */
+        obj->field1c = 0x8000u - 0xa8000u;              /* -10.0 */
+        obj->field08->field1c = obj->field1c;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x944;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0x944) {
+        y = *(int16_t *)((char *)obj->field08 + 0x12) - 0x10;
+        obj->field1c = (uint32_t)y;
+        obj->field20 = obj->field00->field40;
+
+        if ((int32_t)obj->field00->field40 < y) {       /* still falling */
+            *mk3_frame(thread, thread->frame + 1) = 0x944;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        am_i_joy(obj);
+        if (obj->field5c != 0) {                /* a person: give it back */
+            stuff_buttons(obj, (uint32_t)(uintptr_t)bt_jump);
+            obj->field40 = 0;
+            find_ani2_part2(obj);
+            obj->field1c = 0;
+            obj->field20 = obj->field08->field1c;
+            obj->field24 = obj->field08->field20;
+            obj->field28 = 5;
+
+            *mk3_frame(thread, thread->frame + 1) = 0x957;
+            thread->frame = thread->frame + 1;
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)t_flight;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+
+        mk_random(obj);
+        if ((obj->field1c & 0x1000u) != 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_do_jumpup_punch);
+        return mk3_install(thread, (MK3THREADFUNC)t_do_jumpup_kick);
+    }
+
+    if (token == 0x957) {
+        if ((long)thread->frame > 0) {
+            thread->frame -= 1;
+            return 0;
+        }
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field20 = 0x206;
+    init_special_act(obj);
+    obj->field1c = 4;
+    ochar_sound(obj);
+    obj->field40 = 0;
+    get_char_ani2(obj);
+    do_next_a9_frame(obj);
+    obj->field1c = 2;
+    init_anirate(obj);
+
+    obj->field08->field1c = 0xfff80000u;        /* -8.0 */
+    obj->field1c = 0xfff80000u + 0x70000u;      /* -1.0 */
+    obj->field08->field20 = obj->field1c;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x931;
     thread->fieldfc = 1;
     return 1;
 }
