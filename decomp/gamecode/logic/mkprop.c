@@ -104,6 +104,13 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+void call_a0_for_him(MK3OBJ *obj);
+void find_part_a14(MK3OBJ *obj);
+void get_his_a11_ani(MK3OBJ *obj);
+long double_next_a9(MK3OBJ *obj);
+void xfer_him_to_flipped_pause(MK3OBJ *obj);
+void inc_his_p_hit(MK3OBJ *obj);
+long t_r_post_bike(MK3THREAD *thread);
 void pose_him_a9(MK3OBJ *obj);
 void get_his_char_ani(MK3OBJ *obj);
 void rsnd_func(MK3OBJ *unused, uint32_t which);
@@ -7391,6 +7398,320 @@ long tl_do_swat_zoom(MK3THREAD *thread)
     obj->field00->field28 = 0;
 
     *mk3_frame(thread, thread->frame + 1) = 0x384;
+    thread->fieldfc = 1;
+    return 1;
+}
+
+
+/* ------------------------------------------------------------------- tl_bike3
+ *
+ * armv7 0x0003d9fc, 988 bytes.  **Complete.**
+ *
+ * The bike kick: a flying knee that carries the opponent along with it. Eight
+ * states, three of them loops, and the counter for all three lives in the
+ * PROC's 0x28 rather than in the object.
+ *
+ *      token == 0:      token := 0xb0b, park 1
+ *
+ *      token == 0xb0b:  sans_repell_3(obj) ; get_his_action(obj)
+ *                       hit = (obj->field20 == 0x701 || obj->field20 == 0x302)
+ *                       if (!hit) {
+ *                           obj->field1c = 0x14 ; strike_check_a0(obj)
+ *                           if (obj->field5c != 0) -- CONNECTED --
+ *                       }
+ *                       next_anirate(obj) ; distance_from_ground(obj)
+ *                       if (obj->field1c > 0xbf) -- LET GO --
+ *                       frame[frame].handler = tl_bike3
+ *
+ *      token == 0xb5a:  bike_hit_call(obj) ; distance_from_ground(obj)
+ *                       if (obj->field1c > 0xe0) -- SETTLE --
+ *                       if (--obj->field00->field28 <= 0) -- SETTLE --
+ *                       obj->field00->field28 = obj->field1c
+ *                       token := 0xb5a, park 1
+ *
+ *      token == 0xb6e:  bike_hit_call(obj)
+ *                       if (--obj->field00->field28 <= 0) -- HAND OVER --
+ *                       obj->field00->field28 = obj->field1c
+ *                       token := 0xb6e, park 1
+ *
+ *      token == 0xb89:  obj->field40 = 0x10016 ; pose_a9_manual(obj)
+ *                       face_opponent(obj)
+ *                       obj->field20 = 2.0 ; obj->field1c = 0
+ *                       obj->field24 = 0.5 ; obj->field28 = 0xfff
+ *                       token := 0xb94, descend into t_flight
+ *
+ *      token == 0xb29:  if (thread->frame > 0) { frame -= 1; return 0 }
+ *                       frame[frame].handler = t_local_reaction_exit
+ *
+ *      token == 0xb94:  frame[frame].handler = t_jump_up_land_jsrp
+ *      token == 0xb9c:  the same
+ *
+ *      CONNECTED:       obj->field20 = obj->field00->field18 = 0x611
+ *                       obj->field1c = clear_inviso ; call_a0_for_him(obj)
+ *                       if (obj->field18 != 0) {          ; blocked
+ *                           obj->field1c = 0
+ *                           obj->field20 = -6.0 ; obj->field24 = 0.5
+ *                           obj->field28 = 4
+ *                           token := 0xb9c, descend into t_flight
+ *                       }
+ *                       obj->field48 = 0x30030 ; shake_a11(obj)
+ *                       arg[f8++] = obj->field40
+ *                       obj->field48 = 0x20 ; get_his_a11_ani(obj)
+ *                       obj->field40 = obj->field48 ; find_part2(obj)
+ *                       obj->field48 = obj->field40
+ *                       obj->field40 = arg[--f8]
+ *                       double_next_a9(obj)
+ *                       xfer_him_to_flipped_pause(obj)
+ *                       inc_his_p_hit(obj)
+ *                       stop_me_player(obj) ; stop_him(obj)
+ *                       obj->field1c = 4 ; init_anirate(obj)
+ *                       obj->field00->field2c = 1
+ *                       obj->field1c = 3.0 ; towards_x_vel(obj)
+ *                       obj->field1c = obj->field08->field1c = -3.0
+ *                       obj->a10->field1c = obj->field1c
+ *                       obj->field00->field28 = 0x20
+ *                       token := 0xb5a, park 1
+ *
+ *      SETTLE:          obj->field1c = 1.0 ; towards_x_vel(obj)
+ *                       obj->field1c = obj->field08->field1c = 0.5
+ *                       obj->a10->field1c = obj->field1c
+ *                       obj->field00->field28 = 0x10
+ *                       token := 0xb6e, park 1
+ *
+ *      LET GO:          obj->field1c = obj->field00->field18 = 0x611
+ *                       clear_nocol(obj)
+ *                       obj->field1c = obj->field20 = 0xd
+ *                       obj->field24 = 0.625 ; obj->field28 = 4
+ *                       obj->field34 = t_bike_scan_call
+ *                       token := 0xb29, descend into t_flight_call
+ *
+ *      HAND OVER:       obj->field1c = &G + 0x444 ; update_tsl(obj)
+ *                       obj->field38 = t_r_post_bike ; takeover_him(obj)
+ *                       obj->field20 = 0x61a ; set_his_p_action(obj)
+ *                       obj->field40 = 1 ; get_char_ani2(obj)
+ *                       obj->field54 = 3 ; find_part_a14(obj)
+ *                       obj->field1c = 4
+ *                       token := 0xb89, descend into t_mframew
+ *
+ *      otherwise:       return -3
+ *
+ * **The ride is thirty-two frames and then sixteen.** 0x20 goes into the
+ * proc's 0x28 when the knee connects and the 0xb5a loop counts it down; when
+ * it runs out (or the pair gets too high) the speed drops to 0.5 and 0x10 goes
+ * into the same field for the 0xb6e loop. Two phases of carrying him, fast
+ * then slow, sharing one counter in the opponent's own proc.
+ *
+ * **Two actions count as already-hit.** 0x701 and 0x302 in his action skip the
+ * strike check entirely -- the routine takes the boolean, ORs the two
+ * comparisons together, and only tests for a strike when neither matched. So a
+ * fighter already in the right reaction is carried without being hit again.
+ *
+ * **The other object is reached through 0x44 as a pointer.** Both the connect
+ * and the settle write a speed into `obj->a10->field1c`, which is the argument
+ * slot holding an object address rather than a number -- the same borrowing
+ * `t_air_sleep3` does for its chase target.
+ *
+ * `clear_inviso` is put into 0x1c and handed to `call_a0_for_him`: an address
+ * in the argument slot, for a routine whose job is to run it on the opponent.
+ *
+ * 0x40 is pushed on the thread's second stack across `get_his_a11_ani` and
+ * `find_part2` and popped back afterwards, the same borrow-one-slot idiom as
+ * t_pounce_jsrp -- two callees wanting the same field for different things.
+ */
+long tl_bike3(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    int      connected = 0, settle = 0, letgo = 0, handover = 0;
+    long     act;
+
+    if (token == 0xb94 || token == 0xb9c)
+        return mk3_install(thread, (MK3THREADFUNC)t_jump_up_land_jsrp);
+
+    if (token == 0xb29) {
+        if ((long)thread->frame > 0) {
+            thread->frame -= 1;
+            return 0;
+        }
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (token == 0xb89) {
+        obj->field40 = 0x10016;
+        pose_a9_manual(obj);
+        face_opponent(obj);
+        obj->field20 = 0x20000u;                /* 2.0 */
+        obj->field1c = 0;
+        obj->field24 = 0x20000u - 0x18000u;     /* 0.5 */
+        obj->field28 = 0xfff;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xb94;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xb5a) {
+        bike_hit_call(obj);
+        distance_from_ground(obj);
+        if ((long)obj->field1c > 0xe0) {
+            settle = 1;
+        } else {
+            obj->field1c = obj->field00->field28 - 1;
+            if ((long)obj->field1c <= 0) {
+                settle = 1;
+            } else {
+                obj->field00->field28 = obj->field1c;
+                *mk3_frame(thread, thread->frame + 1) = 0xb5a;
+                thread->fieldfc = 1;
+                return 1;
+            }
+        }
+    } else if (token == 0xb6e) {
+        bike_hit_call(obj);
+        obj->field1c = obj->field00->field28 - 1;
+        if ((long)obj->field1c <= 0) {
+            handover = 1;
+        } else {
+            obj->field00->field28 = obj->field1c;
+            *mk3_frame(thread, thread->frame + 1) = 0xb6e;
+            thread->fieldfc = 1;
+            return 1;
+        }
+    } else if (token == 0xb0b) {
+        sans_repell_3(obj);
+        get_his_action(obj);
+        act = (long)obj->field20;
+
+        if (act != 0x701 && act != 0x302) {     /* not already reacting */
+            obj->field1c = 0x14;
+            strike_check_a0(obj);
+            if (obj->field5c != 0)
+                connected = 1;
+        }
+
+        if (!connected) {
+            next_anirate(obj);
+            distance_from_ground(obj);
+            if ((long)obj->field1c > 0xbf)
+                letgo = 1;
+            else
+                return mk3_install(thread, (MK3THREADFUNC)tl_bike3);
+        }
+    } else if (token != 0) {
+        return -3;
+    }
+
+    if (connected) {
+        obj->field20 = 0x611;
+        obj->field00->field18 = 0x611;
+        obj->field1c = (uint32_t)(uintptr_t)clear_inviso;
+        call_a0_for_him(obj);
+
+        if (obj->field18 != 0) {                /* he blocked it */
+            obj->field1c = 0;
+            obj->field20 = 0xfffa0000u;                 /* -6.0 */
+            obj->field24 = 0xfffa0000u + 0x68000u;      /* 0.5 */
+            obj->field28 = 4;
+
+            *mk3_frame(thread, thread->frame + 1) = 0xb9c;
+            thread->frame = thread->frame + 1;
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)t_flight;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+
+        obj->field48 = 0x30030;
+        shake_a11(obj);
+
+        *mk3_arg(thread, thread->fieldf8) = obj->field40;
+        thread->fieldf8 += 1;
+
+        obj->field48 = 0x20;
+        get_his_a11_ani(obj);
+        obj->field40 = obj->field48;
+        find_part2(obj);
+        obj->field48 = obj->field40;
+
+        thread->fieldf8 -= 1;
+        obj->field40 = *mk3_arg(thread, thread->fieldf8);
+
+        double_next_a9(obj);
+        xfer_him_to_flipped_pause(obj);
+        inc_his_p_hit(obj);
+        stop_me_player(obj);
+        stop_him(obj);
+        obj->field1c = 4;
+        init_anirate(obj);
+        *(uint32_t *)((char *)obj->field00 + 0x2c) = 1;
+        obj->field1c = 0x30000u;                /* 3.0 */
+        towards_x_vel(obj);
+        obj->field1c = 0xfffd0000u;             /* -3.0 */
+        obj->field08->field1c = obj->field1c;
+        ((MK3OBJ *)(uintptr_t)obj->a10)->field1c = obj->field1c;
+        obj->field1c = 0x20;
+
+        obj->field00->field28 = obj->field1c;
+        *mk3_frame(thread, thread->frame + 1) = 0xb5a;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (settle) {
+        obj->field1c = 0x10000u;                /* 1.0 */
+        towards_x_vel(obj);
+        obj->field1c = 0x8000u;                 /* 0.5 */
+        obj->field08->field1c = obj->field1c;
+        ((MK3OBJ *)(uintptr_t)obj->a10)->field1c = obj->field1c;
+        obj->field1c = 0x10;
+
+        obj->field00->field28 = obj->field1c;
+        *mk3_frame(thread, thread->frame + 1) = 0xb6e;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (letgo) {
+        obj->field1c = 0x611;
+        obj->field00->field18 = 0x611;
+        clear_nocol(obj);
+        obj->field1c = 0xd;
+        obj->field20 = 0xd;
+        obj->field24 = 0xa000u;                 /* 0.625 */
+        obj->field28 = 4;
+        obj->field34 = (uint32_t)(uintptr_t)t_bike_scan_call;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xb29;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_flight_call;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (handover) {
+        obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x440 + 4);
+        update_tsl(obj);
+        obj->field38 = (uint32_t)(uintptr_t)t_r_post_bike;
+        takeover_him(obj);
+        obj->field20 = 0x61a;
+        set_his_p_action(obj);
+        obj->field40 = 1;
+        get_char_ani2(obj);
+        obj->field54 = 3;
+        find_part_a14(obj);
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xb89;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = 0xb0b;
     thread->fieldfc = 1;
     return 1;
 }
