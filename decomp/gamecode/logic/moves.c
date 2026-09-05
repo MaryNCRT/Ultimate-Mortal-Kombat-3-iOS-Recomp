@@ -34,6 +34,7 @@
  * conflict here, which is what the check is for. */
 void q_animal_dist(MK3OBJ *obj);
 void q_fatal_dist(MK3OBJ *obj);
+void q_is_he_a_boss(MK3OBJ *obj);
 void check_sonya_legs(MK3OBJ *obj);
 void q_is_he_cornered(MK3OBJ *obj);
 extern uint32_t sm_sz_lpc[];              /* 0x0016c640 */
@@ -4291,4 +4292,93 @@ void sz_lp_close(MK3OBJ *obj, uint32_t arg)
     slide_check(obj);
     if (obj->field5c == 0)
         secret_move_search(obj, arg, sm_sz_lpc);
+}
+
+
+/* q_friend -- armv7 0x0005027c, 44 bytes.  **Complete.**
+ *
+ *      i = obj->field00->field08                     ; the strength index
+ *      obj->field1c = *(uint16_t *)(G + 0x3b0 + i * 2)
+ *      if (obj->field1c == 0) q_fatality_req(obj); else q_no(obj);
+ *
+ * **A halfword table indexed by the strength index.** The index is shifted
+ * left one, not two, so the entries are sixteen bits; the base is G + 0x3b0.
+ * A ZERO entry is the permissive one -- it passes the question on -- and any
+ * other value refuses outright.
+ *
+ * This is what the whole friendship family funnels into: q_close_friend,
+ * q_ind_friend, q_dinger_friend and q_smoke_friend all gate on distance and
+ * then land here, and q_sonya_friend gates on the stick instead. */
+void q_friend(MK3OBJ *obj)
+{
+    obj->field1c = *(uint16_t *)(G_BYTES + 0x3b0
+                                 + obj->field00->field08 * 2);
+    if (obj->field1c == 0)
+        q_fatality_req(obj);
+    else
+        q_no(obj);
+}
+
+/* q_friend_ez -- armv7 0x00050250, 44 bytes.  **Complete.**
+ *
+ * The same forty-four bytes as q_friend reading the same table, answering yes
+ * directly instead of passing the question to q_fatality_req. The easy form
+ * skips the requirement, which is the whole difference between them. */
+void q_friend_ez(MK3OBJ *obj)
+{
+    obj->field1c = *(uint16_t *)(G_BYTES + 0x3b0
+                                 + obj->field00->field08 * 2);
+    if (obj->field1c == 0)
+        q_yes(obj);
+    else
+        q_no(obj);
+}
+
+/* q_lia_scream -- armv7 0x0005306c, 44 bytes.  **Complete.**
+ *
+ *      get_his_p_hit(obj)
+ *      if (obj->field1c > 2) q_no(obj)
+ *      else {
+ *          q_is_he_a_boss(obj)
+ *          if (obj->field5c != 0) q_no(obj); else q_yes(obj);
+ *      }
+ *
+ * Two conditions, both of which have to hold: he must have been hit no more
+ * than twice, and he must not be a boss. The two tests answer through
+ * different fields -- 0x1c for the count, 0x5c for the boss -- and the second
+ * is only asked when the first passes. */
+void q_lia_scream(MK3OBJ *obj)
+{
+    get_his_p_hit(obj);
+    if ((long)obj->field1c > 2) {
+        q_no(obj);
+        return;
+    }
+    q_is_he_a_boss(obj);
+    if (obj->field5c != 0)
+        q_no(obj);
+    else
+        q_yes(obj);
+}
+
+/* q_lk_friend -- armv7 0x00052810, 44 bytes.  **Complete.**
+ *
+ *      obj->field1c = 0x00040000
+ *      obj->field20 = 0x00400000
+ *      button_bit_check(obj)
+ *      if (obj->field5c == 0) q_no(obj); else q_friend(obj);
+ *
+ * The second mask is the first plus 0x3c0000 -- one literal and an add on the
+ * register already holding it, the same way the velocity triples are built.
+ * Both halves are (0x0004, 0x0000) and (0x0040, 0x0000), so unlike
+ * q_both_punches and q_lp_block_lk the low halves are empty here. */
+void q_lk_friend(MK3OBJ *obj)
+{
+    obj->field1c = 0x40000u;
+    obj->field20 = 0x40000u + 0x3c0000u;
+    button_bit_check(obj);
+    if (obj->field5c == 0)
+        q_no(obj);
+    else
+        q_friend(obj);
 }
