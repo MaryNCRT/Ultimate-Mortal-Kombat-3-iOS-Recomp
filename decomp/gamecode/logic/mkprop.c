@@ -104,6 +104,9 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+void clear_inviso(MK3OBJ *obj);
+void clear_noedge(MK3OBJ *obj);
+long t_sctele_calla_2(MK3THREAD *thread);
 long t_bike_call(MK3THREAD *thread);
 void set_nocol(MK3OBJ *obj);
 long t_animate2_a9(MK3THREAD *thread);
@@ -2738,4 +2741,102 @@ long tl_do_lk_bike(MK3THREAD *thread)
         (uint32_t)(uintptr_t)t_flight_call;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
+}
+
+
+/* ---------------------------------------------------------------- t_sctele_calla_1
+ *
+ * armv7 0x00040aa0, 212 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      sans_repell_3(obj)
+ *      hisx = (int16_t)obj->field08[+0x0e]
+ *      base = *(long *)(G + 0x468)
+ *      obj->field1c = hisx
+ *      obj->field20 = base
+ *      obj->field28 = base + 0x18f
+ *      d = obj->field08->field18
+ *      obj->field24 = d
+ *      if (d != 0) {
+ *          if (d >= 0) {                       ; the three roles swap
+ *              obj->field1c = base + 0x18f
+ *              obj->field20 = hisx
+ *              obj->field28 = base
+ *          }
+ *          if (obj->field20 >= obj->field1c) {
+ *              obj->field08[+0x0e]   = (uint16_t)obj->field28
+ *              obj->field34          = t_sctele_calla_2
+ *              *(uint32_t *)((char *)obj->field00 + 0x34) = t_sctele_calla_2
+ *              clear_inviso(obj)
+ *              clear_noedge(obj)
+ *          }
+ *      }
+ *      if (thread->frame > 0) { thread->frame -= 1; return 0 }
+ *      frame[frame].handler = t_local_reaction_exit
+ *
+ * **Which side of the arena the teleport lands on.** Two bounds come out of
+ * the global state -- `G + 0x468` and that plus 0x18f -- and the opponent's
+ * own 0x18 decides which is the source and which the destination. When it is
+ * positive the three slots are rewritten with the roles swapped, in three
+ * conditional stores under two IT blocks rather than a branch.
+ *
+ * The move only happens when 0x20 has ended up at or past 0x1c. That test
+ * reads the slots back rather than the registers, so it sees whichever
+ * assignment the swap left behind.
+ *
+ * **The callback goes into TWO places**: this object's 0x34 and the PROC's.
+ * Every other routine in this file writes only the object's, so whatever runs
+ * the second stage looks for it on the PROC as well.
+ *
+ * 0x18f is built as `+0x18c` then `+3`, the same two-step `teleport_next_to`
+ * uses for the same constant against a different global slot.
+ */
+long t_sctele_calla_1(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    int32_t  hisx, base, d;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    sans_repell_3(obj);
+
+    hisx = *(int16_t *)((char *)obj->field08 + 0x0e);
+    base = *(int32_t *)(G_BYTES + 0x468);
+
+    obj->field1c = (uint32_t)hisx;
+    obj->field20 = (uint32_t)base;
+    obj->field28 = (uint32_t)(base + 0x18f);
+
+    d = (int32_t)obj->field08->field18;
+    obj->field24 = (uint32_t)d;
+
+    if (d != 0) {
+        if (d >= 0) {                   /* the three roles swap */
+            obj->field1c = (uint32_t)(base + 0x18f);
+            obj->field20 = (uint32_t)hisx;
+            obj->field28 = (uint32_t)base;
+        }
+
+        if ((int32_t)obj->field20 >= (int32_t)obj->field1c) {
+            *(uint16_t *)((char *)obj->field08 + 0x0e) =
+                (uint16_t)obj->field28;
+
+            /* The PROC's 0x34 falls inside an unnamed run, so it is
+             * written by offset; the object's is a named field. */
+            obj->field34 = (uint32_t)(uintptr_t)t_sctele_calla_2;
+            *(uint32_t *)((char *)obj->field00 + 0x34) =
+                (uint32_t)(uintptr_t)t_sctele_calla_2;
+
+            clear_inviso(obj);
+            clear_noedge(obj);
+        }
+    }
+
+    if ((long)thread->frame > 0) {
+        thread->frame -= 1;             /* back up a level */
+        return 0;
+    }
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
