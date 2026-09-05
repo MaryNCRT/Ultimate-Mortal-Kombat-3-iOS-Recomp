@@ -71,8 +71,8 @@ long tl_do_scorp_tele(MK3THREAD *thread);
 long t_local_reaction_exit(MK3THREAD *thread);
 void match_me_with_him(MK3OBJ *obj);
 void multi_adjust_xy(MK3OBJ *obj);
-void is_he_left(MK3OBJ *obj);
-void is_he_right(MK3OBJ *obj);
+long is_he_left(MK3OBJ *obj);
+long is_he_right(MK3OBJ *obj);
 void face_opponent(MK3OBJ *obj);
 long t_tele_scan(MK3THREAD *thread);
 void air_init_special(MK3OBJ *obj);
@@ -81,7 +81,7 @@ void back_to_normal(MK3OBJ *obj);
 void init_special_act(MK3OBJ *obj);
 void ochar_sound(MK3OBJ *obj);
 void find_ani_last_frame(MK3OBJ *obj);
-void do_next_a9_frame(MK3OBJ *obj);
+long do_next_a9_frame(MK3OBJ *obj);
 long t_main_hover_loop(MK3THREAD *thread);
 long t_lfly5(MK3THREAD *thread);
 void MKEvent_Add(long a, long b, long c, long d);
@@ -89,10 +89,10 @@ void match_him_with_me_f(MK3OBJ *obj);
 void adjust_him_a0(MK3OBJ *obj);
 long next_anirate(MK3OBJ *obj);
 void advance_him(MK3OBJ *obj);
-void is_he_airborn(MK3OBJ *obj);
+long is_he_airborn(MK3OBJ *obj);
 void match_him_with_me(MK3OBJ *obj);
 void adjust_him_xy(MK3OBJ *obj);
-void strike_check_a0(MK3OBJ *obj);
+long strike_check_a0(MK3OBJ *obj);
 long t_lao_angle_hit(MK3THREAD *thread);
 long t_shake_ob_up(MK3THREAD *thread);
 void find_ani2_part2(MK3OBJ *obj);
@@ -104,6 +104,10 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+void flip_multi(MK3OBJ *obj);
+void update_tsl(MK3OBJ *obj);
+void set_noedge(MK3OBJ *obj);
+MK3OBJ *NewThreadProc(MK3OBJ *obj, MK3THREADFUNC fn);
 void clear_inviso(MK3OBJ *obj);
 void clear_noedge(MK3OBJ *obj);
 long t_sctele_calla_2(MK3THREAD *thread);
@@ -1023,7 +1027,7 @@ void bike_hit_call(MK3OBJ *obj)
  *      otherwise:        return -3
  *
  *      shared:
- *          if ((*(MK3OBJ **)&obj->field48)->field18 == 0x215)
+ *          if (((MK3OBJ *)obj->field48)->field00->field18 == 0x215)
  *              park(token 0x297, duration 1)
  *          else {
  *              MKEvent_Add(1, 4, 0, 0)
@@ -1051,7 +1055,11 @@ long t_s_t_scroller(MK3THREAD *thread)
     if (token == 0)
         MKEvent_Add(1, 3, (long)obj->field00->field08, 0);
 
-    if ((*(MK3OBJ **)(uintptr_t)&obj->field48)->field18 == 0x215) {
+    /* THREE loads in the binary, not two: `ldr r3, [r5, #0x48]` then
+     * `ldr r3, [r3]` then `ldr r2, [r3, #0x18]`. So it is the PROC of
+     * the object at 0x48, not that object's own 0x18 -- which is what
+     * `tl_do_scorp_tele` writes 0x215 into when it starts this thread. */
+    if (((MK3OBJ *)(uintptr_t)obj->field48)->field00->field18 == 0x215) {
         *mk3_frame(thread, thread->frame + 1) = 0x297;
         thread->fieldfc = 1;            /* look again next tick */
         return 1;
@@ -2839,4 +2847,111 @@ long t_sctele_calla_1(MK3THREAD *thread)
     }
 
     return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* ---------------------------------------------------------------- tl_do_scorp_tele
+ *
+ * armv7 0x0004093c, 268 bytes.  **Complete.**
+ *
+ *      token == 0:       obj->field20          = 0x215
+ *                        obj->field00->field18 = 0x215
+ *                        air_init_special(obj)
+ *                        obj->field1c = G + 0x418
+ *                        update_tsl(obj)
+ *                        obj->field1c = 0xc; ochar_sound(obj)
+ *                        t = NewThreadProc(obj, t_s_t_scroller)
+ *                        t->field48 = obj
+ *                        face_opponent(obj)
+ *                        flip_multi(obj)
+ *                        set_noedge(obj)
+ *                        obj->field1c = 0x000a0000
+ *                        obj->field20 = 0xfffd0000
+ *                        obj->field24 = 0x00005000
+ *                        obj->field28 = 3
+ *                        obj->field40 = 0x00010008
+ *                        obj->field34 = t_sctele_calla_1
+ *                        token := 0x2ca, then descend into t_flight_call
+ *
+ *      token == 0x2ca:   clear_inviso(obj)
+ *                        if (thread->frame > 0) { thread->frame -= 1; return 0 }
+ *                        frame[frame].handler = t_local_reaction_exit
+ *
+ *      otherwise:        return -3
+ *
+ * Entry 22 of the propell table, the teleport Ermac's shares. **It starts a
+ * second thread**: `NewThreadProc(obj, t_s_t_scroller)` and then the new
+ * thread's 0x48 is pointed back at this object. That is the first thread
+ * spawned by anything in this file.
+ *
+ * The two halves lock together. `t_s_t_scroller` polls
+ * `((MK3OBJ *)its 0x48)->field00->field18` for 0x215 -- and 0x215 is exactly
+ * what this routine writes into the PROC's 0x18 three instructions before
+ * spawning it. So the scroller watches this teleport and stops when the action
+ * changes.
+ *
+ * **Reading this pair is what found a transcription error** a few functions
+ * above: `t_s_t_scroller` was written with one dereference where the binary
+ * has two, which would have polled the wrong field forever. Corrected in the
+ * same commit as this.
+ *
+ * `obj->field1c = G + 0x418` is an ADDRESS in that slot, not a value --
+ * `update_tsl` takes it as a pointer into the global state.
+ *
+ * The velocity triple is derived again: 10.0, then `sub #0xd0000` for -3.0,
+ * then `add #0x35000` for 0.3125.
+ */
+long tl_do_scorp_tele(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token != 0) {
+        if (token != 0x2ca)
+            return -3;
+
+        clear_inviso(obj);
+
+        if ((long)thread->frame > 0) {
+            thread->frame -= 1;         /* back up a level */
+            return 0;
+        }
+        return mk3_push_handler(thread,
+                                (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    obj->field20          = 0x215;
+    obj->field00->field18 = 0x215;      /* what the scroller watches for */
+    air_init_special(obj);
+
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x418);  /* an address */
+    update_tsl(obj);
+
+    obj->field1c = 0xc;
+    ochar_sound(obj);
+
+    {
+        MK3OBJ *t = NewThreadProc(obj, (MK3THREADFUNC)t_s_t_scroller);
+
+        t->field48 = (uint32_t)(uintptr_t)obj;      /* pointed back at us */
+    }
+
+    face_opponent(obj);
+    flip_multi(obj);
+    set_noedge(obj);
+
+    obj->field1c = 0x000a0000;          /* 10.000 */
+    obj->field20 = 0xfffd0000u;         /* -3.000, by sub #0xd0000 */
+    obj->field24 = 0x00005000;          /*  0.312, by add #0x35000 */
+    obj->field28 = 3;
+
+    obj->field40 = 0x00010008;          /* 1 high, 8 low */
+    obj->field34 = (uint32_t)(uintptr_t)t_sctele_calla_1;   /* the callback */
+
+    *mk3_frame(thread, thread->frame + 1) = 0x2ca;
+    thread->frame = thread->frame + 1;          /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_flight_call;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
 }
