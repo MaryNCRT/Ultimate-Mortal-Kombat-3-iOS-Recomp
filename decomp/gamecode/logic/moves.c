@@ -34,6 +34,9 @@
  * conflict here, which is what the check is for. */
 long q_animal_dist(MK3OBJ *obj);
 long q_fatal_dist(MK3OBJ *obj);
+void q_friend(MK3OBJ *obj);
+void q_jade_flash(MK3OBJ *obj);
+void q_scorp_tele(MK3OBJ *obj);
 long is_he_joy(MK3OBJ *obj);
 long mercy_xfer(MK3OBJ *obj, MK3OBJ *other);
 long secret_move_search(MK3OBJ *obj, uint32_t arg, uint32_t *table);
@@ -3676,4 +3679,96 @@ long q_ermac_fatal(MK3OBJ *obj)
     obj->field30 = 0x60;
     obj->field34 = 0x60 + 0x60;
     return q_fatal_dist(obj);
+}
+
+
+/* q_six_button -- armv7 0x000502cc, 20 bytes.  **Complete.**
+ *
+ *      obj->field5c = ((int16)obj->field00->field7c == 0)
+ *
+ * `rsbs r3, r3, #1` then `movlo r3, #0` is the compiler's `x == 0`: one minus
+ * the value, and zero whenever the subtraction borrowed -- which it does for
+ * everything except 0 and 1. So this is the NEGATION of q_four_button, and
+ * the two together say what the suffixes mean. Four wants the gate at 0x7c
+ * set; six wants it clear. */
+void q_six_button(MK3OBJ *obj)
+{
+    obj->field5c = ((int16_t)obj->field00->field7c == 0) ? 1u : 0u;
+}
+
+/* q_friend_four -- armv7 0x000502a8, 24 bytes.  **Complete.**
+ *
+ *      if ((int16)obj->field00->field7c == 0) q_no(obj); else q_friend(obj);
+ *
+ * The four-button gate in front of another question. Both arms end in a call
+ * whose value is not used, so this answers only through 0x5c. */
+void q_friend_four(MK3OBJ *obj)
+{
+    if ((int16_t)obj->field00->field7c == 0)
+        q_no(obj);
+    else
+        q_friend(obj);
+}
+
+/* q_jade_flash_four -- armv7 0x00052bb0, 24 bytes.  **Complete.**
+ *
+ * The same gate in front of `q_jade_flash`. */
+void q_jade_flash_four(MK3OBJ *obj)
+{
+    if ((int16_t)obj->field00->field7c == 0)
+        q_no(obj);
+    else
+        q_jade_flash(obj);
+}
+
+/* q_jade_flash_six -- armv7 0x00052b98, 24 bytes.  **Complete.**
+ *
+ * **The same twenty-four bytes as q_jade_flash_four with `cbz` where it has
+ * `cbnz`.** One instruction is the whole difference between the four-button
+ * and six-button forms of a move, and it agrees with q_six_button being the
+ * negation of q_four_button. */
+void q_jade_flash_six(MK3OBJ *obj)
+{
+    if ((int16_t)obj->field00->field7c != 0)
+        q_no(obj);
+    else
+        q_jade_flash(obj);
+}
+
+/* q_scorp_tele_four -- armv7 0x00052a5c, 24 bytes.  **Complete.**
+ *
+ * The same gate in front of `q_scorp_tele`. */
+void q_scorp_tele_four(MK3OBJ *obj)
+{
+    if ((int16_t)obj->field00->field7c == 0)
+        q_no(obj);
+    else
+        q_scorp_tele(obj);
+}
+
+/* DbgTableDump -- armv7 0x000517d8, 24 bytes.  **Complete.**
+ *
+ *      if ((uint32_t)(table[0] - 1) > 8) return
+ *      i = 0
+ *      do { i += 1 } while ((uint32_t)(table[i] - 1) <= 8)
+ *
+ * **A loop with nothing in it.** The routine walks the table while each word
+ * is between 1 and 9 and does nothing with what it reads -- no store, no call,
+ * no return value. Whatever it printed was behind a debug macro that compiled
+ * to nothing, and the scan is all that survived the build. Transcribed as it
+ * stands, because the walk is real code and its emptiness is the finding.
+ *
+ * r0 is indexed as an array of words, not dereferenced as an object, so the
+ * parameter is a table pointer. */
+void DbgTableDump(uint32_t *table)
+{
+    uint32_t i;
+
+    if ((uint32_t)(table[0] - 1) > 8)
+        return;
+
+    i = 0;
+    do {
+        i += 1;
+    } while ((uint32_t)(table[i] - 1) <= 8);
 }
