@@ -130,7 +130,7 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ## Progreso general
 
 ```
-██████████████████████████░░░░░░░░░░░░░░  64,67%
+██████████████████████████░░░░░░░░░░░░░░  64,68%
 ```
 
 | Área | Peso | Hecho | |
@@ -140,11 +140,11 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 | Especificaciones de los formatos de assets | 8% | 100% | `██████████` |
 | `lime/common` — núcleo del motor (109 fn) | 12% | **100%** | `██████████` |
 | `gamecode` — lógica de juego (291 fn) | 18% | **100%** | `██████████` |
-| `gamecode/logic` — motor de combate (2.172 fn) | 28% | 46,32% (1006) | `█████░░░░░` |
+| `gamecode/logic` — motor de combate (2.172 fn) | 28% | 46,36% (1007) | `█████░░░░░` |
 | Capa de plataforma PC nativa (161 fn a reescribir) | 17% | 10% | `█░░░░░░░░░` |
 | Stubs del EA SDK (~1.412 fn) | 5% | 0% | `░░░░░░░░░░` |
 
-**64,67% del esfuerzo total estimado. Todavía no hay nada jugable.**
+**64,68% del esfuerzo total estimado. Todavía no hay nada jugable.**
 
 **Las tres filas del medio se cuentan; el resto son estimaciones.**
 `tools/progress.py` lee el árbol en cada ejecución para `lime/common`,

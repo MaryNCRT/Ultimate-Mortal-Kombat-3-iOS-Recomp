@@ -104,6 +104,8 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+long t_mileena_teleport_call(MK3THREAD *thread);
+void find_ani_part_a14(MK3OBJ *obj);
 long t_pounce_jsrp(MK3THREAD *thread);
 long is_jade_protected(MK3OBJ *obj);   /* q_yes/q_no leave the answer in r0 too */
 void is_he_blocking(MK3OBJ *obj);
@@ -3267,6 +3269,107 @@ long t_pounce_jsrp(MK3THREAD *thread)
     obj->field28 = 2;
 
     *mk3_frame(thread, thread->frame + 1) = 0x524;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ------------------------------------------------------- t_mileena_teleport_call
+ *
+ * armv7 0x00040fbc, 292 bytes.  **Complete.**
+ *
+ * Mileena's teleport kick, from the caller's side: throw the strike, and if it
+ * lands, launch her.
+ *
+ *      token == 0:
+ *          obj->field1c = 0x15
+ *          strike_check_a0(obj)                 ; answers in obj->field5c
+ *          if (obj->field5c != 0) goto HIT
+ *          if (thread->frame > 0) { frame -= 1; return 0 }   ; missed
+ *          frame[frame].handler = t_local_reaction_exit
+ *
+ *      HIT:
+ *          reset_proc_stack(thread)
+ *          obj->field1c = obj->field00->field18 = 0x627       ; the action
+ *          if (obj->field18 != 0) { field24 = 0.3125; field20 = -6.0 }
+ *          else                   { field24 = 0.625;  field20 = -5.0 }
+ *          arg[f8++] = obj->field20
+ *          obj->field40 = 0x19
+ *          obj->field54 = 3
+ *          find_ani_part_a14(obj)
+ *          obj->field20 = arg[--f8]             ; restore
+ *          obj->field1c = 1.0
+ *          obj->field28 = 6
+ *          token := 0x13d, descend into t_flight
+ *
+ *      token == 0x13d:
+ *          frame[frame].handler = t_jump_up_land_jump
+ *
+ *      otherwise: return -3
+ *
+ * **The launch is chosen by whether obj->field18 is zero**, and the two
+ * choices are one constant apart in each direction: 0x5000 then minus 0x65000,
+ * or 0xa000 then minus 0x5a000. A steeper, slower arc against a shallower,
+ * faster one -- 0.3125 across and -6.0 up, or 0.625 across and -5.0 up. The
+ * second pair is computed from `r3` while `r3` still holds the field that was
+ * just tested for zero, so the add starts from a known nought.
+ *
+ * 0x20 goes on the argument stack across find_ani_part_a14 and comes straight
+ * back: the same borrow-one-slot idiom as t_pounce_jsrp, for one callee.
+ *
+ * Both endings install rather than descend, and neither may carry the state-0
+ * refusal: the 0x13d one because its token is 0x13d, and the miss one because
+ * the binary's test at that point is `frame > 0`, not the slot. It reads the
+ * frame index it stored at entry, before strike_check_a0 could move it.
+ */
+long t_mileena_teleport_call(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token != 0) {
+        if (token != 0x13d)
+            return -3;
+        return mk3_install(thread, (MK3THREADFUNC)t_jump_up_land_jump);
+    }
+
+    obj->field1c = 0x15;
+    strike_check_a0(obj);
+
+    if (obj->field5c == 0) {                    /* the strike missed */
+        if ((long)thread->frame > 0) {
+            thread->frame -= 1;
+            return 0;
+        }
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    reset_proc_stack(thread);
+    obj->field1c = 0x627;
+    obj->field00->field18 = 0x627;              /* the action */
+
+    obj->field24 = 0x5000u;                     /* 0.3125 across */
+    obj->field20 = 0x5000u - 0x65000u;          /* -6.0 up */
+    if (obj->field18 == 0) {
+        obj->field24 = 0xa000u;                 /* 0.625 across */
+        obj->field20 = 0xa000u - 0x5a000u;      /* -5.0 up */
+    }
+
+    *mk3_arg(thread, thread->fieldf8) = obj->field20;
+    thread->fieldf8 += 1;
+
+    obj->field40 = 0x19;
+    obj->field54 = 3;
+    find_ani_part_a14(obj);
+
+    thread->fieldf8 -= 1;
+    obj->field20 = *mk3_arg(thread, thread->fieldf8);
+    obj->field1c = 0x10000u;                    /* 1.0 */
+    obj->field28 = 6;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x13d;
     thread->frame = thread->frame + 1;
     mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
     *mk3_frame(thread, thread->frame + 1) = 0;
