@@ -104,6 +104,9 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+long is_stick_right(MK3OBJ *obj);
+long is_stick_left(MK3OBJ *obj);
+long is_stick_up(MK3OBJ *obj);
 void init_special(MK3OBJ *obj);
 void set_noflip(MK3OBJ *obj);
 long tl_kano_cannon_ball(MK3THREAD *thread);
@@ -4437,4 +4440,152 @@ long tl_kano_cannon_ball(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0xbc0;
     thread->fieldfc = 1;
     return 1;
+}
+
+
+/* ----------------------------------------------------------- t_main_hover_loop
+ *
+ * armv7 0x0003df88, 352 bytes.  **Complete.**
+ *
+ * The hover itself: one frame of flying under stick control, then back to
+ * sleep. It runs once per frame and reinstalls itself through 0xa79.
+ *
+ *      token == 0:      distance_from_ground(obj)
+ *                       obj->field30 = obj->field1c        ; the height
+ *                       is_stick_right(obj)
+ *                       if (right)      obj->field48 = 0.5
+ *                       else { is_stick_left(obj)
+ *                              if (left) obj->field48 = -0.5 }
+ *                       if (right || left) {
+ *                           accelerate_x(obj) ; flight_move_ani(obj)
+ *                       } else {
+ *                           -- bleed the horizontal velocity, then the
+ *                              action check, see below --
+ *                       }
+ *                       obj->field34 = 0.25
+ *                       is_stick_up(obj)
+ *                       -- the altitude bands, see below --
+ *                       obj->field08->field20 = obj->field34
+ *                       clamp obj->field08->field1c to +/-3.0
+ *                       token := 0xa79, descend into t_hover_sleep_1
+ *
+ *      token == 0xa79:  frame[frame].handler = t_main_hover_loop
+ *
+ *      otherwise:       return -3
+ *
+ * **The altitude controller has a dead band two units wide.**
+ *
+ *      stick up      height > 0xdf    ->  +0.125     (already high: sink)
+ *      stick up      otherwise        ->  -0.75      (climb hard)
+ *      no stick      height <= 0xd5   ->  -0.1875    (drifted low: rise)
+ *      no stick      0xd6 .. 0xd7     ->  nothing at all
+ *      no stick      height > 0xd7    ->  +0.1875    (drifted high: fall)
+ *
+ * In the dead band the routine does not write 0x34 AND does not run the block
+ * that copies it out or clamps the horizontal speed -- it branches straight to
+ * the descend. So two units of height cost nothing to hold, which is what
+ * makes a hover look still rather than hunting.
+ *
+ * **The horizontal bleed keeps only one value.** With no stick, the velocity
+ * at obj->field08->field18 is shifted right four and put in 0x20; if that
+ * shift did not come out -1 the WHOLE value is put there instead, and 0x1c
+ * becomes the value minus 0x20 -- zero in every case except the one. So a
+ * velocity in [-16,-1] decays by one a frame and everything else stops dead.
+ * The asymmetry is in the binary (`asrs` then `cmp #-1`), not in the reading,
+ * and nothing here says why it is there.
+ *
+ * The action at proc+0x30 selects an animation: 1 gives 0x1c = 3 and 2 gives
+ * 0x1c = 4, both followed by set_float_ani; 0 and 3 do nothing; anything else
+ * writes the 4 and makes no call. Proc has no named field at 0x30, so it is
+ * reached as an offset.
+ */
+long t_main_hover_loop(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    int32_t  v, act;
+    int      moved, settle;
+
+    if (token != 0) {
+        if (token != 0xa79)
+            return -3;
+        return mk3_install(thread, (MK3THREADFUNC)t_main_hover_loop);
+    }
+
+    distance_from_ground(obj);
+    obj->field30 = obj->field1c;
+
+    moved = 0;
+    is_stick_right(obj);
+    if (obj->field5c != 0) {
+        obj->field48 = 0x8000u;                 /* 0.5 */
+        moved = 1;
+    } else {
+        is_stick_left(obj);
+        if (obj->field5c != 0) {
+            obj->field48 = 0xffff8000u;         /* -0.5 */
+            moved = 1;
+        }
+    }
+
+    if (moved) {
+        accelerate_x(obj);
+        flight_move_ani(obj);
+    } else {
+        v = (int32_t)obj->field08->field18;
+        obj->field1c = (uint32_t)v;
+        if (v != 0) {
+            obj->field20 = (uint32_t)(v >> 4);
+            if ((int32_t)obj->field20 != -1)
+                obj->field20 = (uint32_t)v;
+            obj->field1c = obj->field1c - obj->field20;
+            set_x_vel_player(obj);
+        }
+
+        act = *(int32_t *)((char *)obj->field00 + 0x30);
+        obj->field24 = (uint32_t)act;
+        if (act != 0 && act != 3) {
+            obj->field1c = 3;
+            if (act != 1)
+                obj->field1c = 4;
+            if (act == 1 || act == 2)
+                set_float_ani(obj);
+        }
+    }
+
+    obj->field34 = 0x4000u;                     /* 0.25 */
+    settle = 1;
+    is_stick_up(obj);
+    if (obj->field5c != 0) {
+        obj->field34 = 0xffff4000u;             /* -0.75 */
+        if ((long)obj->field30 > 0xdf)
+            obj->field34 = 0x2000u;             /* 0.125 */
+    } else if ((long)obj->field30 <= 0xd5) {
+        obj->field34 = 0xffffd000u;             /* -0.1875 */
+    } else if ((long)obj->field30 <= 0xd7) {
+        settle = 0;                             /* the dead band */
+    } else {
+        obj->field34 = 0x3000u;                 /* 0.1875 */
+    }
+
+    if (settle) {
+        obj->field08->field20 = obj->field34;
+
+        v = (int32_t)obj->field08->field1c;
+        obj->field20 = 0x30000u;                /* 3.0 */
+        obj->field1c = (uint32_t)v;
+        if (v > 0x30000) {
+            obj->field08->field1c = obj->field20;
+        } else {
+            obj->field20 = 0x30000u - 0x60000u; /* -3.0 */
+            if (v < (int32_t)obj->field20)
+                obj->field08->field1c = obj->field20;
+        }
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = 0xa79;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_hover_sleep_1;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
 }
