@@ -104,6 +104,7 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+long tl_do_tusk_blur(MK3THREAD *thread);
 long t_shake_and_collision(MK3THREAD *thread);
 long tl_do_tele_explode(MK3THREAD *thread);
 void set_ignore_y(MK3OBJ *obj);
@@ -3816,6 +3817,128 @@ long t_shake_and_collision(MK3THREAD *thread)
     *x_hi = (uint16_t)(*x_hi + 3);              /* three to the right */
     obj->field48 = 3;
     *mk3_frame(thread, thread->frame + 1) = 0xc9a;
+    thread->fieldfc = 1;
+    return 1;
+}
+
+
+/* ------------------------------------------------------------- tl_do_tusk_blur
+ *
+ * armv7 0x0003d2bc, 312 bytes.  **Complete.**
+ *
+ * The charge: twenty-six frames of running through the opponent, and the
+ * strike only counts once.
+ *
+ *      token == 0:      obj->field20 = 0x213 ; init_special_act(obj)
+ *                       obj->field40 = 1 ; get_char_ani2(obj)
+ *                       obj->field1c = 13.0 ; towards_x_vel(obj)
+ *                       obj->field1c = 1 ; init_anirate(obj)
+ *                       obj->field1c = 2 ; ochar_sound(obj)
+ *                       obj->field1c = obj->field00->field28 = 0
+ *                       obj->a10 = 0x1a
+ *                       token := 0x2f5, park 1
+ *
+ *      token == 0x2f5:  obj->field1c = obj->field00->field28
+ *                       if (that was 0) {
+ *                           obj->field1c = 0x12 ; strike_check_a0(obj)
+ *                           if (obj->field5c != 0) {
+ *                               if (obj->field18 != 0)
+ *                                   frame[frame].handler = t_tusk_blur_blocked
+ *                               obj->field1c = obj->field00->field28 = 1
+ *                           }
+ *                       }
+ *                       sans_repell_3(obj) ; next_anirate(obj)
+ *                       if (--obj->a10 > 0) { token := 0x2f5, park 1 }
+ *                       obj->field40 = 1 ; find_ani2_part2(obj)
+ *                       stop_me_player(obj) ; obj->field1c = 2
+ *                       token := 0x30d, descend into t_mframew
+ *
+ *      token == 0x30d:  frame[frame].handler = t_local_reaction_exit
+ *
+ *      otherwise:       return -3
+ *
+ * **0x28 of the proc is a latch, not a counter.** It starts at zero, the
+ * strike is only attempted while it is zero, and connecting sets it to one --
+ * so a charge that passes through the opponent hits him once however many
+ * frames the two of them overlap. The same field is cleared on the way in,
+ * which is what makes the move repeatable.
+ *
+ * The countdown is in 0x44, the argument slot, used here as a plain frame
+ * counter -- the same borrowing `tl_do_reptile_dash` does.
+ *
+ * **The install and the descend are the same six instructions.** 0x3d34c
+ * loads a handler through a pointer slot and stores it at `frame[r2]`, and the
+ * only difference between the two callers is whether 0xa4 was incremented
+ * before jumping in: the 0x30d state arrives with r2 still holding the frame
+ * it read at entry, and the descend arrives with r2 holding the frame it has
+ * just written back. One tail, two meanings, told apart by an increment that
+ * happened four instructions earlier.
+ */
+long tl_do_tusk_blur(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t hit;
+
+    if (token == 0x30d)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token == 0x2f5) {
+        hit = obj->field00->field28;
+        obj->field1c = hit;
+
+        if (hit == 0) {
+            obj->field1c = 0x12;
+            strike_check_a0(obj);
+            if (obj->field5c != 0) {
+                if (obj->field18 != 0)          /* he blocked it */
+                    return mk3_install(thread,
+                                       (MK3THREADFUNC)t_tusk_blur_blocked);
+                obj->field1c = 1;
+                obj->field00->field28 = 1;      /* once is enough */
+            }
+        }
+
+        sans_repell_3(obj);
+        next_anirate(obj);
+
+        obj->a10 -= 1;
+        if ((long)obj->a10 > 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0x2f5;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        obj->field40 = 1;
+        find_ani2_part2(obj);
+        stop_me_player(obj);
+        obj->field1c = 2;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x30d;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field20 = 0x213;
+    init_special_act(obj);
+    obj->field40 = 1;
+    get_char_ani2(obj);
+    obj->field1c = 0xd0000u;                    /* 13.0 */
+    towards_x_vel(obj);
+    obj->field1c = 1;
+    init_anirate(obj);
+    obj->field1c = 2;
+    ochar_sound(obj);
+    obj->field1c = 0;
+    obj->field00->field28 = 0;
+    obj->a10 = 0x1a;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x2f5;
     thread->fieldfc = 1;
     return 1;
 }
