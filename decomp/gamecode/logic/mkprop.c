@@ -104,6 +104,8 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+long t_animate_a9(MK3THREAD *thread);
+long tl_do_mileena_tele(MK3THREAD *thread);
 void damage_to_him(MK3OBJ *obj);
 void takeover_him(MK3OBJ *obj);
 long t_r_quake(MK3THREAD *thread);
@@ -5264,6 +5266,162 @@ long t_reptile_dash_hit(MK3THREAD *thread)
 
     obj->a10 = 0xe;
     *mk3_frame(thread, thread->frame + 1) = 0x1fa;
+    thread->fieldfc = 1;
+    return 1;
+}
+
+
+/* ---------------------------------------------------------- tl_do_mileena_tele
+ *
+ * armv7 0x0003f454, 444 bytes.  **Complete.**
+ *
+ * Mileena drops through the floor and comes up somewhere else.
+ *
+ *      token == 0:      obj->field20 = 0x218 ; init_special_act(obj)
+ *                       obj->field1c = 7 ; ochar_sound(obj)
+ *                       obj->field40 = 0x12 ; get_char_ani(obj)
+ *                       do_next_a9_frame(obj)
+ *                       obj->field1c = obj->field08->field1c = 5.0
+ *                       token := 0x151, park 1
+ *
+ *      token == 0x151:  y = (int16)obj->field08->field12
+ *                       obj->field1c = y
+ *                       obj->field20 = *(G + 0xac)
+ *                       if (*(G + 0xac) >= y) {          ; still falling
+ *                           obj->field1c = obj->field08->field1c + 0.375
+ *                           obj->field08->field1c = obj->field1c
+ *                           token := 0x151, park 1
+ *                       }
+ *                       -- through the floor, see below --
+ *
+ *      token == 0x17b:  obj->field40 = 0x30004
+ *                       token := 0x17e, descend into t_animate_a9
+ *
+ *      token == 0x17e:  token := 0x17f, park 8
+ *
+ *      token == 0x17f:  if (thread->frame > 0) { frame -= 1; return 0 }
+ *                       frame[frame].handler = t_local_reaction_exit
+ *
+ *      otherwise:       return -3
+ *
+ * The fall is a loop of one state: each frame adds 0.375 to the downward speed
+ * and parks, and the exit test compares the sprite's y against `*(G + 0xac)`.
+ * **Gravity is applied by the routine itself, not by a flight** -- there is no
+ * descend anywhere in that state, just an add and a park.
+ *
+ * Through the floor, all in one frame:
+ *
+ *      match_me_with_him(obj) ; flip_multi(obj)
+ *      obj->field1c = -0x50 ; obj->field20 = 0 ; multi_adjust_xy(obj)
+ *      obj->field20 = *(G + 0x464) - 0x20
+ *      (int16)obj->field08->field12 = obj->field20     ; put her there
+ *      obj->field40 = 0x19 ; find_ani_last_frame(obj)
+ *      do_next_a9_frame(obj)
+ *      obj->field1c = 4.0 ; towards_x_vel(obj)
+ *      obj->field1c = obj->field20 = 0xd
+ *      obj->field24 = 0.625 ; obj->field28 = 0xfff
+ *      obj->field40 = 0x19
+ *      obj->field34 = t_mileena_teleport_call
+ *      token := 0x17b, descend into t_flight_call
+ *
+ * **0x34 is the callback slot and this is the proof.** The address written
+ * there is `t_mileena_teleport_call`, and the routine descended into is
+ * `t_flight_call` -- the one that runs whatever 0x34 holds. The pair is
+ * spelled out in nine instructions: store the function, then call the caller.
+ *
+ * She is placed by writing a HALFWORD into the part's 0x12, taken from a
+ * global twenty pixels up. The reappearance is a coordinate store, not a
+ * movement -- nothing interpolates her there.
+ *
+ * 0x28 gets 0xfff, which is not a small count like the 2s and 3s the other
+ * flights use. Recorded as it stands.
+ */
+long tl_do_mileena_tele(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    int32_t  y;
+
+    if (token == 0x17b) {
+        obj->field40 = 0x30004;
+        *mk3_frame(thread, thread->frame + 1) = 0x17e;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x17e) {
+        *mk3_frame(thread, thread->frame + 1) = 0x17f;
+        thread->fieldfc = 8;
+        return 8;
+    }
+
+    if (token == 0x17f) {
+        if ((long)thread->frame > 0) {
+            thread->frame -= 1;
+            return 0;
+        }
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (token == 0x151) {
+        y = *(int16_t *)((char *)obj->field08 + 0x12);
+        obj->field1c = (uint32_t)y;
+        obj->field20 = *(uint32_t *)(G_BYTES + 0xac);
+
+        if ((int32_t)obj->field20 >= y) {       /* not through the floor yet */
+            obj->field1c = obj->field08->field1c + 0x6000u;     /* 0.375 */
+            obj->field08->field1c = obj->field1c;
+            *mk3_frame(thread, thread->frame + 1) = 0x151;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        match_me_with_him(obj);
+        flip_multi(obj);
+        obj->field1c = (uint32_t)-0x50;
+        obj->field20 = 0;
+        multi_adjust_xy(obj);
+
+        obj->field20 = *(uint32_t *)(G_BYTES + 0x464) - 0x20;
+        *(int16_t *)((char *)obj->field08 + 0x12) = (int16_t)obj->field20;
+
+        obj->field40 = 0x19;
+        find_ani_last_frame(obj);
+        do_next_a9_frame(obj);
+        obj->field1c = 0x40000u;                /* 4.0 */
+        towards_x_vel(obj);
+        obj->field1c = 0xd;
+        obj->field20 = 0xd;
+        obj->field24 = 0xa000u;                 /* 0.625 */
+        obj->field28 = 0xfff;
+        obj->field40 = 0x19;
+        obj->field34 = (uint32_t)(uintptr_t)t_mileena_teleport_call;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x17b;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_flight_call;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field20 = 0x218;
+    init_special_act(obj);
+    obj->field1c = 7;
+    ochar_sound(obj);
+    obj->field40 = 0x12;
+    get_char_ani(obj);
+    do_next_a9_frame(obj);
+    obj->field1c = 0x50000u;                    /* 5.0 */
+    obj->field08->field1c = 0x50000u;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x151;
     thread->fieldfc = 1;
     return 1;
 }
