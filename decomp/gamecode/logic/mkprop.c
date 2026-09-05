@@ -104,6 +104,9 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+void get_his_action(MK3OBJ *obj);
+void edge_pick_a0(MK3OBJ *obj);
+long t_r_pounce2(MK3THREAD *thread);
 long am_i_joy(MK3OBJ *obj);
 void mk_random(MK3OBJ *obj);
 void stuff_buttons(MK3OBJ *obj, uint32_t buttons);
@@ -5775,4 +5778,141 @@ long tl_do_lao_tele(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0x931;
     thread->fieldfc = 1;
     return 1;
+}
+
+
+/* --------------------------------------------------------------- t_pounce_fall
+ *
+ * armv7 0x00040118, 496 bytes.  **Complete.**
+ *
+ * The pounce, all the way down and then a second time. Eight states, and two
+ * of them are the same descend into t_pounce_jsrp with one field differing.
+ *
+ *      token == 0:      token := 0x4e8, descend into t_flight_call
+ *
+ *      token == 0x4e8:  token := 0x4e9, descend into t_blur_catchup
+ *
+ *      token == 0x4e9:  get_his_action(obj)
+ *                       if (obj->field20 != 0x30b)
+ *                           frame[frame].handler = t_pounce_miss
+ *                       do_next_a9_frame(obj)
+ *                       token := 0x4f0, park 4
+ *
+ *      token == 0x4f0:  set_ignore_y(obj) ; pounce_ground_him(obj)
+ *                       *(uint16 *)(G + 0x456) = 0x1e
+ *                       obj->field1c = 0
+ *                       obj->field48 = t_r_pounce2
+ *                       token := 0x4f8, descend into t_pounce_jsrp
+ *
+ *      token == 0x4f8:  do_next_a9_frame(obj)
+ *                       token := 0x4fa, park 4
+ *
+ *      token == 0x4fa:  obj->field1c = 6.0 ; edge_pick_a0(obj)
+ *                       obj->field48 = 0
+ *                       *(uint16 *)(G + 0x456) = 0x1e
+ *                       token := 0x500, descend into t_pounce_jsrp
+ *
+ *      token == 0x500:  do_next_a9_frame(obj)
+ *                       token := 0x502, park 4
+ *
+ *      token == 0x502:  frame[frame].handler = t_local_reaction_exit
+ *
+ *      otherwise:       return -3
+ *
+ * **0x48 is a handler address on the first pounce and zero on the second, and
+ * t_pounce_jsrp is what reads it.** That routine's 0x524 state copies 0x48
+ * into 0x38 and calls xfer_otherguy only when it is not zero -- so the first
+ * pounce hands the opponent's thread over to t_r_pounce2 and the second one
+ * does not. The whole difference between the two bounces is one word written
+ * one instruction before the descend. Both halves are now transcribed and they
+ * agree.
+ *
+ * **The move is abandoned by asking what the opponent is doing.** State 0x4e9
+ * calls get_his_action and compares 0x20 against 0x30b; anything else installs
+ * t_pounce_miss and the pounce never lands. It is the only test in the routine
+ * and it happens before the first ground contact.
+ *
+ * 0x1e goes into the halfword at G + 0x456 twice, once for each bounce -- the
+ * same slot the sans_repell family and t_hover_sleep_1 write with their own
+ * values.
+ */
+long t_pounce_fall(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x4e8) {
+        *mk3_frame(thread, thread->frame + 1) = 0x4e9;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_blur_catchup;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x4e9) {
+        get_his_action(obj);
+        if (obj->field20 != 0x30b)              /* he is not there for it */
+            return mk3_install(thread, (MK3THREADFUNC)t_pounce_miss);
+
+        do_next_a9_frame(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x4f0;
+        thread->fieldfc = 4;
+        return 4;
+    }
+
+    if (token == 0x4f0) {
+        set_ignore_y(obj);
+        pounce_ground_him(obj);
+        *(uint16_t *)(G_BYTES + 0x456) = 0x1e;
+        obj->field1c = 0;
+        obj->field48 = (uint32_t)(uintptr_t)t_r_pounce2;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x4f8;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_pounce_jsrp;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x4f8) {
+        do_next_a9_frame(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x4fa;
+        thread->fieldfc = 4;
+        return 4;
+    }
+
+    if (token == 0x4fa) {
+        obj->field1c = 0x60000u;                /* 6.0 */
+        edge_pick_a0(obj);
+        obj->field48 = 0;                       /* no hand-over this time */
+        *(uint16_t *)(G_BYTES + 0x456) = 0x1e;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x500;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_pounce_jsrp;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x500) {
+        do_next_a9_frame(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x502;
+        thread->fieldfc = 4;
+        return 4;
+    }
+
+    if (token == 0x502)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token != 0)
+        return -3;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x4e8;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight_call;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
 }
