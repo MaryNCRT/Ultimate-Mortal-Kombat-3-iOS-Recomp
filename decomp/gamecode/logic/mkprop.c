@@ -104,6 +104,8 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+long t_do_backup(MK3THREAD *thread);
+long tl_do_mileena_prop(MK3THREAD *thread);
 long t_animate_a0_frames(MK3THREAD *thread);
 long tl_jax_dash_punch(MK3THREAD *thread);
 long tl_do_kano_upball(MK3THREAD *thread);
@@ -6707,4 +6709,249 @@ long tl_jax_dash_punch(MK3THREAD *thread)
         (uint32_t)(uintptr_t)t_animate_a0_frames;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
+}
+
+
+/* ---------------------------------------------------------- tl_do_mileena_prop
+ *
+ * armv7 0x00040d54, 616 bytes.  **Complete.**
+ *
+ * Mileena's spinning charge: five frames a revolution, twenty-four
+ * revolutions, and three different endings depending on what it runs into.
+ *
+ *      token == 0:      obj->field1c = 0x219 ; init_special_act(obj)
+ *                       obj->field1c = 0xa ; ochar_sound(obj)
+ *                       obj->field40 = 4 ; do_first_a9_frame(obj)
+ *                       token := 0xb6, park 3
+ *
+ *      token == 0xb6:   obj->field40 = 0x1a ; get_char_ani(obj)
+ *                       obj->field40 += 4
+ *                       obj->field1c = 0 ; obj->field20 = 0x4a
+ *                       multi_adjust_xy(obj)
+ *                       obj->field1c = 2 ; init_anirate(obj)
+ *                       obj->field48 = 5 ; obj->a10 = 0x18
+ *                       obj->field1c = 10.0 ; towards_x_vel(obj)
+ *                       -- SPIN --
+ *
+ *      SPIN:            next_anirate(obj) ; sans_repell_3(obj)
+ *                       obj->field1c = 0x16 ; strike_check_a0(obj)
+ *                       if (obj->field5c != 0) -- CONNECTED --
+ *                       token := 0xce, park 1
+ *
+ *      token == 0xce:   if (--obj->field48 > 0) -- SPIN --
+ *                       obj->field48 = 1
+ *                       if (--obj->a10 > 0) -- SPIN --
+ *                       -- FINISH --
+ *
+ *      CONNECTED:       if (obj->field18 == 0) {
+ *                           q_is_he_a_boss(obj)
+ *                           if (obj->field5c == 0) {
+ *                               obj->a10 = 0xb
+ *                               next_anirate(obj)
+ *                               token := 0xe1, park 1
+ *                           }
+ *                       }
+ *                       -- BOUNCE OFF --
+ *
+ *      BOUNCE OFF:      obj->field1c = obj->field00->field18 = 0x61e
+ *                       obj->field48 = (int16)obj->field08->field12
+ *                       match_me_with_him(obj)
+ *                       obj->field1c = 0x20 ; obj->field20 = 0
+ *                       multi_adjust_xy(obj) ; face_opponent(obj)
+ *                       (int16)obj->field08->field12 = (uint16)obj->field48
+ *                       obj->field40 = 0x1a ; get_char_ani(obj)
+ *                       obj->field40 += 4
+ *                       obj->field08->field1c = -11.0
+ *                       obj->field24 = obj->field08->field20 = 0.375
+ *                       obj->field1c = 2 ; init_anirate(obj)
+ *                       obj->field1c = 0.625 ; away_x_vel(obj)
+ *                       token := 0x108, park 1
+ *
+ *      token == 0xe1:   if (--obj->a10 <= 0) -- FINISH --
+ *                       next_anirate(obj)
+ *                       token := 0xe1, park 1
+ *
+ *      token == 0x108:  next_anirate(obj)
+ *                       y = (int16)obj->field08->field12
+ *                       obj->field1c = y ; obj->field20 = *(proc + 0x40)
+ *                       if (obj->field20 < y) { token := 0x108, park 1 }
+ *                       obj->field1c = obj->field20 = obj->field24 = 0xd
+ *                       obj->field28 = 2
+ *                       token := 0x114, descend into t_flight
+ *
+ *      token == 0x114:  frame[frame].handler = t_jump_up_land_jump
+ *
+ *      FINISH:          stop_me_player(obj) ; ground_player(obj)
+ *                       face_opponent(obj)
+ *                       obj->field1c = &G + 0x428 ; update_tsl(obj)
+ *                       frame[frame].handler = t_do_backup
+ *
+ *      otherwise:       return -3
+ *
+ * **Two counters, one loop.** 0x48 counts the five frames of a revolution and
+ * 0x44 the twenty-four revolutions. When the inner one hits zero it is reset
+ * to **1**, not to 5 -- so every revolution after the first is a single frame
+ * long. The first turn is slow and the rest are not.
+ *
+ * **Hitting a boss is treated as being blocked.** Both take the same branch to
+ * the bounce, and only a clean hit on somebody else goes to the eleven-frame
+ * follow-through. There is no separate boss handling anywhere else in the
+ * routine.
+ *
+ * **Her height is saved across the reposition.** 0x12 of the part is read
+ * signed into 0x48, match_me_with_him and multi_adjust_xy move her, and then
+ * the saved value is written back as a halfword -- so the bounce keeps her
+ * vertical position and changes only where she is horizontally. The value goes
+ * out sign-extended and comes back unsigned, which is what the two
+ * instructions say.
+ *
+ * proc+0x40 is read as a word here, as in tl_do_lao_tele and tl_do_robo_tele.
+ */
+long tl_do_mileena_prop(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    int32_t  y;
+    int      spin = 0, finish = 0, bounce = 0;
+
+    if (token == 0x114)
+        return mk3_install(thread, (MK3THREADFUNC)t_jump_up_land_jump);
+
+    if (token == 0x108) {
+        next_anirate(obj);
+        y = *(int16_t *)((char *)obj->field08 + 0x12);
+        obj->field1c = (uint32_t)y;
+        obj->field20 = *(uint32_t *)((char *)obj->field00 + 0x40);
+
+        if ((int32_t)obj->field20 < y) {        /* still coming down */
+            *mk3_frame(thread, thread->frame + 1) = 0x108;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        obj->field1c = 0xd;
+        obj->field20 = 0xd;
+        obj->field24 = 0xd;
+        obj->field28 = 2;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x114;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xe1) {
+        obj->a10 -= 1;
+        if ((long)obj->a10 > 0) {
+            next_anirate(obj);
+            *mk3_frame(thread, thread->frame + 1) = 0xe1;
+            thread->fieldfc = 1;
+            return 1;
+        }
+        finish = 1;
+    } else if (token == 0xce) {
+        obj->field48 -= 1;
+        if ((long)obj->field48 > 0) {
+            spin = 1;
+        } else {
+            obj->field48 = 1;                   /* one frame a turn from here */
+            obj->a10 -= 1;
+            if ((long)obj->a10 > 0)
+                spin = 1;
+            else
+                finish = 1;
+        }
+    } else if (token == 0xb6) {
+        obj->field40 = 0x1a;
+        get_char_ani(obj);
+        obj->field40 = obj->field40 + 4;
+        obj->field1c = 0;
+        obj->field20 = 0x4a;
+        multi_adjust_xy(obj);
+        obj->field1c = 2;
+        init_anirate(obj);
+        obj->field48 = 5;
+        obj->a10 = 0x18;
+        obj->field1c = 0xa0000u;                /* 10.0 */
+        towards_x_vel(obj);
+        spin = 1;
+    } else if (token != 0) {
+        return -3;
+    }
+
+    if (spin) {
+        next_anirate(obj);
+        sans_repell_3(obj);
+        obj->field1c = 0x16;
+        strike_check_a0(obj);
+
+        if (obj->field5c == 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0xce;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        bounce = 1;
+        if (obj->field18 == 0) {
+            q_is_he_a_boss(obj);
+            if (obj->field5c == 0) {            /* a clean hit on a mortal */
+                obj->a10 = 0xb;
+                next_anirate(obj);
+                *mk3_frame(thread, thread->frame + 1) = 0xe1;
+                thread->fieldfc = 1;
+                return 1;
+            }
+        }
+    }
+
+    if (bounce) {
+        obj->field1c = 0x61e;
+        obj->field00->field18 = 0x61e;
+        obj->field48 = (uint32_t)(int32_t)
+            *(int16_t *)((char *)obj->field08 + 0x12);
+
+        match_me_with_him(obj);
+        obj->field1c = 0x20;
+        obj->field20 = 0;
+        multi_adjust_xy(obj);
+        face_opponent(obj);
+        *(int16_t *)((char *)obj->field08 + 0x12) = (int16_t)(uint16_t)
+            obj->field48;                       /* put her back at that height */
+
+        obj->field40 = 0x1a;
+        get_char_ani(obj);
+        obj->field40 = obj->field40 + 4;
+        obj->field08->field1c = 0xfff50000u;    /* -11.0 */
+        obj->field24 = 0x6000u;                 /* 0.375 */
+        obj->field08->field20 = 0x6000u;
+        obj->field1c = 2;
+        init_anirate(obj);
+        obj->field1c = 0xa000u;                 /* 0.625 */
+        away_x_vel(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x108;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (finish) {
+        stop_me_player(obj);
+        ground_player(obj);
+        face_opponent(obj);
+        obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x428);
+        update_tsl(obj);
+        return mk3_install(thread, (MK3THREADFUNC)t_do_backup);
+    }
+
+    obj->field1c = 0x219;
+    init_special_act(obj);
+    obj->field1c = 0xa;
+    ochar_sound(obj);
+    obj->field40 = 4;
+    do_first_a9_frame(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0xb6;
+    thread->fieldfc = 3;
+    return 3;
 }
