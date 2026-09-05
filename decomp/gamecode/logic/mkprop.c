@@ -104,6 +104,10 @@ void q_is_he_a_boss(MK3OBJ *obj);
 long t_pounce_hit(MK3THREAD *thread);
 long t_liz_fly_hit(MK3THREAD *thread);
 long t_square3(MK3THREAD *thread);
+void damage_to_him(MK3OBJ *obj);
+void takeover_him(MK3OBJ *obj);
+long t_r_quake(MK3THREAD *thread);
+long tl_do_sg_quake(MK3THREAD *thread);
 void player_froze_pal(MK3OBJ *obj);
 long is_he_joy(MK3OBJ *obj);
 long t_decoy_proc(MK3THREAD *thread);
@@ -4974,4 +4978,141 @@ long t_decoy_proc(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0xd09;
     thread->fieldfc = 0x16462;
     return 0x16462;
+}
+
+
+/* -------------------------------------------------------------- tl_do_sg_quake
+ *
+ * armv7 0x00040308, 400 bytes.  **Complete.**
+ *
+ * Jump up, come down hard, and shake everyone standing on the floor.
+ *
+ *      token == 0:      obj->field20 = 0x118 ; init_special_act(obj)
+ *                       obj->field40 = 0 ; get_char_ani2(obj)
+ *                       obj->field1c = 0
+ *                       obj->field20 = -10.0
+ *                       obj->field24 = 0.75
+ *                       obj->field28 = 2
+ *                       token := 0x483, descend into t_flight
+ *
+ *      token == 0x483:  obj->field1c = 1 ; ochar_sound(obj)
+ *                       obj->field48 = 0x80008 ; shake_a11(obj)
+ *                       obj->field48 = 0
+ *                       is_he_airborn(obj)
+ *                       if (!airborne) {
+ *                           q_is_he_a_boss(obj)
+ *                           if (!boss) {
+ *                               obj->field1c = 0x19 ; damage_to_him(obj)
+ *                               obj->field38 = t_r_quake
+ *                               takeover_him(obj)
+ *                               obj->field48 = 1
+ *                           }
+ *                       }
+ *                       obj->field1c = obj->field00->field18 = 0x621
+ *                       obj->field40 = 0 ; get_char_ani2(obj)
+ *                       find_part2(obj) ; obj->field1c = 3
+ *                       token := 0x4a4, descend into t_mframew
+ *
+ *      token == 0x4a4:  obj->field1c = (obj->field48 != 0) ? 0x10 : 0x1c
+ *                       token := 0x4ac, park obj->field1c
+ *
+ *      token == 0x4ac:  do_next_a9_frame(obj)
+ *                       token := 0x4ae, park 4
+ *
+ *      token == 0x4ae:  frame[frame].handler = t_local_reaction_exit
+ *
+ *      otherwise:       return -3
+ *
+ * **0x48 is the shake argument and then the receipt.** It carries 0x80008 --
+ * the packed (8, 8) shake_a11 wants -- is cleared immediately after, and is
+ * then set to 1 only if the quake actually took the opponent over. Two states
+ * later that same field decides the recovery: 0x10 frames if it is set, 0x1c
+ * if it is not. Connecting is twelve frames cheaper, and the field that says
+ * so was an argument to a different function a moment earlier.
+ *
+ * **Being airborne and being a boss are the same defence.** Either one skips
+ * damage, the takeover and the receipt, by branching to the same instruction.
+ * There is no separate handling for a boss who happens to be in the air.
+ *
+ * The launch is the pool word 0xfff60000 with 0xac000 added, wrapping to
+ * 0xc000: -10.0 up and 0.75 of gravity, exactly the pair t_pounce_jsrp uses.
+ * The wrap is deliberate -- one constant spelled once.
+ *
+ * The dispatch's low branch tests against the register still holding 0x4a4,
+ * so the value is 0x4a4 - 0x21 = 0x483, matching what state 0 parks with.
+ */
+long tl_do_sg_quake(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x4a4) {
+        obj->field1c = 0x1c;
+        if (obj->field48 != 0)
+            obj->field1c = 0x10;                /* it landed: recover sooner */
+        *mk3_frame(thread, thread->frame + 1) = 0x4ac;
+        thread->fieldfc = obj->field1c;
+        return (long)obj->field1c;
+    }
+
+    if (token == 0x4ac) {
+        do_next_a9_frame(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x4ae;
+        thread->fieldfc = 4;
+        return 4;
+    }
+
+    if (token == 0x4ae)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token == 0x483) {
+        obj->field1c = 1;
+        ochar_sound(obj);
+        obj->field48 = 0x80008u;                /* (8, 8) */
+        shake_a11(obj);
+        obj->field48 = 0;
+
+        is_he_airborn(obj);
+        if (obj->field5c == 0) {
+            q_is_he_a_boss(obj);
+            if (obj->field5c == 0) {            /* on the floor, and no boss */
+                obj->field1c = 0x19;
+                damage_to_him(obj);
+                obj->field38 = (uint32_t)(uintptr_t)t_r_quake;
+                takeover_him(obj);
+                obj->field48 = 1;               /* the receipt */
+            }
+        }
+
+        obj->field1c = 0x621;
+        obj->field00->field18 = 0x621;
+        obj->field40 = 0;
+        get_char_ani2(obj);
+        find_part2(obj);
+        obj->field1c = 3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x4a4;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field20 = 0x118;
+    init_special_act(obj);
+    obj->field40 = 0;
+    get_char_ani2(obj);
+    obj->field1c = 0;
+    obj->field20 = 0xfff60000u;                 /* -10.0 */
+    obj->field24 = 0xfff60000u + 0xac000u;      /* wraps to 0.75 */
+    obj->field28 = 2;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x483;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
 }
