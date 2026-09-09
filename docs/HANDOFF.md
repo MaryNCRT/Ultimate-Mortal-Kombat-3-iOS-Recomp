@@ -368,6 +368,67 @@ necessary and is not sufficient: decode the branch tables before describing what
 a function does. A `tbh` whose table disassembles as `lsls` instructions is data,
 and its seven or twenty-three targets are the outline of the routine.
 
+## mkslam.c is finished, and four mechanisms it settled
+
+`mkslam.c` is **60 of 60**. Four things it established generalise to the eight
+files still open, so read this before starting any of them.
+
+**1. 0x1c carries a FUNCTION POINTER into `call_a0_for_him`.** The field is a
+duration in one line, a sound index in the next and an address in the third.
+`call_a0_for_him` takes the address out of 0x1c and runs that routine on the
+OTHER fighter. Seven sites across the file, and `t_do_back_breaker` alone hands
+across five different routines -- `clear_inviso`, `clear_shadow_bit`,
+`player_normpal`, `last_knockdown_frame`, `do_next_a9_frame`. Two of those are
+also called directly on this fighter a line or two away, so one routine reaches
+both fighters by two spellings inside one state. **If you see a pointer slot
+loaded into 0x1c, look for the `call_a0_for_him` two instructions later before
+assuming the value is a number.**
+
+**2. The four flight fields, and what is now known about each.** Twelve routines
+fill 0x1c, 0x20, 0x24 and 0x28 and descend into `t_flight`. 0x24 is 0x8000 at six
+of the sites, each reached by different arithmetic off a different literal -- so
+it looks like a fixed parameter of a flight, not a per-move number. 0x28 varies by
+kind: 4 for a slam bounce, 6 for a throw, 2 for `t_lao_slam`, 0xfff for the
+drop-downs. 0x1c and 0x20 are two components and which one a routine zeroes says
+whether the flight is sideways or straight down; `t_lao_slam` is the only one that
+sets both to one value. **`t_flight_call` is a second variant** that also reads a
+per-frame callback out of **0x34** -- one site, `t_do_back_breaker`, parking
+`t_bb_fall_call` there.
+
+**3. The ground-slam template, and the three ways it appears.** Eleven
+per-character slams share one six-state shape: `body_slam_init` and a grab, a
+park, a shout and a double wait, the handover, a wait, the pop. What a character
+carries is five durations, five token values and one victim handler -- everything
+else is inside `body_slam_init`, which is where the per-character tables are read.
+The template appears **split** across `t_indian_slam` and `t_slam_ani2`, **fused**
+in `t_tusk_slam`, and **fused with an extra wait** in `t_jade_slam` /
+`t_mileena_slam`. `t_njsl3` is the template with its first call missing, because
+`t_noob_slam` has already called `body_slam_init` with the part's character number
+temporarily set to 0x12.
+
+The victim handler comes from a small set, not one per character:
+`t_thrown_by_sonya` serves three slams and `t_thrown_by_lao` serves six.
+
+**4. One register can carry two tokens, decided several branches earlier.**
+`t_sz_slam` and `t_sg_slam` both load `r8` with a token at entry and reassign it
+inside the dispatch, on the branch taken when the incoming token is above some
+value. Two `str.w r8` instructions in different states then write different
+numbers. **Transcribing the store without tracing back to which load reaches it
+silently gives two states the same token.** Two sites makes it the compiler's
+idiom, so expect it again.
+
+### And two things transcribed rather than explained
+
+`obj->field40` is read THROUGH in `t_robo2_slam` and `t_jax_slam` -- `ldr` then
+`ldr` again -- where everywhere else in the file it is a small animation number.
+Nothing in either routine says what the pointer points at, so both are written as
+a dereference with a note and no name.
+
+`proc+0x40` is read with `ldr`, a full word, by a fourth and fifth routine against
+a field `mk3logic.h` declares as a halfword. The header already records the
+disagreement; these are reached by byte offset for that reason, as
+`tl_do_lao_tele` and `tl_do_robo_tele` are.
+
 ## Open questions worth someone's time
 
 - **`.lighting` is a prelight bake and is not decoded.** 13 files, sizes scaling
