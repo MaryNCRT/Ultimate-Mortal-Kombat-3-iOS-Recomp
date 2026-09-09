@@ -34,6 +34,7 @@
  * conflict here, which is what the check is for. */
 void q_animal_dist(MK3OBJ *obj);
 void q_fatal_dist(MK3OBJ *obj);
+extern uint32_t scom_lia_anglez[];       /* 0x0016a41c */
 void get_his_dfe(MK3OBJ *obj);
 long is_he_airborn(MK3OBJ *obj);
 long t_dizzy_sleep(MK3THREAD *thread);
@@ -5955,4 +5956,125 @@ void q_robo_net(MK3OBJ *obj)
         q_no(obj);
     else
         q_yes(obj);
+}
+
+
+/* kano_lk_open -- armv7 0x00052d4c, 100 bytes.  **Complete.**
+ *
+ *      get_his_action(obj)
+ *      if (obj->field20 == 0x600) return
+ *      obj->field1c = &G + 0x440 ; get_tsl_px(obj, other)
+ *      if (obj->field20 <= 0x3f) return
+ *      obj->field34 = 0 ; obj->field38 = t_do_kano_roll
+ *      obj->field68 = &G + 0x3b8
+ *      obj->field64 = obj->field00->0x7e ? 0x20 : 0x50
+ *      check_tsl(obj, other)
+ *
+ * A second producer for check_tsl, and it differs from jax_lk_open in two ways
+ * worth writing down. It reads the halfword at 0x7e out of its OWN proc where
+ * jax_lk_open reads it out of the opponent's, and its easy threshold is 0x20
+ * rather than 5. Same field, same shape, two different subjects.
+ *
+ * Its own get_tsl_px call is handed the OTHER object as the reference, unlike
+ * the q_ family which passes the same one twice. */
+void kano_lk_open(MK3OBJ *obj, MK3OBJ *other)
+{
+    get_his_action(obj);
+    if (obj->field20 == 0x600)
+        return;
+
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x440);
+    get_tsl_px(obj, other);
+    if ((long)obj->field20 <= 0x3f)
+        return;
+
+    obj->field34 = 0;
+    obj->field38 = (uint32_t)(uintptr_t)t_do_kano_roll;
+    *(uint32_t *)((char *)obj + 0x68) =
+        (uint32_t)(uintptr_t)(G_BYTES + 0x3b8);
+
+    if (*(int16_t *)((char *)obj->field00 + 0x7e) != 0)
+        *(uint32_t *)((char *)obj + 0x64) = 0x20;
+    else
+        *(uint32_t *)((char *)obj + 0x64) = 0x50;
+
+    check_tsl(obj, other);
+}
+
+/* lia_lk_close -- armv7 0x00054308, 100 bytes.  **Complete.**
+ *
+ *      if (!stick_look_lr2(obj, other, scom_lia_anglez, 0x20000, 0x200000))
+ *          return
+ *      distance_from_ground(obj)
+ *      if (obj->field1c <= 0xaf) return
+ *      obj->field34 = 1 ; obj->field38 = t_do_lia_anglez
+ *      obj->field68 = &G + 0x404 ; obj->field64 = 0x30
+ *      check_tsl(obj, other)
+ *
+ * **The first routine seen to pick entry ONE of xfer_types_table.** jax_lk_open
+ * and kano_lk_open both write 0 into 0x34; this writes 1, so the table has at
+ * least two live entries and the index really is a choice rather than a
+ * formality. Its threshold is a plain 0x30 with no halfword to soften it. */
+void lia_lk_close(MK3OBJ *obj, MK3OBJ *other)
+{
+    if (!stick_look_lr2(obj, (uint32_t)(uintptr_t)other,
+                        (uint32_t)(uintptr_t)scom_lia_anglez,
+                        0x200000u - 0x1e0000u, 0x200000u))
+        return;
+
+    distance_from_ground(obj);
+    if ((long)obj->field1c <= 0xaf)
+        return;
+
+    obj->field34 = 1;
+    obj->field38 = (uint32_t)(uintptr_t)t_do_lia_anglez;
+    *(uint32_t *)((char *)obj + 0x68) =
+        (uint32_t)(uintptr_t)(G_BYTES + 0x400 + 4);
+    *(uint32_t *)((char *)obj + 0x64) = 0x30;
+
+    check_tsl(obj, other);
+}
+
+/* q_bike_req -- armv7 0x00052fe0, 104 bytes.  **Complete.**
+ *
+ *      get_his_action(obj)
+ *      if (obj->field20 == 0x600) q_no(obj)
+ *      obj->field1c = &G + 0x3b8 ; get_tsl_px(obj, obj)
+ *      if (obj->field00->0x7e != 0) {
+ *          if (obj->field20 <= 0x1f) q_no(obj)
+ *          obj->field1c = &G + 0x444 ; get_tsl_px(obj, obj)
+ *          if (obj->field20 > 0x7f) q_yes(obj); else q_no(obj)
+ *      } else {
+ *          if (obj->field20 > 0x7f) q_yes(obj); else q_no(obj)
+ *      }
+ *
+ * **The halfword at 0x7e trades one hard test for two easy ones.** Clear, and
+ * the single lookup has to beat 0x7f. Set, and the first only has to beat 0x1f
+ * but a second lookup at another address must then beat 0x7f as well. Both
+ * arms end at the same two calls, which is why the yes is reached by a branch
+ * back into the middle of the first arm. */
+void q_bike_req(MK3OBJ *obj)
+{
+    get_his_action(obj);
+    if (obj->field20 == 0x600) {
+        q_no(obj);
+        return;
+    }
+
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x3b8);
+    get_tsl_px(obj, obj);
+
+    if (*(int16_t *)((char *)obj->field00 + 0x7e) != 0) {
+        if ((long)obj->field20 <= 0x1f) {
+            q_no(obj);
+            return;
+        }
+        obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x440 + 4);
+        get_tsl_px(obj, obj);
+    }
+
+    if ((long)obj->field20 > 0x7f)
+        q_yes(obj);
+    else
+        q_no(obj);
 }
