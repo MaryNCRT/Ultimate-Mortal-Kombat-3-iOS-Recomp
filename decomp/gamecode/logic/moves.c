@@ -34,6 +34,8 @@
  * conflict here, which is what the check is for. */
 void q_animal_dist(MK3OBJ *obj);
 void q_fatal_dist(MK3OBJ *obj);
+long t_do_fatality_1(MK3THREAD *thread);
+long t_do_fatality_2(MK3THREAD *thread);
 long is_he_right(MK3OBJ *obj);
 void get_bcq_next_pointer_idx(MK3OBJ *obj, long which);
 void get_jcq_next_pointer_idx(MK3OBJ *obj, long which);
@@ -6504,5 +6506,88 @@ long stick_look_lr(MK3OBJ *obj, uint32_t other_w, uint32_t table_w,
     }
 
     obj->field5c = 0;
+    return 0;
+}
+
+
+/* --------------------------------------------------------- secret_move_search
+ *
+ * armv7 0x00053754, 184 bytes.  **Complete.**
+ *
+ * The table walker every osm_ and ind_ routine hands its table to. **Each
+ * entry is 0x48 bytes and the layout comes out of the arithmetic exactly:**
+ *
+ *      +0x00  word   pair[0] for stick_look_lr, and the end-of-table sentinel
+ *      +0x04  word   pair[1]
+ *      +0x08  word   an index into xfer_types_table
+ *      +0x0c  word   an extra predicate, or zero -- called as fn(obj)
+ *      +0x10  word   a handler, stored into obj->field38
+ *      +0x14  13 words  the stick table handed to stick_look_lr
+ *
+ * **Thirteen words is not a guess: it is 0x48 - 0x14 exactly, and
+ * stick_look_lr reads one deadline and then two six-word halves.** The two
+ * routines agree to the word, which is what makes the whole layout certain.
+ *
+ * It also settles osm_hk_close, whose 0x48 looked arbitrary when it was read:
+ * that routine starts its search at the SECOND entry of its own table.
+ *
+ *      for (e = table; e[0] != 0; e += 18) {
+ *          pair[0] = e[0] ; pair[1] = e[1]
+ *          if (!stick_look_lr(obj, arg, &e[5], pair)) continue
+ *          if (e[3] != 0) {
+ *              ((void (*)(MK3OBJ *))e[3])(obj)
+ *              if (obj->field5c == 0) continue
+ *          }
+ *          obj->field38 = 0
+ *          if (e[4] == 0) return
+ *          obj->field38 = e[4]
+ *          xfer_types_table[e[2]](obj, arg)
+ *          return
+ *      }
+ *
+ * **The extra predicate is how a table entry adds a condition of its own.** It
+ * is called with the object and answers through 0x5c, like every other q_
+ * routine, and a no simply moves on to the next entry rather than ending the
+ * search.
+ *
+ * **Four dead comparisons.** Before the unconditional store, the handler is
+ * compared against t_do_square_wave, t_do_fatality_1, t_do_fatality_2 and
+ * t_do_kitana_zap, each with a conditional store of the same value to the same
+ * field. The store that follows is unconditional, so all four are redundant --
+ * they are in the binary and they change nothing. Transcribed as a note rather
+ * than as code, because writing four ifs that do what the next line does
+ * anyway would be less honest about which instruction has the effect.
+ *
+ * A zero handler is not a hit: 0x38 is cleared and the search stops without
+ * calling anything. */
+long secret_move_search(MK3OBJ *obj, uint32_t arg, uint32_t *table)
+{
+    uint32_t *e;
+    uint32_t pair[2];
+
+    for (e = table; e[0] != 0; e += 0x48 / 4) {
+        pair[0] = e[0];
+        pair[1] = e[1];
+
+        if (!stick_look_lr(obj, arg, (uint32_t)(uintptr_t)(e + 5), pair))
+            continue;
+
+        if (e[3] != 0) {
+            ((void (*)(MK3OBJ *))(uintptr_t)e[3])(obj);
+            if (obj->field5c == 0)
+                continue;
+        }
+
+        obj->field38 = 0;
+        if (e[4] == 0)
+            return 0;
+
+        /* four conditional stores of this same value precede the
+         * unconditional one in the binary; see the note above */
+        obj->field38 = e[4];
+        xfer_types_table[e[2]](obj, (MK3OBJ *)(uintptr_t)arg);
+        return 0;
+    }
+
     return 0;
 }
