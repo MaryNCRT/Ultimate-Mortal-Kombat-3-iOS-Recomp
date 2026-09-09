@@ -2244,3 +2244,135 @@ long t_jk6(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_jump_up_land_jsrp);
 }
+
+
+/* ---------------------------------------------------------------------- t_axeup3
+ *
+ * armv7 0x0004da84, 312 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field20 = 0x115
+ *                       init_special_act(obj)
+ *                       obj->field1c = 5; ochar_sound(obj)
+ *                       token := 0x6cf, descend into t_animate2_a9
+ *
+ *      token == 0x6cf:  obj->field00->field28 = 0
+ *                       obj->field1c = 3; init_anirate(obj)
+ *                       token := 0x6d8, park 1
+ *
+ *      token == 0x6d8:  obj->field1c = obj->field00->field28
+ *                       if (that == 0) {
+ *                           obj->field1c = 0x15
+ *                           strike_check_a0(obj)
+ *                           if (obj->field5c != 0)
+ *                               obj->field1c = obj->field00->field28 = 1
+ *                       }
+ *                       next_anirate(obj)
+ *                       obj->field1c = *(uint32_t *)obj->field40
+ *                       if (that != 0) token := 0x6d8, park 1
+ *                       else {
+ *                           obj->field20 = obj->field00->field18 = 0x61c
+ *                           obj->field1c = obj->field48
+ *                           token := 0x61c + 0xd3 = 0x6ef
+ *                           park obj->field1c
+ *                       }
+ *
+ *      token == 0x6ef:  delete_slave(obj)
+ *                       obj->field40 += 4
+ *                       obj->field1c = 2
+ *                       frame[frame].handler = t_mframew
+ *
+ *      otherwise:       return -3
+ *
+ * **0x40 is a CURSOR here, and this routine shows both halves of that at once.**
+ * The 0x6d8 state dereferences it -- `ldr` then `ldr` again -- and loops while the
+ * word it points at is non-zero; the 0x6ef state advances it by 4. So it walks an
+ * array of words and stops on a zero terminator, which is a much better reading
+ * than "sometimes a number, sometimes a pointer".
+ *
+ * That reading also covers the earlier sites: t_robo2_slam and t_jax_slam
+ * dereference 0x40 without advancing it, t_jk6 advances it by 4, and
+ * t_do_unblock_hi steps it back by 4 twice. **It does NOT cover the many routines
+ * that hand 0x40 to get_char_ani as a small index** -- the field is genuinely
+ * overloaded, and which meaning applies is decided by the routine, not by the
+ * field.
+ *
+ * **The strike is checked at most once per swing.** proc+0x28 is the latch: cleared
+ * on entry to the loop, and the strike check only runs while it is clear. A
+ * connection sets it, so every later frame skips the check entirely.
+ *
+ * **The last token is built from the action number** -- 0x61c plus 0xd3 gives
+ * 0x6ef -- which is the compiler reusing a register it already had loaded, not a
+ * relationship between the two numbers.
+ */
+void delete_slave(MK3OBJ *obj);
+long strike_check_a0(MK3OBJ *obj);
+void init_anirate(MK3OBJ *obj);
+
+long t_axeup3(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field20 = 0x115;
+        init_special_act(obj);
+
+        obj->field1c = 5;
+        ochar_sound(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x6cf;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate2_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x6cf) {
+        obj->field00->field28 = 0;
+        obj->field1c = 3;
+        init_anirate(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x6d8;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0x6d8) {
+        obj->field1c = obj->field00->field28;
+        if (obj->field1c == 0) {
+            obj->field1c = 0x15;
+            strike_check_a0(obj);
+            if (obj->field5c != 0) {
+                obj->field1c = 1;
+                obj->field00->field28 = 1;
+            }
+        }
+
+        next_anirate(obj);
+
+        obj->field1c = *(uint32_t *)(void *)(uintptr_t)obj->field40;
+        if (obj->field1c != 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0x6d8;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        obj->field20 = 0x61c;
+        obj->field00->field18 = 0x61c;
+        obj->field1c = obj->field48;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x61c + 0xd3;
+        thread->fieldfc = obj->field1c;
+        return (long)obj->field1c;
+    }
+
+    if (token != 0x6ef)
+        return -3;
+
+    delete_slave(obj);
+    obj->field40 = obj->field40 + 4;
+    obj->field1c = 2;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_mframew);
+}
