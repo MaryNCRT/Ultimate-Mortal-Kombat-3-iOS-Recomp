@@ -2051,11 +2051,16 @@ long t_thrown_by_robo2(MK3THREAD *thread)
  * fighter -- two different routines through one field is what makes it a
  * mechanism rather than a coincidence.
  *
- * **The victim's animation is 0x40 plus 0x2e.** Both air slams do this: 0x40
- * gets a small number and 0x48 gets that number plus 0x2e, and air_slam_init
- * resolves 0x48 through get_his_char_ani. So the two animations of an air slam
- * are a fixed distance apart in whatever table that walks -- 6 and 0x34 here,
- * 0xa and 0x38 in t_scorp_air_slam.
+ * **0x40 and 0x48 are set before the call and 0x48 is the victim's animation**,
+ * which air_slam_init resolves through get_his_char_ani. Here the compiler built
+ * 0x48 as `0x40 + 0x2e` -- 6 then 0x34 -- and t_scorp_air_slam does the same with
+ * 0xa and 0x38.
+ *
+ * **That relation does NOT hold across all four air slams.** t_robo2_air_slam
+ * pairs 6 with 0x41 and t_kano_air_body_slam pairs 0 with 0x3d, neither of which
+ * is a 0x2e step. So the chained arithmetic in these two is the compiler saving a
+ * literal on a pair that happens to be 0x2e apart, not a rule about the tables.
+ * Two of four is not a pattern, and this comment previously claimed it was.
  */
 long t_drop_down_land_jump(MK3THREAD *thread);
 void face_opponent(MK3OBJ *obj);                 /* pointer slot 0x000f3758 */
@@ -2206,4 +2211,373 @@ long t_scorp_air_slam(MK3THREAD *thread)
 
     obj->field40 = 0x00030021;
     return mk3_install(thread, (MK3THREADFUNC)t_animate_a9);
+}
+
+
+/* -------------------------------------------------------- t_kano_air_body_slam
+ *
+ * armv7 0x0004c57c, 280 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field40 = 0
+ *                       obj->field48 = 0x3d
+ *                       air_slam_init(obj)
+ *                       match_him_with_me_f(obj); double_next_a9(obj)
+ *                       token := 0x186, park 8
+ *
+ *      token == 0x186:  obj->field1c = 2
+ *                       token := 0x189, descend into t_double_mframew
+ *
+ *      token == 0x189:  obj->field38 = t_air_slamed_by_kano
+ *                       xfer_to_thrown(obj)
+ *                       token := 0x18e, park 0xa
+ *
+ *      token == 0x18e:  obj->field1c = 0
+ *                       obj->field20 = 0x18000
+ *                       obj->field24 = 0x18000 - 0x10000 = 0x8000
+ *                       obj->field28 = 0xfff
+ *                       token := 0x197, descend into t_flight
+ *
+ *      token == 0x197:  frame[frame].handler = t_jump_up_land_jsrp
+ *
+ *      otherwise:       return -3
+ *
+ * **t_robo2_air_slam's five states with two things changed**: the victim goes to
+ * t_air_slamed_by_kano rather than t_air_slamed_by_robo2, and the ending is a
+ * flight into t_jump_up_land_jsrp instead of a bare t_drop_down_land. So the
+ * air-slam template is four states of setup and handover plus one ending, and
+ * the ending is where the characters differ.
+ *
+ * **0x40 is zero here**, which is the value air_slam_init saves and puts back
+ * untouched -- so this fighter resolves no animation of its own and only the
+ * victim's 0x48 matters. That is what disproves the 0x2e relation noted above:
+ * 0 and 0x3d are not a 0x2e step.
+ *
+ * The flight is t_drop_down_land's four numbers again, which is now the third
+ * routine to use exactly those.
+ */
+long t_air_slamed_by_kano(MK3THREAD *thread);
+
+long t_kano_air_body_slam(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field40 = 0;
+        obj->field48 = 0x3d;
+
+        air_slam_init(obj);
+        match_him_with_me_f(obj);
+        double_next_a9(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x186;
+        thread->fieldfc = 8;
+        return 8;
+    }
+
+    if (token == 0x186) {
+        obj->field1c = 2;
+        *mk3_frame(thread, thread->frame + 1) = 0x189;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_double_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x189) {
+        obj->field38 = (uint32_t)(uintptr_t)t_air_slamed_by_kano;
+        xfer_to_thrown(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x18e;
+        thread->fieldfc = 0xa;
+        return 0xa;
+    }
+
+    if (token == 0x18e) {
+        obj->field1c = 0;
+        obj->field20 = 0x18000;
+        obj->field24 = 0x18000 - 0x10000;
+        obj->field28 = 0xfff;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x197;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x197)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_jump_up_land_jsrp);
+}
+
+/* ---------------------------------------------------------------- t_lia_slam
+ *
+ * armv7 0x0004afa0, 280 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field1c = 0; ochar_sound(obj)
+ *                       body_slam_init(obj)
+ *                       obj->field1c = 1
+ *                       token := 0x30f, descend into t_grab_animation
+ *
+ *      token == 0x30f:  token := 0x310, park 3
+ *
+ *      token == 0x310:  obj->field1c = 4
+ *                       token := 0x313, descend into t_double_mframew
+ *
+ *      token == 0x313:  obj->field38 = t_thrown_by_lao
+ *                       xfer_to_thrown(obj)
+ *                       token := 0x316, park 8
+ *
+ *      token == 0x316:  obj->field1c = 4
+ *                       frame[frame].handler = t_mframew
+ *
+ *      otherwise:       return -3
+ *
+ * **t_tusk_slam's five states with a sound at the front and a different last
+ * wait.** The sound is number ZERO -- 0x1c is still the token, which is zero on
+ * entry, and that is what ochar_sound is handed. Whether zero means the first
+ * sound or no sound at all is not settled here; the store is written as it
+ * stands.
+ *
+ * The durations are 1, 3, 4, 8, 4 against t_tusk_slam's 3, 3, 0xa, 8. Same
+ * skeleton, different numbers -- which is the whole of what a character's ground
+ * slam is once body_slam_init has done the table work.
+ */
+long t_lia_slam(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 0;               /* the token, still zero */
+        ochar_sound(obj);
+        body_slam_init(obj);
+        obj->field1c = 1;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x30f;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_grab_animation;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x30f) {
+        *mk3_frame(thread, thread->frame + 1) = 0x310;
+        thread->fieldfc = 3;
+        return 3;
+    }
+
+    if (token == 0x310) {
+        obj->field1c = 4;
+        *mk3_frame(thread, thread->frame + 1) = 0x313;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_double_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x313) {
+        obj->field38 = (uint32_t)(uintptr_t)t_thrown_by_lao;
+        xfer_to_thrown(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x316;
+        thread->fieldfc = 8;
+        return 8;
+    }
+
+    if (token != 0x316)
+        return -3;
+
+    obj->field1c = 4;
+    return mk3_install(thread, (MK3THREADFUNC)t_mframew);
+}
+
+
+/* -------------------------------------------------------------- t_robo1_slam
+ *
+ * armv7 0x0004ae7c, 292 bytes.  **Complete.**
+ *
+ *      token == 0:      body_slam_init(obj)
+ *                       obj->field1c = 0; ochar_sound(obj)
+ *                       obj->field1c = 1
+ *                       token := 0x374, descend into t_grab_animation
+ *
+ *      token == 0x374:  obj->field1c = 2
+ *                       token := 0x377, descend into t_mframew
+ *
+ *      token == 0x377:  obj->field1c = 1; ochar_sound(obj)
+ *                       obj->field1c = 3
+ *                       token := 0x37c, descend into t_double_mframew
+ *
+ *      token == 0x37c:  obj->field38 = t_thrown_by_lao
+ *                       xfer_to_thrown(obj)
+ *                       obj->field1c = 2; ochar_sound(obj)
+ *                       obj->field1c = 3
+ *                       frame[frame].handler = t_mframew
+ *
+ *      otherwise:       return -3
+ *
+ * **Three sounds, numbered 0, 1 and 2, one per stage.** No other slam in the
+ * file makes more than one, and the numbers run in order -- so ochar_sound's
+ * argument in 0x1c is an index into a per-character set and this routine walks
+ * the first three of it. The first is the zero the token happens to hold on
+ * entry, as in t_lia_slam.
+ *
+ * Each sound number is overwritten by a duration on the next line, which is the
+ * 0x1c-shared-by-everything pattern again: 0 then 1, 1 then 3, 2 then 3.
+ */
+long t_robo1_slam(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        body_slam_init(obj);
+        obj->field1c = 0;               /* the token, still zero */
+        ochar_sound(obj);
+        obj->field1c = 1;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x374;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_grab_animation;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x374) {
+        obj->field1c = 2;
+        *mk3_frame(thread, thread->frame + 1) = 0x377;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x377) {
+        obj->field1c = 1;
+        ochar_sound(obj);
+        obj->field1c = 3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x37c;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_double_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x37c)
+        return -3;
+
+    obj->field38 = (uint32_t)(uintptr_t)t_thrown_by_lao;
+    xfer_to_thrown(obj);
+
+    obj->field1c = 2;
+    ochar_sound(obj);
+    obj->field1c = 3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_mframew);
+}
+
+/* ------------------------------------------------------------- t_kitana_slam
+ *
+ * armv7 0x0004b300, 304 bytes.  **Complete.**
+ *
+ *      token == 0:      body_slam_init(obj)
+ *                       obj->field1c = 3
+ *                       token := 0xa1, descend into t_grab_animation
+ *
+ *      token == 0xa1:   token := 0xa2, park 2
+ *
+ *      token == 0xa2:   throw_voice(obj)
+ *                       obj->field1c = 3
+ *                       token := 0xa6, descend into t_double_mframew
+ *
+ *      token == 0xa6:   obj->field38 = t_thrown_by_lao
+ *                       xfer_to_thrown(obj)
+ *                       do_next_a9_frame(obj)
+ *                       token := 0xab, park 8
+ *
+ *      token == 0xab:   do_next_a9_frame(obj)
+ *                       token := 0xad, park 8
+ *
+ *      token == 0xad:   pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:       return -3
+ *
+ * **t_tusk_slam's six states with the last wait replaced by two hand-advanced
+ * frames.** Where the others hand the animation to t_mframew and let it run,
+ * this one calls do_next_a9_frame directly, twice, with an eight-frame park after
+ * each. So the two frames after the throw are stepped rather than played, which
+ * is a different mechanism for the same-looking pause.
+ *
+ * The dispatch reads 0xa2 first and then bisects, so the five live tokens are
+ * tested in the order 0xa2, 0, 0xa1, 0xab, 0xad, 0xa6 -- worth noting only
+ * because a token's position in the chain says nothing about its position in the
+ * sequence.
+ */
+long t_kitana_slam(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        body_slam_init(obj);
+        obj->field1c = 3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xa1;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_grab_animation;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xa1) {
+        *mk3_frame(thread, thread->frame + 1) = 0xa2;
+        thread->fieldfc = 2;
+        return 2;
+    }
+
+    if (token == 0xa2) {
+        throw_voice(obj);
+        obj->field1c = 3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xa6;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_double_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xa6) {
+        obj->field38 = (uint32_t)(uintptr_t)t_thrown_by_lao;
+        xfer_to_thrown(obj);
+        do_next_a9_frame(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0xab;
+        thread->fieldfc = 8;
+        return 8;
+    }
+
+    if (token == 0xab) {
+        do_next_a9_frame(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0xad;
+        thread->fieldfc = 8;
+        return 8;
+    }
+
+    if (token != 0xad)
+        return -3;
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
