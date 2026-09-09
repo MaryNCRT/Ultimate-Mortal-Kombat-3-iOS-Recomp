@@ -1031,3 +1031,236 @@ long tl_do_jade_flash(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+
+/* ------------------------------------------------------------- t_shake_suspended
+ *
+ * armv7 0x0004de98, 140 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field38 = 4
+ *                       *(uint16_t *)(G + 0x456) = 4
+ *                       token := 0x581, park 2
+ *
+ *      token == 0x581:  get_his_action(obj)
+ *                       frame[frame].handler =
+ *                           (obj->field20 == 0x111) ? t_shake_suspended
+ *                                                   : t_local_reaction_exit
+ *
+ *      otherwise:       return -3
+ *
+ * **A poll that reinstalls ITSELF, which restarts it at state 0.** The install
+ * zeroes the token, so a match on 0x111 does not resume at 0x581 -- it re-enters
+ * from the top, writing 4 into 0x38 and into G + 0x456 again and parking another
+ * two frames. So the loop body is state 0 and state 0x581 is only the test.
+ *
+ * That is a different loop shape from every other one in the module, where a
+ * state re-arms by writing its own token back. Reading `frame[frame].handler =
+ * t_shake_suspended` as "carry on where we were" would get the repeated writes
+ * wrong.
+ *
+ * get_his_action answers in 0x20, and 0x111 is the action being waited for -- so
+ * the shake lasts exactly as long as the other fighter stays in it.
+ */
+void get_his_action(MK3OBJ *obj);
+long t_shake_suspended(MK3THREAD *thread);
+
+long t_shake_suspended(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field38 = 4;
+        *(uint16_t *)(G_BYTES + 0x456) = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x581;
+        thread->fieldfc = 2;
+        return 2;
+    }
+
+    if (token != 0x581)
+        return -3;
+
+    get_his_action(obj);
+
+    if (obj->field20 == 0x111)
+        return mk3_install(thread, (MK3THREADFUNC)t_shake_suspended);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* --------------------------------------------------------------- t_mid_air_pause
+ *
+ * armv7 0x0004ce08, 152 bytes.  **Complete.**
+ *
+ *      token == 0:      push obj->field1c
+ *                       stop_me_player(obj)
+ *                       obj->field1c = pop
+ *                       token := 0x955, park obj->field1c
+ *
+ *      token == 0x955:  pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:       return -3
+ *
+ * The same save-across-one-call idiom as t_grab_animation: 0x1c goes onto the
+ * thread's argument stack, `stop_me_player` runs, and the value comes straight
+ * back to be used as the park duration. One push, one pop, one call between them.
+ *
+ * So the caller's 0x1c is how long the pause lasts, and the routine exists only to
+ * stop the fighter without losing that number.
+ */
+long t_mid_air_pause(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t cur;
+
+    if (token == 0) {
+        cur = thread->fieldf8;
+        *mk3_arg(thread, cur) = obj->field1c;
+        thread->fieldf8 = cur + 1;
+
+        stop_me_player(obj);
+
+        cur = thread->fieldf8 - 1;
+        thread->fieldf8 = cur;
+        obj->field1c = *mk3_arg(thread, cur);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x955;
+        thread->fieldfc = obj->field1c;
+        return (long)obj->field1c;
+    }
+
+    if (token != 0x955)
+        return -3;
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* ------------------------------------------------------------- t_noogy_suspended
+ *
+ * armv7 0x0004df24, 160 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field38 = 4
+ *                       *(uint16_t *)(G + 0x456) = 4
+ *                       token := 0x498, park 2
+ *
+ *      token == 0x498:  get_his_action(obj)
+ *                       if (obj->field20 == 0x112) {
+ *                           frame[frame].handler = t_noogy_suspended
+ *                           frame[frame+1].w0 = obj->field20 - 0x112
+ *                       } else
+ *                           frame[frame].handler = t_local_reaction_exit
+ *
+ *      otherwise:       return -3
+ *
+ * **t_shake_suspended's twin, waiting on action 0x112 instead of 0x111.** Same
+ * two states, same reinstall-itself loop that restarts at state 0, same 4 into
+ * 0x38 and G + 0x456 on every pass.
+ *
+ * The zero for the token slot is computed as `obj->field20 - 0x112` -- from the
+ * value the branch has just proved equal to 0x112 -- rather than loaded. The same
+ * trick t_jax_slam uses with its dereferenced zero, and t_shake_suspended does
+ * not: that one loads a plain zero. Two spellings of the same store in twinned
+ * routines.
+ */
+long t_noogy_suspended(MK3THREAD *thread);
+
+long t_noogy_suspended(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field38 = 4;
+        *(uint16_t *)(G_BYTES + 0x456) = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x498;
+        thread->fieldfc = 2;
+        return 2;
+    }
+
+    if (token != 0x498)
+        return -3;
+
+    get_his_action(obj);
+
+    if (obj->field20 == 0x112) {
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_noogy_suspended;
+        *mk3_frame(thread, thread->frame + 1) = obj->field20 - 0x112;
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* ------------------------------------------------------------ t_jade_flash_sleep
+ *
+ * armv7 0x0004fd0c, 136 bytes.  **Complete.**
+ *
+ *      token == 0:      token := 0xed, park 3
+ *
+ *      token == 0xed:   f = *(uint32_t *)((char *)obj->a10 + 0x10)
+ *                       obj->field2c = f
+ *                       if ((f & 4) != 0) {
+ *                           jade_normpal(obj)
+ *                           token := 0xf4, park 0x16462
+ *                       } else {
+ *                           pop a level, or t_local_reaction_exit
+ *                       }
+ *
+ *      otherwise:       return -3
+ *
+ * **It watches a flag on the object named in 0x44, not on itself.** That is the
+ * object tl_do_jade_flash writes into the spawned proc's 0x44, so this routine
+ * reads bit 2 of its 0x10 and acts when whoever owns the flash sets it.
+ *
+ * **0x16462 is the park-and-never-wake duration**, already recorded in this
+ * project's notes, so the 0xf4 state is a terminal park -- the routine restores
+ * the palette and then sleeps for good rather than exiting. The alternative is the
+ * ordinary pop, and which of the two happens is decided entirely by that one bit.
+ *
+ * The `ands` leaves the masked value in the register the else path returns, so
+ * the zero the token slot receives is the failed test itself.
+ */
+void jade_normpal(MK3OBJ *obj);
+
+long t_jade_flash_sleep(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t f;
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0xed;
+        thread->fieldfc = 3;
+        return 3;
+    }
+
+    if (token != 0xed)
+        return -3;
+
+    f = *(uint32_t *)((char *)(void *)(uintptr_t)obj->a10 + 0x10);
+    obj->field2c = f;
+
+    if ((f & 4u) != 0) {
+        jade_normpal(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0xf4;
+        thread->fieldfc = 0x16462;
+        return 0x16462;
+    }
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
