@@ -1374,3 +1374,474 @@ long t_thrown_by_kano(MK3THREAD *thread)
     damage_to_me(obj);
     return mk3_install(thread, (MK3THREADFUNC)t_land_on_my_back);
 }
+
+
+/* ----------------------------------------------------- t_drop_down_land_jump
+ *
+ * armv7 0x00049bc4, 184 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field1c = 0
+ *                       obj->field20 = 0x18000
+ *                       obj->field24 = 0x18000 - 0x10000 = 0x8000
+ *                       obj->field28 = 0xfff
+ *                       token := 0x159, descend into t_flight
+ *
+ *      token == 0x159:  token := 0x15a, descend into t_jump_up_land_jsrp
+ *
+ *      token == 0x15a:  frame[frame].handler = t_local_reaction_exit
+ *
+ *      otherwise:       return -3
+ *
+ * **t_drop_down_land with one difference, and the difference is descend versus
+ * install.** The four flight numbers are identical to the word. That routine
+ * INSTALLS t_jump_up_land_jsrp and is finished; this one DESCENDS into it, comes
+ * back at 0x15a and exits through t_local_reaction_exit. So the pair is the same
+ * landing used two ways: once as the end of a thread and once as a step inside
+ * one.
+ */
+long t_drop_down_land_jump(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 0;
+        obj->field20 = 0x18000;
+        obj->field24 = 0x18000 - 0x10000;
+        obj->field28 = 0xfff;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x159;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x159) {
+        *mk3_frame(thread, thread->frame + 1) = 0x15a;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_jump_up_land_jsrp;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x15a)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* --------------------------------------------------------------- t_slam_ani2
+ *
+ * armv7 0x0004a550, 220 bytes.  **Complete.**
+ *
+ *      token == 0:      token := 0x2cb, descend into t_double_mframew
+ *
+ *      token == 0x2cb:  obj->field38 = t_thrown_by_lao
+ *                       xfer_to_thrown(obj)
+ *                       token := 0x2ce, park 0xa
+ *
+ *      token == 0x2ce:  obj->field1c = 8
+ *                       token := 0x2d1, descend into t_mframew
+ *
+ *      token == 0x2d1:  pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:       return -3
+ *
+ * **This is where the victim is given its behaviour.** 0x38 is loaded with
+ * t_thrown_by_lao and xfer_to_thrown hands the other fighter over to it, so the
+ * slammer's animation state is what decides what the slammed fighter does --
+ * which is why t_thrown_by_* exists as a family and nothing installs those
+ * routines on its own thread.
+ *
+ * The two waits either side of the handover are a double one first --
+ * t_double_mframew, off pointer slot 0x000f36a8 -- and a single one after, so
+ * the throw lands between them.
+ *
+ * Both t_indian_slam and t_st_slam install this routine, so what they share is
+ * not only their shape but their whole second half.
+ */
+long t_double_mframew(MK3THREAD *thread);        /* pointer slot 0x000f36a8 */
+void xfer_to_thrown(MK3OBJ *obj);
+
+long t_slam_ani2(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x2cb;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_double_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x2cb) {
+        obj->field38 = (uint32_t)(uintptr_t)t_thrown_by_lao;
+        xfer_to_thrown(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x2ce;
+        thread->fieldfc = 0xa;
+        return 0xa;
+    }
+
+    if (token == 0x2ce) {
+        obj->field1c = 8;
+        *mk3_frame(thread, thread->frame + 1) = 0x2d1;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x2d1)
+        return -3;
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* ---------------------------------------------------------------- t_lao_slam
+ *
+ * armv7 0x0004b0b8, 248 bytes.  **Complete.**
+ *
+ *      token == 0:      body_slam_init(obj)
+ *                       obj->field1c = 2
+ *                       token := 0xc9, descend into t_grab_animation
+ *
+ *      token == 0xc9:   obj->field1c = 5; ochar_sound(obj)
+ *                       obj->field1c = 3
+ *                       token := 0xcf, descend into t_double_mframew
+ *
+ *      token == 0xcf:   obj->field38 = t_thrown_by_lao
+ *                       xfer_to_thrown(obj)
+ *                       obj->field1c = 0xd
+ *                       obj->field20 = 0xd
+ *                       obj->field24 = 0x8000
+ *                       obj->field28 = 2
+ *                       token := 0xd8, descend into t_flight
+ *
+ *      token == 0xd8:   frame[frame].handler = t_jump_up_land_jsrp
+ *
+ *      otherwise:       return -3
+ *
+ * **The slam and the flight in one routine.** Where t_indian_slam hands off to
+ * t_slam_ani2 and stops, this one carries the sequence through: grab, sound,
+ * double wait, hand the victim to t_thrown_by_lao, then fly and land. So the
+ * four flight fields are filled by the SLAMMER here, not by the victim's thread.
+ *
+ * **0x1c and 0x20 get the same value, 0xd.** Every other flight in this file
+ * zeroes one of the two; this is the only one that sets both to one number,
+ * which is another reason not to name them yet.
+ *
+ * 0x1c is used three times over on the 0xc9 path -- a sound number, then a
+ * duration -- and once more as a flight component two states later. Each value
+ * is consumed before the next is written.
+ */
+void ochar_sound(MK3OBJ *obj);
+
+long t_lao_slam(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        body_slam_init(obj);
+        obj->field1c = 2;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xc9;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_grab_animation;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xc9) {
+        obj->field1c = 5;
+        ochar_sound(obj);
+        obj->field1c = 3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xcf;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_double_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xcf) {
+        obj->field38 = (uint32_t)(uintptr_t)t_thrown_by_lao;
+        xfer_to_thrown(obj);
+
+        obj->field1c = 0xd;
+        obj->field20 = 0xd;
+        obj->field24 = 0x8000;
+        obj->field28 = 2;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xd8;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xd8)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_jump_up_land_jsrp);
+}
+
+/* --------------------------------------------------------------- t_tusk_slam
+ *
+ * armv7 0x0004ab08, 268 bytes.  **Complete.**
+ *
+ *      token == 0:      body_slam_init(obj)
+ *                       obj->field1c = 3
+ *                       token := 0xb4, descend into t_grab_animation
+ *
+ *      token == 0xb4:   throw_voice(obj)
+ *                       obj->field1c = 3
+ *                       token := 0xb7, descend into t_double_mframew
+ *
+ *      token == 0xb7:   obj->field38 = t_thrown_by_lao
+ *                       xfer_to_thrown(obj)
+ *                       token := 0xbb, park 0xa
+ *
+ *      token == 0xbb:   obj->field1c = 8
+ *                       token := 0xbd, descend into t_mframew
+ *
+ *      token == 0xbd:   pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:       return -3
+ *
+ * **t_indian_slam's first half and t_slam_ani2's second half, fused into one
+ * routine.** State by state it is the same sequence the pair performs across two
+ * functions: grab, shout, double wait, hand the victim over, wait, leave. So the
+ * template exists in the binary both split and inlined, which is the strongest
+ * evidence that it is a template and not a coincidence.
+ *
+ * The durations are 3, 3, 0xa and 8 -- the same four t_indian_slam and
+ * t_slam_ani2 use between them.
+ */
+long t_tusk_slam(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        body_slam_init(obj);
+        obj->field1c = 3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xb4;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_grab_animation;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xb4) {
+        throw_voice(obj);
+        obj->field1c = 3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xb7;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_double_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xb7) {
+        obj->field38 = (uint32_t)(uintptr_t)t_thrown_by_lao;
+        xfer_to_thrown(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0xbb;
+        thread->fieldfc = 0xa;
+        return 0xa;
+    }
+
+    if (token == 0xbb) {
+        obj->field1c = 8;
+        *mk3_frame(thread, thread->frame + 1) = 0xbd;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xbd)
+        return -3;
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* ------------------------------------------------------------ t_thrown_by_sg
+ *
+ * armv7 0x0004b8fc, 212 bytes.  **Complete.**
+ *
+ *      token == 0:      ground_slammed_init(obj); inc_p_hit(obj)
+ *                       obj->a10 = 0x23
+ *                       obj->field1c = obj->field00->field54 + 0x23
+ *                       obj->field00->field54 = obj->field1c
+ *                       damage_to_me(obj); set_half_damage(obj)
+ *                       token := 0x402, park 3
+ *
+ *      token == 0x402:  obj->field1c = 0x40000
+ *                       obj->field20 = 0x40000 - 0xe0000 = -0xa0000
+ *                       obj->field24 = -0xa0000 + 0xa8000 = 0x8000
+ *                       obj->field28 = 4
+ *                       token := 0x407, descend into t_flight
+ *
+ *      token == 0x407:  obj->a10 = 0
+ *                       frame[frame].handler = t_common_slam
+ *
+ *      otherwise:       return -3
+ *
+ * **Zeroing 0x44 before t_common_slam is what stops the damage being taken
+ * twice**, and it confirms what that field is for. This routine has already
+ * applied 0x23 -- into 0x44, added to the proc's 0x54, then damage_to_me -- and
+ * t_common_slam calls damage_to_me only when 0x44 is non-zero. So the last state
+ * clears it deliberately, and the two routines are written to be chained.
+ *
+ * set_half_damage after the hit is the only site in this file that calls it, and
+ * it comes after the damage rather than before.
+ */
+void set_half_damage(MK3OBJ *obj);
+
+long t_thrown_by_sg(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        ground_slammed_init(obj);
+        inc_p_hit(obj);
+
+        obj->a10 = 0x23;
+        obj->field1c = obj->field00->field54 + 0x23;
+        obj->field00->field54 = obj->field1c;
+
+        damage_to_me(obj);
+        set_half_damage(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x402;
+        thread->fieldfc = 3;
+        return 3;
+    }
+
+    if (token == 0x402) {
+        obj->field1c = 0x40000;
+        obj->field20 = (uint32_t)(0x40000 - 0xe0000);
+        obj->field24 = (uint32_t)(0x40000 - 0xe0000 + 0xa8000);
+        obj->field28 = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x407;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x407)
+        return -3;
+
+    obj->a10 = 0;
+    return mk3_install(thread, (MK3THREADFUNC)t_common_slam);
+}
+
+/* ------------------------------------------------------ t_air_slamed_by_kano
+ *
+ * armv7 0x0004ba74, 232 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field1c = 0x60000
+ *                       obj->field20 = 0x60000 - 0x30000 = 0x30000
+ *                       obj->field24 = 0x30000 - 0x28000 = 0x8000
+ *                       obj->field28 = 4
+ *                       token := 0x1a0, descend into t_flight
+ *
+ *      token == 0x1a0:  obj->field1c = 2
+ *                       group_sound(obj); shake_n_sound(obj)
+ *                       obj->a10 = 0x10
+ *                       damage_to_me(obj)
+ *                       obj->field1c = 0x30000
+ *                       obj->field20 = 0x30000 - 0x90000 = -0x60000
+ *                       obj->field24 = -0x60000 + 0x68000 = 0x8000
+ *                       obj->field28 = 4
+ *                       token := 0x1af, descend into t_flight
+ *
+ *      token == 0x1af:  frame[frame].handler = t_land_on_my_back
+ *
+ *      otherwise:       return -3
+ *
+ * **Two flights in one routine with the impact between them**: up, then noise
+ * and sixteen points of damage, then the bounce, then land on the back. The
+ * second flight's three magnitudes are the same three t_common_slam uses --
+ * 0x30000, minus 0x60000, 0x8000 -- so the bounce after a hit is one shape
+ * shared between routines.
+ *
+ * **0x24 is 0x8000 in both flights, and in every flight in this file so far
+ * except the two ninja throws.** Five sites now, each reaching it by different
+ * arithmetic off a different literal, which is what makes 0x8000 look like a
+ * fixed parameter of a flight rather than a per-move number. 0x28 is 4 here and
+ * in t_common_slam and t_thrown_by_sg, 6 in the throws, 2 in t_lao_slam and
+ * 0xfff in the two drop-downs.
+ */
+void group_sound(MK3OBJ *obj);
+
+long t_air_slamed_by_kano(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 0x60000;
+        obj->field20 = 0x60000 - 0x30000;
+        obj->field24 = 0x60000 - 0x30000 - 0x28000;
+        obj->field28 = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1a0;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1a0) {
+        obj->field1c = 2;
+        group_sound(obj);
+        shake_n_sound(obj);
+
+        obj->a10 = 0x10;
+        damage_to_me(obj);
+
+        obj->field1c = 0x30000;
+        obj->field20 = (uint32_t)(0x30000 - 0x90000);
+        obj->field24 = (uint32_t)(0x30000 - 0x90000 + 0x68000);
+        obj->field28 = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1af;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x1af)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_land_on_my_back);
+}
