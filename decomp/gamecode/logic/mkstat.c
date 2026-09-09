@@ -1827,3 +1827,166 @@ long tl_do_reptile_inv(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+
+/* ---------------------------------------------------------- t_stat_do_sweep_kick
+ *
+ * armv7 0x0004e8c4, 208 bytes.  **Complete.**
+ *
+ *      token == 0:      init_special(obj)
+ *                       *(uint32_t *)((char *)obj->field00 + 0x58) = 4
+ *                       obj->field1c = 3
+ *                       obj->field20 = 3 + 0x10a = 0x10d
+ *                       obj->field48 = 4
+ *                       obj->field40 = 0x10d - 0xf9 = 0x14
+ *                       obj->a10     = 0x14 - 0x13 = 1
+ *                       token := 0x267, descend into t_behind_striker
+ *
+ *      token == 0x267:  obj->field1c = 5
+ *                       if (obj->field5c == 0) -- into the retract, 0x1c left at 5 --
+ *                       token := 0x26b, park 6
+ *
+ *      token == 0x26b:  obj->field1c = 6
+ *                       obj->field20 = 0x600
+ *                       frame[frame].handler = t_retract_strike_act
+ *
+ *      otherwise:       return -3
+ *
+ * **A hit and a miss retract with different values in 0x1c, and the difference is
+ * a skipped store.** The 0x267 state writes 5 into 0x1c and, on a miss, branches
+ * into the middle of the 0x26b body -- past the `obj->field1c = 6` and straight to
+ * the 0x20 store. So a connected sweep retracts with 6 and a missed one with 5,
+ * which is one instruction's worth of difference and easy to lose.
+ *
+ * **It strikes through t_behind_striker, not t_striker.** That is the only site in
+ * this file to use it, and a sweep is the one attack that has to hit from behind
+ * the legs, so the name and the choice agree.
+ *
+ * Action 0x10d continues the standing block after the kicks' 0x103/0x104 and the
+ * crouching 0x106 to 0x108.
+ */
+long t_behind_striker(MK3THREAD *thread);         /* pointer slot 0x000f318c */
+
+long t_stat_do_sweep_kick(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        init_special(obj);
+        *(uint32_t *)((char *)obj->field00 + 0x58) = 4;
+
+        obj->field1c = 3;
+        obj->field20 = 3 + 0x10a;
+        obj->field48 = 4;
+        obj->field40 = (3 + 0x10a) - 0xf9;
+        obj->a10     = ((3 + 0x10a) - 0xf9) - 0x13;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x267;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_behind_striker;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x267) {
+        obj->field1c = 5;
+        if (obj->field5c != 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0x26b;
+            thread->fieldfc = 6;
+            return 6;
+        }
+        /* a miss lands past the 0x1c store below, keeping 5 */
+    } else if (token == 0x26b) {
+        obj->field1c = 6;
+    } else {
+        return -3;
+    }
+
+    obj->field20 = 0x600;
+    return mk3_install(thread, (MK3THREADFUNC)t_retract_strike_act);
+}
+
+/* ------------------------------------------------------------- t_turn_into_a_baby
+ *
+ * armv7 0x0004fe40, 232 bytes.  **Complete.**
+ *
+ *      token == 0:      tsound_func(obj, 0x8c)
+ *                       obj->field1c = 0x1e; create_fx(obj)
+ *                       token := 0x1a0, park 8
+ *
+ *      token == 0x1a0:  part = obj->field08
+ *                       part->field2c = ochar_babies[part->field24]
+ *                       mk3_getbbox(part->field2c,
+ *                                   &part->field34, &part->field38,
+ *                                   &part->field3c, &part->field40)
+ *                       *(uint16_t *)((char *)part + 0x12) =
+ *                           *(uint32_t *)(G + 0xac)
+ *                           - (part->field40 - part->field38)
+ *                       token := 0x1bc, park 0x30
+ *
+ *      token == 0x1bc:  tsound_func(obj, 0x8d)
+ *                       frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:       return -3
+ *
+ * **The baby is measured and then stood on the floor.** ochar_babies gives the
+ * per-character baby by the victim's own number, mk3_getbbox fills four fields of
+ * the part from it -- 0x34, 0x38, 0x3c, 0x40 as four out-parameters -- and the y
+ * position is then `floor - (bottom - top)`, with the floor read from G + 0xac. So
+ * the height comes out of the bounding box rather than a table, which is why the
+ * bbox call has to happen before the placement.
+ *
+ * This is the first site in the logic module to use mk3_getbbox and the first to
+ * read G + 0xac.
+ *
+ * Two sounds bracket the whole thing, 0x8c at the start and 0x8d at the end, and
+ * the routine finishes in t_wait_forever -- the baby never does anything again.
+ */
+extern uint32_t ochar_babies[];                   /* 0x00167350 */
+void mk3_getbbox(uint32_t ani, int *p1, int *p2, int *p3, int *p4);
+void tsound_func(MK3OBJ *obj, uint32_t arg);
+long t_wait_forever(MK3THREAD *thread);
+
+long t_turn_into_a_baby(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    MK3OBJ  *part;
+
+    if (token == 0) {
+        tsound_func(obj, 0x8c);
+        obj->field1c = 0x1e;
+        create_fx(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1a0;
+        thread->fieldfc = 8;
+        return 8;
+    }
+
+    if (token == 0x1a0) {
+        part = obj->field08;
+        part->field2c = ochar_babies[part->field24];
+
+        part = obj->field08;
+        mk3_getbbox(part->field2c,
+                    (int *)&part->field34, (int *)&part->field38,
+                    (int *)&part->field3c, (int *)&part->field40);
+
+        part = obj->field08;
+        MK3_SET_FIELD12(part,
+                        *(uint32_t *)(G_BYTES + 0xac)
+                        - (part->field40 - part->field38));
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1bc;
+        thread->fieldfc = 0x30;
+        return 0x30;
+    }
+
+    if (token != 0x1bc)
+        return -3;
+
+    tsound_func(obj, 0x8d);
+    return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+}
