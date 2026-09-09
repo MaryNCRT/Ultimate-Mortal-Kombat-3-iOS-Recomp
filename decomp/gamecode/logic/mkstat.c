@@ -1661,3 +1661,169 @@ long t_jade_flash_proc(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------------ t_r_leg_slammed
+ *
+ * armv7 0x0004f9d0, 228 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field1c = obj->field00->field18 = 0x506
+ *                       ground_player(obj)
+ *                       obj->field40 = 0x1e
+ *                       find_ani_part2(obj); do_next_a9_frame(obj)
+ *                       obj->field1c = 2; group_sound(obj)
+ *                       shake_n_sound(obj)
+ *                       obj->a10 = 0x23
+ *                       obj->field1c = obj->field00->p_hit
+ *                       if (obj->field1c <= 3) {
+ *                           damage_to_me(obj)
+ *                           obj->field00->field54 += obj->a10
+ *                       }
+ *                       obj->field1c = 0x30000
+ *                       obj->field20 = 0x30000 - 0x90000 = -0x60000
+ *                       obj->field24 = that + 0x68000 = 0x8000
+ *                       obj->field28 = 4
+ *                       token := 0x38a, descend into t_flight
+ *
+ *      token == 0x38a:  frame[frame].handler = t_land_on_my_back
+ *
+ *      otherwise:       return -3
+ *
+ * **The damage is gated on the hit counter, and this is the first site to show
+ * that.** proc+0x44 -- named `p_hit` in the header, on the authority of
+ * zero_my_p_hit -- is compared against 3, and only at or below that do the damage
+ * and the accumulator addition happen. So a slam late in a long combo costs
+ * nothing, which is a scaling rule the earlier slam routines never revealed
+ * because none of them checked.
+ *
+ * The five calls before it are ground_slammed_init's body inlined, as in
+ * t_thrown_by_robo2 -- ground, animation 0x1e, find the part, advance a frame, a
+ * sound. And the four flight numbers are t_common_slam's to the word, which makes
+ * this the eighth site to land 0x24 on 0x8000.
+ */
+void find_ani_part2(MK3OBJ *obj);
+void shake_n_sound(MK3OBJ *obj);
+void damage_to_me(MK3OBJ *obj);
+long t_land_on_my_back(MK3THREAD *thread);       /* pointer slot 0x000f3750 */
+
+long t_r_leg_slammed(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 0x506;
+        obj->field00->field18 = 0x506;
+
+        ground_player(obj);
+        obj->field40 = 0x1e;
+        find_ani_part2(obj);
+        do_next_a9_frame(obj);
+
+        obj->field1c = 2;
+        group_sound(obj);
+        shake_n_sound(obj);
+
+        obj->a10 = 0x23;
+        obj->field1c = obj->field00->p_hit;
+        if ((long)obj->field1c <= 3) {
+            damage_to_me(obj);
+            obj->field00->field54 = obj->field00->field54 + obj->a10;
+        }
+
+        obj->field1c = 0x30000;
+        obj->field20 = (uint32_t)(0x30000 - 0x90000);
+        obj->field24 = (uint32_t)(0x30000 - 0x90000 + 0x68000);
+        obj->field28 = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x38a;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x38a)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_land_on_my_back);
+}
+
+/* ----------------------------------------------------------------- tl_do_reptile_inv
+ *
+ * armv7 0x0004f5b8, 204 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field20 = 0x30c
+ *                       init_special_act(obj)
+ *                       obj->field40 = 0x00030001
+ *                       token := 0xd3, descend into t_animate2_a9
+ *
+ *      token == 0xd3:   obj->field1c = 0x1e; create_fx(obj)
+ *                       obj->field1c = 9;    ochar_sound(obj)
+ *                       token := 0xda, park 0xa
+ *
+ *      token == 0xda:   set_inviso(obj)
+ *                       pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:       return -3
+ *
+ * **The invisibility is set LAST, after the effect and the sound.** So the
+ * animation plays, an effect is created, a sound is made, ten frames pass, and only
+ * then does the fighter actually vanish -- which is why the disappearance reads as
+ * the end of a move rather than the start of one.
+ *
+ * `init_special_act` rather than `init_special`, and 0x20 is filled with the action
+ * 0x30c before the call rather than after, so the `_act` variant is the one that
+ * takes its action from 0x20.
+ *
+ * 0x40 is 0x00030001 -- a sixth packed word for that field, and the second to feed
+ * an animate routine other than t_animate_a9. Six sites now, all with a small high
+ * half and a small low half: 0x0005000d, 0x00040021, 0x00040047, 0x00030021,
+ * 0x00030002, 0x00030001.
+ */
+void init_special_act(MK3OBJ *obj);
+void set_inviso(MK3OBJ *obj);
+void create_fx(MK3OBJ *obj);
+long t_animate2_a9(MK3THREAD *thread);           /* pointer slot 0x000f36c0 */
+
+long tl_do_reptile_inv(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field20 = 0x30c;
+        init_special_act(obj);
+        obj->field40 = 0x00030001;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xd3;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate2_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xd3) {
+        obj->field1c = 0x1e;
+        create_fx(obj);
+        obj->field1c = 9;
+        ochar_sound(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0xda;
+        thread->fieldfc = 0xa;
+        return 0xa;
+    }
+
+    if (token != 0xda)
+        return -3;
+
+    set_inviso(obj);
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
