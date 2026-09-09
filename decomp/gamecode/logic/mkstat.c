@@ -687,3 +687,347 @@ long t_stat_do_lo_kick(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_kick2);
 }
+
+
+/* ----------------------------------------------------------- t_stat_do_duck_kickh
+ *
+ * armv7 0x0004e7a4, 112 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = 0; group_sound(obj)
+ *      rsnd_func(obj, 0xe)
+ *      init_special(obj)
+ *      obj->field1c = 3
+ *      obj->field20 = 0x106
+ *      obj->field40 = 0x106 - 0xfd = 9
+ *      obj->a10    = 9 - 4 = 5
+ *      obj->field48 = 6
+ *      *(uint32_t *)((char *)obj->field00 + 0x58) = 6
+ *      frame[frame].handler = t_striker
+ *
+ * The crouching counterpart of t_stat_do_hi_kick, ending in t_striker rather
+ * than t_kick2 -- so a duck kick is a strike and a standing kick is not, which is
+ * the real difference between the two pairs.
+ *
+ * **This pair is NOT the clean increment the standing pair is.** High/low
+ * standing differ by exactly one in four places; high/low ducking differ by one
+ * in the action (0x106 against 0x107) and the animation (9 against 0xa), by three
+ * in 0x44 (5 against 2) and by one the other way in 0x48 and proc+0x58 (6 against
+ * 7). And the high variant has the LOWER action number. So the two pairs are not
+ * built to one rule, and reading either one from the other would get three
+ * numbers wrong.
+ */
+long t_striker(MK3THREAD *thread);               /* pointer slot 0x000f3880 */
+
+long t_stat_do_duck_kickh(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0;
+    group_sound(obj);
+    rsnd_func(obj, 0xe);
+    init_special(obj);
+
+    obj->field1c = 3;
+    obj->field20 = 0x106;
+    obj->field40 = 0x106 - 0xfd;
+    obj->a10     = (0x106 - 0xfd) - 4;
+    obj->field48 = 6;
+    *(uint32_t *)((char *)obj->field00 + 0x58) = 6;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_striker);
+}
+
+/* ----------------------------------------------------------- t_stat_do_duck_kickl
+ *
+ * armv7 0x0004e734, 112 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = 0; group_sound(obj)
+ *      rsnd_func(obj, 0xe)
+ *      init_special(obj)
+ *      obj->field20 = 0x107
+ *      obj->field40 = 0x107 - 0xfd = 0xa
+ *      obj->field1c = 2
+ *      obj->a10     = 2
+ *      obj->field48 = 2 + 5 = 7
+ *      *(uint32_t *)((char *)obj->field00 + 0x58) = 7
+ *      frame[frame].handler = t_striker
+ *
+ * The low duck kick. Here 0x1c and 0x44 take the same value, 2, and 0x48 is
+ * derived from it as `+5`; the high variant derives 0x44 from the animation
+ * instead and writes 0x48 as a plain literal. Same four fields, different
+ * arithmetic, so only the results are meaningful.
+ */
+long t_stat_do_duck_kickl(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0;
+    group_sound(obj);
+    rsnd_func(obj, 0xe);
+    init_special(obj);
+
+    obj->field20 = 0x107;
+    obj->field40 = 0x107 - 0xfd;
+    obj->field1c = 2;
+    obj->a10     = 2;
+    obj->field48 = 2 + 5;
+    *(uint32_t *)((char *)obj->field00 + 0x58) = 2 + 5;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_striker);
+}
+
+/* ---------------------------------------------------------------- t_noog_lineup_1
+ *
+ * armv7 0x0004ea38, 108 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      match_him_with_me_f(obj)
+ *      him = (MK3OBJ *)obj->field00->him
+ *      obj->field1c = ochar_noogy_lineups[him->field24]
+ *      adjust_him_a0(obj)
+ *      if (thread->frame > 0) thread->frame -= 1
+ *      else frame[frame].handler = t_local_reaction_exit
+ *
+ * **A per-character positional correction indexed by the OTHER fighter.** The
+ * table is words, the index is `him->field24`, and the value goes to
+ * adjust_him_a0 through 0x1c -- the same field-as-argument convention again, and
+ * the same "indexed by who is on the receiving end" choice `t_slam_damage` makes
+ * for its damage table.
+ *
+ * So lining a noogy up depends on how tall the victim is, not on who is giving
+ * it.
+ */
+extern uint32_t ochar_noogy_lineups[];           /* 0x001673cc */
+void match_him_with_me_f(MK3OBJ *obj);
+void adjust_him_a0(MK3OBJ *obj);
+
+long t_noog_lineup_1(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    MK3OBJ *him;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    match_him_with_me_f(obj);
+
+    him = (MK3OBJ *)(void *)(uintptr_t)obj->field00->him;
+    obj->field1c = ochar_noogy_lineups[him->field24];
+    adjust_him_a0(obj);
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* --------------------------------------------------------------- t_do_jumpup_kick
+ *
+ * armv7 0x0004d54c, 116 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = obj->field00->field18 = 0x10b
+ *      face_opponent(obj)
+ *      obj->field1c = 0; group_sound(obj)
+ *      rsnd_func(obj, 0xe)
+ *      obj->field1c = 0xa
+ *      *(uint32_t *)((char *)obj->field00 + 0x58) = 0xa
+ *      obj->field20 = 0xa + 6  = 0x10
+ *      obj->field24 = 0x10 - 0xd = 3
+ *      obj->field40 = 3 + 0x14 = 0x17
+ *      frame[frame].handler = t_jk6
+ *
+ * **A third pair, and this one shares a value the other two do not.** With
+ * t_do_jumpup_punch below: action 0x10b against 0x10c, proc+0x58 0xa against 9,
+ * 0x20 0x10 against 0xf, 0x40 0x17 against 0x18 -- **and 0x24 is 3 in both**,
+ * reached by different arithmetic each time (0x10 minus 0xd here, 0xf minus 0xc
+ * there). So the compiler chained from a different starting number in each and
+ * both landed on 3 deliberately.
+ *
+ * The five constants come off one literal by `adds` and `subs`, as in the knee
+ * and elbow; only the results mean anything.
+ */
+long t_jk6(MK3THREAD *thread);
+
+long t_do_jumpup_kick(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0x10b;
+    obj->field00->field18 = 0x10b;
+    face_opponent(obj);
+
+    obj->field1c = 0;
+    group_sound(obj);
+    rsnd_func(obj, 0xe);
+
+    obj->field1c = 0xa;
+    *(uint32_t *)((char *)obj->field00 + 0x58) = 0xa;
+    obj->field20 = 0xa + 6;
+    obj->field24 = (0xa + 6) - 0xd;
+    obj->field40 = ((0xa + 6) - 0xd) + 0x14;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_jk6);
+}
+
+/* -------------------------------------------------------------- t_do_jumpup_punch
+ *
+ * armv7 0x0004d5c0, 116 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = obj->field00->field18 = 0x10c
+ *      face_opponent(obj)
+ *      obj->field1c = 0; group_sound(obj)
+ *      rsnd_func(obj, 0xe)
+ *      obj->field1c = 9
+ *      *(uint32_t *)((char *)obj->field00 + 0x58) = 9
+ *      obj->field20 = 9 + 6 = 0xf
+ *      obj->field24 = 0xf - 0xc = 3
+ *      obj->field40 = 3 + 0x15 = 0x18
+ *      frame[frame].handler = t_jk6
+ *
+ * t_do_jumpup_kick with the four numbers above and the same 3 in 0x24. Both
+ * install t_jk6, so the jumping punch and the jumping kick share their whole
+ * continuation and differ only in what they set up.
+ */
+long t_do_jumpup_punch(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0x10c;
+    obj->field00->field18 = 0x10c;
+    face_opponent(obj);
+
+    obj->field1c = 0;
+    group_sound(obj);
+    rsnd_func(obj, 0xe);
+
+    obj->field1c = 9;
+    *(uint32_t *)((char *)obj->field00 + 0x58) = 9;
+    obj->field20 = 9 + 6;
+    obj->field24 = (9 + 6) - 0xc;
+    obj->field40 = ((9 + 6) - 0xc) + 0x15;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_jk6);
+}
+
+
+/* ------------------------------------------------------------- t_land_on_yer_feet
+ *
+ * armv7 0x0004cca4, 140 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field1c = 0
+ *                       obj->field20 = 0
+ *                       obj->field24 = 0x8000
+ *                       obj->field28 = 0xfff
+ *                       token := 0x9aa, descend into t_flight
+ *
+ *      token == 0x9aa:  frame[frame].handler = t_jump_up_land_jump
+ *
+ *      otherwise:       return -3
+ *
+ * **A seventh flight, and the first with BOTH components zero.** 0x24 is 0x8000
+ * again -- seventh site, and here it is a plain literal rather than the end of a
+ * chain, which is the clearest statement yet that 0x8000 is what a flight's 0x24
+ * is meant to be. 0x28 is 0xfff, matching the drop-downs rather than the throws.
+ *
+ * With 0x1c and 0x20 both zero the fighter is given no horizontal or vertical
+ * component at all, so the flight is whatever 0x24 and 0x28 alone produce -- which
+ * is what landing on your feet after being thrown should look like.
+ */
+long t_jump_up_land_jump(MK3THREAD *thread);
+long t_flight(MK3THREAD *thread);                /* pointer slot 0x000f3720 */
+
+long t_land_on_yer_feet(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 0;
+        obj->field20 = 0;
+        obj->field24 = 0x8000;
+        obj->field28 = 0xfff;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x9aa;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x9aa)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_jump_up_land_jump);
+}
+
+/* -------------------------------------------------------------- tl_do_jade_flash
+ *
+ * armv7 0x0004ff28, 128 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      init_special(obj)
+ *      p = NewThreadProcPid(obj, t_jade_flash_proc, 0x11f)
+ *      obj->field1c = (uint32_t)(G + 0x410 + 0xc)
+ *      *(uint32_t *)((char *)p + 0x44) = (uint32_t)obj
+ *      update_tsl(obj)
+ *      if (thread->frame > 0) thread->frame -= 1
+ *      else frame[frame].handler = t_local_reaction_exit
+ *
+ * **It spawns a second thread and gives that thread a pointer back to this
+ * object.** NewThreadProcPid returns the new proc and its 0x44 -- the argument
+ * slot, as everywhere else -- receives this object, so t_jade_flash_proc runs
+ * independently and knows whose flash it is. That is how an effect outlives the
+ * state that started it.
+ *
+ * 0x1c then takes `G + 0x41c` for update_tsl, built as 0x410 plus 0xc, which is
+ * the same address-in-0x1c convention update_block_fk uses with G + 0x424.
+ *
+ * The routine pops its own level immediately afterwards, so the flash is entirely
+ * the spawned thread's business from here.
+ */
+void *NewThreadProcPid(void *owner, MK3THREADFUNC func, uint32_t pid);
+long t_jade_flash_proc(MK3THREAD *thread);
+
+long tl_do_jade_flash(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    void   *p;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    init_special(obj);
+
+    p = NewThreadProcPid(obj, (MK3THREADFUNC)t_jade_flash_proc, 0x11f);
+
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x410 + 0xc);
+    *(uint32_t *)((char *)p + 0x44) = (uint32_t)(uintptr_t)obj;
+
+    update_tsl(obj);
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
