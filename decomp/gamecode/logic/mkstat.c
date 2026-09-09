@@ -2681,3 +2681,154 @@ leave:
 
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+
+/* ----------------------------------------------------------------- tl_do_lao_spin
+ *
+ * armv7 0x0004e1e0, 320 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field20 = 0x119
+ *                       init_special_act(obj)
+ *                       obj->field40 = 2; get_char_ani2(obj)
+ *                       obj->field1c = 1; init_anirate(obj)
+ *                       obj->field1c = 6
+ *                       obj->field48 = obj->a10 = 1
+ *                       obj->field00->field28 = 6
+ *                       token := 0x5ff, park 1
+ *
+ *      token == 0x5ff:  next_lao_anirate(obj)
+ *                       obj->field1c = obj->field00->field28 - 1
+ *                       if (that != 0) {
+ *                           obj->field00->field28 = obj->field1c
+ *                           token := 0x5ff, park 1
+ *                       } else { token := 0x609, park 1 }
+ *
+ *      token == 0x609:  next_lao_anirate(obj)
+ *                       obj->field1c = (uint32_t)(G + 0x3cc)
+ *                       get_tsl_px(obj, obj)
+ *                       if (obj->field20 <= 0xe) {
+ *                           obj->field1c = 0x13
+ *                           strike_check_a0(obj)
+ *                           if (obj->field5c == 0) token := 0x609, park 1
+ *                       }
+ *                       obj->field48 = 0x20
+ *                       if (obj->field18 != 0) {
+ *                           set_no_block(obj)
+ *                           obj->field48 = 0x30
+ *                       }
+ *                       obj->field1c = 3; init_anirate(obj)
+ *                       token := 0x620, park 1
+ *
+ *      token == 0x620:  next_lao_anirate(obj)
+ *                       if (--obj->field48 == 0)
+ *                           frame[frame].handler = t_local_reaction_exit
+ *                       else token := 0x620, park 1
+ *
+ *      otherwise:       return -3
+ *
+ * **The spin lasts as long as the button is held, and a connection also ends it.**
+ * State 0x609 runs once a frame: it asks get_tsl_px about the halfwords at G + 0x3cc
+ * and, while the answer in 0x20 is at or below 0xe, checks for a strike and stays.
+ * Two things break the loop -- the answer going above 0xe, or the strike connecting
+ * -- and **both land on the same recovery code**, which is why the hit case is a
+ * branch forward into the middle of the release case rather than a state of its own.
+ *
+ * **The recovery is longer if 0x18 is set**: 0x20 frames normally, 0x30 with
+ * blocking taken away first. So whatever 0x18 means here, it costs the fighter
+ * sixteen extra frames of recovery and its ability to block.
+ *
+ * Three counters, all in different places: the wind-up counts down in the proc's
+ * 0x28 from 6, the recovery counts down in 0x48 from 0x20 or 0x30, and
+ * next_lao_anirate keeps its own thirty-frame sound counter in 0x44 -- which state 0
+ * seeds with 1 so the first sound fires immediately.
+ *
+ * G + 0x3cc is a fourth per-player halfword set in this file, after 0x3a8, 0x3ac
+ * and the 0x420/0x424 pair.
+ */
+void next_lao_anirate(MK3OBJ *obj);
+void set_no_block(MK3OBJ *obj);
+
+long tl_do_lao_spin(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field20 = 0x119;
+        init_special_act(obj);
+
+        obj->field40 = 2;
+        get_char_ani2(obj);
+
+        obj->field1c = 1;
+        init_anirate(obj);
+
+        obj->field1c = 6;
+        obj->field48 = 1;
+        obj->a10     = 1;
+        obj->field00->field28 = obj->field1c;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x5ff;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0x5ff) {
+        next_lao_anirate(obj);
+
+        obj->field1c = obj->field00->field28 - 1;
+        if (obj->field1c != 0) {
+            obj->field00->field28 = obj->field1c;
+            *mk3_frame(thread, thread->frame + 1) = 0x5ff;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        *mk3_frame(thread, thread->frame + 1) = 0x609;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0x609) {
+        next_lao_anirate(obj);
+
+        obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x3cc);
+        get_tsl_px(obj, obj);
+
+        if ((long)obj->field20 <= 0xe) {
+            obj->field1c = 0x13;
+            strike_check_a0(obj);
+            if (obj->field5c == 0) {
+                *mk3_frame(thread, thread->frame + 1) = 0x609;
+                thread->fieldfc = 1;
+                return 1;
+            }
+        }
+
+        obj->field48 = 0x20;
+        if (obj->field18 != 0) {
+            set_no_block(obj);
+            obj->field48 = 0x30;
+        }
+
+        obj->field1c = 3;
+        init_anirate(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x620;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token != 0x620)
+        return -3;
+
+    next_lao_anirate(obj);
+
+    obj->field48 = obj->field48 - 1;
+    if (obj->field48 == 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x620;
+    thread->fieldfc = 1;
+    return 1;
+}
