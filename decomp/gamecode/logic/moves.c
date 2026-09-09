@@ -34,6 +34,10 @@
  * conflict here, which is what the check is for. */
 void q_animal_dist(MK3OBJ *obj);
 void q_fatal_dist(MK3OBJ *obj);
+void distance_from_ground(MK3OBJ *obj);
+long CountThreads(uint32_t pid);
+long is_he_facing_me(MK3OBJ *obj);
+extern uint32_t scom_lao_angle_kick[];   /* 0x0016a5bc */
 long t_shang_morph(MK3THREAD *thread);
 extern uint32_t scom_lao_teleport[];     /* 0x0016a588 */
 void q_am_i_cornered(MK3OBJ *obj);
@@ -75,7 +79,7 @@ void q_scorp_tele(MK3OBJ *obj);
 long is_he_joy(MK3OBJ *obj);
 long mercy_xfer(MK3OBJ *obj, MK3OBJ *other);
 long secret_move_search(MK3OBJ *obj, uint32_t arg, uint32_t *table);
-long slide_check(MK3OBJ *obj);
+void slide_check(MK3OBJ *obj, MK3OBJ *other);
 
 /* q_yes -- armv7 0x000501ac, 8 bytes.  **Complete.**
  *
@@ -3482,20 +3486,22 @@ long ermac_hk_close(MK3OBJ *obj, uint32_t arg)
 
 /* sz_block_close -- armv7 0x0005482c, 12 bytes.  **Complete.**
  *
- * A tail call to `slide_check` with the arguments untouched, so whatever the
- * caller put in r1 goes with them. */
-long sz_block_close(MK3OBJ *obj)
+ * A tail call to `slide_check` with the arguments untouched. What the caller
+ * put in r1 is slide_check's second parameter -- the object it hands to
+ * restricted_xfer -- which is why this takes two and returns nothing. */
+void sz_block_close(MK3OBJ *obj, MK3OBJ *other)
 {
-    return slide_check(obj);
+    slide_check(obj, other);
 }
 
 /* sz_lk_close -- armv7 0x00054838, 12 bytes.  **Complete.**
  *
- * A tail call to `slide_check` with the arguments untouched, so whatever the
- * caller put in r1 goes with them. */
-long sz_lk_close(MK3OBJ *obj)
+ * A tail call to `slide_check` with the arguments untouched. What the caller
+ * put in r1 is slide_check's second parameter -- the object it hands to
+ * restricted_xfer -- which is why this takes two and returns nothing. */
+void sz_lk_close(MK3OBJ *obj, MK3OBJ *other)
 {
-    return slide_check(obj);
+    slide_check(obj, other);
 }
 
 
@@ -4300,14 +4306,18 @@ void sonya_block_close(MK3OBJ *obj, MK3OBJ *other)
  *      if (obj->field5c == 0) secret_move_search(obj, arg, sm_sz_lpc)
  *
  * A member of the osm_/ind_ table family with a gate in front of it, and the
- * gate is the CLEAR case: a slide already in progress stops the search. The
+ * gate is the CLEAR case: a slide already in progress stops the search.
+ * slide_check answers through 0x5c and sets it to 1 only when it started one.
+ *
+ * The second argument is an OBJECT: slide_check hands it to restricted_xfer as
+ * one. secret_move_search is the call that wants the same value as a word. The
  * table address is passed as it stands, without the 0x48 that makes
  * osm_hk_close different from its own siblings. */
-void sz_lp_close(MK3OBJ *obj, uint32_t arg)
+void sz_lp_close(MK3OBJ *obj, MK3OBJ *other)
 {
-    slide_check(obj);
+    slide_check(obj, other);
     if (obj->field5c == 0)
-        secret_move_search(obj, arg, sm_sz_lpc);
+        secret_move_search(obj, (uint32_t)(uintptr_t)other, sm_sz_lpc);
 }
 
 
@@ -5171,4 +5181,128 @@ long t_do_st_2_kano(MK3THREAD *thread)
 
     obj->field40 = ((MK3OBJ *)(uintptr_t)obj->field00->him)->field24;
     return mk3_push_handler(thread, (MK3THREADFUNC)t_shang_morph);
+}
+
+
+/* slide_check -- armv7 0x000547c0, 72 bytes.  **Complete.**
+ *
+ *      is_stick_away(obj)
+ *      if (obj->field5c == 0) return
+ *      obj->field1c = 0x00030020 ; obj->field20 = 0x00302000
+ *      button_bit_check(obj)
+ *      if (obj->field5c == 0) return
+ *      obj->field38 = t_do_slide
+ *      restricted_xfer(obj, other)
+ *      obj->field5c = 1
+ *
+ * **It answers through 0x5c the same way the q_ family does, and that is what
+ * sz_lp_close reads.** Both early exits leave 0x5c holding the zero the failed
+ * predicate wrote, and the success path sets it to 1 after the transfer -- so
+ * the field means "a slide was started", which is exactly why sz_lp_close
+ * refuses to search a table when it is set.
+ *
+ * The masks are the same pair q_lp_block_lk uses, which is the same question
+ * asked directly rather than through q_slide. */
+void slide_check(MK3OBJ *obj, MK3OBJ *other)
+{
+    is_stick_away(obj);
+    if (obj->field5c == 0)
+        return;
+
+    obj->field1c = 0x00030020u;
+    obj->field20 = 0x00302000u;
+    button_bit_check(obj);
+    if (obj->field5c == 0)
+        return;
+
+    obj->field38 = (uint32_t)(uintptr_t)t_do_slide;
+    restricted_xfer(obj, other);
+    obj->field5c = 1;
+}
+
+/* q_pit_fatal -- armv7 0x00054b78, 72 bytes.  **Complete.**
+ *
+ *      c = RoundParam[9]
+ *      if (c < 1 || c > 4) q_no(obj)
+ *      else {
+ *          is_he_facing_me(obj)
+ *          if (obj->field5c == 0) q_no(obj); else q_close_fatal_pit(obj);
+ *      }
+ *
+ * q_pit_fatal_ez with a second condition bolted on, built from the same three
+ * flag tricks for the range and then a facing check. The easy form skips
+ * asking which way he is turned. */
+void q_pit_fatal(MK3OBJ *obj)
+{
+    long c = RoundParam[9];
+
+    if (c < 1 || c > 4) {
+        q_no(obj);
+        return;
+    }
+    is_he_facing_me(obj);
+    if (obj->field5c == 0)
+        q_no(obj);
+    else
+        q_close_fatal_pit(obj);
+}
+
+/* q_floor_blade -- armv7 0x00053590, 72 bytes.  **Complete.**
+ *
+ *      if (CountThreads(0x206) != 0) q_no(obj)
+ *      else if (CountThreads(0x207) != 0) q_no(obj)
+ *      else if (obj->field1c > 2 after get_his_p_hit) q_no(obj)
+ *      else if (obj->field20 == 0x617 after get_his_action) q_no(obj)
+ *      else q_yes(obj)
+ *
+ * **Four conditions and one yes.** The first two count live threads by pid --
+ * two blades already on the screen is the refusal, and the two pids are
+ * consecutive -- then the opponent's hit count and his current action are
+ * checked. All four refusals branch to the same two instructions. */
+void q_floor_blade(MK3OBJ *obj)
+{
+    if (CountThreads(0x206) != 0 || CountThreads(0x207) != 0) {
+        q_no(obj);
+        return;
+    }
+
+    get_his_p_hit(obj);
+    if ((long)obj->field1c > 2) {
+        q_no(obj);
+        return;
+    }
+
+    get_his_action(obj);
+    if (obj->field20 == 0x617)
+        q_no(obj);
+    else
+        q_yes(obj);
+}
+
+/* lao_hk_close -- armv7 0x000545a4, 72 bytes.  **Complete.**
+ *
+ *      if (!stick_look_lr2(obj, other, scom_lao_angle_kick, 0x40, 0x4000))
+ *          return
+ *      distance_from_ground(obj)
+ *      if (obj->field1c <= 0x9f) return
+ *      obj->field38 = t_do_lao_angle_kick
+ *      airborn_xfer(obj, other)
+ *
+ * A height gate on top of the stick pattern: the kick only opens above 0x9f
+ * off the ground, and the transfer goes through airborn_xfer rather than
+ * restricted_xfer -- the two differ in which way round they test being in the
+ * air. The pair 0x40 and 0x4000 follows the same half-shift rule as the rest. */
+void lao_hk_close(MK3OBJ *obj, MK3OBJ *other)
+{
+    if (!stick_look_lr2(obj, (uint32_t)(uintptr_t)other,
+                        (uint32_t)(uintptr_t)scom_lao_angle_kick,
+                        0x4000u - 0x3fc0u, 0x4000u))
+        return;
+
+    distance_from_ground(obj);
+    if ((long)obj->field1c <= 0x9f)
+        return;
+
+    obj->field38 = (uint32_t)(uintptr_t)t_do_lao_angle_kick;
+    airborn_xfer(obj, other);
 }
