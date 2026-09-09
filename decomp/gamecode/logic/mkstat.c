@@ -2569,3 +2569,115 @@ long tl_do_kano_swipe(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ---------------------------------------------------------- t_edge_of_world_lineup
+ *
+ * armv7 0x0004f06c, 316 bytes.  **Complete.**
+ *
+ *      token == 0:      token := 0x479, descend into obj->a10
+ *
+ *      token == 0x479:  get_his_dfe(obj)
+ *                       if (obj->field30 > 0x3f && obj->field34 > 0x40)
+ *                           -- straight to the pop --
+ *                       obj->field1c = 0x60000; away_x_vel(obj)
+ *                       push obj->field48
+ *                       obj->field48 = 8
+ *                       token := 0x487, park 1
+ *
+ *      token == 0x487:  token := 0x488, descend into obj->a10
+ *
+ *      token == 0x488:  if (--obj->field48 > 0) token := 0x487, park 1
+ *                       stop_me_player(obj)
+ *                       token := 0x48d, descend into obj->a10
+ *
+ *      token == 0x48d:  obj->field48 = pop
+ *                       pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:       return -3
+ *
+ * **0x44 holds a HANDLER here, and the routine descends into it three times.**
+ * Every other site in this module treats 0x44 as an argument slot or a save slot;
+ * this one loads it and stores it straight into a frame's handler word. So the
+ * whole routine is a driver -- "run the caller's routine, then run it once a frame
+ * for eight frames, then run it once more and leave" -- and the caller supplies the
+ * body.
+ *
+ * **0x48 is both the counter and something borrowed.** It goes onto the thread's
+ * argument stack before being loaded with 8, and it is restored from there in the
+ * last state, so whatever the caller had in it survives the loop. That is the
+ * push/pop idiom again, this time spanning four states rather than one call.
+ *
+ * The early exit is the only place `get_his_dfe` appears in this file: it answers
+ * in 0x30 and 0x34, and the routine gives up before doing anything when both are
+ * above their thresholds -- 0x3f and 0x40, one apart, which is worth noting only
+ * because it makes a copy-paste error easy to mistake for intent either way.
+ */
+void get_his_dfe(MK3OBJ *obj);
+void away_x_vel(MK3OBJ *obj);
+
+long t_edge_of_world_lineup(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t cur, next;
+
+    if (token == 0) {
+        next = 0x479;
+
+    } else if (token == 0x479) {
+        get_his_dfe(obj);
+
+        if ((long)obj->field30 > 0x3f && (long)obj->field34 > 0x40)
+            goto leave;
+
+        obj->field1c = 0x60000;
+        away_x_vel(obj);
+
+        cur = thread->fieldf8;
+        *mk3_arg(thread, cur) = obj->field48;
+        thread->fieldf8 = cur + 1;
+
+        obj->field48 = 8;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x487;
+        thread->fieldfc = 1;
+        return 1;
+
+    } else if (token == 0x487) {
+        next = 0x488;
+
+    } else if (token == 0x488) {
+        obj->field48 = obj->field48 - 1;
+        if ((long)obj->field48 > 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0x487;
+            thread->fieldfc = 1;
+            return 1;
+        }
+        stop_me_player(obj);
+        next = 0x48d;
+
+    } else if (token == 0x48d) {
+        cur = thread->fieldf8 - 1;
+        thread->fieldf8 = cur;
+        obj->field48 = *mk3_arg(thread, cur);
+        goto leave;
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;              /* push a level */
+    mk3_frame(thread, thread->frame)[1] = obj->a10;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
+leave:
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
