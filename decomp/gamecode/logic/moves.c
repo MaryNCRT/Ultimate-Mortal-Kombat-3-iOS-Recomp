@@ -34,6 +34,12 @@
  * conflict here, which is what the check is for. */
 void q_animal_dist(MK3OBJ *obj);
 void q_fatal_dist(MK3OBJ *obj);
+/* Eight function pointers, called as (obj, other). The extent is
+ * what check_tsl allows -- an index above 7 is reset to 0 -- not a
+ * measured array size. */
+extern void (*xfer_types_table[])(MK3OBJ *obj, MK3OBJ *other);
+extern uint32_t scom_robo_zap1[];        /* 0x0016a278 */
+extern uint32_t scom_robo_zap2[];        /* 0x0016a2ac */
 extern MK3THREAD *mytc;                  /* pointer slot -> 0x0038ef3c */
 void *GetThreadFunc(MK3THREAD *thread);
 long t_fatality_wait(MK3THREAD *thread);
@@ -4864,4 +4870,112 @@ void is_master_in_finish(MK3OBJ *obj)
         q_yes(obj);
     else
         q_no(obj);
+}
+
+
+/* check_tsl -- armv7 0x00052904, 60 bytes.  **Complete.**
+ *
+ *      obj->field1c = obj->field68
+ *      obj->field28 = obj->field64
+ *      get_tsl_px(obj, other)
+ *      if (obj->field20 <= obj->field28) return
+ *      if (obj->field34 > 7) obj->field34 = 0
+ *      xfer_types_table[obj->field34](obj, other)
+ *
+ * **A dispatch through a table of eight function pointers**, indexed by 0x34
+ * -- the same field that holds a callback address elsewhere in this codebase,
+ * here holding a small index instead. Out of range is not an error: anything
+ * above 7 is written back as 0 and the first entry runs.
+ *
+ * Unlike the q_ family, get_tsl_px is handed the OTHER object as its reference
+ * rather than the same one twice, and both of its inputs come out of the
+ * object -- 0x68 as the argument and 0x64 as the threshold to beat, neither
+ * of which the struct names, so both are reached as offsets. Nothing is
+ * a constant here; the caller has set all of it up. */
+void check_tsl(MK3OBJ *obj, MK3OBJ *other)
+{
+    obj->field1c = *(uint32_t *)((char *)obj + 0x68);
+    obj->field28 = *(uint32_t *)((char *)obj + 0x64);
+    get_tsl_px(obj, other);
+
+    if ((long)obj->field20 <= (long)obj->field28)
+        return;
+
+    if (obj->field34 > 7)
+        obj->field34 = 0;
+
+    xfer_types_table[obj->field34](obj, other);
+}
+
+/* q_mercy_req_ez -- armv7 0x000502e0, 60 bytes.  **Complete.**
+ *
+ *      if (*(uint16_t *)(G + 0x45a) != 0) q_no(obj)
+ *      else if (*(uint32_t *)H == 0) q_no(obj)
+ *      else if (*(uint32_t *)(H + 4) == 0) q_no(obj)
+ *      else q_fatality_req(obj)
+ *
+ * **The mercy halfword has to be ZERO here**, the opposite of what q_mercy
+ * requires -- so this asks whether mercy has NOT been used. Then two words at
+ * the front of H must both be non-zero, and each is stored into 0x1c as it is
+ * tested, so the field ends up holding whichever value made the decision.
+ *
+ * Three refusals branch to one q_no. */
+void q_mercy_req_ez(MK3OBJ *obj)
+{
+    obj->field1c = (uint32_t)(int32_t)
+        (int16_t)*(uint16_t *)(G_BYTES + 0x45a);
+    if (*(uint16_t *)(G_BYTES + 0x45a) != 0) {
+        q_no(obj);
+        return;
+    }
+
+    obj->field1c = *(uint32_t *)H;
+    if (obj->field1c == 0) {
+        q_no(obj);
+        return;
+    }
+
+    obj->field1c = *(uint32_t *)(H + 4);
+    if (obj->field1c == 0) {
+        q_no(obj);
+        return;
+    }
+
+    q_fatality_req(obj);
+}
+
+/* robo_lp_close -- armv7 0x000546d8, 60 bytes.  **Complete.**
+ *
+ *      if (stick_look_lr2(obj, other, scom_robo_zap1, 0x10000, 0x100000)) {
+ *          obj->field38 = t_do_robo_zap
+ *          restricted_xfer(obj, other)
+ *      }
+ *
+ * The two numbers are one literal and a subtraction off it -- 0x100000 then
+ * less 0xf0000 -- so the pair is built the same way the velocity triples are,
+ * and they reach stick_look_lr2 as the two words it packs into an array.
+ *
+ * robo_hp_close is the same sixty bytes with 0x1000 and 0x10, scom_robo_zap2
+ * and t_do_robo_zap2: a factor of sixteen between the two routines' constants
+ * and a different table and handler. */
+void robo_lp_close(MK3OBJ *obj, MK3OBJ *other)
+{
+    if (stick_look_lr2(obj, (uint32_t)(uintptr_t)other,
+                       (uint32_t)(uintptr_t)scom_robo_zap1,
+                       0x100000u - 0xf0000u, 0x100000u)) {
+        obj->field38 = (uint32_t)(uintptr_t)t_do_robo_zap;
+        restricted_xfer(obj, other);
+    }
+}
+
+/* robo_hp_close -- armv7 0x0005469c, 60 bytes.  **Complete.**  See
+ * robo_lp_close. */
+void robo_hp_close(MK3OBJ *obj, MK3OBJ *other)
+{
+    if (stick_look_lr2(obj, (uint32_t)(uintptr_t)other,
+                       (uint32_t)(uintptr_t)scom_robo_zap2,
+                       0x1000u - 0xff0u, 0x1000u)) {
+        obj->field38 = (uint32_t)(uintptr_t)t_do_robo_zap2;
+        restricted_xfer(obj, other);
+    }
 }
