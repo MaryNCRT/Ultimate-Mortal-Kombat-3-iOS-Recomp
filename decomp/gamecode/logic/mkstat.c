@@ -4257,3 +4257,211 @@ long tl_stat_do_lia_scream(MK3THREAD *thread)
     obj->field1c = 3;
     return mk3_install(thread, (MK3THREADFUNC)t_mframew);
 }
+
+
+/* ---------------------------------------------------------------- t_combo_air_pause
+ *
+ * armv7 0x0004d114, 700 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field20 = obj->field00->field28 = obj->field18
+ *                       push obj->field1c
+ *                       stop_me_player(obj); clear_combo_butn(obj)
+ *                       obj->a10 = obj->field00->field20 = pop
+ *                       token := 0x8b3, park 4
+ *
+ *      token == 0x8b3:  is_he_airborn(obj)
+ *                       if (obj->field5c != 0) {
+ *                           obj->a10 -= 4
+ *                           if (obj->a10 <= 0) obj->a10 = 1
+ *                           obj->field1c = obj->a10
+ *                           token := 0x8ea, park obj->field1c
+ *                       }
+ *                       am_i_joy(obj)
+ *                       if (obj->field5c == 0) -- the elbow path --
+ *                       obj->field28 = 0x10
+ *                       obj->field48 = G + 0x3d0 + proc->field08 * 2
+ *                       obj->a10     = G + 0x3dc + proc->field08 * 2
+ *                       obj->field1c = proc->field20 - 4
+ *                       if (that <= 0) obj->field1c = 1
+ *                       proc->field20 = obj->field1c
+ *                       token := 0x8cc, park 1
+ *
+ *      token == 0x8cc:  if (*(uint32_t *)obj->field48 != 0) -- the elbow path --
+ *                       if (*(uint32_t *)obj->a10     != 0) -- the knee path --
+ *                       obj->field1c = proc->field20 - 1
+ *                       if (that != 0) {
+ *                           proc->field20 = obj->field1c
+ *                           token := 0x8cc, park 1
+ *                       }
+ *                       pop a level, or t_local_reaction_exit
+ *
+ *      the elbow path:  air_combo_setup(obj)
+ *                       pop one level, inheriting the child's handler
+ *                       token := 0x8da, descend into t_do_elbow
+ *
+ *      the knee path:   air_combo_setup(obj)
+ *                       pop one level, inheriting the child's handler
+ *                       token := 0x8e0, descend into t_do_knee
+ *
+ *      token == 0x8da:
+ *      token == 0x8e0:  frame[frame].handler = t_local_reaction_exit
+ *
+ *      token == 0x8ea:  pop a level, or t_local_reaction_exit
+ *
+ *      otherwise:       return -3
+ *
+ * **This is the air-combo window, and it is where mkcombo.c's knee and elbow
+ * starters are entered from.** State 0x8cc polls two words a frame apart: a non-zero
+ * word at 0x48 launches t_do_elbow and a non-zero word at 0x44 launches t_do_knee,
+ * each through pointer slots 0x000f3888 and 0x000f38b4.
+ *
+ * **The two addresses it polls are the button ring `clear_combo_butn` clears.**
+ * 0x48 points at `G + 0x3d0 + proc->field08 * 2` -- the same base, the same
+ * per-player offset of two -- and 0x44 at `G + 0x3dc`, twelve bytes further on, which
+ * is one past the six halfwords that routine zeroes. So the two are the two halves
+ * of one button history, and this routine calls `clear_combo_butn` itself in state 0
+ * to start from empty.
+ *
+ * **A human and the machine take different routes.** am_i_joy answering clear goes
+ * straight to the elbow path without polling anything; only a person gets the
+ * window. An airborne opponent skips the whole thing and shortens a countdown by 4 a
+ * pass instead, floored at 1.
+ *
+ * **Both combo paths pop a level and inherit the child's handler before
+ * descending** -- the same six-line frame shuffle t_plwins and t_finish_him use --
+ * so the combo starter replaces this level rather than stacking on top of it.
+ *
+ * 0x44 is a countdown in one state and a ring pointer in another, and 0x48 is a ring
+ * pointer here where the rest of the file uses it as a counter. Both are decided by
+ * the state, not by the field.
+ */
+long am_i_joy(MK3OBJ *obj);
+void clear_combo_butn(MK3OBJ *obj);
+void air_combo_setup(MK3OBJ *obj);
+long t_do_elbow(MK3THREAD *thread);              /* pointer slot 0x000f3888 */
+long t_do_knee(MK3THREAD *thread);               /* pointer slot 0x000f38b4 */
+
+long t_combo_air_pause(MK3THREAD *thread)
+{
+    MK3OBJ      *obj   = (MK3OBJ *)thread->proc;
+    MK3OBJPROC  *proc  = obj->field00;
+    uint32_t     token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t     cur, f, n, handler, next;
+    int          knee = 0;
+
+    if (token == 0) {
+        obj->field20   = obj->field18;
+        proc->field28  = obj->field18;
+
+        cur = thread->fieldf8;
+        *mk3_arg(thread, cur) = obj->field1c;
+        thread->fieldf8 = cur + 1;
+
+        stop_me_player(obj);
+        clear_combo_butn(obj);
+
+        cur = thread->fieldf8 - 1;
+        thread->fieldf8 = cur;
+        obj->a10 = *mk3_arg(thread, cur);
+        proc->field20 = obj->a10;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x8b3;
+        thread->fieldfc = 4;
+        return 4;
+    }
+
+    if (token == 0x8b3) {
+        is_he_airborn(obj);
+
+        if (obj->field5c != 0) {
+            obj->a10 = obj->a10 - 4;
+            if ((long)obj->a10 <= 0)
+                obj->a10 = 1;
+
+            obj->field1c = obj->a10;
+            *mk3_frame(thread, thread->frame + 1) = 0x8ea;
+            thread->fieldfc = obj->field1c;
+            return (long)obj->field1c;
+        }
+
+        am_i_joy(obj);
+        if (obj->field5c == 0)
+            goto combo;                     /* the elbow path */
+
+        obj->field28 = 0x10;
+        obj->field48 = (uint32_t)(uintptr_t)
+            (G_BYTES + 0x3d0 + proc->field08 * 2);
+        obj->a10 = (uint32_t)(uintptr_t)
+            (G_BYTES + 0x3dc + proc->field08 * 2);
+
+        obj->field1c = proc->field20 - 4;
+        if ((long)obj->field1c <= 0)
+            obj->field1c = 1;
+        proc->field20 = obj->field1c;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x8cc;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0x8cc) {
+        if (*(uint32_t *)(void *)(uintptr_t)obj->field48 != 0)
+            goto combo;                     /* the elbow path */
+
+        if (*(uint32_t *)(void *)(uintptr_t)obj->a10 != 0) {
+            knee = 1;
+            goto combo;
+        }
+
+        obj->field1c = proc->field20 - 1;
+        if (obj->field1c != 0) {
+            proc->field20 = obj->field1c;
+            *mk3_frame(thread, thread->frame + 1) = 0x8cc;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        if ((long)thread->frame > 0) {
+            thread->frame = thread->frame - 1;
+            return 0;
+        }
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (token == 0x8ea) {
+        if ((long)thread->frame > 0) {
+            thread->frame = thread->frame - 1;
+            return 0;
+        }
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (token != 0x8da && token != 0x8e0)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+combo:
+    air_combo_setup(obj);
+
+    if ((long)thread->frame > 0)
+        thread->frame = thread->frame - 1;
+    else
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_local_reaction_exit;
+
+    f = thread->frame;
+    n = f + 1;
+    handler = mk3_frame(thread, n)[1];
+    *mk3_frame(thread, n) = *mk3_frame(thread, n + 1);
+    mk3_frame(thread, f)[1] = handler;
+
+    next = knee ? 0x8e0 : 0x8da;
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;              /* push a level */
+    mk3_frame(thread, thread->frame)[1] = knee
+        ? (uint32_t)(uintptr_t)t_do_knee
+        : (uint32_t)(uintptr_t)t_do_elbow;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
