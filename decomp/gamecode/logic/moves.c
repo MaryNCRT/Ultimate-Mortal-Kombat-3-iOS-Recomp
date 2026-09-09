@@ -34,6 +34,8 @@
  * conflict here, which is what the check is for. */
 void q_animal_dist(MK3OBJ *obj);
 void q_fatal_dist(MK3OBJ *obj);
+long t_do_back_breaker(MK3THREAD *thread);
+extern uint32_t scom_sonya_zap[];        /* 0x0016a484 */
 long t_local_reaction_exit(MK3THREAD *thread);
 uint32_t get_strength(uint32_t index);
 void fastxfer_thread(MK3OBJ *obj, MK3THREAD *thread);
@@ -6166,4 +6168,112 @@ void free_xfer(MK3OBJ *obj, MK3OBJ *other)
     mk3_frame(t, t->frame)[1] = (uint32_t)(uintptr_t)t_local_reaction_exit;
     *mk3_frame(t, t->frame + 1) = 0;
     t->frame = t->frame + 1;
+}
+
+
+/* sonya_lp_close -- armv7 0x000549d0, 116 bytes.  **Complete.**
+ *
+ *      pair = { 0x00010000, 0x00100000 }        ; copied from a static const
+ *      DbgTableDump(scom_sonya_zap + 1)
+ *      if (stick_look_lr(obj, other, scom_sonya_zap, pair)) {
+ *          obj->field38 = t_do_sonya_zap
+ *          restricted_xfer(obj, other)
+ *      } else {
+ *          check_sonya_legs(obj)
+ *          if (obj->field5c == 0) return
+ *          obj->field38 = t_do_leg_throw
+ *          restricted_xfer(obj, other)
+ *      }
+ *
+ * **The only routine in this file that calls stick_look_lr directly**, and the
+ * reason is visible in the instructions: its two words live in a compiler
+ * static rather than as immediates, so they are copied with `ldm`/`stm` into
+ * the stack pair instead of being built by hand. Everything else goes through
+ * stick_look_lr2, which exists precisely to do that copying.
+ *
+ * The pair is (0x0001, 0x0000) and (0x0010, 0x0000) -- a seventh measurement
+ * of the half-shift rule.
+ *
+ * **It also calls DbgTableDump**, with the table address plus four. That
+ * confirms the parameter is a table pointer, and it means the empty scan is
+ * still being made on every one of these checks: the routine walks
+ * scom_sonya_zap from its second word and throws away everything it reads.
+ *
+ * Two different moves come out of one check -- the zap if the stick pattern
+ * matched, the leg throw if check_sonya_legs says so instead. */
+void sonya_lp_close(MK3OBJ *obj, MK3OBJ *other)
+{
+    static const uint32_t init[2] = { 0x00010000u, 0x00100000u };
+    uint32_t pair[2];
+
+    pair[0] = init[0];
+    pair[1] = init[1];
+
+    DbgTableDump(scom_sonya_zap + 1);
+
+    if (stick_look_lr(obj, (uint32_t)(uintptr_t)other,
+                      (uint32_t)(uintptr_t)scom_sonya_zap, pair)) {
+        obj->field38 = (uint32_t)(uintptr_t)t_do_sonya_zap;
+        restricted_xfer(obj, other);
+        return;
+    }
+
+    check_sonya_legs(obj);
+    if (obj->field5c == 0)
+        return;
+
+    obj->field38 = (uint32_t)(uintptr_t)t_do_leg_throw;
+    restricted_xfer(obj, other);
+}
+
+/* jax_block_close -- armv7 0x00054528, 124 bytes.  **Complete.**
+ *
+ *      distance_from_ground(obj) ; if (obj->field1c <= 0x9f) return
+ *      get_x_dist(obj) ; if (obj->field28 > 0x58) return
+ *      get_y_dist(obj) ; if (obj->field28 > 0x58) return
+ *      obj->field24 = (int16)((MK3OBJ *)obj->a10)->field12
+ *      obj->field1c = *(uint32_t *)(G + 0xac) - obj->field24
+ *      if (obj->field1c <= 0xb7) return
+ *      q_is_he_a_boss(obj) ; if (obj->field5c != 0) return
+ *      get_his_action(obj) ; if (obj->field20 == 0x507) return
+ *      obj->field38 = t_do_back_breaker
+ *      airborn_xfer(obj, other)
+ *
+ * **Six conditions, and the fourth is a height measured against a global
+ * floor.** 0x44 is a pointer here -- the object being reached for -- its 0x12
+ * is its integer y, and the difference between the floor at G + 0xac and that y
+ * has to exceed 0xb7. Both intermediate values are stored on the way through,
+ * so 0x24 keeps the y and 0x1c the gap.
+ *
+ * Every refusal is one instruction: a branch to the same pop. */
+void jax_block_close(MK3OBJ *obj, MK3OBJ *other)
+{
+    distance_from_ground(obj);
+    if ((long)obj->field1c <= 0x9f)
+        return;
+
+    get_x_dist(obj);
+    if ((long)obj->field28 > 0x58)
+        return;
+
+    get_y_dist(obj);
+    if ((long)obj->field28 > 0x58)
+        return;
+
+    obj->field24 = (uint32_t)(int32_t)*(int16_t *)
+        ((char *)(MK3OBJ *)(uintptr_t)obj->a10 + 0x12);
+    obj->field1c = *(uint32_t *)(G_BYTES + 0xac) - obj->field24;
+    if ((long)obj->field1c <= 0xb7)
+        return;
+
+    q_is_he_a_boss(obj);
+    if (obj->field5c != 0)
+        return;
+
+    get_his_action(obj);
+    if (obj->field20 == 0x507)
+        return;
+
+    obj->field38 = (uint32_t)(uintptr_t)t_do_back_breaker;
+    airborn_xfer(obj, other);
 }
