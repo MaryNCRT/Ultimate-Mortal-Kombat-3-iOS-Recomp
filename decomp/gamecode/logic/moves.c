@@ -5412,3 +5412,136 @@ void lao_lp_close(MK3OBJ *obj, MK3OBJ *other)
     obj->field38 = (uint32_t)(uintptr_t)t_do_lao_zap;
     restricted_xfer(obj, other);
 }
+
+
+/* check_sonya_legs -- armv7 0x0005362c, 80 bytes.  **Complete.**
+ *
+ *      obj->field1c = 0x00010020 ; obj->field20 = 0x00102000
+ *      button_bit_check(obj)
+ *      if (obj->field5c == 0) return
+ *      get_his_action(obj)
+ *      if (obj->field20 == 0x600 || obj->field20 == 0x506) {
+ *          obj->field5c = 0
+ *          return
+ *      }
+ *      is_stick_down(obj)
+ *
+ * **A sixth pair on the half-shift rule**: (0x0001, 0x0020) and (0x0010,
+ * 0x2000), and the second is written as an immediate rather than loaded, which
+ * is why only the first needed a literal pool entry.
+ *
+ * The answer is left wherever the last thing to write 0x5c put it -- cleared
+ * by hand for the two forbidden actions, and otherwise whatever is_stick_down
+ * decides. Three different writers of one field, in one routine. */
+void check_sonya_legs(MK3OBJ *obj)
+{
+    obj->field1c = 0x00010020u;
+    obj->field20 = 0x00102000u;
+    button_bit_check(obj);
+    if (obj->field5c == 0)
+        return;
+
+    get_his_action(obj);
+    if (obj->field20 == 0x600 || obj->field20 == 0x506) {
+        obj->field5c = 0;
+        return;
+    }
+
+    is_stick_down(obj);
+}
+
+/* q_jax_dash -- armv7 0x00052ee0, 76 bytes.  **Complete.**
+ *
+ *      obj->field1c = &G + 0x424 ; get_tsl_px(obj, obj)
+ *      if (obj->field20 <= 0x2f) q_no(obj)
+ *      else {
+ *          get_his_action(obj)
+ *          if (obj->field20 == 0x509 || obj->field20 == 0x600) q_no(obj)
+ *          else q_yes(obj)
+ *      }
+ *
+ * A table entry and then two forbidden actions. All three refusals reach the
+ * same q_no. */
+void q_jax_dash(MK3OBJ *obj)
+{
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x420 + 4);
+    get_tsl_px(obj, obj);
+    if ((long)obj->field20 <= 0x2f) {
+        q_no(obj);
+        return;
+    }
+
+    get_his_action(obj);
+    if (obj->field20 == 0x509 || obj->field20 == 0x600)
+        q_no(obj);
+    else
+        q_yes(obj);
+}
+
+/* q_sz_decoy -- armv7 0x00052e64, 76 bytes.  **Complete.**
+ *
+ *      get_his_p_hit(obj)
+ *      if (obj->field1c > 0) q_no(obj)
+ *      else {
+ *          obj->field1c = &G + 0x3f8 ; get_tsl_px(obj, obj)
+ *          if (obj->field20 <= 0xff) q_no(obj)
+ *          else {
+ *              get_his_action(obj)
+ *              if (obj->field20 == 0x610) q_no(obj); else q_yes(obj);
+ *          }
+ *      }
+ *
+ * Three conditions in a row, and the threshold is 0xff -- the highest in the
+ * get_tsl_px family by a wide margin. He must also be completely unhit, not
+ * merely under a count. */
+void q_sz_decoy(MK3OBJ *obj)
+{
+    get_his_p_hit(obj);
+    if ((long)obj->field1c > 0) {
+        q_no(obj);
+        return;
+    }
+
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x3f8);
+    get_tsl_px(obj, obj);
+    if ((long)obj->field20 <= 0xff) {
+        q_no(obj);
+        return;
+    }
+
+    get_his_action(obj);
+    if (obj->field20 == 0x610)
+        q_no(obj);
+    else
+        q_yes(obj);
+}
+
+/* q_stick_sweep -- armv7 0x00052ccc, 76 bytes.  **Complete.**
+ *
+ *      if (((*(uint32_t *)(Pp + 0x10) & 1) & *(uint32_t *)(Pp + 0x9c)) == 0)
+ *          q_no(obj)
+ *      else {
+ *          obj->field1c = &G + 0x418 ; get_tsl_px(obj, obj)
+ *          if (obj->field20 <= 0x4f) q_no(obj); else q_yes(obj);
+ *      }
+ *
+ * **The gate is one bit ANDed against a whole word.** The low bit of Pp + 0x10
+ * is masked out first and then tested against Pp + 0x9c, so the test passes
+ * only when that bit is set AND the other word has its bit zero set too.
+ * Written as the two instructions do it rather than simplified, because which
+ * of the two words is the flag and which the mask is not established. */
+void q_stick_sweep(MK3OBJ *obj)
+{
+    if (((*(uint32_t *)(Pp + 0x10) & 1u)
+         & *(uint32_t *)(Pp + 0x9c)) == 0) {
+        q_no(obj);
+        return;
+    }
+
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x418);
+    get_tsl_px(obj, obj);
+    if ((long)obj->field20 <= 0x4f)
+        q_no(obj);
+    else
+        q_yes(obj);
+}
