@@ -5821,3 +5821,138 @@ long mercy_xfer(MK3OBJ *obj, MK3OBJ *other)
     restricted_xfer(obj, other);
     return 0;
 }
+
+
+/* q_mercy_req -- armv7 0x00053098, 96 bytes.  **Complete.**
+ *
+ *      if (*(uint16_t *)(G + 0x45a) != 0) q_no(obj)
+ *      else if (get_x_dist leaves obj->field28 <= 0x9f) q_no(obj)
+ *      else if (*(uint32_t *)H == 0) q_no(obj)
+ *      else if (*(uint32_t *)(H + 4) == 0) q_no(obj)
+ *      else {
+ *          obj->field1c = &G + 0x3cc ; get_tsl_px(obj, obj)
+ *          if (obj->field20 <= 0x2f) q_no(obj); else q_fatality_req(obj)
+ *      }
+ *
+ * **q_mercy_req_ez is this with the distance and the table entry taken out.**
+ * The two share the mercy halfword and the two words at the front of H, in the
+ * same order; the easy form stops there. Five conditions against three.
+ *
+ * 0x1c holds five different things in turn -- the sign-extended halfword, both
+ * H words, then a table address -- and every one of them is stored, so the
+ * field ends up carrying whichever value decided the answer. */
+void q_mercy_req(MK3OBJ *obj)
+{
+    obj->field1c = (uint32_t)(int32_t)
+        (int16_t)*(uint16_t *)(G_BYTES + 0x45a);
+    if (*(uint16_t *)(G_BYTES + 0x45a) != 0) {
+        q_no(obj);
+        return;
+    }
+
+    get_x_dist(obj);
+    if ((long)obj->field28 <= 0x9f) {
+        q_no(obj);
+        return;
+    }
+
+    obj->field1c = *(uint32_t *)H;
+    if (obj->field1c == 0) {
+        q_no(obj);
+        return;
+    }
+
+    obj->field1c = *(uint32_t *)(H + 4);
+    if (obj->field1c == 0) {
+        q_no(obj);
+        return;
+    }
+
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x3cc);
+    get_tsl_px(obj, obj);
+    if ((long)obj->field20 <= 0x2f)
+        q_no(obj);
+    else
+        q_fatality_req(obj);
+}
+
+/* q_scorp_airthrow -- armv7 0x00053530, 96 bytes.  **Complete.**
+ *
+ * **Six conditions, and two of them are about height in different senses.**
+ * distance_from_ground must leave more than 0x9f -- I am high up -- and
+ * is_he_airborn must come back set, so he is off the ground too. Then both
+ * distances inside 0x50, and one forbidden action. Every refusal reaches the
+ * same q_no. */
+void q_scorp_airthrow(MK3OBJ *obj)
+{
+    q_is_he_a_boss(obj);
+    if (obj->field5c != 0) {
+        q_no(obj);
+        return;
+    }
+
+    distance_from_ground(obj);
+    if ((long)obj->field1c <= 0x9f) {
+        q_no(obj);
+        return;
+    }
+
+    is_he_airborn(obj);
+    if (obj->field5c == 0) {
+        q_no(obj);
+        return;
+    }
+
+    get_x_dist(obj);
+    if ((long)obj->field28 > 0x50) {
+        q_no(obj);
+        return;
+    }
+
+    get_y_dist(obj);
+    if ((long)obj->field28 > 0x50) {
+        q_no(obj);
+        return;
+    }
+
+    get_his_action(obj);
+    if (obj->field20 == 0x507)
+        q_no(obj);
+    else
+        q_yes(obj);
+}
+
+/* q_robo_net -- armv7 0x00052db0, 100 bytes.  **Complete.**
+ *
+ * A hit count, a forbidden action, and two table entries -- &G + 0x424 over
+ * 0x2f and &G + 0x408 over 0x4f. G stays in a callee-saved register across
+ * both calls, which is what makes the second address one add instead of a
+ * second pool load. */
+void q_robo_net(MK3OBJ *obj)
+{
+    get_his_p_hit(obj);
+    if ((long)obj->field1c > 2) {
+        q_no(obj);
+        return;
+    }
+
+    get_his_action(obj);
+    if (obj->field20 == 0x607) {
+        q_no(obj);
+        return;
+    }
+
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x420 + 4);
+    get_tsl_px(obj, obj);
+    if ((long)obj->field20 <= 0x2f) {
+        q_no(obj);
+        return;
+    }
+
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x408);
+    get_tsl_px(obj, obj);
+    if ((long)obj->field20 <= 0x4f)
+        q_no(obj);
+    else
+        q_yes(obj);
+}
