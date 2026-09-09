@@ -15,7 +15,7 @@
 #define MK3_CHAR_SHAO_KAHN  0x19
 
 void group_sound(MK3OBJ *obj);
-void am_i_short(MK3OBJ *obj);
+long am_i_short(MK3OBJ *obj);
 void shake_a11(MK3OBJ *obj);
 void pose_a9_manual(MK3OBJ *obj);
 void *FindThreadProc(uint32_t pid);
