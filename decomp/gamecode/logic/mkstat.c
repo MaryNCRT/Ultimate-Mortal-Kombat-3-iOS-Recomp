@@ -4033,3 +4033,227 @@ long tl_stat_do_quake(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------ tl_stat_do_lia_scream
+ *
+ * armv7 0x0004dfc4, 540 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field20 = 0x10f
+ *                       init_special_act(obj)
+ *                       obj->field40 = 0; get_char_ani2(obj)
+ *                       obj->field1c = 3
+ *                       token := 0x64f, descend into t_mframew
+ *
+ *      token == 0x64f:  get_his_action(obj)
+ *                       if (obj->field20 == 0x615)
+ *                           frame[frame].handler = t_r_scream
+ *                       *(uint32_t *)((char *)proc + 0x2c) = 0
+ *                       obj->field1c = 3; init_anirate(obj)
+ *                       *(uint32_t *)((char *)proc + 0x30) = 1
+ *                       obj->a10 = (uint32_t)obj->field00
+ *                       obj->field1c = 6; create_fx(obj)
+ *                       obj->field1c = 0x50
+ *                       obj->field48 = 1
+ *                       proc->field28 = 0x50
+ *                       token := 0x665, park 1
+ *
+ *      token == 0x665:  next_anirate(obj)
+ *                       if (--proc[0x30] == 0) {
+ *                           obj->field1c = 1; ochar_sound(obj)
+ *                           obj->field1c = 0x58
+ *                       }
+ *                       proc[0x30] = obj->field1c
+ *                       if (proc[0x2c] == 0) {
+ *                           obj->field1c = 0x11
+ *                           strike_check_a0(obj)
+ *                           if (obj->field5c != 0) {
+ *                               if (obj->field18 != 0) {
+ *                                   set_no_block(obj)
+ *                                   obj->a10 = 0x28
+ *                                   token := 0x6a2, park 1
+ *                               }
+ *                               proc[0x2c] = 1
+ *                               obj->field1c = 0x20
+ *                               proc->field28 = 0x20
+ *                               dec_his_p_hit(obj)
+ *                           }
+ *                       }
+ *                       if (--obj->field48 == 0) {
+ *                           obj->field48 = 0x10
+ *                           NewThread(obj, t_scream_wave)
+ *                       }
+ *                       if (--proc->field28 != 0) token := 0x665, park 1
+ *                       -- into the finish --
+ *
+ *      token == 0x6a2:  if (--obj->field48 == 0) {
+ *                           obj->field48 = 0x10
+ *                           NewThread(obj, t_scream_wave)
+ *                       }
+ *                       next_anirate(obj)
+ *                       if (--obj->a10 == 0) -- into the finish --
+ *                       token := 0x6a2, park 1
+ *
+ *      the finish:      obj->field40 = 0; get_char_ani2(obj)
+ *                       find_part2(obj); find_part2(obj)
+ *                       delete_slave(obj)
+ *                       obj->field1c = 3
+ *                       frame[frame].handler = t_mframew
+ *
+ *      otherwise:       return -3
+ *
+ * **Four counters run at once, in four different places.** proc+0x30 paces the
+ * sound and reloads to 0x58 when it fires; proc+0x28 is the 0x50-frame budget for
+ * the whole scream; 0x48 counts 0x10 down and spawns a fresh t_scream_wave thread
+ * every time it reaches zero; and 0x44 is the 0x28-frame budget for the alternate
+ * 0x6a2 loop. So the scream is a wave emitter with its own lifetime, its own sound
+ * cadence and two different ways to end.
+ *
+ * **NewThread is called with t_scream_wave, which lives in this file**, and it is
+ * called from both loops -- so however the scream ends, waves keep being emitted
+ * once every sixteen frames until it does.
+ *
+ * **The strike outcome depends on 0x18.** Connecting with 0x18 set takes blocking
+ * away and switches to the 0x6a2 loop with a fresh 0x28-frame budget; connecting
+ * without it latches proc+0x2c, shortens proc->field28 to 0x20, and takes a hit off
+ * the opponent's counter through dec_his_p_hit -- the only site in this file to
+ * call that. proc+0x2c being latched then stops any further strike check, so the
+ * scream can only connect once.
+ *
+ * **`obj->a10 = (uint32_t)obj->field00` in the 0x64f state stores a POINTER into
+ * the field the 0x6a2 loop counts down.** Nothing reads 0x44 between that store and
+ * the only path into 0x6a2, which overwrites it with 0x28 first, so the pointer is
+ * never decremented. Transcribed as written -- it is the sort of store that looks
+ * like a bug and cannot be shown to be one from this routine alone.
+ *
+ * An action of 0x615 on the opponent aborts the whole move before any of this,
+ * handing the thread to t_r_scream instead.
+ */
+void dec_his_p_hit(MK3OBJ *obj);
+MK3THREAD *NewThread(void *owner, MK3THREADFUNC func);
+long t_r_scream(MK3THREAD *thread);              /* pointer slot 0x000f3174 */
+
+long tl_stat_do_lia_scream(MK3THREAD *thread)
+{
+    MK3OBJ      *obj   = (MK3OBJ *)thread->proc;
+    MK3OBJPROC  *proc  = obj->field00;
+    uint32_t     token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field20 = 0x10f;
+        init_special_act(obj);
+
+        obj->field40 = 0;
+        get_char_ani2(obj);
+
+        obj->field1c = 3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x64f;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x64f) {
+        get_his_action(obj);
+        if (obj->field20 == 0x615)
+            return mk3_install(thread, (MK3THREADFUNC)t_r_scream);
+
+        *(uint32_t *)((char *)proc + 0x2c) = 0;
+
+        obj->field1c = 3;
+        init_anirate(obj);
+
+        *(uint32_t *)((char *)proc + 0x30) = 1;
+        obj->a10 = (uint32_t)(uintptr_t)obj->field00;   /* a pointer; see above */
+
+        obj->field1c = 6;
+        create_fx(obj);
+
+        obj->field1c = 0x50;
+        obj->field48 = 1;
+        proc->field28 = obj->field1c;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x665;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0x665) {
+        next_anirate(obj);
+
+        obj->field1c = *(uint32_t *)((char *)proc + 0x30) - 1;
+        if (obj->field1c == 0) {
+            obj->field1c = 1;
+            ochar_sound(obj);
+            obj->field1c = 0x58;
+        }
+        *(uint32_t *)((char *)proc + 0x30) = obj->field1c;
+
+        obj->field1c = *(uint32_t *)((char *)proc + 0x2c);
+        if (obj->field1c == 0) {
+            obj->field1c = 0x11;
+            strike_check_a0(obj);
+
+            if (obj->field5c != 0) {
+                if (obj->field18 != 0) {
+                    set_no_block(obj);
+                    obj->a10 = 0x28;
+
+                    *mk3_frame(thread, thread->frame + 1) = 0x6a2;
+                    thread->fieldfc = 1;
+                    return 1;
+                }
+
+                *(uint32_t *)((char *)proc + 0x2c) = 1;
+                obj->field1c = 0x20;
+                proc->field28 = 0x20;
+                dec_his_p_hit(obj);
+            }
+        }
+
+        obj->field48 = obj->field48 - 1;
+        if (obj->field48 == 0) {
+            obj->field48 = 0x10;
+            NewThread(obj, (MK3THREADFUNC)t_scream_wave);
+        }
+
+        obj->field1c = proc->field28 - 1;
+        if (obj->field1c != 0) {
+            proc->field28 = obj->field1c;
+            *mk3_frame(thread, thread->frame + 1) = 0x665;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+    } else if (token == 0x6a2) {
+        obj->field48 = obj->field48 - 1;
+        if (obj->field48 == 0) {
+            obj->field48 = 0x10;
+            NewThread(obj, (MK3THREADFUNC)t_scream_wave);
+        }
+
+        next_anirate(obj);
+
+        obj->a10 = obj->a10 - 1;
+        if (obj->a10 != 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0x6a2;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+    } else {
+        return -3;
+    }
+
+    /* the finish, reached when either budget runs out */
+    obj->field40 = 0;
+    get_char_ani2(obj);
+    find_part2(obj);
+    find_part2(obj);
+    delete_slave(obj);
+
+    obj->field1c = 3;
+    return mk3_install(thread, (MK3THREADFUNC)t_mframew);
+}
