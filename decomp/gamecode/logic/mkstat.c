@@ -2995,3 +2995,142 @@ long t_air_strike(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+
+/* ---------------------------------------------------------------- tl_do_ermac_slam
+ *
+ * armv7 0x0004f384, 324 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field20 = 0x11d
+ *                       init_special_act(obj)
+ *                       obj->field40 = 0x0002000c
+ *                       token := 0x62, descend into t_animate2_a9
+ *
+ *      token == 0x62:   obj->field1c = 0xf; ochar_sound(obj)
+ *                       obj->field48 = 0x00030008; shake_a11(obj)
+ *                       obj->a10 = 0x10
+ *                       token := 0x6b, park 1
+ *
+ *      token == 0x6b:   q_is_he_a_boss(obj)
+ *                       if (obj->field5c == 0) {
+ *                           obj->field1c = 0x1a
+ *                           strike_check_a0(obj)
+ *                           if (obj->field5c != 0) {
+ *                               obj->field1c = (uint32_t)(G + 0x434)
+ *                               update_tsl(obj)
+ *                               if (obj->field18 == 0) {
+ *                                   token := 0x86, park 8
+ *                               }
+ *                               -- otherwise the 0x62a path --
+ *                           }
+ *                       }
+ *                       if (--obj->a10 != 0) token := 0x6b, park 1
+ *                       obj->field1c = obj->field00->field18 = 0x62a
+ *                       token := 0x7e, park 0x30
+ *
+ *      token == 0x7e:
+ *      token == 0x86:   obj->field1c = 2
+ *                       obj->field40 = 2 + 0xa = 0xc
+ *                       frame[frame].handler = t_backwards_ani
+ *
+ *      otherwise:       return -3
+ *
+ * **A boss is not struck, it is only waited out.** q_is_he_a_boss answers in 0x5c,
+ * and a set answer skips the strike check entirely and goes straight to the sixteen
+ * frame countdown in 0x44. Only a non-boss gets strike_check_a0 -- so this move
+ * cannot connect against a boss, which is a rule enforced here rather than in the
+ * strike check.
+ *
+ * **Two tokens share one arm.** 0x7e and 0x86 both branch to the same three lines,
+ * which is why the routine has five reachable states but only four bodies. The
+ * arrival is all that differs: 0x7e after a thirty-frame hold, 0x86 after eight.
+ *
+ * **0x48 for shake_a11 is a pair of halfwords, and this site proves they are
+ * independent.** 0x00030008 -- three and eight, not equal -- against the doubled
+ * 0x00080008, 0x00050005 and 0x00090009 found elsewhere. Eight sites in the module
+ * now write that field before a shake, and only this one is asymmetric, which is
+ * what settles it as two numbers rather than one repeated.
+ *
+ * G + 0x434 is a fifth per-player set in this file, built as 0x430 plus 4 exactly as
+ * update_block_fk builds G + 0x424 from 0x420.
+ */
+void q_is_he_a_boss(MK3OBJ *obj);
+void shake_a11(MK3OBJ *obj);
+long t_backwards_ani(MK3THREAD *thread);         /* pointer slot 0x000f37c4 */
+
+long tl_do_ermac_slam(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field20 = 0x11d;
+        init_special_act(obj);
+        obj->field40 = 0x0002000c;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x62;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate2_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x62) {
+        obj->field1c = 0xf;
+        ochar_sound(obj);
+
+        obj->field48 = 0x00030008;
+        shake_a11(obj);
+
+        obj->a10 = 0x10;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x6b;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0x6b) {
+        q_is_he_a_boss(obj);
+
+        if (obj->field5c == 0) {
+            obj->field1c = 0x1a;
+            strike_check_a0(obj);
+
+            if (obj->field5c != 0) {
+                obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x430 + 4);
+                update_tsl(obj);
+
+                if (obj->field18 == 0) {
+                    *mk3_frame(thread, thread->frame + 1) = 0x86;
+                    thread->fieldfc = 8;
+                    return 8;
+                }
+                goto hold;
+            }
+        }
+
+        obj->a10 = obj->a10 - 1;
+        if (obj->a10 != 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0x6b;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+hold:
+        obj->field1c = 0x62a;
+        obj->field00->field18 = 0x62a;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x7e;
+        thread->fieldfc = 0x30;
+        return 0x30;
+    }
+
+    if (token != 0x7e && token != 0x86)
+        return -3;
+
+    obj->field1c = 2;
+    obj->field40 = 2 + 0xa;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_backwards_ani);
+}
