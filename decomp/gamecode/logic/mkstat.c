@@ -2141,3 +2141,106 @@ long tl_do_inviso(MK3THREAD *thread)
     set_inviso(obj);
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+
+/* ------------------------------------------------------------------------- t_jk6
+ *
+ * armv7 0x0004cb80, 292 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field28 = 0x8000
+ *                       obj->field2c = 4
+ *                       token := 0x801, descend into t_air_strike
+ *
+ *      token == 0x801:  if (obj->field5c != 0) {
+ *                           obj->field1c = 8
+ *                           token := 0x806, descend into t_combo_air_pause
+ *                       }
+ *                       -- otherwise into the 0x813 body --
+ *
+ *      token == 0x806:  obj->field00->field18 = 0x609
+ *                       obj->field1c = 3
+ *                       obj->field40 += 4
+ *                       obj->field20 = 0
+ *                       *(uint32_t *)((char *)obj->field00 + 0x34) = 0
+ *                       obj->field28 = 0xe000
+ *                       obj->field08->field20 = 0xe000
+ *                       token := 0x813, descend into t_flight_loop
+ *
+ *      token == 0x813:  frame[frame].handler = t_jump_up_land_jsrp
+ *
+ *      otherwise:       return -3
+ *
+ * **The continuation of both jumping attacks, and a hit costs two extra levels.**
+ * A miss goes straight from the strike to the landing. A hit descends into
+ * t_combo_air_pause, then into t_flight_loop with a fresh action and velocity, and
+ * only then lands -- so connecting in the air is what turns a jump attack into
+ * something that can carry a combo.
+ *
+ * **0x28 is written twice with different magnitudes**: 0x8000 before the strike
+ * and 0xe000 after a hit, the second also copied into the part's 0x20. That is the
+ * only field this routine sets on both sides of the strike.
+ *
+ * proc+0x34 is inside a pad in this header, so it is written by offset -- the fifth
+ * distinct proc offset this file reaches that way, after 0x2c, 0x30, 0x38 and 0x58.
+ *
+ * **The dispatch destroys the object pointer.** `movw r2, #0x813` at 0x4cba4
+ * overwrites the register holding `obj`, so only the arms whose comparison happens
+ * before it -- 0 and 0x801 and 0x806 -- can touch the object at all. The 0x813 arm
+ * uses nothing but the frame index it saved at entry, which is why it can afford
+ * to lose it.
+ */
+long t_air_strike(MK3THREAD *thread);
+long t_combo_air_pause(MK3THREAD *thread);
+long t_flight_loop(MK3THREAD *thread);           /* pointer slot 0x000f317c */
+long t_jump_up_land_jsrp(MK3THREAD *thread);     /* pointer slot 0x000f376c */
+
+long t_jk6(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field28 = 0x8000;
+        obj->field2c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x801;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_air_strike;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x801 && obj->field5c != 0) {
+        obj->field1c = 8;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x806;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_combo_air_pause;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x806) {
+        obj->field00->field18 = 0x609;
+        obj->field1c = 3;
+        obj->field40 = obj->field40 + 4;
+        obj->field20 = 0;
+        *(uint32_t *)((char *)obj->field00 + 0x34) = 0;
+        obj->field28 = 0xe000;
+        obj->field08->field20 = 0xe000;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x813;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_flight_loop;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x801 && token != 0x813)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_jump_up_land_jsrp);
+}
