@@ -34,6 +34,12 @@
  * conflict here, which is what the check is for. */
 void q_animal_dist(MK3OBJ *obj);
 void q_fatal_dist(MK3OBJ *obj);
+void StartThreadAt(MK3THREAD *thread, MK3THREADFUNC fn);
+long t_victory_animation(MK3THREAD *thread);
+long t_master_proc_mercy(MK3THREAD *thread);
+long t_mercy_start(MK3THREAD *thread);
+extern uint32_t scom_robo2_tele[];         /* 0x0016a380 */
+extern uint32_t scom_robo_air_grab[];      /* 0x0016a3b4 */
 extern uint32_t sm_smoke_bc[];             /* 0x0016b9bc */
 extern uint32_t scom_sky_zap_on_4but[];    /* 0x0016a4b8 */
 extern uint32_t scom_sky_zap_on[];         /* 0x0016a4ec */
@@ -6691,5 +6697,145 @@ void sz_hp_close(MK3OBJ *obj, MK3OBJ *other)
         return;
     }
 
+    restricted_xfer(obj, other);
+}
+
+
+/* ------------------------------------------------------------------ t_do_mercy
+ *
+ * armv7 0x000525cc, 164 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      is_master_in_finish(obj)
+ *      if (obj->field5c == 0) {
+ *          frame[frame].handler = t_victory_animation
+ *          frame[frame+1].w0 = 0
+ *          return 0
+ *      }
+ *      StartThreadAt(&mytc[2], t_master_proc_mercy)
+ *      obj->field1c = 3
+ *      *(uint16_t *)(G + 0x45c) = 3
+ *      obj->field20 = 1
+ *      *(uint16_t *)(G + 0x45a) = 1
+ *      *(uint16_t *)(Pp + 0x80)  = 0
+ *      *(uint16_t *)(Pp + 0x10c) = 0
+ *      frame[frame].handler = t_mercy_start
+ *      frame[frame+1].w0 = 0
+ *
+ * **This is the routine that grants mercy, and it writes exactly the two
+ * halfwords the questions read.** G + 0x45c takes 3 -- the value
+ * q_fatality_req tests for, and nothing else passes there -- and G + 0x45a
+ * takes 1, which is what q_mercy reads and what q_mercy_req and
+ * q_mercy_req_ez require to be zero. So offering mercy is what moves the round
+ * into the stage where a fatality can be asked for, and it is what stops the
+ * mercy questions answering yes a second time.
+ *
+ * It also clears two halfwords in Pp at 0x80 and 0x10c -- 0x8c apart, which is
+ * not the thread stride -- and starts a thread at mytc[2], the same slot
+ * is_master_in_finish asks about one instruction earlier.
+ *
+ * The frame index is scaled with `lsls r3, r1` where r1 still holds the 3
+ * written into 0x1c, rather than with an immediate shift. Same result, one
+ * fewer constant. */
+long t_do_mercy(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    is_master_in_finish(obj);
+    if (obj->field5c == 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+
+    StartThreadAt((MK3THREAD *)((char *)mytc + 2 * 268),
+                  (MK3THREADFUNC)t_master_proc_mercy);
+
+    obj->field1c = 3;
+    *(uint16_t *)(G_BYTES + 0x45c) = 3;
+    obj->field20 = 1;
+    *(uint16_t *)(G_BYTES + 0x45a) = 1;
+
+    *(uint16_t *)(Pp + 0x80) = 0;
+    *(uint16_t *)(Pp + 0x10c) = 0;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_mercy_start);
+}
+
+/* robo2_block_close -- armv7 0x00054714, 172 bytes.  **Complete.**
+ *
+ *      if (stick_look_lr2(obj, other, scom_robo2_tele, 0x20, 0x2000)) {
+ *          obj->field38 = t_do_tele_explode
+ *          airborn_xfer(obj, other)
+ *          return
+ *      }
+ *      if (!stick_look_lr2(obj, other, scom_robo_air_grab, 0x20, 0x2000))
+ *          return
+ *      q_is_he_a_boss(obj) ; if (obj->field5c != 0) return
+ *      is_he_airborn(obj)  ; if (obj->field5c == 0) return
+ *      him = (MK3OBJ *)obj->field00->him
+ *      obj->field1c = him
+ *      obj->field20 = him->field1c
+ *      if ((int32_t)obj->field20 >= 0) {
+ *          obj->field24 = |obj->field00->field00->field00->field40
+ *                          - (int16)him->field12|
+ *          if (obj->field24 <= 0x2f) return
+ *      }
+ *      obj->field38 = t_do_robo_air_grab
+ *      restricted_xfer(obj, other)
+ *
+ * **A rising opponent skips the height check entirely.** His vertical speed at
+ * 0x1c is tested for sign, and a negative one branches straight past the
+ * distance test to the transfer -- so he can be grabbed at any height while he
+ * is still going up, and only on the way down does the gap have to exceed 0x2f.
+ *
+ * The teleport it tries first hands over t_do_tele_explode, which is Cyrax's
+ * teleport written in mkprop.c: the two ends of the same move, in two files.
+ *
+ * The height is measured against proc+0x40 reached through three loads, the
+ * same walk get_his_p_hit uses, and taken as a magnitude. */
+void robo2_block_close(MK3OBJ *obj, MK3OBJ *other)
+{
+    MK3OBJ *him;
+    int32_t gap;
+
+    if (stick_look_lr2(obj, (uint32_t)(uintptr_t)other,
+                       (uint32_t)(uintptr_t)scom_robo2_tele,
+                       0x20u, 0x2000u)) {
+        obj->field38 = (uint32_t)(uintptr_t)t_do_tele_explode;
+        airborn_xfer(obj, other);
+        return;
+    }
+
+    if (!stick_look_lr2(obj, (uint32_t)(uintptr_t)other,
+                        (uint32_t)(uintptr_t)scom_robo_air_grab,
+                        0x20u, 0x2000u))
+        return;
+
+    q_is_he_a_boss(obj);
+    if (obj->field5c != 0)
+        return;
+
+    is_he_airborn(obj);
+    if (obj->field5c == 0)
+        return;
+
+    him = (MK3OBJ *)(uintptr_t)obj->field00->him;
+    obj->field1c = (uint32_t)(uintptr_t)him;
+    obj->field20 = him->field1c;
+
+    if ((int32_t)obj->field20 >= 0) {           /* on the way down */
+        gap = (int32_t)(*(uint32_t *)
+                        ((char *)obj->field00->field00->field00 + 0x40)
+                        - (uint32_t)(int32_t)
+                        *(int16_t *)((char *)him + 0x12));
+        obj->field24 = (uint32_t)gap;
+        if (gap < 0)
+            obj->field24 = (uint32_t)(-gap);
+        if ((long)obj->field24 <= 0x2f)
+            return;
+    }
+
+    obj->field38 = (uint32_t)(uintptr_t)t_do_robo_air_grab;
     restricted_xfer(obj, other);
 }
