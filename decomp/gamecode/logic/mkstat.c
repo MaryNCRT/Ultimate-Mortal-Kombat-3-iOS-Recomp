@@ -3134,3 +3134,146 @@ hold:
 
     return mk3_install(thread, (MK3THREADFUNC)t_backwards_ani);
 }
+
+
+/* ------------------------------------------------------------------ tl_do_swat_gun
+ *
+ * armv7 0x00050064, 328 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field20 = 0x11c
+ *                       init_special_act(obj)
+ *                       obj->field40 = 0x00020005
+ *                       token := 0x94, descend into t_animate2_a9
+ *
+ *      token == 0x94:   obj->field1c = 2; init_anirate(obj)
+ *                       obj->field48 = 0x20
+ *                       token := 0x9c, park 1
+ *
+ *      token == 0x9c:   next_anirate(obj)
+ *                       obj->field1c = 0x18
+ *                       strike_check_a0(obj)
+ *                       if (obj->field5c != 0) {
+ *                           obj->field1c = obj->field00->field18 = 0x629
+ *                           obj->field48 = 0x20
+ *                           is_he_airborn(obj)
+ *                           if (obj->field5c != 0) obj->field48 = 8
+ *                           token := 0xc2, park 1
+ *                       }
+ *                       if (--obj->field48 > 0) token := 0x9c, park 1
+ *                       -- into the cleanup --
+ *
+ *      token == 0xc2:   next_anirate(obj)
+ *                       if (--obj->field48 > 0) token := 0xc2, park 1
+ *                       -- into the cleanup --
+ *
+ *      the cleanup:     delete_slave(obj)
+ *                       obj->field1c = (uint32_t)(G + 0x430)
+ *                       update_tsl(obj)
+ *                       obj->field40 = 5
+ *                       obj->field54 = 5 - 2 = 3
+ *                       find_ani2_part_a14(obj)
+ *                       obj->field1c = 2
+ *                       frame[frame].handler = t_mframew
+ *
+ *      otherwise:       return -3
+ *
+ * **Hitting an airborne target costs a quarter of the recovery.** On a connection
+ * the routine loads 0x48 with 0x20, asks is_he_airborn, and overwrites it with 8 if
+ * the answer is set. So catching someone in the air is rewarded with twenty-four
+ * fewer frames of recovery -- a rule stated once, in one `if`, and nowhere else in
+ * the module so far.
+ *
+ * **Two counters, one field, two states.** 0x48 is the firing window in 0x9c
+ * (0x20 frames to connect) and the recovery in 0xc2 (0x20 or 8), and both states
+ * count the same field down and fall into the same cleanup when it runs out. That
+ * is why the two exhaustion paths converge rather than each having their own tail.
+ *
+ * G + 0x430 here against G + 0x434 in tl_do_ermac_slam -- two per-player sets four
+ * bytes apart, the same pairing as 0x420/0x424 and 0x3a8/0x3ac. Three such pairs are
+ * now known in this file.
+ */
+long is_he_airborn(MK3OBJ *obj);
+void find_ani2_part_a14(MK3OBJ *obj);
+
+long tl_do_swat_gun(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field20 = 0x11c;
+        init_special_act(obj);
+        obj->field40 = 0x00020005;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x94;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate2_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x94) {
+        obj->field1c = 2;
+        init_anirate(obj);
+        obj->field48 = 0x20;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x9c;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0x9c) {
+        next_anirate(obj);
+
+        obj->field1c = 0x18;
+        strike_check_a0(obj);
+
+        if (obj->field5c != 0) {
+            obj->field1c = 0x629;
+            obj->field00->field18 = 0x629;
+
+            obj->field48 = 0x20;
+            is_he_airborn(obj);
+            if (obj->field5c != 0)
+                obj->field48 = 8;
+
+            *mk3_frame(thread, thread->frame + 1) = 0xc2;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        obj->field48 = obj->field48 - 1;
+        if ((long)obj->field48 > 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0x9c;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+    } else if (token == 0xc2) {
+        next_anirate(obj);
+
+        obj->field48 = obj->field48 - 1;
+        if ((long)obj->field48 > 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0xc2;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+    } else {
+        return -3;
+    }
+
+    /* the cleanup, reached when either counter runs out */
+    delete_slave(obj);
+
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x430);
+    update_tsl(obj);
+
+    obj->field40 = 5;
+    obj->field54 = 5 - 2;
+    find_ani2_part_a14(obj);
+
+    obj->field1c = 2;
+    return mk3_install(thread, (MK3THREADFUNC)t_mframew);
+}
