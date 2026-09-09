@@ -34,6 +34,7 @@
  * conflict here, which is what the check is for. */
 void q_animal_dist(MK3OBJ *obj);
 void q_fatal_dist(MK3OBJ *obj);
+extern uint32_t scom_bike[];              /* 0x0016a450 */
 long t_do_back_breaker(MK3THREAD *thread);
 extern uint32_t scom_sonya_zap[];        /* 0x0016a484 */
 long t_local_reaction_exit(MK3THREAD *thread);
@@ -6275,5 +6276,114 @@ void jax_block_close(MK3OBJ *obj, MK3OBJ *other)
         return;
 
     obj->field38 = (uint32_t)(uintptr_t)t_do_back_breaker;
+    airborn_xfer(obj, other);
+}
+
+
+/* sonya_hk_close -- armv7 0x00054a44, 128 bytes.  **Complete.**
+ *
+ *      pair = { 0x00000040, 0x00004000 }
+ *      if (!stick_look_lr(obj, other, scom_bike, pair)) return
+ *      get_his_action(obj) ; if (obj->field20 == 0x61a) return
+ *      if (obj->field00->0x7e != 0) {
+ *          obj->field1c = &G + 0x444 ; get_tsl_px(obj, other)
+ *          if (obj->field20 <= 0x7f) return
+ *      }
+ *      obj->field38 = t_do_bike
+ *      restricted_xfer(obj, other)
+ *
+ * The second routine here to copy its pair out of a compiler static, and the
+ * pair is (0x0000, 0x0040) and (0x0000, 0x4000) -- the low half shifted left
+ * eight, an eighth measurement of the rule. It is stored with `stmdb` from
+ * sp+8 downwards rather than `stm` upwards, which puts the same two words in
+ * the same two places by the other route.
+ *
+ * **The halfword at 0x7e adds a condition rather than easing one here.** Set,
+ * and a table entry must also beat 0x7f; clear, and the stick pattern alone is
+ * enough. q_bike_req uses the same halfword to trade one hard test for two
+ * easy ones -- same flag, three different jobs across three routines. */
+void sonya_hk_close(MK3OBJ *obj, MK3OBJ *other)
+{
+    static const uint32_t init[2] = { 0x00000040u, 0x00004000u };
+    uint32_t pair[2];
+
+    pair[0] = init[0];
+    pair[1] = init[1];
+
+    if (!stick_look_lr(obj, (uint32_t)(uintptr_t)other,
+                       (uint32_t)(uintptr_t)scom_bike, pair))
+        return;
+
+    get_his_action(obj);
+    if (obj->field20 == 0x61a)
+        return;
+
+    if (*(int16_t *)((char *)obj->field00 + 0x7e) != 0) {
+        obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x440 + 4);
+        get_tsl_px(obj, other);
+        if ((long)obj->field20 <= 0x7f)
+            return;
+    }
+
+    obj->field38 = (uint32_t)(uintptr_t)t_do_bike;
+    restricted_xfer(obj, other);
+}
+
+/* kano_block_close -- armv7 0x000544a4, 132 bytes.  **Complete.**
+ *
+ *      q_is_he_a_boss(obj) ; if (obj->field5c != 0) return
+ *      distance_from_ground(obj) ; if (obj->field1c <= 0x9f) return
+ *      get_x_dist(obj) ; if (obj->field28 > 0x50) return
+ *      get_y_dist(obj) ; if (obj->field28 > 0x50) return
+ *      *(uint16_t *)((char *)obj->a10 + 0x12) = (uint16_t)obj->field24
+ *      obj->field1c = |*(uint32_t *)(G + 0xac) - obj->field24|
+ *      if (obj->field1c <= 0xb7) return
+ *      get_his_action(obj) ; if (obj->field20 == 0x507) return
+ *      obj->field38 = t_do_air_slam
+ *      airborn_xfer(obj, other)
+ *
+ * **It WRITES where jax_block_close reads.** Both work with 0x12 of whatever
+ * 0x44 points at and both compare a gap against 0xb7, but jax_block_close
+ * takes the y out of the target and this one puts 0x24 INTO it -- and 0x24 is
+ * never set here, so the value has to come from the caller.
+ *
+ * The other difference is the absolute value: this takes |floor - y| where
+ * jax_block_close takes the signed difference. Above or below the floor by
+ * enough is acceptable here; only above counts there. */
+void kano_block_close(MK3OBJ *obj, MK3OBJ *other)
+{
+    int32_t gap;
+
+    q_is_he_a_boss(obj);
+    if (obj->field5c != 0)
+        return;
+
+    distance_from_ground(obj);
+    if ((long)obj->field1c <= 0x9f)
+        return;
+
+    get_x_dist(obj);
+    if ((long)obj->field28 > 0x50)
+        return;
+
+    get_y_dist(obj);
+    if ((long)obj->field28 > 0x50)
+        return;
+
+    *(uint16_t *)((char *)(MK3OBJ *)(uintptr_t)obj->a10 + 0x12) =
+        (uint16_t)obj->field24;
+
+    gap = (int32_t)(*(uint32_t *)(G_BYTES + 0xac) - obj->field24);
+    obj->field1c = (uint32_t)gap;
+    if (gap < 0)
+        obj->field1c = (uint32_t)(-gap);
+    if ((long)obj->field1c <= 0xb7)
+        return;
+
+    get_his_action(obj);
+    if (obj->field20 == 0x507)
+        return;
+
+    obj->field38 = (uint32_t)(uintptr_t)t_do_air_slam;
     airborn_xfer(obj, other);
 }
