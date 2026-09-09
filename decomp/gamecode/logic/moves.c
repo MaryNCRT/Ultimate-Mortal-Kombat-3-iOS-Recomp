@@ -34,6 +34,11 @@
  * conflict here, which is what the check is for. */
 void q_animal_dist(MK3OBJ *obj);
 void q_fatal_dist(MK3OBJ *obj);
+long is_he_right(MK3OBJ *obj);
+void get_bcq_next_pointer_idx(MK3OBJ *obj, long which);
+void get_jcq_next_pointer_idx(MK3OBJ *obj, long which);
+long four_button_switch(MK3OBJ *obj, long button);
+void previous_q_entry(MK3OBJ *obj);
 extern uint32_t scom_bike[];              /* 0x0016a450 */
 long t_do_back_breaker(MK3THREAD *thread);
 extern uint32_t scom_sonya_zap[];        /* 0x0016a484 */
@@ -6386,4 +6391,118 @@ void kano_block_close(MK3OBJ *obj, MK3OBJ *other)
 
     obj->field38 = (uint32_t)(uintptr_t)t_do_air_slam;
     airborn_xfer(obj, other);
+}
+
+
+/* -------------------------------------------------------------- stick_look_lr
+ *
+ * armv7 0x0005369c, 184 bytes.  **Complete.**
+ *
+ * **The input matcher.** Every osm_, ind_ and _close routine in this file ends up
+ * here, and this is what a "stick pattern" actually is: a table, walked
+ * backwards through the player's own command queue, with a deadline on the
+ * whole sequence.
+ *
+ *      if (illegal_button_check(obj, pair[0], pair[1]) != 0) -- no
+ *      window = table[0]
+ *      if (window == 0) -- YES, with nothing checked at all
+ *      right = is_he_right(other)
+ *      walk = &table[1]
+ *      DbgTableDump(walk)
+ *      if (table[1] > 5) get_jcq_next_pointer_idx(obj, strength)
+ *      else              get_bcq_next_pointer_idx(obj, strength)
+ *      if (right == 0) walk += 6
+ *      start = *(uint32_t *)(G + 0xa8)
+ *      while ((entry = *walk++) != 0) {
+ *          code = four_button_switch(obj, entry)
+ *          previous_q_entry(obj)
+ *          if ((obj->field1c & 0xffff0000) != code << 16) -- no
+ *      }
+ *      obj->field1c = (uint16_t)obj->field1c
+ *      if (start - obj->field1c <= (window * 3) / 2) -- yes
+ *      -- no
+ *
+ * **table[0] is a deadline, not a pattern.** It is read first, and a zero
+ * there means yes without looking at anything: the caller wanted the buttons
+ * checked and nothing more. Otherwise the whole matched sequence has to have
+ * happened within one and a half times that number of ticks -- the `* 3` then
+ * `/ 2` is written out as a shift, an add and an arithmetic shift with the
+ * round-toward-zero correction the compiler always emits for signed halving.
+ *
+ * **The table has two halves and which one is used depends on which way the
+ * opponent is standing.** `is_he_right` coming back zero skips 0x18 bytes --
+ * six words -- so the mirrored sequence sits immediately after the first. That
+ * is why every caller's table is bigger than the sequence it seems to hold.
+ *
+ * **Entries are matched against the HIGH halfword of the queue entry.**
+ * four_button_switch turns a table entry into a code, previous_q_entry steps
+ * one further back through the queue, and the comparison is
+ * `(obj->field1c & 0xffff0000) == code << 16`. So the low half of a queue
+ * entry is a timestamp -- which is exactly what the deadline test then reads,
+ * after narrowing 0x1c to sixteen bits.
+ *
+ * The queue is chosen by table[1] before the walk starts: over 5 uses the jump
+ * queue, otherwise the button queue, and both are indexed by the strength index
+ * pulled out of the OTHER object's proc.
+ *
+ * pair[0] and pair[1] are handed straight to illegal_button_check as its two
+ * per-player masks, which is what the half-shift relationship between them was
+ * for all along. */
+long stick_look_lr(MK3OBJ *obj, uint32_t other_w, uint32_t table_w,
+                   uint32_t *pair)
+{
+    MK3OBJ   *other = (MK3OBJ *)(uintptr_t)other_w;
+    uint32_t *table = (uint32_t *)(uintptr_t)table_w;
+    long      strength = (long)other->field00->field08;
+    uint32_t *walk;
+    long      window, right, code;
+    uint32_t  entry, start;
+
+    if (illegal_button_check(obj, pair[0], pair[1]) != 0) {
+        obj->field5c = 0;
+        return 0;
+    }
+
+    window = (long)table[0];
+    if (window == 0) {                  /* no sequence at all: just the buttons */
+        obj->field5c = 1;
+        return 1;
+    }
+
+    right = is_he_right(other);
+    walk = table + 1;
+    DbgTableDump(walk);
+
+    if ((long)table[1] > 5)
+        get_jcq_next_pointer_idx(obj, strength);
+    else
+        get_bcq_next_pointer_idx(obj, strength);
+
+    if (right == 0)
+        walk += 6;                      /* the mirrored half */
+
+    start = *(uint32_t *)(G_BYTES + 0xa8);
+
+    for (;;) {
+        entry = *walk;
+        walk += 1;
+        if (entry == 0)
+            break;
+
+        code = four_button_switch(obj, (long)entry);
+        previous_q_entry(obj);
+        if ((obj->field1c & 0xffff0000u) != ((uint32_t)code << 16)) {
+            obj->field5c = 0;
+            return 0;
+        }
+    }
+
+    obj->field1c = (uint32_t)(uint16_t)obj->field1c;
+    if ((long)(start - obj->field1c) <= (window * 3) / 2) {
+        obj->field5c = 1;
+        return 1;
+    }
+
+    obj->field5c = 0;
+    return 0;
 }
