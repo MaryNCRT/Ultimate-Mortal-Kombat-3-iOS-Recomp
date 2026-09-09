@@ -525,3 +525,129 @@ long t_comb0(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_combo_exit);
 }
+
+
+/* -------------------------------------------------------------- combo_scan_a11
+ *
+ * armv7 0x000326d8, 196 bytes.  **Complete.**
+ *
+ * The recogniser. `t_comb1` calls it once a frame and reads the answer out of
+ * 0x5c, and this is what decides whether the buttons pressed so far are a
+ * combo.
+ *
+ *      base = obj->field48                     ; the list, saved for the exit
+ *      e    = base
+ *      for (;;) {
+ *          k = *(uint8_t *)(e + 8)
+ *          obj->field1c = obj->field54 = k
+ *          p = *(uint32_t *)(last_switch_ram + k * 8 + 4)
+ *          if (obj->field00->field08 != 0) p += 2
+ *          obj->field20 = *(uint16_t *)p
+ *          if (obj->field20 != 0) {
+ *              ring = G + 0x3d0 + obj->field00->field08 * 2
+ *              seen = 0
+ *              for (i = 0; i != 5; i++) {
+ *                  obj->field2c = *(uint16_t *)ring
+ *                  ring += 4
+ *                  if (obj->field2c != 0 && i != obj->a10) seen++
+ *                  obj->field24 = seen
+ *              }
+ *              if (seen <= 1) -- MATCH --
+ *          }
+ *          if (*(uint32_t *)e & 0x8000) -- NO MATCH --
+ *          e += 0x18
+ *          obj->field48 = e
+ *      }
+ *
+ *      MATCH:     n = *(uint8_t *)(e + 0x10)
+ *                 obj->field1c = n ? n - 1 : (uint32_t)base
+ *                 obj->field48 = base ; obj->field5c = 1
+ *      NO MATCH:  obj->field48 = base ; obj->field5c = 0
+ *
+ * **The ring it walks is the one clear_combo_butn clears.** Six halfwords four
+ * bytes apart at G + 0x3d0, offset two per player -- that routine writes zeros
+ * into exactly those slots and this reads five of them back. The two agree on
+ * the base, the stride and the per-player offset, which is what makes the
+ * layout certain.
+ *
+ * **A match means at most ONE unexpected button.** The count is of ring slots
+ * that are non-empty and whose index is not `obj->a10`, and the test is
+ * `seen <= 1`. So the slot named by a10 is the one allowed to differ, and one
+ * more stray press is tolerated on top of it -- anything beyond that and the
+ * entry is rejected and the walk moves on.
+ *
+ * **The list is terminated by a bit, not by a zero.** Bit 15 of the entry's
+ * first word ends it, and the stride is 0x18. `last_switch_ram` is indexed by
+ * the byte at +8 with an eight-byte stride, and its second word points at the
+ * halfwords -- plus two for the second player, the same trick again.
+ *
+ * 0x48 is walked forward through the whole search and restored to `base` on
+ * both exits, so the caller sees it unchanged. 0x1c, 0x20, 0x24 and 0x2c are
+ * used as scratch throughout and are left holding whatever the last step put
+ * there -- on a match, either the count less one or the base address, which is
+ * the one place two exits disagree about what 0x1c means. */
+extern uint32_t *last_switch_ram;          /* pointer slot -> 0x0016f50c */
+
+long combo_scan_a11(MK3OBJ *obj)
+{
+    char    *base = (char *)(void *)(uintptr_t)obj->field48;
+    char    *e = base;
+    char    *ring;
+    char    *p;
+    uint32_t k, seen, i, n;
+
+    for (;;) {
+        k = *(uint8_t *)(e + 8);
+        obj->field1c = k;
+        obj->field54 = k;
+
+        p = (char *)(void *)(uintptr_t)
+            *(uint32_t *)((char *)last_switch_ram + k * 8 + 4);
+        obj->field1c = (uint32_t)(uintptr_t)p;
+        if (obj->field00->field08 != 0) {
+            p += 2;
+            obj->field1c = (uint32_t)(uintptr_t)p;
+        }
+
+        obj->field20 = *(uint16_t *)p;
+        if (obj->field20 != 0) {
+            ring = G_BYTES + 0x3d0 + obj->field00->field08 * 2;
+            seen = 0;
+            obj->field24 = 0;
+            obj->field1c = 0;
+            obj->field20 = (uint32_t)(uintptr_t)ring;
+
+            for (i = 0; i != 5; i++) {
+                obj->field2c = *(uint16_t *)ring;
+                ring += 4;
+                obj->field20 = (uint32_t)(uintptr_t)ring;
+                if (obj->field2c != 0 && i != obj->a10) {
+                    seen += 1;
+                    obj->field24 = seen;
+                }
+                obj->field1c = i + 1;
+            }
+
+            if (seen <= 1) {                    /* MATCH */
+                n = *(uint8_t *)(e + 0x10);
+                obj->field1c = n;
+                if (n != 0)
+                    obj->field1c = n - 1;
+                obj->field5c = 1;
+                obj->field1c = (uint32_t)(uintptr_t)base;
+                obj->field48 = (uint32_t)(uintptr_t)base;
+                return 0;
+            }
+        }
+
+        obj->field1c = *(uint32_t *)e;
+        if ((obj->field1c & 0x8000u) != 0) {     /* the end of the list */
+            obj->field48 = (uint32_t)(uintptr_t)base;
+            obj->field5c = 0;
+            return 0;
+        }
+
+        e += 0x18;
+        obj->field48 = (uint32_t)(uintptr_t)e;
+    }
+}
