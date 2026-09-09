@@ -34,6 +34,16 @@
  * conflict here, which is what the check is for. */
 void q_animal_dist(MK3OBJ *obj);
 void q_fatal_dist(MK3OBJ *obj);
+void ground_ochar(MK3OBJ *obj);
+void player_normpal(MK3OBJ *obj);
+void tsound_func(MK3OBJ *obj, uint32_t sound);
+void init_special_act(MK3OBJ *obj);
+void stop_me_player(MK3OBJ *obj);
+void ochar_sound(MK3OBJ *obj);
+void clear_shadow_bit(MK3OBJ *obj);
+void get_char_ani(MK3OBJ *obj);
+long do_next_a9_frame(MK3OBJ *obj);
+void update_tsl(MK3OBJ *obj);
 void StartThreadAt(MK3THREAD *thread, MK3THREADFUNC fn);
 long t_victory_animation(MK3THREAD *thread);
 long t_master_proc_mercy(MK3THREAD *thread);
@@ -6838,4 +6848,103 @@ void robo2_block_close(MK3OBJ *obj, MK3OBJ *other)
 
     obj->field38 = (uint32_t)(uintptr_t)t_do_robo_air_grab;
     restricted_xfer(obj, other);
+}
+
+
+/* --------------------------------------------------------------- t_shang_morph
+ *
+ * armv7 0x00052670, 268 bytes.  **Complete.**
+ *
+ *      token == 0:
+ *          obj->field20 = 0x401 ; init_special_act(obj)
+ *          stop_me_player(obj)
+ *          obj->field1c = 4 ; ochar_sound(obj)
+ *          arg[f8++] = obj->field40            ; who to become
+ *          if (obj->field40 > 0xe) clear_shadow_bit(obj)
+ *          token := 0x1145, park 4
+ *
+ *      token == 0x1145:
+ *          obj->field40 = arg[--f8]
+ *          obj->field08->field24 = obj->field40
+ *          ground_ochar(obj)
+ *          obj->field00->field40 = (int16)obj->field08->field12
+ *          player_normpal(obj)
+ *          obj->field40 = 0 ; get_char_ani(obj)
+ *          do_next_a9_frame(obj)
+ *          obj->field1c = &G + 0x3fc ; update_tsl(obj)
+ *          obj->field1c = obj->field08->field24 + 0x28 ; tsound_func(obj)
+ *          if (thread->frame > 0) { frame -= 1; return 0 }
+ *          frame[frame].handler = t_local_reaction_exit
+ *
+ *      otherwise: return -3
+ *
+ * **The character number crosses the park on the argument stack.**
+ * t_do_st_2_kano copies the opponent's number into 0x40 and installs this;
+ * state 0 pushes it, four frames later state 0x1145 pops it back and writes it
+ * into the part's 0x24 -- which is the field q_simple_shang, qorb3 and
+ * q_tusk_blur all read as "which character is that". Shang Tsung becomes him by
+ * writing that one word.
+ *
+ * **Characters above 0xe lose their shadow.** The test is on the number itself,
+ * before the push, and clear_shadow_bit is the only thing it changes -- so the
+ * later half of the roster is drawn without one.
+ *
+ * 0x40 is written twice in the second state: the character number first, so the
+ * part and the proc can be set from it, then zero before get_char_ani -- which
+ * is the same field being used as an animation selector immediately after being
+ * used as an identity.
+ *
+ * The sound is the character number plus 0x28, read back out of the part rather
+ * than from the local copy, and it goes to tsound_func in r1 as well as into
+ * 0x1c -- the same field-and-register pair four_button_bits uses. */
+long t_shang_morph(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field20 = 0x401;
+        init_special_act(obj);
+        stop_me_player(obj);
+        obj->field1c = 4;
+        ochar_sound(obj);
+
+        *mk3_arg(thread, thread->fieldf8) = obj->field40;
+        thread->fieldf8 += 1;
+
+        if ((long)obj->field40 > 0xe)
+            clear_shadow_bit(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1145;
+        thread->fieldfc = 4;
+        return 4;
+    }
+
+    if (token != 0x1145)
+        return -3;
+
+    thread->fieldf8 -= 1;
+    obj->field40 = *mk3_arg(thread, thread->fieldf8);
+    obj->field08->field24 = obj->field40;
+
+    ground_ochar(obj);
+    *(uint32_t *)((char *)obj->field00 + 0x40) = (uint32_t)(int32_t)
+        *(int16_t *)((char *)obj->field08 + 0x12);
+
+    player_normpal(obj);
+    obj->field40 = 0;
+    get_char_ani(obj);
+    do_next_a9_frame(obj);
+
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x3fc);
+    update_tsl(obj);
+
+    obj->field1c = obj->field08->field24 + 0x28;
+    tsound_func(obj, obj->field1c);
+
+    if ((long)thread->frame > 0) {
+        thread->frame -= 1;
+        return 0;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
