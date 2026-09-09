@@ -7,7 +7,7 @@ Read this, then [METHODOLOGY.md](METHODOLOGY.md). Everything else is reference.
 
 ## Where the project actually stands
 
-**68.06% of the total estimated effort. Nothing is playable.** The arithmetic is
+**68.07% of the total estimated effort. Nothing is playable.** The arithmetic is
 in the [README](../README.md#overall-progress) and the weights are a judgement
 call; the completion figures are measured by `tools/progress.py` on every run.
 
@@ -416,6 +416,30 @@ value. Two `str.w r8` instructions in different states then write different
 numbers. **Transcribing the store without tracing back to which load reaches it
 silently gives two states the same token.** Two sites makes it the compiler's
 idiom, so expect it again.
+
+### obj 0x40 is overloaded, and t_axeup3 settles how
+
+The mkslam note below recorded that `obj->field40` is "read THROUGH" in two
+routines without saying what that meant. `t_axeup3` in mkstat.c answers it: one
+state dereferences 0x40 and loops while the word it points at is non-zero, and
+another advances it by 4. **So in those routines it is a cursor walking an array of
+words, terminated by a zero.**
+
+That covers every dereferencing site found so far -- `t_robo2_slam` and
+`t_jax_slam` dereference without advancing, `t_jk6` advances by 4,
+`t_do_unblock_hi` steps back by 4 twice, `t_axeup3` does both.
+
+**It does NOT cover the many routines that hand 0x40 to `get_char_ani`,
+`get_char_ani2` or `find_ani2_part2` as a small index** -- `tl_do_reflect` sets it
+to 3 for exactly that, in the same file. The field is genuinely overloaded and the
+surrounding calls are the only thing that says which meaning applies. Do not
+normalise one into the other.
+
+**A third meaning is a packed pair of halfwords**, handed to `t_animate_a9` or
+`t_animate2_a9`. Six sites: 0x0005000d, 0x00040021, 0x00040047, 0x00030021,
+0x00030002, 0x00030001. Every one has a small high half and a small low half, and
+two share a low half with different high halves, so the halves vary independently
+-- which is enough to say it is two fields and not enough to name either.
 
 ### And two things transcribed rather than explained
 

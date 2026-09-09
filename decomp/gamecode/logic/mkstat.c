@@ -2376,3 +2376,95 @@ long t_axeup3(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_mframew);
 }
+
+
+/* ------------------------------------------------------------------ tl_do_reflect
+ *
+ * armv7 0x0004dbbc, 292 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field20 = 0x402
+ *                       init_special_act(obj)
+ *                       obj->field1c = 7; ochar_sound(obj)
+ *                       obj->field40 = 3; get_char_ani2(obj)
+ *                       obj->field1c = 5
+ *                       token := 0x704, descend into t_mframew
+ *
+ *      token == 0x704:  obj->field1c = 5
+ *                       token := 0x706, descend into t_mframew
+ *
+ *      token == 0x706:  obj->field20 = obj->field00->field18 = 0x60e
+ *                       delete_slave(obj)
+ *                       obj->field40 = 3
+ *                       find_ani2_part2(obj); find_part2(obj)
+ *                       obj->field1c = 4
+ *                       token := 0x710, descend into t_mframew
+ *
+ *      token == 0x710:  frame[frame].handler = t_local_reaction_exit
+ *
+ *      otherwise:       return -3
+ *
+ * Three waits of 5, 5 and 4 through t_mframew with the work in the third state:
+ * the slave is deleted and the animation parts are re-found for the same 0x40 = 3
+ * the entry used, through both find_ani2_part2 and find_part2 in that order.
+ *
+ * **Here 0x40 is a small index, not a cursor** -- 3 handed to get_char_ani2 and
+ * then to find_ani2_part2 -- which is the other half of the overload t_axeup3 shows
+ * above. Same field, same file, two meanings, and only the surrounding calls say
+ * which.
+ *
+ * The four states share one install site, entered with the frame index already
+ * pushed on three of them and as it was on the fourth, which is the same
+ * one-piece-of-code-for-both trick the slam family uses.
+ */
+void find_ani2_part2(MK3OBJ *obj);
+void find_part2(MK3OBJ *obj);
+
+long tl_do_reflect(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t next;
+
+    if (token == 0) {
+        obj->field20 = 0x402;
+        init_special_act(obj);
+
+        obj->field1c = 7;
+        ochar_sound(obj);
+
+        obj->field40 = 3;
+        get_char_ani2(obj);
+
+        obj->field1c = 5;
+        next = 0x704;
+
+    } else if (token == 0x704) {
+        obj->field1c = 5;
+        next = 0x706;
+
+    } else if (token == 0x706) {
+        obj->field20 = 0x60e;
+        obj->field00->field18 = 0x60e;
+
+        delete_slave(obj);
+
+        obj->field40 = 3;
+        find_ani2_part2(obj);
+        find_part2(obj);
+
+        obj->field1c = 4;
+        next = 0x710;
+
+    } else if (token == 0x710) {
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;              /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
