@@ -1631,17 +1631,26 @@ void am_i_shang(MK3OBJ *obj)
  *
  *      get_my_height(obj)
  *      obj->field5c = (obj->field20 <= 103)
+ *      return that
  *
  * The height arrives in 0x20 and the comparison is `> 0x67` inverted, so 103
  * is the threshold and short is at-or-below it. The answer goes to 0x5c, the
- * same slot `am_i_joy` and `am_i_shang` use, and is not returned.
+ * same slot `am_i_joy` and `am_i_shang` use.
+ *
+ * **It is also returned.** The `ite gt` writes the flag into r0 and the store
+ * to 0x5c reads r0 back, so the value is still in r0 at the `pop` -- this file
+ * previously said it was not returned, which was read from the store alone.
+ * `t_dizzy_dude` in mkcanned.c branches on the returned value with `cbz r0`
+ * and never looks at 0x5c, so both halves are live and a caller may use
+ * either. `tall_or_short_ani`, the other caller, uses 0x5c.
  */
 void get_my_height(MK3OBJ *obj);
 
-void am_i_short(MK3OBJ *obj)
+long am_i_short(MK3OBJ *obj)
 {
     get_my_height(obj);
     obj->field5c = ((int32_t)obj->field20 > 0x67) ? 0u : 1u;
+    return (long)obj->field5c;
 }
 
 
