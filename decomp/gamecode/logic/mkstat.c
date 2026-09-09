@@ -2832,3 +2832,166 @@ long tl_do_lao_spin(MK3THREAD *thread)
     thread->fieldfc = 1;
     return 1;
 }
+
+
+/* -------------------------------------------------------------------- t_air_strike
+ *
+ * armv7 0x0004cef8, 360 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field08->field20 = obj->field28
+ *                       obj->field00->field28 = obj->field20
+ *                       *(uint32_t *)((char *)obj->field00 + 0x2c) = obj->field2c
+ *                       obj->field48 = obj->field1c
+ *                       obj->field1c = obj->field24
+ *                       init_anirate(obj); get_char_ani(obj)
+ *                       token := 0x90f, park 1
+ *
+ *      token == 0x90f:  next_anirate(obj)
+ *                       obj->field1c = *(uint32_t *)obj->field40
+ *                       if (that != 0) {
+ *                           -- the height test --
+ *                           obj->field1c = obj->field08->field1c
+ *                           if (that < 0) token := 0x90f, park 1
+ *                           obj->field24 = (int16)part[0x12]
+ *                           obj->field1c = obj->field00->field40
+ *                           if (that > obj->field24) token := 0x90f, park 1
+ *                           stop_me_player(obj); ground_player(obj)
+ *                           -- into the 0x943 body --
+ *                       }
+ *                       obj->field1c = obj->field48
+ *                       strike_check_a0(obj)
+ *                       if (obj->field5c != 0) {
+ *                           obj->field5c = 1
+ *                           pop a level, or t_local_reaction_exit
+ *                       }
+ *                       obj->field1c = --obj->field00->field28
+ *                       if (that > 0) -- back to the height test --
+ *                       obj->field40 += 4
+ *                       obj->field00->field18 = 0x50a
+ *                       obj->field1c = 0
+ *                       *(uint32_t *)((char *)obj->field00 + 0x34) = 0
+ *                       token := 0x943, descend into t_flight_loop
+ *
+ *      token == 0x943:  obj->field5c = 0
+ *                       pop a level, or t_local_reaction_exit
+ *
+ *      otherwise:       return -3
+ *
+ * **The word at the 0x40 cursor decides what this frame does: non-zero means test
+ * the height, zero means test for a strike.** That is a fourth site for 0x40 as a
+ * cursor and the clearest one -- it is dereferenced at the top of every frame and
+ * advanced by 4 only when the routine is finished with the current entry.
+ *
+ * **Three ways out, and all three answer in 0x5c.** Landing (the height test
+ * passing) reaches the 0x943 body, which clears 0x5c and pops. Connecting sets 0x5c
+ * to 1 and pops immediately. Running the proc's 0x28 down to zero advances the
+ * cursor, sets an action, and descends into t_flight_loop with 0x5c untouched. So a
+ * caller reading 0x5c afterwards gets hit, no-hit, or whatever the flight left --
+ * and t_jk6, which is the caller, tests exactly that.
+ *
+ * The height test is two comparisons: the part's 0x1c must not be negative, and the
+ * proc's 0x40 must not be above the part's signed 0x12. Both failing keep the loop
+ * going, so the fighter stays airborne until it is both falling and low enough.
+ *
+ * State 0 shuffles five fields before doing anything -- 0x28 into the part's 0x20,
+ * 0x20 into the proc's 0x28, 0x2c into the proc's 0x2c, 0x1c into 0x48 and 0x24
+ * into 0x1c -- so the caller passes its arguments in one set of fields and this
+ * routine redistributes them to where the loop and the strike check expect them.
+ * That is why t_jk6 sets 0x28 and 0x2c and nothing else.
+ */
+long t_flight_loop(MK3THREAD *thread);           /* pointer slot 0x000f317c */
+
+long t_air_strike(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    MK3OBJ  *part;
+
+    if (token == 0) {
+        obj->field08->field20 = obj->field28;
+        obj->field00->field28 = obj->field20;
+        *(uint32_t *)((char *)obj->field00 + 0x2c) = obj->field2c;
+
+        obj->field48 = obj->field1c;
+        obj->field1c = obj->field24;
+
+        init_anirate(obj);
+        get_char_ani(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x90f;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0x90f) {
+        next_anirate(obj);
+
+        obj->field1c = *(uint32_t *)(void *)(uintptr_t)obj->field40;
+
+        for (;;) {
+            if (obj->field1c != 0) {
+                /* the height test */
+                part = obj->field08;
+                obj->field1c = part->field1c;
+                if ((long)obj->field1c < 0) {
+                    *mk3_frame(thread, thread->frame + 1) = 0x90f;
+                    thread->fieldfc = 1;
+                    return 1;
+                }
+
+                obj->field24 = (uint32_t)(int32_t)MK3_FIELD12(part);
+                obj->field1c = obj->field00->field40;
+                if ((long)obj->field1c > (long)obj->field24) {
+                    *mk3_frame(thread, thread->frame + 1) = 0x90f;
+                    thread->fieldfc = 1;
+                    return 1;
+                }
+
+                stop_me_player(obj);
+                ground_player(obj);
+                break;                      /* into the 0x943 body */
+            }
+
+            obj->field1c = obj->field48;
+            strike_check_a0(obj);
+
+            if (obj->field5c != 0) {
+                obj->field5c = 1;
+                if ((long)thread->frame > 0) {
+                    thread->frame = thread->frame - 1;
+                    return 0;
+                }
+                return mk3_install(thread,
+                                   (MK3THREADFUNC)t_local_reaction_exit);
+            }
+
+            obj->field00->field28 = obj->field00->field28 - 1;
+            obj->field1c = obj->field00->field28;
+            if ((long)obj->field1c > 0)
+                continue;                   /* back to the height test */
+
+            obj->field40 = obj->field40 + 4;
+            obj->field00->field18 = 0x50a;
+            obj->field1c = 0;
+            *(uint32_t *)((char *)obj->field00 + 0x34) = 0;
+
+            *mk3_frame(thread, thread->frame + 1) = 0x943;
+            thread->frame = thread->frame + 1;      /* push a level */
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)t_flight_loop;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+    } else if (token != 0x943) {
+        return -3;
+    }
+
+    obj->field5c = 0;
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
