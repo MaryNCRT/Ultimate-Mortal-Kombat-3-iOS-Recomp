@@ -3880,3 +3880,156 @@ long tl_stat_do_fan_lift(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+
+/* ---------------------------------------------------------------- tl_stat_do_quake
+ *
+ * armv7 0x0004f1a8, 476 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field20 = 0x113
+ *                       init_special_act(obj)
+ *                       obj->field40 = 0; get_char_ani2(obj)
+ *                       obj->field1c = 4
+ *                       token := 0x41f, descend into t_mframew
+ *
+ *      token == 0x41f:  token := 0x420, park 6
+ *
+ *      token == 0x420:  tsound_func(obj, 2)
+ *                       obj->field1c = 0; group_sound(obj)
+ *                       obj->field1c = 3
+ *                       token := 0x427, descend into t_mframew
+ *
+ *      token == 0x427:  push obj->a10
+ *                       push obj->field48
+ *                       is_he_airborn(obj)
+ *                       if (obj->field5c == 0) {
+ *                           q_is_he_a_boss(obj)
+ *                           if (obj->field5c == 0) {
+ *                               obj->field1c = 0x15
+ *                               damage_to_him(obj)
+ *                               obj->field38 = t_r_quake
+ *                               takeover_him(obj)
+ *                           }
+ *                       }
+ *                       obj->field48 = 0x0009000e; shake_a11(obj)
+ *                       obj->field1c = 4; ochar_sound(obj)
+ *                       obj->field48 = pop
+ *                       obj->a10     = pop
+ *                       obj->field20 = obj->field00->field18 = 0x604
+ *                       obj->field1c = 3
+ *                       token := 0x443, descend into t_mframew
+ *
+ *      token == 0x443:  delete_slave(obj)
+ *                       frame[frame].handler = t_do_backup
+ *
+ *      otherwise:       return -3
+ *
+ * **Two kinds of opponent are exempt from the quake, and the order matters.**
+ * is_he_airborn is asked first and a set answer skips everything; only a grounded
+ * opponent is then checked against q_is_he_a_boss, and only a grounded non-boss takes
+ * damage and is handed t_r_quake through takeover_him. So the shake and the sound
+ * happen either way -- the quake always looks the same -- and what varies is whether
+ * anyone is hurt by it.
+ *
+ * That is the second routine to exempt a boss, after tl_do_ermac_slam, and both put
+ * the rule in the move rather than in the strike check.
+ *
+ * **0x44 and 0x48 are both saved across the whole state** and restored two lines
+ * before the end, because 0x48 is borrowed in between as the shake magnitude. Two
+ * pushes, two pops, LIFO -- so 0x48 comes back first and 0x44 second, which is the
+ * reverse of the order they went on.
+ *
+ * The magnitude is 0x0009000e -- nine and fourteen, asymmetric like
+ * tl_do_ermac_slam's 0x00030008 and unlike the doubled ones. Nine sites now write
+ * that field before a shake and two of them are asymmetric, which is the settled
+ * reading: two independent halfwords.
+ */
+void takeover_him(MK3OBJ *obj);
+void damage_to_him(MK3OBJ *obj);
+long t_r_quake(MK3THREAD *thread);               /* pointer slot 0x000f377c */
+long t_do_backup(MK3THREAD *thread);             /* pointer slot 0x000f37e0 */
+
+long tl_stat_do_quake(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t cur, next;
+
+    if (token == 0) {
+        obj->field20 = 0x113;
+        init_special_act(obj);
+
+        obj->field40 = 0;
+        get_char_ani2(obj);
+
+        obj->field1c = 4;
+        next = 0x41f;
+
+    } else if (token == 0x41f) {
+        *mk3_frame(thread, thread->frame + 1) = 0x420;
+        thread->fieldfc = 6;
+        return 6;
+
+    } else if (token == 0x420) {
+        tsound_func(obj, 2);
+
+        obj->field1c = 0;
+        group_sound(obj);
+
+        obj->field1c = 3;
+        next = 0x427;
+
+    } else if (token == 0x427) {
+        cur = thread->fieldf8;
+        *mk3_arg(thread, cur) = obj->a10;
+        thread->fieldf8 = cur + 1;
+
+        cur = thread->fieldf8;
+        *mk3_arg(thread, cur) = obj->field48;
+        thread->fieldf8 = cur + 1;
+
+        is_he_airborn(obj);
+        if (obj->field5c == 0) {
+            q_is_he_a_boss(obj);
+            if (obj->field5c == 0) {
+                obj->field1c = 0x15;
+                damage_to_him(obj);
+
+                obj->field38 = (uint32_t)(uintptr_t)t_r_quake;
+                takeover_him(obj);
+            }
+        }
+
+        obj->field48 = 0x0009000e;
+        shake_a11(obj);
+
+        obj->field1c = 4;
+        ochar_sound(obj);
+
+        cur = thread->fieldf8 - 1;
+        thread->fieldf8 = cur;
+        obj->field48 = *mk3_arg(thread, cur);
+
+        cur = thread->fieldf8 - 1;
+        thread->fieldf8 = cur;
+        obj->a10 = *mk3_arg(thread, cur);
+
+        obj->field20 = 0x604;
+        obj->field00->field18 = 0x604;
+        obj->field1c = 3;
+        next = 0x443;
+
+    } else if (token == 0x443) {
+        delete_slave(obj);
+        return mk3_install(thread, (MK3THREADFUNC)t_do_backup);
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;              /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
