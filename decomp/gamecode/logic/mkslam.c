@@ -3339,3 +3339,240 @@ long t_sw_slam(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+
+/* ----------------------------------------------------------------- t_sz_slam
+ *
+ * armv7 0x0004bec0, 368 bytes.  **Complete.**
+ *
+ *      token == 0:      body_slam_init(obj)
+ *                       obj->field1c = 3
+ *                       token := 0x2e4, descend into t_grab_animation
+ *
+ *      token == 0x2e4:  token := 0x2e5, park 3
+ *
+ *      token == 0x2e5:  double_next_a9(obj)
+ *                       token := 0x2e7, park 8
+ *
+ *      token == 0x2e7:  me_in_back(obj); throw_voice(obj)
+ *                       obj->field1c = 4
+ *                       token := 0x2ec, descend into t_double_mframew
+ *
+ *      token == 0x2ec:  obj->field38 = t_thrown_by_sz
+ *                       xfer_to_thrown(obj)
+ *                       token := 0x2ef, park 0xc
+ *
+ *      token == 0x2ef:  do_next_a9_frame(obj)
+ *                       token := 0x2f2, park 5
+ *
+ *      token == 0x2f2:  pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:       return -3
+ *
+ * **Seven states, the longest ground slam in the file**, and the two extra ones
+ * are an animation nudge before the throw (double_next_a9, eight frames) and
+ * another after it (do_next_a9_frame, five). me_in_back at the throw is the only
+ * call to it in this file -- the slammer goes behind the victim before letting
+ * go, which is what a Sub-Zero slam looks like.
+ *
+ * **r8 holds two different tokens in one routine and the dispatch decides
+ * which.** It is loaded with 0x2e7 at entry and reloaded with 0x2ef only on the
+ * branch taken when the token is above 0x2e7. The 0x2e5 state is reached on the
+ * low side and writes 0x2e7; the 0x2ec state is reached on the high side and
+ * writes 0x2ef. Two `str.w r8` instructions, two different values, decided
+ * several branches earlier -- worth reading twice before transcribing.
+ */
+void me_in_back(MK3OBJ *obj);
+
+long t_sz_slam(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        body_slam_init(obj);
+        obj->field1c = 3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x2e4;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_grab_animation;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x2e4) {
+        *mk3_frame(thread, thread->frame + 1) = 0x2e5;
+        thread->fieldfc = 3;
+        return 3;
+    }
+
+    if (token == 0x2e5) {
+        double_next_a9(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x2e7;
+        thread->fieldfc = 8;
+        return 8;
+    }
+
+    if (token == 0x2e7) {
+        me_in_back(obj);
+        throw_voice(obj);
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x2ec;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_double_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x2ec) {
+        obj->field38 = (uint32_t)(uintptr_t)t_thrown_by_sz;
+        xfer_to_thrown(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x2ef;
+        thread->fieldfc = 0xc;
+        return 0xc;
+    }
+
+    if (token == 0x2ef) {
+        do_next_a9_frame(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x2f2;
+        thread->fieldfc = 5;
+        return 5;
+    }
+
+    if (token != 0x2f2)
+        return -3;
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* ----------------------------------------------------------------- t_sg_slam
+ *
+ * armv7 0x0004c030, 396 bytes.  **Complete.**
+ *
+ *      token == 0:      body_slam_init(obj)
+ *                       obj->field1c = 3
+ *                       token := 0x2ab, descend into t_grab_animation
+ *
+ *      token == 0x2ab:  token := 0x2ac, park 3
+ *
+ *      token == 0x2ac:  throw_voice(obj); me_in_back(obj)
+ *                       double_next_a9(obj)
+ *                       token := 0x2b2, park 4
+ *
+ *      token == 0x2b2:  double_next_a9(obj)
+ *                       token := 0x2b4, park 4
+ *
+ *      token == 0x2b4:  double_next_a9(obj)
+ *                       token := 0x2b6, park 0xa
+ *
+ *      token == 0x2b6:  obj->field1c = 3
+ *                       token := 0x2b9, descend into t_double_mframew
+ *
+ *      token == 0x2b9:  obj->field38 = t_thrown_by_sg
+ *                       xfer_to_thrown(obj)
+ *                       do_next_a9_frame(obj)
+ *                       token := 0x2bd, park 0xa
+ *
+ *      token == 0x2bd:  obj->field1c = 6
+ *                       frame[frame].handler = t_mframew
+ *
+ *      otherwise:       return -3
+ *
+ * **Eight states, the longest slam in the file, and three of them do nothing but
+ * double_next_a9 with a park.** 0x2ac, 0x2b2 and 0x2b4 step the animation on with
+ * waits of 4, 4 and 0xa between them, so the wind-up is animated by hand three
+ * times before the throw rather than handed to t_mframew.
+ *
+ * **r8 carries two tokens again, and this routine reassigns it mid-dispatch.**
+ * It holds 0x2b2 at entry and becomes 0x2b6 only on the branch taken when the
+ * token is above 0x2b2. The 0x2ac state is reached below that point and writes
+ * 0x2b2; the 0x2b4 state is reached above it and writes 0x2b6. t_sz_slam does the
+ * same thing with one reassignment; this one is the second site, so the idiom is
+ * the compiler's and not an accident.
+ *
+ * The routine ends by installing t_mframew rather than popping, so the wait after
+ * the throw belongs to whatever level is underneath. Every other ground slam pops
+ * itself; this one and t_robo1_slam do not.
+ */
+long t_thrown_by_sg(MK3THREAD *thread);
+
+long t_sg_slam(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        body_slam_init(obj);
+        obj->field1c = 3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x2ab;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_grab_animation;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x2ab) {
+        *mk3_frame(thread, thread->frame + 1) = 0x2ac;
+        thread->fieldfc = 3;
+        return 3;
+    }
+
+    if (token == 0x2ac) {
+        throw_voice(obj);
+        me_in_back(obj);
+        double_next_a9(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x2b2;
+        thread->fieldfc = 4;
+        return 4;
+    }
+
+    if (token == 0x2b2) {
+        double_next_a9(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x2b4;
+        thread->fieldfc = 4;
+        return 4;
+    }
+
+    if (token == 0x2b4) {
+        double_next_a9(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x2b6;
+        thread->fieldfc = 0xa;
+        return 0xa;
+    }
+
+    if (token == 0x2b6) {
+        obj->field1c = 3;
+        *mk3_frame(thread, thread->frame + 1) = 0x2b9;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_double_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x2b9) {
+        obj->field38 = (uint32_t)(uintptr_t)t_thrown_by_sg;
+        xfer_to_thrown(obj);
+        do_next_a9_frame(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x2bd;
+        thread->fieldfc = 0xa;
+        return 0xa;
+    }
+
+    if (token != 0x2bd)
+        return -3;
+
+    obj->field1c = 6;
+    return mk3_install(thread, (MK3THREADFUNC)t_mframew);
+}
