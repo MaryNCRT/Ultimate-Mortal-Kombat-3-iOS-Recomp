@@ -3277,3 +3277,132 @@ long tl_do_swat_gun(MK3THREAD *thread)
     obj->field1c = 2;
     return mk3_install(thread, (MK3THREADFUNC)t_mframew);
 }
+
+
+/* ----------------------------------------------------------------- t_do_flip_punch
+ *
+ * armv7 0x0004d3ec, 352 bytes.  **Complete.**
+ *
+ *      token == 0:      face_opponent(obj)
+ *                       rsnd_func(obj, 0xe)
+ *                       obj->field1c = 0; group_sound(obj)
+ *                       *(uint32_t *)((char *)obj->field00 + 0x58) = 0xc
+ *                       obj->field00->field18 = 0x201
+ *                       obj->field20 = 0x10
+ *                       obj->field24 = 0x10 - 0xd = 3
+ *                       obj->field1c = 0xc
+ *                       obj->field40 = 3 + 0x15 = 0x18
+ *                       obj->field28 = 0x8000
+ *                       obj->field2c = 4
+ *                       token := 0x865, descend into t_air_strike
+ *
+ *      token == 0x865:  if (obj->field5c != 0) {
+ *                           update_l_block_fk(obj)
+ *                           obj->field1c = 8
+ *                           token := 0x86f, descend into t_combo_air_pause
+ *                       }
+ *                       -- otherwise into the 0x879 body --
+ *
+ *      token == 0x86f:  obj->field00->field18 = 0x60c
+ *                       *(uint32_t *)((char *)obj->field00 + 0x34) = 0
+ *                       obj->field1c = 3
+ *                       obj->field28 = 0xc000
+ *                       obj->field20 = 0
+ *                       obj->field08->field20 = 0xc000
+ *                       token := 0x879, descend into t_flight_loop
+ *
+ *      token == 0x879:  obj->field1c = obj->field00->field18 = 0x60c
+ *                       frame[frame].handler = t_angle_jump_land_jsrp
+ *
+ *      otherwise:       return -3
+ *
+ * **t_jk6's four states with two things changed**, and comparing the pair is what
+ * makes both readable. Same shape: set up, strike in the air, and on a hit go
+ * through t_combo_air_pause and then t_flight_loop before landing; on a miss go
+ * straight to the landing. The differences are that this one calls
+ * `update_l_block_fk` on the hit -- pushing a block update across to the other
+ * fighter through the A0 mechanism -- and that it lands through
+ * t_angle_jump_land_jsrp where t_jk6 uses t_jump_up_land_jsrp.
+ *
+ * So a flip punch and a jumping attack differ in their landing and in one extra
+ * call, not in their structure.
+ *
+ * **0x28 is written twice with the same two magnitudes t_jk6 uses**, 0x8000 before
+ * the strike and 0xc000 after -- against t_jk6's 0x8000 and 0xe000. The pair is the
+ * same idea with a different second value, which is the clearest sign yet that
+ * 0x8000 is the entry value and the second is per-move.
+ *
+ * This routine's whole setup differs from t_do_jumpup_punch's only in 0x28 and 0x2c
+ * -- and those two are exactly the fields t_air_strike redistributes -- so all three
+ * jumping attacks pass their arguments the same way.
+ */
+void update_l_block_fk(MK3OBJ *obj);
+long t_angle_jump_land_jsrp(MK3THREAD *thread);  /* pointer slot 0x000f38a8 */
+
+long t_do_flip_punch(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        face_opponent(obj);
+        rsnd_func(obj, 0xe);
+
+        obj->field1c = 0;
+        group_sound(obj);
+
+        *(uint32_t *)((char *)obj->field00 + 0x58) = 0xc;
+        obj->field00->field18 = 0x201;
+
+        obj->field20 = 0x10;
+        obj->field24 = 0x10 - 0xd;
+        obj->field1c = 0xc;
+        obj->field40 = (0x10 - 0xd) + 0x15;
+        obj->field28 = 0x8000;
+        obj->field2c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x865;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_air_strike;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x865 && obj->field5c != 0) {
+        update_l_block_fk(obj);
+        obj->field1c = 8;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x86f;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_combo_air_pause;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x86f) {
+        obj->field00->field18 = 0x60c;
+        *(uint32_t *)((char *)obj->field00 + 0x34) = 0;
+
+        obj->field1c = 3;
+        obj->field28 = 0xc000;
+        obj->field20 = 0;
+        obj->field08->field20 = 0xc000;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x879;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_flight_loop;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x865 && token != 0x879)
+        return -3;
+
+    obj->field1c = 0x60c;
+    obj->field00->field18 = 0x60c;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_angle_jump_land_jsrp);
+}
