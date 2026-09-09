@@ -326,6 +326,58 @@ reasoning about the tool.
 
 ---
 
+## The one function left in moves.c: DoASpecial
+
+`moves.c` stands at 356 of 357. The remainder is `DoASpecial`, armv7
+`0x000517f0`, **3328 bytes** -- the entry point every special move goes
+through. It is not hard, it is *long*: 106 distinct addresses reached through
+178 pc-relative loads, and 84 comparisons. Do not start it without the room to
+finish it, and do not guess a single one of those 106.
+
+**Its shape is already established, and this is the part worth knowing.**
+
+**It builds a throwaway object on the stack.** `sub sp, #0x6c` reserves 108
+bytes, `[sp] = obj->field00` and `[sp+8] = obj->field08` fill in the first
+fields, and every question is then asked with `mov r0, sp` -- against the COPY.
+The answers come back at `[sp+0x5c]`, which is that copy's `field5c`. So the
+q_ family can be run without disturbing the real object's scratch fields, which
+is why nothing in the dispatcher has to save and restore 0x1c.
+
+**The entry dispatch is a seven-way `tbh` on `which - 0xd`:**
+
+    which  stub      asks                then
+    0xd    0x51d9a   --                  joins 0x518ee
+    0xe    0x51d60   q_mercy_req_ez      yes -> 0x520fc
+    0xf    0x51d7c   -- (sets proc+0x80 = 1)
+    0x10   0x51d0a   -- (sets proc+0x80 = 1, handler from slot 0xf319c)
+    0x11   0x51d44   q_mercy             yes -> 0x5209e
+    0x12   0x51d28   q_friend_ez         yes -> 0x520dc
+    0x13   0x51cee   q_friend_ez         yes -> 0x52080
+
+Anything outside `[0xd, 0x13]` goes to `0x5184a`. Three characters are special
+cased before the table is even reached, on the part's `0x24`: 0x16 to `0x5189a`,
+0x14 to `0x518b8`, 0x15 to `0x52052`. And the whole table is only reached when
+`RoundParam[14]` is non-zero -- zero goes to `0x5188a`.
+
+Each stub leaves two registers set for the common path: `sb` is the transfer
+routine (`free_xfer` at 0x5436d, or `fatality_xfer` at 0x54b25) and `lr` is the
+part's character number.
+
+**The common path at `0x518ee` is a chain of per-character overrides.** It
+compares `lr` against a character and `r1` against a handler, and substitutes a
+different handler when both match -- `if (character == 6 && handler ==
+t_do_ ... ) handler = t_do_lia_anglez`, and so on for the rest of the 84
+comparisons. That is where the 3328 bytes go, and it is why the function is
+mechanical to read but unforgiving: every pair is a separate fact.
+
+**How to do it.** Resolve all 106 addresses first, in one pass, with the same
+pool-and-slot script used all through this session -- the two forms are a
+literal pool word (`ldr rN, [pc, #imm]` then `add rN, pc`) and a pointer slot
+(the same, then `ldr rN, [rN]`). Write the resolved list down before
+transcribing anything. Then take the overrides in address order and check each
+against the disassembly twice, because a wrong pair here silently gives one
+character another character's move.
+
 ## Open questions worth someone's time
 
 - **`.lighting` is a prelight bake and is not decoded.** 13 files, sizes scaling
