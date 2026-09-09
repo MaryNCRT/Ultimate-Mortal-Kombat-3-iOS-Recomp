@@ -34,6 +34,9 @@
  * conflict here, which is what the check is for. */
 void q_animal_dist(MK3OBJ *obj);
 void q_fatal_dist(MK3OBJ *obj);
+long t_local_reaction_exit(MK3THREAD *thread);
+uint32_t get_strength(uint32_t index);
+void fastxfer_thread(MK3OBJ *obj, MK3THREAD *thread);
 extern uint32_t scom_lia_anglez[];       /* 0x0016a41c */
 void get_his_dfe(MK3OBJ *obj);
 long is_he_airborn(MK3OBJ *obj);
@@ -74,7 +77,7 @@ long is_stick_away(MK3OBJ *obj);
 long is_stick_down(MK3OBJ *obj);
 void q_mercy(MK3OBJ *obj);
 void q_fatality_req(MK3OBJ *obj);
-long free_xfer(MK3OBJ *obj, MK3OBJ *other);
+void free_xfer(MK3OBJ *obj, MK3OBJ *other);
 long get_x_dist(MK3OBJ *obj);
 long stick_look_lr(MK3OBJ *obj, uint32_t a, uint32_t b,
                    uint32_t *pair);
@@ -6077,4 +6080,90 @@ void q_bike_req(MK3OBJ *obj)
         q_yes(obj);
     else
         q_no(obj);
+}
+
+
+/* q_jade_prop -- armv7 0x00052f2c, 108 bytes.  **Complete.**
+ *
+ *      get_his_action(obj)
+ *      if (his action is 0x509, 0x60c or 0x600) q_no(obj)
+ *      else if (get_his_p_hit leaves obj->field1c > 1) q_no(obj)
+ *      else {
+ *          obj->field1c = &G + 0x424 ; get_tsl_px(obj, obj)
+ *          if (obj->field20 <= 0x1f) q_no(obj); else q_yes(obj)
+ *      }
+ *
+ * The first two forbidden actions are folded into flags with no branch between
+ * them -- a compare, a conditional 1, then an OR of the second compare into it
+ * -- and the third is an ordinary compare after. The compiler split one list
+ * three ways. */
+void q_jade_prop(MK3OBJ *obj)
+{
+    get_his_action(obj);
+    if (obj->field20 == 0x509 || obj->field20 == 0x60c
+        || obj->field20 == 0x600) {
+        q_no(obj);
+        return;
+    }
+
+    get_his_p_hit(obj);
+    if ((long)obj->field1c > 1) {
+        q_no(obj);
+        return;
+    }
+
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x420 + 4);
+    get_tsl_px(obj, obj);
+    if ((long)obj->field20 <= 0x1f)
+        q_no(obj);
+    else
+        q_yes(obj);
+}
+
+/* free_xfer -- armv7 0x0005436c, 112 bytes.  **Complete.**
+ *
+ *      *(uint16_t *)((char *)other->field00 + 0x80) = 0
+ *      if (get_strength(other->field00->field08) == 0) return
+ *      t = other->thread
+ *      fastxfer_thread(obj, t)
+ *      saved = frame[t->frame].handler
+ *      frame[t->frame + 2].w0 = frame[t->frame + 1].w0
+ *      frame[t->frame + 1].handler = saved
+ *      frame[t->frame].handler = t_local_reaction_exit
+ *      frame[t->frame + 1].w0 = 0
+ *      t->frame += 1
+ *
+ * **This is the mirror of the collapse in t_hover_sleep_1: it OPENS a level
+ * rather than closing one.** The handler at the current level is lifted one
+ * step up, its token goes with it, an exit is installed in the space that
+ * leaves, and the index is bumped. So whatever the thread was running keeps
+ * running -- one level higher -- and when it eventually returns down it lands
+ * on t_local_reaction_exit instead of on whatever used to be there.
+ *
+ * That is how the transfer gets a guaranteed exit underneath it without the
+ * caller having to know what was already on the stack.
+ *
+ * The two paths leave different things in r0 -- the strength on the early
+ * exit, the lifted handler on the other -- so no value is computed, and both
+ * callers discard it. */
+void free_xfer(MK3OBJ *obj, MK3OBJ *other)
+{
+    MK3THREAD *t;
+    uint32_t saved;
+
+    *(uint16_t *)((char *)other->field00 + 0x80) = 0;
+
+    if (get_strength(other->field00->field08) == 0)
+        return;
+
+    t = other->thread;
+    fastxfer_thread(obj, t);
+
+    saved = mk3_frame(t, t->frame)[1];
+    *mk3_frame(t, t->frame + 2) = *mk3_frame(t, t->frame + 1);
+    mk3_frame(t, t->frame + 1)[1] = saved;
+
+    mk3_frame(t, t->frame)[1] = (uint32_t)(uintptr_t)t_local_reaction_exit;
+    *mk3_frame(t, t->frame + 1) = 0;
+    t->frame = t->frame + 1;
 }
