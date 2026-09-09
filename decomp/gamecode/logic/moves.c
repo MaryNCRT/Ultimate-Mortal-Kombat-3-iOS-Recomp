@@ -34,6 +34,8 @@
  * conflict here, which is what the check is for. */
 void q_animal_dist(MK3OBJ *obj);
 void q_fatal_dist(MK3OBJ *obj);
+long t_shang_morph(MK3THREAD *thread);
+extern uint32_t scom_lao_teleport[];     /* 0x0016a588 */
 void q_am_i_cornered(MK3OBJ *obj);
 /* Eight function pointers, called as (obj, other). The extent is
  * what check_tsl allows -- an index above 7 is reset to 0 -- not a
@@ -5075,4 +5077,98 @@ void q_st_spike_fatal(MK3OBJ *obj)
         q_close_fatal(obj);
     else
         q_no(obj);
+}
+
+
+/* lao_up -- armv7 0x00054924, 64 bytes.  **Complete.**
+ *
+ *      if (stick_look_lr2(obj, other, scom_lao_teleport,
+ *                         0x00030070, 0x00307000)) {
+ *          obj->field38 = t_do_lao_tele
+ *          restricted_xfer(obj, other)
+ *      }
+ *
+ * **The pair obeys the same rule the button masks do**: (0x0003, 0x0070) and
+ * (0x0030, 0x7000), the high half shifted left four and the low half left
+ * eight. The robo pair does too -- 0x10 with 0x1000, and 0x10000 with
+ * 0x100000 -- so whatever stick_look_lr does with its two words, it is being
+ * handed the same per-player arrangement as button_bit_check. */
+void lao_up(MK3OBJ *obj, MK3OBJ *other)
+{
+    if (stick_look_lr2(obj, (uint32_t)(uintptr_t)other,
+                       (uint32_t)(uintptr_t)scom_lao_teleport,
+                       0x00030070u, 0x00307000u)) {
+        obj->field38 = (uint32_t)(uintptr_t)t_do_lao_tele;
+        restricted_xfer(obj, other);
+    }
+}
+
+/* q_scorp_tele -- armv7 0x00052a04, 64 bytes.  **Complete.**
+ *
+ *      get_his_p_hit(obj)
+ *      if (obj->field1c > 4) q_no(obj)
+ *      else {
+ *          obj->field1c = &G + 0x418 ; get_tsl_px(obj, obj)
+ *          if (obj->field20 > 0x4f) q_yes(obj); else q_no(obj);
+ *      }
+ *
+ * A hit count in front of a table entry: two questions, and 0x1c carries the
+ * count for the first and the table address for the second. This is what
+ * q_scorp_tele_four and q_scorp_tele_six gate with the four-button test. */
+void q_scorp_tele(MK3OBJ *obj)
+{
+    get_his_p_hit(obj);
+    if ((long)obj->field1c > 4) {
+        q_no(obj);
+        return;
+    }
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x418);
+    get_tsl_px(obj, obj);
+    if ((long)obj->field20 > 0x4f)
+        q_yes(obj);
+    else
+        q_no(obj);
+}
+
+/* q_ermac_slam -- armv7 0x00052b24, 64 bytes.  **Complete.**
+ *
+ * The same shape with a count of 3, &G + 0x434 and a threshold of 0x7f. */
+void q_ermac_slam(MK3OBJ *obj)
+{
+    get_his_p_hit(obj);
+    if ((long)obj->field1c > 3) {
+        q_no(obj);
+        return;
+    }
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x430 + 4);
+    get_tsl_px(obj, obj);
+    if ((long)obj->field20 > 0x7f)
+        q_yes(obj);
+    else
+        q_no(obj);
+}
+
+/* t_do_st_2_kano -- armv7 0x00052554, 64 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field40 = ((MK3OBJ *)obj->field00->him)->field24
+ *      frame[frame].handler = t_shang_morph
+ *      frame[frame+1].w0 = 0
+ *
+ * A thread routine among the questions -- the only one in this stretch of the
+ * file. It copies the OPPONENT's character number into its own 0x40 and then
+ * hands over to t_shang_morph, which is what turns Shang Tsung into him.
+ *
+ * The guard is really there in the binary, a cbz on the slot with mvn r0, #2
+ * on the other side, so this is a state-0 routine and mk3_push_handler is the
+ * right helper. */
+long t_do_st_2_kano(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field40 = ((MK3OBJ *)(uintptr_t)obj->field00->him)->field24;
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_shang_morph);
 }
