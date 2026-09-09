@@ -20,6 +20,8 @@
  * read one function at a time.
  */
 
+#include <stdio.h>    /* fflush -- see t_stat_do_uppercut */
+
 #include "mk3logic.h"
 
 long t_retract_strike_act(struct MK3THREAD *thread);
@@ -3532,4 +3534,181 @@ long t_do_flip_kick(MK3THREAD *thread)
         return -3;
 
     return mk3_install(thread, (MK3THREADFUNC)t_angle_jump_land_jsrp);
+}
+
+
+/* --------------------------------------------------------------- t_stat_do_uppercut
+ *
+ * armv7 0x0004fab4, 512 bytes.  **Complete.**
+ *
+ *      token == 0:      init_special(obj)
+ *                       rsnd_func(obj, 0xf)
+ *                       fflush(*uppercut_stream)
+ *                       obj->field40 = 0xb; do_first_a9_frame(obj)
+ *                       token := 0x2c5, park 1
+ *
+ *      token == 0x2c5:  fflush(*uppercut_stream)
+ *                       do_next_a9_frame(obj)
+ *                       token := 0x2c8, park 1
+ *
+ *      token == 0x2c8:  fflush(*uppercut_stream)
+ *                       obj->field1c = 2
+ *                       obj->field20 = 2 + 0x10c = 0x10e
+ *                       obj->a10 = 1
+ *                       obj->field48 = 1 + 7 = 8
+ *                       *(uint32_t *)((char *)obj->field00 + 0x58) = 8
+ *                       token := 0x2d0, descend into t_upcut_striker
+ *
+ *      token == 0x2d0:  fflush(*uppercut_stream)
+ *                       obj->field00->field18 = 0x603
+ *                       obj->field1c = 0xa
+ *                       token := 0x2e5, park 0xa
+ *
+ *      token == 0x2e5:  obj->field1c = (int16)*(uint16_t *)(G + 0x45c)
+ *                       if (that != 0) -- into the finish --
+ *                       token := 0x2ea, park 1
+ *
+ *      token == 0x2ea:  get_his_action(obj)
+ *                       if (obj->field20 != 0x610 && obj->field20 != 0x203) {
+ *                           get_his_dog(obj)
+ *                           if (obj->field1c > 0x50) token := 0x2ea, park 1
+ *                       }
+ *                       obj->field1c = 4
+ *                       obj->field20 = 0x603
+ *                       token := 0x2fb, descend into t_act_mframew
+ *
+ *      token == 0x2fb:  back_to_normal(obj)
+ *                       pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:       return -3
+ *
+ * **The uppercut waits for the victim to come down, and there are three ways it
+ * stops waiting.** State 0x2ea polls once a frame: the opponent's action being
+ * 0x610 or 0x203 ends the wait, and so does `get_his_dog` answering 0x50 or less in
+ * 0x1c. Anything else re-arms for another frame. So the routine holds the fighter in
+ * its recovery pose until the other one has landed or come close enough.
+ *
+ * **State 0x2e5 can skip the wait entirely.** It reads the fatality-requirement
+ * halfword at G + 0x45c -- the same one t_dizzy_wake and t_dizzy_dude gate on -- and
+ * a non-zero value jumps straight to the finish without ever polling. So during a
+ * finisher the uppercut does not wait for anything.
+ *
+ * **Four calls to `fflush`, one at the top of each of the first four states.** The
+ * stub at 0x000dd794 resolves through `__la_symbol_ptr` 0x000f3b64 to `_fflush`, read
+ * from the indirect symbol table rather than guessed -- and the stub spacing and the
+ * alphabetical run of its neighbours (`_dlsym`, `_fflush`, `_floorf`, `_free`)
+ * confirm the mapping. The argument is loaded from a pointer slot at 0x000f3180 and
+ * dereferenced, and that slot is **zero in the file image**, so whatever stream it
+ * names is set up at runtime.
+ *
+ * Four flushes at state boundaries inside a gameplay routine is where a debug trace
+ * would sit, and this binary keeps plenty of that -- `__assert_rtn` calls, a whole
+ * `DS_DebugWin.c`. But nothing here writes anything, so what is being flushed is not
+ * visible from this routine. Recorded as found rather than named.
+ */
+extern void **uppercut_stream;                   /* pointer slot 0x000f3180 */
+void do_first_a9_frame(MK3OBJ *obj);
+void get_his_dog(MK3OBJ *obj);
+long t_upcut_striker(MK3THREAD *thread);         /* pointer slot 0x000f3764 */
+long t_act_mframew(MK3THREAD *thread);           /* pointer slot 0x000f37e8 */
+
+long t_stat_do_uppercut(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        init_special(obj);
+        rsnd_func(obj, 0xf);
+        fflush((FILE *)*uppercut_stream);
+
+        obj->field40 = 0xb;
+        do_first_a9_frame(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x2c5;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0x2c5) {
+        fflush((FILE *)*uppercut_stream);
+        do_next_a9_frame(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x2c8;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0x2c8) {
+        fflush((FILE *)*uppercut_stream);
+
+        obj->field1c = 2;
+        obj->field20 = 2 + 0x10c;
+        obj->a10     = 1;
+        obj->field48 = 1 + 7;
+        *(uint32_t *)((char *)obj->field00 + 0x58) = obj->field48;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x2d0;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_upcut_striker;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x2d0) {
+        fflush((FILE *)*uppercut_stream);
+
+        obj->field00->field18 = 0x603;
+        obj->field1c = 0xa;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x2e5;
+        thread->fieldfc = obj->field1c;
+        return (long)obj->field1c;
+    }
+
+    if (token == 0x2e5) {
+        obj->field1c = (uint32_t)(int32_t)
+            (int16_t)*(uint16_t *)(G_BYTES + 0x45c);
+
+        if (*(uint16_t *)(G_BYTES + 0x45c) == 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0x2ea;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+    } else if (token == 0x2ea) {
+        get_his_action(obj);
+
+        if (obj->field20 != 0x610 && obj->field20 != 0x203) {
+            get_his_dog(obj);
+            if ((long)obj->field1c > 0x50) {
+                *mk3_frame(thread, thread->frame + 1) = 0x2ea;
+                thread->fieldfc = 1;
+                return 1;
+            }
+        }
+
+    } else if (token == 0x2fb) {
+        back_to_normal(obj);
+
+        if ((long)thread->frame > 0) {
+            thread->frame = thread->frame - 1;
+            return 0;
+        }
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    } else {
+        return -3;
+    }
+
+    /* the finish, reached from 0x2e5 and 0x2ea */
+    obj->field1c = 4;
+    obj->field20 = 0x603;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x2fb;
+    thread->frame = thread->frame + 1;              /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_act_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
 }
