@@ -34,6 +34,10 @@
  * conflict here, which is what the check is for. */
 void q_animal_dist(MK3OBJ *obj);
 void q_fatal_dist(MK3OBJ *obj);
+void get_his_dfe(MK3OBJ *obj);
+long is_he_airborn(MK3OBJ *obj);
+long t_dizzy_sleep(MK3THREAD *thread);
+extern uint32_t scom_robo_tele[];        /* 0x0016a34c */
 long get_y_dist(MK3OBJ *obj);
 long t_air_sleep3(MK3THREAD *thread);
 long t_do_air_slam(MK3THREAD *thread);
@@ -5671,4 +5675,149 @@ void robo2_lp_close(MK3OBJ *obj, MK3OBJ *other)
 
     obj->field38 = (uint32_t)(uintptr_t)t_do_air_slam;
     free_xfer(obj, other);
+}
+
+
+/* q_sz_forward_zap -- armv7 0x000535d8, 84 bytes.  **Complete.**
+ *
+ *      get_his_p_hit(obj)
+ *      if (obj->field1c > 1) q_no(obj)
+ *      else if (CountThreads(obj->field00->field08 + 0x204) != 0) q_no(obj)
+ *      else if (CountThreads(obj->field00->field08 + 0x707) != 0) q_no(obj)
+ *      else { get_his_action(obj)
+ *             if (obj->field20 == 0x509) q_no(obj); else q_yes(obj) }
+ *
+ * **The first pid it counts is the decoy's.** tl_do_sz_decoy builds its new
+ * thread's pid as the strength index plus 0x204 and this counts exactly that,
+ * so the zap is refused while Sub-Zero's own decoy is still standing. The
+ * second is the index plus 0x707, built as 0x700 and then seven more.
+ *
+ * Reading the two sides together turns an arbitrary-looking constant into the
+ * same number in both places. */
+void q_sz_forward_zap(MK3OBJ *obj)
+{
+    get_his_p_hit(obj);
+    if ((long)obj->field1c > 1) {
+        q_no(obj);
+        return;
+    }
+
+    if (CountThreads(obj->field00->field08 + 0x204) != 0
+        || CountThreads(obj->field00->field08 + 0x700 + 7) != 0) {
+        q_no(obj);
+        return;
+    }
+
+    get_his_action(obj);
+    if (obj->field20 == 0x509)
+        q_no(obj);
+    else
+        q_yes(obj);
+}
+
+/* robo1_lk_close -- armv7 0x0005444c, 88 bytes.  **Complete.**
+ *
+ * The stick pattern, then a hit count of at most one, then one forbidden
+ * action, and the transfer goes through airborn_xfer. The pair is 0x20000 and
+ * 0x200000 -- the high half shifted left four, as always. */
+void robo1_lk_close(MK3OBJ *obj, MK3OBJ *other)
+{
+    if (!stick_look_lr2(obj, (uint32_t)(uintptr_t)other,
+                        (uint32_t)(uintptr_t)scom_robo_tele,
+                        0x200000u - 0x1e0000u, 0x200000u))
+        return;
+
+    get_his_p_hit(obj);
+    if ((long)obj->field1c > 1)
+        return;
+
+    get_his_action(obj);
+    if (obj->field20 == 0x616)
+        return;
+
+    obj->field38 = (uint32_t)(uintptr_t)t_do_robo_tele;
+    airborn_xfer(obj, other);
+}
+
+/* q_floor_ice -- armv7 0x00054c24, 96 bytes.  **Complete.**
+ *
+ * Five conditions and one yes: his action must not be 0x610, both halves of
+ * what get_his_dfe leaves in 0x30 and 0x34 must be over 0x5f, the table entry
+ * at &G + 0x42c must be over 0xbf, and he must have been hit at most once.
+ *
+ * The two 0x5f tests read the pair get_his_dfe writes -- the same 0x30/0x34
+ * pair q_fatal_dist takes as a distance band, used here as two independent
+ * thresholds rather than as a range. */
+void q_floor_ice(MK3OBJ *obj)
+{
+    get_his_action(obj);
+    if (obj->field20 == 0x610) {
+        q_no(obj);
+        return;
+    }
+
+    get_his_dfe(obj);
+    if ((long)obj->field30 <= 0x5f || (long)obj->field34 <= 0x5f) {
+        q_no(obj);
+        return;
+    }
+
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x420 + 0xc);
+    get_tsl_px(obj, obj);
+    if ((long)obj->field20 <= 0xbf) {
+        q_no(obj);
+        return;
+    }
+
+    get_his_p_hit(obj);
+    if ((long)obj->field1c > 1)
+        q_no(obj);
+    else
+        q_yes(obj);
+}
+
+/* mercy_xfer -- armv7 0x00054ac4, 96 bytes.  **Complete.**
+ *
+ *      *(uint16_t *)((char *)other->field00 + 0x80) = 0
+ *      if (*(int16_t *)(G + 0x45c) != 3) return
+ *      if (*(int16_t *)(G + 0x450) != 0) return
+ *      is_he_airborn(obj)
+ *      if (obj->field5c != 0) return
+ *      t = other->field00->field00->thread
+ *      if (frame[t->frame].handler != t_dizzy_sleep) return
+ *      restricted_xfer(obj, other)
+ *
+ * **Four gates, and the last one asks what a thread is running.** The
+ * halfword at G + 0x45c is the same one q_fatality_req tests for exactly
+ * three, so mercy is only offered at that stage of the round; G + 0x450 must
+ * be clear; the opponent must be on the ground; and his thread must be sitting
+ * in t_dizzy_sleep.
+ *
+ * The thread is reached by three loads -- his proc, the object that proc points
+ * at, and its 0x04 -- which is the same walk get_his_p_hit does for a field.
+ * Only robo2_lp_close does anything similar in this file.
+ *
+ * The clear at 0x80 happens first and unconditionally, as in every other
+ * member of the xfer family. */
+long mercy_xfer(MK3OBJ *obj, MK3OBJ *other)
+{
+    MK3THREAD *t;
+
+    *(uint16_t *)((char *)other->field00 + 0x80) = 0;
+
+    if (*(int16_t *)(G_BYTES + 0x45c) != 3)
+        return 0;
+    if (*(int16_t *)(G_BYTES + 0x450) != 0)
+        return 0;
+
+    is_he_airborn(obj);
+    if (obj->field5c != 0)
+        return 0;
+
+    t = other->field00->field00->thread;
+    if (mk3_frame(t, t->frame)[1] != (uint32_t)(uintptr_t)t_dizzy_sleep)
+        return 0;
+
+    restricted_xfer(obj, other);
+    return 0;
 }
