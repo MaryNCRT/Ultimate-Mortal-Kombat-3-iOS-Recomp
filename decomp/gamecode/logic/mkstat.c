@@ -3712,3 +3712,171 @@ long t_stat_do_uppercut(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* -------------------------------------------------------------- tl_stat_do_fan_lift
+ *
+ * armv7 0x0004dce0, 440 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field20 = 0x11b
+ *                       init_special_act(obj)
+ *                       obj->field40 = 1; get_char_ani2(obj)
+ *                       obj->field1c = 4
+ *                       token := 0x124, descend into t_mframew
+ *
+ *      token == 0x124:  obj->field1c = 1; init_anirate(obj)
+ *                       set_no_block(obj)
+ *                       obj->field1c = 2; ochar_sound(obj)
+ *                       obj->field48 = 1
+ *                       obj->a10 = 0xc0
+ *                       token := 0x132, park 1
+ *
+ *      token == 0x132:  obj->field1c = 0x12
+ *                       strike_check_a0(obj)
+ *                       if (obj->field5c == 0) {
+ *                           if (--obj->field48 <= 0) obj->field48 = 0xc
+ *                           next_anirate(obj)
+ *                           if (--obj->a10 > 0) token := 0x132, park 1
+ *                       }
+ *                       obj->a10 = 0x10
+ *                       if (obj->field18 != 0) obj->a10 = 0x50
+ *                       token := 0x149, park 1
+ *
+ *      token == 0x149:  if (--obj->field48 <= 0) obj->field48 = 0xc
+ *                       next_anirate(obj)
+ *                       if (--obj->a10 > 0) token := 0x149, park 1
+ *                       obj->field40 = 1; get_char_ani2(obj)
+ *                       find_part2(obj); find_part2(obj)
+ *                       obj->field1c = 4
+ *                       token := 0x15c, descend into t_mframew
+ *
+ *      token == 0x15c:  back_to_normal(obj)
+ *                       pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:       return -3
+ *
+ * **Two counters, and the small one is a repeating sub-count.** 0x44 is the main
+ * budget -- 0xc0 frames for the lift, then 0x10 (or 0x50) for the recovery -- and
+ * 0x48 counts 0xc down over and over, reloading itself every time it reaches zero.
+ * Both the 0x132 and 0x149 states carry the same reload, so whatever 0x48 paces is
+ * paced through both halves of the move at the same rate.
+ *
+ * **The strike jumps the fighter straight into recovery**, past both counters, to the
+ * same 0x10-or-0x50 reload the lift's own expiry reaches. So connecting does not
+ * shorten the recovery, it only ends the lift early.
+ *
+ * **The recovery is longer when 0x18 is set** -- 0x50 against 0x10 -- which is the
+ * same shape tl_do_lao_spin uses (0x30 against 0x20) with a much wider gap. Two
+ * routines, one rule, different penalties.
+ *
+ * **`find_part2` is called twice in a row**, at 0x4de22 and 0x4de28, with nothing
+ * between them. Transcribed as written; the second call cannot see any input the
+ * first did not.
+ */
+void find_part2(MK3OBJ *obj);
+
+long tl_stat_do_fan_lift(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field20 = 0x11b;
+        init_special_act(obj);
+
+        obj->field40 = 1;
+        get_char_ani2(obj);
+
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x124;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x124) {
+        obj->field1c = 1;
+        init_anirate(obj);
+        set_no_block(obj);
+
+        obj->field1c = 2;
+        ochar_sound(obj);
+
+        obj->field48 = 1;
+        obj->a10     = 0xc0;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x132;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0x132) {
+        obj->field1c = 0x12;
+        strike_check_a0(obj);
+
+        if (obj->field5c == 0) {
+            obj->field48 = obj->field48 - 1;
+            if ((long)obj->field48 <= 0)
+                obj->field48 = 0xc;
+
+            next_anirate(obj);
+
+            obj->a10 = obj->a10 - 1;
+            if ((long)obj->a10 > 0) {
+                *mk3_frame(thread, thread->frame + 1) = 0x132;
+                thread->fieldfc = 1;
+                return 1;
+            }
+        }
+
+        obj->a10 = 0x10;
+        if (obj->field18 != 0)
+            obj->a10 = 0x50;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x149;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0x149) {
+        obj->field48 = obj->field48 - 1;
+        if ((long)obj->field48 <= 0)
+            obj->field48 = 0xc;
+
+        next_anirate(obj);
+
+        obj->a10 = obj->a10 - 1;
+        if ((long)obj->a10 > 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0x149;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        obj->field40 = 1;
+        get_char_ani2(obj);
+        find_part2(obj);
+        find_part2(obj);            /* twice, with nothing between */
+
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x15c;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x15c)
+        return -3;
+
+    back_to_normal(obj);
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
