@@ -2468,3 +2468,104 @@ long tl_do_reflect(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------- tl_do_kano_swipe
+ *
+ * armv7 0x0004d948, 316 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field20 = 0x117
+ *                       init_special_act(obj)
+ *                       obj->field1c = 0; ochar_sound(obj)
+ *                       obj->field1c = 0x12
+ *                       *(uint32_t *)((char *)obj->field00 + 0x58) = 0x12
+ *                       obj->field40 = 1; get_char_ani2(obj)
+ *                       obj->field1c = 2
+ *                       token := 0x357, descend into t_mframew
+ *
+ *      token == 0x357:  obj->field1c = 0x12
+ *                       strike_check_a0(obj)
+ *                       obj->field00->field18 = 0x618
+ *                       obj->field1c = 4
+ *                       token := 0x35f, descend into t_mframew
+ *
+ *      token == 0x35f:  token := 0x362, park 8
+ *
+ *      token == 0x362:  obj->field1c = 4
+ *                       token := 0x364, descend into t_mframew
+ *
+ *      token == 0x364:  pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:       return -3
+ *
+ * **The strike is checked once, unconditionally, in the middle state.** No latch --
+ * where t_axeup3 clears proc+0x28 and re-checks every frame while it stays clear,
+ * this routine has exactly one frame on which the swipe can connect. So the two
+ * spellings of a strike in this file are "poll until it lands" and "one chance",
+ * and which one a move gets is a design choice rather than a shared helper.
+ *
+ * **0x12 does two jobs from one literal.** In state 0 it goes into the proc's 0x58
+ * as a flag, and in the strike state it goes into 0x1c as strike_check_a0's
+ * argument. Same number, two fields, two states apart.
+ *
+ * The sound in state 0 is number zero -- 0x1c still holds the token -- as in
+ * t_robo1_slam and t_lia_slam.
+ */
+long strike_check_a0(MK3OBJ *obj);
+
+long tl_do_kano_swipe(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t next;
+
+    if (token == 0) {
+        obj->field20 = 0x117;
+        init_special_act(obj);
+
+        obj->field1c = 0;               /* the token, still zero */
+        ochar_sound(obj);
+
+        obj->field1c = 0x12;
+        *(uint32_t *)((char *)obj->field00 + 0x58) = 0x12;
+
+        obj->field40 = 1;
+        get_char_ani2(obj);
+
+        obj->field1c = 2;
+        next = 0x357;
+
+    } else if (token == 0x357) {
+        obj->field1c = 0x12;
+        strike_check_a0(obj);
+
+        obj->field00->field18 = 0x618;
+        obj->field1c = 4;
+        next = 0x35f;
+
+    } else if (token == 0x35f) {
+        *mk3_frame(thread, thread->frame + 1) = 0x362;
+        thread->fieldfc = 8;
+        return 8;
+
+    } else if (token == 0x362) {
+        obj->field1c = 4;
+        next = 0x364;
+
+    } else if (token == 0x364) {
+        if ((long)thread->frame > 0) {
+            thread->frame = thread->frame - 1;
+            return 0;
+        }
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;              /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
