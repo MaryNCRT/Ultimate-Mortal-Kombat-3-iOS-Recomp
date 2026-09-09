@@ -1990,3 +1990,154 @@ long t_turn_into_a_baby(MK3THREAD *thread)
     tsound_func(obj, 0x8d);
     return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
 }
+
+
+/* ---------------------------------------------------------- t_stat_do_roundhouse
+ *
+ * armv7 0x0004eaa4, 220 bytes.  **Complete.**
+ *
+ *      token == 0:      init_special(obj)
+ *                       tsound_func(obj, 2)
+ *                       obj->field1c = 0; group_sound(obj)
+ *                       obj->field1c = round_speeds[obj->field08->field24]
+ *                       obj->field20 = 0x105
+ *                       obj->field40 = 0x105 - 0xf0 = 0x15
+ *                       obj->a10     = 0x15 - 0x12 = 3
+ *                       obj->field48 = 3 + 0xa = 0xd
+ *                       *(uint32_t *)((char *)obj->field00 + 0x58) = 0xd
+ *                       token := 0x246, descend into t_striker
+ *
+ *      token == 0x246:  if (obj->field5c == 0) -- into the 0x249 body --
+ *                       token := 0x249, park 0xa
+ *
+ *      token == 0x249:  obj->field1c = 4
+ *                       frame[frame].handler = t_retract_strike
+ *
+ *      otherwise:       return -3
+ *
+ * **The only attack in this file whose rate comes from a table.** round_speeds is
+ * bytes indexed by the character, and the value lands in 0x1c -- so how fast a
+ * roundhouse swings is per-fighter where every other kick and punch here uses a
+ * literal. That is the one thing the table adds; the four position and flag numbers
+ * are constants like all the others.
+ *
+ * Action 0x105 sits between the standing kicks' 0x103/0x104 and the crouching
+ * 0x106, so the whole set is one contiguous block.
+ */
+extern uint8_t round_speeds[];                    /* 0x001673b0 */
+
+long t_stat_do_roundhouse(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        init_special(obj);
+        tsound_func(obj, 2);
+
+        obj->field1c = 0;
+        group_sound(obj);
+
+        obj->field1c = round_speeds[obj->field08->field24];
+        obj->field20 = 0x105;
+        obj->field40 = 0x105 - 0xf0;
+        obj->a10     = (0x105 - 0xf0) - 0x12;
+        obj->field48 = ((0x105 - 0xf0) - 0x12) + 0xa;
+        *(uint32_t *)((char *)obj->field00 + 0x58) = obj->field48;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x246;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_striker;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x246 && obj->field5c != 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x249;
+        thread->fieldfc = 0xa;
+        return 0xa;
+    }
+
+    if (token != 0x246 && token != 0x249)
+        return -3;
+
+    obj->field1c = 4;
+    return mk3_install(thread, (MK3THREADFUNC)t_retract_strike);
+}
+
+/* -------------------------------------------------------------------- tl_do_inviso
+ *
+ * armv7 0x0004f4c8, 240 bytes.  **Complete.**
+ *
+ *      token == 0:      init_special(obj)
+ *                       obj->field40 = 0xb; get_char_ani2(obj)
+ *                       obj->field1c = 2
+ *                       token := 0x406, descend into t_mframew
+ *
+ *      token == 0x406:  obj->field1c = 0x1e; create_fx(obj)
+ *                       token := 0x40a, park 6
+ *
+ *      token == 0x40a:  obj->field2c = obj->field08->field30
+ *                       if ((obj->field2c & 0x20) != 0)
+ *                           frame[frame].handler = t_do_un_inviso
+ *                       else {
+ *                           set_inviso(obj)
+ *                           frame[frame].handler = t_local_reaction_exit
+ *                       }
+ *
+ *      otherwise:       return -3
+ *
+ * **It is a toggle, and bit 5 of the part's 0x30 is the switch.** Set means the
+ * fighter is already invisible and the routine hands over to t_do_un_inviso; clear
+ * means it goes invisible now and exits. So one move covers both directions and
+ * nothing outside has to know which way it will go.
+ *
+ * The animation and the effect happen before the test, so the flourish is the same
+ * either way and only the last state differs. `tl_do_reptile_inv` above is the
+ * one-way version, which sets inviso and never checks.
+ *
+ * The masked bit is left in the register the else path writes into the token slot,
+ * so the zero the install needs is the failed test again.
+ */
+void get_char_ani2(MK3OBJ *obj);
+long t_do_un_inviso(MK3THREAD *thread);
+
+long tl_do_inviso(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        init_special(obj);
+
+        obj->field40 = 0xb;
+        get_char_ani2(obj);
+        obj->field1c = 2;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x406;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x406) {
+        obj->field1c = 0x1e;
+        create_fx(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x40a;
+        thread->fieldfc = 6;
+        return 6;
+    }
+
+    if (token != 0x40a)
+        return -3;
+
+    obj->field2c = obj->field08->field30;
+
+    if ((obj->field2c & 0x20u) != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_do_un_inviso);
+
+    set_inviso(obj);
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
