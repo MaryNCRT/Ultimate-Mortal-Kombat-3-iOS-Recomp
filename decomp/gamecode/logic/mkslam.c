@@ -3576,3 +3576,706 @@ long t_sg_slam(MK3THREAD *thread)
     obj->field1c = 6;
     return mk3_install(thread, (MK3THREADFUNC)t_mframew);
 }
+
+
+/* -------------------------------------------------------------- t_robo2_slam
+ *
+ * armv7 0x0004bcf4, 460 bytes.  **Complete.**
+ *
+ *      token == 0:      body_slam_init(obj)
+ *                       obj->field1c = 3
+ *                       token := 0x323, descend into t_grab_animation
+ *
+ *      token == 0x323:  token := 0x324, park 4
+ *
+ *      token == 0x324:  obj->field1c = 7; ochar_sound(obj)
+ *                       obj->field1c = 4; init_anirate(obj)
+ *                       obj->field1c = 0x20000; away_x_vel(obj)
+ *                       obj->field08->field1c = 0xffe80000
+ *                       obj->field1c = obj->field08->field20 = 0x1a000
+ *                       stick_him_with_me(obj)
+ *                       token := 0x337, park 1
+ *
+ *      token == 0x337:  sans_repell_3(obj); stick_him_with_me(obj)
+ *                       obj->field1c = --obj->field00->field20
+ *                       if (that == 0) {
+ *                           obj->field00->field20 = obj->field00->field1c
+ *                           obj->field1c = *(uint32_t *)obj->field40
+ *                           if (that != 0) double_next_a9(obj)
+ *                       }
+ *                       obj->field20 = (int16)part[0x12]
+ *                       obj->field1c = *(uint32_t *)(proc + 0x40) + 0x10
+ *                       if (obj->field1c > obj->field20)
+ *                           token := 0x337, park 1
+ *                       else {
+ *                           sans_repell(obj)
+ *                           obj->field48 = 0x00080008; shake_a11(obj)
+ *                           rsnd_func(obj, 0xd)
+ *                           obj->field1c = 2; his_group_sound(obj)
+ *                           stop_me_player(obj); stop_him(obj)
+ *                           obj->field38 = t_thrown_by_robo2
+ *                           xfer_to_thrown(obj)
+ *                           token := 0x359, park 0xe
+ *                       }
+ *
+ *      token == 0x359:  face_opponent(obj); ground_player(obj)
+ *                       token := 0x35c, descend into t_do_backup
+ *
+ *      token == 0x35c:  frame[frame].handler = t_local_reaction_exit
+ *
+ *      otherwise:       return -3
+ *
+ * **The only slam in the file that carries the victim through the air itself.**
+ * State 0x337 runs once a frame and does three things: it re-sticks the victim to
+ * the slammer, it counts a frame off the proc's 0x20, and it compares the part's
+ * height against the floor. While the fighter is still above the floor plus 0x10
+ * it re-arms itself for another frame; the moment it is not, the whole landing
+ * happens in one go -- shake, two sounds, both fighters stopped, the victim handed
+ * to t_thrown_by_robo2.
+ *
+ * **The proc's 0x1c and 0x20 are a reload value and a counter, and this routine
+ * proves it.** 0x20 is decremented every frame, and when it reaches zero it is
+ * refilled from 0x1c -- exactly what the header's names for them say ("the
+ * animation rate" and "its counter, normally 1"), here used as a divider so
+ * something happens every 0x1c frames rather than every frame.
+ *
+ * **What happens on the divider is a read THROUGH 0x40.** `ldr r3, [r5, #0x40]`
+ * then `ldr r3, [r3]` -- so 0x40 holds a pointer here and its first word is
+ * tested, and a non-zero value means double_next_a9. Everywhere else in this
+ * file 0x40 is a small animation number. Recorded as it stands; nothing here says
+ * what the pointer points at.
+ *
+ * proc+0x40 is read with `ldr`, a full word, against a field the header declares
+ * as a halfword -- the fourth routine to do so, so it is reached by offset.
+ *
+ * The two velocity constants are 0xffe80000 into the part's 0x1c and 0x1a000 into
+ * its 0x20, with 0x20000 handed to away_x_vel first. Three magnitudes, three
+ * fields, no arithmetic chaining between them.
+ */
+void away_x_vel(MK3OBJ *obj);
+void sans_repell_3(MK3OBJ *obj);
+void sans_repell(MK3OBJ *obj);
+void his_group_sound(MK3OBJ *obj);
+void stop_him(MK3OBJ *obj);
+void init_anirate(MK3OBJ *obj);
+void stick_him_with_me(MK3OBJ *obj);
+void stop_me_player(MK3OBJ *obj);
+long t_do_backup(MK3THREAD *thread);             /* pointer slot 0x000f37e0 */
+long t_thrown_by_robo2(MK3THREAD *thread);
+
+long t_robo2_slam(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    MK3OBJ  *part;
+
+    if (token == 0) {
+        body_slam_init(obj);
+        obj->field1c = 3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x323;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_grab_animation;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x323) {
+        *mk3_frame(thread, thread->frame + 1) = 0x324;
+        thread->fieldfc = 4;
+        return 4;
+    }
+
+    if (token == 0x324) {
+        obj->field1c = 7;
+        ochar_sound(obj);
+
+        obj->field1c = 4;
+        init_anirate(obj);
+
+        obj->field1c = 0x20000;
+        away_x_vel(obj);
+
+        obj->field08->field1c = 0xffe80000u;
+
+        obj->field1c = 0x1a000;
+        obj->field08->field20 = 0x1a000;
+        stick_him_with_me(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x337;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0x337) {
+        sans_repell_3(obj);
+        stick_him_with_me(obj);
+
+        obj->field1c = obj->field00->field20 - 1;
+        obj->field00->field20 = obj->field1c;
+
+        if (obj->field1c == 0) {
+            obj->field00->field20 = obj->field00->field1c;
+            obj->field1c = *(uint32_t *)(void *)(uintptr_t)obj->field40;
+            if (obj->field1c != 0)
+                double_next_a9(obj);
+        }
+
+        part = obj->field08;
+        obj->field20 = (uint32_t)(int32_t)MK3_FIELD12(part);
+        obj->field1c = *(uint32_t *)((char *)obj->field00 + 0x40) + 0x10;
+
+        if ((long)obj->field1c > (long)obj->field20) {
+            *mk3_frame(thread, thread->frame + 1) = 0x337;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        sans_repell(obj);
+
+        obj->field48 = 0x00080008;
+        shake_a11(obj);
+        rsnd_func(obj, 0xd);
+
+        obj->field1c = 2;
+        his_group_sound(obj);
+
+        stop_me_player(obj);
+        stop_him(obj);
+
+        obj->field38 = (uint32_t)(uintptr_t)t_thrown_by_robo2;
+        xfer_to_thrown(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x359;
+        thread->fieldfc = 0xe;
+        return 0xe;
+    }
+
+    if (token == 0x359) {
+        face_opponent(obj);
+        ground_player(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x35c;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_do_backup;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x35c)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* --------------------------------------------------------- t_do_back_breaker
+ *
+ * armv7 0x0004b430, 648 bytes.  **Complete.**
+ *
+ *      token == 0:      air_init_special(obj)
+ *                       stop_me_player(obj); stop_him(obj)
+ *                       obj->field1c = clear_inviso;      call_a0_for_him(obj)
+ *                       obj->field1c = clear_shadow_bit;  call_a0_for_him(obj)
+ *                       clear_shadow_bit(obj)
+ *                       obj->field1c = 0x38
+ *                       *(uint16_t *)(G + 0x456) = 0x38
+ *                       obj->field38 = t_flipped_pause
+ *                       takeover_him_sr(obj)
+ *                       obj->field1c = obj->field00->field18 = 0x403
+ *                       obj->field20 = (uint32_t)obj->field00->field00
+ *                       obj->field00->field00->field48 = 0x403
+ *                       obj->field1c = 6; ochar_sound(obj)
+ *                       me_in_front(obj)
+ *                       obj->field40 = 5; get_char_ani2(obj)
+ *                       do_next_a9_frame(obj)
+ *                       obj->field1c = obj->field20 = 0
+ *                       multi_adjust_xy(obj)
+ *                       obj->field1c = player_normpal;        call_a0_for_him(obj)
+ *                       obj->field1c = last_knockdown_frame;  call_a0_for_him(obj)
+ *                       match_him_with_me(obj)
+ *                       obj->field1c = 0xa
+ *                       obj->field20 = 0xa - 0x75 = -0x6b
+ *                       adjust_him_xy(obj)
+ *                       token := 0x46b, park 6
+ *
+ *      token == 0x46b:  obj->field20 = 0x20000
+ *                       obj->field24 = 0x20000 - 0x16000 = 0xa000
+ *                       obj->field28 = 0xfff
+ *                       obj->field1c = 0
+ *                       obj->field34 = t_bb_fall_call
+ *                       token := 0x472, descend into t_flight_call
+ *
+ *      token == 0x472:  stop_him(obj)
+ *                       obj->field40 = 5; get_char_ani2(obj)
+ *                       obj->field40 = obj->field40 + 4
+ *                       do_next_a9_frame(obj)
+ *                       obj->field1c = 0; obj->field20 = 0x70
+ *                       adjust_him_xy(obj)
+ *                       obj->field40 = 6; get_char_ani2(obj)
+ *                       n = ((MK3OBJ *)obj->field00->him)->field24
+ *                       obj->field1c = n
+ *                       obj->field40 = n * 4 + obj->field40
+ *                       *(uint32_t *)((char *)obj->field00 + 0x38) = obj->field40
+ *                       obj->field1c = do_next_a9_frame; call_a0_for_him(obj)
+ *                       token := 0x490, park 3
+ *
+ *      token == 0x490:  obj->field1c = 0xb;  ochar_sound(obj)
+ *                       obj->field1c = 2;    his_group_sound(obj)
+ *                       obj->field48 = 0x00050005; shake_a11(obj)
+ *                       token := 0x499, park 3
+ *
+ *      token == 0x499:  obj->field1c = 0x1a; damage_to_him(obj)
+ *                       obj->field38 = t_post_broken_back
+ *                       takeover_him(obj)
+ *                       token := 0x49f, park 0x18
+ *
+ *      token == 0x49f:  frame[frame].handler = t_do_backup
+ *
+ *      otherwise:       return -3
+ *
+ * **Five routines are handed across through 0x1c in this one function, and that
+ * settles the A0 mechanism beyond argument.** clear_inviso, clear_shadow_bit,
+ * player_normpal, last_knockdown_frame and do_next_a9_frame each go into 0x1c and
+ * are then run on the OTHER fighter by call_a0_for_him. Two of the five --
+ * clear_shadow_bit and do_next_a9_frame -- are also called directly on this
+ * fighter a line or two away, so the same routine reaches both fighters by two
+ * different spellings in one state.
+ *
+ * **0x34 holds a handler too, and t_flight_call is what reads it.** Where every
+ * other flight in this file descends into t_flight, this one fills the same four
+ * fields and descends into t_flight_call with t_bb_fall_call parked in 0x34 -- so
+ * the call variant takes a per-frame callback and the plain one does not. That is
+ * the only site in the file that writes 0x34.
+ *
+ * **The victim's animation is offset by its own character number.** State 0x472
+ * resolves animation 6, then adds `him->field24 * 4` to it and writes the result
+ * both into 0x40 and into the proc's 0x38 -- the same times-four scaling
+ * t_jax_multi_slam_pose applies to a repeat count, here applied to a character
+ * index instead.
+ *
+ * The 0x38 on the proc is inside a pad in this header, so it is written by
+ * offset. Nothing else in the file touches it.
+ *
+ * 0x40 is read back after get_char_ani2 twice and adjusted both times -- plus 4
+ * on the first, plus the scaled index on the second -- so that routine leaves its
+ * answer there and the caller is free to move along the table from it.
+ */
+void clear_shadow_bit(MK3OBJ *obj);
+void player_normpal(MK3OBJ *obj);
+void match_him_with_me(MK3OBJ *obj);
+void adjust_him_xy(MK3OBJ *obj);
+void damage_to_him(MK3OBJ *obj);
+void me_in_front(MK3OBJ *obj);
+void multi_adjust_xy(MK3OBJ *obj);
+long t_flight_call(MK3THREAD *thread);           /* pointer slot 0x000f37f4 */
+long t_bb_fall_call(MK3THREAD *thread);
+long t_post_broken_back(MK3THREAD *thread);
+
+long t_do_back_breaker(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t n;
+
+    if (token == 0) {
+        air_init_special(obj);
+        stop_me_player(obj);
+        stop_him(obj);
+
+        obj->field1c = (uint32_t)(uintptr_t)clear_inviso;
+        call_a0_for_him(obj);
+        obj->field1c = (uint32_t)(uintptr_t)clear_shadow_bit;
+        call_a0_for_him(obj);
+        clear_shadow_bit(obj);
+
+        obj->field1c = 0x38;
+        *(uint16_t *)(G_BYTES + 0x456) = 0x38;
+
+        obj->field38 = (uint32_t)(uintptr_t)t_flipped_pause;
+        takeover_him_sr(obj);
+
+        obj->field1c = 0x403;
+        obj->field00->field18 = 0x403;
+        obj->field20 = (uint32_t)(uintptr_t)obj->field00->field00;
+        obj->field00->field00->field48 = 0x403;
+
+        obj->field1c = 6;
+        ochar_sound(obj);
+        me_in_front(obj);
+
+        obj->field40 = 5;
+        get_char_ani2(obj);
+        do_next_a9_frame(obj);
+
+        obj->field1c = 0;
+        obj->field20 = 0;
+        multi_adjust_xy(obj);
+
+        obj->field1c = (uint32_t)(uintptr_t)player_normpal;
+        call_a0_for_him(obj);
+        obj->field1c = (uint32_t)(uintptr_t)last_knockdown_frame;
+        call_a0_for_him(obj);
+
+        match_him_with_me(obj);
+
+        obj->field1c = 0xa;
+        obj->field20 = (uint32_t)(0xa - 0x75);
+        adjust_him_xy(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x46b;
+        thread->fieldfc = 6;
+        return 6;
+    }
+
+    if (token == 0x46b) {
+        obj->field20 = 0x20000;
+        obj->field24 = 0x20000 - 0x16000;
+        obj->field28 = 0xfff;
+        obj->field1c = 0;
+        obj->field34 = (uint32_t)(uintptr_t)t_bb_fall_call;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x472;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_flight_call;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x472) {
+        stop_him(obj);
+
+        obj->field40 = 5;
+        get_char_ani2(obj);
+        obj->field40 = obj->field40 + 4;
+        do_next_a9_frame(obj);
+
+        obj->field1c = 0;
+        obj->field20 = 0x70;
+        adjust_him_xy(obj);
+
+        obj->field40 = 6;
+        get_char_ani2(obj);
+
+        n = ((MK3OBJ *)(void *)(uintptr_t)obj->field00->him)->field24;
+        obj->field1c = n;
+        obj->field40 = n * 4 + obj->field40;
+        *(uint32_t *)((char *)obj->field00 + 0x38) = obj->field40;
+
+        obj->field1c = (uint32_t)(uintptr_t)do_next_a9_frame;
+        call_a0_for_him(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x490;
+        thread->fieldfc = 3;
+        return 3;
+    }
+
+    if (token == 0x490) {
+        obj->field1c = 0xb;
+        ochar_sound(obj);
+
+        obj->field1c = 2;
+        his_group_sound(obj);
+
+        obj->field48 = 0x00050005;
+        shake_a11(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x499;
+        thread->fieldfc = 3;
+        return 3;
+    }
+
+    if (token == 0x499) {
+        obj->field1c = 0x1a;
+        damage_to_him(obj);
+
+        obj->field38 = (uint32_t)(uintptr_t)t_post_broken_back;
+        takeover_him(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x49f;
+        thread->fieldfc = 0x18;
+        return 0x18;
+    }
+
+    if (token != 0x49f)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_do_backup);
+}
+
+
+/* ---------------------------------------------------------------- t_jax_slam
+ *
+ * armv7 0x0004c1bc, 796 bytes.  **Complete.**  The largest routine in the file.
+ *
+ *      token == 0:      body_slam_init(obj)
+ *                       obj->field1c = set_ignore_y; call_a0_for_him(obj)
+ *                       obj->field1c = 3
+ *                       token := 0x246, descend into t_grab_animation
+ *
+ *      token == 0x246:  token := 0x247, park 3
+ *
+ *      token == 0x247:  read_lp_tick_state(obj)
+ *                       obj->field00->field28 = obj->field1c
+ *                       *(uint32_t *)(proc + 0x2c) = 0
+ *                       obj->field1c = 4
+ *                       *(uint32_t *)(proc + 0x30) = 4
+ *                       throw_voice(obj)
+ *                       -- falls into the 0x292 body --
+ *
+ *      token == 0x292:  double_next_a9(obj)
+ *                       obj->field1c = 3
+ *                       token := 0x257, descend into t_jax_slam_sleep
+ *
+ *      token == 0x257:  n = *(uint32_t *)obj->field40
+ *                       obj->field1c = n
+ *                       if (n != 0) -- back into the 0x292 body --
+ *                       obj->field1c = 5;  ochar_sound(obj)
+ *                       obj->field1c = 2;  his_group_sound(obj)
+ *                       obj->field48 = 0x00090009; shake_a11(obj)
+ *                       obj->field1c = obj->field54 = 0xa
+ *                       add_combo_damage(obj); damage_to_him(obj)
+ *                       inc_his_p_hit(obj); am_i_joy(obj)
+ *                       if (obj->field5c != 0
+ *                           && *(uint32_t *)(proc + 0x2c) != 0) {
+ *                           obj->field38 = t_thrown_by_jax
+ *                           xfer_to_thrown(obj)
+ *                           token := 0x299, park 0xa
+ *                       } else if (--*(uint32_t *)(proc + 0x30) == 0) {
+ *                           the same throw
+ *                       } else {
+ *                           obj->field1c = 4
+ *                           token := 0x280, descend into t_jax_slam_sleep
+ *                       }
+ *
+ *      token == 0x280:  obj->field1c = 0x30
+ *                       *(uint16_t *)(G + 0x456) = 0x30
+ *                       obj->field30 = 4
+ *                       token := 0x285, descend into t_jax_multi_slam_pose
+ *
+ *      token == 0x285:  obj->field30 = 3
+ *                       token := 0x287, descend into t_jax_multi_slam_pose
+ *
+ *      token == 0x287:  obj->field30 = 2
+ *                       token := 0x289, descend into t_jax_multi_slam_pose
+ *
+ *      token == 0x289:  flip_multi(obj)
+ *                       obj->field1c = ~0xe; obj->field20 = 0
+ *                       multi_adjust_xy(obj)
+ *                       flip_multi_ob((MK3OBJ *)obj->a10)
+ *                       obj->field30 = 2
+ *                       token := 0x292, descend into t_jax_multi_slam_pose
+ *
+ *      token == 0x299:  obj->field54 = 3
+ *                       obj->field40 = 3 + 0x20 = 0x23
+ *                       find_ani_part_a14(obj)
+ *                       obj->field1c = 5
+ *                       token := 0x29f, descend into t_mframew
+ *
+ *      token == 0x29f:  pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:       return -3
+ *
+ * **Eleven states, and the shape is a loop, not a line.** 0x292 goes to
+ * t_jax_slam_sleep, 0x257 reads the answer, and if the player is still holding
+ * the button the thread goes back into 0x292 -- so 0x257 and 0x292 are a cycle
+ * that runs once per repetition. That is what makes Jax's slam the multi-slam:
+ * t_jax_slam_sleep is the routine that decides whether to go round again, and
+ * 0x280 through 0x289 are the four poses one repetition draws.
+ *
+ * **Two counters, and they mean different things.** The proc's 0x30 counts
+ * repetitions down from 4 and ends the sequence when it reaches zero; the
+ * object's OWN 0x30 counts 4, 3, 2, 2 across the four poses and is what
+ * t_jax_multi_slam_pose scales its two animation offsets by. Same offset on two
+ * different structures, one a budget and one a frame index.
+ *
+ * **0x40 is read THROUGH again**, as in t_robo2_slam: `ldr r4, [r6, #0x40]` then
+ * `ldr r4, [r4]`. Here the loaded word does double duty -- non-zero means go
+ * round again, and zero is exactly the value the shared frame-push tail needs to
+ * write into the new level's token slot, so the compiler kept it in r4 and used
+ * it for both.
+ *
+ * **The throw is reached two ways and the code is shared.** Either the player
+ * let go while the flag at proc+0x2c was set, or the repetition budget ran out;
+ * both land on the same four lines. proc+0x2c is the flag t_jax_slam_sleep
+ * raises, so the two conditions are "the player asked to stop" and "no
+ * repetitions left".
+ *
+ * proc+0x2c and proc+0x30 are inside a pad in this header, so both are reached
+ * by offset -- the same expression mkprop.c uses for 0x2c.
+ */
+void flip_multi(MK3OBJ *obj);
+void flip_multi_ob(MK3OBJ *obj);
+void add_combo_damage(MK3OBJ *obj);
+void inc_his_p_hit(MK3OBJ *obj);
+void find_ani_part_a14(MK3OBJ *obj);
+void set_ignore_y(MK3OBJ *obj);
+long am_i_joy(MK3OBJ *obj);
+long t_thrown_by_jax(MK3THREAD *thread);
+long t_jax_multi_slam_pose(MK3THREAD *thread);
+
+long t_jax_slam(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t n, next;
+    int      throw_now;
+
+    if (token == 0) {
+        body_slam_init(obj);
+
+        obj->field1c = (uint32_t)(uintptr_t)set_ignore_y;
+        call_a0_for_him(obj);
+
+        obj->field1c = 3;
+        *mk3_frame(thread, thread->frame + 1) = 0x246;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_grab_animation;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x246) {
+        *mk3_frame(thread, thread->frame + 1) = 0x247;
+        thread->fieldfc = 3;
+        return 3;
+    }
+
+    if (token == 0x247 || token == 0x292 || token == 0x257) {
+        if (token == 0x247) {
+            read_lp_tick_state(obj);
+            obj->field00->field28 = obj->field1c;
+            *(uint32_t *)((char *)obj->field00 + 0x2c) = 0;
+            obj->field1c = 4;
+            *(uint32_t *)((char *)obj->field00 + 0x30) = 4;
+            throw_voice(obj);
+            token = 0x292;                  /* falls into that body */
+        }
+
+        if (token == 0x257) {
+            n = *(uint32_t *)(void *)(uintptr_t)obj->field40;
+            obj->field1c = n;
+
+            if (n == 0) {
+                obj->field1c = 5;
+                ochar_sound(obj);
+                obj->field1c = 2;
+                his_group_sound(obj);
+
+                obj->field48 = 0x00090009;
+                shake_a11(obj);
+
+                obj->field1c  = 0xa;
+                obj->field54  = 0xa;
+                add_combo_damage(obj);
+                damage_to_him(obj);
+                inc_his_p_hit(obj);
+                am_i_joy(obj);
+
+                throw_now = 0;
+                if (obj->field5c != 0) {
+                    obj->field1c =
+                        *(uint32_t *)((char *)obj->field00 + 0x2c);
+                    if (obj->field1c != 0)
+                        throw_now = 1;
+                }
+
+                if (!throw_now) {
+                    obj->field1c =
+                        *(uint32_t *)((char *)obj->field00 + 0x30) - 1;
+                    if (obj->field1c == 0) {
+                        throw_now = 1;
+                    } else {
+                        *(uint32_t *)((char *)obj->field00 + 0x30) =
+                            obj->field1c;
+                        obj->field1c = 4;
+
+                        *mk3_frame(thread, thread->frame + 1) = 0x280;
+                        thread->frame = thread->frame + 1;
+                        mk3_frame(thread, thread->frame)[1] =
+                            (uint32_t)(uintptr_t)t_jax_slam_sleep;
+                        *mk3_frame(thread, thread->frame + 1) = 0;
+                        return 0;
+                    }
+                }
+
+                obj->field38 = (uint32_t)(uintptr_t)t_thrown_by_jax;
+                xfer_to_thrown(obj);
+                *mk3_frame(thread, thread->frame + 1) = 0x299;
+                thread->fieldfc = 0xa;
+                return 0xa;
+            }
+        }
+
+        /* the 0x292 body */
+        double_next_a9(obj);
+        obj->field1c = 3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x257;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_jax_slam_sleep;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x280 || token == 0x285 || token == 0x287
+        || token == 0x289) {
+        if (token == 0x280) {
+            obj->field1c = 0x30;
+            *(uint16_t *)(G_BYTES + 0x456) = 0x30;
+            obj->field30 = 4;
+            next = 0x285;
+
+        } else if (token == 0x285) {
+            obj->field30 = 3;
+            next = 0x287;
+
+        } else if (token == 0x287) {
+            obj->field30 = 2;
+            next = 0x289;
+
+        } else {
+            flip_multi(obj);
+            obj->field1c = (uint32_t)~0xeu;
+            obj->field20 = 0;
+            multi_adjust_xy(obj);
+            flip_multi_ob((MK3OBJ *)(void *)(uintptr_t)obj->a10);
+            obj->field30 = 2;
+            next = 0x292;
+        }
+
+        *mk3_frame(thread, thread->frame + 1) = next;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_jax_multi_slam_pose;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x299) {
+        obj->field54 = 3;
+        obj->field40 = 3 + 0x20;
+        find_ani_part_a14(obj);
+        obj->field1c = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x29f;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x29f)
+        return -3;
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
