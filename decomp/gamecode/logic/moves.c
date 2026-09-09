@@ -34,6 +34,9 @@
  * conflict here, which is what the check is for. */
 void q_animal_dist(MK3OBJ *obj);
 void q_fatal_dist(MK3OBJ *obj);
+extern MK3THREAD *mytc;                  /* pointer slot -> 0x0038ef3c */
+void *GetThreadFunc(MK3THREAD *thread);
+long t_fatality_wait(MK3THREAD *thread);
 extern long *RoundParam;                 /* pointer slot -> 0x0038ed04 */
 void get_tsl_px(MK3OBJ *obj, MK3OBJ *ref);
 uint32_t four_button_bits(MK3OBJ *obj, uint32_t bits);
@@ -4786,6 +4789,79 @@ void q_pit_fatal_ez(MK3OBJ *obj)
 
     if (c >= 1 && c <= 4)
         q_fatality_req(obj);
+    else
+        q_no(obj);
+}
+
+
+/* q_swat_gun -- armv7 0x00052c98, 52 bytes.  **Complete.**  &G + 0x430,
+ * > 0x4f. */
+void q_swat_gun(MK3OBJ *obj)
+{
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x430);
+    get_tsl_px(obj, obj);
+    if ((long)obj->field20 > 0x4f)
+        q_yes(obj);
+    else
+        q_no(obj);
+}
+
+/* q_swat_zoom -- armv7 0x00052c64, 52 bytes.  **Complete.**  &G + 0x424,
+ * > 0x1f -- the lowest threshold in the family so far. */
+void q_swat_zoom(MK3OBJ *obj)
+{
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x420 + 4);
+    get_tsl_px(obj, obj);
+    if ((long)obj->field20 > 0x1f)
+        q_yes(obj);
+    else
+        q_no(obj);
+}
+
+/* q_eatit_fatal -- armv7 0x00053290, 56 bytes.  **Complete.**
+ *
+ *      obj->field1c = 0x00040020 ; obj->field20 = 0x00402000
+ *      button_bit_check(obj)
+ *      if (obj->field5c == 0) q_no(obj)
+ *      else { obj->field30 = 0x70; obj->field34 = 0xa0; q_fatal_dist(obj) }
+ *
+ * A fourth routine on the same mask pair as q_bubble_fatal, q_lk_mk_fatal and
+ * q_scream_fatal, and the only one of the four that then sets a distance band.
+ * The band is the usual constant-plus-add-on-the-same-register: 0x70 and 0x30
+ * more, so the two bounds cannot drift. */
+void q_eatit_fatal(MK3OBJ *obj)
+{
+    obj->field1c = 0x00040020u;
+    obj->field20 = 0x00402000u;
+    button_bit_check(obj);
+    if (obj->field5c == 0) {
+        q_no(obj);
+        return;
+    }
+    obj->field30 = 0x70;
+    obj->field34 = 0x70 + 0x30;
+    q_fatal_dist(obj);
+}
+
+/* is_master_in_finish -- armv7 0x00052594, 56 bytes.  **Complete.**
+ *
+ *      if (GetThreadFunc(&mytc[2]) == t_fatality_wait) q_yes(obj)
+ *      else q_no(obj)
+ *
+ * **The 0x218 is an index, not an offset into a struct.** other.c established
+ * that mytc is an array of threads with a stride of 268, and 0x218 is exactly
+ * twice that -- so this asks about thread number two, whatever the object it
+ * was handed happens to be. The question is about the machine's state, not
+ * about either fighter.
+ *
+ * The handler it compares against comes through a pointer slot rather than as
+ * a link-time constant, so t_fatality_wait lives in another translation unit. */
+void is_master_in_finish(MK3OBJ *obj)
+{
+    MK3THREAD *master = (MK3THREAD *)((char *)mytc + 2 * 268);
+
+    if (GetThreadFunc(master) == (void *)t_fatality_wait)
+        q_yes(obj);
     else
         q_no(obj);
 }
