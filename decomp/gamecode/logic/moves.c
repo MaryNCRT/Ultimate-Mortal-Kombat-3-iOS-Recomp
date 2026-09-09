@@ -34,6 +34,8 @@
  * conflict here, which is what the check is for. */
 void q_animal_dist(MK3OBJ *obj);
 void q_fatal_dist(MK3OBJ *obj);
+extern uint32_t scom_bomb_mid[];           /* 0x0016a2e4 */
+extern uint32_t scom_bomb_mid_four[];      /* 0x0016a318 */
 void ground_ochar(MK3OBJ *obj);
 void player_normpal(MK3OBJ *obj);
 void tsound_func(MK3OBJ *obj, uint32_t sound);
@@ -6947,4 +6949,115 @@ long t_shang_morph(MK3THREAD *thread)
         return 0;
     }
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* robo2_hk_close -- armv7 0x000541fc, 268 bytes.  **Complete.**
+ *
+ *      obj->field1c = 0x00020040 ; obj->field20 = 0x00204000
+ *      if (other->field00->0x7c == 0) {
+ *          button_bit_check(obj)
+ *          if (obj->field5c == 0) return
+ *      }
+ *      get_his_p_hit(obj) ; if (obj->field1c > 1) return
+ *      get_his_action(obj) ; if (obj->field20 == 0x607) return
+ *
+ *      obj->field54 = t_do_bomb_full
+ *      if (other->field00->0x7c != 0)
+ *          ok = stick_look_lr2(obj, other, scom_robo_tele, 0x40, 0x4000)
+ *      else
+ *          ok = stick_look_lr2(obj, other, scom_robo_tele,
+ *                              0x00020040, 0x00204000)
+ *      if (!ok) {
+ *          obj->field54 = t_do_bomb_mid
+ *          table = other->field00->0x7c ? scom_bomb_mid_four : scom_bomb_mid
+ *          if (!stick_look_lr2(obj, other, table,
+ *                              0x00020040, 0x00204000)) return
+ *      }
+ *      obj->field34 = 0
+ *      obj->field38 = obj->field54
+ *      obj->field68 = &G + 0x3b8
+ *      obj->field64 = other->field00->0x7c ? -1 : 0x10
+ *      check_tsl(obj, other)
+ *
+ * **The four-button gate is consulted four separate times** -- to decide
+ * whether the buttons are checked at all, which mask pair the first pattern
+ * uses, which of two bomb tables the second uses, and what threshold check_tsl
+ * gets. One halfword steering four decisions in one routine.
+ *
+ * **0x54 carries the handler across the pattern search.** It is set to
+ * t_do_bomb_full before the first attempt and overwritten with t_do_bomb_mid
+ * before the second, and only once something matched is it copied into 0x38 --
+ * so the field that q_fan_lift's neighbours use for a saved word is a
+ * scratch pointer here.
+ *
+ * **A threshold of -1 passes everything.** With the gate set, check_tsl's
+ * comparison is against minus one, which any answer beats; with it clear the
+ * threshold is a real 0x10. So the gated form still runs the table dispatch but
+ * never fails its distance test.
+ *
+ * The masks are the pair (0x0002, 0x0040) and (0x0020, 0x4000) -- the ninth
+ * measurement of the half-shift rule, and the only one where the first word had
+ * to be read out of a literal pool because it does not fit an immediate. */
+void robo2_hk_close(MK3OBJ *obj, MK3OBJ *other)
+{
+    long gate;
+    uint32_t *table;
+
+    obj->field1c = 0x00020040u;
+    obj->field20 = 0x00204000u;
+
+    gate = *(int16_t *)((char *)other->field00 + 0x7c);
+    if (gate == 0) {
+        button_bit_check(obj);
+        if (obj->field5c == 0)
+            return;
+    }
+
+    get_his_p_hit(obj);
+    if ((long)obj->field1c > 1)
+        return;
+
+    get_his_action(obj);
+    if (obj->field20 == 0x607)
+        return;
+
+    obj->field54 = (uint32_t)(uintptr_t)t_do_bomb_full;
+
+    gate = *(int16_t *)((char *)other->field00 + 0x7c);
+    if (gate != 0) {
+        if (!stick_look_lr2(obj, (uint32_t)(uintptr_t)other,
+                            (uint32_t)(uintptr_t)scom_robo_tele,
+                            0x4000u - 0x3fc0u, 0x4000u))
+            gate = -1;                  /* fall through to the bomb tables */
+    } else if (!stick_look_lr2(obj, (uint32_t)(uintptr_t)other,
+                               (uint32_t)(uintptr_t)scom_robo_tele,
+                               0x00020040u, 0x00204000u)) {
+        gate = -1;
+    }
+
+    if (gate == -1) {
+        obj->field54 = (uint32_t)(uintptr_t)t_do_bomb_mid;
+        if (*(int16_t *)((char *)other->field00 + 0x7c) != 0)
+            table = scom_bomb_mid_four;
+        else
+            table = scom_bomb_mid;
+
+        if (!stick_look_lr2(obj, (uint32_t)(uintptr_t)other,
+                            (uint32_t)(uintptr_t)table,
+                            0x00020040u, 0x00204000u))
+            return;
+    }
+
+    obj->field34 = 0;
+    obj->field38 = obj->field54;
+    *(uint32_t *)((char *)obj + 0x68) =
+        (uint32_t)(uintptr_t)(G_BYTES + 0x3b8);
+
+    if (*(int16_t *)((char *)other->field00 + 0x7c) != 0)
+        *(uint32_t *)((char *)obj + 0x64) = (uint32_t)-1;
+    else
+        *(uint32_t *)((char *)obj + 0x64) = 0x10;
+
+    check_tsl(obj, other);
 }
