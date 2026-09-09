@@ -1264,3 +1264,258 @@ long t_jade_flash_sleep(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+
+/* ---------------------------------------------------------------- t_do_unblock_hi
+ *
+ * armv7 0x0004d7a0, 172 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field20 = obj->field00->field18 = 0
+ *                       obj->field40 = 0xc
+ *                       find_ani_last_frame(obj)
+ *                       obj->field40 = obj->field40 - 4
+ *                       obj->a10     = obj->field40 - 4
+ *                       do_next_a9_frame(obj)
+ *                       token := 0x772, park 4
+ *
+ *      token == 0x772:  obj->field40 = obj->a10
+ *                       do_next_a9_frame(obj)
+ *                       token := 0x775, park 4
+ *
+ *      token == 0x775:  pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:       return -3
+ *
+ * **Unblocking plays the block animation backwards, two frames of it.**
+ * find_ani_last_frame leaves the last frame in 0x40; the routine steps back 4,
+ * shows that, parks four frames, then steps back another 4 -- parked in 0x44
+ * across the wait -- and shows that. So 0x44 is again the save slot and the two
+ * `subs r3, #4` are two steps of one frame each, four bytes apart in whatever
+ * table 0x40 indexes.
+ *
+ * The zero written into 0x20 and the proc's 0x18 is the token, still zero on
+ * entry.
+ */
+void find_ani_last_frame(MK3OBJ *obj);
+long do_next_a9_frame(MK3OBJ *obj);
+
+long t_do_unblock_hi(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field20 = 0;
+        obj->field00->field18 = 0;
+
+        obj->field40 = 0xc;
+        find_ani_last_frame(obj);
+        obj->field40 = obj->field40 - 4;
+        obj->a10     = obj->field40 - 4;
+        do_next_a9_frame(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x772;
+        thread->fieldfc = 4;
+        return 4;
+    }
+
+    if (token == 0x772) {
+        obj->field40 = obj->a10;
+        do_next_a9_frame(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x775;
+        thread->fieldfc = 4;
+        return 4;
+    }
+
+    if (token != 0x775)
+        return -3;
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* ---------------------------------------------------------------- tl_do_babality
+ *
+ * armv7 0x0004e994, 164 bytes.  **Complete.**
+ *
+ *      token == 0:      init_special(obj)
+ *                       token := 0x1d0, descend into t_baby_start_pause
+ *
+ *      token == 0x1d0:  obj->field38 = t_turn_into_a_baby
+ *                       takeover_him(obj)
+ *                       token := 0x1d5, park 0x50
+ *
+ *      token == 0x1d5:  frame[frame].handler = tl_babality_complete
+ *
+ *      otherwise:       return -3
+ *
+ * **The victim does the work and the winner just waits eighty frames.** 0x38 is
+ * loaded with t_turn_into_a_baby and takeover_him installs it on the other
+ * fighter -- the same handover the slam family uses -- so the transformation runs
+ * on the victim's thread while this one parks 0x50 and then finishes through
+ * tl_babality_complete, which is already written above.
+ *
+ * Eighty frames is the longest single park in this file, which is about right for
+ * a finisher animation.
+ */
+void takeover_him(MK3OBJ *obj);
+long t_baby_start_pause(MK3THREAD *thread);
+long t_turn_into_a_baby(MK3THREAD *thread);
+
+long tl_do_babality(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        init_special(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1d0;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_baby_start_pause;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1d0) {
+        obj->field38 = (uint32_t)(uintptr_t)t_turn_into_a_baby;
+        takeover_him(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1d5;
+        thread->fieldfc = 0x50;
+        return 0x50;
+    }
+
+    if (token != 0x1d5)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)tl_babality_complete);
+}
+
+
+/* ------------------------------------------------------------------------ t_kick2
+ *
+ * armv7 0x0004c9e4, 180 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->a10 = 6
+ *                       token := 0x31a, descend into t_striker
+ *
+ *      token == 0x31a:  if (obj->field5c == 0) -- into the 0x31e body --
+ *                       token := 0x31e, park 0xc
+ *
+ *      token == 0x31e:  obj->field20 = 0x60b
+ *                       obj->field1c = 0x60b - 0x608 = 3
+ *                       frame[frame].handler = t_retract_strike_act
+ *
+ *      otherwise:       return -3
+ *
+ * **The same three-state shape as t_do_knee and t_do_elbow in mkcombo.c**, and it
+ * retracts through the very routine t_do_elbow uses. Set up, descend into
+ * t_striker, and when t_striker answers in 0x5c: a hit waits twelve frames before
+ * retracting, a miss retracts at once. So the strike-and-retract idiom is shared
+ * across the two files and only the constants differ.
+ *
+ * All four of t_stat_do_hi_kick, t_stat_do_lo_kick, t_do_jumpup_kick and
+ * t_do_jumpup_punch install this, which is why those four carry only setup.
+ */
+long t_striker(MK3THREAD *thread);
+long t_retract_strike_act(MK3THREAD *thread);
+
+long t_kick2(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->a10 = 6;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x31a;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_striker;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x31a && obj->field5c != 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x31e;
+        thread->fieldfc = 0xc;
+        return 0xc;
+    }
+
+    if (token != 0x31a && token != 0x31e)
+        return -3;
+
+    obj->field20 = 0x60b;
+    obj->field1c = 0x60b - 0x608;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_retract_strike_act);
+}
+
+/* ------------------------------------------------------------- t_baby_start_pause
+ *
+ * armv7 0x0004fd94, 172 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field20 = 5
+ *                       token := 0x1c7, descend into t_init_death_blow
+ *
+ *      token == 0x1c7:  obj->field40 = 0
+ *                       pose_a9_manual(obj)
+ *                       token := 0x1ca, park 0x20
+ *
+ *      token == 0x1ca:  pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:       return -3
+ *
+ * **A babality goes through the death-blow machinery first.** State 0 sets 0x20
+ * to 5 and descends into t_init_death_blow off pointer slot 0x000f3194 -- the same
+ * routine an ordinary finisher would use -- and only afterwards does the routine
+ * pose animation zero by hand and wait thirty-two frames.
+ *
+ * `pose_a9_manual` with 0x40 zeroed is the same pair t_smoke_slam uses to
+ * reposition, so animation zero posed manually is how a fighter is put into a
+ * neutral frame.
+ */
+long t_init_death_blow(MK3THREAD *thread);        /* pointer slot 0x000f3194 */
+void pose_a9_manual(MK3OBJ *obj);
+
+long t_baby_start_pause(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field20 = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1c7;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_init_death_blow;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1c7) {
+        obj->field40 = 0;
+        pose_a9_manual(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1ca;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (token != 0x1ca)
+        return -3;
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
