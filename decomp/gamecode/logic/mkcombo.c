@@ -651,3 +651,330 @@ long combo_scan_a11(MK3OBJ *obj)
         obj->field48 = (uint32_t)(uintptr_t)e;
     }
 }
+
+
+/* ------------------------------------------------------------------ t_do_knee
+ *
+ * armv7 0x00032a88, 240 bytes.  **Complete.**
+ *
+ *      token == 0:      init_special(obj)
+ *                       obj->field1c = 1
+ *                       obj->a10     = 1
+ *                       obj->field20 = 1 + 0x108    = 0x109
+ *                       obj->field40 = 0x109 - 0xf6 = 0x13
+ *                       obj->field48 = 0x13 - 5     = 0x0e
+ *                       token := 0x896, descend into t_striker
+ *
+ *      token == 0x896:  if (obj->field5c == 0) -- into the 0x8aa body --
+ *                       n = ochar_knee_combos[obj->field08->field24]
+ *                       obj->field1c = n
+ *                       if (n != 0) {
+ *                           obj->field48 = n
+ *                           frame[frame].handler = t_process_combo_table
+ *                       } else {
+ *                           obj->field1c = obj->field00->field18 = 0x601
+ *                           token := 0x8aa, park 0xf
+ *                       }
+ *
+ *      token == 0x8aa:  obj->field1c = 6
+ *                       frame[frame].handler = t_retract_strike
+ *
+ *      otherwise:       return -3
+ *
+ * **The knee is a strike that may or may not open a combo.** State zero sets the
+ * action up and hands control down to t_striker; when t_striker comes back with
+ * 0x5c set -- it connected -- the routine looks the character up in
+ * ochar_knee_combos, and a non-zero entry there becomes obj->field48 and sends
+ * the thread into t_process_combo_table. So the table says, per character,
+ * whether a landed knee starts a combo string and which one.
+ *
+ * **A miss and an empty table entry both end the same way**, at t_retract_strike
+ * with 0x1c = 6. The difference is that the empty entry first writes 0x601 into
+ * the opponent proc 0x18 and waits fifteen frames; a clean miss retracts at
+ * once.
+ *
+ * **The five constants are built by chained arithmetic off the first**, which is
+ * how the compiler avoided five literals: 1, +0x108, -0xf6, -5. Only the results
+ * mean anything -- 0x109 is the action number, and the elbow uses 0x10a, the
+ * next one along.
+ *
+ * **The re-test of 0x5c at 0x32b4c is dead.** Reaching it already required 0x5c
+ * to be non-zero and nothing in between can change it, so the beq back into the
+ * 0x8aa body never fires. Transcribed as written; t_do_elbow, which is otherwise
+ * the same routine, does not carry it.
+ *
+ * The ochar_* tables are reached pc-relative with no indirection, unlike
+ * combo_strike_table below -- they are defined in this translation unit. */
+void init_special(MK3OBJ *obj);
+long t_striker(MK3THREAD *thread);
+long t_retract_strike(MK3THREAD *thread);         /* pointer slot 0x000f38c8 */
+extern uint32_t ochar_knee_combos[];              /* 0x0016645c */
+
+long t_do_knee(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t n;
+
+    if (token == 0) {
+        init_special(obj);
+        obj->field1c = 1;
+        obj->a10     = 1;
+        obj->field20 = 1 + 0x108;
+        obj->field40 = (1 + 0x108) - 0xf6;
+        obj->field48 = ((1 + 0x108) - 0xf6) - 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x896;
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_striker;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x896 && obj->field5c != 0) {
+        n = ochar_knee_combos[obj->field08->field24];
+        obj->field1c = n;
+
+        if (n != 0) {
+            obj->field48 = n;
+            return mk3_install(thread,
+                               (MK3THREADFUNC)t_process_combo_table);
+        }
+
+        obj->field1c = 0x601;
+        obj->field00->field18 = 0x601;
+
+        if (obj->field5c != 0) {        /* always true; see the note above */
+            *mk3_frame(thread, thread->frame + 1) = 0x8aa;
+            thread->fieldfc = 0xf;
+            return 0xf;
+        }
+    }
+
+    if (token != 0x896 && token != 0x8aa)
+        return -3;
+
+    obj->field1c = 6;
+    return mk3_install(thread, (MK3THREADFUNC)t_retract_strike);
+}
+
+/* ----------------------------------------------------------------- t_do_elbow
+ *
+ * armv7 0x00032b78, 280 bytes.  **Complete.**
+ *
+ *      token == 0:      init_special(obj)
+ *                       a = ochar_elbow_animations[obj->field08->field24]
+ *                       obj->field1c = a
+ *                       if (a & 0x80) {
+ *                           obj->field1c = obj->field40 = a & 0x7f
+ *                           get_char_ani2(obj)
+ *                       } else {
+ *                           obj->field40 = a
+ *                           get_char_ani(obj)
+ *                       }
+ *                       obj->field1c = 1
+ *                       obj->field20 = 0x10a
+ *                       obj->a10     = 5
+ *                       obj->field48 = 5 + 0xa = 0xf
+ *                       token := 0x8f5, descend into t_striker
+ *
+ *      token == 0x8f5:  if (obj->field5c == 0) -- into the 0x903 body --
+ *                       n = ochar_elbow_combos[obj->field08->field24]
+ *                       obj->field1c = n
+ *                       if (n != 0) {
+ *                           obj->field48 = n
+ *                           frame[frame].handler = t_process_combo_table
+ *                       } else {
+ *                           obj->field1c = obj->field00->field18 = 0x60a
+ *                           token := 0x903, park 0xa
+ *                       }
+ *
+ *      token == 0x903:  obj->field1c = 3
+ *                       obj->field20 = 0x60a
+ *                       frame[frame].handler = t_retract_strike_act
+ *
+ *      otherwise:       return -3
+ *
+ * **The same routine as t_do_knee with one addition: the elbow picks its own
+ * animation.** A byte out of ochar_elbow_animations, indexed by the character,
+ * chooses it, and bit 7 of that byte selects the second lookup -- exactly the
+ * packing a9_combo_ani uses on the high byte of 0x40, here on a byte from a
+ * table. The bit is stripped before the call, so it is a selector and not part
+ * of the number.
+ *
+ * Two tables, two strides: the animation one is ldrb -- bytes -- and the combo
+ * one is ldr with lsl #2 -- words. So a character elbow animation fits in a byte
+ * and its combo entry is a pointer.
+ *
+ * **The elbow retracts through t_retract_strike_act, not t_retract_strike**, and
+ * writes 0x60a into 0x20 on the way -- the knee writes nothing there and uses
+ * the plain retract. That is the only structural difference between the pair
+ * apart from the animation lookup and the dead 0x5c re-test the knee carries.
+ *
+ * 0x60a is both the value put in the opponent proc 0x18 when the table entry is
+ * empty and the one put in this object 0x20 on the retract, so the same constant
+ * names the action on both sides. */
+void get_char_ani(MK3OBJ *obj);
+void get_char_ani2(MK3OBJ *obj);
+long t_retract_strike_act(MK3THREAD *thread);     /* pointer slot 0x000f3874 */
+extern uint8_t  ochar_elbow_animations[];         /* 0x001664bc */
+extern uint32_t ochar_elbow_combos[];             /* 0x001663fc */
+
+long t_do_elbow(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t a, n;
+
+    if (token == 0) {
+        init_special(obj);
+
+        a = ochar_elbow_animations[obj->field08->field24];
+        obj->field1c = a;
+        if ((a & 0x80) != 0) {
+            obj->field1c = a & 0x7fu;
+            obj->field40 = a & 0x7fu;
+            get_char_ani2(obj);
+        } else {
+            obj->field40 = a;
+            get_char_ani(obj);
+        }
+
+        obj->field1c = 1;
+        obj->field20 = 0x10a;
+        obj->a10     = 5;
+        obj->field48 = 5 + 0xa;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x8f5;
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_striker;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x8f5 && obj->field5c != 0) {
+        n = ochar_elbow_combos[obj->field08->field24];
+        obj->field1c = n;
+
+        if (n != 0) {
+            obj->field48 = n;
+            return mk3_install(thread,
+                               (MK3THREADFUNC)t_process_combo_table);
+        }
+
+        obj->field1c = 0x60a;
+        obj->field00->field18 = 0x60a;
+        *mk3_frame(thread, thread->frame + 1) = 0x903;
+        thread->fieldfc = 0xa;
+        return 0xa;
+    }
+
+    if (token != 0x8f5 && token != 0x903)
+        return -3;
+
+    obj->field1c = 3;
+    obj->field20 = 0x60a;
+    return mk3_install(thread, (MK3THREADFUNC)t_retract_strike_act);
+}
+
+/* -------------------------------------------------------------------- t_comba
+ *
+ * armv7 0x00032db4, 284 bytes.  **Complete.**
+ *
+ *      token == 0:      a9_combo_ani(obj)
+ *                       obj->field1c = *(int32_t *)(obj->field48 + 8) >> 8
+ *                       token := 0x823, descend into t_mframew
+ *
+ *      token == 0x823:  k = *(int32_t *)(obj->field48 + 0x10) >> 8
+ *                       obj->field1c = k
+ *                       obj->field1c = combo_strike_table[k]
+ *                       strike_check(obj)
+ *                       if (obj->field5c == 0)
+ *                           frame[frame].handler = t_combo_miss
+ *                       else {
+ *                           obj->field38 = obj->field48
+ *                           next = *(int32_t *)(obj->field48 + 0x14)
+ *                           obj->field48 = next
+ *                           if (next > 0x100)
+ *                               frame[frame].handler = t_comb0
+ *                           else {
+ *                               obj->field1c = next
+ *                               token := 0x840, park next
+ *                           }
+ *                       }
+ *
+ *      token == 0x840:  frame[frame].handler = t_comb9
+ *
+ *      otherwise:       return -3
+ *
+ * **This is the body of a combo string: one entry per hit, walked through 0x48.**
+ * The entry is the 0x18-byte record combo_scan_a11 walks, and this routine reads
+ * three of its words -- +0x08 is the animation-and-rate word for the wait, +0x10
+ * names the strike, +0x14 is what comes next.
+ *
+ * **Both packed words are read as a signed word and shifted right eight**, so
+ * the useful part is bits 8 and up and the low byte is something else -- the
+ * same packing a9_combo_ani takes apart, and the reason a9_combo_ani is called
+ * first: it has already consumed 0x40 by the time these are read.
+ *
+ * **+0x14 is a pointer OR a duration, told apart by 0x100.** Above that it is
+ * the next entry and the thread goes to t_comb0 to run it; at or below it is a
+ * frame count, written to 0xfc and returned, and the thread comes back at token
+ * 0x840 to finish through t_comb9. Either way the value is stored into 0x48
+ * before the test, so on the short path 0x48 is left holding a small integer
+ * where every other reader expects an address.
+ *
+ * strike_check answers in 0x5c, and a miss ends the string at t_combo_miss --
+ * there is no retry. 0x38 keeps the entry that hit, which is the only record of
+ * where the string was when it landed.
+ *
+ * combo_strike_table is reached through a pointer slot rather than pc-relative,
+ * so unlike the ochar_* tables above it is defined in another translation
+ * unit. */
+long strike_check(MK3OBJ *obj);
+extern uint32_t *combo_strike_table;      /* pointer slot -> 0x00167694 */
+
+long t_comba(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    int32_t  k, next;
+
+    if (token == 0) {
+        a9_combo_ani(obj);
+        obj->field1c = (uint32_t)
+            (*(int32_t *)((char *)(void *)(uintptr_t)obj->field48 + 8) >> 8);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x823;
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x840)
+        return mk3_install(thread, (MK3THREADFUNC)t_comb9);
+
+    if (token != 0x823)
+        return -3;
+
+    k = *(int32_t *)((char *)(void *)(uintptr_t)obj->field48 + 0x10) >> 8;
+    obj->field1c = (uint32_t)k;
+    obj->field1c = combo_strike_table[k];
+
+    strike_check(obj);
+    if (obj->field5c == 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_combo_miss);
+
+    obj->field38 = obj->field48;
+    next = *(int32_t *)((char *)(void *)(uintptr_t)obj->field48 + 0x14);
+    obj->field48 = (uint32_t)next;
+
+    if (next > 0x100)
+        return mk3_install(thread, (MK3THREADFUNC)t_comb0);
+
+    obj->field1c = (uint32_t)next;
+    *mk3_frame(thread, thread->frame + 1) = 0x840;
+    thread->fieldfc = obj->field1c;
+    return (long)obj->field1c;
+}
