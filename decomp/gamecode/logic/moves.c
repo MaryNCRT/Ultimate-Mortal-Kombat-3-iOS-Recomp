@@ -34,6 +34,9 @@
  * conflict here, which is what the check is for. */
 void q_animal_dist(MK3OBJ *obj);
 void q_fatal_dist(MK3OBJ *obj);
+long get_y_dist(MK3OBJ *obj);
+long t_air_sleep3(MK3THREAD *thread);
+long t_do_air_slam(MK3THREAD *thread);
 extern uint32_t scom_fly[];               /* 0x0016a3e8 */
 extern uint32_t scom_lao_zap[];           /* 0x0016a5f0 */
 void distance_from_ground(MK3OBJ *obj);
@@ -5544,4 +5547,128 @@ void q_stick_sweep(MK3OBJ *obj)
         q_no(obj);
     else
         q_yes(obj);
+}
+
+
+/* q_tusk_blur -- armv7 0x00052e14, 80 bytes.  **Complete.**
+ *
+ *      obj->field1c = obj->field00->field00->field00->p_hit
+ *      if (obj->field1c > 1) q_no(obj)
+ *      else {
+ *          get_his_action(obj)
+ *          if (his action is 0x60c, 0x60b, 0x617, 0x600 or 0x509) q_no(obj)
+ *          else q_yes(obj)
+ *      }
+ *
+ * **The four-load chain is inlined here rather than called.** It is exactly
+ * what get_his_p_hit does, written out instead of branched to -- eighty bytes
+ * with room for it. Five forbidden actions follow, all five branching to one
+ * q_no, which is the longest such list in the file. */
+void q_tusk_blur(MK3OBJ *obj)
+{
+    obj->field1c = obj->field00->field00->field00->p_hit;
+    if ((long)obj->field1c > 1) {
+        q_no(obj);
+        return;
+    }
+
+    get_his_action(obj);
+    if (obj->field20 == 0x60c || obj->field20 == 0x60b
+        || obj->field20 == 0x617 || obj->field20 == 0x600
+        || obj->field20 == 0x509)
+        q_no(obj);
+    else
+        q_yes(obj);
+}
+
+/* q_mileena_roll -- armv7 0x00052c10, 84 bytes.  **Complete.**
+ *
+ * A hit count and then two table entries, both over 0x1f, at &G + 0x424 and
+ * &G + 0x428 -- adjacent words. Three conditions, one yes. */
+void q_mileena_roll(MK3OBJ *obj)
+{
+    get_his_p_hit(obj);
+    if ((long)obj->field1c > 2) {
+        q_no(obj);
+        return;
+    }
+
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x420 + 4);
+    get_tsl_px(obj, obj);
+    if ((long)obj->field20 <= 0x1f) {
+        q_no(obj);
+        return;
+    }
+
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x428);
+    get_tsl_px(obj, obj);
+    if ((long)obj->field20 <= 0x1f)
+        q_no(obj);
+    else
+        q_yes(obj);
+}
+
+/* q_spear -- armv7 0x0005297c, 84 bytes.  **Complete.**
+ *
+ * Two table entries and then a hit count -- the same three conditions as
+ * q_mileena_roll in the opposite order. &G + 0x424 over 0x2f, &G + 0x420 over
+ * 0x5f, and no more than four hits. */
+void q_spear(MK3OBJ *obj)
+{
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x420 + 4);
+    get_tsl_px(obj, obj);
+    if ((long)obj->field20 <= 0x2f) {
+        q_no(obj);
+        return;
+    }
+
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x420);
+    get_tsl_px(obj, obj);
+    if ((long)obj->field20 <= 0x5f) {
+        q_no(obj);
+        return;
+    }
+
+    get_his_p_hit(obj);
+    if ((long)obj->field1c > 4)
+        q_no(obj);
+    else
+        q_yes(obj);
+}
+
+/* robo2_lp_close -- armv7 0x000543dc, 80 bytes.  **Complete.**
+ *
+ *      t = other->thread
+ *      if (frame[t->frame].handler != t_air_sleep3) return
+ *      get_y_dist(obj) ; if (obj->field28 > 0x30) return
+ *      get_x_dist(obj) ; if (obj->field28 > 0x50) return
+ *      obj->field38 = t_do_air_slam
+ *      free_xfer(obj, other)
+ *
+ * **It asks what the opponent's thread is running right now.** The frame index
+ * is read out of his own thread, scaled by eight, and the handler at that level
+ * is compared against t_air_sleep3 -- the chase written in mkprop.c. So the
+ * slam only opens while he is already being chased through the air, and then
+ * only inside 0x30 vertically and 0x50 horizontally.
+ *
+ * Both the expected handler and the installed one come through pointer slots,
+ * so both live in other translation units. This is the only routine in
+ * moves.c that reaches into another object's frame array. */
+void robo2_lp_close(MK3OBJ *obj, MK3OBJ *other)
+{
+    MK3THREAD *t = other->thread;
+
+    if (mk3_frame(t, t->frame)[1] != (uint32_t)(uintptr_t)t_air_sleep3)
+        return;
+
+    get_y_dist(obj);
+    if ((long)obj->field28 > 0x30)
+        return;
+
+    get_x_dist(obj);
+    if ((long)obj->field28 > 0x50)
+        return;
+
+    obj->field38 = (uint32_t)(uintptr_t)t_do_air_slam;
+    free_xfer(obj, other);
 }
