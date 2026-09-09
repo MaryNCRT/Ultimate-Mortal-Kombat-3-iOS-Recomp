@@ -34,6 +34,8 @@
  * conflict here, which is what the check is for. */
 void q_animal_dist(MK3OBJ *obj);
 void q_fatal_dist(MK3OBJ *obj);
+extern uint32_t scom_fly[];               /* 0x0016a3e8 */
+extern uint32_t scom_lao_zap[];           /* 0x0016a5f0 */
 void distance_from_ground(MK3OBJ *obj);
 long CountThreads(uint32_t pid);
 long is_he_facing_me(MK3OBJ *obj);
@@ -5305,4 +5307,108 @@ void lao_hk_close(MK3OBJ *obj, MK3OBJ *other)
 
     obj->field38 = (uint32_t)(uintptr_t)t_do_lao_angle_kick;
     airborn_xfer(obj, other);
+}
+
+
+/* q_kano_upball -- armv7 0x00052a74, 72 bytes.  **Complete.**
+ *
+ *      obj->field1c = &G + 0x440 ; get_tsl_px(obj, obj)
+ *      if (obj->field20 <= 0x3f) q_no(obj)
+ *      else {
+ *          obj->field1c = &G + 0x424 ; get_tsl_px(obj, obj)
+ *          if (obj->field20 > 0x27) q_yes(obj); else q_no(obj);
+ *      }
+ *
+ * **Two table entries, both of which have to pass.** The base of G is kept in
+ * a callee-saved register across the first call so the second address costs
+ * one add rather than another pool load -- which is how you can tell the two
+ * lookups were meant as a pair.
+ *
+ * q_mileena_zap is the same seventy-two bytes with &G + 0x424 over 0x1f and
+ * then &G + 0x3a8 over 7. */
+void q_kano_upball(MK3OBJ *obj)
+{
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x440);
+    get_tsl_px(obj, obj);
+    if ((long)obj->field20 <= 0x3f) {
+        q_no(obj);
+        return;
+    }
+
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x420 + 4);
+    get_tsl_px(obj, obj);
+    if ((long)obj->field20 > 0x27)
+        q_yes(obj);
+    else
+        q_no(obj);
+}
+
+/* q_mileena_zap -- armv7 0x00052bc8, 72 bytes.  **Complete.**  See
+ * q_kano_upball. */
+void q_mileena_zap(MK3OBJ *obj)
+{
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x420 + 4);
+    get_tsl_px(obj, obj);
+    if ((long)obj->field20 <= 0x1f) {
+        q_no(obj);
+        return;
+    }
+
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x3a8);
+    get_tsl_px(obj, obj);
+    if ((long)obj->field20 > 7)
+        q_yes(obj);
+    else
+        q_no(obj);
+}
+
+/* lia_hk_close -- armv7 0x00054964, 72 bytes.  **Complete.**
+ *
+ *      if (!stick_look_lr2(obj, other, scom_fly, 0x40, 0x4000)) return
+ *      q_is_he_a_boss(obj)
+ *      if (obj->field5c != 0) return
+ *      obj->field38 = t_do_lia_fly
+ *      restricted_xfer(obj, other)
+ *
+ * The same stick pair as lao_hk_close with a boss check where that has a
+ * height check -- and against a boss the move simply does not open. */
+void lia_hk_close(MK3OBJ *obj, MK3OBJ *other)
+{
+    if (!stick_look_lr2(obj, (uint32_t)(uintptr_t)other,
+                        (uint32_t)(uintptr_t)scom_fly,
+                        0x4000u - 0x3fc0u, 0x4000u))
+        return;
+
+    q_is_he_a_boss(obj);
+    if (obj->field5c != 0)
+        return;
+
+    obj->field38 = (uint32_t)(uintptr_t)t_do_lia_fly;
+    restricted_xfer(obj, other);
+}
+
+/* lao_lp_close -- armv7 0x000548d8, 72 bytes.  **Complete.**
+ *
+ *      if (!stick_look_lr2(obj, other, scom_lao_zap, 0x10000, 0x100000))
+ *          return
+ *      if (CountThreads(obj->field00->field08 + 0x700) != 0) return
+ *      obj->field38 = t_do_lao_zap
+ *      restricted_xfer(obj, other)
+ *
+ * **The pid it counts is per-player.** 0x700 plus the strength index, so each
+ * fighter has his own thread id in that range and one hat in flight only
+ * blocks its own owner. q_floor_blade counts two fixed pids instead; this one
+ * builds its pid out of who is asking. */
+void lao_lp_close(MK3OBJ *obj, MK3OBJ *other)
+{
+    if (!stick_look_lr2(obj, (uint32_t)(uintptr_t)other,
+                        (uint32_t)(uintptr_t)scom_lao_zap,
+                        0x100000u - 0xf0000u, 0x100000u))
+        return;
+
+    if (CountThreads(obj->field00->field08 + 0x700) != 0)
+        return;
+
+    obj->field38 = (uint32_t)(uintptr_t)t_do_lao_zap;
+    restricted_xfer(obj, other);
 }
