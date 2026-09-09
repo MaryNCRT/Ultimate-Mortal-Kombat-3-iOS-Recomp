@@ -370,6 +370,41 @@ t_do_ ... ) handler = t_do_lia_anglez`, and so on for the rest of the 84
 comparisons. That is where the 3328 bytes go, and it is why the function is
 mechanical to read but unforgiving: every pair is a separate fact.
 
+**The 106 addresses are resolved. Here is what they are.**
+
+**Ninety of them are one uniform family.** `t_do_*` handlers, sixty bytes apart
+without a gap, from `t_do_ermac_slam` at 0x05037d through `t_do_ermac_zap` at
+0x05179d -- one stub per special move, and DoASpecial's override chain compares
+against members of it. The 0x3c stride is exact across all ninety, so the family
+is an array of stubs, not a scattered set.
+
+Four transfer routines: `free_xfer` (0x5436d), `mercy_xfer` (0x54ac5),
+`fatality_xfer` (0x54b25), `animality_xfer` (0x54b39). Plus `t_do_mercy`
+(0x525cd) and `RoundParam`.
+
+**The fourteen pointer slots are the interesting ones, and they say what the
+overrides are FOR:**
+
+    0xf3130  t_do_pit_fatality        0xf315c  t_drone_animality
+    0xf3138  tl_do_square_wave        0xf3160  t_do_friendship
+    0xf3144  t_drone_mercy            0xf3168  t_drone_babality
+    0xf3148  t_drone_do_fatality1     0xf319c  t_drone_do_fatality2
+    0xf3150  t_do_fatality_1          0xf31a4  t_do_fatality_2
+    0xf31a8  t_do_air_slam            0xf31ac  t_do_animality
+    0xf31b0  t_d_background_fatal     0xf31b8  t_drone_friendship
+
+**Seven of the fourteen are `t_drone_*` -- the AI's own versions of mercy,
+fatality one and two, animality, babality and friendship.** So the override
+chain is substituting a drone handler for a player handler, which is what a
+dispatcher this size is doing with 84 comparisons: the same request produces a
+different routine depending on who is asking and which character is involved.
+The rest are the finisher variants that are not per-character stubs at all --
+the pit fatality, the background fatality, the square wave.
+
+That is the whole map. What is left is the transcription: taking the 84
+comparisons in address order and writing down which pair substitutes which
+handler.
+
 **How to do it.** Resolve all 106 addresses first, in one pass, with the same
 pool-and-slot script used all through this session -- the two forms are a
 literal pool word (`ldr rN, [pc, #imm]` then `add rN, pc`) and a pointer slot
