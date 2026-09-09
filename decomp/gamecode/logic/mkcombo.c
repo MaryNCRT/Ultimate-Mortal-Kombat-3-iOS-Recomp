@@ -403,3 +403,125 @@ long t_process_combo_table(MK3THREAD *thread)
 
     return mk3_push_handler(thread, (MK3THREADFUNC)t_comb0);
 }
+
+
+/* t_comb1 -- armv7 0x00032878, 160 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field00->field20 = obj->field1c
+ *                       token := 0x7f9, park 1
+ *
+ *      token == 0x7f9:  combo_scan_a11(obj)
+ *                       if (obj->field5c != 0)
+ *                           frame[frame].handler = t_comb8
+ *                       else {
+ *                           obj->field1c = obj->field00->field20 - 1
+ *                           if (obj->field1c > 0)
+ *                               frame[frame].handler = t_comb1
+ *                           else
+ *                               frame[frame].handler = t_combo_2_late
+ *                       }
+ *                       frame[frame+1].w0 = 0
+ *
+ *      otherwise:       return -3
+ *
+ * **The window is a countdown kept in the opponent's proc.** 0x1c goes into
+ * proc+0x20 on the way in and comes back one lower every frame; while it is
+ * positive the routine reinstalls itself, and when it runs out it hands over to
+ * t_combo_2_late. So the same field t_combj uses as a save slot is used here as
+ * a per-frame counter, and the name of the exit says what running out means.
+ *
+ * A hit from combo_scan_a11 -- answered in 0x5c, like the q_ family -- jumps
+ * straight to t_comb8, which is the routine that bumps ComboNum. That is the
+ * link between recognising a combo and counting it.
+ *
+ * All three installs sit on the 0x7f9 path, so none of them may carry the
+ * state-0 refusal. */
+long combo_scan_a11(MK3OBJ *obj);
+long t_comb8(MK3THREAD *thread);
+long t_combo_2_late(MK3THREAD *thread);
+
+long t_comb1(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field00->field20 = obj->field1c;
+        *mk3_frame(thread, thread->frame + 1) = 0x7f9;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token != 0x7f9)
+        return -3;
+
+    combo_scan_a11(obj);
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_comb8);
+
+    obj->field1c = obj->field00->field20 - 1;
+    if ((long)obj->field1c > 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_comb1);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_combo_2_late);
+}
+
+/* t_comb0 -- armv7 0x00032c90, 176 bytes.  **Complete.**
+ *
+ *      token == 0:      n = *(uint8_t *)obj->field48
+ *                       obj->field1c = (n * 3) >> 1
+ *                       am_i_joy(obj)
+ *                       if (obj->field5c != 0)
+ *                           frame[frame].handler = t_combj
+ *                       else { token := 0x7ea, park 4 }
+ *
+ *      token == 0x7ea:  obj->field1c = (int16)*(G + 0x44c)
+ *                       if (obj->field1c > 1)
+ *                           frame[frame].handler = t_comb8
+ *                       else
+ *                           frame[frame].handler = t_combo_exit
+ *
+ *      otherwise:       return -3
+ *
+ * **The window is one and a half times a BYTE out of the table.** 0x48 points
+ * at the entry and its first byte is the length; times three, shifted right one,
+ * gives the number of frames -- the same times-three-over-two shape
+ * stick_look_lr uses for its deadline, here without the signed correction
+ * because the value came out of a `ldrb` and cannot be negative.
+ *
+ * **A person and the machine take different routes from the same state.**
+ * am_i_joy coming back set installs t_combj immediately; clear parks four frames
+ * and then decides on a halfword at G + 0x44c -- over one goes to t_comb8 and
+ * counts a combo, one or less goes to t_combo_exit. */
+long am_i_joy(MK3OBJ *obj);
+long t_combj(MK3THREAD *thread);
+long t_combo_exit(MK3THREAD *thread);
+
+long t_comb0(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t n;
+
+    if (token == 0) {
+        n = *(uint8_t *)(void *)(uintptr_t)obj->field48;
+        obj->field1c = (n * 3) >> 1;
+
+        am_i_joy(obj);
+        if (obj->field5c != 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_combj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x7ea;
+        thread->fieldfc = 4;
+        return 4;
+    }
+
+    if (token != 0x7ea)
+        return -3;
+
+    obj->field1c = (uint32_t)(int32_t)*(int16_t *)(G_BYTES + 0x44c);
+    if ((long)obj->field1c > 1)
+        return mk3_install(thread, (MK3THREADFUNC)t_comb8);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_combo_exit);
+}
