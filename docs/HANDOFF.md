@@ -7,7 +7,7 @@ Read this, then [METHODOLOGY.md](METHODOLOGY.md). Everything else is reference.
 
 ## Where the project actually stands
 
-**66.77% of the total estimated effort. Nothing is playable.** The arithmetic is
+**66.78% of the total estimated effort. Nothing is playable.** The arithmetic is
 in the [README](../README.md#overall-progress) and the weights are a judgement
 call; the completion figures are measured by `tools/progress.py` on every run.
 
@@ -326,92 +326,47 @@ reasoning about the tool.
 
 ---
 
-## The one function left in moves.c: DoASpecial
+## moves.c is finished, and what DoASpecial turned out to be
 
-`moves.c` stands at 356 of 357. The remainder is `DoASpecial`, armv7
-`0x000517f0`, **3328 bytes** -- the entry point every special move goes
-through. It is not hard, it is *long*: 106 distinct addresses reached through
-178 pc-relative loads, and 84 comparisons. Do not start it without the room to
-finish it, and do not guess a single one of those 106.
+`moves.c` is **357 of 357**. `DoASpecial` -- armv7 `0x000517f0`, 3328 bytes --
+was the last one, and reading it corrected three things the earlier map in this
+file had guessed at. They are recorded here because the same guesses are easy to
+make again on the next large dispatcher.
 
-**Its shape is already established, and this is the part worth knowing.**
+**It is three dispatchers, not one chain of 84 comparisons.** The earlier map
+read the bulk of the function as a flat per-character override chain at
+`0x518ee`. It is not. `0x518ee` is a single override, two comparisons long. The
+3328 bytes are:
 
-**It builds a throwaway object on the stack.** `sub sp, #0x6c` reserves 108
-bytes, `[sp] = obj->field00` and `[sp+8] = obj->field08` fill in the first
-fields, and every question is then asked with `mov r0, sp` -- against the COPY.
-The answers come back at `[sp+0x5c]`, which is that copy's `field5c`. So the
-q_ family can be run without disturbing the real object's scratch fields, which
-is why nothing in the dispatcher has to save and restore 0x1c.
+    which - 0xd <= 6 and RoundParam[14] != 0   tbh, 7 arms, gated, drone
+    which - 0xd <= 6 and RoundParam[14] == 0   tbb, 7 arms, ungated, own
+    anything else                              tbh, 23 arms, one per character
 
-**The entry dispatch is a seven-way `tbh` on `which - 0xd`:**
+The 23 character arms are each themselves a switch on `which` -- eleven as
+inline `b.w` jump tables reached through `mov pc, r3`, twelve as `cmp`/`beq`
+pairs. **That** is where the comparisons are.
 
-    which  stub      asks                then
-    0xd    0x51d9a   --                  joins 0x518ee
-    0xe    0x51d60   q_mercy_req_ez      yes -> 0x520fc
-    0xf    0x51d7c   -- (sets proc+0x80 = 1)
-    0x10   0x51d0a   -- (sets proc+0x80 = 1, handler from slot 0xf319c)
-    0x11   0x51d44   q_mercy             yes -> 0x5209e
-    0x12   0x51d28   q_friend_ez         yes -> 0x520dc
-    0x13   0x51cee   q_friend_ez         yes -> 0x52080
+**RoundParam[14] is the finishing window.** Blood.c settles it without any
+guesswork: its event 17/18, the FINISH HIM/HER prompt, sets `IsInFinishing = 1`
+and `RoundParam[14] = 1` in the same breath. The two finisher dispatchers are
+therefore the same seven requests in two modes, and their handlers pair up one
+for one -- `t_drone_mercy` against `t_do_mercy`, `t_drone_babality` against
+`t_do_baby`, and so on for all seven. Only the window-open path writes
+`proc+0x80 = 1` and only it asks a predicate.
 
-Anything outside `[0xd, 0x13]` goes to `0x5184a`. Three characters are special
-cased before the table is even reached, on the part's `0x24`: 0x16 to `0x5189a`,
-0x14 to `0x518b8`, 0x15 to `0x52052`. And the whole table is only reached when
-`RoundParam[14]` is non-zero -- zero goes to `0x5188a`.
+**The `which = 0xd` stub does ask a predicate** -- `q_pit_fatal_ez`. The earlier
+map recorded it as asking nothing. And two of the four predicates guard a move
+they are not named for, which is not a mistake in either: `0x11`, the animality,
+is guarded by `q_mercy` because an animality requires a mercy first, and `0x12`,
+the babality, shares `q_friend_ez` with the friendship because both need no
+punches thrown.
 
-Each stub leaves two registers set for the common path: `sb` is the transfer
-routine (`free_xfer` at 0x5436d, or `fatality_xfer` at 0x54b25) and `lr` is the
-part's character number.
-
-**The common path at `0x518ee` is a chain of per-character overrides.** It
-compares `lr` against a character and `r1` against a handler, and substitutes a
-different handler when both match -- `if (character == 6 && handler ==
-t_do_ ... ) handler = t_do_lia_anglez`, and so on for the rest of the 84
-comparisons. That is where the 3328 bytes go, and it is why the function is
-mechanical to read but unforgiving: every pair is a separate fact.
-
-**The 106 addresses are resolved. Here is what they are.**
-
-**Ninety of them are one uniform family.** `t_do_*` handlers, sixty bytes apart
-without a gap, from `t_do_ermac_slam` at 0x05037d through `t_do_ermac_zap` at
-0x05179d -- one stub per special move, and DoASpecial's override chain compares
-against members of it. The 0x3c stride is exact across all ninety, so the family
-is an array of stubs, not a scattered set.
-
-Four transfer routines: `free_xfer` (0x5436d), `mercy_xfer` (0x54ac5),
-`fatality_xfer` (0x54b25), `animality_xfer` (0x54b39). Plus `t_do_mercy`
-(0x525cd) and `RoundParam`.
-
-**The fourteen pointer slots are the interesting ones, and they say what the
-overrides are FOR:**
-
-    0xf3130  t_do_pit_fatality        0xf315c  t_drone_animality
-    0xf3138  tl_do_square_wave        0xf3160  t_do_friendship
-    0xf3144  t_drone_mercy            0xf3168  t_drone_babality
-    0xf3148  t_drone_do_fatality1     0xf319c  t_drone_do_fatality2
-    0xf3150  t_do_fatality_1          0xf31a4  t_do_fatality_2
-    0xf31a8  t_do_air_slam            0xf31ac  t_do_animality
-    0xf31b0  t_d_background_fatal     0xf31b8  t_drone_friendship
-
-**Seven of the fourteen are `t_drone_*` -- the AI's own versions of mercy,
-fatality one and two, animality, babality and friendship.** So the override
-chain is substituting a drone handler for a player handler, which is what a
-dispatcher this size is doing with 84 comparisons: the same request produces a
-different routine depending on who is asking and which character is involved.
-The rest are the finisher variants that are not per-character stubs at all --
-the pit fatality, the background fatality, the square wave.
-
-That is the whole map. What is left is the transcription: taking the 84
-comparisons in address order and writing down which pair substitutes which
-handler.
-
-**How to do it.** Resolve all 106 addresses first, in one pass, with the same
-pool-and-slot script used all through this session -- the two forms are a
-literal pool word (`ldr rN, [pc, #imm]` then `add rN, pc`) and a pointer slot
-(the same, then `ldr rN, [rN]`). Write the resolved list down before
-transcribing anything. Then take the overrides in address order and check each
-against the disassembly twice, because a wrong pair here silently gives one
-character another character's move.
+**The lesson that generalises.** The map in this file was built from resolved
+addresses and instruction counts without following the control flow, and it got
+the shape wrong while getting every address right. Resolving the constants is
+necessary and is not sufficient: decode the branch tables before describing what
+a function does. A `tbh` whose table disassembles as `lsls` instructions is data,
+and its seven or twenty-three targets are the outline of the routine.
 
 ## Open questions worth someone's time
 

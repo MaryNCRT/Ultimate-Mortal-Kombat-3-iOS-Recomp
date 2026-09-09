@@ -34,6 +34,23 @@
  * conflict here, which is what the check is for. */
 void q_animal_dist(MK3OBJ *obj);
 void q_fatal_dist(MK3OBJ *obj);
+
+/* The eleven handlers DoASpecial reaches that nothing else in this file names.
+ * Every one of them arrives through a pointer slot except t_do_mercy and
+ * t_do_baby, which are pc-relative -- so these nine live in other translation
+ * units and those two live here. */
+long tl_do_square_wave(MK3THREAD *thread);    /* pointer slot 0x000f3138 */
+long t_do_pit_fatality(MK3THREAD *thread);    /* pointer slot 0x000f3130 */
+long t_do_animality(MK3THREAD *thread);       /* pointer slot 0x000f31ac */
+long t_do_friendship(MK3THREAD *thread);      /* pointer slot 0x000f3160 */
+long t_drone_mercy(MK3THREAD *thread);        /* pointer slot 0x000f3144 */
+long t_drone_do_fatality1(MK3THREAD *thread); /* pointer slot 0x000f3148 */
+long t_drone_do_fatality2(MK3THREAD *thread); /* pointer slot 0x000f319c */
+long t_drone_animality(MK3THREAD *thread);    /* pointer slot 0x000f315c */
+long t_drone_babality(MK3THREAD *thread);     /* pointer slot 0x000f3168 */
+long t_drone_friendship(MK3THREAD *thread);   /* pointer slot 0x000f31b8 */
+long t_d_background_fatal(MK3THREAD *thread); /* pointer slot 0x000f31b0 */
+extern long *RoundParam;                      /* pointer slot -> 0x0038ed04 */
 extern uint32_t scom_bomb_mid[];           /* 0x0016a2e4 */
 extern uint32_t scom_bomb_mid_four[];      /* 0x0016a318 */
 void ground_ochar(MK3OBJ *obj);
@@ -7060,4 +7077,470 @@ void robo2_hk_close(MK3OBJ *obj, MK3OBJ *other)
         *(uint32_t *)((char *)obj + 0x64) = 0x10;
 
     check_tsl(obj, other);
+}
+
+
+/* ----------------------------------------------------------------- DoASpecial
+ *
+ * armv7 0x000517f0, 3328 bytes.  **Complete.**
+ *
+ * The entry point every special move goes through: given a fighter and a move
+ * number, it decides which thread handler to hand the fighter to and which of
+ * the four transfer routines does the handing.
+ *
+ * **It asks its questions of a throwaway copy on the stack.** `sub sp, #0x6c`
+ * reserves 108 bytes, `copy.field00` and `copy.field08` are filled from the real
+ * object, and the q_ predicates below are called with `&copy`. Their answers
+ * come back in `copy.field5c`, so the real object's scratch fields are never
+ * disturbed and nothing in the dispatcher has to save and restore 0x1c. The
+ * chosen handler goes into `copy.field38` and the copy is what the transfer
+ * routine receives.
+ *
+ * **There are three dispatchers, not one.**
+ *
+ *      which - 0xd <= 6 and RoundParam[14] != 0   ->  seven finisher arms,
+ *                                                     gated, drone handlers
+ *      which - 0xd <= 6 and RoundParam[14] == 0   ->  seven finisher arms,
+ *                                                     ungated, own handlers
+ *      anything else                              ->  23 arms, one per
+ *                                                     character
+ *
+ * The first is a `tbh` on `which - 0xd`, the second a `tbb` on the same value,
+ * the third a `tbh` on the character number at `part->field24`. A character
+ * above 0x16 falls out at 0x51abc with no handler and returns.
+ *
+ * **RoundParam[14] is the finishing window, and Blood.c settles it.** Its event
+ * 17/18 -- the FINISH HIM/HER prompt -- sets `IsInFinishing = 1` and
+ * `RoundParam[14] = 1` together. So the two finisher dispatchers are the same
+ * seven requests in two modes, and their handler names line up one for one:
+ *
+ *      which   window open                     window shut
+ *      0xd     t_d_background_fatal  fatality  t_do_pit_fatality
+ *      0xe     t_drone_mercy         mercy     t_do_mercy
+ *      0xf     t_drone_do_fatality1  fatality  t_do_fatality_1
+ *      0x10    t_drone_do_fatality2  fatality  t_do_fatality_2
+ *      0x11    t_drone_animality     animality t_do_animality
+ *      0x12    t_drone_babality      mercy     t_do_baby
+ *      0x13    t_drone_friendship    mercy     t_do_friendship
+ *
+ * The middle column is the transfer routine; the window-shut column uses
+ * free_xfer throughout. **Only the window-open path writes proc+0x80 = 1** --
+ * the halfword that gates every special move -- and only it asks a predicate.
+ *
+ * **Four of the seven are gated, and which predicate guards which request is
+ * worth reading twice**, because two of them look wrong and are not:
+ *
+ *      0xd   q_pit_fatal_ez     0x11  q_mercy
+ *      0xe   q_mercy_req_ez     0x12  q_friend_ez
+ *                               0x13  q_friend_ez
+ *
+ * 0x11 is the animality, and it is guarded by q_mercy -- an animality needs a
+ * mercy first, so the predicate names the requirement and not the move. 0x12 is
+ * the babality and shares q_friend_ez with the friendship, which is the
+ * no-punches-thrown condition the two have in common. 0xf and 0x10, the two
+ * fatalities, ask nothing at all.
+ *
+ * **Three characters refuse some of the seven outright**, tested before the
+ * table is reached and each written as a branchless predicate the compiler built
+ * out of `it` blocks:
+ *
+ *      character 0x16   refuses 0x10, 0x11, 0x13
+ *      character 0x14   refuses 0x11, 0x13
+ *      character 0x15   refuses 0x10 through 0x13
+ *
+ * Passing the gate branches back to 0x51830, which re-tests `which - 0xd <= 6`
+ * before the `tbh`. That test cannot fail on the way in, so the edge to 0x51ce4
+ * is dead; 0x51ce4 returns with no handler anyway.
+ *
+ * **The 23 character arms are each a switch on `which`.** Eleven are inline
+ * jump tables -- `adr r3, #4` or `addw r3, pc, #N`, then `add r3, r3, r1, lsl
+ * #2`, then `mov pc, r3`, over an array of `b.w` -- and twelve are two or three
+ * `cmp`/`beq` pairs. Both forms return when `which` is not one the character
+ * has. Every arm uses free_xfer.
+ *
+ * **`which` 4 and a second higher number give the same move for three of
+ * them** -- character 2 has t_do_jax_zap2 at 4 and 8, character 5 has
+ * t_do_swat_bomb_lo at 4 and 8, character 8 has t_do_air_slam at 4 and 9 -- and
+ * for three others the high number is a different move, so the doubling is per
+ * character and not a rule.
+ *
+ * **Characters 0x12 and 0x16 have the same two moves**, t_do_scorpion_spear at
+ * 0 and t_do_scorp_tele at 2, and share the code that loads them.
+ *
+ * **One override sits in the common tail: character 6 asking for
+ * t_do_lia_forward gets a height test instead.** `(int16)part[0x12]` -- the
+ * signed halfword in the high half of 0x10 -- is compared against the word at
+ * proc+0x40, and below it the handler becomes t_do_lia_anglez, at or above it
+ * stays t_do_lia_forward. Character 6's own `which == 0` arm jumps into the
+ * middle of that test past both of the guard's comparisons; written here as
+ * setting the handler the guard looks for, which reaches the same code with the
+ * same values. No other path leaves that pair on the way in, so the guard is
+ * only ever exercised through that jump.
+ *
+ * proc+0x40 is read here with `ldr`, a full word, which is the third routine to
+ * do so against a field the header declares as a halfword -- reached by offset
+ * for that reason, as tl_do_lao_tele and tl_do_robo_tele are.
+ *
+ * The tail itself is four lines: a zero handler returns having done nothing,
+ * otherwise the handler goes into the copy's 0x38 and the transfer routine is
+ * called with the copy and the real object.
+ *
+ * All four transfer routines are called through the one register, and the call
+ * site discards what comes back -- but two of the four return `long` and two
+ * return nothing, so no single C function-pointer type fits them. The two that
+ * return a value get a shim here that drops it, which is what `blx sb` with an
+ * unused result does. */
+typedef void (*MK3XFER)(MK3OBJ *copy, MK3OBJ *obj);
+
+static void mercy_xfer_void(MK3OBJ *copy, MK3OBJ *obj)
+{
+    (void)mercy_xfer(copy, obj);
+}
+
+static void fatality_xfer_void(MK3OBJ *copy, MK3OBJ *obj)
+{
+    (void)fatality_xfer(copy, obj);
+}
+
+void DoASpecial(MK3OBJ *obj, uint32_t which)
+{
+    MK3OBJ         copy;
+    MK3OBJPROC    *proc = obj->field00;
+    MK3OBJ        *part = obj->field08;
+    MK3THREADFUNC  handler = 0;
+    MK3XFER        xfer = free_xfer;
+    uint32_t       ch;
+
+    copy.field00 = proc;
+    copy.field08 = part;
+
+    if (which - 0xd <= 6 && RoundParam[14] != 0) {
+        ch = part->field24;
+
+        /* the three characters that refuse part of the set */
+        if (ch == 0x16) {
+            if (which == 0x10 || which == 0x11 || which == 0x13)
+                return;
+        } else if (ch == 0x14) {
+            if (which == 0x11 || which == 0x13)
+                return;
+        } else if (ch == 0x15) {
+            if (which - 0x10 <= 3)
+                return;
+        }
+
+        switch (which) {
+        case 0xd:
+            q_pit_fatal_ez(&copy);
+            if (copy.field5c == 0)
+                return;
+            handler = (MK3THREADFUNC)t_d_background_fatal;
+            xfer    = fatality_xfer_void;
+            break;
+
+        case 0xe:
+            q_mercy_req_ez(&copy);
+            if (copy.field5c == 0)
+                return;
+            handler = (MK3THREADFUNC)t_drone_mercy;
+            xfer    = mercy_xfer_void;
+            break;
+
+        case 0xf:
+            handler = (MK3THREADFUNC)t_drone_do_fatality1;
+            xfer    = fatality_xfer_void;
+            break;
+
+        case 0x10:
+            handler = (MK3THREADFUNC)t_drone_do_fatality2;
+            xfer    = fatality_xfer_void;
+            break;
+
+        case 0x11:
+            q_mercy(&copy);
+            if (copy.field5c == 0)
+                return;
+            handler = (MK3THREADFUNC)t_drone_animality;
+            xfer    = animality_xfer;
+            break;
+
+        case 0x12:
+            q_friend_ez(&copy);
+            if (copy.field5c == 0)
+                return;
+            handler = (MK3THREADFUNC)t_drone_babality;
+            xfer    = mercy_xfer_void;
+            break;
+
+        default:                                /* 0x13 */
+            q_friend_ez(&copy);
+            if (copy.field5c == 0)
+                return;
+            handler = (MK3THREADFUNC)t_drone_friendship;
+            xfer    = mercy_xfer_void;
+            break;
+        }
+
+        *(uint16_t *)((char *)proc + 0x80) = 1;
+        ch = part->field24;
+
+    } else if (which - 0xd <= 6) {
+        switch (which) {
+        case 0xd:  handler = (MK3THREADFUNC)t_do_pit_fatality; break;
+        case 0xe:  handler = (MK3THREADFUNC)t_do_mercy;        break;
+        case 0xf:  handler = (MK3THREADFUNC)t_do_fatality_1;   break;
+        case 0x10: handler = (MK3THREADFUNC)t_do_fatality_2;   break;
+        case 0x11: handler = (MK3THREADFUNC)t_do_animality;    break;
+        case 0x12: handler = (MK3THREADFUNC)t_do_baby;         break;
+        default:   handler = (MK3THREADFUNC)t_do_friendship;   break;
+        }
+        ch = part->field24;
+
+    } else {
+        ch = part->field24;
+
+        switch (ch) {
+        case 0x00:
+            switch (which) {
+            case 0: handler = (MK3THREADFUNC)t_do_kano_zap;     break;
+            case 1: handler = (MK3THREADFUNC)t_do_kano_roll;    break;
+            case 2: handler = (MK3THREADFUNC)t_do_kano_upball;  break;
+            case 3: handler = (MK3THREADFUNC)t_do_kano_swipe;   break;
+            case 5: handler = (MK3THREADFUNC)t_do_shake;        break;
+            default: return;
+            }
+            break;
+
+        case 0x01:
+            switch (which) {
+            case 0: handler = (MK3THREADFUNC)t_do_sonya_zap;    break;
+            case 1: handler = (MK3THREADFUNC)tl_do_square_wave; break;
+            case 2: handler = (MK3THREADFUNC)t_do_leg_throw;    break;
+            case 3: handler = (MK3THREADFUNC)t_do_bike;         break;
+            default: return;
+            }
+            break;
+
+        case 0x02:
+            switch (which) {
+            case 0: handler = (MK3THREADFUNC)t_do_noogy;        break;
+            case 1: handler = (MK3THREADFUNC)t_do_jax_zap1;     break;
+            case 2: handler = (MK3THREADFUNC)t_jax_dash_punch;  break;
+            case 3: handler = (MK3THREADFUNC)t_do_quake;        break;
+            case 4:
+            case 8: handler = (MK3THREADFUNC)t_do_jax_zap2;     break;
+            default: return;
+            }
+            break;
+
+        case 0x03:
+            switch (which) {
+            case 0: handler = (MK3THREADFUNC)t_do_ind_zap;      break;
+            case 1: handler = (MK3THREADFUNC)t_do_ind_charge;   break;
+            case 2: handler = (MK3THREADFUNC)t_do_reflect;      break;
+            case 3: handler = (MK3THREADFUNC)t_do_axe_up;       break;
+            default: return;
+            }
+            break;
+
+        case 0x04:
+            switch (which) {
+            case 0: handler = (MK3THREADFUNC)t_do_sz_forward_zap; break;
+            case 1: handler = (MK3THREADFUNC)t_do_sky_ice_on;     break;
+            case 2: handler = (MK3THREADFUNC)t_do_sz_decoy;       break;
+            case 3: handler = (MK3THREADFUNC)t_do_slide;          break;
+            case 4: handler = (MK3THREADFUNC)t_do_sky_ice_behind; break;
+            case 8: handler = (MK3THREADFUNC)t_do_sky_ice_front;  break;
+            default: return;
+            }
+            break;
+
+        case 0x05:
+            switch (which) {
+            case 0: handler = (MK3THREADFUNC)t_do_swat_zoom;     break;
+            case 1: handler = (MK3THREADFUNC)t_do_swat_bomb_hi;  break;
+            case 2: handler = (MK3THREADFUNC)t_do_swat_gun;      break;
+            case 3: handler = (MK3THREADFUNC)t_do_stick_sweep;   break;
+            case 4:
+            case 8: handler = (MK3THREADFUNC)t_do_swat_bomb_lo;  break;
+            default: return;
+            }
+            break;
+
+        case 0x06:
+            switch (which) {
+            /* the height test in the tail decides this one */
+            case 0: handler = (MK3THREADFUNC)t_do_lia_forward;  break;
+            case 1: handler = (MK3THREADFUNC)t_do_lia_scream;   break;
+            case 3: handler = (MK3THREADFUNC)t_do_lia_fly;      break;
+            default: return;
+            }
+            break;
+
+        case 0x07:
+            switch (which) {
+            case 0: handler = (MK3THREADFUNC)t_do_robo_zap;     break;
+            case 2: handler = (MK3THREADFUNC)t_do_robo_zap2;    break;
+            case 3: handler = (MK3THREADFUNC)t_do_robo_tele;    break;
+            default: return;
+            }
+            break;
+
+        case 0x08:
+            switch (which) {
+            case 0: handler = (MK3THREADFUNC)t_do_robo_net;     break;
+            case 1: handler = (MK3THREADFUNC)t_do_bomb_full;    break;
+            case 2: handler = (MK3THREADFUNC)t_do_bomb_mid;     break;
+            case 3: handler = (MK3THREADFUNC)t_do_tele_explode; break;
+            case 4:
+            case 9: handler = (MK3THREADFUNC)t_do_air_slam;     break;
+            default: return;
+            }
+            break;
+
+        case 0x09:
+            switch (which) {
+            case 0: handler = (MK3THREADFUNC)t_do_lao_zap;        break;
+            case 1: handler = (MK3THREADFUNC)t_do_lao_spin;       break;
+            case 2: handler = (MK3THREADFUNC)t_do_lao_tele;       break;
+            case 3: handler = (MK3THREADFUNC)t_do_lao_angle_kick; break;
+            default: return;
+            }
+            break;
+
+        case 0x0a:
+            switch (which) {
+            case 0: handler = (MK3THREADFUNC)t_do_tusk_zap;     break;
+            case 1: handler = (MK3THREADFUNC)t_do_tusk_blur;    break;
+            case 3: handler = (MK3THREADFUNC)t_do_floor_blade;  break;
+            default: return;
+            }
+            break;
+
+        case 0x0b:
+            switch (which) {
+            case 0: handler = (MK3THREADFUNC)t_do_sg_zap;       break;
+            case 2: handler = (MK3THREADFUNC)t_do_sg_pounce;    break;
+            case 3: handler = (MK3THREADFUNC)t_do_sg_quake;     break;
+            default: return;
+            }
+            break;
+
+        case 0x0c:
+            switch (which) {
+            case 0: handler = (MK3THREADFUNC)t_do_st_zap1;      break;
+            case 1: handler = (MK3THREADFUNC)t_do_st_zap3;      break;
+            case 2: handler = (MK3THREADFUNC)t_do_st_zap2;      break;
+            case 3: handler = (MK3THREADFUNC)t_do_summon;       break;
+            default: return;
+            }
+            break;
+
+        case 0x0d:
+            switch (which) {
+            case 0: handler = (MK3THREADFUNC)t_lk_zap_hi;       break;
+            case 1: handler = (MK3THREADFUNC)t_lk_bike_kick;    break;
+            case 2: handler = (MK3THREADFUNC)t_do_super_kang;   break;
+            case 3: handler = (MK3THREADFUNC)t_lk_zap_lo;       break;
+            default: return;
+            }
+            break;
+
+        case 0x0e:
+            switch (which) {
+            case 0: handler = (MK3THREADFUNC)t_do_smoke_spear;  break;
+            case 2: handler = (MK3THREADFUNC)t_do_smoke_tele;   break;
+            case 3: handler = (MK3THREADFUNC)t_do_inviso;       break;
+            default: return;
+            }
+            break;
+
+        case 0x0f:
+            switch (which) {
+            case 0: handler = (MK3THREADFUNC)t_do_kitana_zap;   break;
+            case 1: handler = (MK3THREADFUNC)t_do_fan_lift;     break;
+            case 2: handler = (MK3THREADFUNC)t_do_square_wave;  break;
+            default: return;
+            }
+            break;
+
+        case 0x10:
+            switch (which) {
+            case 0: handler = (MK3THREADFUNC)t_do_jade_prop;    break;
+            case 1: handler = (MK3THREADFUNC)t_do_jade_zap_med; break;
+            case 2: handler = (MK3THREADFUNC)t_do_jade_flash;   break;
+            case 3: handler = (MK3THREADFUNC)t_do_jade_zap_lo;  break;
+            case 7: handler = (MK3THREADFUNC)t_do_jade_zap_hi;  break;
+            case 8: handler = (MK3THREADFUNC)t_do_jade_zap_ret; break;
+            default: return;
+            }
+            break;
+
+        case 0x11:
+            switch (which) {
+            case 0: handler = (MK3THREADFUNC)t_do_mileena_zap;  break;
+            case 1: handler = (MK3THREADFUNC)t_do_mileena_roll; break;
+            case 3: handler = (MK3THREADFUNC)t_do_mileena_tele; break;
+            default: return;
+            }
+            break;
+
+        case 0x12:
+        case 0x16:
+            switch (which) {
+            case 0: handler = (MK3THREADFUNC)t_do_scorpion_spear; break;
+            case 2: handler = (MK3THREADFUNC)t_do_scorp_tele;     break;
+            default: return;
+            }
+            break;
+
+        case 0x13:
+            switch (which) {
+            case 0: handler = (MK3THREADFUNC)t_do_spit;             break;
+            case 1: handler = (MK3THREADFUNC)t_do_reptile_orb;      break;
+            case 2: handler = (MK3THREADFUNC)t_do_reptile_orb_fast; break;
+            case 3: handler = (MK3THREADFUNC)t_do_ninja_slide;      break;
+            case 4: handler = (MK3THREADFUNC)t_do_reptile_dash;     break;
+            case 8: handler = (MK3THREADFUNC)t_do_reptile_inv;      break;
+            default: return;
+            }
+            break;
+
+        case 0x14:
+            switch (which) {
+            case 0: handler = (MK3THREADFUNC)t_do_ermac_zap;    break;
+            case 2: handler = (MK3THREADFUNC)t_do_ermac_tele;   break;
+            case 3: handler = (MK3THREADFUNC)t_do_ermac_slam;   break;
+            default: return;
+            }
+            break;
+
+        case 0x15:
+            switch (which) {
+            case 0: handler = (MK3THREADFUNC)t_do_osz_zap;      break;
+            case 1: handler = (MK3THREADFUNC)t_do_floor_ice;    break;
+            case 3: handler = (MK3THREADFUNC)t_do_ninja_slide;  break;
+            default: return;
+            }
+            break;
+
+        default:                                /* character above 0x16 */
+            return;
+        }
+    }
+
+    /* the one override, and the tail */
+    if (ch == 6 && handler == (MK3THREADFUNC)t_do_lia_forward) {
+        if ((int32_t)(int16_t)MK3_FIELD12(part)
+            < (int32_t)*(uint32_t *)((char *)proc + 0x40))
+            handler = (MK3THREADFUNC)t_do_lia_anglez;
+        else
+            handler = (MK3THREADFUNC)t_do_lia_forward;
+    }
+
+    if (handler == 0)
+        return;
+
+    copy.field38 = (uint32_t)(uintptr_t)handler;
+    xfer(&copy, obj);
 }
