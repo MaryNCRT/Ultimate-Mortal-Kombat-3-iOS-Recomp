@@ -34,6 +34,7 @@
  * conflict here, which is what the check is for. */
 void q_animal_dist(MK3OBJ *obj);
 void q_fatal_dist(MK3OBJ *obj);
+void q_am_i_cornered(MK3OBJ *obj);
 /* Eight function pointers, called as (obj, other). The extent is
  * what check_tsl allows -- an index above 7 is reset to 0 -- not a
  * measured array size. */
@@ -4978,4 +4979,100 @@ void robo_hp_close(MK3OBJ *obj, MK3OBJ *other)
         obj->field38 = (uint32_t)(uintptr_t)t_do_robo_zap2;
         restricted_xfer(obj, other);
     }
+}
+
+
+/* jax_lk_open -- armv7 0x00052940, 60 bytes.  **Complete.**
+ *
+ *      obj->field34 = 0                            ; the table index
+ *      obj->field38 = t_do_quake                   ; the handler
+ *      obj->field68 = &G + 0x3b8                   ; check_tsl's argument
+ *      obj->field64 = other->field00->0x7e ? 5 : 0x50   ; its threshold
+ *      check_tsl(obj, other)
+ *
+ * **The producer for check_tsl, and it sets all four of the fields that
+ * routine reads.** 0x34 picks entry zero of the function table, 0x38 carries
+ * the handler that entry will use, 0x68 is the address handed to get_tsl_px and
+ * 0x64 the value its answer must beat. Reading the two together confirms every
+ * one of them.
+ *
+ * **The threshold is sixteen times easier when a halfword in the opponent's
+ * proc is set**: 5 instead of 0x50. That halfword sits at 0x7e, immediately
+ * after the four-button gate at 0x7c, and the struct names neither. */
+void jax_lk_open(MK3OBJ *obj, MK3OBJ *other)
+{
+    obj->field34 = 0;
+    obj->field38 = (uint32_t)(uintptr_t)t_do_quake;
+    *(uint32_t *)((char *)obj + 0x68) =
+        (uint32_t)(uintptr_t)(G_BYTES + 0x3b8);
+
+    if (*(int16_t *)((char *)other->field00 + 0x7e) != 0)
+        *(uint32_t *)((char *)obj + 0x64) = 5;
+    else
+        *(uint32_t *)((char *)obj + 0x64) = 0x50;
+
+    check_tsl(obj, other);
+}
+
+/* q_ind_axe_fatal -- armv7 0x00053254, 60 bytes.  **Complete.**
+ *
+ * get_tsl_px at &G + 0x3b8 over 0x3f, then a band of 0xa0 and 0x40 more before
+ * q_fatal_dist. The same two-stage shape as q_eatit_fatal, reached through the
+ * table instead of through the buttons. */
+void q_ind_axe_fatal(MK3OBJ *obj)
+{
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x3b8);
+    get_tsl_px(obj, obj);
+    if ((long)obj->field20 <= 0x3f) {
+        q_no(obj);
+        return;
+    }
+    obj->field30 = 0xa0;
+    obj->field34 = 0xa0 + 0x40;
+    q_fatal_dist(obj);
+}
+
+/* q_shang_animal -- armv7 0x000531a0, 60 bytes.  **Complete.**
+ *
+ * The same shape at &G + 0x3a8 with a band of 0x70 and 0x30 more, ending in
+ * q_animal_dist rather than q_fatal_dist. */
+void q_shang_animal(MK3OBJ *obj)
+{
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x3a8);
+    get_tsl_px(obj, obj);
+    if ((long)obj->field20 <= 0x3f) {
+        q_no(obj);
+        return;
+    }
+    obj->field30 = 0x70;
+    obj->field34 = 0x70 + 0x30;
+    q_animal_dist(obj);
+}
+
+/* q_st_spike_fatal -- armv7 0x00054bc0, 60 bytes.  **Complete.**
+ *
+ *      obj->field1c = &G + 0x3ac ; get_tsl_px(obj, obj)
+ *      if (obj->field20 <= 0x3f) q_no(obj)
+ *      else {
+ *          q_am_i_cornered(obj)
+ *          if (obj->field5c == 0) q_close_fatal(obj); else q_no(obj);
+ *      }
+ *
+ * Two conditions and no distance band: the table entry has to be over 0x3f and
+ * the asking fighter must not be cornered himself. q_inflate_fatal asks the
+ * same question about the OTHER fighter -- one routine checks where he is
+ * standing, this one checks where I am. */
+void q_st_spike_fatal(MK3OBJ *obj)
+{
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x3ac);
+    get_tsl_px(obj, obj);
+    if ((long)obj->field20 <= 0x3f) {
+        q_no(obj);
+        return;
+    }
+    q_am_i_cornered(obj);
+    if (obj->field5c == 0)
+        q_close_fatal(obj);
+    else
+        q_no(obj);
 }
