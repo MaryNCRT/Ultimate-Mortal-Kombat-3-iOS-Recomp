@@ -257,3 +257,149 @@ long t_combo_exit(MK3THREAD *thread)
     a9_combo_ani(obj);
     return mk3_push_handler(thread, (MK3THREADFUNC)t_comb9);
 }
+
+
+/* t_comb2 -- armv7 0x00032958, 92 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      clear_combo_butn(obj)
+ *      obj->a10 = obj->field54
+ *      obj->field40 = *(uint32_t *)((char *)obj->field48 + 4)
+ *      if (obj->field40 == 0x1111) {
+ *          h = *(uint32_t *)((char *)obj->field48 + 0x14)
+ *          obj->field1c = h
+ *      } else {
+ *          h = t_comba
+ *      }
+ *      frame[frame].handler = h
+ *      frame[frame+1].w0 = 0
+ *
+ * **The handler can come out of the table instead of out of the code.** The
+ * word at 0x48 + 4 is compared against 0x1111, and on a match the routine to
+ * install is read from 0x48 + 0x14 -- the same value it also puts in 0x1c.
+ * Anything else installs t_comba. So 0x1111 is a sentinel meaning "this entry
+ * names its own continuation".
+ *
+ * The two arms share the install, which is why the loaded handler and the
+ * constant one both arrive in r2. */
+long t_comba(MK3THREAD *thread);
+
+long t_comb2(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    char    *entry;
+    uint32_t h;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    clear_combo_butn(obj);
+    obj->a10 = obj->field54;
+
+    entry = (char *)(void *)(uintptr_t)obj->field48;
+    obj->field40 = *(uint32_t *)(entry + 4);
+
+    if (obj->field40 == 0x1111) {
+        h = *(uint32_t *)(entry + 0x14);
+        obj->field1c = h;
+    } else {
+        h = (uint32_t)(uintptr_t)t_comba;
+    }
+
+    mk3_frame(thread, thread->frame)[1] = h;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+/* t_combj -- armv7 0x00032810, 104 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field00->field20 = obj->field1c
+ *                       token := 0x7f3, park 3
+ *
+ *      token == 0x7f3:  obj->field1c = obj->field00->field20 - 3
+ *                       frame[frame].handler = t_comb1
+ *                       frame[frame+1].w0 = 0
+ *
+ *      otherwise:       return -3
+ *
+ * **The park duration is built out of the token.** 0x7f3 goes into the slot and
+ * then `sub r2, r2, #0x7f0` leaves 3, which is both the duration written to
+ * 0xfc and the value returned. One constant doing two jobs, and the 0x7f0 is
+ * chosen so the subtraction lands on the wait.
+ *
+ * **It uses the proc's 0x20 as a save slot across the park** and takes three
+ * back off it on the way out -- so whatever 0x1c held is returned three lower
+ * than it went in, which is the same three as the wait.
+ *
+ * The 0x7f3 state installs with no guard in front of it, so mk3_install and
+ * not mk3_push_handler. tools/instck.py caught this one. */
+long t_comb1(MK3THREAD *thread);
+
+long t_combj(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field00->field20 = obj->field1c;
+        *mk3_frame(thread, thread->frame + 1) = 0x7f3;
+        thread->fieldfc = 0x7f3 - 0x7f0;
+        return 0x7f3 - 0x7f0;
+    }
+
+    if (token != 0x7f3)
+        return -3;
+
+    obj->field1c = obj->field00->field20 - 3;
+    return mk3_install(thread, (MK3THREADFUNC)t_comb1);
+}
+
+/* t_process_combo_table -- armv7 0x0003279c, 116 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      if (ComboNum != 0) {
+ *          n = ComboNum
+ *          ComboNum = 0
+ *          ComboPrint = 1.5f
+ *          ComboPrintNum = n
+ *      }
+ *      obj->a10 = 0
+ *      obj->field20 = obj->field00->field18 = 0x116
+ *      clear_combo_butn(obj)
+ *      frame[frame].handler = t_comb0
+ *      frame[frame+1].w0 = 0
+ *
+ * **This is where a finished combo becomes something on screen.** The counter
+ * t_comb8 has been bumping is moved into ComboPrintNum, zeroed, and ComboPrint
+ * is set to 0x3fc00000 -- **1.5 as a float**, so it is a display timer in
+ * seconds rather than a flag or a frame count. The three globals sit
+ * consecutively at 0x165688, 0x16568c and 0x165690.
+ *
+ * The move is skipped entirely when the counter is zero, so a combo of nothing
+ * prints nothing and the timer is not restarted. */
+extern float ComboPrint;                   /* 0x00165688 */
+extern long  ComboPrintNum;                /* 0x0016568c */
+long t_comb0(MK3THREAD *thread);
+
+long t_process_combo_table(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    long    n;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    n = ComboNum;
+    if (n != 0) {
+        ComboNum = 0;
+        ComboPrint = 1.5f;
+        ComboPrintNum = n;
+    }
+
+    obj->a10 = 0;
+    obj->field20 = 0x116;
+    obj->field00->field18 = 0x116;
+    clear_combo_butn(obj);
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_comb0);
+}
