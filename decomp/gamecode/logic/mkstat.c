@@ -1519,3 +1519,145 @@ long t_baby_start_pause(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+
+/* ---------------------------------------------------------- t_stat_do_duck_punch
+ *
+ * armv7 0x0004e814, 176 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field1c = 0; group_sound(obj)
+ *                       rsnd_func(obj, 0xe)
+ *                       init_special(obj)
+ *                       obj->field1c = 3
+ *                       obj->field20 = 0x108
+ *                       obj->field40 = 0x108 - 0x100 = 8
+ *                       obj->a10     = 8 - 7 = 1
+ *                       obj->field48 = 5
+ *                       *(uint32_t *)((char *)obj->field00 + 0x58) = 5
+ *                       token := 0x284, descend into t_striker
+ *
+ *      token == 0x284:  obj->field1c = 3
+ *                       frame[frame].handler = t_retract_strike
+ *
+ *      otherwise:       return -3
+ *
+ * **The third crouching attack, and it differs from the two duck kicks in two
+ * structural ways, not just in numbers.** They INSTALL t_striker and are finished;
+ * this one DESCENDS into it and comes back to retract. And it retracts through
+ * t_retract_strike where t_kick2 uses t_retract_strike_act -- the two variants
+ * both live in this file.
+ *
+ * Its numbers continue the crouching set: action 0x108 after the kicks' 0x106 and
+ * 0x107, animation 8 below their 9 and 0xa. So the three share one block of action
+ * numbers and one of animations, running in opposite directions.
+ */
+long t_retract_strike(MK3THREAD *thread);
+
+long t_stat_do_duck_punch(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 0;
+        group_sound(obj);
+        rsnd_func(obj, 0xe);
+        init_special(obj);
+
+        obj->field1c = 3;
+        obj->field20 = 0x108;
+        obj->field40 = 0x108 - 0x100;
+        obj->a10     = (0x108 - 0x100) - 7;
+        obj->field48 = 5;
+        *(uint32_t *)((char *)obj->field00 + 0x58) = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x284;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_striker;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x284)
+        return -3;
+
+    obj->field1c = 3;
+    return mk3_install(thread, (MK3THREADFUNC)t_retract_strike);
+}
+
+/* ------------------------------------------------------------- t_jade_flash_proc
+ *
+ * armv7 0x0004ffa8, 188 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field40 = 0xa
+ *                       -- into the swap body --
+ *
+ *      the swap body:   player_swpal((MK3OBJ *)obj->a10, 2)
+ *                       token := 0xfe, descend into t_jade_flash_sleep
+ *
+ *      token == 0xfe:   jade_normpal(obj)
+ *                       token := 0x100, descend into t_jade_flash_sleep
+ *
+ *      token == 0x100:  obj->field1c = 0xc; ochar_sound(obj)
+ *                       if (--obj->field40 > 0) -- back to the swap body --
+ *                       token := 0x108, park 0x16462
+ *
+ *      otherwise:       return -3
+ *
+ * **Ten flashes, then a park that never ends.** 0x40 is loaded with 0xa and
+ * counted down; each pass swaps the owner's palette to 2, sleeps, restores it,
+ * sleeps, and makes a sound. When the count runs out the thread parks for 0x16462
+ * -- the never-wake duration -- under token 0x108, and **that token is not in the
+ * dispatch at all.** Reaching it would return -3, which is exactly why it is safe:
+ * the park never expires, so the state is a terminator rather than a state.
+ *
+ * The palette swap is applied to the object named in 0x44, which is the fighter
+ * tl_do_jade_flash recorded there when it spawned this thread. So the effect
+ * thread never touches its own object except to count.
+ */
+void player_swpal(MK3OBJ *obj, uint32_t frozen);
+long t_jade_flash_sleep(MK3THREAD *thread);
+
+long t_jade_flash_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field40 = 0xa;
+        /* falls through to the swap body */
+
+    } else if (token == 0xfe) {
+        jade_normpal(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x100;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_jade_flash_sleep;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+
+    } else if (token == 0x100) {
+        obj->field1c = 0xc;
+        ochar_sound(obj);
+
+        obj->field40 = obj->field40 - 1;
+        if ((long)obj->field40 <= 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0x108;
+            thread->fieldfc = 0x16462;
+            return 0x16462;
+        }
+        /* falls through to the swap body */
+
+    } else {
+        return -3;
+    }
+
+    player_swpal((MK3OBJ *)(void *)(uintptr_t)obj->a10, 2);
+
+    *mk3_frame(thread, thread->frame + 1) = 0xfe;
+    thread->frame = thread->frame + 1;              /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_jade_flash_sleep;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
