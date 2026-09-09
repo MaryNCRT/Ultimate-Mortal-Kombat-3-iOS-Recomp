@@ -34,6 +34,11 @@
  * conflict here, which is what the check is for. */
 void q_animal_dist(MK3OBJ *obj);
 void q_fatal_dist(MK3OBJ *obj);
+extern uint32_t sm_smoke_bc[];             /* 0x0016b9bc */
+extern uint32_t scom_sky_zap_on_4but[];    /* 0x0016a4b8 */
+extern uint32_t scom_sky_zap_on[];         /* 0x0016a4ec */
+extern uint32_t scom_sky_zap_behind[];     /* 0x0016a520 */
+extern uint32_t scom_sky_zap_front[];      /* 0x0016a554 */
 long t_do_fatality_1(MK3THREAD *thread);
 long t_do_fatality_2(MK3THREAD *thread);
 long is_he_right(MK3OBJ *obj);
@@ -6590,4 +6595,101 @@ long secret_move_search(MK3OBJ *obj, uint32_t arg, uint32_t *table)
     }
 
     return 0;
+}
+
+
+/* smoke_block_close -- armv7 0x000545ec, 140 bytes.  **Complete.**
+ *
+ * **jax_block_close with a fallback.** The six conditions are the same ones and
+ * in the same order -- height off the ground over 0x9f, both distances inside
+ * 0x58, the gap between the floor and 0x44's y over 0xb7, not a boss, and his
+ * action not 0x507 -- but where jax_block_close simply returns on any failure,
+ * this one drops through to a table search.
+ *
+ * So every refusal is a branch to the same secret_move_search call, and the air
+ * slam is only the FIRST thing tried. */
+void smoke_block_close(MK3OBJ *obj, MK3OBJ *other)
+{
+    int32_t gap;
+
+    distance_from_ground(obj);
+    if ((long)obj->field1c <= 0x9f)
+        goto search;
+
+    get_x_dist(obj);
+    if ((long)obj->field28 > 0x58)
+        goto search;
+
+    get_y_dist(obj);
+    if ((long)obj->field28 > 0x58)
+        goto search;
+
+    obj->field24 = (uint32_t)(int32_t)*(int16_t *)
+        ((char *)(MK3OBJ *)(uintptr_t)obj->a10 + 0x12);
+    gap = (int32_t)(*(uint32_t *)(G_BYTES + 0xac) - obj->field24);
+    obj->field1c = (uint32_t)gap;
+    if (gap <= 0xb7)
+        goto search;
+
+    q_is_he_a_boss(obj);
+    if (obj->field5c != 0)
+        goto search;
+
+    get_his_action(obj);
+    if (obj->field20 == 0x507)
+        goto search;
+
+    obj->field38 = (uint32_t)(uintptr_t)t_do_air_slam;
+    airborn_xfer(obj, other);
+    return;
+
+search:
+    secret_move_search(obj, (uint32_t)(uintptr_t)other, sm_smoke_bc);
+}
+
+/* sz_hp_close -- armv7 0x00054844, 148 bytes.  **Complete.**
+ *
+ *      first = other->field00->0x7c ? scom_sky_zap_on_4but : scom_sky_zap_on
+ *      if (stick_look_lr2(obj, other, first, 0x10, 0x1000))
+ *          obj->field38 = t_do_sky_ice_on
+ *      else if (stick_look_lr2(obj, other, scom_sky_zap_behind, 0x10, 0x1000))
+ *          obj->field38 = t_do_sky_ice_behind
+ *      else if (stick_look_lr2(obj, other, scom_sky_zap_front, 0x10, 0x1000))
+ *          obj->field38 = t_do_sky_ice_front
+ *      else return
+ *      restricted_xfer(obj, other)
+ *
+ * **Three patterns tried in order, and the four-button gate only changes the
+ * first.** All three use the same mask pair, so the buttons are identical and
+ * only the stick sequence differs -- on, behind, in front. The first table is
+ * swapped for a four-button variant when 0x7c is set, which is the same gate
+ * the q_ family uses to pick between four and six button forms.
+ *
+ * All three successes reach one restricted_xfer, and the mask pair is loaded
+ * once into a register that survives all three calls. */
+void sz_hp_close(MK3OBJ *obj, MK3OBJ *other)
+{
+    uint32_t *first;
+
+    if (*(int16_t *)((char *)other->field00 + 0x7c) != 0)
+        first = scom_sky_zap_on_4but;
+    else
+        first = scom_sky_zap_on;
+
+    if (stick_look_lr2(obj, (uint32_t)(uintptr_t)other,
+                       (uint32_t)(uintptr_t)first, 0x10u, 0x1000u)) {
+        obj->field38 = (uint32_t)(uintptr_t)t_do_sky_ice_on;
+    } else if (stick_look_lr2(obj, (uint32_t)(uintptr_t)other,
+                              (uint32_t)(uintptr_t)scom_sky_zap_behind,
+                              0x10u, 0x1000u)) {
+        obj->field38 = (uint32_t)(uintptr_t)t_do_sky_ice_behind;
+    } else if (stick_look_lr2(obj, (uint32_t)(uintptr_t)other,
+                              (uint32_t)(uintptr_t)scom_sky_zap_front,
+                              0x10u, 0x1000u)) {
+        obj->field38 = (uint32_t)(uintptr_t)t_do_sky_ice_front;
+    } else {
+        return;
+    }
+
+    restricted_xfer(obj, other);
 }
