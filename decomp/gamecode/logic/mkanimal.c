@@ -2914,3 +2914,331 @@ long tl_mileena_skunk(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+/* ------------------------------------------------------------------- tl_scorpion_pengo
+ *
+ * armv7 0x000a4118, 424 bytes.  **Complete.**
+ *
+ *      token == 0:      token := 0x2b3, descend into t_cute_animality_start
+ *
+ *      token == 0x2b3:  sans_repell_for_good(obj)
+ *                       obj->field1c = 0x20000; set_vel_flip(obj)
+ *                       obj->field40 = a_pengo
+ *                       frame_a9(obj)
+ *                       ground_ob(obj, obj->field08)
+ *                       token := 0x2cd, park 0x10
+ *
+ *      token == 0x2cd:  obj->field1c = 5; init_anirate(obj)
+ *                       token := 0x2d3, park 1
+ *
+ *      token == 0x2d3:  pengo_animate(obj)
+ *                       obj->field1c = (int16_t)part->x0e
+ *                       obj->field20 = (int16_t)him->x0e - obj->field1c
+ *                       if (obj->field20 < 0) obj->field20 = -obj->field20
+ *                       if (obj->field20 > 8) { token := 0x2d3, park 1 }
+ *                       t = NewThreadProc(obj, t_egg_proc)
+ *                       t->field08->field18 = 0
+ *                       center_around_him(obj)
+ *                       stop_me_player(obj)
+ *                       obj->a10 = 0x10
+ *                       token := 0x2e6, park 1
+ *
+ *      token == 0x2e6:  pengo_animate(obj)
+ *                       if (--obj->a10 == 0) {
+ *                           obj->field1c = 0x20000; set_vel_flip(obj)
+ *                           obj->a10 = 0x20
+ *                           token := 0x2f0, park 1
+ *                       }
+ *                       token := 0x2e6, park 1
+ *
+ *      token == 0x2f0:  pengo_animate(obj)
+ *                       if (--obj->a10 == 0) {
+ *                           stop_me_player(obj)
+ *                           death_blow_complete(obj)
+ *                           frame[frame].handler = t_wait_forever
+ *                       }
+ *                       token := 0x2f0, park 1
+ *
+ *      otherwise:       return -3
+ *
+ * **The penguin walks up to the opponent and lays the egg.** State 0x2d3 measures the gap
+ * itself -- the two x positions out of the halfword at 0x0e, subtracted, made positive by
+ * hand -- and re-arms until it is eight or less. Then it starts `t_egg_proc` as its own
+ * thread, and that thread is what hands `t_r_egg` to the victim.
+ *
+ * **A different arrival test from `tl_smoke_bull_shit`'s.** The bull calls `get_x_dist` and
+ * reads 0x28; this reads both objects' 0x0e and does the subtraction and the absolute value
+ * with its own instructions -- `rsblt`, in an `itt lt` block. Same question, three
+ * spellings in this module now, and none of them shares code with the others.
+ *
+ * **`NewThreadProc` returns the new object and this routine writes through it**: the new
+ * thread's own 0x08 has its 0x18 zeroed before it ever runs. That is the only place in the
+ * file that touches another thread's fields from outside, and it is why `t_egg_proc` can
+ * assume 0x18 is clear at entry.
+ *
+ * `obj->field1c = 0x20000` in state 0x2e6 is computed as `add r3, r3, #0x20000` on a
+ * register the branch has just proved to be zero, not loaded as a literal. Transcribed as
+ * the value, with this note, because the arithmetic carries no information the value does
+ * not.
+ *
+ * The walk is two phases, 0x10 passes then 0x20, with `set_vel_flip` between them -- so the
+ * penguin waddles up, lays, and waddles off the way it came.
+ */
+extern uint32_t a_pengo[];                       /* 0x00177544 */
+void *NewThreadProc(void *owner, MK3THREADFUNC func);
+void center_around_him(MK3OBJ *obj);
+
+long tl_scorpion_pengo(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3OBJ  *him;
+    MK3OBJ  *spawn;
+
+    if (token == 0) {
+        *mk3_frame(thread, frame + 1) = 0x2b3;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_cute_animality_start;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x2b3) {
+        sans_repell_for_good(obj);
+
+        obj->field1c = 0x20000;
+        set_vel_flip(obj);
+
+        obj->field40 = (uint32_t)(uintptr_t)a_pengo;
+        frame_a9(obj);
+
+        ground_ob(obj, obj->field08);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x2cd;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (token == 0x2cd) {
+        obj->field1c = 5;
+        init_anirate(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x2d3;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0x2d3) {
+        pengo_animate(obj);
+
+        obj->field1c = (uint32_t)(int32_t)(int16_t)MK3_FIELD0E(obj->field08);
+
+        him = (MK3OBJ *)(void *)(uintptr_t)obj->field00->him;
+        obj->field20 = (uint32_t)(int32_t)(int16_t)MK3_FIELD0E(him)
+                       - obj->field1c;
+        if ((long)obj->field20 < 0)
+            obj->field20 = (uint32_t)(-(long)obj->field20);
+
+        if ((long)obj->field20 <= 8) {
+            spawn = (MK3OBJ *)NewThreadProc(obj, (MK3THREADFUNC)t_egg_proc);
+            spawn->field08->field18 = 0;
+
+            center_around_him(obj);
+            stop_me_player(obj);
+
+            obj->a10 = 0x10;
+
+            *mk3_frame(thread, thread->frame + 1) = 0x2e6;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        *mk3_frame(thread, thread->frame + 1) = 0x2d3;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0x2e6) {
+        pengo_animate(obj);
+
+        obj->a10 = obj->a10 - 1;
+        if (obj->a10 == 0) {
+            obj->field1c = 0x20000;
+            set_vel_flip(obj);
+
+            obj->a10 = 0x20;
+
+            *mk3_frame(thread, thread->frame + 1) = 0x2f0;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        *mk3_frame(thread, thread->frame + 1) = 0x2e6;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token != 0x2f0)
+        return -3;
+
+    pengo_animate(obj);
+
+    obj->a10 = obj->a10 - 1;
+    if (obj->a10 == 0) {
+        stop_me_player(obj);
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = 0x2f0;
+    thread->fieldfc = 1;
+    return 1;
+}
+
+/* ------------------------------------------------------------------------- tl_jax_lion
+ *
+ * armv7 0x000a1904, 428 bytes.  **Complete.**
+ *
+ *      token == 0:      animality_tune(obj)
+ *                       obj->field1c = 2
+ *                       obj->field40 = a_jax_lion
+ *                       obj->a10 = 0x12
+ *                       token := 0x7ca, descend into t_animal_morph
+ *
+ *      token == 0x7ca:  sans_repell_for_good(obj)
+ *                       token := 0x7cc, park 0x30
+ *
+ *      token == 0x7cc:  obj->field1c = 0x20000; towards_x_vel(obj)
+ *                       obj->field1c = 5
+ *                       token := 0x7d1, descend into t_mframew
+ *
+ *      token == 0x7d1:  obj->field38 = t_lion_mauled
+ *                       takeover_him(obj)
+ *                       stop_me_player(obj)
+ *                       stop_him(obj)
+ *                       obj->field1c = 0x00050020
+ *                       token := 0x7db, descend into t_animate_a0_frames
+ *
+ *      token == 0x7db:  wfe_him(obj)
+ *                       token := 0x7dd, park 8
+ *
+ *      token == 0x7dd:  tsound_func(obj, 0x27)
+ *                       obj->field40 = a_jax_lion
+ *                       obj->field1c = 5
+ *                       token := 0x7e2, descend into t_backwards_ani
+ *
+ *      token == 0x7e2:  frame[frame].handler = t_animality_complete
+ *
+ *      otherwise:       return -3
+ *
+ * **Seven states, and the ending is the unmorph written out by hand.** `t_unmorph_and_exit`
+ * is exactly "descend into t_backwards_ani, then install t_animality_complete", and states
+ * 0x7dd and 0x7e2 are that pair spelled out -- because this driver has to play sound 0x27 and
+ * reset 0x40 on the way in, which the shared routine has no way to do.
+ *
+ * **`wfe_him` is worth reading: 24 bytes that put `t_wait_forever` into 0x38 and call
+ * `takeover_him`.** So state 0x7db does not stop the victim, it parks them forever -- which is
+ * the right thing after `t_lion_mauled`, whose own two states never stop handing off to each
+ * other. The mauling loop is ended from outside, by the attacker, and this is where.
+ *
+ * That answers the open question left by `t_lion_mauled`: the loop has no exit because it
+ * does not need one.
+ *
+ * **0x1c carries a packed halfword pair here, 5 and 0x20**, handed to `t_animate_a0_frames`.
+ * Every other packed pair in this module goes through 0x40, so the field that carries one is
+ * chosen by the callee and not fixed.
+ *
+ * Three tokens ride in `r8` and one in `sl` across this dispatch -- 0x7d1 reaching the
+ * mid-states, 0x7dd reaching 0x7db's store, and 0x7ca reaching state 0 -- so four stores in
+ * this function had to be traced back to four different loads.
+ */
+extern uint32_t a_jax_lion[];                    /* 0x001774d4 */
+void stop_him(MK3OBJ *obj);
+void wfe_him(MK3OBJ *obj);
+long t_animate_a0_frames(MK3THREAD *thread);     /* pointer slot 0x000f36b8 */
+
+long tl_jax_lion(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x7ca) {
+        sans_repell_for_good(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x7cc;
+        thread->fieldfc = 0x30;
+        return 0x30;
+    }
+
+    if (token == 0x7cc) {
+        obj->field1c = 0x20000;
+        towards_x_vel(obj);
+        obj->field1c = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x7d1;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x7d1) {
+        obj->field38 = (uint32_t)(uintptr_t)t_lion_mauled;
+        takeover_him(obj);
+        stop_me_player(obj);
+        stop_him(obj);
+
+        obj->field1c = 0x00050020;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x7db;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_a0_frames;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x7db) {
+        wfe_him(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x7dd;
+        thread->fieldfc = 8;
+        return 8;
+    }
+
+    if (token == 0x7dd) {
+        tsound_func(obj, 0x27);
+
+        obj->field40 = (uint32_t)(uintptr_t)a_jax_lion;
+        obj->field1c = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x7e2;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_backwards_ani;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x7e2)
+        return mk3_install(thread, (MK3THREADFUNC)t_animality_complete);
+
+    if (token != 0)
+        return -3;
+
+    animality_tune(obj);
+
+    obj->field1c = 2;
+    obj->field40 = (uint32_t)(uintptr_t)a_jax_lion;
+    obj->a10 = 0x12;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x7ca;
+    thread->frame = thread->frame + 1;              /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_animal_morph;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
