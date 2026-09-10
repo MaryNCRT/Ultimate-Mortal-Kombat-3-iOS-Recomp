@@ -6799,3 +6799,127 @@ long t_lao_slicer(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* -------------------------------------------------------------------------- t_scorpion_fire
+ *
+ * armv7 0x00039bc8, 324 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0x54f, descend into t_fatality_start_pause
+ *
+ *      token == 0x54f:    obj->field1c = 0xa; ochar_sound(obj)
+ *                         token := 0x554, descend into t_scorpion_remove_mask
+ *
+ *      token == 0x554:    obj->field38 = t_r_scared_of_scorp
+ *                         takeover_him(obj)
+ *                         token := 0x558, park 0x30
+ *
+ *      token == 0x558:    obj->field40 = 0xe; get_char_ani2(obj)
+ *                         find_last_frame(obj)
+ *                         do_next_a9_frame(obj)
+ *                         NewThread(obj, t_scorpion_flame)
+ *                         token := 0x569, park 0x18
+ *
+ *      token == 0x569:    obj->field38 = t_scorp_skeleton_burn
+ *                         takeover_him(obj)
+ *                         token := 0x56d, park 0x60
+ *
+ *      token == 0x56d:    death_blow_complete(obj)
+ *                         frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:         return -3
+ *
+ * **`t_scorp_skeleton_burn` is a FOURTH entry into the burn chain.** The three written at the top of
+ * this file -- `t_sb_skeleton_burn`, `t_robo_skeleton_burn` and `t_lk_skeleton_burn` -- all reach
+ * `t_skburn3`, which spawns `t_skel_fire_proc`. This one is handed to the VICTIM rather than run by
+ * the attacker, which none of the other three are.
+ *
+ * So the burn is not a self-inflicted animation: it is a reaction, and the three earlier entries
+ * are the cases where a fighter burns itself. Worth knowing before assuming what a `*_skeleton_burn`
+ * routine is for.
+ *
+ * **Third routine in this file to use two handovers in sequence**, after `t_reptile_vomit` and
+ * `t_lia_hair_spin`: the victim gets `t_r_scared_of_scorp` for seventy-two frames and then
+ * `t_scorp_skeleton_burn`. The pattern is now firmly general.
+ *
+ * It descends into `t_scorpion_remove_mask`, written earlier in this file -- the routine that runs
+ * `t_animate_a0_frames` twice with 0x00050002 and 0x00050004. So the mask comes off as a shared
+ * sub-routine of the fatality rather than as part of it.
+ *
+ * `find_last_frame` after `get_char_ani2` winds the attacker to the animation's END before
+ * `do_next_a9_frame` steps once -- the same pair `t_st_spiked` uses to leave a corpse in its final
+ * pose, here used on a living fighter to hold the last frame of the unmasking.
+ *
+ * `r6` carries 0x554 into state 0x54f's store and 0x569 into state 0x558's, the two-tokens-one-
+ * register hazard again.
+ */
+long t_scorpion_remove_mask(MK3THREAD *thread);
+long t_r_scared_of_scorp(MK3THREAD *thread);     /* 0x00035da0 */
+long t_scorp_skeleton_burn(MK3THREAD *thread);   /* 0x0003424c */
+long t_scorpion_flame(MK3THREAD *thread);        /* 0x0003654c */
+
+long t_scorpion_fire(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x54f) {
+        obj->field1c = 0xa;
+        ochar_sound(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x554;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_scorpion_remove_mask;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x554) {
+        obj->field38 = (uint32_t)(uintptr_t)t_r_scared_of_scorp;
+        takeover_him(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x558;
+        thread->fieldfc = 0x30;
+        return 0x30;
+    }
+
+    if (token == 0x558) {
+        obj->field40 = 0xe;
+        get_char_ani2(obj);
+        find_last_frame(obj);
+        do_next_a9_frame(obj);
+
+        NewThread(obj, (MK3THREADFUNC)t_scorpion_flame);
+
+        *mk3_frame(thread, frame + 1) = 0x569;
+        thread->fieldfc = 0x18;
+        return 0x18;
+    }
+
+    if (token == 0x569) {
+        obj->field38 = (uint32_t)(uintptr_t)t_scorp_skeleton_burn;
+        takeover_him(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x56d;
+        thread->fieldfc = 0x60;
+        return 0x60;
+    }
+
+    if (token == 0x56d) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+    }
+
+    if (token != 0)
+        return -3;
+
+    *mk3_frame(thread, frame + 1) = 0x54f;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_fatality_start_pause;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
