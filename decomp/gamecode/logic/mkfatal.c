@@ -6432,3 +6432,144 @@ long t_lia_hair_spin(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------------------------ t_hair_spun
+ *
+ * armv7 0x0003871c, 324 bytes.  **Complete.**
+ *
+ *      token == 0:        death_scream(obj)
+ *                         center_around_me(obj)
+ *                         obj->field1c = 7; his_ochar_sound(obj)
+ *                         obj->field1c = 8; his_ochar_sound(obj)
+ *                         obj->field48 = 0x00050020; shake_a11(obj)
+ *                         obj->field1c = 0x25; create_fx(obj)
+ *                         obj->field1c = part->field24
+ *                         PUSH part->field24
+ *                         obj->field1c = 6
+ *                         part->field24 = 6
+ *                         obj->field40 = 8; get_char_ani2(obj)
+ *                         POP  part->field24     (also into obj->field1c)
+ *                         do_next_a9_frame(obj)
+ *                         obj->field48 = obj->field40
+ *                         obj->a10 = 0x30
+ *                         -- falls into the tail --
+ *
+ *      token == 0x126f:   do_next_a9_frame(obj)
+ *                         if (--obj->a10 == 0) {
+ *                             obj->field40 = obj->field48
+ *                             find_part2(obj)
+ *                             obj->field1c = 4
+ *                             token := 0x1277, descend into t_mframew
+ *                         }
+ *                         -- falls into the tail --
+ *
+ *      the tail:          token := 0x126f, park 2
+ *
+ *      token == 0x1277:   set_inviso(obj)
+ *                         frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:         return -3
+ *
+ * **The argument stack is used to save the CHARACTER NUMBER while the routine lies about it.**
+ * `part->field24` is pushed, overwritten with 6, `get_char_ani2` is called -- which indexes
+ * `character_anitabs2` by exactly that field -- and then the real number is popped back. So the
+ * fighter is temporarily made to look like character 6 so that its animation is resolved out of
+ * character 6's table.
+ *
+ * That is the fifth use of the argument stack and by far the most pointed. The other four save a
+ * position, a cursor, a counter and a table base across a call that needs the same slot; **this one
+ * borrows another character's animation set by falsifying an identity field and putting it back.**
+ * Nothing else in the tree does that, and it means `part->field24` cannot be assumed stable across
+ * a call even within one routine.
+ *
+ * It is the second site to WRITE that field, after `t_mk_game_cabinet` set it to 0xd for a prop --
+ * but that one never restored it, and this one does, four instructions later.
+ *
+ * The resolved pointer is then stashed in 0x48 and restored to 0x40 forty-eight frames later for
+ * `find_part2`, so 0x48 is a cursor save here -- a seventh reading of that field.
+ *
+ * **Both callers of this routine are already written and they are in different files**:
+ * `t_lia_hair_spin` in this file hands it to the victim as the second of two handovers, and
+ * mkanimal.c's `tl_kano_spider` hands it through pointer slot 0x000f346c. One reaction, two
+ * finishers, two modules.
+ *
+ * Sounds 7 and 8 through `his_ochar_sound` -- the pair habit, played on the OTHER fighter, as in
+ * `t_r_prevomit`.
+ */
+long t_hair_spun(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    uint32_t argc;
+
+    if (token == 0x1277) {
+        set_inviso(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+    }
+
+    if (token == 0) {
+        death_scream(obj);
+        center_around_me(obj);
+
+        obj->field1c = 7;
+        his_ochar_sound(obj);
+        obj->field1c = 8;
+        his_ochar_sound(obj);
+
+        obj->field48 = 0x00050020;
+        shake_a11(obj);
+
+        obj->field1c = 0x25;
+        create_fx(obj);
+
+        obj->field1c = obj->field08->field24;
+
+        argc = thread->fieldf8;
+        *mk3_arg(thread, argc) = obj->field08->field24;
+        thread->fieldf8 = argc + 1;
+
+        obj->field1c = 6;
+        obj->field08->field24 = 6;
+
+        obj->field40 = 8;
+        get_char_ani2(obj);
+
+        argc = thread->fieldf8 - 1;
+        thread->fieldf8 = argc;
+        obj->field1c = *mk3_arg(thread, argc);
+        obj->field08->field24 = obj->field1c;
+
+        do_next_a9_frame(obj);
+
+        obj->field48 = obj->field40;
+        obj->a10     = 0x30;
+
+    } else if (token == 0x126f) {
+        do_next_a9_frame(obj);
+
+        obj->a10 = obj->a10 - 1;
+        if (obj->a10 == 0) {
+            obj->field40 = obj->field48;
+            find_part2(obj);
+
+            obj->field1c = 4;
+
+            *mk3_frame(thread, thread->frame + 1) = 0x1277;
+            thread->frame = thread->frame + 1;       /* push a level */
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)t_mframew;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = 0x126f;
+    thread->fieldfc = 2;
+    return 2;
+}
