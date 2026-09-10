@@ -9953,3 +9953,158 @@ long t_remaining_skel(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ----------------------------------------------------------------------------- t_jade_impale
+ *
+ * armv7 0x00039df4, 448 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0x7ab, descend into t_fatality_start_pause
+ *
+ *      token == 0x7ab:    token := 0x7ac, descend into t_do_duck
+ *
+ *      token == 0x7ac:    token := 0x7ad, park 8
+ *
+ *      token == 0x7ad:    rsnd_func(obj, 0xf)
+ *                         obj->field40 = 0x0002000b
+ *                         token := 0x7b1, descend into t_animate_a9
+ *
+ *      token == 0x7b1:    get_x_dist(obj)
+ *                         if (obj->field28 > 0x50)
+ *                             frame[frame].handler = t_victory_animation
+ *                         obj->field38 = t_r_impale_upcut
+ *                         takeover_him(obj)
+ *                         sans_repell_for_good(obj)
+ *                         token := 0x7ba, park 0x20
+ *
+ *      token == 0x7ba:    tsound_func(obj, 0x27)
+ *                         obj->field40 = 0x0004000b
+ *                         token := 0x7be, descend into t_animate2_a9
+ *
+ *      token == 0x7be:    token := 0x7bf, park 4
+ *
+ *      token == 0x7bf:    token := 0x7c1, park 0x20
+ *
+ *      token == 0x7c1:    death_blow_complete(obj)
+ *                         frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:         return -3
+ *
+ * **This is the top of the impale chain, and it closes all five routines.** `t_jade_impale` hands
+ * the victim `t_r_impale_upcut`, which puts `t_impale_call` in 0x34 and descends into
+ * `t_flight_call`; that calls the callback once per frame; the callback pops straight back out
+ * until the body passes 0x1a0, then calls `reset_proc_stack` to seize the thread, lines the fighter
+ * up with `ochar_staff_lineups`, catches them again coming down through 0x130, and descends twice
+ * into `t_down_the_staff`. Five routines, four separate batches, and the only thing that was ever
+ * missing was who started it.
+ *
+ * **The fatality can be refused.** State 0x7b1 measures the gap with `get_x_dist` and, if it is more
+ * than 0x50, installs `t_victory_animation` on the spot -- no takeover, no sound, no death blow.
+ * So the whole sequence up to that point is a windup that can come to nothing, and the check happens
+ * after the duck and the first animation rather than before them. First routine in this file with a
+ * distance test that abandons the finisher rather than waiting for it to be satisfied;
+ * `t_crusher_orb` and `t_smoke_dropping` both park and re-test until the gap closes.
+ *
+ * **It ends in `t_wait_forever`, not `t_victory_animation`.** Every other fatality in this file
+ * calls `death_blow_complete` and then installs the victory animation; this one calls
+ * `death_blow_complete` and parks. The victory animation is reachable here only down the path where
+ * the fatality did NOT happen -- so the two exits are exactly swapped from every other routine, and
+ * a reader who assumes `death_blow_complete` implies the victory animation gets this one backwards.
+ *
+ * **A third animator, and it takes its pair in 0x40 like the second.** `t_animate_a9` (pointer slot
+ * 0x000f36d0) gets 0x0002000b and `t_animate2_a9` gets 0x0004000b. With `t_jax_slice`'s pair that
+ * makes the rule: `t_animate_a9` and `t_animate2_a9` read 0x40, `t_animate_a0_frames` reads 0x1c.
+ *
+ * Both pairs here share the low half 0x000b -- the same animation run twice, for two frames and then
+ * for four. The low half is the animation and the high half the count, which is what the four
+ * `t_animate_a0_frames` sites suggested and this pair confirms from the other side.
+ */
+
+long t_jade_impale(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3THREADFUNC next_handler;
+    uint32_t next;
+
+    if (token == 0) {
+        *mk3_frame(thread, frame + 1) = 0x7ab;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_fatality_start_pause;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x7ac) {
+        *mk3_frame(thread, frame + 1) = 0x7ad;
+        thread->fieldfc = 8;
+        return 8;
+    }
+
+    if (token == 0x7be) {
+        *mk3_frame(thread, frame + 1) = 0x7bf;
+        thread->fieldfc = 4;
+        return 4;
+    }
+
+    if (token == 0x7bf) {
+        *mk3_frame(thread, frame + 1) = 0x7c1;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (token == 0x7c1) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+    }
+
+    if (token == 0x7b1) {
+        get_x_dist(obj);
+
+        if ((long)obj->field28 > 0x50)               /* too far: give up */
+            return mk3_install(thread,
+                               (MK3THREADFUNC)t_victory_animation);
+
+        obj->field38 = (uint32_t)(uintptr_t)t_r_impale_upcut;
+        takeover_him(obj);
+
+        sans_repell_for_good(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x7ba;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (token == 0x7ab) {
+        next         = 0x7ac;
+        next_handler = (MK3THREADFUNC)t_do_duck;
+
+    } else if (token == 0x7ad) {
+        rsnd_func(obj, 0xf);
+
+        obj->field40 = 0x0002000b;
+
+        next         = 0x7b1;
+        next_handler = (MK3THREADFUNC)t_animate_a9;
+
+    } else if (token == 0x7ba) {
+        tsound_func(obj, 0x27);
+
+        obj->field40 = 0x0004000b;
+
+        next         = 0x7be;
+        next_handler = (MK3THREADFUNC)t_animate2_a9;
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)next_handler;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
