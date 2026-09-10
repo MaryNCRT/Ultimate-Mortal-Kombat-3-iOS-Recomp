@@ -1824,3 +1824,119 @@ long tl_projectile_flight_call(MK3THREAD *thread)
     *mk3_frame(thread, frame + 1) = 0;
     return 0;
 }
+
+
+/* ======================================== t_bomb_call and t_mot_zap_call
+ *
+ * armv7 0x00075178 and 0x00075120, 88 bytes each.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = part->field1c + G
+ *      part->field1c = obj->field1c
+ *      if (thread->frame > 0) { thread->frame -= 1; return 0 }
+ *      frame[frame].handler = t_local_reaction_exit
+ *
+ * where **G is 0x6000 for the bomb and 0x5000 for Motaro's zap**, and that
+ * single constant is the whole difference between the two functions. Everything
+ * else -- registers, order, the `push {r4}` with no `lr` because nothing is
+ * called -- is identical.
+ *
+ * **These are per-frame callbacks, the shape `t_impale_call` has in mkfatal.c**:
+ * do one thing and give the level straight back, so the flight routine that
+ * calls them keeps control. `t_impale_call` is the elaborate version that seizes
+ * the thread when a condition is met; these two never do anything but fall.
+ *
+ * 0x6000 and 0x5000 are the same two numbers the `t_flight` table carries in its
+ * 0x24 column for `t_hit_by_bull` and `t_dino_bucked`. So the engine has one set
+ * of fall rates and two ways of applying them -- inside `t_flight`, or by a
+ * callback like this. Worth knowing before someone invents a third.
+ *
+ * The velocity is written to both 0x1c and the part, which is this file's habit:
+ * the object's 0x1c is the scratch every helper reads, and the part is where it
+ * has to end up.
+ */
+long t_bomb_call(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+
+    if (*mk3_frame(thread, frame + 1) != 0)
+        return -3;
+
+    obj->field1c          = obj->field08->field1c + 0x6000;
+    obj->field08->field1c = obj->field1c;
+
+    if ((long)thread->frame > 0) {          /* cmp #0 / ble: signed */
+        thread->frame = thread->frame - 1;  /* back up a level */
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+long t_mot_zap_call(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+
+    if (*mk3_frame(thread, frame + 1) != 0)
+        return -3;
+
+    obj->field1c          = obj->field08->field1c + 0x5000;
+    obj->field08->field1c = obj->field1c;
+
+    if ((long)thread->frame > 0) {          /* cmp #0 / ble: signed */
+        thread->frame = thread->frame - 1;  /* back up a level */
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* t_bomb_gravity2 -- armv7 0x00075384, 88 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      part->field1c = obj->field1c                 ; the y velocity, as given
+ *      obj->field1c  = (int32_t)part->field18 >> 1  ; half the x velocity
+ *      part->field18 = obj->field1c
+ *      obj->field48  = obj->field48 << 1            ; double the counter
+ *      frame[frame].handler = t_bomb_gravity
+ *
+ * **A bounce.** The y velocity is replaced with whatever the caller left in
+ * 0x1c, the x velocity is halved, and then the routine hands over to
+ * `t_bomb_gravity` -- the plain version -- so the bomb carries on falling with
+ * less forward speed than it had.
+ *
+ * **0x48 is doubled on the way past**, and `get_bomb_vel` earlier in this file
+ * puts 0x20 there as the number of frames the throw is divided into. Doubling it
+ * each bounce means each bounce takes twice as long as the last, which is the
+ * arithmetic of a ball losing energy -- shorter hops, longer intervals.
+ *
+ * The x halving is arithmetic, so a bomb thrown left bounces left.
+ *
+ * The name says it is the second of a pair and it installs the first, so
+ * `t_bomb_gravity` is the steady state and this is the one frame where the
+ * bounce happens.
+ */
+long t_bomb_gravity(MK3THREAD *thread);
+
+long t_bomb_gravity2(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+
+    if (*mk3_frame(thread, frame + 1) != 0)
+        return -3;
+
+    obj->field08->field1c = obj->field1c;
+
+    obj->field1c          = (uint32_t)((int32_t)obj->field08->field18 >> 1);
+    obj->field08->field18 = obj->field1c;
+
+    obj->field48 = obj->field48 << 1;       /* twice as long next time */
+
+    mk3_frame(thread, frame)[1] = (uint32_t)(uintptr_t)t_bomb_gravity;
+    *mk3_frame(thread, frame + 1) = 0;
+    return 0;
+}
