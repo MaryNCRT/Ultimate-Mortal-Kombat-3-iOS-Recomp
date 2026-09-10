@@ -3533,3 +3533,338 @@ long tl_sz_polar(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+/* ----------------------------------------------------------------------- tl_cyrax_shark
+ *
+ * armv7 0x000a2c28, 468 bytes.  **Complete.**
+ *
+ *      token == 0:      animality_tune(obj)
+ *                       obj->field40 = a_shark
+ *                       obj->a10 = 0x12
+ *                       token := 0x466, descend into t_animal_morph
+ *
+ *      token == 0x466:  sans_repell_for_good(obj)
+ *                       kill_and_stop_scrolling(obj)
+ *                       obj->field1c = 0xa0000; towards_x_vel(obj)
+ *                       token := 0x46d, park 8
+ *
+ *      token == 0x46d:  sans_repell_for_good(obj)
+ *                       token := 0x46f, park 0x48
+ *
+ *      token == 0x46f:  tsound_func(obj, 0x92)
+ *                       stop_me_player(obj)
+ *                       match_me_with_him(obj)
+ *                       ground_player(obj)
+ *                       obj->field1c = 4
+ *                       token := 0x477, descend into t_mframew
+ *
+ *      token == 0x477:  obj->field38 = t_eaten_by_shark
+ *                       takeover_him(obj)
+ *                       obj->field48 = 0x000a000a; shake_a11(obj)
+ *                       token := 0x47e, park 4
+ *
+ *      token == 0x47e:  obj->field1c = 3
+ *                       token := 0x480, descend into t_mframew
+ *
+ *      token == 0x480:  token := 0x482, park 0x30
+ *
+ *      token == 0x482:  obj->field40 = a_shark
+ *                       frame[frame].handler = t_unmorph_and_exit
+ *
+ *      otherwise:       return -3
+ *
+ * **Eight states, and the shark swims to where the opponent stands.** `match_me_with_him`
+ * before `ground_player` puts the animal at the victim's position rather than measuring a
+ * distance -- so this is a fourth arrival mechanism in the module, and the only one that
+ * teleports instead of moving: the bull re-arms on `get_x_dist`, the penguin does its own
+ * subtraction, `q_bat_*` answers in 0x5c, and this simply matches.
+ *
+ * The charge is still there -- 0xa0000 through `towards_x_vel`, the same speed as the bull's
+ * -- so the shark visibly travels and is then snapped into place before the bite.
+ *
+ * **`sans_repell_for_good` in two consecutive states again**, as in `tl_smoke_bull_shit`.
+ * Both routines call it once with the charge and once in the state after; the same repetition
+ * in two drivers makes it deliberate rather than an accident of one function.
+ *
+ * The victim reaction is `t_eaten_by_shark`, whose three bites end by installing
+ * `t_eaten_by_snake` -- so this one driver reaches two reactions in sequence, and the shark's
+ * own contribution is only the three bites.
+ *
+ * **The dispatch is two levels of signed comparison**, `ble` inside `ble`, which is why the
+ * token order in the branch table is 0x46f, then {0x466, 0x46d, 0}, then 0x47e, then 0x477,
+ * then 0x480 and 0x482. Read in source order the states are almost shuffled; read through
+ * the table they are a straight sequence.
+ */
+extern uint32_t a_shark[];                       /* 0x001773b8 */
+void match_me_with_him(MK3OBJ *obj);
+
+long tl_cyrax_shark(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x466) {
+        sans_repell_for_good(obj);
+        kill_and_stop_scrolling(obj);
+
+        obj->field1c = 0xa0000;
+        towards_x_vel(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x46d;
+        thread->fieldfc = 8;
+        return 8;
+    }
+
+    if (token == 0x46d) {
+        sans_repell_for_good(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x46f;
+        thread->fieldfc = 0x48;
+        return 0x48;
+    }
+
+    if (token == 0x46f) {
+        tsound_func(obj, 0x92);
+        stop_me_player(obj);
+        match_me_with_him(obj);
+        ground_player(obj);
+
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x477;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x477) {
+        obj->field38 = (uint32_t)(uintptr_t)t_eaten_by_shark;
+        takeover_him(obj);
+
+        obj->field48 = 0x000a000a;
+        shake_a11(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x47e;
+        thread->fieldfc = 4;
+        return 4;
+    }
+
+    if (token == 0x47e) {
+        obj->field1c = 3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x480;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x480) {
+        *mk3_frame(thread, frame + 1) = 0x482;
+        thread->fieldfc = 0x30;
+        return 0x30;
+    }
+
+    if (token == 0x482) {
+        obj->field40 = (uint32_t)(uintptr_t)a_shark;
+
+        return mk3_install(thread, (MK3THREADFUNC)t_unmorph_and_exit);
+    }
+
+    if (token != 0)
+        return -3;
+
+    animality_tune(obj);
+
+    obj->field40 = (uint32_t)(uintptr_t)a_shark;
+    obj->a10 = 0x12;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x466;
+    thread->frame = thread->frame + 1;              /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_animal_morph;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+/* ----------------------------------------------------------------------- tl_sindel_wasp
+ *
+ * armv7 0x000a309c, 488 bytes.  **Complete.**
+ *
+ *      token == 0:      animality_tune(obj)
+ *                       sans_repell_for_good(obj)
+ *                       obj->field40 = a_wasp
+ *                       obj->a10 = 0xa
+ *                       token := 0x670, descend into t_animal_morph
+ *
+ *      token == 0x670:  obj->field1c = 0x00030010
+ *                       token := 0x673, descend into t_animate_a0_frames
+ *
+ *      token == 0x673:  obj->field38 = t_stung_a_bunch
+ *                       takeover_him(obj)
+ *                       face_him_at_me(obj)
+ *                       match_me_with_him(obj)
+ *                       flip_multi(obj)
+ *                       obj->field1c = ~0x27              (-0x28)
+ *                       obj->field20 = -0x28 - 0x20 = -0x48
+ *                       multi_adjust_xy(obj)
+ *                       kill_and_stop_scrolling(obj)
+ *                       no_edge_both_players()
+ *                       obj->field1c = 0x30000; away_x_vel_him(obj)
+ *                       obj->field1c = 0x30000; towards_x_vel(obj)
+ *                       obj->field40 = a_wasp
+ *                       find_part2(obj)
+ *                       find_part2(obj)
+ *                       obj->field1c = 0x0004001a
+ *                       token := 0x68a, descend into t_animate_a0_frames
+ *
+ *      token == 0x68a:  call_for_him(obj, set_inviso)
+ *                       stop_me_player(obj)
+ *                       token := 0x68e, park 0x40
+ *
+ *      token == 0x68e:  death_blow_complete(obj)
+ *                       sans_repell_for_good(obj)
+ *                       player_normpal(obj)
+ *                       obj->field40 = 0; pose_a9_manual(obj)
+ *                       ground_ochar(obj)
+ *                       obj->field1c = (int16_t)part->y12 + 0x90
+ *                       part->y12 = obj->field1c
+ *                       part->x0e = *(long *)(G + 0x468) + 0x60
+ *                       obj->field1c = 0xfffe0000
+ *                       part->field1c = 0xfffe0000
+ *                       frame[frame].handler = t_lia_victory
+ *
+ *      otherwise:       return -3
+ *
+ * **The wasp carries the victim off, and this is the only driver in the file that does not
+ * end in the animality machinery at all.** Its last state installs `t_lia_victory` -- Sindel's
+ * victory routine, out of pointer slot 0x000f3464 -- so the finisher runs straight into the
+ * end-of-round pose instead of `t_animality_complete` or `t_unmorph_and_exit`. Fourth ending
+ * shape, and the only one that leaves this module.
+ *
+ * **The pick-up is nine calls in one state.** Hand the victim `t_stung_a_bunch` (the loop with
+ * no exit, written earlier), turn them to face, match positions, flip, shift by -0x28/-0x48,
+ * stop the camera, remove both edge limits, then push the victim away at 0x30000 and pull
+ * yourself towards them at the same speed. **The two velocity calls share one register and one
+ * value** -- `away_x_vel_him` then `towards_x_vel`, both reading 0x30000 out of 0x1c -- so the
+ * pair is what makes the wasp and its victim move together.
+ *
+ * **`find_part2` is called twice in a row with nothing between the two calls.** mkstat.c's
+ * `tl_stat_do_fan_lift` has exactly the same doubled call. Two independent sites make it an
+ * idiom rather than a slip, and neither routine reads a result between them -- so whatever the
+ * second call adds, it is a side effect of running the search again. Recorded, not explained.
+ *
+ * **The landing spot is read out of the global, not computed.** `*(long *)(G + 0x468) + 0x60`
+ * goes into the part's x, and the y is the grounded position plus 0x90 -- so the victim is put
+ * down at a fixed place in the arena rather than where the wasp happens to be. First read of
+ * G + 0x468 in the tree.
+ *
+ * The morph is 0xa passes where every other driver uses 0x12, and `t_animate_a0_frames` gets
+ * two different packed pairs, 0x00030010 for the flight out and 0x0004001a for the flight back.
+ */
+extern uint32_t a_wasp[];                        /* 0x00177164 */
+void player_normpal(MK3OBJ *obj);
+void ground_ochar(MK3OBJ *obj);
+void away_x_vel_him(MK3OBJ *obj);
+void call_for_him(MK3OBJ *obj, void (*fn)(MK3OBJ *));
+long t_lia_victory(MK3THREAD *thread);           /* pointer slot 0x000f3464 */
+
+long tl_sindel_wasp(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x670) {
+        obj->field1c = 0x00030010;
+
+        *mk3_frame(thread, frame + 1) = 0x673;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_a0_frames;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x673) {
+        obj->field38 = (uint32_t)(uintptr_t)t_stung_a_bunch;
+        takeover_him(obj);
+
+        face_him_at_me(obj);
+        match_me_with_him(obj);
+        flip_multi(obj);
+
+        obj->field1c = (uint32_t)~0x27u;
+        obj->field20 = (uint32_t)(~0x27u - 0x20u);
+        multi_adjust_xy(obj);
+
+        kill_and_stop_scrolling(obj);
+        no_edge_both_players();
+
+        obj->field1c = 0x30000;
+        away_x_vel_him(obj);
+        obj->field1c = 0x30000;
+        towards_x_vel(obj);
+
+        obj->field40 = (uint32_t)(uintptr_t)a_wasp;
+        find_part2(obj);
+        find_part2(obj);
+
+        obj->field1c = 0x0004001a;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x68a;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_a0_frames;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x68a) {
+        call_for_him(obj, set_inviso);
+        stop_me_player(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x68e;
+        thread->fieldfc = 0x40;
+        return 0x40;
+    }
+
+    if (token == 0x68e) {
+        death_blow_complete(obj);
+        sans_repell_for_good(obj);
+        player_normpal(obj);
+
+        obj->field40 = 0;
+        pose_a9_manual(obj);
+
+        ground_ochar(obj);
+
+        obj->field1c = (uint32_t)((int32_t)(int16_t)MK3_FIELD12(obj->field08)
+                                  + 0x90);
+        MK3_SET_FIELD12(obj->field08, obj->field1c);
+
+        MK3_SET_FIELD0E(obj->field08,
+                        *(uint32_t *)(G_BYTES + 0x468) + 0x60);
+
+        obj->field1c         = 0xfffe0000u;
+        obj->field08->field1c = 0xfffe0000u;
+
+        return mk3_install(thread, (MK3THREADFUNC)t_lia_victory);
+    }
+
+    if (token != 0)
+        return -3;
+
+    animality_tune(obj);
+    sans_repell_for_good(obj);
+
+    obj->field40 = (uint32_t)(uintptr_t)a_wasp;
+    obj->a10 = 0xa;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x670;
+    thread->frame = thread->frame + 1;              /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_animal_morph;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
