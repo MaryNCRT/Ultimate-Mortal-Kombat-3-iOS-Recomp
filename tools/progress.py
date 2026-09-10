@@ -263,8 +263,13 @@ def main():
         print("\n  %s" % title)
         for src in sorted(by):
             n, k = by[src]
-            if k:
-                print("    %-26s %3d/%-5d" % (src, k, n))
+            # Every file, including the ones with nothing written yet. Skipping
+            # the zeroes made the rows sum to less than the TOTAL underneath
+            # them -- gamecode/logic showed 2,092 across its files against a
+            # total of 2,172 -- and hid seven source files that had never been
+            # started. A progress table that cannot be added up is worse than
+            # no table.
+            print("    %-26s %3d/%-5d" % (src, k, n))
         pct = 100.0 * done / total if total else 0.0
         pcts[title] = pct
         counted[title] = (done, total, pct)
