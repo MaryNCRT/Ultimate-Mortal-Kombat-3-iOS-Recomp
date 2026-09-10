@@ -11642,3 +11642,214 @@ long t_st_spike(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------------- t_kano_skeleton
+ *
+ * armv7 0x00035694, 584 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0x1780, descend into t_fatality_start_pause
+ *
+ *      token == 0x1780:   sans_repell_for_good(obj)
+ *                         obj->field1c = 6
+ *                         obj->field40 = a_kano_rip_skel
+ *                         token := 0x1786, descend into t_mframew
+ *
+ *      token == 0x1786:   wfe_him(obj)
+ *                         make_him_face_me(obj)
+ *                         obj->field1c = player_normpal; call_a0_for_him(obj)
+ *                         e = ochar_reached_kn[him->field24]
+ *                         obj->field1c = e
+ *                         obj->field48 = e
+ *                         obj->a10 = proc->him
+ *                         double_next_a9(obj)
+ *                         obj->field1c = 2; his_group_sound(obj)
+ *                         obj->field1c = 7; ochar_sound(obj)
+ *                         obj->field1c = 3
+ *                         obj->field20 = 3
+ *                         obj->field24 = 3 + 1 = 4
+ *                         token := 0x179a, descend into t_shake_him_up
+ *
+ *      token == 0x179a:   token := 0x179b, park 0xb
+ *
+ *      token == 0x179b:   obj->field1c = 7; ochar_sound(obj)
+ *                         obj->field38 = t_death_shake
+ *                         xfer_otherguy(obj)
+ *                         obj->field1c = 3
+ *                         obj->field20 = 3
+ *                         obj->field24 = 3 + 1 = 4
+ *                         token := 0x17a4, descend into t_shake_ob_up
+ *
+ *      token == 0x17a4:   obj->field1c = 7; ochar_sound(obj)
+ *                         obj->field1c = 9; his_group_sound(obj)
+ *                         PUSH obj->field48
+ *                         obj->field48 = 0x00080008; shake_a11(obj)
+ *                         POP  obj->field48
+ *                         obj->field38 = t_skin_fall
+ *                         xfer_otherguy(obj)
+ *                         proc->field00->field48 = obj->field48
+ *                         obj->field1c = 8
+ *                         token := 0x17b5, descend into t_mframew
+ *
+ *      token == 0x17b5:   death_blow_complete(obj)
+ *                         frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:         return -3
+ *
+ * **This closes `t_skin_fall`, and it says what its 0x48 is.** That routine's first instruction is
+ * `obj->field40 = obj->field48`, and nothing had shown where the value comes from. It comes from
+ * here: `ochar_reached_kn[him->field24]` is read in state 0x1786, kept in 0x48 across everything in
+ * between, and written into the victim's own 0x48 in state 0x17a4 one instruction after
+ * `xfer_otherguy` gives him `t_skin_fall`. So **`ochar_reached_kn` holds an animation cursor per
+ * character**, and this is a ninth per-character table -- 0x00166a34, words indexed by `lsl #2`,
+ * a sibling of `ochar_reached` at 0x1667c0 and named for the same thing.
+ *
+ * **Fourth site of the `proc->field00->field48` table hand-off**, after `t_kabal_inflator`,
+ * `t_lia_scream_rip` and `t_kitana_kiss`. Two readers now have two writers each, and every writer
+ * uses the same channel: hand over the handler, then fill the field it will read.
+ *
+ * **Thirteenth argument-stack site, and the tidiest example of why the stack exists.** 0x48 already
+ * holds the cursor destined for the victim when `shake_a11` needs 0x48 for its own magnitude pair.
+ * One field, two callees, four instructions apart -- push, shake, pop.
+ *
+ * **Both shakers appear in one routine, with the same three numbers.** State 0x1786 descends into
+ * `t_shake_him_up` (pointer slot 0x000f36a4) and state 0x179b into `t_shake_ob_up` (0x000f36f8),
+ * both with 3, 3 and 4 -- the second built with an `adds #1` off the first, the shared-literal habit
+ * again. So the two routines take the same three fields and differ only in which body they move,
+ * which is the first direct evidence for that pairing.
+ *
+ * **Second fatality in this file to end in `t_wait_forever` rather than `t_victory_animation`**,
+ * after `t_jade_impale`. Both call `death_blow_complete` first, so the call does not imply the
+ * victory animation follows -- two sites now say so.
+ *
+ * `xfer_otherguy` twice, both times preceded by a write to 0x38. mkprop.c's note has it as the
+ * same 0x38 handover `takeover_him` performs, and this routine uses only that spelling -- so the
+ * two are interchangeable at the call site and a port needs both.
+ *
+ * `a_kano_rip_skel` is a `__DATA,__data` array, not a routine -- the same trap
+ * `a_sb_skeleton_burn` set earlier in this file, where a symbol beginning `a_` was first declared
+ * as a thread handler and had to be corrected. Declared as data here from the start.
+ */
+extern uint32_t a_kano_rip_skel[];               /* 0x00166554 */
+extern uint32_t ochar_reached_kn[];              /* 0x00166a34 */
+void xfer_otherguy(MK3OBJ *obj);
+long t_shake_him_up(MK3THREAD *thread);          /* pointer slot 0x000f36a4 */
+
+long t_kano_skeleton(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3THREADFUNC next_handler;
+    MK3OBJ  *him;
+    uint32_t argc, next;
+
+    if (token == 0) {
+        *mk3_frame(thread, frame + 1) = 0x1780;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_fatality_start_pause;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x179a) {
+        *mk3_frame(thread, frame + 1) = 0x179b;
+        thread->fieldfc = 0xb;
+        return 0xb;
+    }
+
+    if (token == 0x17b5) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+    }
+
+    if (token == 0x1780) {
+        sans_repell_for_good(obj);
+
+        obj->field1c = 6;
+        obj->field40 = (uint32_t)(uintptr_t)a_kano_rip_skel;
+
+        next         = 0x1786;
+        next_handler = (MK3THREADFUNC)t_mframew;
+
+    } else if (token == 0x1786) {
+        wfe_him(obj);
+        make_him_face_me(obj);
+
+        obj->field1c = (uint32_t)(uintptr_t)player_normpal;
+        call_a0_for_him(obj);
+
+        him = (MK3OBJ *)(void *)(uintptr_t)obj->field00->him;
+        obj->field1c = ochar_reached_kn[him->field24];
+        obj->field48 = obj->field1c;                 /* kept for the victim */
+        obj->a10     = obj->field00->him;
+
+        double_next_a9(obj);
+
+        obj->field1c = 2;
+        his_group_sound(obj);
+
+        obj->field1c = 7;
+        ochar_sound(obj);
+
+        obj->field1c = 3;
+        obj->field20 = 3;
+        obj->field24 = 3 + 1;                        /* one literal */
+
+        next         = 0x179a;
+        next_handler = (MK3THREADFUNC)t_shake_him_up;
+
+    } else if (token == 0x179b) {
+        obj->field1c = 7;
+        ochar_sound(obj);
+
+        obj->field38 = (uint32_t)(uintptr_t)t_death_shake;
+        xfer_otherguy(obj);
+
+        obj->field1c = 3;
+        obj->field20 = 3;
+        obj->field24 = 3 + 1;                        /* one literal */
+
+        next         = 0x17a4;
+        next_handler = (MK3THREADFUNC)t_shake_ob_up;
+
+    } else if (token == 0x17a4) {
+        obj->field1c = 7;
+        ochar_sound(obj);
+
+        obj->field1c = 9;
+        his_group_sound(obj);
+
+        argc = thread->fieldf8;
+        *mk3_arg(thread, argc) = obj->field48;
+        thread->fieldf8 = argc + 1;
+
+        obj->field48 = 0x00080008;
+        shake_a11(obj);
+
+        argc = thread->fieldf8 - 1;
+        thread->fieldf8 = argc;
+        obj->field48 = *mk3_arg(thread, argc);
+
+        obj->field38 = (uint32_t)(uintptr_t)t_skin_fall;
+        xfer_otherguy(obj);
+
+        obj->field00->field00->field48 = obj->field48;
+
+        obj->field1c = 8;
+
+        next         = 0x17b5;
+        next_handler = (MK3THREADFUNC)t_mframew;
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)next_handler;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
