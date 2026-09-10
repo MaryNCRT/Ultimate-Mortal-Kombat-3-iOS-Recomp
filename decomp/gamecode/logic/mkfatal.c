@@ -6573,3 +6573,117 @@ long t_hair_spun(MK3THREAD *thread)
     thread->fieldfc = 2;
     return 2;
 }
+
+
+/* --------------------------------------------------------------------- t_skel_fire_proc
+ *
+ * armv7 0x00036094, 344 bytes.  **Complete.**
+ *
+ *      token == 0:        tsound_func(obj, 0x20)
+ *                         obj->field1c = 5
+ *                         token := 0x16f0, descend into t_mframew
+ *
+ *      token == 0x16f0:   obj->a10 = obj->field40
+ *                         obj->field48 = 3
+ *                         -- falls into the loop head --
+ *
+ *      the loop head:     obj->field40 = obj->a10
+ *                         obj->field1c = 5
+ *                         token := 0x16f7, descend into t_mframew
+ *
+ *      token == 0x16f7:   if (--obj->field48 > 0) -- the loop head --
+ *                         obj->field1c = 5
+ *                         token := 0x16fd, descend into t_mframew
+ *
+ *      token == 0x16fd:   token := 0x16fe, park 6
+ *
+ *      token == 0x16fe:   tsound_func(obj, 0x21)
+ *                         obj->field1c = 6
+ *                         token := 0x1702, descend into t_mframew
+ *
+ *      token == 0x1702:   frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:         return -3
+ *
+ * **This answers the question left open when `t_skburn3` was written.** That routine spawns this
+ * thread and never reads `obj->field40` itself, which made the `+8` in `t_robo_skeleton_burn`
+ * puzzling -- something had to consume the cursor those three burn routines set up. It is consumed
+ * here: state 0x16f0 copies 0x40 into 0x44 and the loop head restores it before every descent into
+ * `t_mframew`.
+ *
+ * So the chain is complete. `t_sb_skeleton_burn` (from word 0), `t_robo_skeleton_burn` (from word 2)
+ * and `t_lk_skeleton_burn` all reach `t_skburn3`; that screams, spawns this, and hides the body;
+ * and this walks the word list three times over, four routines and a thread apart from where the
+ * list was chosen.
+ *
+ * **Same save-and-restore shape as `t_kissani` and `t_shocker_shaker`**, but without the argument
+ * stack: 0x44 is free here, so the cursor is parked in a field rather than pushed. Which of the two
+ * a routine uses depends only on whether 0x44 is needed for something else.
+ *
+ * Sounds 0x20 and 0x21 bracket the whole thing, one at the start and one near the end -- the pair
+ * habit again, spread across the routine's full length rather than played together.
+ *
+ * `r0` carries the thread into state 0x16f7's stores and 0x16fe into state 0x16fd's, because the
+ * dispatch reloads it on the way past. One register, a pointer and a token, and each store traced
+ * back to its own load.
+ */
+long t_skel_fire_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    uint32_t next;
+
+    if (token == 0) {
+        tsound_func(obj, 0x20);
+
+        obj->field1c = 5;
+        next = 0x16f0;
+
+    } else if (token == 0x16fd) {
+        *mk3_frame(thread, frame + 1) = 0x16fe;
+        thread->fieldfc = 6;
+        return 6;
+
+    } else if (token == 0x16fe) {
+        tsound_func(obj, 0x21);
+
+        obj->field1c = 6;
+        next = 0x1702;
+
+    } else if (token == 0x1702) {
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+
+    } else if (token == 0x16f0 || token == 0x16f7) {
+        if (token == 0x16f0) {
+            obj->a10     = obj->field40;
+            obj->field48 = 3;
+
+        } else {
+            obj->field48 = obj->field48 - 1;
+            if ((long)obj->field48 <= 0) {
+                obj->field1c = 5;
+
+                *mk3_frame(thread, thread->frame + 1) = 0x16fd;
+                thread->frame = thread->frame + 1;   /* push a level */
+                mk3_frame(thread, thread->frame)[1] =
+                    (uint32_t)(uintptr_t)t_mframew;
+                *mk3_frame(thread, thread->frame + 1) = 0;
+                return 0;
+            }
+        }
+
+        obj->field40 = obj->a10;
+        obj->field1c = 5;
+        next = 0x16f7;
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
