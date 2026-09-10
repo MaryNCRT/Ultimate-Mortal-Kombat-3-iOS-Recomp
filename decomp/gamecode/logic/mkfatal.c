@@ -7049,3 +7049,123 @@ long t_ind_zap_kill(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------------- t_lao_tornado
+ *
+ * armv7 0x000358dc, 352 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0xed3, descend into t_fatality_start_pause
+ *
+ *      token == 0xed3:    sans_repell_for_good(obj)
+ *                         obj->field1c = 6; ochar_sound(obj)
+ *                         token := 0xed8, descend into t_normal_spin_intro
+ *
+ *      token == 0xed8:    obj->field48 = 0x00040020; shake_a11(obj)
+ *                         obj->field38 = t_tornado_sucked
+ *                         takeover_him(obj)
+ *                         NewThread(obj, t_nado_sounds)
+ *                         obj->field40 = 3; get_char_ani2(obj)
+ *                         obj->field1c = 0x00030030
+ *                         token := 0xee4, descend into t_animate_a0_frames
+ *
+ *      token == 0xee4:    player_normpal(obj)
+ *                         token := 0xee6, descend into t_normal_spin_intro
+ *
+ *      token == 0xee6:    death_blow_complete(obj)
+ *                         frame[frame].handler = t_victory_animation
+ *
+ *      otherwise:         return -3
+ *
+ * **Three routines written earlier in this file all meet here.** `t_tornado_sucked` is handed to
+ * the victim -- the accelerating pull that drags them in at 0x4000 growing by 0x2000 a frame until
+ * the gap closes to 8, then vanishes them with effect 0x24. `t_nado_sounds` is spawned as its own
+ * thread -- the reinstall-self loop that plays sounds 6 and 7 together every sixty-four frames
+ * forever. And `t_fatality_start_pause` opens the whole thing.
+ *
+ * That explains why `t_nado_sounds` never stops: the tornado's noise has to last as long as the
+ * tornado, and the fatality ending is what tears the thread down rather than the loop deciding for
+ * itself.
+ *
+ * **`t_normal_spin_intro` is descended into TWICE**, once before the tornado and once after
+ * `player_normpal` restores the palette. So the spin is a shared sub-routine bracketing the
+ * fatality, not part of it -- and the same routine serves as both the wind-up and the recovery.
+ *
+ * The `t_animate_a0_frames` pair is 0x00030030, seventh site: rate 3, index 0x30. High half 3 this
+ * time, which after `t_skin_fall`'s 8 and the four 5s confirms the high half is genuinely free.
+ *
+ * The shake pair 0x00040020 is asymmetric, eighth such site.
+ */
+long t_normal_spin_intro(MK3THREAD *thread);     /* 0x00034958 */
+long t_tornado_sucked(MK3THREAD *thread);
+long t_nado_sounds(MK3THREAD *thread);
+
+long t_lao_tornado(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0xed3) {
+        sans_repell_for_good(obj);
+
+        obj->field1c = 6;
+        ochar_sound(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0xed8;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_normal_spin_intro;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xed8) {
+        obj->field48 = 0x00040020;
+        shake_a11(obj);
+
+        obj->field38 = (uint32_t)(uintptr_t)t_tornado_sucked;
+        takeover_him(obj);
+
+        NewThread(obj, (MK3THREADFUNC)t_nado_sounds);
+
+        obj->field40 = 3;
+        get_char_ani2(obj);
+
+        obj->field1c = 0x00030030;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xee4;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_a0_frames;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xee4) {
+        player_normpal(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0xee6;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_normal_spin_intro;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xee6) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+    }
+
+    if (token != 0)
+        return -3;
+
+    *mk3_frame(thread, frame + 1) = 0xed3;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_fatality_start_pause;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
