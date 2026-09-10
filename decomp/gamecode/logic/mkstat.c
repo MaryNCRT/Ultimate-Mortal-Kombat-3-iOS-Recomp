@@ -4996,3 +4996,430 @@ miss:
 
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+
+/* ---------------------------------------------------------------------- tl_do_noogy
+ *
+ * armv7 0x0004eb80, 1244 bytes.  **Complete.**  Seventeen states, the largest
+ * routine in this file.
+ *
+ *      token == 0:      init_special(obj); me_in_back(obj)
+ *                       *(uint32_t *)((char *)proc + 0x58) = 0x14
+ *                       obj->field1c = 1; group_sound(obj)
+ *                       obj->field40 = 1; get_char_ani2(obj)
+ *                       obj->field1c = 3
+ *                       obj->field20 = 0x112
+ *                       token := 0x4c6, descend into t_act_mframew
+ *
+ *      token == 0x4c6:  obj->field48 = 6
+ *      the strike:      obj->field1c = 0x14
+ *                       strike_check_a0(obj)
+ *                       if (obj->field5c != 0) -- the grab --
+ *                       token := 0x4ce, park 1
+ *
+ *      token == 0x4ce:  if (--obj->field48 <= 0) -- the give-up --
+ *                       -- back to the strike --
+ *
+ *      the give-up:     obj->field1c = proc->field18 = 0x61b
+ *                       token := 0x4db, park 0xd
+ *
+ *      token == 0x4db:  obj->field40 = 1; get_char_ani2(obj)
+ *                       obj->a10 = obj->field40
+ *                       obj->field40 += 4
+ *                       do_next_a9_frame(obj)
+ *                       token := 0x4e2, park 6
+ *
+ *      token == 0x4e2:  obj->field40 = obj->a10
+ *                       do_next_a9_frame(obj)
+ *                       token := 0x4e5, park 6
+ *
+ *      token == 0x4e5:  pop a level, or t_local_reaction_exit
+ *
+ *      the grab:        lights_on_hit(obj)
+ *                       if (obj->field18 != 0) -- the give-up --
+ *                       obj->field1c = 6; ochar_sound(obj)
+ *                       obj->field38 = t_noogy_suspended
+ *                       takeover_him(obj)
+ *                       push obj->field40
+ *                       obj->field40 = 0x1c; get_his_char_ani(obj)
+ *                       obj->field48 = obj->field40
+ *                       obj->field40 += 4
+ *                       do_his_next_a9_frame(obj)
+ *                       obj->field40 = pop
+ *                       obj->a10 = t_noog_lineup_1
+ *                       token := 0x4fd, descend into t_edge_of_world_lineup
+ *
+ *      token == 0x4fd:  obj->a10 = proc->him
+ *                       obj->field1c = 0x00030003
+ *                       obj->field20 = obj->field24 = 3
+ *                       token := 0x504, descend into t_shake_him_up
+ *
+ *      token == 0x504:  obj->field1c = 0x10; adjust_him_a0(obj)
+ *      token == 0x50e:  obj->field1c = 0x1c (0x50e only)
+ *                       do_next_a9_frame(obj)
+ *                       token := 0x513, park 4
+ *
+ *      token == 0x509:  obj->field1c = 0x00050010; adjust_him_a0(obj)
+ *                       do_next_a9_frame(obj)
+ *                       token := 0x50e, park 4
+ *
+ *      token == 0x513:  proc->field28 = 0
+ *                       obj->field1c = 5
+ *      the noogy step:  proc->field20 = obj->field1c
+ *                       obj->field1c = 3
+ *                       token := 0x521, descend into t_mframew
+ *
+ *      token == 0x521:  obj->field1c = obj->field54 = 7
+ *                       add_combo_damage(obj); damage_to_him(obj)
+ *                       inc_his_p_hit(obj)
+ *                       obj->field1c = 2; his_group_sound(obj)
+ *                       tsound_func(obj, 0x83)
+ *                       obj->field1c = 0xc; ochar_sound(obj)
+ *                       obj->field1c = upcut_blood_me; call_a0_for_him(obj)
+ *                       if (proc->field20 == 1 || proc->field28 != 0) {
+ *                           obj->field38 = t_r_last_noogy
+ *                           xfer_otherguy(obj); dec_his_p_hit(obj)
+ *                           token := 0x55a, park 0x10
+ *                       }
+ *                       push obj->field40; push obj->field48
+ *                       obj->field40 = obj->field48
+ *      the frame walk:  do_his_next_a9_frame(obj)
+ *                       token := 0x544, park 2
+ *
+ *      token == 0x544:  obj->field1c = *(uint32_t *)obj->field40
+ *                       if (that != 0) -- back to the frame walk --
+ *                       obj->field48 = pop; obj->field40 = pop
+ *                       noogy_early_check(obj)
+ *                       token := 0x54d, park 2
+ *
+ *      token == 0x54d:  noogy_early_check(obj)
+ *                       token := 0x54f, park 2
+ *
+ *      token == 0x54f:  noogy_early_check(obj)
+ *                       obj->field1c = proc->field20 - 1
+ *                       -- back to the noogy step --
+ *
+ *      token == 0x55a:  obj->field1c = 0x00040004
+ *                       token := 0x55c, descend into t_animate_a0_frames
+ *
+ *      token == 0x55c:  pop a level, or t_local_reaction_exit
+ *
+ *      otherwise:       return -3
+ *
+ * **The noogy is a counted loop of hits, and proc+0x20 counts them.** 0x513 loads it
+ * with 5; each pass through 0x521 does damage and each pass through 0x54f takes one
+ * off, and when it reaches 1 -- or when proc+0x28 goes non-zero -- the victim is
+ * handed to t_r_last_noogy instead and the move ends. So five noogies, or fewer if
+ * something sets that flag.
+ *
+ * **`noogy_early_check` is called three times in a row, once per state**, at 0x544,
+ * 0x54d and 0x54f with two-frame parks between them. That routine is the one written
+ * earlier in this file that consults the four-button gate and raises proc+0x28 when a
+ * press runs past seven -- so those three calls are the window in which the player can
+ * end the noogy early, and proc+0x28 is how the answer comes back here.
+ *
+ * **Four of the routines it reaches are in this same file**: t_noogy_suspended for the
+ * victim, t_noog_lineup_1 handed to t_edge_of_world_lineup through 0x44,
+ * t_edge_of_world_lineup itself, and upcut_blood_me through call_a0_for_him. So the
+ * whole move is local except for the shared waits and t_r_last_noogy.
+ *
+ * **0x44 carries a handler into t_edge_of_world_lineup.** That is the routine whose
+ * only oddity was taking its body from 0x44 -- and this is the caller that puts one
+ * there. The pair explains each other.
+ *
+ * Two more packed pairs in 0x1c, 0x00030003 and 0x00040004, plus 0x00050010 -- the
+ * first two doubled and the third not, which matches what the shake magnitudes showed:
+ * two independent halves that often happen to agree.
+ */
+void me_in_back(MK3OBJ *obj);
+void add_combo_damage(MK3OBJ *obj);
+void xfer_otherguy(MK3OBJ *obj);
+long do_his_next_a9_frame(MK3OBJ *obj);
+void adjust_him_a0(MK3OBJ *obj);
+void noogy_early_check(MK3OBJ *obj);
+void upcut_blood_me(MK3OBJ *obj);
+long t_noogy_suspended(MK3THREAD *thread);
+long t_noog_lineup_1(MK3THREAD *thread);
+long t_edge_of_world_lineup(MK3THREAD *thread);
+long t_r_last_noogy(MK3THREAD *thread);          /* pointer slot 0x000f3178 */
+
+long tl_do_noogy(MK3THREAD *thread)
+{
+    MK3OBJ      *obj   = (MK3OBJ *)thread->proc;
+    MK3OBJPROC  *proc  = obj->field00;
+    uint32_t     token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t     cur;
+    int          strike = 0, giveup = 0, grab = 0, last = 0, walk = 0;
+
+    if (token == 0) {
+        init_special(obj);
+        me_in_back(obj);
+
+        *(uint32_t *)((char *)proc + 0x58) = 0x14;
+
+        obj->field1c = 1;
+        group_sound(obj);
+
+        obj->field40 = 1;
+        get_char_ani2(obj);
+
+        obj->field1c = 3;
+        obj->field20 = 0x112;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x4c6;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_act_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x4c6) {
+        obj->field48 = 6;
+        strike = 1;
+
+    } else if (token == 0x4ce) {
+        obj->field48 = obj->field48 - 1;
+        if ((long)obj->field48 <= 0)
+            giveup = 1;
+        else
+            strike = 1;
+    }
+
+    if (strike) {
+        obj->field1c = 0x14;
+        strike_check_a0(obj);
+
+        if (obj->field5c != 0) {
+            lights_on_hit(obj);
+            if (obj->field18 != 0)
+                giveup = 1;
+            else
+                grab = 1;
+        } else {
+            *mk3_frame(thread, thread->frame + 1) = 0x4ce;
+            thread->fieldfc = 1;
+            return 1;
+        }
+    }
+
+    if (giveup) {
+        obj->field1c = 0x61b;
+        proc->field18 = 0x61b;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x4db;
+        thread->fieldfc = 0xd;
+        return 0xd;
+    }
+
+    if (grab) {
+        obj->field1c = 6;
+        ochar_sound(obj);
+
+        obj->field38 = (uint32_t)(uintptr_t)t_noogy_suspended;
+        takeover_him(obj);
+
+        cur = thread->fieldf8;
+        *mk3_arg(thread, cur) = obj->field40;
+        thread->fieldf8 = cur + 1;
+
+        obj->field40 = 0x1c;
+        get_his_char_ani(obj);
+        obj->field48 = obj->field40;
+        obj->field40 = obj->field40 + 4;
+        do_his_next_a9_frame(obj);
+
+        cur = thread->fieldf8 - 1;
+        thread->fieldf8 = cur;
+        obj->field40 = *mk3_arg(thread, cur);
+
+        obj->a10 = (uint32_t)(uintptr_t)t_noog_lineup_1;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x4fd;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_edge_of_world_lineup;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x4db) {
+        obj->field40 = 1;
+        get_char_ani2(obj);
+        obj->a10 = obj->field40;
+        obj->field40 = obj->field40 + 4;
+        do_next_a9_frame(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x4e2;
+        thread->fieldfc = 6;
+        return 6;
+    }
+
+    if (token == 0x4e2) {
+        obj->field40 = obj->a10;
+        do_next_a9_frame(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x4e5;
+        thread->fieldfc = 6;
+        return 6;
+    }
+
+    if (token == 0x4e5 || token == 0x55c) {
+        if ((long)thread->frame > 0) {
+            thread->frame = thread->frame - 1;
+            return 0;
+        }
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (token == 0x4fd) {
+        obj->a10 = proc->him;
+        obj->field1c = 0x00030003;
+        obj->field20 = 0x00030003 - 0x30000;
+        obj->field24 = obj->field20;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x504;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_shake_him_up;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x504 || token == 0x50e) {
+        if (token == 0x504) {
+            obj->field1c = 0x10;
+            adjust_him_a0(obj);
+        } else {
+            obj->field1c = 0x1c;
+        }
+
+        do_next_a9_frame(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x513;
+        thread->fieldfc = 4;
+        return 4;
+    }
+
+    if (token == 0x509) {
+        obj->field1c = 0x00050010;
+        adjust_him_a0(obj);
+        do_next_a9_frame(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x50e;
+        thread->fieldfc = 4;
+        return 4;
+    }
+
+    if (token == 0x513 || token == 0x54f) {
+        if (token == 0x513) {
+            proc->field28 = 0;
+            obj->field1c = 5;
+        } else {
+            noogy_early_check(obj);
+            obj->field1c = proc->field20 - 1;
+        }
+
+        proc->field20 = obj->field1c;
+        obj->field1c = 3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x521;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x521) {
+        obj->field1c = 7;
+        obj->field54 = 7;
+        add_combo_damage(obj);
+        damage_to_him(obj);
+        inc_his_p_hit(obj);
+
+        obj->field1c = 2;
+        his_group_sound(obj);
+        tsound_func(obj, 0x83);
+
+        obj->field1c = 0xc;
+        ochar_sound(obj);
+
+        obj->field1c = (uint32_t)(uintptr_t)upcut_blood_me;
+        call_a0_for_him(obj);
+
+        obj->field1c = proc->field20;
+        if (obj->field1c == 1) {
+            last = 1;
+        } else {
+            obj->field1c = proc->field28;
+            if (obj->field1c != 0)
+                last = 1;
+        }
+
+        if (last) {
+            obj->field38 = (uint32_t)(uintptr_t)t_r_last_noogy;
+            xfer_otherguy(obj);
+            dec_his_p_hit(obj);
+
+            *mk3_frame(thread, thread->frame + 1) = 0x55a;
+            thread->fieldfc = 0x10;
+            return 0x10;
+        }
+
+        cur = thread->fieldf8;
+        *mk3_arg(thread, cur) = obj->field40;
+        thread->fieldf8 = cur + 1;
+
+        cur = thread->fieldf8;
+        *mk3_arg(thread, cur) = obj->field48;
+        thread->fieldf8 = cur + 1;
+
+        obj->field40 = obj->field48;
+        walk = 1;
+
+    } else if (token == 0x544) {
+        obj->field1c = *(uint32_t *)(void *)(uintptr_t)obj->field40;
+        if (obj->field1c != 0) {
+            walk = 1;
+        } else {
+            cur = thread->fieldf8 - 1;
+            thread->fieldf8 = cur;
+            obj->field48 = *mk3_arg(thread, cur);
+
+            cur = thread->fieldf8 - 1;
+            thread->fieldf8 = cur;
+            obj->field40 = *mk3_arg(thread, cur);
+
+            noogy_early_check(obj);
+
+            *mk3_frame(thread, thread->frame + 1) = 0x54d;
+            thread->fieldfc = 2;
+            return 2;
+        }
+
+    } else if (token == 0x54d) {
+        noogy_early_check(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x54f;
+        thread->fieldfc = 2;
+        return 2;
+
+    } else if (token == 0x55a) {
+        obj->field1c = 0x00040004;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x55c;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_a0_frames;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+
+    } else if (!walk) {
+        return -3;
+    }
+
+    /* the frame walk, reached from 0x521 and from 0x544 */
+    do_his_next_a9_frame(obj);
+    *mk3_frame(thread, thread->frame + 1) = 0x544;
+    thread->fieldfc = 2;
+    return 2;
+}
