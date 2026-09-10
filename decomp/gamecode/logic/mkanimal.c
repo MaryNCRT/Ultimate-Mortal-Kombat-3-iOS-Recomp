@@ -968,3 +968,140 @@ long t_animate_till_a11_stop(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+
+/* ---------------------------------------------------------------------- t_do_animality
+ *
+ * armv7 0x000a0f0c, 132 bytes.  **Complete.**
+ *
+ *      token == 0:      token := 0x8fb, descend into t_animality_start_pause
+ *
+ *      token == 0x8fb:  init_special(obj)
+ *                       h = ochar_animalities[obj->field08->field24]
+ *                       obj->field1c = h
+ *                       frame[frame].handler = h
+ *
+ *      otherwise:       return -3
+ *
+ * **The entry point for every animality in this file, and the table is the whole
+ * routine.** `ochar_animalities` is words indexed by the character number, and whatever
+ * it names is installed directly -- so the twenty-odd `tl_*` routines in this module are
+ * reached from here and nowhere else.
+ *
+ * **This is the handler DoASpecial reaches through pointer slot 0x000f31ac.** So the
+ * path from a player's input to a character's animality is: DoASpecial's finisher
+ * dispatch picks `t_do_animality`, that pauses, then indexes this table. Three tables in
+ * three files, each indexed by the character, and this is the last of them.
+ *
+ * The same shape as `t_do_body_slam` and `t_do_air_slam` in mkslam.c -- one lookup and
+ * one install -- except those two return early on a zero entry and this one does not
+ * check, so every character must have an entry.
+ */
+extern uint32_t ochar_animalities[];             /* 0x0017758c */
+void init_special(MK3OBJ *obj);
+long t_animality_start_pause(MK3THREAD *thread);
+
+long t_do_animality(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t h;
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x8fb;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animality_start_pause;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x8fb)
+        return -3;
+
+    init_special(obj);
+
+    h = ochar_animalities[obj->field08->field24];
+    obj->field1c = h;
+
+    mk3_frame(thread, thread->frame)[1] = h;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+/* ---------------------------------------------------------------------- t_animal_morph
+ *
+ * armv7 0x000a0ff8, 240 bytes.  **Complete.**
+ *
+ *      token == 0:      token := 0x840, park 0x20
+ *
+ *      token == 0x840:  do_next_a9_frame(obj)
+ *                       token := 0x848, park 0x10
+ *
+ *      token == 0x848:  tsound_func(obj, 0x27)
+ *                       obj->field1c = 5
+ *                       token := 0x84c, descend into t_mframew
+ *
+ *      token == 0x84c:  obj->field1c = obj->a10
+ *                       token := 0x84f, park obj->field1c
+ *
+ *      token == 0x84f:  pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:       return -3
+ *
+ * The transformation itself: thirty-two frames, one hand-advanced frame, sixteen more,
+ * the morph sound and a five-frame wait, and then **a final wait the caller chooses** --
+ * 0x44 is read into 0x1c and used as the park, so each animal can hold its new shape for
+ * a different length before the thread unwinds.
+ *
+ * State 0 does no work at all beyond setting the token, which is the same
+ * get-onto-the-cadence pattern `t_next_anirate_a10` opens with.
+ */
+long do_next_a9_frame(MK3OBJ *obj);
+
+long t_animal_morph(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x840;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (token == 0x840) {
+        do_next_a9_frame(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x848;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (token == 0x848) {
+        tsound_func(obj, 0x27);
+        obj->field1c = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x84c;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x84c) {
+        obj->field1c = obj->a10;
+        *mk3_frame(thread, thread->frame + 1) = 0x84f;
+        thread->fieldfc = obj->field1c;
+        return (long)obj->field1c;
+    }
+
+    if (token != 0x84f)
+        return -3;
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
