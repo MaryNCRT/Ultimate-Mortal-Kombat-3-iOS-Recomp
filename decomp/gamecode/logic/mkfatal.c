@@ -9647,3 +9647,166 @@ long t_jax_slice(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------------------------ t_kano_lazer
+ *
+ * armv7 0x00034e10, 436 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0x19a8, descend into t_fatality_start_pause
+ *
+ *      token == 0x19a8:   obj->field1c = 5; ochar_sound(obj)
+ *                         obj->field40 = 3; get_char_ani2(obj)
+ *                         obj->field1c = 4
+ *                         token := 0x19af, descend into t_mframew
+ *
+ *      token == 0x19af:   obj->field1c = 6; ochar_sound(obj)
+ *                         obj->field38 = t_local_r_laser
+ *                         takeover_him(obj)
+ *                         obj->field48 = obj->field40      ; save the cursor
+ *                         obj->a10     = 4                 ; four passes
+ *                         -- falls into the loop head --
+ *
+ *      the loop head:     args[fieldf8++] = obj->a10       ; save the counter
+ *                         obj->field40 = obj->field48      ; restore the cursor
+ *                         obj->field1c = 6
+ *                         token := 0x19c0, descend into t_mframew
+ *
+ *      token == 0x19c0:   obj->a10 = args[--fieldf8] - 1
+ *                         if (obj->a10 > 0) -- the loop head --
+ *                         call_for_him(obj, set_inviso)
+ *                         obj->field1c = 0x15
+ *                         call_for_him(obj, create_fx)
+ *                         wfe_him(obj)
+ *                         obj->field1c = 4
+ *                         token := 0x19cc, descend into t_mframew
+ *
+ *      token == 0x19cc:   delete_slave(obj)
+ *                         death_blow_complete(obj)
+ *                         frame[frame].handler = t_victory_animation
+ *
+ *      otherwise:         return -3
+ *
+ * **The second endless victim routine terminated in two batches, and by a different channel.**
+ * `t_local_r_laser`, written earlier in this file, sets its own token before descending into
+ * `t_shake_ob_up` and so shakes for ever; its note said only that something outside must replace
+ * the handler. This is that something -- but where `t_jax_slice` revoked its victim's handler with a
+ * second `field38` + `takeover_him`, this one calls `wfe_him`, which hands the victim
+ * `t_wait_forever` through the pointer slot at 0x000f3724.
+ *
+ * So there are **two ways to end a routine running on the other fighter**: overwrite 0x38 and take
+ * over again, or park the other side outright. Both appear within two functions of each other, both
+ * end a routine I had recorded as having no exit, and neither is visible from the victim's side.
+ *
+ * **Seventh argument-stack site, and the first where the stack and an object field split the work
+ * of one loop.** The counter lives in `a10` and is pushed to `args[]` across the descent; the
+ * animation cursor lives in 0x40 and is saved in 0x48 across the same descent. Two values, two
+ * different save mechanisms, four instructions apart -- because `t_mframew` clobbers both fields and
+ * only one of them has a spare object slot of its own.
+ *
+ * The loop runs four passes: `a10` starts at 4 and the test is `> 0` after the decrement, so the
+ * fourth pop leaves 0 and falls out.
+ *
+ * **`call_for_him` twice with two leaves**, `set_inviso` then `create_fx`, both read from pointer
+ * slots rather than called directly -- the second of the three handover mechanisms, used here to run
+ * plain leaves on the other object rather than to give it a handler. `obj->field1c = 0x15` between
+ * them is `create_fx`'s argument, and it is written on the ATTACKER because `call_for_him` passes
+ * the attacker's own fields through.
+ *
+ * `delete_slave` a fifth time, and again nothing in this file creates the slave.
+ */
+
+long t_kano_lazer(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    uint32_t argc;
+
+    if (token == 0) {
+        *mk3_frame(thread, frame + 1) = 0x19a8;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_fatality_start_pause;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x19a8) {
+        obj->field1c = 5;
+        ochar_sound(obj);
+
+        obj->field40 = 3;
+        get_char_ani2(obj);
+
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x19af;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x19cc) {
+        delete_slave(obj);
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+    }
+
+    if (token == 0x19af) {
+        obj->field1c = 6;
+        ochar_sound(obj);
+
+        obj->field38 = (uint32_t)(uintptr_t)t_local_r_laser;
+        takeover_him(obj);
+
+        obj->field48 = obj->field40;                 /* cursor into 0x48 */
+        obj->a10     = 4;
+
+        /* falls into the loop head */
+
+    } else if (token == 0x19c0) {
+        argc = thread->fieldf8 - 1;
+        thread->fieldf8 = argc;
+        obj->a10 = *mk3_arg(thread, argc) - 1;
+
+        if ((long)obj->a10 <= 0) {
+            call_for_him(obj, set_inviso);
+
+            obj->field1c = 0x15;
+            call_for_him(obj, create_fx);
+
+            wfe_him(obj);
+
+            obj->field1c = 4;
+
+            *mk3_frame(thread, thread->frame + 1) = 0x19cc;
+            thread->frame = thread->frame + 1;       /* push a level */
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)t_mframew;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+
+        /* falls into the loop head */
+
+    } else {
+        return -3;
+    }
+
+    /* the loop head: the counter to the argument stack, the cursor back */
+    argc = thread->fieldf8;
+    *mk3_arg(thread, argc) = obj->a10;
+    thread->fieldf8 = argc + 1;
+
+    obj->field40 = obj->field48;
+    obj->field1c = 6;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x19c0;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
