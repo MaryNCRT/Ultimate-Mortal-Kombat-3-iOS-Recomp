@@ -599,6 +599,30 @@ driver does not have, and a name for a slot whose symbol is already
 declaration corresponds to anything**, and an invented name in this tree is worse
 than a missing one, because the next reader will trust it.
 
+## Port-critical: five hard-coded character numbers
+
+The engine is almost entirely character-agnostic -- animations are looked up as
+`base + part->field24`, tables are indexed by `part->field24`, and nothing else
+in 1,400 read functions names a fighter. **Five places break that rule**, and a
+port that renumbers the roster has to carry every one of them:
+
+| where | file | test | what it changes |
+|---|---|---|---|
+| `tl_kano_spider` | mkanimal.c | opponent `== 0xb` | shifts the lineup by 0x20/0 |
+| `t_ripped_skelton` | mkfatal.c | part `== 0xb` | skips one word in the cursor |
+| `t_ripped_skelton` | mkfatal.c | part `== 0xb` | parks instead of running the blood |
+| `t_remaining_skel` | mkfatal.c | part `== 0xb` | skips one word in the cursor |
+| `t_kitana_kiss` | mkfatal.c | opponent in `{7, 8, 0xe}` | pose `0x00070025` instead of `0x25` |
+
+Two disjoint sets: **0xb** on its own in four of the five, and **{7, 8, 0xe}**
+in the fifth. The `{7, 8, 0xe}` test is compiled as `cmp #0xe` plus an unsigned
+`(char - 7) <= 1`, which is why it does not look like a set test in the
+disassembly -- if you are scanning for these by eye, that is the shape to watch
+for.
+
+Note that 0xb is tested against **the part** in three of the four and against
+**the opponent** in the fourth, so a port cannot fix them all in one place.
+
 ## Open questions worth someone's time
 
 - **`.lighting` is a prelight bake and is not decoded.** 13 files, sizes scaling
@@ -674,7 +698,7 @@ Three things worth carrying forward into the fight engine:
   Every one of them is invisible at 4:3 and wrong at any other aspect. A
   widescreen port has to decide each case deliberately.
 
-### The front is `gamecode/logic`, and it is at 1,338 of 2,172 (2026-09-10)
+### The front is `gamecode/logic`, and it is at 1,431 of 2,172 (2026-09-10)
 
 **Eight of the fourteen files are closed**, and they are the reference for the six
 that are not:
@@ -684,9 +708,11 @@ that are not:
     mkprop.c      80/80       mkslam.c      60/60
     mkstat.c      62/62       mkanimal.c    63/63
 
-    mkdrone.c    154/394      mkfatal.c     41/149
+    mkfatal.c    134/149      mkdrone.c    154/394
     mkzap.c       32/174      mkboss.c      29/104
     mkreact.c     72/207      joy.c         19/73
+
+`mkfatal.c` is 15 functions from closing and is the one in progress.
 
 The tree is at **0 errors, 174 warnings, `instck` clean**, and `protos.py` is down
 to the single known `LIME_RenderMeshSingleIndexed` float-ABI disagreement recorded
@@ -713,13 +739,23 @@ time and two or three per commit:
 Reading them by hand is what did, and the paragraphs above each function are the
 part that will still be worth something in a year.
 
-**Suggested next file: `mkfatal.c` (41/149).** Not because it is the smallest --
-`joy.c` is -- but because `mkanimal.c` just traced the whole finisher path into it.
-`t_init_death_blow` off pointer slot `0x000f3194`, `death_blow_complete`,
-`sans_repell_for_good`, `wfe_him`, `ochar_sound`, `call_for_him`,
-`center_around_me`, `match_me_with_him`, `flip_multi` and `t_r_scared_of_skunk` all
-live in `mkfatal.c` and all were read from the outside this week. That context is
-worth more than 55 fewer functions.
+**Finish `mkfatal.c` first (134/149).** The fifteen left are the largest in the
+file -- 508 to 1,028 bytes -- and the ones most likely to close the remaining
+loose ends, because every chain this file has opened so far has closed inside it:
+`t_jade_impale` -> `t_r_impale_upcut` -> `t_flight_call` -> `t_impale_call`,
+`t_jax_slice` -> `t_get_sliced_up` -> `t_post_sliced_up`, `t_kano_lazer` ->
+`t_local_r_laser`, `t_smoke_arm` -> `t_open_wide` + `t_smoke_dropping` ->
+`t_eat_this_shit`, `t_ind_light` -> `t_light_animator`, `t_kitana_kiss` ->
+`t_r_stretch`. Six chains in one batch of work, and none of them needed anything
+outside this file.
+
+**One loose end is still open**: four `delete_slave` sites (`t_sz_blow`,
+`t_ind_zap_kill`, `t_robo_flame_throw`, `t_smoke_arm`) and a fifth in
+`t_kano_lazer`, and **nothing measured anywhere in the tree creates the slave**.
+Whatever writes `proc->field64` is not in the 1,431 functions read so far.
+
+**Then `mkdrone.c` (154/394)**, the largest remaining, or `joy.c` (19/73) if the
+goal shifts to playability.
 
 **`joy.c` (19/73) is the one to do if the goal shifts to playability**, since it is
 the gamepad hookup named in CLAUDE.md's Phase 9 and the smallest file left.
