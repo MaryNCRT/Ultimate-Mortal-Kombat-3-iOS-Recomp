@@ -5763,3 +5763,113 @@ long t_ermac_decap_attack(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ---------------------------------------------------------------------- t_r_scream_ripped
+ *
+ * armv7 0x00038adc, 296 bytes.  **Complete.**
+ *
+ *      token == 0:        NewThread(obj, t_flesh_rip_sound)
+ *                         PUSH obj->field48
+ *                         obj->field48 = 0x00060030; shake_a11(obj)
+ *                         POP  obj->field48
+ *                         face_opponent(obj)
+ *                         NewThread(obj, t_remaining_skel)
+ *                         obj->field1c = obj->field48
+ *                         e = ((long *)obj->field48)[part->field24]
+ *                         obj->field1c = e
+ *                         obj->field40 = e
+ *                         rip_ani(obj)
+ *                         token := 0x1301, descend into t_initial_skeleton_shake
+ *
+ *      token == 0x1301:   obj->field1c = 0xa000; away_x_vel(obj)
+ *                         token := 0x1306, park 0x14
+ *
+ *      token == 0x1306:   stop_me_player(obj)
+ *                         set_inviso(obj)
+ *                         frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:         return -3
+ *
+ * **The first routine in the tree to spawn TWO threads**, and they are spawned four instructions
+ * apart around the shake: `t_flesh_rip_sound` first and `t_remaining_skel` after. Eighth and ninth
+ * spawn sites, and the pattern is now unmistakable -- anything that has to outlast a state gets its
+ * own thread.
+ *
+ * **Fourth user of the argument stack, and it saves 0x48 across `shake_a11`.** The field arrives
+ * holding a table base -- the caller's per-character pointer, as in `t_r_stretch` -- and
+ * `shake_a11` needs it for a magnitude pair. So the routine pushes the base, writes 0x00060030,
+ * shakes, pops the base back, and only then indexes the table.
+ *
+ * That is the same conflict `t_shocker_shaker` resolves the same way, where `obj->a10` had to hold
+ * 3 for `create_fx` and an animation cursor for everything else. **The argument stack exists
+ * because one object field routinely serves two callees with incompatible meanings**, and these
+ * two routines are the clearest evidence of it.
+ *
+ * `obj->field1c = obj->field48` is written and then immediately overwritten by the table lookup --
+ * a fifth dead store, and the same shape as `t_r_kiss_suck`'s `obj->field40 = 0x17`.
+ *
+ * The shake pair 0x00060030 is asymmetric with the widest spread measured -- 6 against 0x30, where
+ * the previous extreme was `t_r_ind_lightning`'s 0xa/0xd. Seventh asymmetric site.
+ */
+long t_flesh_rip_sound(MK3THREAD *thread);       /* 0x00036368 */
+long t_remaining_skel(MK3THREAD *thread);        /* 0x000379c0 */
+long t_initial_skeleton_shake(MK3THREAD *thread);/* 0x0003891c */
+
+long t_r_scream_ripped(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    uint32_t argc;
+
+    if (token == 0x1301) {
+        obj->field1c = 0xa000;
+        away_x_vel(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x1306;
+        thread->fieldfc = 0x14;
+        return 0x14;
+    }
+
+    if (token == 0x1306) {
+        stop_me_player(obj);
+        set_inviso(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+    }
+
+    if (token != 0)
+        return -3;
+
+    NewThread(obj, (MK3THREADFUNC)t_flesh_rip_sound);
+
+    argc = thread->fieldf8;
+    *mk3_arg(thread, argc) = obj->field48;
+    thread->fieldf8 = argc + 1;
+
+    obj->field48 = 0x00060030;
+    shake_a11(obj);
+
+    argc = thread->fieldf8 - 1;
+    thread->fieldf8 = argc;
+    obj->field48 = *mk3_arg(thread, argc);
+
+    face_opponent(obj);
+
+    NewThread(obj, (MK3THREADFUNC)t_remaining_skel);
+
+    obj->field1c = obj->field48;             /* dead: overwritten below */
+    obj->field1c =
+        ((uint32_t *)(uintptr_t)obj->field48)[obj->field08->field24];
+    obj->field40 = obj->field1c;
+
+    rip_ani(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x1301;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_initial_skeleton_shake;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
