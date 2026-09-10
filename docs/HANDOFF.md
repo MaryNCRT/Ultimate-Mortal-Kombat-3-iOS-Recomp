@@ -738,7 +738,7 @@ field does at the sites you measured, and say how many there were.
   never writes the fourth part. `t_double_mframew` (slot 0x000f36a8) is the
   candidate reader and is not decompiled.
 
-## Port-critical: five hard-coded character numbers
+## Port-critical: six hard-coded character numbers
 
 The engine is almost entirely character-agnostic -- animations are looked up as
 `base + part->field24`, tables are indexed by `part->field24`, and nothing else
@@ -752,9 +752,15 @@ port that renumbers the roster has to carry every one of them:
 | `t_ripped_skelton` | mkfatal.c | part `== 0xb` | parks instead of running the blood |
 | `t_remaining_skel` | mkfatal.c | part `== 0xb` | skips one word in the cursor |
 | `t_kitana_kiss` | mkfatal.c | opponent in `{7, 8, 0xe}` | pose `0x00070025` instead of `0x25` |
+| `proj_strike_check` | mkzap.c | opponent `== 0x18` | projectiles cannot hit Motaro |
 
-Two disjoint sets: **0xb** on its own in four of the five, and **{7, 8, 0xe}**
-in the fifth. The `{7, 8, 0xe}` test is compiled as `cmp #0xe` plus an unsigned
+Three disjoint sets: **0xb** on its own in four of the six, **{7, 8, 0xe}** in
+`t_kitana_kiss`, and **0x18** -- Motaro -- in `proj_strike_check`.
+
+**mkzap.c also has a NAMED predicate for the same question**, `is_he_motaro`,
+and `local_strike_check_box` calls it where `proj_strike_check` inlines the
+comparison. A named predicate is not the hazard; the inlined one is, and it sits
+five instructions from a routine that would have answered it. The `{7, 8, 0xe}` test is compiled as `cmp #0xe` plus an unsigned
 `(char - 7) <= 1`, which is why it does not look like a set test in the
 disassembly -- if you are scanning for these by eye, that is the shape to watch
 for.
