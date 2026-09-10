@@ -2119,3 +2119,211 @@ long tl_do_reptile_orb_fast(MK3THREAD *thread)
     *mk3_frame(thread, frame + 1) = 0;
     return 0;
 }
+
+
+/* ===================================================== the four callbacks
+ *
+ * Four more of the shape `t_bomb_call` has: do one thing, then pop a level or
+ * install `t_local_reaction_exit` at the bottom. What differs is where each one
+ * keeps its counter, and between them they show the engine has three places to
+ * put one.
+ * ======================================================================== */
+
+/* t_orb_calla -- armv7 0x00076534, 104 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      if (--obj->a10 == 0) {
+ *          obj->a10     = 3
+ *          obj->field1c = 3 + 0xf = 0x12
+ *          ochar_sound(obj)
+ *      }
+ *      pop a level, or t_local_reaction_exit at the bottom
+ *
+ * **A tick every third frame**, and the counter is on the OBJECT. Sound 0x12
+ * and the reload value 3 come from one register -- `adds r3, #3` on the zero the
+ * branch just proved, then `adds r3, #0xf` on that -- so the period and the
+ * sound number are welded together by the shared-literal habit even though they
+ * have nothing to do with each other.
+ */
+long t_orb_calla(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+
+    if (*mk3_frame(thread, frame + 1) != 0)
+        return -3;
+
+    obj->a10 = obj->a10 - 1;
+    if (obj->a10 == 0) {
+        obj->a10     = 3;
+        obj->field1c = 3 + 0xf;             /* the same register */
+        ochar_sound(obj);
+    }
+
+    if ((long)thread->frame > 0) {          /* cmp #0 / ble: signed */
+        thread->frame = thread->frame - 1;  /* back up a level */
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* t_lao_zap_call -- armv7 0x00075464, 108 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = proc->field2c - 1
+ *      if (obj->field1c == 0) obj->field1c = 2
+ *      proc->field2c = obj->field1c
+ *      obj->field1c  = part->field1c + 0x3000
+ *      part->field1c = obj->field1c
+ *      pop a level, or t_local_reaction_exit at the bottom
+ *
+ * **The counter is on the PROC, and it never reaches zero twice.** 0x2c counts
+ * 2, 1, 2, 1 for ever -- decrement, and if that made it zero put 2 back -- which
+ * is a two-frame phase that nothing in this routine reads. It is kept for
+ * whoever else looks at `proc->field2c`.
+ *
+ * That is the difference from `t_orb_calla` above: same shape, same tail, but
+ * the counter lives on the proc so it outlives the object. The header now has a
+ * field for it.
+ *
+ * The gravity is a plain 0x3000 a frame, a fourth fall rate after 0x2000, 0x5000
+ * and 0x6000.
+ */
+long t_lao_zap_call(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+
+    if (*mk3_frame(thread, frame + 1) != 0)
+        return -3;
+
+    obj->field1c = obj->field00->field2c - 1;
+    if (obj->field1c == 0)
+        obj->field1c = 2;
+    obj->field00->field2c = obj->field1c;
+
+    obj->field1c          = obj->field08->field1c + 0x3000;
+    obj->field08->field1c = obj->field1c;
+
+    if ((long)thread->frame > 0) {          /* cmp #0 / ble: signed */
+        thread->frame = thread->frame - 1;  /* back up a level */
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* t_jax_proj_calla -- armv7 0x000768e4, 108 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = proc->field38 - 1
+ *      if (obj->field1c == 0) {
+ *          obj->field1c = 0xf; create_fx(obj)
+ *          obj->field1c = 3
+ *      }
+ *      proc->field38 = obj->field1c
+ *      pop a level, or t_local_reaction_exit at the bottom
+ *
+ * **Effect 0xf every third frame, counted on the proc at 0x38.** Same shape as
+ * `t_lao_zap_call`, a different word of the same structure, and this one does
+ * something when it fires.
+ *
+ * So the three counters in this batch sit in three different places -- `obj->a10`
+ * for the orb, `proc->field2c` for Lao's zap, `proc->field38` for Jax's -- and
+ * nothing about the shape says which to use. A port reproduces all three
+ * separately; there is no shared slot to factor them into.
+ *
+ * 0xf is `adds r3, #0xf` on the zero the branch proved, and the reload 3 is a
+ * fresh `movs`. So this one does NOT weld the two constants together the way
+ * `t_orb_calla` does with 3 and 0x12 -- which is worth noticing, because it means
+ * the welding there is the compiler's choice and not a pattern with meaning.
+ */
+long t_jax_proj_calla(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+
+    if (*mk3_frame(thread, frame + 1) != 0)
+        return -3;
+
+    obj->field1c = obj->field00->field38 - 1;
+
+    if (obj->field1c == 0) {
+        obj->field1c = 0xf;
+        create_fx(obj);
+
+        obj->field1c = 3;
+    }
+
+    obj->field00->field38 = obj->field1c;
+
+    if ((long)thread->frame > 0) {          /* cmp #0 / ble: signed */
+        thread->frame = thread->frame - 1;  /* back up a level */
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* t_rr_up -- armv7 0x000754d0, 104 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      v = part->field1c
+ *      obj->field24 = v                              ; DEAD
+ *      obj->field20 = rocket_routines[obj->field1c * 3 + 1]
+ *      obj->field24 = v - obj->field20
+ *      part->field1c = obj->field24
+ *      frame[frame].handler = t_rr_nothing
+ *
+ * **`rocket_routines` is a four-entry script at 0x00172664, twelve bytes each**,
+ * and it ends exactly where `projectile_jumps` begins:
+ *
+ *      [0]  t_rr_nothing    0x3333   0x0008
+ *      [1]  t_rr_up         0xa000   0x0010
+ *      [2]  t_rocket_hunt   0x3333   0x3333
+ *      [3]  0               0        0          <- terminator
+ *
+ * So a rocket runs a phase list: each entry names the handler for that phase, an
+ * amount and something that reads like a duration. This routine is entry 1's own
+ * handler and reads entry `obj->field1c`'s **amount** -- 0xa000 when it is
+ * running its own phase -- and subtracts it from the y velocity, which is what
+ * makes the rocket climb.
+ *
+ * The stride is computed as `index << 4` minus `index << 2` rather than by a
+ * multiply, which is the twelve-byte giveaway.
+ *
+ * **`obj->field24 = v` before the table read is dead** -- overwritten four
+ * instructions later with `v - amount`, nothing in between. Transcribed; tenth
+ * dead store recorded.
+ *
+ * It hands over to `t_rr_nothing`, which is entry 0's handler and does nothing
+ * at all, so a phase that has done its work parks the rocket on the do-nothing
+ * entry rather than advancing the index.
+ */
+extern uint32_t rocket_routines[];               /* 0x00172664, 4 x 12 bytes */
+
+long t_rr_up(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t v;
+
+    if (*mk3_frame(thread, frame + 1) != 0)
+        return -3;
+
+    v = obj->field08->field1c;
+    obj->field24 = v;                            /* dead: rewritten below */
+
+    obj->field20 = rocket_routines[obj->field1c * 3 + 1];
+
+    obj->field24          = v - obj->field20;
+    obj->field08->field1c = obj->field24;
+
+    mk3_frame(thread, frame)[1] = (uint32_t)(uintptr_t)t_rr_nothing;
+    *mk3_frame(thread, frame + 1) = 0;
+    return 0;
+}
