@@ -3669,3 +3669,191 @@ long t_r_impale_upcut(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_reaction_land);
 }
+
+
+/* --------------------------------------------------------------------------- t_r_tasered
+ *
+ * armv7 0x000362a8, 192 bytes.  **Complete.**
+ *
+ *      token == 0:        obj->field20 = 0
+ *                         obj->field1c = (int16_t)taser_lineups[part->field24]
+ *                         fatal_offset(obj)
+ *                         obj->field48 = 0x000a0010; shake_a11(obj)
+ *                         tsound_func(obj, 0x1e)
+ *                         death_scream(obj)
+ *                         obj->field48 = 9
+ *                         token := 0x13fc, descend into t_shocker_shaker
+ *
+ *      token == 0x13fc:   part->y12 = *(short *)((char *)proc + 0x3c)
+ *                         frame[frame].handler = t_collapse_on_ground
+ *
+ *      otherwise:         return -3
+ *
+ * **The twin of `t_r_ind_lightning` two functions up, and the pair separates what is shared from
+ * what the fatality supplies.** Both call `fatal_offset` with 0x20 zero, shake, scream, put a count
+ * in 0x48, descend into `t_shocker_shaker`, and end by reading the proc's 0x3c into the part's y
+ * and installing `t_collapse_on_ground`. Everything else differs:
+ *
+ *      routine              x offset                    sound     0x48 count
+ *      t_r_ind_lightning    -0xb8, a constant           0 and 1   4
+ *      t_r_tasered          taser_lineups[char]         0x1e      9
+ *
+ * **`taser_lineups` is a new per-character table and the first HALFWORD one in the tree.** It is
+ * indexed with `ldrsh.w r3, [r2, r3, lsl #1]` -- shift by one, sign-extended -- where
+ * `ochar_reached` and `ochar_wide_adjusts` are word tables read with `lsl #2`. So this holds signed
+ * 16-bit offsets, one per fighter: how far the taser has to stand from each of them.
+ *
+ * Third per-character table found in this file, after the two in `t_open_wide`, and none of the
+ * three was referenced anywhere in the tree before.
+ *
+ * The shake pair is 0x000a0010, asymmetric -- sixth asymmetric site.
+ */
+extern int16_t taser_lineups[];                  /* 0x00166c44 */
+
+long t_r_tasered(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        obj->field20 = 0;
+        obj->field1c = (uint32_t)(int32_t)
+                           taser_lineups[obj->field08->field24];
+        fatal_offset(obj);
+
+        obj->field48 = 0x000a0010;
+        shake_a11(obj);
+
+        tsound_func(obj, 0x1e);
+        death_scream(obj);
+
+        obj->field48 = 9;
+
+        *mk3_frame(thread, frame + 1) = 0x13fc;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_shocker_shaker;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x13fc)
+        return -3;
+
+    MK3_SET_FIELD12(obj->field08,
+                    *(uint16_t *)((char *)obj->field00 + 0x3c));
+
+    return mk3_install(thread, (MK3THREADFUNC)t_collapse_on_ground);
+}
+
+/* ------------------------------------------------------------------------ t_get_sliced_up
+ *
+ * armv7 0x0003a0e8, 200 bytes.  **Complete.**
+ *
+ *      token == 0:        death_scream(obj)
+ *                         set_ignore_y(obj)
+ *                         obj->field48 = 0x0004000e; shake_a11(obj)
+ *                         obj->field48 = 1
+ *                         obj->a10 = 1
+ *                         obj->field40 = 1 + 0x1f = 0x20
+ *                         find_ani_part2(obj)
+ *                         obj->field1c = 3; init_anirate(obj)
+ *                         -- falls into the rise --
+ *
+ *      token == 0x10de:   if (--obj->field48 <= 0) {
+ *                             obj->field48 = 0x1e
+ *                             obj->field1c = 0x1e + 2 = 0x20
+ *                             create_fx(obj)
+ *                         }
+ *                         if (--obj->a10 <= 0) {
+ *                             rsnd_func(obj, 3)
+ *                             obj->a10 = 9
+ *                         }
+ *                         next_anirate(obj)
+ *                         distance_off_ground(obj)
+ *                         obj->field1c = (obj->field1c <= 0x3f) ? 0xfffe0000 : 0
+ *                         -- falls into the tail --
+ *
+ *      the tail:          part->field1c = obj->field1c
+ *                         token := 0x10de, park 1
+ *
+ *      otherwise:         return -3
+ *
+ * **Two counters on two different periods, and the routine never ends.** 0x48 fires effect 0x20
+ * every thirty frames and 0x44 makes sound 3 every nine, and every path falls through to the same
+ * token store -- so the slicing goes on until something outside replaces the handler. Fourth
+ * endless routine in the tree, after `t_lion_mauled`, `t_stung_a_bunch` and `tl_reptile_monkey`.
+ *
+ * **The velocity is a two-way choice, not an accumulator.** `distance_off_ground` answers in 0x1c,
+ * and the body is pushed UP at -0x20000 while it is 0x3f or less off the ground and given exactly
+ * zero once it is higher. So it is held at a height rather than thrown -- which is what
+ * `set_ignore_y` in state 0 is for: the engine's own gravity is switched off first.
+ *
+ * That is a fourth spelling of vertical motion in this file, after `t_smoke_dropping`'s
+ * accumulating fall, `t_gravity_ani_ysize`'s height-aware landing and `t_r_impale_upcut`'s
+ * fall-rate-of-zero arc.
+ *
+ * **0x48 is written three times in state 0**: the shake pair 0x0004000e, then 1 as a counter. Both
+ * readings in four instructions, the same overlap `t_r_ind_lightning` shows.
+ *
+ * `obj->field40 = 0x20` is compiled as `adds r3, #0x1f` on the 1 already in the register, one more
+ * instance of the shared-literal habit -- here sharing between a counter and an animation number,
+ * which have nothing to do with each other.
+ */
+void set_ignore_y(MK3OBJ *obj);
+void init_anirate(MK3OBJ *obj);
+void distance_off_ground(MK3OBJ *obj);
+
+long t_get_sliced_up(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        death_scream(obj);
+        set_ignore_y(obj);
+
+        obj->field48 = 0x0004000e;
+        shake_a11(obj);
+
+        obj->field48 = 1;
+        obj->a10     = 1;
+        obj->field40 = 1 + 0x1f;
+        find_ani_part2(obj);
+
+        obj->field1c = 3;
+        init_anirate(obj);
+
+        obj->field1c = 0xfffe0000u;
+
+    } else if (token == 0x10de) {
+        obj->field48 = obj->field48 - 1;
+        if ((long)obj->field48 <= 0) {
+            obj->field48 = 0x1e;
+            obj->field1c = 0x1e + 2;
+            create_fx(obj);
+        }
+
+        obj->a10 = obj->a10 - 1;
+        if ((long)obj->a10 <= 0) {
+            rsnd_func(obj, 3);
+            obj->a10 = 9;
+        }
+
+        next_anirate(obj);
+        distance_off_ground(obj);
+
+        obj->field1c = ((long)obj->field1c <= 0x3f) ? 0xfffe0000u : 0u;
+
+    } else {
+        return -3;
+    }
+
+    obj->field08->field1c = obj->field1c;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x10de;
+    thread->fieldfc = 1;
+    return 1;
+}
