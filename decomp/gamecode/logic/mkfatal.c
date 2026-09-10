@@ -11237,3 +11237,220 @@ long t_another_scorpion(MK3THREAD *thread)
 
     return -3;
 }
+
+
+/* ------------------------------------------------------------------------------- t_kiss_orb
+ *
+ * armv7 0x00036f54, 544 bytes.  **Complete.**
+ *
+ *      token == 0:        obj->field30 = 0x60000
+ *                         obj->field40 = obj->field48       ; the cursor arrives in 0x48
+ *                         obj->field48 = -0x8000            ; and 0x48 becomes the x accel
+ *                         if (!is_he_right(obj)) {
+ *                             obj->field30 = -obj->field30
+ *                             obj->field48 = -obj->field48
+ *                         }
+ *                         part->field18 = obj->field30
+ *                         token := 0x164e, park 4
+ *
+ *      token == 0x164e:   obj->field1c = -0x70000
+ *                         part->field1c = -0x70000
+ *                         token := 0x1655, descend into t_orb_sleep_1
+ *
+ *      token == 0x1655:   part->field18 += obj->field48
+ *                         part->field1c += 0x4000
+ *                         if (part->field1c < 0)
+ *                             token := 0x1655, descend into t_orb_sleep_1
+ *                         obj->field48 = 0xa
+ *                         token := 0x1661, descend into t_orb_sleep_1
+ *
+ *      token == 0x1661:   part->field18 += obj->field48
+ *                         part->field1c += 0x8000
+ *                         if (--obj->field48 > 0)
+ *                             token := 0x1661, descend into t_orb_sleep_1
+ *                         -- the aim --
+ *                         obj->field48 = 0x10
+ *                         token := 0x167e, descend into t_orb_sleep_1
+ *
+ *      the aim:           stop_a8(part)
+ *                         obj->field28 = (int16_t)him->x0e
+ *                         obj->field30 = *(long *)(G + 0xac) - 0x58
+ *                         obj->field20 = (int16_t)part->x0e
+ *                         dx = (obj->field28 - obj->field20) << 16
+ *                         dy = (obj->field30 - (int16_t)part->x12) << 16
+ *                         obj->field28 = dx / 16
+ *                         obj->field30 = dy / 16
+ *                         part->field18 = obj->field28
+ *                         part->field1c = obj->field30
+ *                         obj->field1c = 3; init_anirate(obj)
+ *
+ *      token == 0x167e:   if (--obj->field48 > 0)
+ *                             token := 0x167e, descend into t_orb_sleep_1
+ *                         obj->field38 = t_sb_skeleton_burn
+ *                         takeover_him(obj)
+ *                         token := 0x1687, park 0x90
+ *
+ *      token == 0x1687:   token := 0x1688, park 0x16462
+ *
+ *      otherwise:         return -3
+ *
+ * **The orb `t_sonya_kiss` starts through `StartGrObjAt`, and it is a guided projectile.** Three
+ * phases: a launch that arcs on a fixed acceleration, ten frames of a steeper arc, and then a
+ * straight run computed from where the opponent actually is. Second routine in the tree that runs
+ * as a graphics object rather than a fighter's thread, after `t_crusher_orb` -- and the two are
+ * Sonya's two kiss fatalities.
+ *
+ * **The aim is a sixteen-step interpolation.** The gap to the target is taken in pixels, shifted
+ * into 16.16 and divided by sixteen, and the result is written straight into the part's velocities
+ * -- so the orb covers the remaining distance in exactly sixteen frames, which is what
+ * `obj->field48 = 0x10` immediately afterwards counts down. The target y is `G + 0xac` minus 0x58,
+ * not the opponent's own y, so it aims at a fixed height above the floor while taking the x from
+ * `proc->him`. Eighth routine in the tree to read `G + 0xac`.
+ *
+ * Both divisions are compiled as the round-toward-zero idiom rather than a bare `asrs`:
+ * `bics.w r3, r3, r3, asr #32` / `it hs` / `movhs r3, r1` for the first, and
+ * `ands.w r3, r3, r2, asr #32` / `it lo` / `movlo r3, r2` for the second, where the carry out of
+ * `asr #32` is the sign bit. Both are exactly C's signed `/ 16`, and they are written as that.
+ *
+ * **0x48 carries three different things in one routine.** It arrives holding the animation cursor
+ * -- copied into 0x40 in the first instruction and never used as a cursor again -- then becomes the
+ * per-frame x acceleration for the launch, then a frame counter for the last two phases. A
+ * thirteenth reading, and the first routine to use the slot three ways.
+ *
+ * **`t_orb_sleep_1` gets its caller, five times over.** That routine is one `next_anirate` and a
+ * pop, and its note called it "the minimum useful thread handler in this engine"; every state here
+ * that advances the arc descends into it, which is what a one-frame animator is for.
+ *
+ * The direction is decided once, by `is_he_right`, and applied by negating both 0x30 and 0x48
+ * together -- so the launch velocity and the acceleration always share a sign and the arc cannot
+ * turn around during the first phase.
+ *
+ * **Tenth 0x16462 site**, token 0x1688, again not in the dispatch. The handover to
+ * `t_sb_skeleton_burn` has already happened by then, so as in `t_egg_proc` there is nothing left
+ * for this thread to do.
+ */
+long is_he_right(MK3OBJ *obj);
+
+long t_kiss_orb(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3OBJ  *part, *him;
+    uint32_t next;
+    int32_t  dx, dy;
+
+    if (token == 0) {
+        obj->field30 = 0x60000;
+        obj->field40 = obj->field48;                 /* the cursor, once */
+        obj->field48 = 0xffff8000u;                  /* -0x8000 */
+
+        if (is_he_right(obj) == 0) {
+            obj->field30 = (uint32_t)(-(long)obj->field30);
+            obj->field48 = (uint32_t)(-(long)obj->field48);
+        }
+
+        obj->field08->field18 = obj->field30;
+
+        *mk3_frame(thread, frame + 1) = 0x164e;
+        thread->fieldfc = 4;
+        return 4;
+    }
+
+    if (token == 0x1687) {
+        *mk3_frame(thread, frame + 1) = 0x1688;
+        thread->fieldfc = 0x16462;                   /* and never wakes */
+        return 0x16462;
+    }
+
+    if (token == 0x164e) {
+        obj->field1c          = 0xfff90000u;         /* -0x70000 */
+        obj->field08->field1c = obj->field1c;
+
+        next = 0x1655;
+
+    } else if (token == 0x1655) {
+        part = obj->field08;
+
+        obj->field1c  = obj->field48 + part->field18;
+        part->field18 = obj->field1c;
+
+        obj->field1c  = obj->field08->field1c + 0x4000;
+        obj->field08->field1c = obj->field1c;
+
+        if ((long)obj->field1c < 0) {
+            next = 0x1655;
+
+        } else {
+            obj->field48 = 0xa;
+            next = 0x1661;
+        }
+
+    } else if (token == 0x1661) {
+        part = obj->field08;
+
+        obj->field1c  = obj->field48 + part->field18;
+        part->field18 = obj->field1c;
+
+        obj->field1c  = obj->field08->field1c + 0x8000;
+        obj->field08->field1c = obj->field1c;
+
+        obj->field48 = obj->field48 - 1;
+
+        if ((long)obj->field48 > 0) {
+            next = 0x1661;
+
+        } else {
+            stop_a8(obj->field08);
+
+            part = obj->field08;
+            him  = (MK3OBJ *)(void *)(uintptr_t)obj->field00->him;
+
+            obj->field28 = (uint32_t)(int32_t)(int16_t)MK3_FIELD0E(him);
+            obj->field30 = *(uint32_t *)(G_BYTES + 0xac) - 0x58;
+            obj->field20 = (uint32_t)(int32_t)(int16_t)MK3_FIELD0E(part);
+
+            dx = (int32_t)((obj->field28 - obj->field20) << 16);
+            dy = (int32_t)((obj->field30
+                            - (uint32_t)(int32_t)(int16_t)MK3_FIELD12(part))
+                           << 16);
+
+            obj->field28 = (uint32_t)(dx / 16);      /* sixteen frames */
+            obj->field30 = (uint32_t)(dy / 16);
+
+            part->field18         = obj->field28;
+            obj->field08->field1c = obj->field30;
+
+            obj->field1c = 3;
+            init_anirate(obj);
+
+            obj->field48 = 0x10;
+            next = 0x167e;
+        }
+
+    } else if (token == 0x167e) {
+        obj->field48 = obj->field48 - 1;
+
+        if ((long)obj->field48 > 0) {
+            next = 0x167e;
+
+        } else {
+            obj->field38 = (uint32_t)(uintptr_t)t_sb_skeleton_burn;
+            takeover_him(obj);
+
+            *mk3_frame(thread, frame + 1) = 0x1687;
+            thread->fieldfc = 0x90;
+            return 0x90;
+        }
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_orb_sleep_1;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
