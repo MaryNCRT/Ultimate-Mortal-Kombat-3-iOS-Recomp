@@ -1940,3 +1940,182 @@ long t_bomb_gravity2(MK3THREAD *thread)
     *mk3_frame(thread, frame + 1) = 0;
     return 0;
 }
+
+
+/* t_lk_prezap_hit -- armv7 0x00077a40, 96 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      saved = obj->field08
+ *      obj->field08 = proc->slave           ; drive the slave's part instead
+ *      make_dragon_explode(obj)
+ *      obj->field08 = saved
+ *      delete_slave(obj)
+ *      frame[frame].handler = t_lkzap5
+ *
+ * **It borrows the slave's part for one call.** `make_dragon_explode` measures
+ * whatever is in `obj->field08` and blows it up; pointing 0x08 at the slave for
+ * the length of that call makes it explode the slave instead of the fighter,
+ * and the field goes straight back afterwards.
+ *
+ * Same idea as `t_kissani`'s two-field swap in mkfatal.c and mkanimal.c's
+ * `create_fx_for_him`, and the third spelling of it: **a callee-saved register
+ * across one call**, because nothing here has to survive a descent.
+ *
+ * **It also confirms which slave word is which.** `get_proj_obj_m` puts the new
+ * object in `proc->field64` and its PART in `proc->slave` (0x68); this reads 0x68
+ * straight into `obj->field08`, which only holds parts. So 0x64 is the object,
+ * 0x68 is its part, and the two are not interchangeable.
+ *
+ * Then `delete_slave` -- an eighth call site, and the first outside mkfatal.c.
+ */
+void delete_slave(MK3OBJ *obj);
+long t_lkzap5(MK3THREAD *thread);
+
+long t_lk_prezap_hit(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    MK3OBJ  *saved;
+
+    if (*mk3_frame(thread, frame + 1) != 0)
+        return -3;
+
+    saved = obj->field08;
+    obj->field08 = (MK3OBJ *)(void *)(uintptr_t)obj->field00->slave;
+
+    make_dragon_explode(obj);
+
+    obj->field08 = saved;
+
+    delete_slave(obj);
+
+    mk3_frame(thread, frame)[1] = (uint32_t)(uintptr_t)t_lkzap5;
+    *mk3_frame(thread, frame + 1) = 0;
+    return 0;
+}
+
+
+/* t_rocket_explode_fx -- armv7 0x00076950, 96 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = 0xa; ochar_sound(obj)
+ *      obj->a10     = (int16_t)part->x0e
+ *      obj->field48 = (int16_t)part->x12
+ *      obj->field1c = 5
+ *      create_fx(obj)
+ *      frame[frame].handler = tl_delete_proj_and_die
+ *
+ * **`create_fx` can be aimed two ways, and this is the other one.** Here the
+ * position is copied into 0x44 and 0x48 as plain coordinates before the call;
+ * `make_lineup_explode` earlier in this file instead rewrites the part's own x
+ * and y, calls, and puts them back. Two mechanisms for the same helper, in one
+ * file, forty functions apart.
+ *
+ * Which means `create_fx` reads 0x44 and 0x48 when they are set and falls back
+ * to the part otherwise -- or reads them always and `make_lineup_explode` is
+ * leaving them stale, which would explain why its width never mattered. **Not
+ * settled here**; whoever decompiles `create_fx` at 0x00058d70 settles both.
+ *
+ * The coordinates are sign-extended halfwords widened into full words, so a
+ * projectile off the left of the screen keeps a negative x rather than wrapping.
+ */
+long t_rocket_explode_fx(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+
+    if (*mk3_frame(thread, frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0xa;
+    ochar_sound(obj);
+
+    obj->a10     = (uint32_t)(int32_t)(int16_t)MK3_FIELD0E(obj->field08);
+    obj->field48 = (uint32_t)(int32_t)(int16_t)MK3_FIELD12(obj->field08);
+
+    obj->field1c = 5;
+    create_fx(obj);
+
+    mk3_frame(thread, frame)[1] =
+        (uint32_t)(uintptr_t)tl_delete_proj_and_die;
+    *mk3_frame(thread, frame + 1) = 0;
+    return 0;
+}
+
+
+/* ======================== tl_do_reptile_orb and tl_do_reptile_orb_fast
+ *
+ * armv7 0x0007ac58 and 0x0007acbc, 100 and 104 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = G + T ; update_tsl(obj)
+ *      obj->field20 = A
+ *      obj->a10     = 0
+ *      zap_init_special_act(obj)
+ *      obj->field48 = V
+ *      frame[frame].handler = tl_orb3
+ *
+ *                          T        A       V
+ *      slow            0x438     0x21   0x30000
+ *      fast            0x43c     0x22   0x70000
+ *
+ * **Entries 34 and 40 of `projectile_jumps`, and three constants apart.** One
+ * timer slot in the globals, one special-act number, one speed -- and the same
+ * `tl_orb3` runs both. The fast orb is not a different move; it is the same move
+ * with a different row of numbers, which is how this whole file is built.
+ *
+ * The four extra bytes in the fast one are the address arithmetic:
+ * `add.w #0x430` then `adds #0xc` where the slow one fits `add.w #0x438` in a
+ * single instruction. The shared-literal habit, applied to a pointer.
+ *
+ * `G + 0x438` and `G + 0x43c` are adjacent words, so the two orbs have one timer
+ * slot each and cannot be in flight at the same time as themselves -- but can be
+ * as each other. mkstat.c reaches `G + 0x410 + 0xc` the same way for Jade's
+ * flash, so 0x410 onwards is a block of these.
+ */
+void update_tsl(MK3OBJ *obj);
+long tl_orb3(MK3THREAD *thread);
+
+long tl_do_reptile_orb(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+
+    if (*mk3_frame(thread, frame + 1) != 0)
+        return -3;
+
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x438);
+    update_tsl(obj);
+
+    obj->field20 = 0x21;
+    obj->a10     = 0;
+    zap_init_special_act(obj);
+
+    obj->field48 = 0x30000;
+
+    mk3_frame(thread, frame)[1] = (uint32_t)(uintptr_t)tl_orb3;
+    *mk3_frame(thread, frame + 1) = 0;
+    return 0;
+}
+
+long tl_do_reptile_orb_fast(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+
+    if (*mk3_frame(thread, frame + 1) != 0)
+        return -3;
+
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x430 + 0xc);
+    update_tsl(obj);
+
+    obj->field20 = 0x22;
+    obj->a10     = 0;
+    zap_init_special_act(obj);
+
+    obj->field48 = 0x70000;
+
+    mk3_frame(thread, frame)[1] = (uint32_t)(uintptr_t)tl_orb3;
+    *mk3_frame(thread, frame + 1) = 0;
+    return 0;
+}
