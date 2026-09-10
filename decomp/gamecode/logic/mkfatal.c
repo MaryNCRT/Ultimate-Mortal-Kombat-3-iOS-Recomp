@@ -484,6 +484,11 @@ void fatal_offset(MK3OBJ *obj)
  *
  * The addition is done at full width and narrowed on the way out, so a delta
  * that overflows sixteen bits wraps in the object rather than saturating.
+ *
+ * **0x1c is an input AND a scratch slot: it leaves holding the opponent.** A caller that
+ * calls this twice has to put its own body back into 0x1c in between, and `t_liftshake`
+ * later in this file does exactly that. Without reading this routine that reload looks
+ * redundant; dropping it would move the opponent twice and the part once.
  */
 void lifts3(MK3OBJ *obj)
 {
@@ -2827,4 +2832,156 @@ long t_fatality_start_pause(MK3THREAD *thread)
         (uint32_t)(uintptr_t)t_init_death_blow;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
+}
+
+
+
+
+/* ----------------------------------------------------------------- t_chop_off_his_height
+ *
+ * armv7 0x00035a3c, 172 bytes.  **Complete.**
+ *
+ *      token == 0:       him = proc->him
+ *                        him->y12 = (uint16_t)him->y12 + obj->field34
+ *                        obj->field1c = him
+ *                        obj->field48 = 0x00060008; shake_a11(obj)
+ *                        obj->field1c = 5; ochar_sound(obj)
+ *                        obj->field1c = 2; his_group_sound(obj)
+ *                        call_for_him(obj, pounded_blood)
+ *                        token := 0xb9d, park 0x10
+ *
+ *      token == 0xb9d:   pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:        return -3
+ *
+ * **The name is literal: it adds `obj->field34` to the opponent's y and leaves them shorter.** The
+ * read is `ldrh` and the write `strh`, both unsigned, so the height is a plain halfword here --
+ * unlike `lifts3` above, which sign-extends the same class of field. Two routines, two readings, in
+ * one file.
+ *
+ * `obj->field34` is the amount, supplied by the caller. In mkanimal.c that offset is the left edge
+ * of the bounding box `mk3_getbbox` fills in; here it is a per-chop distance. The header records
+ * 0x34..0x40 as a bounding box on the authority of the four `*_mpart_ob` routines, and this is a
+ * use that does not fit -- worth flagging rather than reconciling.
+ *
+ * **The blood goes on the opponent through `call_for_him(obj, pounded_blood)`** -- the
+ * register-passing member of the three handover mechanisms, where mkanimal.c's `tl_sonya_eagle`
+ * uses the 0x1c one for `death_scream`. So a two-line helper exists so that this can be passed
+ * rather than inlined.
+ *
+ * Two sounds from two different routines: `ochar_sound` with 5 for the chopper and
+ * `his_group_sound` with 2 for the chopped. Both take their index in 0x1c.
+ *
+ * The shake pair is 0x00060008, asymmetric, and the same value mkanimal.c's `t_r_bat_bite` uses.
+ */
+void his_group_sound(MK3OBJ *obj);
+
+long t_chop_off_his_height(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3OBJ  *him;
+
+    if (token == 0) {
+        him = (MK3OBJ *)(void *)(uintptr_t)obj->field00->him;
+        MK3_SET_FIELD12(him, (uint32_t)MK3_FIELD12(him) + obj->field34);
+
+        obj->field1c = (uint32_t)(uintptr_t)
+            (MK3OBJ *)(void *)(uintptr_t)obj->field00->him;
+
+        obj->field48 = 0x00060008;
+        shake_a11(obj);
+
+        obj->field1c = 5;
+        ochar_sound(obj);
+
+        obj->field1c = 2;
+        his_group_sound(obj);
+
+        call_for_him(obj, pounded_blood);
+
+        *mk3_frame(thread, frame + 1) = 0xb9d;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (token != 0xb9d)
+        return -3;
+
+    if ((long)frame > 0) {
+        thread->frame = frame - 1;
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* ---------------------------------------------------------------------------- t_liftshake
+ *
+ * armv7 0x00036de8, 172 bytes.  **Complete.**
+ *
+ *      token == 0:        do_next_a9_frame(obj)
+ *                         obj->field24 = 3
+ *                         obj->field1c = obj->field08
+ *                         lifts3(obj)
+ *                         token := 0x143b, park 3
+ *
+ *      token == 0x143b:   obj->field24 = ~2            (-3)
+ *                         obj->field1c = obj->field08
+ *                         lifts3(obj)
+ *                         token := 0x143f, park 3
+ *
+ *      token == 0x143f:   pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:         return -3
+ *
+ * **Three across, then three back: one shake, done by moving both fighters twice.** `lifts3` shifts
+ * the part in 0x1c and the opponent together, so +3 then -3 leaves both where they started and the
+ * pair visibly jolts.
+ *
+ * **0x1c is reloaded before the second call**, because `lifts3` overwrites it with the opponent on
+ * the way out. Reading the helper is what makes that store necessary rather than redundant -- a
+ * transcription that dropped it would move the opponent twice and the part once.
+ *
+ * The second amount is written `mvn r3, #2`, giving -3 from the same immediate class as the 3 in
+ * state 0 rather than from a literal pool. Transcribed as `~2` so the encoding stays visible.
+ */
+long t_liftshake(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        do_next_a9_frame(obj);
+
+        obj->field24 = 3;
+        obj->field1c = (uint32_t)(uintptr_t)obj->field08;
+        lifts3(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x143b;
+        thread->fieldfc = 3;
+        return 3;
+    }
+
+    if (token == 0x143b) {
+        obj->field24 = (uint32_t)~2u;
+        obj->field1c = (uint32_t)(uintptr_t)obj->field08;
+        lifts3(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x143f;
+        thread->fieldfc = 3;
+        return 3;
+    }
+
+    if (token != 0x143f)
+        return -3;
+
+    if ((long)frame > 0) {
+        thread->frame = frame - 1;
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
