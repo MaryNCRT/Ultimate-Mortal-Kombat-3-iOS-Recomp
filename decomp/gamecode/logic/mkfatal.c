@@ -4870,3 +4870,93 @@ long t_r_kiss_suck(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------------------ t_kang_mk_game
+ *
+ * armv7 0x00034558, 240 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0xa84, descend into t_fatality_start_pause
+ *
+ *      token == 0xa84:    obj->field1c = 6; ochar_sound(obj)
+ *                         obj->field40 = 6
+ *                         obj->field1c = 4
+ *                         token := 0xa8a, descend into t_backwards_ani2
+ *
+ *      token == 0xa8a:    NewThread(obj, t_mk_game_cabinet)
+ *                         set_inviso(obj)
+ *                         token := 0xa8d, park 0x60
+ *
+ *      token == 0xa8d:    frame[frame].handler = t_kang_reform
+ *
+ *      otherwise:         return -3
+ *
+ * **The head of a four-routine chain, and every link was written in a separate batch from its own
+ * disassembly.** This starts the finisher through `t_fatality_start_pause` (kind 1), plays a sound,
+ * runs an animation backwards, and then spawns `t_mk_game_cabinet` as its own thread before making
+ * the attacker invisible. That cabinet routine drops through `t_gravity_ani_ysize` -- supplying
+ * exactly the two fields it reads -- and hands the victim `t_r_mk_game_crush`.
+ *
+ * So the whole fatality is: attacker vanishes, a cabinet is spawned above the victim's x, it falls
+ * under gravity until its own height puts it on the floor, and the victim is crushed. Four
+ * routines, four batches, and the interfaces match with nothing left over.
+ *
+ * **`set_inviso` here is not an ending.** In `t_stung_by_scorpion`, `t_tornado_sucked` and
+ * `t_eat_this_shit` it is the last thing that happens to a body; here the attacker is hidden so the
+ * prop can take their place, and `t_kang_reform` brings them back sixty frames later. Same call,
+ * opposite purpose -- worth knowing before reading it as a death.
+ *
+ * `t_backwards_ani2` comes out of pointer slot 0x000f3704, a different slot from the
+ * `t_backwards_ani` at 0x000f37c4 that the mkanimal.c drivers use for their unmorph. Two similar
+ * names, two slots, and nothing here says how the two differ.
+ *
+ * 6 goes into 0x1c as a sound index and then into 0x40 as an animation number, out of the same
+ * register -- the shared-literal habit across two unrelated meanings again.
+ */
+long t_backwards_ani2(MK3THREAD *thread);        /* pointer slot 0x000f3704 */
+long t_kang_reform(MK3THREAD *thread);           /* 0x0003a7dc */
+long t_mk_game_cabinet(MK3THREAD *thread);
+
+long t_kang_mk_game(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0xa84) {
+        obj->field1c = 6;
+        ochar_sound(obj);
+
+        obj->field40 = 6;
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xa8a;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_backwards_ani2;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xa8a) {
+        NewThread(obj, (MK3THREADFUNC)t_mk_game_cabinet);
+        set_inviso(obj);
+
+        *mk3_frame(thread, frame + 1) = 0xa8d;
+        thread->fieldfc = 0x60;
+        return 0x60;
+    }
+
+    if (token == 0xa8d)
+        return mk3_install(thread, (MK3THREADFUNC)t_kang_reform);
+
+    if (token != 0)
+        return -3;
+
+    *mk3_frame(thread, frame + 1) = 0xa84;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_fatality_start_pause;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
