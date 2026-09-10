@@ -7837,15 +7837,23 @@ long tl_r_scared_of_mileena(MK3THREAD *thread)
  * walk the list one word per call". Here is the caller doing exactly that -- three fixed descents
  * and then a state that keeps descending while a word reads non-zero.
  *
- * **But the termination test reads 0x40, not 0x48, and 0x40 does not advance.** `t_kissani` pushes
- * 0x40, works on 0x48, and pops 0x40 back unchanged; this routine's 0x40 was set by
- * `get_char_ani2` in state 0x16ac and nothing between the states writes it. So on the reading of
- * both functions as transcribed, state 0x16c8 either exits on its first test or never exits.
+ * **But the termination test reads 0x40, not 0x48, and nothing in either routine advances 0x40.**
+ * `t_kissani` pushes 0x40, works on 0x48, and pops 0x40 back unchanged; this routine's 0x40 was set
+ * by `get_char_ani2` in state 0x16ac and nothing between the states writes it. On the two
+ * transcriptions taken alone, state 0x16c8 either exits on its first test or never exits.
  *
- * That is a real discrepancy and it is recorded rather than smoothed over. Either one of the two
- * transcriptions has the wrong field somewhere, or something outside both routines advances 0x40.
- * Both were read from their own disassembly and both compile; whoever resolves it should re-read
- * `t_kissani` at 0x00036d18 and this state at 0x00036cca side by side.
+ * **`t_scorpion_flame`, written later in this file, is very likely the answer.** Its state 0x516
+ * has the identical shape -- descend, then test the word 0x40 points at -- and the routine it
+ * descends into is `t_double_flame_ani`, eighty bytes that do exactly two things: `frame_a9(obj)`
+ * and pop a level. That body writes nothing at all, so that loop can only terminate if `frame_a9`
+ * advances 0x40. `t_kissani` opens with `do_next_a9_frame`, the same kind of call, which makes the
+ * reading here the same one: **0x40 is advanced inside the frame-stepping helper, not by the
+ * caller**, and this is not a discrepancy after all.
+ *
+ * That is an inference from two loops, not a measurement -- neither `frame_a9` nor
+ * `do_next_a9_frame` is decompiled, both living outside this file. Whoever reads either of them
+ * closes it for certain; until then the two routines here are transcribed exactly as they are and
+ * the reading is stated rather than assumed.
  *
  * **Second `StartGrObjAt` site**, and it matches `t_sonya_kiss_crusher`'s exactly: an object is
  * produced by a `gso_*`/`gmo_*` insert routine, lands in `obj->field3c`, is copied to `obj->a10`,
@@ -10454,6 +10462,165 @@ long t_kitana_kiss(MK3THREAD *thread)
 
         next         = 0x89b;
         next_handler = (MK3THREADFUNC)t_mframew;
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)next_handler;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* -------------------------------------------------------------------------- t_scorpion_flame
+ *
+ * armv7 0x0003654c, 512 bytes.  **Complete.**
+ *
+ *      token == 0:        tsound_func(obj, 0x1f)
+ *                         obj->field40 = 0xf; get_char_ani2(obj)
+ *                         obj->field20 = 0xf
+ *                         obj->field1c = 0xc
+ *                         multi_adjust_xy(obj)
+ *                         obj->field1c = 4
+ *                         token := 0x4f1, descend into t_mframew
+ *
+ *      token == 0x4f1:    obj->field1c = -0x10
+ *                         token := 0x4f3, descend into t_kludge_flame_ani
+ *
+ *      token == 0x4f3:    obj->field1c = -0x10
+ *                         token := 0x4f5, descend into t_kludge_flame_ani
+ *
+ *      token == 0x4f5:    obj->field1c = 4
+ *                         token := 0x4f7, descend into t_mframew
+ *
+ *      token == 0x4f7:    obj->field48 = 0x0008000d; shake_a11(obj)
+ *                         token := 0x4fc, descend into t_double_flame_ani
+ *
+ *      token == 0x4fc:    obj->field40 -= 4
+ *                         obj->field20 = 0
+ *                         obj->field1c = 0 - 0x2e
+ *                         multi_adjust_xy(obj)
+ *                         token := 0x515, descend into t_double_flame_ani
+ *
+ *      token == 0x515:    token := 0x516, park 4
+ *
+ *      token == 0x516:    obj->field1c = *(long *)obj->field40
+ *                         if (obj->field1c != 0)
+ *                             token := 0x515, descend into t_double_flame_ani
+ *                         token := 0x51f, park 0x16462
+ *
+ *      otherwise:         return -3
+ *
+ * **This is the caller both flame animators were missing.** `t_kludge_flame_ani` and
+ * `t_double_flame_ani` were written in the first two mkfatal.c batches with no known caller, and
+ * the kludge one's note said only that some caller must want a diagonal-only shift. Here it is,
+ * passing -0x10 twice -- so the flame is moved sixteen units left and sixteen up, twice, and the
+ * "strange interface" is used for exactly what it was shaped for.
+ *
+ * **The 0x516 loop settles what `t_sonya_kiss` could not.** That routine's state 0x16c8 descends
+ * into `t_kissani` and then tests `*(long *)obj->field40` for zero, and the note there recorded a
+ * real discrepancy: `t_kissani` pops 0x40 back unchanged, so on both transcriptions as written the
+ * loop either exits at once or never.
+ *
+ * This routine has the identical shape -- descend, then test the word 0x40 points at -- but the
+ * body it descends into is `t_double_flame_ani`, which is eighty bytes and does exactly two things:
+ * `frame_a9(obj)` and pop a level. **It writes nothing.** So this loop terminates only if
+ * `frame_a9` advances 0x40, and `frame_a9` is the only candidate there is.
+ *
+ * `t_kissani` opens with `do_next_a9_frame`, the same kind of call, which makes the parallel
+ * straightforward: **0x40 is advanced inside the frame-stepping helper, not by the caller**, and
+ * the discrepancy recorded against `t_sonya_kiss` is very likely not one. Neither helper is
+ * decompiled yet -- both live outside this file -- so this is an inference from two loops, not a
+ * measurement, and it is written down as such. Whoever reads `frame_a9` should close it either way.
+ *
+ * **Ninth 0x16462 site**, and the follow-on token 0x51f is again not in the dispatch -- so this
+ * one is shaped like the seven before `t_crusher_orb` rather than like `t_crusher_orb` itself.
+ *
+ * `obj->field40 -= 4` in state 0x4fc steps the cursor BACK one word before the last two flames.
+ * First site in this file that rewinds an animation cursor rather than advancing it.
+ *
+ * The shared-literal habit twice over: `0xf` feeds 0x40 and 0x20 in state 0, and `0` feeds 0x20
+ * before `subs #0x2e` turns the same register into -0x2e for 0x1c in state 0x4fc.
+ */
+
+long t_scorpion_flame(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3THREADFUNC next_handler;
+    uint32_t next;
+
+    if (token == 0x515) {
+        *mk3_frame(thread, frame + 1) = 0x516;
+        thread->fieldfc = 4;
+        return 4;
+    }
+
+    if (token == 0) {
+        tsound_func(obj, 0x1f);
+
+        obj->field40 = 0xf;
+        get_char_ani2(obj);
+
+        obj->field20 = 0xf;                          /* the same literal */
+        obj->field1c = 0xc;
+        multi_adjust_xy(obj);
+
+        obj->field1c = 4;
+
+        next         = 0x4f1;
+        next_handler = (MK3THREADFUNC)t_mframew;
+
+    } else if (token == 0x4f1) {
+        obj->field1c = 0xfffffff0u;                  /* -0x10 */
+
+        next         = 0x4f3;
+        next_handler = (MK3THREADFUNC)t_kludge_flame_ani;
+
+    } else if (token == 0x4f3) {
+        obj->field1c = 0xfffffff0u;                  /* -0x10 */
+
+        next         = 0x4f5;
+        next_handler = (MK3THREADFUNC)t_kludge_flame_ani;
+
+    } else if (token == 0x4f5) {
+        obj->field1c = 4;
+
+        next         = 0x4f7;
+        next_handler = (MK3THREADFUNC)t_mframew;
+
+    } else if (token == 0x4f7) {
+        obj->field48 = 0x0008000d;
+        shake_a11(obj);
+
+        next         = 0x4fc;
+        next_handler = (MK3THREADFUNC)t_double_flame_ani;
+
+    } else if (token == 0x4fc) {
+        obj->field40 = obj->field40 - 4;             /* rewind one word */
+
+        obj->field20 = 0;
+        obj->field1c = 0u - 0x2e;                    /* the same register */
+        multi_adjust_xy(obj);
+
+        next         = 0x515;
+        next_handler = (MK3THREADFUNC)t_double_flame_ani;
+
+    } else if (token == 0x516) {
+        obj->field1c = *(uint32_t *)(uintptr_t)obj->field40;
+
+        if (obj->field1c == 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0x51f;
+            thread->fieldfc = 0x16462;               /* and never wakes */
+            return 0x16462;
+        }
+
+        next         = 0x515;
+        next_handler = (MK3THREADFUNC)t_double_flame_ani;
 
     } else {
         return -3;
