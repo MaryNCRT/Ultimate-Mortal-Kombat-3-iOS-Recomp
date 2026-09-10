@@ -5557,3 +5557,106 @@ long t_do_pit_fatality(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* -------------------------------------------------------------------------- t_kitana_decap
+ *
+ * armv7 0x0003a2f4, 288 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0x8a7, descend into t_fatality_start_pause
+ *
+ *      token == 0x8a7:    obj->field40 = 5; pose2_a9_manual(obj)
+ *                         sans_repell_for_good(obj)
+ *                         token := 0x8ac, park 0x10
+ *
+ *      token == 0x8ac:    obj->field1c = 0x00050004
+ *                         token := 0x8af, descend into t_animate_a0_frames
+ *
+ *      token == 0x8af:    obj->field38 = t_r_kitana_decap
+ *                         takeover_him(obj)
+ *                         do_next_a9_frame(obj)
+ *                         token := 0x8b5, park 0x10
+ *
+ *      token == 0x8b5:    death_blow_complete(obj)
+ *                         frame[frame].handler = t_victory_animation
+ *
+ *      otherwise:         return -3
+ *
+ * **The victim's reaction lives in another file.** `t_r_kitana_decap` off pointer slot 0x000f36a0
+ * is at 0x000a0c84, inside mkanimal.c, and was written when that file was closed. So a fatality's
+ * two halves are not necessarily in the same translation unit -- the attacker is here and the
+ * reaction is filed with the animality module.
+ *
+ * That is worth knowing for the four files still open: a `t_r_*` routine missing from the file you
+ * are reading may already exist somewhere else, and the pointer slot is what finds it.
+ *
+ * `pose2_a9_manual` rather than `pose_a9_manual` -- a second poser, taking the same small index in
+ * 0x40. Nothing here says how the two differ; both are called with a constant and neither returns
+ * anything.
+ *
+ * The `t_animate_a0_frames` pair is 0x00050004, the sixth site and the same value
+ * `t_scorpion_remove_mask` uses in its second run. High half 5 again, which is the common case
+ * rather than the rule -- `t_skin_fall`'s 8 settled that.
+ *
+ * The ending is `death_blow_complete` then `t_victory_animation`, the same close as
+ * `t_do_pit_fatality`. Two fatalities now end by installing the victory pose directly rather than
+ * parking on `t_wait_forever`.
+ */
+void pose2_a9_manual(MK3OBJ *obj);
+long t_r_kitana_decap(MK3THREAD *thread);        /* pointer slot 0x000f36a0, in mkanimal.c */
+
+long t_kitana_decap(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x8a7) {
+        obj->field40 = 5;
+        pose2_a9_manual(obj);
+
+        sans_repell_for_good(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x8ac;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (token == 0x8ac) {
+        obj->field1c = 0x00050004;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x8af;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_a0_frames;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x8af) {
+        obj->field38 = (uint32_t)(uintptr_t)t_r_kitana_decap;
+        takeover_him(obj);
+
+        do_next_a9_frame(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x8b5;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (token == 0x8b5) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+    }
+
+    if (token != 0)
+        return -3;
+
+    *mk3_frame(thread, frame + 1) = 0x8a7;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_fatality_start_pause;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
