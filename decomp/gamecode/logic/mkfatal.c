@@ -7420,3 +7420,129 @@ long t_r_ice_blow(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ----------------------------------------------------------------------- t_mileena_suck_kiss
+ *
+ * armv7 0x0003674c, 348 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0x3ca, descend into t_fatality_start_pause
+ *
+ *      token == 0x3ca:    sans_repell_for_good(obj)
+ *                         obj->field40 = 0x00060006
+ *                         token := 0x3cd, descend into t_animate2_a9
+ *
+ *      token == 0x3cd:    tsound_func(obj, 0x60)
+ *                         obj->field38 = t_r_kiss_suck
+ *                         takeover_him(obj)
+ *                         tsound_func(obj, 0x87)
+ *                         token := 0x3d4, park 0x70
+ *
+ *      token == 0x3d4:    obj->field40 = 0x00040018
+ *                         token := 0x3d7, descend into t_animate2_a9
+ *
+ *      token == 0x3d7:    NewThread(obj, t_bone_vomit_proc)
+ *                         token := 0x3d9, park 0x70
+ *
+ *      token == 0x3d9:    death_blow_complete(obj)
+ *                         token := 0x3dc, DESCEND into t_victory_animation
+ *
+ *      otherwise:         return -3
+ *
+ * **The only fatality measured that DESCENDS into `t_victory_animation` instead of installing it.**
+ * Every other one -- `t_do_pit_fatality`, `t_kitana_decap`, `t_ermac_super_slam`, `t_sz_blow`,
+ * `t_lao_slicer`, `t_lao_tornado`, `t_robo_flame_throw` and the rest -- replaces its own handler.
+ * This one keeps its frame and pushes a level, leaving token 0x3dc behind.
+ *
+ * **0x3dc is not in this routine's dispatch.** If the victory animation ever popped back, the next
+ * tick would enter here with 0x3dc and return -3. So either that routine never unwinds, or the
+ * descent is a mistake that happens to be harmless because it never returns. Recorded as measured;
+ * nothing here settles which, and `t_victory_animation` is in another file and still unwritten.
+ *
+ * **It ties together two routines already written in this file.** `t_r_kiss_suck` is handed to the
+ * victim -- the one with the dead `obj->field40 = 0x17` and the unnamed sub-table inside
+ * `fn_ani_data` -- and `t_bone_vomit_proc` is spawned as its own thread, the three-state ring that
+ * ends on the 0x16462 terminator. So the vomiting outlives this routine, which is why that ring
+ * needed a never-wake state rather than a way out.
+ *
+ * Two `t_animate2_a9` runs with 0x00060006 and 0x00040018 -- third and fourth sites for that
+ * variant. The first pair is doubled and the second is not, so both halves move independently here
+ * too.
+ *
+ * Sounds 0x60 and 0x87 bracket the handover, one on each side of `takeover_him`.
+ */
+long t_r_kiss_suck(MK3THREAD *thread);
+long t_bone_vomit_proc(MK3THREAD *thread);
+
+long t_mileena_suck_kiss(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x3ca) {
+        sans_repell_for_good(obj);
+
+        obj->field40 = 0x00060006;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x3cd;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate2_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x3cd) {
+        tsound_func(obj, 0x60);
+
+        obj->field38 = (uint32_t)(uintptr_t)t_r_kiss_suck;
+        takeover_him(obj);
+
+        tsound_func(obj, 0x87);
+
+        *mk3_frame(thread, frame + 1) = 0x3d4;
+        thread->fieldfc = 0x70;
+        return 0x70;
+    }
+
+    if (token == 0x3d4) {
+        obj->field40 = 0x00040018;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x3d7;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate2_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x3d7) {
+        NewThread(obj, (MK3THREADFUNC)t_bone_vomit_proc);
+
+        *mk3_frame(thread, frame + 1) = 0x3d9;
+        thread->fieldfc = 0x70;
+        return 0x70;
+    }
+
+    if (token == 0x3d9) {
+        death_blow_complete(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x3dc;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_victory_animation;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    *mk3_frame(thread, frame + 1) = 0x3ca;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_fatality_start_pause;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
