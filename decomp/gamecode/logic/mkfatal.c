@@ -7169,3 +7169,125 @@ long t_lao_tornado(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------------------ t_robo_flame_throw
+ *
+ * armv7 0x00036a44, 352 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0x1232, descend into t_fatality_start_pause
+ *
+ *      token == 0x1232:   obj->field40 = 0x0005000a
+ *                         token := 0x1235, descend into t_animate2_a9
+ *
+ *      token == 0x1235:   obj->field38 = t_robo_skeleton_burn
+ *                         takeover_him(obj)
+ *                         token := 0x1239, park 1
+ *
+ *      token == 0x1239:   delete_slave(obj)
+ *                         token := 0x123b, park 0x20
+ *
+ *      token == 0x123b:   obj->field40 = 0xa; find_ani2_part2(obj)
+ *                         obj->field1c = 5
+ *                         token := 0x1240, descend into t_mframew
+ *
+ *      token == 0x1240:   token := 0x1241, park 0x80
+ *
+ *      token == 0x1241:   death_blow_complete(obj)
+ *                         frame[frame].handler = t_victory_animation
+ *
+ *      otherwise:         return -3
+ *
+ * **This explains the `+8` that opened this file.** `t_robo_skeleton_burn` -- the second routine
+ * written here -- enters `a_sb_skeleton_burn` two words in, and the offset was what proved that
+ * symbol is data rather than a handler. It is handed to the VICTIM here, so the robot's flame throw
+ * starts the burn sequence part-way because the first two frames are the ignition the thrower has
+ * already performed.
+ *
+ * With `t_scorpion_fire`'s `t_scorp_skeleton_burn` that makes two of the four burn entries reached
+ * as reactions and two run on the fighter's own thread. The burn is a shared sequence with four
+ * doors into it, and which door depends on what lit the fire.
+ *
+ * **Third `delete_slave` site in this file**, after `t_sz_blow` and `t_ind_zap_kill`, and all three
+ * are fatalities that project something at the opponent. Still nothing measured creates the slave;
+ * the three consumers agree that one exists by the time the blow lands.
+ *
+ * `find_ani2_part2` rather than `find_ani_part2` -- a second finder taking the same small index in
+ * 0x40, exactly as `pose2_a9_manual` shadows `pose_a9_manual`. The "2" suffix appears on four
+ * routines in this tree now and nothing measured distinguishes any of the pairs.
+ *
+ * The `t_animate2_a9` pair is 0x0005000a, second site for that variant after
+ * `t_ermac_super_slam`'s 0x0002000c.
+ */
+long t_robo_skeleton_burn(MK3THREAD *thread);
+void find_ani2_part2(MK3OBJ *obj);
+
+long t_robo_flame_throw(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x1232) {
+        obj->field40 = 0x0005000a;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1235;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate2_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1235) {
+        obj->field38 = (uint32_t)(uintptr_t)t_robo_skeleton_burn;
+        takeover_him(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x1239;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0x1239) {
+        delete_slave(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x123b;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (token == 0x123b) {
+        obj->field40 = 0xa;
+        find_ani2_part2(obj);
+
+        obj->field1c = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1240;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1240) {
+        *mk3_frame(thread, frame + 1) = 0x1241;
+        thread->fieldfc = 0x80;
+        return 0x80;
+    }
+
+    if (token == 0x1241) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+    }
+
+    if (token != 0)
+        return -3;
+
+    *mk3_frame(thread, frame + 1) = 0x1232;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_fatality_start_pause;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
