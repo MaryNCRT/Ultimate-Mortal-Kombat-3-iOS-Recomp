@@ -2537,3 +2537,142 @@ long t_nail_spawn_proc(MK3THREAD *thread)
     thread->fieldfc = 1;
     return 1;
 }
+
+
+/* -------------------------------------------------------------------------- t_green_shit
+ *
+ * armv7 0x00032f74, 164 bytes.  **Complete.**
+ *
+ *      token == 0:       obj->field1c = 5
+ *                        token := 0xaa3, descend into t_mframew
+ *
+ *      token == 0xaa3:   obj->field1c   = 0xffffd000
+ *                        part->field1c  = 0xffffd000
+ *                        token := 0xaa7, park 0x40
+ *
+ *      token == 0xaa7:   token := 0xaa9, park 0x16462
+ *
+ *      otherwise:        return -3
+ *
+ * **Five frames of animation, an upward velocity, sixty-four frames, done.** 0xffffd000 is
+ * -0x3000 -- negative, so up -- and it goes into the object and the part together, the same
+ * two-places-one-value pattern `t_down_the_staff` uses for its halved velocity.
+ *
+ * **Token 0xaa9 is not in the dispatch and the park is 0x16462.** Sixth site for that terminator.
+ *
+ * The routine keeps the object in `ip` and the first token in `lr` for its whole length, and
+ * pushes only `lr` -- so it makes no calls of its own beyond the descent. `t_mframew` does all the
+ * work of the first state.
+ */
+long t_green_shit(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0xaa3) {
+        obj->field1c          = 0xffffd000u;
+        obj->field08->field1c = 0xffffd000u;
+
+        *mk3_frame(thread, frame + 1) = 0xaa7;
+        thread->fieldfc = 0x40;
+        return 0x40;
+    }
+
+    if (token == 0xaa7) {
+        *mk3_frame(thread, frame + 1) = 0xaa9;
+        thread->fieldfc = 0x16462;
+        return 0x16462;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field1c = 5;
+
+    *mk3_frame(thread, thread->frame + 1) = 0xaa3;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+/* ---------------------------------------------------------------------- t_smoke_dropping
+ *
+ * armv7 0x00033634, 164 bytes.  **Complete.**
+ *
+ *      token == 0:       obj->field1c  = 0x20000
+ *                        part->field1c = 0x20000
+ *                        token := 0x8f3, park 1
+ *
+ *      token == 0x8f3:   obj->field1c  = part->field1c + 0x2000
+ *                        part->field1c = obj->field1c
+ *                        obj->field1c = *(long *)(G + 0xac)
+ *                        obj->field20 = (int16_t)part->y12 - obj->field1c
+ *                        if (obj->field20 < 0) obj->field20 = -obj->field20
+ *                        if (obj->field20 > 0x80) { token := 0x8f3, park 1 }
+ *                        obj->field38 = t_eat_this_shit
+ *                        takeover_him(obj)
+ *                        token := 0x901, park 0x16462
+ *
+ *      otherwise:        return -3
+ *
+ * **Gravity written out by hand: the velocity grows by 0x2000 every frame and the loop ends when
+ * the part is within 0x80 of the floor.** The starting velocity is 0x20000, each pass reads the
+ * part's 0x1c, adds 0x2000, and writes it back to both the object and the part -- so the object
+ * carries the working copy and the part is what the renderer moves by.
+ *
+ * **The distance test is the absolute value done in two instructions**, `itt lt` with `rsblt`, the
+ * same shape mkanimal.c's `tl_scorpion_pengo` uses to measure the gap to the opponent. Second site
+ * for that idiom, and the first that measures against the FLOOR rather than another fighter --
+ * `G + 0xac` again, read as a word here.
+ *
+ * That makes six routines in the tree reading `G + 0xac`. The five in mkanimal.c place a body ON
+ * the floor; this one asks how far above it something still is. Same global, different question.
+ *
+ * When it lands, the victim gets `t_eat_this_shit` through 0x38 and `takeover_him`, and this thread
+ * parks on 0x16462 under token 0x901 -- not in the dispatch. Seventh site for that terminator, and
+ * the same reason as `t_egg_proc` in mkanimal.c: after the handover there is nothing left to do.
+ */
+long t_eat_this_shit(MK3THREAD *thread);         /* 0x00039d0c */
+
+long t_smoke_dropping(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        obj->field1c          = 0x20000;
+        obj->field08->field1c = 0x20000;
+
+        *mk3_frame(thread, frame + 1) = 0x8f3;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token != 0x8f3)
+        return -3;
+
+    obj->field1c          = obj->field08->field1c + 0x2000;
+    obj->field08->field1c = obj->field1c;
+
+    obj->field1c = *(uint32_t *)(G_BYTES + 0xac);
+    obj->field20 = (uint32_t)((int32_t)(int16_t)MK3_FIELD12(obj->field08)
+                              - (int32_t)obj->field1c);
+    if ((long)obj->field20 < 0)
+        obj->field20 = (uint32_t)(-(long)obj->field20);
+
+    if ((long)obj->field20 > 0x80) {
+        *mk3_frame(thread, thread->frame + 1) = 0x8f3;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    obj->field38 = (uint32_t)(uintptr_t)t_eat_this_shit;
+    takeover_him(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x901;
+    thread->fieldfc = 0x16462;
+    return 0x16462;
+}
