@@ -12452,3 +12452,218 @@ long t_sw_plant_bomb(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_cyrax_self_destruct
+ *
+ * armv7 0x00037b78, 784 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0xfca, descend into t_fatality_start_pause
+ *
+ *      token == 0xfca:    obj->field1c = 0x1b; ochar_sound(obj)
+ *                         obj->field40 = 0xd; get_char_ani2(obj)
+ *                         obj->field1c = 6
+ *                         token := 0xfd2, descend into t_mframew
+ *
+ *      token == 0xfd2:    obj->field48 = obj->field40      ; capture the cursor
+ *                         obj->field1c = 4
+ *                         token := 0xfd6, descend into t_animate_a11
+ *
+ *      token == 0xfd6:    obj->field1c = 4
+ *                         token := 0xfd8, descend into t_animate_a11
+ *
+ *      token == 0xfd8:    obj->field1c = 4
+ *                         token := 0xfda, descend into t_animate_a11
+ *
+ *      token == 0xfda:    obj->field40 = 0xd; get_char_ani2(obj)
+ *                         find_part2(obj); find_part2(obj)
+ *                         delete_slave(obj)
+ *                         obj->field2c = part->field28
+ *                         if (part->field28 & 0x10) flip_multi(obj)
+ *                         obj->field1c = 6
+ *                         token := 0xfe8, descend into t_mframew
+ *
+ *      token == 0xfe8:    obj->field48 = obj->field40      ; capture it again
+ *                         obj->field1c = 6
+ *                         token := 0xfec, descend into t_animate_a11
+ *
+ *      token == 0xfec:    obj->field1c = 6
+ *                         token := 0xfee, descend into t_animate_a11
+ *
+ *      token == 0xfee:    obj->field1c = 6
+ *                         token := 0xff0, descend into t_animate_a11
+ *
+ *      token == 0xff0:    obj->field1c = 6
+ *                         token := 0xff2, descend into t_animate_a11
+ *
+ *      token == 0xff2:    obj->field1c = 6
+ *                         token := 0xff4, descend into t_animate_a11
+ *
+ *      token == 0xff4:    obj->field1c = 0x22; create_fx(obj)
+ *                         wfe_him(obj)
+ *                         delete_slave(obj)
+ *                         set_inviso(obj)
+ *                         obj->field1c = set_inviso; call_a0_for_him(obj)
+ *                         token := 0x1000, park 0x80
+ *
+ *      token == 0x1000:   death_blow_complete(obj)
+ *                         frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:         return -3
+ *
+ * **`t_animate_a11` gets its caller, eight times over, and the eight descents confirm what its
+ * note predicted.** That routine copies 0x48 into 0x40 and descends into `t_mframew` with whatever
+ * count the caller left in 0x1c; its note said "a parent that needs to do something afterwards has
+ * to use this one" and had no parent to point at. Here it is: the cursor is captured once per
+ * group and the animator is run repeatedly, three times with a count of 4 and then five times with
+ * a count of 6.
+ *
+ * **But 0x48 is captured only at the start of each group.** States 0xfd6, 0xfd8 and the four after
+ * 0xfec set 0x1c and nothing else, so each of those runs begins from the same 0x48 the group
+ * captured -- unless `t_mframew` writes 0x48 back as it advances. That routine is not decompiled,
+ * and this one does not settle it: either the group deliberately replays the same frames, or the
+ * cursor advances inside `t_mframew`. **Recorded rather than guessed**; it is the same open shape
+ * as the 0x40-advances-inside-`frame_a9` question `t_scorpion_flame` raised, and the same helper
+ * family is on the other side of it.
+ *
+ * **The flip is conditional on a bit read out of the part**, `part->field28 & 0x10` -- the flip bit
+ * the header records as what the `flip_multi` trio toggles. So this routine asks which way the body
+ * is already facing and flips only if it is facing the wrong way, where `t_another_scorpion` clears
+ * the same bit outright. Two routines, two ways of using one bit, and this is the first that reads
+ * it as a question.
+ *
+ * `obj->field2c = part->field28` on the way past is the same store mkanimal.c's `create_fx_for_him`
+ * block makes -- the flags word copied into 0x2c -- and here it is incidental: the value is wanted
+ * in a register for the `tst`, and the field takes it because the compiler had to put it somewhere.
+ *
+ * **Third fatality in this file to end in `t_wait_forever`**, after `t_jade_impale` and
+ * `t_kano_skeleton`. All three call `death_blow_complete` first.
+ *
+ * **Two `delete_slave` calls in one routine**, states 0xfda and 0xff4 -- sixth and seventh sites,
+ * and the first time one routine does it twice. Still nothing in the tree creates the slave.
+ *
+ * `set_inviso` is called on the fighter directly and then handed to the opponent through
+ * `call_a0_for_him` two instructions later, so both bodies vanish in the same state.
+ */
+
+long t_cyrax_self_destruct(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3THREADFUNC next_handler;
+    uint32_t next;
+
+    if (token == 0) {
+        *mk3_frame(thread, frame + 1) = 0xfca;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_fatality_start_pause;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xff4) {
+        obj->field1c = 0x22;
+        create_fx(obj);
+
+        wfe_him(obj);
+        delete_slave(obj);
+        set_inviso(obj);
+
+        obj->field1c = (uint32_t)(uintptr_t)set_inviso;
+        call_a0_for_him(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x1000;
+        thread->fieldfc = 0x80;
+        return 0x80;
+    }
+
+    if (token == 0x1000) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+    }
+
+    if (token == 0xfca) {
+        obj->field1c = 0x1b;
+        ochar_sound(obj);
+
+        obj->field40 = 0xd;
+        get_char_ani2(obj);
+
+        obj->field1c = 6;
+
+        next         = 0xfd2;
+        next_handler = (MK3THREADFUNC)t_mframew;
+
+    } else if (token == 0xfda) {
+        obj->field40 = 0xd;
+        get_char_ani2(obj);
+
+        find_part2(obj);
+        find_part2(obj);
+
+        delete_slave(obj);
+
+        obj->field2c = obj->field08->field28;
+        if ((obj->field2c & 0x10u) != 0)             /* facing the wrong way */
+            flip_multi(obj);
+
+        obj->field1c = 6;
+
+        next         = 0xfe8;
+        next_handler = (MK3THREADFUNC)t_mframew;
+
+    } else if (token == 0xfd2 || token == 0xfe8) {
+        obj->field48 = obj->field40;                 /* capture the cursor */
+
+        if (token == 0xfd2) {
+            obj->field1c = 4;
+            next = 0xfd6;
+        } else {
+            obj->field1c = 6;
+            next = 0xfec;
+        }
+        next_handler = (MK3THREADFUNC)t_animate_a11;
+
+    } else if (token == 0xfd6) {
+        obj->field1c = 4;
+        next         = 0xfd8;
+        next_handler = (MK3THREADFUNC)t_animate_a11;
+
+    } else if (token == 0xfd8) {
+        obj->field1c = 4;
+        next         = 0xfda;
+        next_handler = (MK3THREADFUNC)t_animate_a11;
+
+    } else if (token == 0xfec) {
+        obj->field1c = 6;
+        next         = 0xfee;
+        next_handler = (MK3THREADFUNC)t_animate_a11;
+
+    } else if (token == 0xfee) {
+        obj->field1c = 6;
+        next         = 0xff0;
+        next_handler = (MK3THREADFUNC)t_animate_a11;
+
+    } else if (token == 0xff0) {
+        obj->field1c = 6;
+        next         = 0xff2;
+        next_handler = (MK3THREADFUNC)t_animate_a11;
+
+    } else if (token == 0xff2) {
+        obj->field1c = 6;
+        next         = 0xff4;
+        next_handler = (MK3THREADFUNC)t_animate_a11;
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)next_handler;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
