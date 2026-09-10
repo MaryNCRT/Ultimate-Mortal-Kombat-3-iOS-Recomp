@@ -4206,3 +4206,380 @@ long tl_lao_cheetah(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+/* ----------------------------------------------------------------------- tl_indian_wolf
+ *
+ * armv7 0x000a16d8, 556 bytes.  **Complete.**
+ *
+ *      token == 0:      animality_tune(obj)
+ *                       obj->field1c = 2
+ *                       obj->field40 = a_indiam_wolf
+ *                       obj->a10 = 0x12
+ *                       token := 0x7f1, descend into t_animal_morph
+ *
+ *      token == 0x7f1:  sans_repell_for_good(obj)
+ *                       token := 0x7f3, park 0x18
+ *
+ *      token == 0x7f3:  tsound_func(obj, 0x95)
+ *                       obj->field1c = 0x20000; towards_x_vel(obj)
+ *                       obj->field1c = 5
+ *                       token := 0x7f9, descend into t_mframew
+ *
+ *      token == 0x7f9:  obj->field38 = t_lion_mauled
+ *                       takeover_him(obj)
+ *                       obj->field1c = 0x20000; away_x_vel_him(obj)
+ *                       obj->field1c = 0x00060002
+ *                       token := 0x801, descend into t_animate_a0_frames
+ *
+ *      token == 0x801:  stop_me_player(obj)
+ *                       token := 0x803, park 8
+ *
+ *      token == 0x803:  stop_him(obj)
+ *                       obj->field1c = 0x00050010
+ *                       token := 0x807, descend into t_animate_a0_frames
+ *
+ *      token == 0x807:  obj->field40 = a_indiam_wolf
+ *                       obj->field54 = 4; find_part_a14(obj)
+ *                       do_next_a9_frame(obj)
+ *                       wfe_him(obj)
+ *                       token := 0x80d, park 0x28
+ *
+ *      token == 0x80d:  tsound_func(obj, 0x27)
+ *                       obj->field40 = a_indiam_wolf
+ *                       obj->field1c = 5
+ *                       token := 0x811, descend into t_backwards_ani
+ *
+ *      token == 0x811:  frame[frame].handler = t_animality_complete
+ *
+ *      otherwise:       return -3
+ *
+ * **`tl_lao_cheetah` with one state inserted and the ending written out.** Nine states against
+ * the cheetah's eight: everything up to the mauling is identical -- same 0x18 park, same sound
+ * 0x95, same 0x20000 charge, same `t_lion_mauled` handover with `away_x_vel_him` -- and the wolf
+ * then animates TWICE through `t_animate_a0_frames`, 0x00060002 while the victim is still
+ * moving and 0x00050010 after `stop_him`, where the cheetah does it once.
+ *
+ * **Fourth driver to use `t_lion_mauled`.** Lion, polar bear, cheetah, wolf: four animals, one
+ * victim routine, all four ending it with `wfe_him`. The pool is not a tendency, it is how this
+ * module is built.
+ *
+ * The ending is `t_unmorph_and_exit` spelled out, for the same reason as `tl_jax_lion`'s and
+ * `tl_swat_dino`'s -- sound 0x27 and the 0x40 reset have to happen on the way into
+ * `t_backwards_ani`, and the shared routine has nowhere to put them.
+ *
+ * **The dispatch is three levels deep** -- `ble`, then `ble` and `bgt` inside it -- with `r8`
+ * reloaded twice and `sl` once. Four of the nine tokens are stored out of a register the
+ * dispatch has already overwritten by the time the state runs, so each store was traced back to
+ * the load that reaches it: 0x7f1 out of `sl`, 0x801 and 0x807 out of the two `r8` loads.
+ *
+ * The symbol is `_a_indiam_wolf`, spelled that way in the binary's own symbol table. Kept
+ * verbatim -- correcting it would break the only link between this name and the data.
+ */
+extern uint32_t a_indiam_wolf[];                 /* 0x001771b0, sic */
+
+long tl_indian_wolf(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x7f1) {
+        sans_repell_for_good(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x7f3;
+        thread->fieldfc = 0x18;
+        return 0x18;
+    }
+
+    if (token == 0x7f3) {
+        tsound_func(obj, 0x95);
+
+        obj->field1c = 0x20000;
+        towards_x_vel(obj);
+        obj->field1c = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x7f9;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x7f9) {
+        obj->field38 = (uint32_t)(uintptr_t)t_lion_mauled;
+        takeover_him(obj);
+
+        obj->field1c = 0x20000;
+        away_x_vel_him(obj);
+        obj->field1c = 0x00060002;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x801;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_a0_frames;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x801) {
+        stop_me_player(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x803;
+        thread->fieldfc = 8;
+        return 8;
+    }
+
+    if (token == 0x803) {
+        stop_him(obj);
+
+        obj->field1c = 0x00050010;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x807;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_a0_frames;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x807) {
+        obj->field40 = (uint32_t)(uintptr_t)a_indiam_wolf;
+
+        obj->field54 = 4;
+        find_part_a14(obj);
+
+        do_next_a9_frame(obj);
+        wfe_him(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x80d;
+        thread->fieldfc = 0x28;
+        return 0x28;
+    }
+
+    if (token == 0x80d) {
+        tsound_func(obj, 0x27);
+
+        obj->field40 = (uint32_t)(uintptr_t)a_indiam_wolf;
+        obj->field1c = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x811;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_backwards_ani;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x811)
+        return mk3_install(thread, (MK3THREADFUNC)t_animality_complete);
+
+    if (token != 0)
+        return -3;
+
+    animality_tune(obj);
+
+    obj->field1c = 2;
+    obj->field40 = (uint32_t)(uintptr_t)a_indiam_wolf;
+    obj->a10 = 0x12;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x7f1;
+    thread->frame = thread->frame + 1;              /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_animal_morph;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+/* ----------------------------------------------------------------------- tl_kano_spider
+ *
+ * armv7 0x000a244c, 556 bytes.  **Complete.**
+ *
+ *      token == 0:      wfe_him(obj)
+ *                       obj->field40 = 0x48; pose_him_a9(obj)
+ *                       face_him_at_me(obj)
+ *                       animality_tune(obj)
+ *                       obj->field1c = 2
+ *                       obj->field40 = a_kano_spider
+ *                       obj->a10 = 0x40
+ *                       token := 0x724, descend into t_animal_morph
+ *
+ *      token == 0x724:  sans_repell_for_good(obj)
+ *                       tsound_func(obj, 0x26)
+ *                       obj->field1c = 5
+ *                       token := 0x729, descend into t_mframew
+ *
+ *      token == 0x729:  obj->field1c = ((MK3OBJ *)proc->him)->field24
+ *                       if (obj->field1c == 0xb) {
+ *                           obj->field1c = 0x20
+ *                           obj->field20 = 0x20 - 0x20 = 0
+ *                           multi_adjust_xy(obj)
+ *                       }
+ *                       -- the swap --
+ *                       obj->field08 = proc->him
+ *                       obj->field00 = proc->field00->field00
+ *                       obj->field1c = 6; create_blood_proc(obj)
+ *                       obj->field08 = saved; obj->field00 = saved
+ *                       obj->field38 = t_spider_shake
+ *                       takeover_him(obj)
+ *                       token := 0x740, descend into t_spider_shake_jsrp
+ *
+ *      token == 0x740:  obj->field40 = a_kano_spider
+ *                       obj->field54 = 3; find_part_a14(obj)
+ *                       obj->field1c = 5
+ *                       token := 0x746, descend into t_mframew
+ *
+ *      token == 0x746:  obj->field38 = t_collapse_on_ground
+ *                       takeover_him(obj)
+ *                       token := 0x74a, park 0x30
+ *
+ *      token == 0x74a:  tsound_func(obj, 0x27)
+ *                       obj->field1c = 5
+ *                       token := 0x74e, descend into t_mframew
+ *
+ *      token == 0x74e:  frame[frame].handler = t_animality_complete
+ *
+ *      otherwise:       return -3
+ *
+ * **The only driver with a per-character fixup, and it names one fighter by number.** State
+ * 0x729 reads the OPPONENT's character number out of `proc->him->field24` and, if it is 0xb and
+ * only then, shifts by 0x20/0 through `multi_adjust_xy` before drawing blood. So one character
+ * is the wrong height for the spider's bite and the routine corrects for that one. Every other
+ * driver in the file treats all opponents alike.
+ *
+ * **The blood goes on the OTHER fighter, through the two-field swap.** `obj->field08 = proc->him`
+ * and `obj->field00 = proc->field00->field00`, call, restore both -- which is exactly what
+ * `create_fx_for_him` earlier in this file does for `create_fx`. Second site for that idiom, and
+ * the first written out inline rather than wrapped in a helper: so the wrapper exists because
+ * `create_fx` has several callers and `create_blood_proc` here has one.
+ *
+ * **Two handovers, at opposite ends.** State 0 opens with `wfe_him` -- the victim is parked
+ * forever before the animality even starts -- and 0x746 replaces that with
+ * `t_collapse_on_ground` off pointer slot 0x000f385c. So the victim does nothing at all while
+ * the spider works, and only falls over at the end.
+ *
+ * The morph is 0x40 passes, the longest in the file (every other driver uses 0x12 or 0xa), and
+ * 0x48 is posed on the VICTIM through `pose_him_a9` -- the same animation number
+ * `t_stung_by_scorpion` and `t_r_scared_of_monkey` pose on themselves. One frightened pose,
+ * three routines, and this is the only one that puts it on the other fighter.
+ *
+ * `obj->field1c` holds the character number only long enough to be compared; both paths
+ * overwrite it before it is read again. Transcribed in that order because the compare is what
+ * the store is for.
+ */
+extern uint32_t a_kano_spider[];                 /* 0x00177218 */
+void pose_him_a9(MK3OBJ *obj);
+long t_collapse_on_ground(MK3THREAD *thread);    /* pointer slot 0x000f385c */
+
+long tl_kano_spider(MK3THREAD *thread)
+{
+    MK3OBJ     *obj   = (MK3OBJ *)thread->proc;
+    uint32_t    frame = thread->frame;
+    uint32_t    token = *mk3_frame(thread, frame + 1);
+    MK3OBJPROC *saved_proc;
+    MK3OBJ     *saved_part;
+
+    if (token == 0x724) {
+        sans_repell_for_good(obj);
+        tsound_func(obj, 0x26);
+
+        obj->field1c = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x729;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x729) {
+        obj->field1c =
+            ((MK3OBJ *)(void *)(uintptr_t)obj->field00->him)->field24;
+
+        if (obj->field1c == 0xb) {
+            obj->field1c = 0x20;
+            obj->field20 = 0x20 - 0x20;
+            multi_adjust_xy(obj);
+        }
+
+        saved_proc = obj->field00;
+        saved_part = obj->field08;
+
+        obj->field08 = (MK3OBJ *)(void *)(uintptr_t)saved_proc->him;
+        obj->field00 = saved_proc->field00->field00;
+
+        obj->field1c = 6;
+        create_blood_proc(obj);
+
+        obj->field08 = saved_part;
+        obj->field00 = saved_proc;
+
+        obj->field38 = (uint32_t)(uintptr_t)t_spider_shake;
+        takeover_him(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x740;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_spider_shake_jsrp;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x740) {
+        obj->field40 = (uint32_t)(uintptr_t)a_kano_spider;
+
+        obj->field54 = 3;
+        find_part_a14(obj);
+
+        obj->field1c = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x746;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x746) {
+        obj->field38 = (uint32_t)(uintptr_t)t_collapse_on_ground;
+        takeover_him(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x74a;
+        thread->fieldfc = 0x30;
+        return 0x30;
+    }
+
+    if (token == 0x74a) {
+        tsound_func(obj, 0x27);
+
+        obj->field1c = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x74e;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x74e)
+        return mk3_install(thread, (MK3THREADFUNC)t_animality_complete);
+
+    if (token != 0)
+        return -3;
+
+    wfe_him(obj);
+
+    obj->field40 = 0x48;
+    pose_him_a9(obj);
+
+    face_him_at_me(obj);
+    animality_tune(obj);
+
+    obj->field1c = 2;
+    obj->field40 = (uint32_t)(uintptr_t)a_kano_spider;
+    obj->a10 = 0x40;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x724;
+    thread->frame = thread->frame + 1;              /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_animal_morph;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
