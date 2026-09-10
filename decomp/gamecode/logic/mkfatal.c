@@ -5660,3 +5660,106 @@ long t_kitana_decap(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ---------------------------------------------------------------------- t_ermac_decap_attack
+ *
+ * armv7 0x00033b08, 296 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0x392, descend into t_fatality_start_pause
+ *
+ *      token == 0x392:    token := 0x393, descend into t_do_duck
+ *
+ *      token == 0x393:    token := 0x394, park 8
+ *
+ *      token == 0x394:    obj->field40 = 0x0002000b
+ *                         token := 0x396, descend into t_animate_a9
+ *
+ *      token == 0x396:    obj->field38 = t_r_ermac_upcut
+ *                         takeover_him(obj)
+ *                         token := 0x39a, park 0x40
+ *
+ *      token == 0x39a:    death_blow_complete(obj)
+ *                         frame[frame].handler = t_victory_animation
+ *
+ *      otherwise:         return -3
+ *
+ * **The second fatality whose victim reaction lives in mkanimal.c.** `t_r_ermac_upcut` off pointer
+ * slot 0x000f36ac is at 0x000a2a68, and it was written when that file was closed -- the routine that
+ * shakes at 0x00080008, cuts the body up with delta 0x1af4 and sends the head off through
+ * `t_head_pop_off`.
+ *
+ * With `t_kitana_decap` that makes two, so the split is not a one-off. **The decapitation reactions
+ * in particular are filed with the animality module**, presumably because the body-pieces machinery
+ * they use lives there.
+ *
+ * **It opens with `t_do_duck`, exactly as `t_do_pit_fatality` does.** Both descend into the shared
+ * duck before their own move, so ducking is a normal preparation for a finisher and not something
+ * the pit needs specially.
+ *
+ * The `t_animate_a9` pair is 0x0002000b -- ninth site for that reading, and the second in this file
+ * after `t_crush_duck`'s 0x00040004.
+ *
+ * The dispatch tests 0x393 before the `ble`, so the four higher tokens are compared in an order the
+ * source would not have written: 0x396, 0x39a, then 0x394 last. `r1` carries 0x393 into state
+ * 0x392's store and 0x396 into state 0x394's -- two values, one register, and each store traced back
+ * to its own load.
+ */
+long t_r_ermac_upcut(MK3THREAD *thread);         /* pointer slot 0x000f36ac, in mkanimal.c */
+
+long t_ermac_decap_attack(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x392) {
+        *mk3_frame(thread, frame + 1) = 0x393;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_do_duck;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x393) {
+        *mk3_frame(thread, frame + 1) = 0x394;
+        thread->fieldfc = 8;
+        return 8;
+    }
+
+    if (token == 0x394) {
+        obj->field40 = 0x0002000b;
+
+        *mk3_frame(thread, frame + 1) = 0x396;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x396) {
+        obj->field38 = (uint32_t)(uintptr_t)t_r_ermac_upcut;
+        takeover_him(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x39a;
+        thread->fieldfc = 0x40;
+        return 0x40;
+    }
+
+    if (token == 0x39a) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+    }
+
+    if (token != 0)
+        return -3;
+
+    *mk3_frame(thread, frame + 1) = 0x392;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_fatality_start_pause;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
