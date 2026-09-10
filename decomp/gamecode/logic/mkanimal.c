@@ -3242,3 +3242,294 @@ long tl_jax_lion(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+/* ------------------------------------------------------------------------ tl_swat_dino
+ *
+ * armv7 0x000a2830, 432 bytes.  **Complete.**
+ *
+ *      token == 0:      animality_tune(obj)
+ *                       obj->field1c = 2
+ *                       obj->field40 = a_swat_dino
+ *                       obj->a10 = 0x12
+ *                       token := 0x6c4, descend into t_animal_morph
+ *
+ *      token == 0x6c4:  sans_repell_for_good(obj)
+ *                       tsound_func(obj, 0x92)
+ *                       token := 0x6c8, park 0x30
+ *
+ *      token == 0x6c8:  obj->field1c = 5
+ *                       token := 0x6cb, descend into t_mframew
+ *
+ *      token == 0x6cb:  obj->field48 = 0x00080008; shake_a11(obj)
+ *                       obj->field38 = t_bit_in_half
+ *                       takeover_him(obj)
+ *                       tsound_func(obj, 0x24)
+ *                       tsound_func(obj, 0x25)
+ *                       token := 0x6d4, park 0x30
+ *
+ *      token == 0x6d4:  obj->field1c = 5
+ *                       token := 0x6d7, descend into t_mframew
+ *
+ *      token == 0x6d7:  tsound_func(obj, 0x27)
+ *                       ground_player(obj)
+ *                       obj->field40 = a_swat_dino
+ *                       obj->field1c = 5
+ *                       token := 0x6dd, descend into t_backwards_ani
+ *
+ *      token == 0x6dd:  frame[frame].handler = t_animality_complete
+ *
+ *      otherwise:       return -3
+ *
+ * **The same seven states as `tl_jax_lion`, with a different middle.** Both morph, wait,
+ * wait through `t_mframew`, hit, wait, then unmorph by hand through `t_backwards_ani` and
+ * install `t_animality_complete`. Where the lion parks the victim with `wfe_him`, the
+ * dinosaur shakes at 0x00080008 and plays the crunch pair, and where the lion animates
+ * through `t_animate_a0_frames`, this one simply parks 0x30.
+ *
+ * **Sound 0x92 is the dragon's roar reused.** `tl_liu_kang_dragon` plays it at state 0
+ * beside the music; this plays it one state later, after the morph. So 0x92 is a generic
+ * large-animal noise and not the dragon's own -- worth knowing before naming it.
+ *
+ * **Sounds 0x24 and 0x25 back to back, third site.** `t_crunch_sounds` plays them as a pair
+ * six times over, `t_lion_mauled` plays them one state apart, and this plays the pair once.
+ * All three spellings now measured; the pair is a bite and the routines choose the rhythm.
+ *
+ * `t_bit_in_half` is the victim reaction, shared with `tl_liu_kang_dragon` -- so the
+ * unnamed list at `lao_ani_data + 0x142c` is read for the dragon and for the dinosaur, and
+ * "whichever animal cuts a fighter in half" is now two animals rather than one.
+ *
+ * Both `t_mframew` waits store their token out of `r1`, which the dispatch has reloaded
+ * between them: 0x6cb on the way in and 0x6d7 on the way past. Two stores, one register,
+ * two values.
+ */
+extern uint32_t a_swat_dino[];                   /* 0x00177518 */
+void ground_player(MK3OBJ *obj);
+
+long tl_swat_dino(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x6c4) {
+        sans_repell_for_good(obj);
+        tsound_func(obj, 0x92);
+
+        *mk3_frame(thread, frame + 1) = 0x6c8;
+        thread->fieldfc = 0x30;
+        return 0x30;
+    }
+
+    if (token == 0x6c8) {
+        obj->field1c = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x6cb;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x6cb) {
+        obj->field48 = 0x00080008;
+        shake_a11(obj);
+
+        obj->field38 = (uint32_t)(uintptr_t)t_bit_in_half;
+        takeover_him(obj);
+
+        tsound_func(obj, 0x24);
+        tsound_func(obj, 0x25);
+
+        *mk3_frame(thread, frame + 1) = 0x6d4;
+        thread->fieldfc = 0x30;
+        return 0x30;
+    }
+
+    if (token == 0x6d4) {
+        obj->field1c = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x6d7;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x6d7) {
+        tsound_func(obj, 0x27);
+        ground_player(obj);
+
+        obj->field40 = (uint32_t)(uintptr_t)a_swat_dino;
+        obj->field1c = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x6dd;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_backwards_ani;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x6dd)
+        return mk3_install(thread, (MK3THREADFUNC)t_animality_complete);
+
+    if (token != 0)
+        return -3;
+
+    animality_tune(obj);
+
+    obj->field1c = 2;
+    obj->field40 = (uint32_t)(uintptr_t)a_swat_dino;
+    obj->a10 = 0x12;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x6c4;
+    thread->frame = thread->frame + 1;              /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_animal_morph;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+/* ------------------------------------------------------------------------- tl_sz_polar
+ *
+ * armv7 0x000a2678, 440 bytes.  **Complete.**
+ *
+ *      token == 0:      animality_tune(obj)
+ *                       obj->field1c = 2
+ *                       obj->field40 = a_sz_polar
+ *                       obj->a10 = 0x12
+ *                       token := 0x6eb, descend into t_animal_morph
+ *
+ *      token == 0x6eb:  sans_repell_for_good(obj)
+ *                       token := 0x6ed, park 0x30
+ *
+ *      token == 0x6ed:  tsound_func(obj, 0x95)
+ *                       obj->field1c = 0x20000; towards_x_vel(obj)
+ *                       obj->field1c = 5
+ *                       token := 0x6f3, descend into t_mframew
+ *
+ *      token == 0x6f3:  obj->field38 = t_lion_mauled
+ *                       takeover_him(obj)
+ *                       stop_me_player(obj)
+ *                       stop_him(obj)
+ *                       obj->field1c = 0x00050020
+ *                       token := 0x6fb, descend into t_animate_a0_frames
+ *
+ *      token == 0x6fb:  wfe_him(obj)
+ *                       token := 0x6fd, park 8
+ *
+ *      token == 0x6fd:  tsound_func(obj, 0x27)
+ *                       ground_player(obj)
+ *                       obj->field40 = a_sz_polar
+ *                       obj->field1c = 5
+ *                       token := 0x703, descend into t_backwards_ani
+ *
+ *      token == 0x703:  frame[frame].handler = t_animality_complete
+ *
+ *      otherwise:       return -3
+ *
+ * **`tl_jax_lion` with two calls added and every constant changed.** Seven states in the
+ * same order, the same `t_animate_a0_frames` pair 0x00050020 in 0x1c, the same `wfe_him` to
+ * park the victim, the same hand-written unmorph. The additions are one sound, 0x95 during
+ * the charge, and `ground_player` before the unmorph -- which `tl_swat_dino` also calls at
+ * the same point.
+ *
+ * **And the victim reaction is `t_lion_mauled` again, unchanged.** So that routine is shared
+ * by the lion and the polar bear, and both of its callers end its endless loop the same way,
+ * with `wfe_him`. Third reaction in this module proved to be shared rather than per-animal,
+ * after `t_dino_bucked` and `t_bit_in_half`.
+ *
+ * The pattern across the drivers now measured is: **the reactions are a pool of about a
+ * dozen, and a driver is a schedule that picks one.** Sub-Zero's polar bear and Jax's lion
+ * maul identically and differ only in the animal on screen and two calls.
+ *
+ * Four tokens ride in `r8` and `sl` here as they do in `tl_jax_lion` -- 0x6eb into state 0,
+ * 0x6f3 into the charge state's store, 0x6fd into 0x6fb's -- and each store was traced to
+ * its own load.
+ */
+extern uint32_t a_sz_polar[];                    /* 0x00177108 */
+
+long tl_sz_polar(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x6eb) {
+        sans_repell_for_good(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x6ed;
+        thread->fieldfc = 0x30;
+        return 0x30;
+    }
+
+    if (token == 0x6ed) {
+        tsound_func(obj, 0x95);
+
+        obj->field1c = 0x20000;
+        towards_x_vel(obj);
+        obj->field1c = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x6f3;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x6f3) {
+        obj->field38 = (uint32_t)(uintptr_t)t_lion_mauled;
+        takeover_him(obj);
+        stop_me_player(obj);
+        stop_him(obj);
+
+        obj->field1c = 0x00050020;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x6fb;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_a0_frames;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x6fb) {
+        wfe_him(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x6fd;
+        thread->fieldfc = 8;
+        return 8;
+    }
+
+    if (token == 0x6fd) {
+        tsound_func(obj, 0x27);
+        ground_player(obj);
+
+        obj->field40 = (uint32_t)(uintptr_t)a_sz_polar;
+        obj->field1c = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x703;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_backwards_ani;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x703)
+        return mk3_install(thread, (MK3THREADFUNC)t_animality_complete);
+
+    if (token != 0)
+        return -3;
+
+    animality_tune(obj);
+
+    obj->field1c = 2;
+    obj->field40 = (uint32_t)(uintptr_t)a_sz_polar;
+    obj->a10 = 0x12;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x6eb;
+    thread->frame = thread->frame + 1;              /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_animal_morph;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
