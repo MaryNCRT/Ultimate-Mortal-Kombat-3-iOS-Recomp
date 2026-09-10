@@ -498,6 +498,107 @@ run of alphabetically ordered imports, and here they do (`_dlsym`, `_fflush`,
 `_floorf`, `_free`). That cross-check is worth doing every time, because a
 one-stub error still produces a plausible libc name.
 
+## mkanimal.c is finished, and six things it settled
+
+`mkanimal.c` is **63 of 63** -- the animality module, and the eighth logic file
+closed. Twenty of its functions are the per-character drivers `t_do_animality`
+installs out of `ochar_animalities`, and reading all twenty against each other is
+what produced most of the findings below. They generalise to the six files still
+open.
+
+**1. The victim reactions are a shared POOL, not one per animal.** This is the
+single most useful thing the module taught. A driver is a *schedule*; the routine
+the victim runs is picked from about a dozen shared reactions:
+
+    t_lion_mauled     tl_jax_lion, tl_sz_polar, tl_lao_cheetah, tl_indian_wolf
+    t_bit_in_half     tl_liu_kang_dragon, tl_swat_dino
+    t_dino_bucked     tl_kabal_skeleton  (and the dinosaur it is named for)
+    t_eaten_by_snake  tl_shang_tsung_snake, and as t_eaten_by_shark's own tail
+
+So four animals maul identically and differ only in the model on screen and one or
+two calls. **Do not assume a `t_r_*` or `t_*_mauled` routine belongs to the
+finisher it was first seen in.** The same warning applies to sounds: 0x92 looked
+like the dragon's roar until the dinosaur and the kitty played it, and 0x95 looked
+like the polar bear's until the cheetah and the wolf did.
+
+**2. A field that has to survive a call gets parked, and 0x40 is the field that
+needs it.** `t_mframew` and `t_animal_morph` walk `obj->field40` forward as a
+cursor and leave it past the end, so every routine that descends into them twice
+has to reset it first. Three different slots are used for the copy:
+
+    tl_sheeva_scorpion   writes the constant `a_scorpion` again
+    tl_mileena_skunk     saves it in obj->a10 (0x44) and reloads from there
+    tl_jade_kitty        saves it in proc->field28 and reloads from there
+
+The second `obj->field40 = a_<animal>` in most drivers is not redundant; it is this
+reset written with a constant. **If you see a field written twice with the same
+value around a descent, look for a cursor before calling it dead.**
+
+**3. `proc->field28` now has four independent readings and none is wrong.** The
+header calls it the shake target on the authority of the two shake routines.
+`t_r_rabbit` reloads a frame countdown from it every frame. `tl_sektor_bat` parks an
+x velocity in it. `tl_jade_kitty` parks a pointer in it. Four uses of one word, all
+measured, none reconciled -- but every one of them is a place to put something that
+has to outlive a call. Record which one your routine means; do not pick a name.
+
+**4. Adds that overflow 32 bits are real and must be transcribed as adds.** Three
+sites in this file compute a second field from the first with an `add` that wraps:
+
+    t_hit_by_bull      0xfff80000 + 0x86000  -> 0x00006000
+    tl_kitana_bunny    0xfff80000 + 0xe0000  -> 0x00060000
+    tl_sektor_bat      0xffffe000 + 0x82000  -> 0x00080000
+
+Writing the truncated value directly compiles and behaves identically, and hides
+that the two fields come from ONE literal. Write the addition and note the wrap.
+The same applies to the much commoner non-wrapping case (`adds r3, #5`,
+`subs r3, #2`) -- one literal feeding two or three fields is the house idiom for
+`t_shake_ob_up`, `t_flight` and `multi_adjust_xy` callers.
+
+**5. Five routines place a body on the floor and no two agree.** All five write
+floor-minus-height into the part's 0x12, and they differ in how they read the floor
+and how they measure the height:
+
+    ground_ob (here)          ldr  G+0xac   GetFrameHeight(part->field2c)   -9
+    tl_reptile_monkey         ldr  G+0xac   mk3_getbbox, 0x40 - 0x38        none
+    t_turn_into_a_baby (stat) ldr  G+0xac   mk3_getbbox                     none
+    tl_kitana_bunny           ldrh G+0xac   GetFrameHeight(*list)           -9
+    tl_jade_kitty             ldrh G+0xac   GetFrameHeight(part->field2c)   none
+
+Every combination but one, in five hand-written copies. **This is not an oversight
+in any single routine** -- it is what the codebase does instead of a helper, and a
+port that unifies them will change behaviour. Issue-worthy if the placements ever
+look wrong on screen.
+
+**6. A predicate can be a parameter.** `t_animate_till_a11` calls `obj->field48`
+through a register every frame and stops when the callee sets 0x5c.
+`tl_sektor_bat` is the routine that exists for: it puts `q_bat_1`, `q_bat_2`,
+`q_bat_3` and `q_bat_4` in 0x48 in turn, so the bat's four legs of flight end on
+four different conditions rather than four different lengths. That also explains
+why `q_bat_3` is behaviourally identical to `q_bat_1` at a different address --
+two states use them, and a duplicate test costs nothing.
+
+The same question -- "have I arrived?" -- is spelled five ways in this one file:
+through a `q_*` predicate in 0x48, by calling `get_x_dist` and branching on 0x28
+(`tl_smoke_bull_shit`, `tl_sonya_eagle`), by subtracting two objects' 0x0e by hand
+with `rsblt` (`tl_scorpion_pengo`), by `distance_off_ground` and 0x1c
+(`tl_sonya_eagle` again), and by not asking at all and teleporting with
+`match_me_with_him` (`tl_cyrax_shark`). **Expect no shared helper where one
+obviously belongs.**
+
+**Two smaller things worth carrying forward.** `wfe_him` is 24 bytes that put
+`t_wait_forever` into 0x38 and call `takeover_him` -- so a routine whose victim
+reaction is an endless loop (`t_lion_mauled`, `t_stung_a_bunch`) does not need an
+exit, because the attacker ends it from outside. And `obj->field54 = N` immediately
+before `find_part_a14` is that routine's argument, on the authority of two files
+agreeing (`tl_lao_cheetah`, `tl_kano_spider`, and mkprop.c with a different N).
+
+**One thing this file made me delete twice.** Both `tl_kitana_bunny` and
+`tl_sonya_eagle` first went in with an `extern` I had invented -- a word list the
+driver does not have, and a name for a slot whose symbol is already
+`death_scream`. Both compiled. **A clean compile is not evidence that a
+declaration corresponds to anything**, and an invented name in this tree is worse
+than a missing one, because the next reader will trust it.
+
 ## Open questions worth someone's time
 
 - **`.lighting` is a prelight bake and is not decoded.** 13 files, sizes scaling
@@ -573,8 +674,52 @@ Three things worth carrying forward into the fight engine:
   Every one of them is invisible at 4:3 and wrong at any other aspect. A
   widescreen port has to decide each case deliberately.
 
-### The front is now `gamecode/logic`
+### The front is `gamecode/logic`, and it is at 1,338 of 2,172 (2026-09-10)
 
-3 of 2,172. Everything in `decomp/gamecode/` is the reference for it, and
-`tools/pending.py` still orders the work. The plan of record is to automate the
-loop with `tools/decomp_loop.py` rather than reading 2,169 functions by hand.
+**Eight of the fourteen files are closed**, and they are the reference for the six
+that are not:
+
+    other.c      333/333      mkcombo.c     16/16
+    moves.c      357/357      mkcanned.c    20/20
+    mkprop.c      80/80       mkslam.c      60/60
+    mkstat.c      62/62       mkanimal.c    63/63
+
+    mkdrone.c    154/394      mkfatal.c     41/149
+    mkzap.c       32/174      mkboss.c      29/104
+    mkreact.c     72/207      joy.c         19/73
+
+The tree is at **0 errors, 174 warnings, `instck` clean**, and `protos.py` is down
+to the single known `LIME_RenderMeshSingleIndexed` float-ABI disagreement recorded
+in issue #26.
+
+**Do not use `tools/pending.py` to order the work -- its index is stale.**
+`tools/progress.py` scans the tree for real definitions and is the authority; a
+throwaway that lists one file's unwritten functions smallest-first, mirroring
+`progress.py`'s own scan, is a ten-line script and worth rewriting rather than
+trusting `pending.py`.
+
+**The loop that has actually worked**, for eight files now, is one function at a
+time and two or three per commit:
+
+    python tools/dumpfn.py <name>          # the disassembly, with callees named
+    <resolve every pointer slot and literal before writing a line>
+    <write the batch; use the Write tool for the script, not a heredoc>
+    gcc -std=c99 -Wall -Wextra -O2 -c -I runtime -I decomp/lime <file>
+    bash tools/check.sh
+    python tools/progress.py --write
+    git commit && git push
+
+`tools/decomp_loop.py` was the plan of record and is not what closed these files.
+Reading them by hand is what did, and the paragraphs above each function are the
+part that will still be worth something in a year.
+
+**Suggested next file: `mkfatal.c` (41/149).** Not because it is the smallest --
+`joy.c` is -- but because `mkanimal.c` just traced the whole finisher path into it.
+`t_init_death_blow` off pointer slot `0x000f3194`, `death_blow_complete`,
+`sans_repell_for_good`, `wfe_him`, `ochar_sound`, `call_for_him`,
+`center_around_me`, `match_me_with_him`, `flip_multi` and `t_r_scared_of_skunk` all
+live in `mkfatal.c` and all were read from the outside this week. That context is
+worth more than 55 fewer functions.
+
+**`joy.c` (19/73) is the one to do if the goal shifts to playability**, since it is
+the gamepad hookup named in CLAUDE.md's Phase 9 and the smallest file left.
