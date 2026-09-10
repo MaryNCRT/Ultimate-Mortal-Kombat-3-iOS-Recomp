@@ -6687,3 +6687,115 @@ long t_skel_fire_proc(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ---------------------------------------------------------------------------- t_lao_slicer
+ *
+ * armv7 0x0003a1b0, 324 bytes.  **Complete.**
+ *
+ *      token == 0:        center_around_him(obj)
+ *                         token := 0xdfa, descend into t_fatality_start_pause
+ *
+ *      token == 0xdfa:    obj->field40 = 4; pose2_a9_manual(obj)
+ *                         token := 0xdfe, park 0x10
+ *
+ *      token == 0xdfe:    obj->field1c = 1; ochar_sound(obj)
+ *                         obj->field1c = 4
+ *                         token := 0xe03, descend into t_mframew
+ *
+ *      token == 0xe03:    wfe_him(obj)
+ *                         him = proc->him
+ *                         him->field2c = him->field24 + 0x1b80 + 0xa
+ *                         token := 0xe08, park 0xc0
+ *
+ *      token == 0xe08:    token := 0xe09, park 0x18
+ *
+ *      token == 0xe09:    death_blow_complete(obj)
+ *                         frame[frame].handler = t_victory_animation
+ *
+ *      otherwise:         return -3
+ *
+ * **Second site to index base-plus-character by the OPPONENT's number**, after
+ * `t_reptile_tongue`. Both read `him->field24` out of the victim's own part and write the victim's
+ * own 0x2c; the bases differ, 0x1b8a here against 0x1b4e there. So the two victims of these two
+ * fatalities get per-character animations chosen from two different blocks, and neither routine
+ * touches its own part's number.
+ *
+ * Both also park the victim with `wfe_him` in the same state, so the pattern is: stop them, then
+ * pick what they look like while stopped.
+ *
+ * **`center_around_him` runs BEFORE the death blow**, in state 0, where `t_sz_blow` calls it after
+ * its handover and `t_sonya_kiss_crusher` calls it last of all. Three callers, three positions in
+ * the schedule -- so the call has no fixed place and each routine puts it where its own geometry
+ * needs it.
+ *
+ * `pose2_a9_manual` with index 4, the second caller of that poser after `t_kitana_decap`'s 5. Still
+ * nothing distinguishing it from `pose_a9_manual`.
+ *
+ * `r8` carries 0xdfe into state 0xdfa's store and 0xe08 into state 0xe03's -- the two-tokens-one-
+ * register hazard, and each store traced back to its own load.
+ */
+long t_lao_slicer(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3OBJ  *him;
+
+    if (token == 0xdfa) {
+        obj->field40 = 4;
+        pose2_a9_manual(obj);
+
+        *mk3_frame(thread, frame + 1) = 0xdfe;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (token == 0xdfe) {
+        obj->field1c = 1;
+        ochar_sound(obj);
+
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xe03;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xe03) {
+        wfe_him(obj);
+
+        him = (MK3OBJ *)(void *)(uintptr_t)obj->field00->him;
+        him->field2c = him->field24 + 0x1b80 + 0xa;
+
+        *mk3_frame(thread, frame + 1) = 0xe08;
+        thread->fieldfc = 0xc0;
+        return 0xc0;
+    }
+
+    if (token == 0xe08) {
+        *mk3_frame(thread, frame + 1) = 0xe09;
+        thread->fieldfc = 0x18;
+        return 0x18;
+    }
+
+    if (token == 0xe09) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+    }
+
+    if (token != 0)
+        return -3;
+
+    center_around_him(obj);
+
+    *mk3_frame(thread, frame + 1) = 0xdfa;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_fatality_start_pause;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
