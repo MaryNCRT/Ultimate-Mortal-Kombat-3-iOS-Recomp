@@ -5873,3 +5873,106 @@ long t_r_scream_ripped(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------------------------ t_st_suck
+ *
+ * armv7 0x0003539c, 296 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0xae7, descend into t_fatality_start_pause
+ *
+ *      token == 0xae7:    flip_multi(obj)
+ *                         obj->field40 = 0x1b; get_char_ani2(obj)
+ *                         obj->field1c = 4
+ *                         token := 0xaed, descend into t_mframew
+ *
+ *      token == 0xaed:    obj->field38 = t_soul_float
+ *                         takeover_him(obj)
+ *                         token := 0xaf1, park 0x90
+ *
+ *      token == 0xaf1:    obj->field40 = 0x1b
+ *                         obj->field1c = 0x1b - 0x17 = 4
+ *                         token := 0xaf5, descend into t_backwards_ani2
+ *
+ *      token == 0xaf5:    death_blow_complete(obj)
+ *                         frame[frame].handler = t_victory_animation
+ *
+ *      otherwise:         return -3
+ *
+ * **The same animation played forward and then backward.** State 0xae7 resolves index 0x1b through
+ * `get_char_ani2` and runs it through `t_mframew`; state 0xaf1 sets the same 0x1b and the same
+ * four-frame count and runs `t_backwards_ani2`. Between them the victim is handed `t_soul_float` and
+ * a hundred and forty-four frames pass.
+ *
+ * So the attacker's pose opens, holds while the soul comes out, and closes by rewinding -- which is
+ * why this file has both a forward and a backward animator reachable through different pointer
+ * slots. `t_backwards_ani2` is at 0x000f3704, the slot `t_kang_mk_game` also uses.
+ *
+ * **The second state does NOT re-resolve the index.** 0xae7 calls `get_char_ani2` and 0xaf1 writes
+ * 0x1b into 0x40 raw, so the backward run walks whatever the forward run left rather than a fresh
+ * lookup. Whether that is deliberate is not settled here; it is transcribed as written.
+ *
+ * `obj->field1c = 4` is a `movs` in the first state and `subs r3, #0x17` off the 0x1b in the second
+ * -- one value, two spellings, and the second is the shared-literal habit reaching across two
+ * unrelated fields again.
+ */
+long t_soul_float(MK3THREAD *thread);            /* 0x00038d68 */
+
+long t_st_suck(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0xae7) {
+        flip_multi(obj);
+
+        obj->field40 = 0x1b;
+        get_char_ani2(obj);
+
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xaed;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xaed) {
+        obj->field38 = (uint32_t)(uintptr_t)t_soul_float;
+        takeover_him(obj);
+
+        *mk3_frame(thread, frame + 1) = 0xaf1;
+        thread->fieldfc = 0x90;
+        return 0x90;
+    }
+
+    if (token == 0xaf1) {
+        obj->field40 = 0x1b;
+        obj->field1c = 0x1b - 0x17;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xaf5;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_backwards_ani2;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xaf5) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+    }
+
+    if (token != 0)
+        return -3;
+
+    *mk3_frame(thread, frame + 1) = 0xae7;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_fatality_start_pause;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
