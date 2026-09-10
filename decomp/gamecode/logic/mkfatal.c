@@ -7291,3 +7291,132 @@ long t_robo_flame_throw(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------------------------ t_r_ice_blow
+ *
+ * armv7 0x00038970, 364 bytes.  **Complete.**
+ *
+ *      token == 0:        obj->field1c = 8; his_ochar_sound(obj)
+ *                         face_opponent(obj)
+ *                         death_scream(obj)
+ *                         player_froze_pal(obj)
+ *                         obj->field40 = 0x47; pose_a9_manual(obj)
+ *                         obj->field1c = 4
+ *                         obj->field20 = 4 - 1 = 3
+ *                         obj->field24 = 3 + 7 = 0xa
+ *                         token := 0x14e3, descend into t_shake_ob_up
+ *
+ *      token == 0x14e3:   obj->field1c = 4
+ *                         token := 0x14e6, descend into t_mframew
+ *
+ *      token == 0x14e6:   obj->field48 = 0x000a0010; shake_a11(obj)
+ *                         tsound_func(obj, 0)
+ *                         tsound_func(obj, 1)
+ *                         obj->field40 = 4; get_his_char_ani2(obj)
+ *                         do_next_a9_frame(obj)
+ *                         ground_multi(obj)
+ *                         obj->field1c = 0x18000; away_x_vel(obj)
+ *                         obj->field1c = 5
+ *                         token := 0x14f6, descend into t_mframew
+ *
+ *      token == 0x14f6:   stop_me_player(obj)
+ *                         frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:         return -3
+ *
+ * **The victim's half of `t_sz_blow`**, handed across in that routine's state 0x1507. The fatality
+ * freezes the opponent and shatters them: `player_froze_pal` sets the ice palette, animation 0x47 is
+ * posed by hand, the body shakes twice -- once through `t_shake_ob_up` with 4/3/0xa and once
+ * through `shake_a11` with 0x000a0010 -- and then it is grounded and pushed away at 0x18000.
+ *
+ * **`player_froze_pal` is a fourth palette routine**, alongside `player_swpal`'s numbered palettes
+ * (3 poison, 5 shocked, 6 ghost) and `player_normpal`'s restore. This one takes no index, so the ice
+ * colour is fixed rather than selected.
+ *
+ * Sounds 0 and 1 as a pair, the same two `t_r_ind_lightning` plays -- and both routines are victim
+ * reactions to an elemental blow. So that pair is the "hit by something cold or electric" noise.
+ *
+ * **The shake pair 0x000a0010 is the same value `t_r_tasered` uses.** Two victim reactions, two
+ * fatalities, one magnitude -- so the pairs are drawn from a small set rather than tuned per
+ * routine.
+ *
+ * `get_his_char_ani2` resolves the animation against the OPPONENT's character number, which is the
+ * attacker from this routine's point of view -- so the shattering animation is chosen by who threw
+ * the ice, not by who is frozen.
+ *
+ * 4, 3 and 0xa come from one literal with a `subs` and an `adds`; the habit again.
+ */
+void player_froze_pal(MK3OBJ *obj);
+void ground_multi(MK3OBJ *obj);
+
+long t_r_ice_blow(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x14e3) {
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x14e6;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x14e6) {
+        obj->field48 = 0x000a0010;
+        shake_a11(obj);
+
+        tsound_func(obj, 0);
+        tsound_func(obj, 1);
+
+        obj->field40 = 4;
+        get_his_char_ani2(obj);
+        do_next_a9_frame(obj);
+        ground_multi(obj);
+
+        obj->field1c = 0x18000;
+        away_x_vel(obj);
+
+        obj->field1c = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x14f6;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x14f6) {
+        stop_me_player(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field1c = 8;
+    his_ochar_sound(obj);
+
+    face_opponent(obj);
+    death_scream(obj);
+    player_froze_pal(obj);
+
+    obj->field40 = 0x47;
+    pose_a9_manual(obj);
+
+    obj->field1c = 4;
+    obj->field20 = 4 - 1;
+    obj->field24 = (4 - 1) + 7;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x14e3;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_shake_ob_up;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
