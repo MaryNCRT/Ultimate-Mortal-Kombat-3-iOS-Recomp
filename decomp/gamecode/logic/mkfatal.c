@@ -4960,3 +4960,106 @@ long t_kang_mk_game(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ---------------------------------------------------------------------- t_reptile_tongue
+ *
+ * armv7 0x000337d4, 264 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0x60f, descend into t_fatality_start_pause
+ *
+ *      token == 0x60f:    obj->field1c = 0xe0
+ *                         token := 0x615, descend into t_fatality_align
+ *
+ *      token == 0x615:    part->field2c = 0x18f5
+ *                         him = proc->him
+ *                         him->field2c = him->field24 + 0x1b40 + 0xe
+ *                         wfe_him(obj)
+ *                         obj->a10 = 0x168
+ *                         -- falls into the tail --
+ *
+ *      token == 0x643:    if (--obj->a10 <= 0) {
+ *                             death_blow_complete(obj)
+ *                             frame[frame].handler = t_wait_forever
+ *                         }
+ *                         -- falls into the tail --
+ *
+ *      the tail:          token := 0x643, park 1
+ *
+ *      otherwise:         return -3
+ *
+ * **The base-plus-character animation, indexed by the OPPONENT's number for the first time.**
+ * `him->field2c = him->field24 + 0x1b4e` reads the victim's character number out of the victim's own
+ * part and writes the victim's own animation. Every other site of this idiom -- `t_grow_victum`,
+ * `t_open_wide`, `cutup_body_init`'s callers in mkanimal.c -- indexes by `obj->field08->field24`,
+ * the routine's own part.
+ *
+ * So the idiom is "base plus whoever's number you have", not "base plus my number", and a reader
+ * who assumes the latter will pick the wrong fighter here. The attacker's own animation, 0x18f5, is
+ * a bare constant in the same state.
+ *
+ * **`wfe_him` parks the victim rather than animating them**, and then this routine counts 0x168
+ * frames -- three hundred and sixty, six seconds at sixty frames -- before completing the death
+ * blow. So the tongue holds the victim still for the whole swallow and the length is this routine's
+ * to choose.
+ *
+ * `t_fatality_align` off pointer slot 0x000f36e8 is new; 0xe0 goes into 0x1c before the descent, so
+ * the alignment takes a distance.
+ *
+ * The base arrives as `add.w #0x1b40` then `adds #0xe` because 0x1b4e will not fit one Thumb
+ * immediate -- the same two-instruction split `t_grow_victum` and `t_open_wide` show.
+ */
+long t_fatality_align(MK3THREAD *thread);        /* pointer slot 0x000f36e8 */
+
+long t_reptile_tongue(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3OBJ  *him;
+
+    if (token == 0x60f) {
+        obj->field1c = 0xe0;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x615;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_fatality_align;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x615) {
+        obj->field08->field2c = 0x18f5;
+
+        him = (MK3OBJ *)(void *)(uintptr_t)obj->field00->him;
+        him->field2c = him->field24 + 0x1b40 + 0xe;
+
+        wfe_him(obj);
+
+        obj->a10 = 0x168;
+
+    } else if (token == 0x643) {
+        obj->a10 = obj->a10 - 1;
+        if ((long)obj->a10 <= 0) {
+            death_blow_complete(obj);
+
+            return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+        }
+
+    } else if (token == 0) {
+        *mk3_frame(thread, frame + 1) = 0x60f;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_fatality_start_pause;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = 0x643;
+    thread->fieldfc = 1;
+    return 1;
+}
