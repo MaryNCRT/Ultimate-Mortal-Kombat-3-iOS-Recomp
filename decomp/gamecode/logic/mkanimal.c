@@ -1952,3 +1952,339 @@ long t_r_scared_of_monkey(MK3THREAD *thread)
     thread->fieldfc = 1;
     return 1;
 }
+
+/* ------------------------------------------------------------------ tl_sheeva_scorpion
+ *
+ * armv7 0x000a1334, 268 bytes.  **Complete.**
+ *
+ *      token == 0:      animality_tune(obj)
+ *                       obj->field40 = a_scorpion
+ *                       obj->a10 = 0x12
+ *                       token := 0x514, descend into t_animal_morph
+ *
+ *      token == 0x514:  obj->field1c = 5
+ *                       token := 0x517, descend into t_mframew
+ *
+ *      token == 0x517:  obj->field38 = t_stung_by_scorpion
+ *                       takeover_him(obj)
+ *                       token := 0x51b, park 0x80
+ *
+ *      token == 0x51b:  obj->field40 = a_scorpion
+ *                       frame[frame].handler = t_animality_complete
+ *
+ *      otherwise:       return -3
+ *
+ * **The first of the twenty per-character animality drivers, and the template for all of
+ * them.** `t_do_animality` indexes `ochar_animalities` by the character number and installs
+ * one of these; each one is four states long and every state is a call to something already
+ * written:
+ *
+ *      state 0     start the music, point 0x40 at the animal's word list, put the morph
+ *                  length in 0x44, and descend into t_animal_morph
+ *      state 1     descend into t_mframew for a fixed number of frames
+ *      state 2     hand the victim's reaction to the other fighter through 0x38 and
+ *                  takeover_him, then park while it plays
+ *      state 3     point 0x40 at the word list again and install t_animality_complete
+ *
+ * So a driver contributes **four numbers and two names**: the word list (`a_scorpion` at
+ * 0x00177434), the morph length (0x12), the wait after the morph (5), the park while the
+ * victim dies (0x80), and the two routines -- the morph and the victim's reaction
+ * (`t_stung_by_scorpion`, written above).
+ *
+ * **0x40 is written twice with the same value**, once before the morph and once before the
+ * finish. Not redundant: `t_animal_morph` walks 0x40 as a cursor, so by the time state 3
+ * runs it has been advanced to the end of the list and has to be reset for
+ * `t_animality_complete` to read it.
+ *
+ * Sheeva's animal is a scorpion, and the victim's reaction is the one written earlier in
+ * this file -- so `tl_sheeva_scorpion` and `t_stung_by_scorpion` are the attacker's and the
+ * victim's halves of the same finisher, and neither is complete without the other.
+ */
+extern uint32_t a_scorpion[];                    /* 0x00177434 */
+
+long tl_sheeva_scorpion(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x514) {
+        obj->field1c = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x517;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x517) {
+        obj->field38 = (uint32_t)(uintptr_t)t_stung_by_scorpion;
+        takeover_him(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x51b;
+        thread->fieldfc = 0x80;
+        return 0x80;
+    }
+
+    if (token == 0x51b) {
+        obj->field40 = (uint32_t)(uintptr_t)a_scorpion;
+
+        return mk3_install(thread, (MK3THREADFUNC)t_animality_complete);
+    }
+
+    if (token != 0)
+        return -3;
+
+    animality_tune(obj);
+
+    obj->field40 = (uint32_t)(uintptr_t)a_scorpion;
+    obj->a10 = 0x12;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x514;
+    thread->frame = thread->frame + 1;              /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_animal_morph;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+/* ------------------------------------------------------------------- tl_reptile_monkey
+ *
+ * armv7 0x000a3eac, 316 bytes.  **Complete.**
+ *
+ *      token == 0:      token := 0x333, descend into t_cute_animality_start
+ *
+ *      token == 0x333:  obj->field08->field2c = 0xedd
+ *                       mk3_getbbox(part->field2c, &part->field34, &part->field38,
+ *                                   &part->field3c, &part->field40)
+ *                       part->y12 = *(long *)(G + 0xac)
+ *                                   - (part->field40 - part->field38)
+ *                       obj->field38 = t_r_scared_of_monkey
+ *                       takeover_him(obj)
+ *                       token := 0x34f, park 0x50
+ *
+ *      token == 0x34f:  obj->field1c = 0x40000; set_vel_flip(obj)
+ *                       obj->field40 = a_monkey
+ *                       obj->a10 = 0x14
+ *                       -- falls into the 0x358 tail --
+ *
+ *      token == 0x358:  if (--obj->a10 <= 0) {
+ *                           death_blow_complete(obj)
+ *                           -- falls into the 0x360 tail --
+ *                       }
+ *                       -- falls into the 0x358 tail --
+ *
+ *      the 0x358 tail:  frame_a9(obj); token := 0x358, park 4
+ *      the 0x360 tail:  frame_a9(obj); token := 0x360, park 4
+ *
+ *      token == 0x360:  the 0x360 tail
+ *
+ *      otherwise:       return -3
+ *
+ * **The second driver shape, and it is not the four-state template.** Reptile's monkey
+ * opens with `t_cute_animality_start` instead of the morph, places the animal on the floor
+ * itself, hands the victim `t_r_scared_of_monkey`, and then animates in two phases: twenty
+ * steps at four frames each, and after that **forever**. Nothing installs
+ * `t_animality_complete`; the routine calls `death_blow_complete` and keeps stepping.
+ *
+ * So the family has at least two shapes -- morph-and-finish (`tl_sheeva_scorpion`) and
+ * appear-and-never-stop (this one) -- and the shape follows the animal, not the file.
+ *
+ * **The placement is `ground_ob` written out by hand with a different measurement.** Both
+ * put floor-minus-height into the part's 0x12; `ground_ob` gets the height from
+ * `GetFrameHeight` and subtracts a nine-pixel inset, and this one measures the bounding box
+ * with `mk3_getbbox` and subtracts nothing. The height comes out as bottom minus top --
+ * 0x40 minus 0x38 -- which is exactly the box the header documents at 0x34..0x40. Third
+ * routine in the tree to do this placement, after `ground_ob` here and
+ * `t_turn_into_a_baby` in mkstat.c, and the two measurements have never been reconciled.
+ *
+ * The four bounding-box fields are passed to `mk3_getbbox` as OUT parameters -- the part's
+ * own 0x34, 0x38, 0x3c and 0x40 are where the box is written, the fifth going through the
+ * stack -- so the routine measures the animation into the part and then reads two of the
+ * four back.
+ */
+extern uint32_t a_monkey[];                      /* 0x001771fc */
+void mk3_getbbox(uint32_t ani, int *p1, int *p2, int *p3, int *p4);
+void frame_a9(MK3OBJ *obj);
+
+long tl_reptile_monkey(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, frame + 1) = 0x333;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_cute_animality_start;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x333) {
+        obj->field08->field2c = 0xedd;
+
+        mk3_getbbox(obj->field08->field2c,
+                    (int *)&obj->field08->field34,
+                    (int *)&obj->field08->field38,
+                    (int *)&obj->field08->field3c,
+                    (int *)&obj->field08->field40);
+
+        MK3_SET_FIELD12(obj->field08,
+                        *(uint32_t *)(G_BYTES + 0xac)
+                        - (obj->field08->field40 - obj->field08->field38));
+
+        obj->field38 = (uint32_t)(uintptr_t)t_r_scared_of_monkey;
+        takeover_him(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x34f;
+        thread->fieldfc = 0x50;
+        return 0x50;
+    }
+
+    if (token == 0x34f || token == 0x358) {
+        if (token == 0x34f) {
+            obj->field1c = 0x40000;
+            set_vel_flip(obj);
+
+            obj->field40 = (uint32_t)(uintptr_t)a_monkey;
+            obj->a10 = 0x14;
+
+        } else {
+            obj->a10 = obj->a10 - 1;
+            if ((long)obj->a10 <= 0) {
+                death_blow_complete(obj);
+
+                frame_a9(obj);
+                *mk3_frame(thread, thread->frame + 1) = 0x360;
+                thread->fieldfc = 4;
+                return 4;
+            }
+        }
+
+        frame_a9(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x358;
+        thread->fieldfc = 4;
+        return 4;
+    }
+
+    if (token != 0x360)
+        return -3;
+
+    frame_a9(obj);
+    *mk3_frame(thread, thread->frame + 1) = 0x360;
+    thread->fieldfc = 4;
+    return 4;
+}
+
+/* ----------------------------------------------------------------------- t_lion_mauled
+ *
+ * armv7 0x000a1ddc, 320 bytes.  **Complete.**
+ *
+ *      token == 0:               death_scream(obj)
+ *                                face_opponent(obj)
+ *                                obj->field40 = 0x0003001e
+ *                                token := 0x7ab, descend into t_animate_a9
+ *
+ *      token == 0x7ab:           obj->field1c = 3
+ *                                token := 0x7ad, descend into t_mframew
+ *
+ *      token == 0x7ad or 0x7bf:  obj->field1c = 7; create_blood_proc(obj)
+ *                                tsound_func(obj, 0x24)
+ *                                obj->field1c = 3
+ *                                obj->field20 = 3
+ *                                obj->field24 = 3 + 2 = 5
+ *                                token := 0x7b6, descend into t_shake_ob_up
+ *
+ *      token == 0x7b6:           obj->field1c = 7; create_blood_proc(obj)
+ *                                death_scream(obj)
+ *                                tsound_func(obj, 0x25)
+ *                                obj->field1c = 5
+ *                                obj->field20 = 5 - 2 = 3
+ *                                obj->field24 = 3
+ *                                token := 0x7bf, descend into t_shake_ob_up
+ *
+ *      otherwise:                return -3
+ *
+ * **Two states that never stop handing off to each other.** 0x7ad sets 0x7b6, and 0x7b6
+ * sets 0x7bf -- which the dispatch routes to the same code as 0x7ad. So after the opening
+ * the routine alternates between the two mauling states forever: blood and sound 0x24 and
+ * a shake, then blood and a scream and sound 0x25 and a shake, and round again.
+ *
+ * **Two tokens for one state, and the dispatch is what says so.** 0x7ad is reached by a
+ * `beq` and 0x7bf by `adds r3, #9; cmp; beq` to the same target, so writing them as separate
+ * states would invent a difference. This is the mirror of the trap recorded in the handoff
+ * for `t_sz_slam`: there one register carried two tokens, here two tokens reach one label.
+ *
+ * **Sounds 0x24 and 0x25 again, and this time they are NOT played together.** In
+ * `t_crunch_sounds` they fire back to back as one noise; here they are one state apart, so
+ * the pair is two usable samples and playing them together was that routine's choice, not
+ * the samples'.
+ *
+ * The shake numbers alternate too: 3/3/5 on one side and 5/3/3 on the other, each built from
+ * one literal with an `adds` or a `subs` -- the same one-literal-several-fields shape as
+ * every other `t_shake_ob_up` caller in this file.
+ */
+long t_lion_mauled(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x7ad || token == 0x7bf) {
+        obj->field1c = 7;
+        create_blood_proc(obj);
+        tsound_func(obj, 0x24);
+
+        obj->field1c = 3;
+        obj->field20 = 3;
+        obj->field24 = 3 + 2;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x7b6;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_shake_ob_up;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x7b6) {
+        obj->field1c = 7;
+        create_blood_proc(obj);
+        death_scream(obj);
+        tsound_func(obj, 0x25);
+
+        obj->field1c = 5;
+        obj->field20 = 5 - 2;
+        obj->field24 = 5 - 2;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x7bf;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_shake_ob_up;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x7ab) {
+        obj->field1c = 3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x7ad;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    death_scream(obj);
+    face_opponent(obj);
+
+    obj->field40 = 0x0003001e;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x7ab;
+    thread->frame = thread->frame + 1;              /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_animate_a9;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
