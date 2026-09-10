@@ -10168,8 +10168,14 @@ long t_jade_impale(MK3THREAD *thread)
  * **A third way to carry a value across a call, and the first measured.** The eight argument-stack
  * sites and the 0x48-as-stash sites both spend storage the object owns; this one keeps 0x40 and
  * 0x08 in callee-saved registers, which is why the function pushes `{r8, sl, fp}` on entry -- the
- * only routine in this file that does. In C it is two locals and nothing more; the observation is
- * only that the binary had a third option and used it here.
+ * only routine in this file that does. In C it is two locals and nothing more.
+ *
+ * **`t_sg_pound`, later in this file, says when a register is allowed.** Its state 0xbac pops a
+ * value into 0x40 and pushes it straight back before descending, and the state on the far side of
+ * the descent pops it again -- because a register cannot survive a descent, the handler having
+ * returned. So the rule is: a span inside one state can use a register, and anything that has to
+ * cross a descent needs `args[]` or a spare object field. Every save in this routine is inside one
+ * state, which is why registers were enough here.
  *
  * Something between the save and the restore clobbers `obj->field08`: the three candidates are
  * `get_char_ani2`, `NewThreadProc` and `lineup_a0_onto_a1`, and this routine does not say which.
@@ -11841,6 +11847,187 @@ long t_kano_skeleton(MK3THREAD *thread)
         obj->field1c = 8;
 
         next         = 0x17b5;
+        next_handler = (MK3THREADFUNC)t_mframew;
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)next_handler;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* -------------------------------------------------------------------------------- t_sg_pound
+ *
+ * armv7 0x000349a8, 612 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0xba5, descend into t_fatality_start_pause
+ *
+ *      token == 0xba5:    sans_repell_for_good(obj)
+ *                         obj->field40 = 2; get_char_ani2(obj)
+ *                         obj->field1c = 3
+ *                         token := 0xbac, descend into t_mframew
+ *
+ *      token == 0xbac:    wfe_him(obj)
+ *                         PUSH obj->field40
+ *                         obj->field1c = single_obj_thudd_1
+ *                         call_a0_for_him(obj)
+ *                         POP  obj->field40
+ *                         PUSH obj->field40                 ; straight back on
+ *                         obj->field20 = 0
+ *                         obj->field1c = -0x30
+ *                         adjust_him_xy(obj)
+ *                         obj->field34 = 0x24
+ *                         token := 0xbb9, descend into t_chop_off_his_height
+ *
+ *      token == 0xbb9:    POP  obj->field40
+ *                         obj->field1c = 3
+ *                         token := 0xbbd, descend into t_mframew
+ *
+ *      token == 0xbbd:    obj->field34 = 0x20
+ *                         token := 0xbbf, descend into t_chop_off_his_height
+ *
+ *      token == 0xbbf:    obj->field1c = 3
+ *                         token := 0xbc2, descend into t_mframew
+ *
+ *      token == 0xbc2:    obj->field34 = 0x20
+ *                         token := 0xbc4, descend into t_chop_off_his_height
+ *
+ *      token == 0xbc4:    death_blow_complete(obj)
+ *                         obj->field1c = 3
+ *                         token := 0xbc8, descend into t_mframew
+ *
+ *      token == 0xbc8:    frame[frame].handler = t_victory_animation
+ *
+ *      otherwise:         return -3
+ *
+ * **Three chops, 0x24 then 0x20 then 0x20, and this is what `t_chop_off_his_height` was written
+ * for.** That routine adds `obj->field34` to the opponent's y and leaves them shorter; its note
+ * said the amount is "supplied by the caller" and had no caller to point at. Here it is, descended
+ * into three times with three amounts, a `t_mframew` wait between each. `single_obj_thudd_1` gets
+ * its caller in the same state.
+ *
+ * **The pop-and-push-again in state 0xbac answers a question this file has been raising all
+ * session.** `t_ind_light` saves 0x40 and 0x08 in callee-saved registers rather than on the
+ * argument stack, and the note there could only observe that the binary had a third option. This
+ * routine shows the rule: the value is popped into 0x40, **immediately pushed straight back**, and
+ * the state then descends. A register cannot survive a descent -- the function returns -- so
+ * anything needed on the far side of one has to be in `args[]` or in a spare object field. State
+ * 0xbb9 pops it back on the way through.
+ *
+ * That makes **fourteenth and fifteenth argument-stack sites**, and the first pair where one state
+ * pushes and a different state pops. Every earlier site balanced inside one state.
+ *
+ * **`obj->field34` carries two unrelated things in this routine's lifetime.** It is the chop
+ * distance here, and the header records 0x34..0x40 as a bounding box on the authority of the four
+ * `*_mpart_ob` routines. `t_chop_off_his_height`'s note already flagged that as a use that does not
+ * fit; a second caller writing the same field for the same purpose makes it certain the box reading
+ * does not hold everywhere.
+ *
+ * The dispatch reloads `r1` on the greater-than path -- 0xbbd for tokens at or below it, 0xbc2
+ * above -- so state 0xbb9 parks with one value and state 0xbbf with the other from the same
+ * instruction. Third routine in this file with that shape, after `t_smoke_arm` and `t_jax_slice`.
+ *
+ * `obj->field1c = -0x30` is `mvn r3, #0x2f`, the bitwise-NOT spelling of a small negative that
+ * `t_st_spiked` also uses.
+ */
+
+long t_sg_pound(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3THREADFUNC next_handler;
+    uint32_t argc, next;
+
+    if (token == 0) {
+        *mk3_frame(thread, frame + 1) = 0xba5;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_fatality_start_pause;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xbc8)
+        return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+
+    if (token == 0xba5) {
+        sans_repell_for_good(obj);
+
+        obj->field40 = 2;
+        get_char_ani2(obj);
+
+        obj->field1c = 3;
+
+        next         = 0xbac;
+        next_handler = (MK3THREADFUNC)t_mframew;
+
+    } else if (token == 0xbac) {
+        wfe_him(obj);
+
+        argc = thread->fieldf8;
+        *mk3_arg(thread, argc) = obj->field40;
+        thread->fieldf8 = argc + 1;
+
+        obj->field1c = (uint32_t)(uintptr_t)single_obj_thudd_1;
+        call_a0_for_him(obj);
+
+        argc = thread->fieldf8 - 1;
+        thread->fieldf8 = argc;
+        obj->field40 = *mk3_arg(thread, argc);
+
+        argc = thread->fieldf8;                      /* straight back on */
+        *mk3_arg(thread, argc) = obj->field40;
+        thread->fieldf8 = argc + 1;
+
+        obj->field20 = 0;
+        obj->field1c = (uint32_t)~0x2fu;             /* -0x30 */
+        adjust_him_xy(obj);
+
+        obj->field34 = 0x24;
+
+        next         = 0xbb9;
+        next_handler = (MK3THREADFUNC)t_chop_off_his_height;
+
+    } else if (token == 0xbb9) {
+        argc = thread->fieldf8 - 1;                  /* the other half */
+        thread->fieldf8 = argc;
+        obj->field40 = *mk3_arg(thread, argc);
+
+        obj->field1c = 3;
+
+        next         = 0xbbd;
+        next_handler = (MK3THREADFUNC)t_mframew;
+
+    } else if (token == 0xbbd) {
+        obj->field34 = 0x20;
+
+        next         = 0xbbf;
+        next_handler = (MK3THREADFUNC)t_chop_off_his_height;
+
+    } else if (token == 0xbbf) {
+        obj->field1c = 3;
+
+        next         = 0xbc2;
+        next_handler = (MK3THREADFUNC)t_mframew;
+
+    } else if (token == 0xbc2) {
+        obj->field34 = 0x20;
+
+        next         = 0xbc4;
+        next_handler = (MK3THREADFUNC)t_chop_off_his_height;
+
+    } else if (token == 0xbc4) {
+        death_blow_complete(obj);
+
+        obj->field1c = 3;
+
+        next         = 0xbc8;
         next_handler = (MK3THREADFUNC)t_mframew;
 
     } else {
