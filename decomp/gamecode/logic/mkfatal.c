@@ -13156,3 +13156,292 @@ long t_cyrax_helecopter(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------------------ t_sz_lift_n_freeze
+ *
+ * armv7 0x00038f68, 996 bytes.  **Complete.**
+ *
+ *      token == 0:        sans_repell_for_good(obj)
+ *                         token := 0x146a, descend into t_fatality_start_pause
+ *
+ *      token == 0x146a:   obj->field40 = 5; get_char_ani2(obj)
+ *                         obj->field1c = 0x00080001
+ *                         token := 0x146f, descend into t_animate_a0_frames
+ *
+ *      token == 0x146f:   wfe_him(obj)
+ *                         make_him_face_me(obj)
+ *                         obj->field48 = 0x31; get_his_a11_ani(obj)
+ *                         double_next_a9(obj)
+ *                         token := 0x1476, park 6
+ *
+ *      token == 0x1476:   do_next_a9_frame(obj)
+ *                         PUSH obj->field40
+ *                         obj->field40 = 0x1e
+ *                         obj->field1c = find_ani_part2; call_a0_for_him(obj)
+ *                         obj->field40 += 4
+ *                         obj->field1c = do_next_a9_frame; call_a0_for_him(obj)
+ *                         POP  obj->field40
+ *                         match_him_with_me(obj)
+ *                         obj->field1c = *(long *)(G + 0xac) - 0x120
+ *                         ((MK3OBJ *)obj->a10)->x12 = (uint16_t)obj->field1c
+ *                         obj->field48 = 0x000a0010; shake_a11(obj)
+ *                         tsound_func(obj, 0x87)
+ *                         obj->field38 = t_freeze_into_boomer; takeover_him(obj)
+ *                         obj->field48 = obj->field40 - 4
+ *                         obj->field40 = obj->field48
+ *                         token := 0x1493, descend into t_liftshake
+ *
+ *      token == 0x1493:   token := 0x1494, descend into t_liftshake
+ *      token == 0x1494:   obj->field40 = obj->field48
+ *                         token := 0x1496, descend into t_liftshake
+ *      token == 0x1496:   token := 0x1497, descend into t_liftshake
+ *      token == 0x1497:   obj->field40 = obj->field48
+ *                         token := 0x1499, descend into t_liftshake
+ *      token == 0x1499:   token := 0x149a, descend into t_liftshake
+ *
+ *      token == 0x149a:   token := 0x149c, park 0x20
+ *
+ *      token == 0x149c:   tsound_func(obj, 0x24); tsound_func(obj, 0x25)
+ *                         obj->field48 = 0x000a000a; shake_a11(obj)
+ *                         obj->field1c = 0x2d
+ *                         call_for_him(obj, create_fx)
+ *                         create_fx(obj)
+ *                         his_death_scream(obj)
+ *                         make_him_invisible(obj)
+ *                         obj->field1c = 4
+ *                         token := 0x14ad, descend into t_mframew
+ *
+ *      token == 0x14ad:   saved = obj->field40                 ; in a register
+ *                         obj->field40 = 5; find_ani2_part2(obj)
+ *                         obj->field40 += 4
+ *                         ice = NewThreadProc(obj, t_frozen_half_ani)
+ *                         obj->field40 = saved
+ *                         obj->field1c = ice->field08
+ *                         obj->field20 = obj->field08
+ *                         lineup_a0_onto_a1(obj)
+ *                         tsound_func(obj, 0); tsound_func(obj, 1)
+ *                         obj->field48 = 0x000a0010; shake_a11(obj)
+ *                         obj->field1c = 2
+ *                         token := 0x14c5, descend into t_mframew
+ *
+ *      token == 0x14c5:   token := 0x14c7, park 0x18
+ *
+ *      token == 0x14c7:   death_blow_complete(obj)
+ *                         frame[frame].handler = t_victory_animation
+ *
+ *      otherwise:         return -3
+ *
+ * **Three routines get their caller at once.** `t_liftshake` -- three across then three back, one
+ * jolt per descent -- is descended into **six times**, `t_freeze_into_boomer` is handed to the
+ * victim, and `t_frozen_half_ani` is spawned as the block of ice. All three were written in earlier
+ * batches with nothing pointing at them, and this one routine closes all three.
+ *
+ * **The six jolts come in three pairs, and the cursor is restored between pairs.** States 0x1494
+ * and 0x1497 do `obj->field40 = obj->field48` and nothing else -- 0x48 was set to `obj->field40 - 4`
+ * at the end of state 0x1476 and never changed since, so every other jolt rewinds the animation to
+ * the same frame. Two shakes, rewind, two shakes, rewind, two shakes.
+ *
+ * **Seventeenth argument-stack site, and the pattern is the same as `t_kano_lazer`'s**: 0x40 is
+ * pushed, set to 0x1e, used as the argument for two `call_a0_for_him` calls with a `+= 4` between
+ * them, and popped back. The two callees are `find_ani_part2` and `do_next_a9_frame` -- so the
+ * opponent is given an animation and then stepped one frame into it, from the attacker's thread,
+ * with the attacker's own 0x40 borrowed as the parameter and returned intact.
+ *
+ * **`obj->a10` is a pointer again**, and its y is written directly: `*(long *)(G + 0xac) - 0x120`,
+ * the floor minus 0x120. Ninth routine to read `G + 0xac`, and the third to treat `a10` as an
+ * object pointer after `t_another_scorpion` and `t_kiss_orb`.
+ *
+ * **The 0x14ad save is a register, not the argument stack**, and it fits the rule `t_sg_pound`
+ * settled: the span is inside one state, so a register suffices. The same routine uses the
+ * argument stack in state 0x1476 -- where the span is also inside one state, so the choice is not
+ * forced. Both forms in one function, which is the clearest evidence yet that the compiler picked
+ * whichever it had room for.
+ *
+ * `shake_a11` three times with two different pairs: 0x000a0010 in states 0x1476 and 0x14ad, and
+ * 0x000a000a in 0x149c. The first two share a literal pool slot.
+ *
+ * The freeze sounds are 0x24 and 0x25 back to back in state 0x149c -- the pairing `t_crunch_sounds`
+ * and `tl_swat_dino` use, against `t_osz_head_rip`'s split across two states. Seventh site.
+ */
+void match_him_with_me(MK3OBJ *obj);
+
+long t_sz_lift_n_freeze(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3THREADFUNC next_handler;
+    MK3OBJ  *ice;
+    uint32_t argc, saved, next;
+
+    if (token == 0) {
+        sans_repell_for_good(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x146a;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_fatality_start_pause;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x146f) {
+        wfe_him(obj);
+        make_him_face_me(obj);
+
+        obj->field48 = 0x31;
+        get_his_a11_ani(obj);
+
+        double_next_a9(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x1476;
+        thread->fieldfc = 6;
+        return 6;
+    }
+
+    if (token == 0x149a) {
+        *mk3_frame(thread, frame + 1) = 0x149c;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (token == 0x14c5) {
+        *mk3_frame(thread, frame + 1) = 0x14c7;
+        thread->fieldfc = 0x18;
+        return 0x18;
+    }
+
+    if (token == 0x14c7) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+    }
+
+    if (token == 0x146a) {
+        obj->field40 = 5;
+        get_char_ani2(obj);
+
+        obj->field1c = 0x00080001;
+
+        next         = 0x146f;
+        next_handler = (MK3THREADFUNC)t_animate_a0_frames;
+
+    } else if (token == 0x1476) {
+        do_next_a9_frame(obj);
+
+        argc = thread->fieldf8;
+        *mk3_arg(thread, argc) = obj->field40;
+        thread->fieldf8 = argc + 1;
+
+        obj->field40 = 0x1e;
+        obj->field1c = (uint32_t)(uintptr_t)find_ani_part2;
+        call_a0_for_him(obj);
+
+        obj->field40 = obj->field40 + 4;
+        obj->field1c = (uint32_t)(uintptr_t)do_next_a9_frame;
+        call_a0_for_him(obj);
+
+        argc = thread->fieldf8 - 1;
+        thread->fieldf8 = argc;
+        obj->field40 = *mk3_arg(thread, argc);
+
+        match_him_with_me(obj);
+
+        obj->field1c = *(uint32_t *)(G_BYTES + 0xac) - 0x120;
+        MK3_SET_FIELD12((MK3OBJ *)(void *)(uintptr_t)obj->a10,
+                        obj->field1c);
+
+        obj->field48 = 0x000a0010;
+        shake_a11(obj);
+
+        tsound_func(obj, 0x87);
+
+        obj->field38 = (uint32_t)(uintptr_t)t_freeze_into_boomer;
+        takeover_him(obj);
+
+        obj->field48 = obj->field40 - 4;
+        obj->field40 = obj->field48;
+
+        next         = 0x1493;
+        next_handler = (MK3THREADFUNC)t_liftshake;
+
+    } else if (token == 0x1493) {
+        next         = 0x1494;
+        next_handler = (MK3THREADFUNC)t_liftshake;
+
+    } else if (token == 0x1494) {
+        obj->field40 = obj->field48;                 /* rewind */
+
+        next         = 0x1496;
+        next_handler = (MK3THREADFUNC)t_liftshake;
+
+    } else if (token == 0x1496) {
+        next         = 0x1497;
+        next_handler = (MK3THREADFUNC)t_liftshake;
+
+    } else if (token == 0x1497) {
+        obj->field40 = obj->field48;                 /* rewind */
+
+        next         = 0x1499;
+        next_handler = (MK3THREADFUNC)t_liftshake;
+
+    } else if (token == 0x1499) {
+        next         = 0x149a;
+        next_handler = (MK3THREADFUNC)t_liftshake;
+
+    } else if (token == 0x149c) {
+        tsound_func(obj, 0x24);
+        tsound_func(obj, 0x25);
+
+        obj->field48 = 0x000a000a;
+        shake_a11(obj);
+
+        obj->field1c = 0x2d;
+        call_for_him(obj, create_fx);
+        create_fx(obj);
+
+        his_death_scream(obj);
+        make_him_invisible(obj);
+
+        obj->field1c = 4;
+
+        next         = 0x14ad;
+        next_handler = (MK3THREADFUNC)t_mframew;
+
+    } else if (token == 0x14ad) {
+        saved = obj->field40;                        /* a register is enough */
+
+        obj->field40 = 5;
+        find_ani2_part2(obj);
+        obj->field40 = obj->field40 + 4;
+
+        ice = (MK3OBJ *)NewThreadProc(obj,
+                                      (MK3THREADFUNC)t_frozen_half_ani);
+        obj->field40 = saved;
+
+        obj->field1c = (uint32_t)(uintptr_t)ice->field08;
+        obj->field20 = (uint32_t)(uintptr_t)obj->field08;
+        lineup_a0_onto_a1(obj);
+
+        tsound_func(obj, 0);
+        tsound_func(obj, 1);
+
+        obj->field48 = 0x000a0010;
+        shake_a11(obj);
+
+        obj->field1c = 2;
+
+        next         = 0x14c5;
+        next_handler = (MK3THREADFUNC)t_mframew;
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)next_handler;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
