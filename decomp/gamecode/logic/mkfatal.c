@@ -8902,3 +8902,143 @@ long t_local_r_laser(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ---------------------------------------------------------------------------- t_osz_head_rip
+ *
+ * armv7 0x000368a8, 412 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0x36b, descend into t_fatality_start_pause
+ *
+ *      token == 0x36b:    obj->field40 = 0xe; get_char_ani(obj)
+ *                         obj->field1c = 6
+ *                         token := 0x370, descend into t_mframew
+ *
+ *      token == 0x370:    sans_repell_for_good(obj)
+ *                         obj->field38 = t_r_head_rip
+ *                         takeover_him(obj)
+ *                         token := 0x376, park 0x20
+ *
+ *      token == 0x376:    obj->a10 = 0x20
+ *                         MKEvent_Add(3, 9, 0, 0)
+ *                         token := 0x37a, park obj->a10
+ *
+ *      token == 0x37a:    tsound_func(obj, 0x24)
+ *                         token := 0x380, park 0x10
+ *
+ *      token == 0x380:    his_death_scream(obj)
+ *                         token := 0x382, park 0x40
+ *
+ *      token == 0x382:    tsound_func(obj, 0x25)
+ *                         tsound_func(obj, 0x7b)
+ *                         token := 0x386, park 0x30
+ *
+ *      token == 0x386:    death_blow_complete(obj)
+ *                         frame[frame].handler = t_victory_animation
+ *
+ *      otherwise:         return -3
+ *
+ * **Second `MKEvent_Add` site in the tree, and it fixes the shape of that interface.**
+ * `t_init_death_blow` fires `MKEvent_Add(3, 0xe, 0, 0)` for every finisher kind except 2; this
+ * fires `MKEvent_Add(3, 9, 0, 0)` from inside one particular fatality. So the first argument 3 is a
+ * class and the second is the event within it -- 0xe for "a finisher started", 9 for whatever this
+ * moment is -- and the last two are zero in both.
+ *
+ * That is worth having: the events are how the fight engine tells the rest of the game what
+ * happened, and a port has to reproduce the numbering rather than invent it.
+ *
+ * **The park duration comes out of `obj->a10`**, written 0x20 two instructions earlier and read
+ * back twice -- once into `fieldfc` and once as the return value. Every other park in this file
+ * uses a literal directly; here the value goes through a field for no visible reason, and it is
+ * transcribed that way because the two reads are what the binary does.
+ *
+ * **Sounds 0x24 and 0x25 are split across two states**, sixty-four frames apart, with the scream
+ * between them. That is the same split `t_lion_mauled` uses in mkanimal.c, against the back-to-back
+ * pairing of `t_crunch_sounds` and `tl_swat_dino`. Sixth site for that pair and the third spelling.
+ *
+ * `his_death_scream` is twenty bytes that hand `death_scream` to `call_for_him` -- so the scream is
+ * the victim's, played from the attacker's thread, and this routine never screams itself.
+ */
+long t_r_head_rip(MK3THREAD *thread);
+
+long t_osz_head_rip(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x36b) {
+        obj->field40 = 0xe;
+        get_char_ani(obj);
+
+        obj->field1c = 6;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x370;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x370) {
+        sans_repell_for_good(obj);
+
+        obj->field38 = (uint32_t)(uintptr_t)t_r_head_rip;
+        takeover_him(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x376;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (token == 0x376) {
+        obj->a10 = 0x20;
+
+        MKEvent_Add(3, 9, 0, 0);
+
+        *mk3_frame(thread, frame + 1) = 0x37a;
+        thread->fieldfc = obj->a10;
+        return (long)obj->a10;
+    }
+
+    if (token == 0x37a) {
+        tsound_func(obj, 0x24);
+
+        *mk3_frame(thread, frame + 1) = 0x380;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (token == 0x380) {
+        his_death_scream(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x382;
+        thread->fieldfc = 0x40;
+        return 0x40;
+    }
+
+    if (token == 0x382) {
+        tsound_func(obj, 0x25);
+        tsound_func(obj, 0x7b);
+
+        *mk3_frame(thread, frame + 1) = 0x386;
+        thread->fieldfc = 0x30;
+        return 0x30;
+    }
+
+    if (token == 0x386) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+    }
+
+    if (token != 0)
+        return -3;
+
+    *mk3_frame(thread, frame + 1) = 0x36b;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_fatality_start_pause;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
