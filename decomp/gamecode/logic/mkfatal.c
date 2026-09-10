@@ -5976,3 +5976,114 @@ long t_st_suck(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------------------------- t_sz_blow
+ *
+ * armv7 0x00037394, 308 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0x14fe, descend into t_fatality_start_pause
+ *
+ *      token == 0x14fe:   obj->field40 = 3; get_char_ani2(obj)
+ *                         obj->field1c = 7; ochar_sound(obj)
+ *                         obj->field1c = 5
+ *                         token := 0x1507, descend into t_mframew
+ *
+ *      token == 0x1507:   obj->field38 = t_r_ice_blow
+ *                         takeover_him(obj)
+ *                         center_around_him(obj)
+ *                         obj->field1c = 5
+ *                         token := 0x150d, descend into t_mframew
+ *
+ *      token == 0x150d:   delete_slave(obj)
+ *                         token := 0x150f, park 0x40
+ *
+ *      token == 0x150f:   death_blow_complete(obj)
+ *                         frame[frame].handler = t_victory_animation
+ *
+ *      otherwise:         return -3
+ *
+ * **First use of `delete_slave` in this file.** The header records `proc->field64` as the slave's
+ * object and names that routine as what removes it. So this fatality has a slave object alive
+ * during the blow and tears it down afterwards -- and nothing in this routine creates it, so the
+ * slave must already exist when the fatality starts.
+ *
+ * That is a thread of its own worth pulling: whatever makes the slave is not in the hundred
+ * functions of this file written so far, and `proc->field64` has not been read anywhere else in the
+ * tree.
+ *
+ * **`center_around_him` immediately after the handover** puts the attacker on the victim's position
+ * once the victim's own routine has been installed -- so the ordering matters, and a transcription
+ * that swapped the two calls would centre on a fighter that had not yet been given its reaction.
+ *
+ * The two `t_mframew` waits are both five frames and both set 0x1c the same way, so the routine's
+ * whole rhythm is: animate five, hit, animate five, clean up, wait 0x40.
+ *
+ * Sound 7 through `ochar_sound` and animation index 3 through `get_char_ani2` are the only two
+ * numbers the fatality supplies of its own.
+ */
+long t_r_ice_blow(MK3THREAD *thread);            /* 0x00038970 */
+void delete_slave(MK3OBJ *obj);
+void center_around_him(MK3OBJ *obj);
+
+long t_sz_blow(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x14fe) {
+        obj->field40 = 3;
+        get_char_ani2(obj);
+
+        obj->field1c = 7;
+        ochar_sound(obj);
+
+        obj->field1c = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1507;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1507) {
+        obj->field38 = (uint32_t)(uintptr_t)t_r_ice_blow;
+        takeover_him(obj);
+
+        center_around_him(obj);
+
+        obj->field1c = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x150d;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x150d) {
+        delete_slave(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x150f;
+        thread->fieldfc = 0x40;
+        return 0x40;
+    }
+
+    if (token == 0x150f) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+    }
+
+    if (token != 0)
+        return -3;
+
+    *mk3_frame(thread, frame + 1) = 0x14fe;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_fatality_start_pause;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
