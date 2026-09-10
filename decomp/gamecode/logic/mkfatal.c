@@ -8760,3 +8760,145 @@ long t_lia_scream_rip(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------------- t_local_r_laser
+ *
+ * armv7 0x000354c4, 396 bytes.  **Complete.**
+ *
+ *      token == 0:        obj->field1c = 9; group_sound(obj)
+ *                         set_noedge(obj)
+ *                         obj->field40 = 0x48; get_char_ani(obj)
+ *                         match_me_with_him(obj)
+ *                         flip_multi(obj)
+ *                         adj = ochar_laser_lineups[part->field24]
+ *                         obj->field20 = (int32_t)adj >> 16       ; high half
+ *                         obj->field1c = (int16_t)adj             ; low half
+ *                         multi_adjust_xy(obj)
+ *                         obj->field1c = 4
+ *                         token := 0x1985, descend into t_mframew
+ *
+ *      token == 0x1985:   center_around_me(obj)
+ *                         obj->field1c = 0x30000
+ *                         obj->field20 = 3
+ *                         obj->field24 = 3 + 2 = 5
+ *                         token := 0x198c, descend into t_shake_ob_up
+ *
+ *      token == 0x198c:   obj->field1c = 0x14; create_fx(obj)
+ *                         obj->field1c = 0x50000
+ *                         obj->field20 = 3
+ *                         obj->field24 = 3 + 7 = 0xa
+ *                         token := 0x1996, descend into t_shake_ob_up
+ *
+ *      token == 0x1996:   obj->field1c = 0x14; create_fx(obj)
+ *                         obj->field20 = 3                        ; dead
+ *                         -- falls into the 0x19a1 body --
+ *
+ *      token == 0x19a1:   obj->field1c = 0x50000
+ *                         obj->field20 = 3
+ *                         obj->field24 = 3 + 0x25 = 0x28
+ *                         token := 0x19a1, descend into t_shake_ob_up
+ *
+ *      otherwise:         return -3
+ *
+ * **It shakes forever.** State 0x19a1 sets its own token before descending, so once the third
+ * shake is set up the routine cycles through `t_shake_ob_up` with the same three numbers until
+ * something outside replaces the handler. Sixth endless routine measured in the tree, and the first
+ * whose loop is a descent rather than a park.
+ *
+ * **`ochar_laser_lineups` is a seventh per-character table**, at 0x00166c78, words indexed by
+ * `lsl #2`, each a packed pair of signed halfwords -- high into 0x20 and low into 0x1c, exactly the
+ * encoding `ochar_skeleton_adj` uses and `skinny_spawn` reads out of 0x48.
+ *
+ * Seven tables in this file now, in three shapes: plain words (`ochar_reached`,
+ * `ochar_wide_adjusts`, `ochar_shocked_ani`), plain halfwords (`taser_lineups`,
+ * `ochar_flesh_lineups`) and packed pairs (`ochar_headrip_lineups`, `ochar_skeleton_adj`, this).
+ * None was referenced anywhere in the tree before this file was opened.
+ *
+ * **`obj->field20 = 3` in state 0x1996 is dead** -- the fall-through writes the same 3 into the
+ * same field four instructions later. Seventh dead operation recorded; transcribed because the
+ * binary contains it.
+ *
+ * The three shakes escalate: 0x30000 for five frames, then 0x50000 for ten, then 0x50000 for forty
+ * and repeating. `t_shake_ob_up`'s 0x1c is a plain magnitude, settled by
+ * `tl_r_scared_of_mileena`, and these three are consistent with that.
+ */
+extern uint32_t ochar_laser_lineups[];           /* 0x00166c78 */
+
+long t_local_r_laser(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    uint32_t adj, next;
+
+    if (token == 0) {
+        obj->field1c = 9;
+        group_sound(obj);
+
+        set_noedge(obj);
+
+        obj->field40 = 0x48;
+        get_char_ani(obj);
+
+        match_me_with_him(obj);
+        flip_multi(obj);
+
+        adj = ochar_laser_lineups[obj->field08->field24];
+        obj->field20 = (uint32_t)((int32_t)adj >> 16);
+        obj->field1c = (uint32_t)(int32_t)(int16_t)adj;
+        multi_adjust_xy(obj);
+
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1985;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1985) {
+        center_around_me(obj);
+
+        obj->field1c = 0x30000;
+        obj->field20 = 3;
+        obj->field24 = 3 + 2;
+
+        next = 0x198c;
+
+    } else if (token == 0x198c) {
+        obj->field1c = 0x14;
+        create_fx(obj);
+
+        obj->field1c = 0x50000;
+        obj->field20 = 3;
+        obj->field24 = 3 + 7;
+
+        next = 0x1996;
+
+    } else if (token == 0x1996 || token == 0x19a1) {
+        if (token == 0x1996) {
+            obj->field1c = 0x14;
+            create_fx(obj);
+
+            obj->field20 = 3;                /* dead: rewritten below */
+        }
+
+        obj->field1c = 0x50000;
+        obj->field20 = 3;
+        obj->field24 = 3 + 0x25;
+
+        next = 0x19a1;
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_shake_ob_up;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
