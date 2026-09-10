@@ -5027,3 +5027,207 @@ long tl_sonya_eagle(MK3THREAD *thread)
     thread->fieldfc = 1;
     return 1;
 }
+
+
+/* ------------------------------------------------------------------------ tl_jade_kitty
+ *
+ * armv7 0x000a3740, 760 bytes.  **Complete.**  The largest routine in this file, and the
+ * last one written.
+ *
+ *      token == 0:      sans_repell_for_good(obj)
+ *                       token := 0x372, descend into t_cute_animality_start
+ *
+ *      token == 0x372:  obj->field40 = 0xc; get_char_ani2(obj)
+ *                       part->field2c = *(long *)obj->field40
+ *                       obj->field20 = 0
+ *                       obj->field1c = 0x60
+ *                       multi_adjust_xy(obj)
+ *                       part->y12 = (uint16_t)*(short *)(G + 0xac)
+ *                                   - GetFrameHeight(part->field2c)
+ *                       obj->field00->field28 = obj->field40
+ *                       obj->field1c = 3
+ *                       token := 0x397, descend into t_mframew
+ *
+ *      token == 0x397:  obj->field40 = obj->field00->field28
+ *                       obj->field1c = 3
+ *                       token := 0x39a, descend into t_mframew
+ *
+ *      token == 0x39a:  tsound_func(obj, 0x92)
+ *                       obj->field1c = 3
+ *                       token := 0x39e, descend into t_mframew
+ *
+ *      token == 0x39e:  obj->field48 = obj->field40
+ *                       obj->field1c = 3
+ *                       token := 0x3a2, descend into t_mframew
+ *
+ *      token == 0x3a2:  obj->field38 = t_hair_spun
+ *                       takeover_him(obj)
+ *                       token := 0x3a6, descend into t_kitty_spin
+ *
+ *      token == 0x3a6:  token := 0x3a7, descend into t_kitty_spin
+ *
+ *      token == 0x3a7:  token := 0x3a8, descend into t_kitty_spin
+ *
+ *      token == 0x3a8:  token := 0x3aa, park 0x10
+ *
+ *      token == 0x3aa:  obj->field1c = 3
+ *                       token := 0x3ad, descend into t_mframew
+ *
+ *      token == 0x3ad:  obj->field40 = obj->field00->field28
+ *                       obj->field1c = 5
+ *                       token := 0x3b0, descend into t_mframew
+ *
+ *      token == 0x3b0:  death_blow_complete(obj)
+ *                       -- falls into the 0x3b6 body --
+ *
+ *      token == 0x3b6:  obj->field40 = obj->field00->field28
+ *                       obj->field1c = 5
+ *                       token := 0x3b6, descend into t_mframew
+ *
+ *      otherwise:       return -3
+ *
+ * **Thirteen states, and it is the routine that finally explains proc 0x28.** State 0x372 parks
+ * the pointer `get_char_ani2` produced into `proc->field28`, and three later states -- 0x397,
+ * 0x3ad and 0x3b6 -- read it straight back into 0x40 before descending. So proc 0x28 is doing
+ * here exactly what 0x44 does in `tl_mileena_skunk`: **it is the saved copy of the 0x40 cursor**,
+ * kept because `t_mframew` advances 0x40 and leaves it past the end.
+ *
+ * That is the fourth reading of that offset, and the first that explains why a driver would want
+ * it. The header calls proc 0x28 the shake target, `t_r_rabbit` counts frames in it,
+ * `tl_sektor_bat` parks an x velocity there, and this parks a pointer. **Four uses, one word, and
+ * nothing in the tree reconciles them** -- but every one of the four is a place to put something
+ * that has to survive a call.
+ *
+ * **0x48 is the same cursor again, for `t_kitty_spin`.** State 0x39e copies 0x40 into 0x48, and
+ * `t_kitty_spin` (64 bytes, earlier in this file) does nothing but `obj->field40 = obj->field48`
+ * and a three-frame wait. So the spin routine is a cursor RESET with a wait attached, and the
+ * three consecutive descents into it at 0x3a2/0x3a6/0x3a7 are three spins from the same starting
+ * frame -- which is what makes them a repeat rather than a continuation.
+ *
+ * **Fifth spelling of the ground placement, and the first with no inset at all.** `ldrh` on
+ * G + 0xac like `tl_kitana_bunny`, `GetFrameHeight` like `ground_ob`, and then the difference is
+ * stored straight into 0x12 with no nine subtracted. Five routines in the tree place a body on
+ * the floor -- `ground_ob`, `tl_reptile_monkey`, mkstat.c `t_turn_into_a_baby`,
+ * `tl_kitana_bunny` and this -- with three ways of measuring the height and two of applying an
+ * inset, in every combination but one. Still unreconciled, and now demonstrably not an oversight
+ * in any single routine.
+ *
+ * **It never ends.** State 0x3b0 calls `death_blow_complete` and falls into 0x3b6, which sets its
+ * own token before descending -- so the kitty animates from the same frame forever afterwards.
+ * Same shape as `tl_reptile_monkey` and `t_lion_mauled`; the round ending is what stops it.
+ *
+ * `fp` is used as a zero register through the whole 0x372 state -- the 0x20 store, the return
+ * value and the cleared token slot all come from it -- which is why that state has three
+ * different-looking writes of the same nothing.
+ */
+long t_hair_spun(MK3THREAD *thread);             /* pointer slot 0x000f346c */
+
+long tl_jade_kitty(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    uint32_t next;
+
+    if (token == 0) {
+        sans_repell_for_good(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x372;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_cute_animality_start;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x3a2 || token == 0x3a6 || token == 0x3a7) {
+        if (token == 0x3a2) {
+            obj->field38 = (uint32_t)(uintptr_t)t_hair_spun;
+            takeover_him(obj);
+            next = 0x3a6;
+        } else if (token == 0x3a6) {
+            next = 0x3a7;
+        } else {
+            next = 0x3a8;
+        }
+
+        *mk3_frame(thread, thread->frame + 1) = next;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_kitty_spin;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x3a8) {
+        *mk3_frame(thread, frame + 1) = 0x3aa;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (token == 0x372) {
+        obj->field40 = 0xc;
+        get_char_ani2(obj);
+
+        obj->field08->field2c = *(uint32_t *)(uintptr_t)obj->field40;
+
+        obj->field20 = 0;
+        obj->field1c = 0x60;
+        multi_adjust_xy(obj);
+
+        MK3_SET_FIELD12(obj->field08,
+                        (uint32_t)*(uint16_t *)(G_BYTES + 0xac)
+                        - (uint32_t)GetFrameHeight(obj->field08->field2c));
+
+        obj->field00->field28 = obj->field40;
+
+        obj->field1c = 3;
+        next = 0x397;
+
+    } else if (token == 0x397) {
+        obj->field40 = obj->field00->field28;
+
+        obj->field1c = 3;
+        next = 0x39a;
+
+    } else if (token == 0x39a) {
+        tsound_func(obj, 0x92);
+
+        obj->field1c = 3;
+        next = 0x39e;
+
+    } else if (token == 0x39e) {
+        obj->field48 = obj->field40;
+
+        obj->field1c = 3;
+        next = 0x3a2;
+
+    } else if (token == 0x3aa) {
+        obj->field1c = 3;
+        next = 0x3ad;
+
+    } else if (token == 0x3ad) {
+        obj->field40 = obj->field00->field28;
+
+        obj->field1c = 5;
+        next = 0x3b0;
+
+    } else if (token == 0x3b0 || token == 0x3b6) {
+        if (token == 0x3b0)
+            death_blow_complete(obj);
+
+        obj->field40 = obj->field00->field28;
+
+        obj->field1c = 5;
+        next = 0x3b6;
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
