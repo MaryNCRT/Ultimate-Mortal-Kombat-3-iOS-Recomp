@@ -113,9 +113,12 @@ typedef struct MK3OBJPROC {
     uint16_t field7c;            /* 0x7c  the four-button gate, signed */
     uint8_t  _pad7e[6];
     uint32_t field84;            /* 0x84  where tell_world_stk publishes the
-                                  *       stick get_char_stk resolved. Only
-                                  *       writer measured so far; no reader
-                                  *       is in the tree yet. */
+                                  *       stick get_char_stk resolved, and what
+                                  *       create_proj_proc clears. Two writers
+                                  *       measured; no reader is in the tree. */
+    struct MK3OBJ *field88;      /* 0x88  a second object t_double_shaker moves
+                                  *       alongside `him`. Which object is not
+                                  *       settled -- nothing writes it yet. */
 } MK3OBJPROC;
 
 /* The high half of the word at 0x0c, which several routines read on its own
