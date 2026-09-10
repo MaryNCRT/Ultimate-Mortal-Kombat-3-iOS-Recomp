@@ -5153,3 +5153,99 @@ long t_smoke_blowup_earth(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------------- t_skel_blood
+ *
+ * armv7 0x00039790, 260 bytes.  **Complete.**
+ *
+ *      token == 0:        obj->field48 = 0x0010fff0; skinny_spawn(obj)
+ *                         obj->field48 = 0x0020fffc; skinny_spawn(obj)
+ *                         obj->field48 = 0x0030fff8; skinny_spawn(obj)
+ *                         token := 0x1344, park 0x10
+ *
+ *      token == 0x1344:   obj->field48 = 0x00300002; skinny_spawn(obj)
+ *                         obj->field48 = 0x0040fff0; skinny_spawn(obj)
+ *                         token := 0x1349, park 0x10
+ *
+ *      token == 0x1349:   obj->field48 = 0x0038fff8; skinny_spawn(obj)
+ *                         obj->field48 = 0x0020fff8; skinny_spawn(obj)
+ *                         token := 0x134e, park 0x10
+ *
+ *      token == 0x134e:   pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:         return -3
+ *
+ * **Seven blood spawns at seven hand-placed offsets, three waves sixteen frames apart.** Every one
+ * goes through `skinny_spawn`, which reads 0x48 as a packed pair of signed 16-bit offsets -- x in
+ * the low half, y in the high -- and adds them to the other object's integer position. Written out
+ * as (x, y):
+ *
+ *      wave 1    (-0x10, 0x10)   (-4, 0x20)   (-8, 0x30)
+ *      wave 2    (2, 0x30)       (-0x10, 0x40)
+ *      wave 3    (-8, 0x38)      (-8, 0x20)
+ *
+ * The y offsets climb from 0x10 to 0x40 and the x offsets stay within a few pixels of zero, six of
+ * the seven negative -- so the spray runs up the body and slightly to one side. Nothing is
+ * computed; all seven are literals in the pool.
+ *
+ * **This is the largest single use of the 0x48 packed pair in the tree.** Elsewhere it carries one
+ * shake magnitude or one animation pair; here it is reloaded seven times as a coordinate, which is
+ * what `skinny_spawn`'s own note predicted the field would look like in a caller.
+ *
+ * The three states differ only in which offsets they use and are otherwise the same two or three
+ * lines, so the shape is a script rather than a loop -- and a loop would have needed the offsets in
+ * a table, which they are not.
+ */
+void skinny_spawn(MK3OBJ *obj);
+
+long t_skel_blood(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x1344) {
+        obj->field48 = 0x00300002;
+        skinny_spawn(obj);
+        obj->field48 = 0x0040fff0;
+        skinny_spawn(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x1349;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (token == 0x1349) {
+        obj->field48 = 0x0038fff8;
+        skinny_spawn(obj);
+        obj->field48 = 0x0020fff8;
+        skinny_spawn(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x134e;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (token == 0x134e) {
+        if ((long)frame > 0) {
+            thread->frame = frame - 1;
+            return 0;
+        }
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field48 = 0x0010fff0;
+    skinny_spawn(obj);
+    obj->field48 = 0x0020fffc;
+    skinny_spawn(obj);
+    obj->field48 = 0x0030fff8;
+    skinny_spawn(obj);
+
+    *mk3_frame(thread, frame + 1) = 0x1344;
+    thread->fieldfc = 0x10;
+    return 0x10;
+}
