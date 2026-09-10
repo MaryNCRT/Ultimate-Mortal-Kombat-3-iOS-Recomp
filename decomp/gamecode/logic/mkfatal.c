@@ -10836,3 +10836,171 @@ long t_soul_float(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------------- t_mileena_nails
+ *
+ * armv7 0x00037e88, 532 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0x454, descend into t_fatality_start_pause
+ *
+ *      token == 0x454:    sans_repell_for_good(obj)
+ *                         obj->field40 = 0x16; get_char_ani2(obj)
+ *                         obj->a10 = obj->field40          ; stash the cursor
+ *                         obj->field1c = 0x00020024
+ *                         token := 0x45a, descend into t_animate_a0_frames
+ *
+ *      token == 0x45a:    token := 0x45b, park 0xa
+ *
+ *      token == 0x45b:    PUSH obj->a10
+ *                         obj->field38 = tl_r_scared_of_mileena
+ *                         takeover_him(obj)
+ *                         POP  into obj->a10 AND obj->field40
+ *                         find_part2(obj)
+ *                         obj->field1c = 4
+ *                         token := 0x465, descend into t_mframew
+ *
+ *      token == 0x465:    NewThread(obj, t_nail_spawn_proc)
+ *                         obj->field1c = 0x00040015
+ *                         token := 0x46a, descend into t_animate_a0_frames
+ *
+ *      token == 0x46a:    token := 0x46b, park 0x10
+ *
+ *      token == 0x46b:    obj->field40 = 6; find_ani2_part2(obj)
+ *                         obj->field40 += 0x10
+ *                         obj->field1c = 4
+ *                         token := 0x471, descend into t_mframew
+ *
+ *      token == 0x471:    token := 0x472, park 0x50
+ *
+ *      token == 0x472:    death_blow_complete(obj)
+ *                         frame[frame].handler = t_victory_animation
+ *
+ *      otherwise:         return -3
+ *
+ * **Two more routines get their caller.** `t_nail_spawn_proc` -- forty nails two frames apart and
+ * then a park forever -- is started here on its own thread; and `tl_r_scared_of_mileena`, the
+ * reaction that settled `t_shake_ob_up`'s 0x1c by passing both encodings in three consecutive
+ * descents, is handed to the victim in state 0x45b. Both were written earlier in this file with
+ * nothing pointing at them.
+ *
+ * **Eleventh argument-stack site, and the first whose pop feeds two fields.** `obj->a10` holds the
+ * animation cursor `get_char_ani2` left in 0x40 two states earlier; it is pushed across
+ * `takeover_him`, and the value that comes back is written into **both** `a10` and `field40` before
+ * `find_part2` walks from it. Every earlier site put the popped value back where it came from.
+ *
+ * That also says `takeover_him` clobbers `a10` -- the push exists for no other reason -- which is
+ * consistent with 0x44 being "the argument slot" the header describes: a scratch register the
+ * arcade code passed things in, and therefore not safe across a call.
+ *
+ * **Two `t_animate_a0_frames` pairs, 0x00020024 and 0x00040015.** The high halves are 2 and 4;
+ * across the nine sites now measured they read 5, 5, 5, 5, 8, 3, 3, 2, 4. The constraint I recorded
+ * after four sites was wrong and each new pair has confirmed that more thoroughly.
+ *
+ * `obj->field40 += 0x10` in state 0x46b advances the cursor by four words after `find_ani2_part2`
+ * resolved it -- the counterpart of `t_scorpion_flame`'s `-= 4`, and the only two places in this
+ * file that move a cursor by hand rather than through a finder.
+ */
+
+long t_mileena_nails(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3THREADFUNC next_handler;
+    uint32_t argc, next;
+
+    if (token == 0) {
+        *mk3_frame(thread, frame + 1) = 0x454;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_fatality_start_pause;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x45a) {
+        *mk3_frame(thread, frame + 1) = 0x45b;
+        thread->fieldfc = 0xa;
+        return 0xa;
+    }
+
+    if (token == 0x46a) {
+        *mk3_frame(thread, frame + 1) = 0x46b;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (token == 0x471) {
+        *mk3_frame(thread, frame + 1) = 0x472;
+        thread->fieldfc = 0x50;
+        return 0x50;
+    }
+
+    if (token == 0x472) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+    }
+
+    if (token == 0x454) {
+        sans_repell_for_good(obj);
+
+        obj->field40 = 0x16;
+        get_char_ani2(obj);
+
+        obj->a10 = obj->field40;                     /* stash the cursor */
+        obj->field1c = 0x00020024;
+
+        next         = 0x45a;
+        next_handler = (MK3THREADFUNC)t_animate_a0_frames;
+
+    } else if (token == 0x45b) {
+        argc = thread->fieldf8;
+        *mk3_arg(thread, argc) = obj->a10;
+        thread->fieldf8 = argc + 1;
+
+        obj->field38 = (uint32_t)(uintptr_t)tl_r_scared_of_mileena;
+        takeover_him(obj);
+
+        argc = thread->fieldf8 - 1;
+        thread->fieldf8 = argc;
+        obj->a10     = *mk3_arg(thread, argc);
+        obj->field40 = obj->a10;                     /* the pop feeds both */
+
+        find_part2(obj);
+
+        obj->field1c = 4;
+
+        next         = 0x465;
+        next_handler = (MK3THREADFUNC)t_mframew;
+
+    } else if (token == 0x465) {
+        NewThread(obj, (MK3THREADFUNC)t_nail_spawn_proc);
+
+        obj->field1c = 0x00040015;
+
+        next         = 0x46a;
+        next_handler = (MK3THREADFUNC)t_animate_a0_frames;
+
+    } else if (token == 0x46b) {
+        obj->field40 = 6;
+        find_ani2_part2(obj);
+
+        obj->field40 = obj->field40 + 0x10;          /* four words on */
+
+        obj->field1c = 4;
+
+        next         = 0x471;
+        next_handler = (MK3THREADFUNC)t_mframew;
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)next_handler;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
