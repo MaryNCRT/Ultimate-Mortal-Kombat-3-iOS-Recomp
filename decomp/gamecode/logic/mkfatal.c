@@ -11454,3 +11454,191 @@ long t_kiss_orb(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* -------------------------------------------------------------------------------- t_st_spike
+ *
+ * armv7 0x0003ac00, 544 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0xb24, descend into t_fatality_start_pause
+ *
+ *      token == 0xb24:    sans_repell_for_good(obj)
+ *                         wfe_him(obj)
+ *                         obj->field40 = 0x1b; get_char_ani2(obj)
+ *                         obj->field1c = 4
+ *                         token := 0xb2b, descend into t_mframew
+ *
+ *      token == 0xb2b:    NewThread(obj, t_appearing_spikes)
+ *                         token := 0xb2e, park 0x10
+ *
+ *      token == 0xb2e:    obj->field1c = 5
+ *                         token := 0xb31, descend into t_mframew
+ *
+ *      token == 0xb31:    token := 0xb32, park 0x10
+ *
+ *      token == 0xb32:    PUSH obj->field40
+ *                         obj->field40 = 0x32; get_his_char_ani(obj)
+ *                         obj->field40 += 0x90
+ *                         obj->field48 = obj->field40
+ *                         obj->a10 = proc->him
+ *                         POP  obj->field40
+ *                         make_him_face_me(obj)
+ *                         obj->field1c = 4
+ *                         token := 0xb3f, descend into t_double_mframew
+ *
+ *      token == 0xb3f:    obj->field38 = t_st_spiked
+ *                         takeover_him(obj)
+ *                         token := 0xb42, park 0x20
+ *
+ *      token == 0xb42:    flip_multi(obj)
+ *                         obj->field40 = 4
+ *                         obj->field1c = 4 + 1 = 5
+ *                         token := 0xb47, descend into t_backwards_ani
+ *
+ *      token == 0xb47:    death_blow_complete(obj)
+ *                         frame[frame].handler = t_victory_animation
+ *
+ *      otherwise:         return -3
+ *
+ * **Two more routines get their caller.** `t_appearing_spikes` -- the props-get-constants example
+ * from an early batch -- is started on its own thread in state 0xb2b, and `t_st_spiked`, the
+ * nine-calls-and-park victim reaction, is handed over in state 0xb3f. Both were written earlier in
+ * this file with nothing pointing at them.
+ *
+ * **State 0xb32 is `tl_do_swat_zoom`'s pose hand-off, half done.** That routine in mkprop.c sets
+ * `obj->field40` to an animation index, calls `get_his_char_ani`, keeps the resolved value in 0x48,
+ * takes `proc->him` into `a10`, and then two states later writes the 0x48 into
+ * `proc->field00->field40` -- the other fighter's own slot. This routine does the first three of
+ * those four things, in the same order, and **never writes the fourth**.
+ *
+ * So either `t_double_mframew` -- which it descends into immediately, and which is not decompiled;
+ * only mkprop.c declares it -- reads 0x48, or the pose is handed over some way this routine does
+ * not show. `t_st_spiked` is not the reader: it sets its own 0x40 to 0x1e and uses 0x48 for a shake
+ * pair. **Recorded as an open point rather than guessed at**; whoever decompiles
+ * `t_double_mframew` at pointer slot 0x000f36a8 settles it.
+ *
+ * **Twelfth argument-stack site, and the plainest one yet.** 0x40 is pushed, used as the index for
+ * `get_his_char_ani`, and popped back -- one field, two meanings, no other machinery. Every other
+ * site in this file wraps something more elaborate around the same two instructions.
+ *
+ * `obj->field40 += 0x90` after the resolve is the third hand-moved cursor in this file, after
+ * `t_scorpion_flame`'s `-= 4` and `t_mileena_nails`' `+= 0x10`. All three step a resolved animation
+ * by a fixed number of words rather than asking a finder for the position.
+ *
+ * `wfe_him` in state 0xb24 parks the victim before anything else happens, and the takeover in
+ * 0xb3f then replaces that park with `t_st_spiked` -- the same revoke-a-handover shape
+ * `t_jax_slice` and `t_kano_lazer` established, here with the park first and the reaction second.
+ *
+ * `obj->field1c = 5` in state 0xb42 is `movs r3, #4` then `adds r3, #1`, the shared-literal habit
+ * feeding 0x40 and 0x1c four and five.
+ */
+void get_his_char_ani(MK3OBJ *obj);
+long t_double_mframew(MK3THREAD *thread);        /* pointer slot 0x000f36a8 */
+
+long t_st_spike(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3THREADFUNC next_handler;
+    uint32_t argc, next;
+
+    if (token == 0) {
+        *mk3_frame(thread, frame + 1) = 0xb24;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_fatality_start_pause;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xb2b) {
+        NewThread(obj, (MK3THREADFUNC)t_appearing_spikes);
+
+        *mk3_frame(thread, frame + 1) = 0xb2e;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (token == 0xb31) {
+        *mk3_frame(thread, frame + 1) = 0xb32;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (token == 0xb3f) {
+        obj->field38 = (uint32_t)(uintptr_t)t_st_spiked;
+        takeover_him(obj);
+
+        *mk3_frame(thread, frame + 1) = 0xb42;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (token == 0xb47) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+    }
+
+    if (token == 0xb24) {
+        sans_repell_for_good(obj);
+        wfe_him(obj);
+
+        obj->field40 = 0x1b;
+        get_char_ani2(obj);
+
+        obj->field1c = 4;
+
+        next         = 0xb2b;
+        next_handler = (MK3THREADFUNC)t_mframew;
+
+    } else if (token == 0xb2e) {
+        obj->field1c = 5;
+
+        next         = 0xb31;
+        next_handler = (MK3THREADFUNC)t_mframew;
+
+    } else if (token == 0xb32) {
+        argc = thread->fieldf8;
+        *mk3_arg(thread, argc) = obj->field40;
+        thread->fieldf8 = argc + 1;
+
+        obj->field40 = 0x32;
+        get_his_char_ani(obj);
+
+        obj->field40 = obj->field40 + 0x90;          /* by hand */
+        obj->field48 = obj->field40;
+
+        obj->a10 = obj->field00->him;
+
+        argc = thread->fieldf8 - 1;
+        thread->fieldf8 = argc;
+        obj->field40 = *mk3_arg(thread, argc);
+
+        make_him_face_me(obj);
+
+        obj->field1c = 4;
+
+        next         = 0xb3f;
+        next_handler = (MK3THREADFUNC)t_double_mframew;
+
+    } else if (token == 0xb42) {
+        flip_multi(obj);
+
+        obj->field40 = 4;
+        obj->field1c = 4 + 1;                        /* one literal */
+
+        next         = 0xb47;
+        next_handler = (MK3THREADFUNC)t_backwards_ani;
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)next_handler;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
