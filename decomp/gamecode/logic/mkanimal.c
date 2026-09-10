@@ -4583,3 +4583,217 @@ long tl_kano_spider(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------------------ tl_sektor_bat
+ *
+ * armv7 0x000a3354, 584 bytes.  **Complete.**
+ *
+ *      token == 0:      animality_tune(obj)
+ *                       center_around_him(obj)
+ *                       obj->field40 = a_bat
+ *                       obj->a10 = 0x12
+ *                       token := 0x589, descend into t_animal_morph
+ *
+ *      token == 0x589:  sans_repell_for_good(obj)
+ *                       set_noedge(obj)
+ *                       obj->field1c = 3; init_anirate(obj)
+ *                       obj->field1c = 0x20; ochar_sound(obj)
+ *                       part->field20 = 0xffffe000
+ *                       obj->field1c = 0xffffe000 + 0x82000 = 0x00080000
+ *                       towards_x_vel(obj)
+ *                       obj->field48 = q_bat_1
+ *                       token := 0x598, descend into t_animate_till_a11_stop
+ *
+ *      token == 0x598:  stop_me_player(obj)
+ *                       match_me_with_him(obj)
+ *                       flip_multi(obj)
+ *                       obj->field1c = ~0x18e            (-0x18f)
+ *                       obj->field20 = ~0x3f             (-0x40)
+ *                       multi_adjust_xy(obj)
+ *                       obj->field1c = 0x20; ochar_sound(obj)
+ *                       obj->field1c = 0xa0000; towards_x_vel(obj)
+ *                       obj->field48 = q_bat_2
+ *                       token := 0x5a7, descend into t_animate_till_a11
+ *
+ *      token == 0x5a7:  obj->field38 = t_r_bat_bite
+ *                       takeover_him(obj)
+ *                       obj->field00->field28 = part->field18
+ *                       obj->field48 = q_bat_3
+ *                       token := 0x5ad, descend into t_animate_till_a11
+ *
+ *      token == 0x5ad:  token := 0x5ae, park 0x40
+ *
+ *      token == 0x5ae:  stop_me_player(obj)
+ *                       match_me_with_him(obj)
+ *                       flip_multi(obj)
+ *                       obj->field1c = ~0x5f             (-0x60)
+ *                       obj->field20 = -0x60 - 0x9d = -0xfd
+ *                       multi_adjust_xy(obj)
+ *                       obj->field1c = 0x50000
+ *                       part->field1c = 0x50000
+ *                       obj->field48 = q_bat_4
+ *                       token := 0x5bb, descend into t_animate_till_a11_stop
+ *
+ *      token == 0x5bb:  ground_player(obj)
+ *                       obj->field40 = a_bat
+ *                       frame[frame].handler = t_unmorph_and_exit
+ *
+ *      otherwise:       return -3
+ *
+ * **This is the routine the `q_bat_*` family exists for, and it uses all four in order.** Each
+ * flying state puts one predicate in 0x48 and descends into `t_animate_till_a11`, which animates
+ * until that predicate sets 0x5c. So the bat has four legs of flight ended by four different
+ * conditions, not four different lengths:
+ *
+ *      state   predicate   the question                          then
+ *      0x589   q_bat_1     is the opponent more than 0xff away   stop, reposition
+ *      0x598   q_bat_2     is the opponent 0x20 or closer        stop, bite
+ *      0x5a7   q_bat_3     more than 0xff away again             carry on
+ *      0x5ae   q_bat_4     three or less off the ground          stop, land
+ *
+ * **That settles two readings taken earlier on faith.** `t_animate_till_a11` calls 0x48 through
+ * a register, and here 0x48 is written with the addresses of four functions -- so 0x48 really is
+ * a function pointer in this path, not a counter and not a halfword pair. And `q_bat_3` being
+ * behaviourally identical to `q_bat_1` while sitting at a different address is now explained:
+ * the two are used by two different states, and having the same test twice costs nothing.
+ *
+ * The two `_stop` variants and the two plain ones are chosen by whether the leg should leave the
+ * bat moving: 0x589 and 0x5ae stop, 0x598 and 0x5a7 do not. Which is why both variants exist.
+ *
+ * **The 0x589 velocity wraps 32 bits, third site in the file.** The literal is 0xffffe000, it
+ * goes into the part 0x20 as it stands, and `add r3, r3, #0x82000` truncates to 0x00080000 for
+ * the object 0x1c. Same shape as `t_hit_by_bull` and `tl_kitana_bunny`.
+ *
+ * `obj->field00->field28 = part->field18` in state 0x5a7 is a third reading of proc 0x28 -- the
+ * header calls it the shake target, `t_r_rabbit` counts frames in it, and this parks an x
+ * velocity there. Recorded; none of the three is discarded.
+ *
+ * The two `multi_adjust_xy` offsets are each built from one literal, `mvn`/`mvn` in one state and
+ * `mvn`/`subs` in the other -- so -0x18f/-0x40 come from two literals and -0x60/-0xfd from one.
+ */
+extern uint32_t a_bat[];                         /* 0x00177338 */
+void ochar_sound(MK3OBJ *obj);
+
+long tl_sektor_bat(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x589) {
+        sans_repell_for_good(obj);
+        set_noedge(obj);
+
+        obj->field1c = 3;
+        init_anirate(obj);
+
+        obj->field1c = 0x20;
+        ochar_sound(obj);
+
+        obj->field08->field20 = 0xffffe000u;
+        obj->field1c = 0xffffe000u + 0x82000u;      /* wraps to 0x00080000 */
+        towards_x_vel(obj);
+
+        obj->field48 = (uint32_t)(uintptr_t)q_bat_1;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x598;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_till_a11_stop;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x598) {
+        stop_me_player(obj);
+        match_me_with_him(obj);
+        flip_multi(obj);
+
+        obj->field1c = (uint32_t)~0x18eu;
+        obj->field20 = (uint32_t)~0x3fu;
+        multi_adjust_xy(obj);
+
+        obj->field1c = 0x20;
+        ochar_sound(obj);
+
+        obj->field1c = 0xa0000;
+        towards_x_vel(obj);
+
+        obj->field48 = (uint32_t)(uintptr_t)q_bat_2;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x5a7;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_till_a11;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x5a7) {
+        obj->field38 = (uint32_t)(uintptr_t)t_r_bat_bite;
+        takeover_him(obj);
+
+        obj->field00->field28 = obj->field08->field18;
+
+        obj->field48 = (uint32_t)(uintptr_t)q_bat_3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x5ad;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_till_a11;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x5ad) {
+        *mk3_frame(thread, frame + 1) = 0x5ae;
+        thread->fieldfc = 0x40;
+        return 0x40;
+    }
+
+    if (token == 0x5ae) {
+        stop_me_player(obj);
+        match_me_with_him(obj);
+        flip_multi(obj);
+
+        obj->field1c = (uint32_t)~0x5fu;
+        obj->field20 = (uint32_t)(~0x5fu - 0x9du);
+        multi_adjust_xy(obj);
+
+        obj->field1c          = 0x50000;
+        obj->field08->field1c = 0x50000;
+
+        obj->field48 = (uint32_t)(uintptr_t)q_bat_4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x5bb;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_till_a11_stop;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x5bb) {
+        ground_player(obj);
+
+        obj->field40 = (uint32_t)(uintptr_t)a_bat;
+
+        return mk3_install(thread, (MK3THREADFUNC)t_unmorph_and_exit);
+    }
+
+    if (token != 0)
+        return -3;
+
+    animality_tune(obj);
+    center_around_him(obj);
+
+    obj->field40 = (uint32_t)(uintptr_t)a_bat;
+    obj->a10 = 0x12;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x589;
+    thread->frame = thread->frame + 1;              /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_animal_morph;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
