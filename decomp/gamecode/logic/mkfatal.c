@@ -7680,3 +7680,122 @@ long t_kang_fire(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------------- tl_r_scared_of_mileena
+ *
+ * armv7 0x0003b80c, 344 bytes.  **Complete.**
+ *
+ *      token == 0:        scared_pose(obj)
+ *                         part->field2c = 0x1c4b
+ *                         obj->field1c = 0x00070007
+ *                         obj->field20 = 3
+ *                         obj->field24 = 3 + 5 = 8
+ *                         token := 0x422, descend into t_shake_ob_up
+ *
+ *      token == 0x422:    NewThread(obj, t_nails_blood_spawner)
+ *                         obj->field48 = 0x00060010; shake_a11(obj)
+ *                         obj->field1c = 0x40000
+ *                         obj->field20 = 3
+ *                         obj->field24 = 3
+ *                         token := 0x42d, descend into t_shake_ob_up
+ *
+ *      token == 0x42d:    obj->field1c = 0x40000; away_x_vel(obj)
+ *                         set_noedge(obj)
+ *                         kill_and_stop_scrolling(obj)
+ *                         obj->field1c = 0x40000
+ *                         obj->field20 = 3
+ *                         obj->field24 = 3 + 0x11 = 0x14
+ *                         token := 0x437, descend into t_shake_ob_up
+ *
+ *      token == 0x437:    stop_me_player(obj)
+ *                         frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:         return -3
+ *
+ * **One routine descends into `t_shake_ob_up` three times and passes values from BOTH groups.**
+ * The long-running question about that callee's 0x1c -- small packed pairs against large
+ * 16.16-looking magnitudes -- was measured across six separate callers. This one spans the divide by
+ * itself: 0x00070007 in the first descent, then 0x40000 twice.
+ *
+ * That kills the last version of the packed-pair reading. **A single caller would not switch
+ * encodings between three consecutive calls to the same routine**, so 0x1c must be one thing that
+ * accepts both, and 0x00070007 is simply a large number that happens to look like a doubled pair.
+ * Nine callers measured now and the field is a plain magnitude.
+ *
+ * 0x20 is 3 in all three descents and 0x24 is 8, 3 and 0x14 -- so those two are stable and it was
+ * only ever 0x1c that varied. The earlier notes on `t_grow_n_shake`, `t_r_head_rip` and
+ * `t_eat_this_shit` are corrected by this one.
+ *
+ * **`t_nails_blood_spawner` is spawned here**, the ten-pairs blood loop written earlier in this
+ * file that ends on the 0x16462 never-wake terminator. Another case of a spawned thread needing no
+ * exit because the thread that started it does not wait for it.
+ *
+ * `scared_pose` and animation 0x1c4b open the reaction; `set_noedge` and
+ * `kill_and_stop_scrolling` in the third state let the victim slide out of the arena while the
+ * camera stays put.
+ */
+void scared_pose(MK3OBJ *obj);
+void kill_and_stop_scrolling(MK3OBJ *obj);
+long t_nails_blood_spawner(MK3THREAD *thread);
+
+long tl_r_scared_of_mileena(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    uint32_t next;
+
+    if (token == 0x437) {
+        stop_me_player(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+    }
+
+    if (token == 0) {
+        scared_pose(obj);
+
+        obj->field08->field2c = 0x1c4b;
+
+        obj->field1c = 0x00070007;
+        obj->field20 = 3;
+        obj->field24 = 3 + 5;
+
+        next = 0x422;
+
+    } else if (token == 0x422) {
+        NewThread(obj, (MK3THREADFUNC)t_nails_blood_spawner);
+
+        obj->field48 = 0x00060010;
+        shake_a11(obj);
+
+        obj->field1c = 0x40000;
+        obj->field20 = 3;
+        obj->field24 = 3;
+
+        next = 0x42d;
+
+    } else if (token == 0x42d) {
+        obj->field1c = 0x40000;
+        away_x_vel(obj);
+
+        set_noedge(obj);
+        kill_and_stop_scrolling(obj);
+
+        obj->field1c = 0x40000;
+        obj->field20 = 3;
+        obj->field24 = 3 + 0x11;
+
+        next = 0x437;
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_shake_ob_up;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
