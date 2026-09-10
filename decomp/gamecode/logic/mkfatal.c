@@ -10108,3 +10108,187 @@ long t_jade_impale(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------------------------- t_ind_light
+ *
+ * armv7 0x000383d0, 508 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0x1550, descend into t_fatality_start_pause
+ *
+ *      token == 0x1550:   obj->field40 = 0x00060005
+ *                         token := 0x1553, descend into t_animate2_a9
+ *
+ *      token == 0x1553:   token := 0x1554, park 0x10
+ *
+ *      token == 0x1554:   saved40 = obj->field40                ; in a register
+ *                         saved08 = obj->field08                ; in a register
+ *                         obj->field40 = 6; get_char_ani2(obj)
+ *                         light = NewThreadProc(obj, t_light_animator)
+ *                         obj->field1c = light->field08
+ *                         obj->field20 = proc->him
+ *                         lineup_a0_onto_a1(obj)
+ *                         light->field08->x12 += 0x90
+ *                         obj->field08 = saved08
+ *                         obj->field1c = 0xa; ochar_sound(obj)
+ *                         obj->field40 = saved40
+ *                         obj->field1c = 5
+ *                         token := 0x1566, descend into t_mframew
+ *
+ *      token == 0x1566:   token := 0x1568, park 0x10
+ *
+ *      token == 0x1568:   obj->field1c = 0xb; ochar_sound(obj)
+ *                         token := 0x156b, park 0x20
+ *
+ *      token == 0x156b:   his_death_scream(obj)
+ *                         make_him_invisible(obj)
+ *                         obj->field1c = 0xc; ochar_sound(obj)
+ *                         token := 0x1571, park 0x10
+ *
+ *      token == 0x1571:   obj->field1c = 0xb; ochar_sound(obj)
+ *                         token := 0x1574, park 0x20
+ *
+ *      token == 0x1574:   death_blow_complete(obj)
+ *                         frame[frame].handler = t_victory_animation
+ *
+ *      otherwise:         return -3
+ *
+ * **This is what starts `t_light_animator`**, the 116-byte routine written in the first mkfatal.c
+ * batch whose whole body is one animation and a park on 0x16462. It had no known caller then; it
+ * has one now, and the lightning it animates is placed by the four instructions after the spawn.
+ *
+ * **A third way to carry a value across a call, and the first measured.** The eight argument-stack
+ * sites and the 0x48-as-stash sites both spend storage the object owns; this one keeps 0x40 and
+ * 0x08 in callee-saved registers, which is why the function pushes `{r8, sl, fp}` on entry -- the
+ * only routine in this file that does. In C it is two locals and nothing more; the observation is
+ * only that the binary had a third option and used it here.
+ *
+ * Something between the save and the restore clobbers `obj->field08`: the three candidates are
+ * `get_char_ani2`, `NewThreadProc` and `lineup_a0_onto_a1`, and this routine does not say which.
+ * The save is unconditional, so a port must keep it whichever it is.
+ *
+ * **The placement is a lineup followed by a fixed drop.** 0x1c takes the spawned light's part and
+ * 0x20 takes `proc->him`, then `lineup_a0_onto_a1` -- sixteen bytes in other.c that just calls
+ * `match_ani_points_ob_ob(0x20, 0x1c)` -- puts the light on the opponent, and the light's y is then
+ * pushed down 0x90. So the effect is anchored to an animation point on the victim and offset from
+ * it, not positioned in world coordinates.
+ *
+ * **Sixth `NewThreadProc` write-through, and the first that is a read-modify-write.** The others
+ * store a value into the new object; this one loads the spawn's part y as a halfword, adds 0x90 and
+ * stores it back.
+ *
+ * Four `ochar_sound` calls, 0xa then 0xb then 0xc then 0xb -- so the indices are not a counter here,
+ * unlike `t_smoke_arm`'s ascending 0, 1, 2, and 0xb is used twice.
+ */
+void lineup_a0_onto_a1(MK3OBJ *obj);
+
+long t_ind_light(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3THREADFUNC next_handler;
+    MK3OBJ  *light, *saved08;
+    uint32_t saved40, next;
+
+    if (token == 0) {
+        *mk3_frame(thread, frame + 1) = 0x1550;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_fatality_start_pause;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1553) {
+        *mk3_frame(thread, frame + 1) = 0x1554;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (token == 0x1566) {
+        *mk3_frame(thread, frame + 1) = 0x1568;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (token == 0x1568) {
+        obj->field1c = 0xb;
+        ochar_sound(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x156b;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (token == 0x156b) {
+        his_death_scream(obj);
+        make_him_invisible(obj);
+
+        obj->field1c = 0xc;
+        ochar_sound(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x1571;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (token == 0x1571) {
+        obj->field1c = 0xb;
+        ochar_sound(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x1574;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (token == 0x1574) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+    }
+
+    if (token == 0x1550) {
+        obj->field40 = 0x00060005;
+
+        next         = 0x1553;
+        next_handler = (MK3THREADFUNC)t_animate2_a9;
+
+    } else if (token == 0x1554) {
+        saved40 = obj->field40;                      /* both in registers */
+        saved08 = obj->field08;
+
+        obj->field40 = 6;
+        get_char_ani2(obj);
+
+        light = (MK3OBJ *)NewThreadProc(obj,
+                                        (MK3THREADFUNC)t_light_animator);
+
+        obj->field1c = (uint32_t)(uintptr_t)light->field08;
+        obj->field20 = obj->field00->him;
+        lineup_a0_onto_a1(obj);
+
+        MK3_SET_FIELD12(light->field08,
+                        (uint32_t)MK3_FIELD12(light->field08) + 0x90);
+
+        obj->field08 = saved08;
+
+        obj->field1c = 0xa;
+        ochar_sound(obj);
+
+        obj->field40 = saved40;
+        obj->field1c = 5;
+
+        next         = 0x1566;
+        next_handler = (MK3THREADFUNC)t_mframew;
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)next_handler;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
