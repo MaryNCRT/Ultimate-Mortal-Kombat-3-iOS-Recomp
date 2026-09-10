@@ -2676,3 +2676,155 @@ long t_smoke_dropping(MK3THREAD *thread)
     thread->fieldfc = 0x16462;
     return 0x16462;
 }
+
+
+/* ---------------------------------------------------------------------- t_tornado_sucked
+ *
+ * armv7 0x0003a870, 168 bytes.  **Complete.**
+ *
+ *      token == 0:       player_normpal(obj)
+ *                        me_in_back(obj)
+ *                        obj->a10 = 0x4000
+ *                        -- falls into the tail --
+ *
+ *      token == 0xec3:   obj->a10 += 0x2000
+ *                        obj->field1c = obj->a10
+ *                        towards_x_vel(obj)
+ *                        get_x_dist(obj)
+ *                        if (obj->field28 > 8) -- the tail --
+ *                        set_inviso(obj)
+ *                        stop_me_player(obj)
+ *                        face_opponent(obj)
+ *                        obj->field1c = 0x24; create_fx(obj)
+ *                        frame[frame].handler = t_wait_forever
+ *
+ *      the tail:         token := 0xec3, park 1
+ *
+ *      otherwise:        return -3
+ *
+ * **An accelerating pull, and the accumulator is 0x44.** The velocity starts at 0x4000 and grows
+ * by 0x2000 every frame; each pass copies it into 0x1c and hands it to `towards_x_vel`, so the
+ * victim is dragged in faster and faster until the gap closes to 8.
+ *
+ * **The same acceleration shape as `t_smoke_dropping` two functions up, with three differences**:
+ * that one adds to the PART's 0x1c and this adds to the object's 0x44, that one falls and this
+ * pulls sideways, and that one measures against `G + 0xac` while this uses `get_x_dist`. So the
+ * engine has no shared integrator -- each routine keeps its own accumulator wherever it likes.
+ *
+ * When the victim arrives it is made invisible, stopped, turned, and replaced by effect 0x24. That
+ * is the same disappear-and-leave-an-effect ending as mkanimal.c's `t_stung_by_scorpion`, which
+ * uses `set_inviso` and effect 0x15 -- so vanishing is a two-call idiom and the effect number is
+ * the only thing that varies.
+ */
+void me_in_back(MK3OBJ *obj);
+void towards_x_vel(MK3OBJ *obj);
+
+long t_tornado_sucked(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        player_normpal(obj);
+        me_in_back(obj);
+
+        obj->a10 = 0x4000;
+
+    } else if (token == 0xec3) {
+        obj->a10 = obj->a10 + 0x2000;
+        obj->field1c = obj->a10;
+        towards_x_vel(obj);
+
+        get_x_dist(obj);
+        if ((long)obj->field28 <= 8) {
+            set_inviso(obj);
+            stop_me_player(obj);
+            face_opponent(obj);
+
+            obj->field1c = 0x24;
+            create_fx(obj);
+
+            return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+        }
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = 0xec3;
+    thread->fieldfc = 1;
+    return 1;
+}
+
+/* ----------------------------------------------------------------- t_fatality_start_pause
+ *
+ * armv7 0x00033d20, 172 bytes.  **Complete.**
+ *
+ *      token == 0:        obj->field20 = 1
+ *                         token := 0x1bf3, descend into t_init_death_blow
+ *
+ *      token == 0x1bf3:   obj->field40 = 0
+ *                         pose_a9_manual(obj)
+ *                         token := 0x1bf7, park 0x14
+ *
+ *      token == 0x1bf7:   pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:         return -3
+ *
+ * **The third member of the family, and it completes the kind table.** Three routines in three
+ * files write a small constant into `obj->field20` and descend into `t_init_death_blow`:
+ *
+ *      1   t_fatality_start_pause    (here)
+ *      3   t_animality_start_pause   (mkanimal.c)
+ *      5   t_baby_start_pause        (mkstat.c)
+ *
+ * `t_init_death_blow`, written earlier in this file, copies that halfword into `G + 0x450` and
+ * `G + 0x458` and fires `MKEvent_Add(3, 0xe, 0, 0)` for every value except 2. So **1, 3 and 5 are
+ * fatality, animality and babality**, and the value the death blow treats specially -- 2 -- is
+ * none of the three. It is bracketed on both sides now and still unaccounted for; whatever writes
+ * it is not in the eight logic files closed so far.
+ *
+ * **This routine and `t_baby_start_pause` are the same three states with one number changed.**
+ * Both zero 0x40, pose animation zero by hand, and wait: 0x14 here against 0x20 there. The
+ * animality version poses nothing and only waits 0x1e. So the shared part is the death blow and
+ * the pause, and each finisher kind supplies its own idle pose and its own delay.
+ *
+ * `ip` carries 0x1bf3 from before the dispatch into state 0's store, which is why that store reads
+ * `str.w ip, ...` with no visible constant.
+ */
+long t_fatality_start_pause(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x1bf3) {
+        obj->field40 = 0;
+        pose_a9_manual(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x1bf7;
+        thread->fieldfc = 0x14;
+        return 0x14;
+    }
+
+    if (token == 0x1bf7) {
+        if ((long)frame > 0) {
+            thread->frame = frame - 1;
+            return 0;
+        }
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field20 = 1;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x1bf3;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_init_death_blow;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
