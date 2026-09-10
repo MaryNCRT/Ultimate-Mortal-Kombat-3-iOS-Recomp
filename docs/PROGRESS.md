@@ -2,34 +2,34 @@
 
 Current state of the project. Written so that someone can pick it up with no prior context.
 
-**Last updated:** 2026-09-02 — see [HANDOFF.md](HANDOFF.md) for the route and
+**Last updated:** 2026-09-10 — see [HANDOFF.md](HANDOFF.md) for the route and
 [ENCARGO.md](ENCARGO.md) for the next task.
 
-> Latest: **the decompiled main menu boots and runs.**
-> `tests/test_menu_boot.c` exits 0 -- general data, the 88-step front-end
-> loader, sixty ticks of `Task_FEMain` asking for 480 sprites and 89 fills
-> a second, with the retail build's own diagnostics coming out on the way.
-> Nothing is on screen yet: the platform layer counts draw calls rather
-> than making them, which is what tests the transcription.
+> Latest: **the decompiled main menu is on screen and takes input.**
+> `build/umk3-menu.exe <res>` opens a window, runs the real front end --
+> `Task_LoadGeneralData`, the 88-step loader, `Task_FEMain` every frame --
+> and draws it with real OpenGL from the real assets. The mouse stands in
+> for a finger. `UMK3_SHOT=<n>` ticks n frames, writes `umk3-menu.ppm` and
+> quits, which is where the screenshot in the repo root comes from.
 >
-> Getting there was one fault repeated: two files describing the same
-> object differently, each compiling alone. `tools/mkdata.py` recovers the
-> initialised data every global was missing, and `tools/slotcheck.py`
-> settles the declaration disagreements from the symbol table.
+> The fight engine is at **1,500 of 2,172** and nine of its twenty-one files
+> are closed. Nothing is playable: the menu draws and responds, and the fight
+> itself has no runtime yet.
 >
 > Before that: **all 18 arenas render, textured, with their effects and an
 > animated fighter standing in them.**
 
-`tests/test_menu_boot.c` exits 0. It runs what the game runs: `Task_LoadGeneral-
-Data`, then the 88-step front-end loader, then sixty ticks of `Task_FEMain`.
-The menu asks for **480 sprites and 89 fills a second** and stays on
-`FE_Task_Main_Menu`. Along the way the retail build's own diagnostics come out
--- the settings reset with its ten values, `Num Text strings Loading: 1022`, and
-the bare `F` and `G` the loader prints.
+`tests/test_menu_boot.c` still exits 0 headless, and that is the transcription
+test: it runs `Task_LoadGeneralData`, the 88-step front-end loader and sixty
+ticks of `Task_FEMain` with the platform layer counting draw calls instead of
+making them. The menu asks for **480 sprites and 89 fills a second** and stays
+on `FE_Task_Main_Menu`. Along the way the retail build's own diagnostics come
+out -- the settings reset with its ten values, `Num Text strings Loading: 1022`,
+and the bare `F` and `G` the loader prints.
 
-Nothing is on screen yet: the platform layer counts draw calls instead of making
-them. That is deliberate. It tests the transcription, which is the part that was
-in doubt; a window would test the GL code, which is not.
+`runtime/menu_main.c` is the same boot with `runtime/draw_gl.c` in place of the
+counters. Keeping both matters: the headless one tests the decompilation, the
+windowed one tests the GL code, and a failure in either says which.
 
 ### What it took, and it was all one thing
 
@@ -80,14 +80,23 @@ four that contradicted a hand-written runtime definition.
 
 ### What is next
 
-The menu runs headless. Three things follow, in this order:
+The menu is drawn. What is left, in order:
 
-1. **Draw it.** `runtime/platform/win32_gl.c` and `demo.c` already open a window
-   and draw meshes; the menu needs `limeDrawSprite` and `limeDrawFONT` wired to
-   it instead of to counters.
-2. **`gamecode/logic`, 3 of 2,172.** The fight engine, and the largest block
-   left in the project by a wide margin.
-3. **Finish the type unification.** GameCode.c keeps its own copies of a dozen
+1. **`gamecode/logic`, 1,500 of 2,172.** The fight engine, and by a wide margin
+   the largest block left. Nine of its twenty-one files are closed;
+   `mkdrone.c` (240 left), `mkreact.c` (135) and `mkzap.c` (88) are the bulk of
+   the rest, and seven small files totalling 80 functions have never been
+   opened.
+2. **The menu's remaining pixel errors** — [#27](../../issues/27).
+   `limeGetStringWidth` and the three alignment cases in `limeDrawFONTAtAngle`
+   are not transcribed, so right-aligned strings land a few pixels wide. The
+   anchors are already exact. Deliberately deferred until more of the binary
+   has been read, because that function interleaves across the float registers.
+3. **Stub the online entries at the menu level** — leaderboards, achievements
+   and anything else that reaches EA's servers raise a modal alert when
+   *entered*, not at startup. A stub that returns "no connection" still ends up
+   in the alert, so the entries have to go.
+4. **Finish the type unification.** GameCode.c keeps its own copies of a dozen
    lime types and functions, which is why `GAMEFONT` had to be copied instead of
    included. Deleting the local copies and including `lime.h` is the real fix
    and removes the whole class of disagreement above.
@@ -105,8 +114,9 @@ three decompilation figures are **measured from the tree** by
 `tools/progress.py` on every run; the other five are estimates a person
 maintains. Two numbers are worth keeping apart:
 
-- **35.90%** — share of the *whole project*, counting analysis, tooling and formats.
-- **5.7%** — share of the *decompilation itself*: 147 finished functions of 2,572.
+- **~71%** — share of the *whole project*, counting analysis, tooling and formats.
+- **~70%** — share of the *decompilation itself*: 1,900 finished functions of
+  2,572 (109 `lime/common` + 291 `gamecode` + 1,500 `gamecode/logic`).
 
 Both are true. The first says the foundations are in place and the engine core is
 done; the second says the fight engine has barely been touched.
@@ -158,13 +168,15 @@ any of the port is written.
 | 4 — Decompile `lime/common` | ✅ **complete — 109/109, every file verified** |
 | 5 — Native PC platform layer | ⬜ not started |
 | 6 — EA SDK stubs | ⬜ not started (scope reduced, see below) |
-| 7 — Decompile `gamecode` | 🔄 35/291, every one verified |
-| 8 — Decompile fight logic | 🔄 3/2,172 — `SwitchQueue`, `isp2`, `gup2` |
+| 7 — Decompile `gamecode` | ✅ 291/291 |
+| 8 — Decompile fight logic | 🔄 1,500/2,172 — nine of twenty-one files closed |
 | 9 — Widescreen, gamepad, mods | ⬜ not started |
 
-**Honest framing:** 147 of 2,572 functions are done, which is 5.7%. The
-percentage is not the interesting number — the pipeline that produced them is,
-and it now finds bugs on its own.
+**Honest framing:** 1,900 of 2,572 functions are done. The percentage is not the
+interesting number — **nothing is playable**, because the fight engine has no
+runtime and a third of it is still unread. What the number does say is that the
+menu you can click on is not a mock-up: it is the retail front end, transcribed
+function by function, running on the retail assets.
 
 ---
 
