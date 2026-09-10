@@ -10292,3 +10292,176 @@ long t_ind_light(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ----------------------------------------------------------------------------- t_kitana_kiss
+ *
+ * armv7 0x0003af04, 508 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0x87b, descend into t_fatality_start_pause
+ *
+ *      token == 0x87b:    sans_repell_for_good(obj)
+ *                         obj->field40 = 0x00060006
+ *                         token := 0x87f, descend into t_animate2_a9
+ *
+ *      token == 0x87f:    tsound_func(obj, 0x60)
+ *                         obj->field1c = player_normpal; call_a0_for_him(obj)
+ *                         PUSH obj->field40
+ *                         obj->field40 = 0x00070025
+ *                         obj->field1c = him->field24
+ *                         if (him->field24 not in {7, 8, 0xe})
+ *                             obj->field40 = 0x25
+ *                         pose_him_a9(obj)
+ *                         POP  obj->field40
+ *                         obj->field38 = t_wait_forever; takeover_him(obj)
+ *                         token := 0x891, park 0x40
+ *
+ *      token == 0x891:    PUSH obj->field40
+ *                         obj->field40 = &fn_ani_data[0x1a80 + 4]
+ *                         obj->field38 = t_r_stretch; takeover_him(obj)
+ *                         proc->field00->field48 = obj->field40
+ *                         POP  obj->field40
+ *                         obj->field1c = 4
+ *                         token := 0x89b, descend into t_mframew
+ *
+ *      token == 0x89b:    token := 0x89d, park 0x50
+ *
+ *      token == 0x89d:    death_blow_complete(obj)
+ *                         frame[frame].handler = t_victory_animation
+ *
+ *      otherwise:         return -3
+ *
+ * **A second hard-coded character exception, and this one names three fighters.** Characters 7, 8
+ * and 0xe keep the pose 0x00070025; everyone else is given a bare 0x25. The low half is the same in
+ * both -- so the exception is a variant of one pose, not a different pose -- and the test is spelled
+ * `cmp #0xe` plus an unsigned `(char - 7) <= 1`, which is how the compiler folded 7 and 8 together.
+ *
+ * With `t_ripped_skelton`'s two tests, `t_remaining_skel`'s one and mkanimal.c's `tl_kano_spider`,
+ * that makes **five hard-coded character tests across the tree naming two disjoint sets**: 0xb on
+ * its own, and {7, 8, 0xe} here. Any port that renumbers the roster has to carry both.
+ *
+ * **Third site of the `proc->field00->field48` table hand-off, and the second supplier for
+ * `t_r_stretch`.** That routine indexes 0x48 by the character number; `t_kabal_inflator` fills it
+ * one way and this fills it the same way, with a different table. So one reader, two writers, and
+ * the channel is the same in both -- which is what makes it a channel rather than a coincidence.
+ *
+ * The table is `fn_ani_data + 0x1a84`: **a fourth unnamed sub-table inside a named animation
+ * block**, after `lao_ani_data + 0x142c`, `fn_ani_data + 0x20a4` and `lia_ani_data + 0x1554`. The
+ * base arrives through pointer slot 0x000f36b4 and the offset is split `add.w #0x1a80` then
+ * `adds #4`, the same two-instruction split every large constant in this file gets.
+ *
+ * **Two argument-stack pushes in one routine, both saving 0x40, in two different states.** Every
+ * earlier site saved a value across one call sequence; here the same field is rescued twice, once
+ * around `pose_him_a9` and once around `takeover_him`. Ninth and tenth sites.
+ *
+ * **`obj->field38 = t_wait_forever; takeover_him(obj)` is `wfe_him` written out.** The binary loads
+ * pointer slot 0x000f3724 itself and calls `takeover_him` directly rather than calling the
+ * twenty-four-byte helper, so it is transcribed inline; the effect is identical.
+ *
+ * `obj->field1c` carries the opponent's character number into `pose_him_a9` while 0x40 carries the
+ * pose -- so that helper takes two arguments in two fields, like most of this file's helpers.
+ *
+ * Third `call_a0_for_him` site, and the second with `player_normpal` as the callee.
+ */
+void pose_him_a9(MK3OBJ *obj);
+
+long t_kitana_kiss(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3THREADFUNC next_handler;
+    MK3OBJ  *him;
+    uint32_t argc, next;
+
+    if (token == 0) {
+        *mk3_frame(thread, frame + 1) = 0x87b;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_fatality_start_pause;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x89b) {
+        *mk3_frame(thread, frame + 1) = 0x89d;
+        thread->fieldfc = 0x50;
+        return 0x50;
+    }
+
+    if (token == 0x89d) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+    }
+
+    if (token == 0x87f) {
+        tsound_func(obj, 0x60);
+
+        obj->field1c = (uint32_t)(uintptr_t)player_normpal;
+        call_a0_for_him(obj);
+
+        argc = thread->fieldf8;
+        *mk3_arg(thread, argc) = obj->field40;
+        thread->fieldf8 = argc + 1;
+
+        obj->field40 = 0x00070025;
+
+        him = (MK3OBJ *)(void *)(uintptr_t)obj->field00->him;
+        obj->field1c = him->field24;
+        if (him->field24 != 0xe && (him->field24 - 7) > 1)
+            obj->field40 = 0x25;                     /* everyone but 7, 8, 0xe */
+
+        pose_him_a9(obj);
+
+        argc = thread->fieldf8 - 1;
+        thread->fieldf8 = argc;
+        obj->field40 = *mk3_arg(thread, argc);
+
+        obj->field38 = (uint32_t)(uintptr_t)t_wait_forever;   /* wfe_him */
+        takeover_him(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x891;
+        thread->fieldfc = 0x40;
+        return 0x40;
+    }
+
+    if (token == 0x87b) {
+        sans_repell_for_good(obj);
+
+        obj->field40 = 0x00060006;
+
+        next         = 0x87f;
+        next_handler = (MK3THREADFUNC)t_animate2_a9;
+
+    } else if (token == 0x891) {
+        argc = thread->fieldf8;
+        *mk3_arg(thread, argc) = obj->field40;
+        thread->fieldf8 = argc + 1;
+
+        obj->field40 = (uint32_t)(uintptr_t)&fn_ani_data[0x1a80 + 4];
+
+        obj->field38 = (uint32_t)(uintptr_t)t_r_stretch;
+        takeover_him(obj);
+
+        obj->field00->field00->field48 = obj->field40;
+
+        argc = thread->fieldf8 - 1;
+        thread->fieldf8 = argc;
+        obj->field40 = *mk3_arg(thread, argc);
+
+        obj->field1c = 4;
+
+        next         = 0x89b;
+        next_handler = (MK3THREADFUNC)t_mframew;
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)next_handler;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
