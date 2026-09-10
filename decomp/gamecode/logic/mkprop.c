@@ -184,7 +184,12 @@ long tl_do_lia_fly(MK3THREAD *thread);
 long t_mileena_teleport_call(MK3THREAD *thread);
 void find_ani_part_a14(MK3OBJ *obj);
 long t_pounce_jsrp(MK3THREAD *thread);
-long is_jade_protected(MK3OBJ *obj);   /* q_yes/q_no leave the answer in r0 too */
+void is_jade_protected(MK3OBJ *obj);   /* answers in 0x5c; it was declared
+                                        * `long` here on the theory that q_yes
+                                        * and q_no forward a value, and they do
+                                        * not -- both are eight bytes that write
+                                        * 0x5c and return. Corrected when the
+                                        * definition was read in mkzap.c. */
 void is_he_blocking(MK3OBJ *obj);
 void disable_his_buttons(MK3OBJ *obj);
 void xfer_otherguy(MK3OBJ *obj);
