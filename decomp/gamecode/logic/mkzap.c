@@ -2327,3 +2327,164 @@ long t_rr_up(MK3THREAD *thread)
     *mk3_frame(thread, frame + 1) = 0;
     return 0;
 }
+
+
+/* t_target -- armv7 0x00078274, 108 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field1c = 0
+ *                       -- falls into the step --
+ *
+ *      the step:        frame_a9(obj)
+ *                       obj->field1c = 5
+ *                       -- falls into the placement --
+ *
+ *      the placement:   part->x0e = (uint16_t)him->x0e - 0x10
+ *                       part->x12 = (uint16_t)him->x12 + 0x20
+ *                       token := 0xfd4, park 1
+ *
+ *      token == 0xfd4:  if (--obj->field1c != 0) -- the placement --
+ *                       -- the step --
+ *
+ *      otherwise:       return -3
+ *
+ * **A reticle that follows the opponent every frame and animates every fifth.**
+ * The placement runs on all of them -- sixteen units left of the victim and
+ * thirty-two below -- and the counter in 0x1c only decides when `frame_a9`
+ * advances the picture.
+ *
+ * **The offsets are unsigned halfword arithmetic**: `ldrh`, add or subtract,
+ * `strh`. So a target 0x10 to the left of a victim standing at x = 8 wraps to
+ * 0xfff8 rather than going negative, and whatever draws it has to read the
+ * halfword the same way. `t_chop_off_his_height` in mkfatal.c reads the same
+ * class of field unsigned and `lifts3` reads it signed; this is a third site and
+ * it sides with the unsigned reading.
+ *
+ * The park is 1 in every state, so the routine costs a frame per frame and never
+ * ends on its own.
+ */
+void frame_a9(MK3OBJ *obj);
+
+long t_target(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3OBJ  *him;
+    int      step;
+
+    if (token == 0) {
+        obj->field1c = 0;
+        step = 1;
+
+    } else if (token == 0xfd4) {
+        obj->field1c = obj->field1c - 1;
+        step = (obj->field1c == 0);
+
+    } else {
+        return -3;
+    }
+
+    if (step) {
+        frame_a9(obj);
+        obj->field1c = 5;
+    }
+
+    him = (MK3OBJ *)(void *)(uintptr_t)obj->field00->him;
+
+    MK3_SET_FIELD0E(obj->field08, (uint32_t)MK3_FIELD0E(him) - 0x10);
+    MK3_SET_FIELD12(obj->field08, (uint32_t)MK3_FIELD12(him) + 0x20);
+
+    *mk3_frame(thread, frame + 1) = 0xfd4;
+    thread->fieldfc = 1;
+    return 1;
+}
+
+
+/* t_doice3 -- armv7 0x000778c4, 112 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      is_he_right(obj)
+ *      if (obj->field5c == 0) obj->field48 = -obj->field48
+ *      frame[frame].handler = t_doice5
+ *
+ * **One conditional negation and a hand-over.** The whole routine exists to
+ * point 0x48 the right way before `t_doice5` runs, which is the same job
+ * `set_proj_vel` does for 0x1c -- except that one reads the part's flip bit and
+ * this one asks `is_he_right`.
+ *
+ * **Two ways to answer the same question**, then: the flip bit says which way
+ * the fighter is DRAWN and `is_he_right` says where the opponent actually is.
+ * They agree most of the time and a port must not substitute one for the other.
+ *
+ * The compiler emitted the install twice, once per branch, rather than joining
+ * them -- so the function is 112 bytes for what is four instructions of work.
+ */
+long is_he_right(MK3OBJ *obj);
+long t_doice5(MK3THREAD *thread);
+
+long t_doice3(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+
+    if (*mk3_frame(thread, frame + 1) != 0)
+        return -3;
+
+    is_he_right(obj);
+    if (obj->field5c == 0)
+        obj->field48 = (uint32_t)(-(long)obj->field48);
+
+    mk3_frame(thread, frame)[1] = (uint32_t)(uintptr_t)t_doice5;
+    *mk3_frame(thread, frame + 1) = 0;
+    return 0;
+}
+
+
+/* t_sg_trail_spawn -- armv7 0x00076a54, 112 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = proc->field2c - 1
+ *      if (obj->field1c <= 0) {
+ *          obj->field1c = 0x35; create_fx(obj)
+ *          obj->field1c = 4
+ *      }
+ *      proc->field2c = obj->field1c
+ *      pop a level, or t_local_reaction_exit at the bottom
+ *
+ * **The third counter-on-the-proc callback**, after `t_lao_zap_call` and
+ * `t_jax_proj_calla`. It shares 0x2c with the first of those, so two different
+ * projectiles cannot be counting there at once -- which is fine, because a proc
+ * belongs to one fighter and a fighter has one projectile in the air.
+ *
+ * The test is `ble` where `t_jax_proj_calla` uses `cbz`, so a counter that
+ * somehow went negative fires here and hangs there. The difference costs nothing
+ * and is transcribed as `<= 0` rather than normalised to `== 0`.
+ *
+ * Effect 0x35 every four frames leaves the trail the name promises.
+ */
+long t_sg_trail_spawn(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+
+    if (*mk3_frame(thread, frame + 1) != 0)
+        return -3;
+
+    obj->field1c = obj->field00->field2c - 1;
+
+    if ((long)obj->field1c <= 0) {              /* ble, not cbz */
+        obj->field1c = 0x35;
+        create_fx(obj);
+
+        obj->field1c = 4;
+    }
+
+    obj->field00->field2c = obj->field1c;
+
+    if ((long)thread->frame > 0) {              /* cmp #0 / ble: signed */
+        thread->frame = thread->frame - 1;      /* back up a level */
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
