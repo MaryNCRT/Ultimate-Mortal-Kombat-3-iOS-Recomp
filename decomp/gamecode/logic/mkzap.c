@@ -1498,6 +1498,14 @@ long t_do_zap(MK3THREAD *thread)
  * do-nothing thread handler was written once per caller and named for what the
  * caller wanted, rather than shared. Expect more of these in this file.
  *
+ * **`t_boom_return_check`, later in this file, says why.** It writes
+ * `t_boomerang_trail` into `proc->field28` -- the per-frame callback slot a
+ * projectile flight reads -- once the boomerang has turned around. So a
+ * do-nothing handler is not dead code and not laziness: it is the **null
+ * callback**, and it needs a name per system because the slot it goes into is
+ * read by a different flight each time. `t_rr_nothing` is entry 0 of
+ * `rocket_routines` for the same reason.
+ *
  * The frame index is signed here -- `cmp #0` then `ble`, not `cbz` -- so a
  * negative index takes the install path, exactly as in `t_double_flame_ani`.
  */
@@ -3071,6 +3079,67 @@ long t_boomerang_call(MK3THREAD *thread)
     if (obj->field1c != 0) {
         obj->field20          = obj->field08->field1c + obj->field1c;
         obj->field08->field1c = obj->field20;
+    }
+
+    if ((long)thread->frame > 0) {           /* cmp #0 / ble: signed */
+        thread->frame = thread->frame - 1;   /* back up a level */
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* t_boom_return_check -- armv7 0x00075778, 160 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      proj_onscreen_test_unsafe(obj)
+ *      if (obj->field5c != 0)
+ *          pop a level, or t_local_reaction_exit at the bottom
+ *      part->field18 = -part->field18
+ *      obj->field1c   = t_boomerang_trail
+ *      proc->field28  = t_boomerang_trail
+ *      pop a level, or t_local_reaction_exit at the bottom
+ *
+ * **The boomerang turns around when it leaves the screen, and it uses the strict
+ * test to decide.** `proj_onscreen_test_unsafe` fails the moment the projectile
+ * touches an edge, where `proj_onscreen_test` allows a hundred units of slack --
+ * so the turn happens at the visible boundary rather than off in the margin,
+ * which is the whole point of having both tests. That is the first caller
+ * measured for either of them and it picks the strict one deliberately.
+ *
+ * **Then it replaces its own callback with a do-nothing one.**
+ * `tl_projectile_flight_call` puts a per-frame callback in `proc->field28`; this
+ * overwrites it with `t_boomerang_trail`, which is eighty-four bytes of giving
+ * the level straight back. So after the turn the boomerang stops falling and just
+ * flies -- and `t_boomerang_trail` exists to be that null callback rather than to
+ * do anything.
+ *
+ * That answers the question the `t_boomerang_trail` / `t_rr_nothing` note asked:
+ * the two identical do-nothing handlers are not duplication, they are the null
+ * value for two different callback slots, and each is named for the system whose
+ * slot it goes into. `t_rr_nothing` is entry 0 of `rocket_routines`.
+ *
+ * The pointer is written into 0x1c as well as 0x28 -- one register, two
+ * destinations, this file's habit -- so 0x1c holds a function pointer on the way
+ * out, a reading it has in `t_do_zap` too.
+ */
+long t_boom_return_check(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+
+    if (*mk3_frame(thread, frame + 1) != 0)
+        return -3;
+
+    proj_onscreen_test_unsafe(obj);          /* the strict test, on purpose */
+
+    if (obj->field5c == 0) {
+        obj->field08->field18 =
+            (uint32_t)(-(long)obj->field08->field18);
+
+        obj->field1c          = (uint32_t)(uintptr_t)t_boomerang_trail;
+        obj->field00->field28 = obj->field1c;    /* the null callback */
     }
 
     if ((long)thread->frame > 0) {           /* cmp #0 / ble: signed */
