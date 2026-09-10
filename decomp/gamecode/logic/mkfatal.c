@@ -8630,3 +8630,133 @@ long t_kabal_inflator(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* -------------------------------------------------------------------------- t_lia_scream_rip
+ *
+ * armv7 0x00033ec0, 388 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0x130f, descend into t_fatality_start_pause
+ *
+ *      token == 0x130f:   obj->field48 = &lia_ani_data[0x1540 + 0x14]
+ *                         obj->field40 = 0x40000
+ *                         token := 0x1319, descend into t_animate2_a9
+ *
+ *      token == 0x1319:   obj->field1c = 8; ochar_sound(obj)
+ *                         obj->field1c = 1; ochar_sound(obj)
+ *                         obj->field38 = t_r_scream_ripped
+ *                         takeover_him(obj)
+ *                         ((MK3OBJ *)obj->field1c)->field48 = obj->field48
+ *                         obj->field1c = 0x0005000c
+ *                         token := 0x1324, descend into t_animate_a0_frames
+ *
+ *      token == 0x1324:   token := 0x1326, park 0x40
+ *
+ *      token == 0x1326:   obj->field40 = 0
+ *                         obj->field1c = 5
+ *                         token := 0x132a, descend into t_backwards_ani2
+ *
+ *      token == 0x132a:   death_blow_complete(obj)
+ *                         frame[frame].handler = t_victory_animation
+ *
+ *      otherwise:         return -3
+ *
+ * **This is the writer for the table `t_r_scream_ripped` reads.** That routine -- written earlier
+ * in this file -- indexes `obj->field48` by the character number after saving it across
+ * `shake_a11`, and nothing had shown where the base comes from. Here it is: the same
+ * `lia_ani_data + 0x1554` sub-table `t_ripped_skelton` uses, handed to the victim after the takeover.
+ *
+ * **The destination is reached through `obj->field1c`, which holds a POINTER at that moment.** The
+ * last call before the read is `takeover_him`, so that routine leaves an object pointer in 0x1c --
+ * or one of the two `ochar_sound` calls before it does. Which of them is not settled by this
+ * routine alone; what is certain is that 0x1c is dereferenced as an object here and its 0x48 gets
+ * the table.
+ *
+ * That makes a second spelling of the table hand-off. `t_kabal_inflator` reaches the target as
+ * `proc->field00` and this one takes whatever the previous call left in 0x1c; both end up writing
+ * the other fighter's 0x48.
+ *
+ * **`obj->field40 = 0x40000` for `t_animate2_a9` is a large value, not a small packed pair.** The
+ * four other sites for that variant pass 0x0002000c, 0x0005000a, 0x00060006 and 0x00040018. So 0x40
+ * to the animators has the same split the `t_shake_ob_up` 0x1c had -- and that one turned out to be
+ * a plain magnitude when `tl_r_scared_of_mileena` passed both kinds. **Do not assume the 0x40 pair
+ * reading survives**; it may go the same way.
+ *
+ * The two `ochar_sound` calls use 8 and 1, and the routine ends by rewinding through
+ * `t_backwards_ani2` with 0x40 cleared -- the same close `t_st_suck` and `t_kang_fire` use.
+ */
+long t_r_scream_ripped(MK3THREAD *thread);
+
+long t_lia_scream_rip(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x130f) {
+        obj->field48 = (uint32_t)(uintptr_t)&lia_ani_data[0x1540 + 0x14];
+        obj->field40 = 0x40000;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1319;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate2_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1319) {
+        obj->field1c = 8;
+        ochar_sound(obj);
+        obj->field1c = 1;
+        ochar_sound(obj);
+
+        obj->field38 = (uint32_t)(uintptr_t)t_r_scream_ripped;
+        takeover_him(obj);
+
+        ((MK3OBJ *)(void *)(uintptr_t)obj->field1c)->field48 = obj->field48;
+
+        obj->field1c = 0x0005000c;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1324;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_a0_frames;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1324) {
+        *mk3_frame(thread, frame + 1) = 0x1326;
+        thread->fieldfc = 0x40;
+        return 0x40;
+    }
+
+    if (token == 0x1326) {
+        obj->field40 = 0;
+        obj->field1c = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x132a;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_backwards_ani2;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x132a) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+    }
+
+    if (token != 0)
+        return -3;
+
+    *mk3_frame(thread, frame + 1) = 0x130f;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_fatality_start_pause;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
