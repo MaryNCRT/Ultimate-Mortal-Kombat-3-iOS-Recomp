@@ -3868,3 +3868,177 @@ long tl_sindel_wasp(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+/* ---------------------------------------------------------------------- tl_kitana_bunny
+ *
+ * armv7 0x000a3a38, 496 bytes.  **Complete.**
+ *
+ *      token == 0:      token := 0x3ff, descend into t_cute_animality_start
+ *
+ *      token == 0x3ff:  sans_repell_for_good(obj)
+ *                       set_noedge(obj)
+ *                       obj->field40 = 9; get_char_ani2(obj)
+ *                       part->y12 = (uint16_t)*(short *)(G + 0xac)
+ *                                   - GetFrameHeight(*(long *)obj->field40) - 9
+ *                       obj->field1c = 8
+ *                       token := 0x41d, descend into t_mframew
+ *
+ *      token == 0x41d:  tsound_func(obj, 0x92)
+ *                       obj->field1c = 3
+ *                       token := 0x421, descend into t_mframew
+ *
+ *      token == 0x421:  part->field1c = 0xfff80000
+ *                       obj->field1c = 0xfff80000 + 0xe0000 = 0x00060000
+ *                       set_proj_vel(obj)
+ *                       obj->field1c = part->field18
+ *                       set_x_vel_player(obj)
+ *                       token := 0x42c, park 9
+ *
+ *      token == 0x42c:  kill_and_stop_scrolling(obj)
+ *                       stop_me_player(obj)
+ *                       obj->field38 = t_r_rabbit
+ *                       takeover_him(obj)
+ *                       obj->field1c = 4; init_anirate(obj)
+ *                       obj->a10 = obj->field00->him
+ *                       obj->field48 = 0xc0
+ *                       -- falls into the 0x43a tail --
+ *
+ *      token == 0x43a:  obj->field1c = ((MK3OBJ *)obj->field00->him)->field18
+ *                       set_x_vel_player(obj)
+ *                       next_anirate(obj)
+ *                       if (--obj->field48 <= 0) {
+ *                           death_blow_complete(obj)
+ *                           player_normpal(obj)
+ *                           frame[frame].handler = t_wait_forever
+ *                       }
+ *                       -- falls into the 0x43a tail --
+ *
+ *      the 0x43a tail:  token := 0x43a, park 1
+ *
+ *      otherwise:       return -3
+ *
+ * **The bunny drags the victim along by copying their velocity every frame.** State 0x43a
+ * reads the OTHER fighter's 0x18 and feeds it to `set_x_vel_player` on itself, once per frame
+ * for 0xc0 frames -- so the two move as one without either being parented to the other. That
+ * is a fifth way of coupling two fighters in this module, after the three handover mechanisms
+ * and the wasp's paired velocity calls.
+ *
+ * **Fourth spelling of the ground placement, and the first to read the floor as a halfword.**
+ * `ground_ob` reads `G + 0xac` with `ldr` and measures with `GetFrameHeight`;
+ * `tl_reptile_monkey` reads the word and measures with `mk3_getbbox`; mkstat.c's
+ * `t_turn_into_a_baby` uses the box and no inset. This one uses `ldrh` on the same offset, the
+ * same nine-pixel inset as `ground_ob`, and takes the animation from the FIRST WORD of the
+ * list `get_char_ani2` produced rather than from the part's 0x2c. Four readings of one offset
+ * and none of them reconciled.
+ *
+ * **The 0x421 velocities wrap 32 bits, exactly as `t_hit_by_bull`'s do.** One literal,
+ * 0xfff80000, goes into the part's 0x1c, and `add r3, r3, #0xe0000` truncates to 0x00060000
+ * for the object's. Written as the addition so the shared literal stays visible.
+ *
+ * **`obj->a10 = obj->field00->him` is stored and never read back here.** State 0x43a fetches
+ * the opponent pointer again from the proc instead of using 0x44. Transcribed as it stands;
+ * whether the victim's own `t_r_rabbit` reads it is a question about that routine, not this
+ * one, and `t_r_rabbit` uses 0x44 as its own 0x140 countdown -- so the two uses cannot both
+ * be live and this store looks dead.
+ */
+void set_proj_vel(MK3OBJ *obj);
+
+long tl_kitana_bunny(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3OBJ  *him;
+
+    if (token == 0) {
+        *mk3_frame(thread, frame + 1) = 0x3ff;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_cute_animality_start;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x3ff) {
+        sans_repell_for_good(obj);
+        set_noedge(obj);
+
+        obj->field40 = 9;
+        get_char_ani2(obj);
+
+        MK3_SET_FIELD12(obj->field08,
+                        (uint32_t)*(uint16_t *)(G_BYTES + 0xac)
+                        - (uint32_t)GetFrameHeight(
+                              *(uint32_t *)(uintptr_t)obj->field40)
+                        - 9);
+
+        obj->field1c = 8;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x41d;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x41d) {
+        tsound_func(obj, 0x92);
+
+        obj->field1c = 3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x421;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x421) {
+        obj->field08->field1c = 0xfff80000u;
+        obj->field1c = 0xfff80000u + 0xe0000u;      /* wraps to 0x00060000 */
+        set_proj_vel(obj);
+
+        obj->field1c = obj->field08->field18;
+        set_x_vel_player(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x42c;
+        thread->fieldfc = 9;
+        return 9;
+    }
+
+    if (token == 0x42c) {
+        kill_and_stop_scrolling(obj);
+        stop_me_player(obj);
+
+        obj->field38 = (uint32_t)(uintptr_t)t_r_rabbit;
+        takeover_him(obj);
+
+        obj->field1c = 4;
+        init_anirate(obj);
+
+        obj->a10 = obj->field00->him;
+        obj->field48 = 0xc0;
+
+    } else if (token == 0x43a) {
+        him = (MK3OBJ *)(void *)(uintptr_t)obj->field00->him;
+        obj->field1c = him->field18;
+        set_x_vel_player(obj);
+
+        next_anirate(obj);
+
+        obj->field48 = obj->field48 - 1;
+        if ((long)obj->field48 <= 0) {
+            death_blow_complete(obj);
+            player_normpal(obj);
+
+            return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+        }
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = 0x43a;
+    thread->fieldfc = 1;
+    return 1;
+}
