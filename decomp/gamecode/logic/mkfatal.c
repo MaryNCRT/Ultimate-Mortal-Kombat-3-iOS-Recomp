@@ -12229,3 +12229,226 @@ long t_fat_robo_crush(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------------- t_sw_plant_bomb
+ *
+ * armv7 0x000394dc, 652 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0x135a, descend into t_fatality_start_pause
+ *
+ *      token == 0x135a:   sans_repell_for_good(obj)
+ *                         obj->field1c = player_normpal; call_a0_for_him(obj)
+ *                         wfe_him(obj)
+ *                         obj->field40 = 0x00060004
+ *                         token := 0x1363, descend into t_animate2_a9
+ *
+ *      token == 0x1363:   obj->field40 = 4; get_char_ani2(obj)
+ *                         obj->field54 = 3; find_part_a14(obj)
+ *                         bomb = NewThreadProc(proc->field00, t_wait_forever)
+ *                         bomb->field08->field2c = 0xc82
+ *                         obj->a10 = bomb->field08
+ *                         obj->field1c = 0x60000
+ *                         get_my_dfe(obj)
+ *                         if (obj->field34 <= obj->field30)
+ *                             obj->field1c = -obj->field1c
+ *                         set_x_vel_player(obj)
+ *                         obj->field1c = 0xd
+ *                         obj->field40 = 0xd + 0xd = 0x1a
+ *                         obj->field28 = 3
+ *                         obj->field48 = 4
+ *                         obj->field20 = -0xa0000
+ *                         obj->field24 = -0xa0000 + 0xa8000 = 0x8000   ; wraps
+ *                         token := 0x1386, descend into t_flight
+ *
+ *      token == 0x1386:   face_opponent(obj)
+ *                         tsound_func(obj, 0x18)
+ *                         obj->field40 = 0x1a; get_char_ani(obj)
+ *                         do_next_a9_frame(obj)
+ *                         token := 0x138d, park 3
+ *
+ *      token == 0x138d:   obj->field40 = 4; find_ani2_part2(obj)
+ *                         obj->field1c = 6
+ *                         token := 0x1392, descend into t_mframew
+ *
+ *      token == 0x1392:   token := 0x1393, park 0x20
+ *
+ *      token == 0x1393:   token := 0x1396, park 2
+ *
+ *      token == 0x1396:   call_for_him(obj, set_inviso)
+ *                         obj->field1c = 0x18; create_fx_for_him(obj)
+ *                         token := 0x13ab, descend into t_white_flash
+ *
+ *      token == 0x13ab:   token := 0x13ad, park 0x40
+ *
+ *      token == 0x13ad:   death_blow_complete(obj)
+ *                         frame[frame].handler = t_victory_animation
+ *
+ *      otherwise:         return -3
+ *
+ * **The bomb is spawned on the OTHER object, and that is a first.** Every other `NewThreadProc` in
+ * the tree passes `obj`; this one passes `proc->field00`, so the new thread belongs to the victim
+ * rather than to the fighter planting it. Its part is given animation 0xc82 and its address is kept
+ * in `a10` -- and the handler it is started with is `t_wait_forever`, so the bomb does nothing at
+ * all. It is a prop with an owner, not a routine.
+ *
+ * **A fourth row for the `t_flight` table, and it is the odd one out twice over:**
+ *
+ *      routine           0x1c      0x20          0x24      0x28     0x40
+ *      t_dino_bucked     0x30000   0xffeb0000    0x5000    4        0x1e
+ *      t_hit_by_bull     0xd       0xfff80000    0x6000    4        0x1e
+ *      t_soul_float      0         0x20000       0x8000    0xfff    --
+ *      t_sw_plant_bomb   0xd       0xfff60000    0x8000    3        0x1a
+ *
+ * It is the only caller to set the x velocity through `set_x_vel_player` **before** the descent
+ * rather than leaving it in 0x1c -- 0x1c is loaded with 0x60000, signed by the `get_my_dfe`
+ * comparison, spent on that call, and then reloaded with 0xd for the flight. And it is the only one
+ * to write 0x48 (4) on the way in, which none of the other three touches.
+ *
+ * **The 0x24 store wraps 32 bits**, `0xfff60000 + 0xa8000 = 0x1_00008000` truncated to 0x8000, so
+ * 0x20 and 0x24 come from one literal. Fifth wrapping site, and the second in this batch after
+ * `t_fat_robo_crush`. `obj->field1c = 0xd` then `adds r3, r3, r3` for `obj->field40 = 0x1a` is the
+ * doubling form of the same habit, in the same state.
+ *
+ * **`get_my_dfe` decides the direction from two fields it fills**, 0x30 and 0x34, and the sign is
+ * flipped when 0x34 is the smaller. Neither the routine nor the two fields is decompiled; what is
+ * certain is that the fighter is thrown one way or the other depending on which of the two answers
+ * is larger, and that a port must keep the comparison as `<=` rather than `<` because the equal
+ * case takes the negating branch.
+ *
+ * The ending is `set_inviso` through `call_for_him`, effect 0x18 through `create_fx_for_him`, then
+ * `t_white_flash` -- the same three-step disappearance `t_eat_this_shit` and `t_r_stretch` use, and
+ * the third site. All three agree on 0x18 as the vanishing effect.
+ */
+void set_x_vel_player(MK3OBJ *obj);
+void create_fx_for_him(MK3OBJ *obj);
+void get_my_dfe(MK3OBJ *obj);
+void find_part_a14(MK3OBJ *obj);
+
+long t_sw_plant_bomb(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3THREADFUNC next_handler;
+    MK3OBJ  *bomb;
+    uint32_t next;
+
+    if (token == 0) {
+        *mk3_frame(thread, frame + 1) = 0x135a;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_fatality_start_pause;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1386) {
+        face_opponent(obj);
+        tsound_func(obj, 0x18);
+
+        obj->field40 = 0x1a;
+        get_char_ani(obj);
+
+        do_next_a9_frame(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x138d;
+        thread->fieldfc = 3;
+        return 3;
+    }
+
+    if (token == 0x1392) {
+        *mk3_frame(thread, frame + 1) = 0x1393;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (token == 0x1393) {
+        *mk3_frame(thread, frame + 1) = 0x1396;
+        thread->fieldfc = 2;
+        return 2;
+    }
+
+    if (token == 0x13ab) {
+        *mk3_frame(thread, frame + 1) = 0x13ad;
+        thread->fieldfc = 0x40;
+        return 0x40;
+    }
+
+    if (token == 0x13ad) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+    }
+
+    if (token == 0x135a) {
+        sans_repell_for_good(obj);
+
+        obj->field1c = (uint32_t)(uintptr_t)player_normpal;
+        call_a0_for_him(obj);
+
+        wfe_him(obj);
+
+        obj->field40 = 0x00060004;
+
+        next         = 0x1363;
+        next_handler = (MK3THREADFUNC)t_animate2_a9;
+
+    } else if (token == 0x1363) {
+        obj->field40 = 4;
+        get_char_ani2(obj);
+
+        obj->field54 = 3;
+        find_part_a14(obj);
+
+        bomb = (MK3OBJ *)NewThreadProc(obj->field00->field00,
+                                       (MK3THREADFUNC)t_wait_forever);
+        bomb->field08->field2c = 0xc82;
+        obj->a10 = (uint32_t)(uintptr_t)bomb->field08;
+
+        obj->field1c = 0x60000;
+        get_my_dfe(obj);
+        if ((long)obj->field34 <= (long)obj->field30)
+            obj->field1c = (uint32_t)(-(long)obj->field1c);
+        set_x_vel_player(obj);
+
+        obj->field1c = 0xd;
+        obj->field40 = 0xd + 0xd;                    /* the same register */
+
+        obj->field28 = 3;
+        obj->field48 = 4;
+
+        obj->field20 = 0xfff60000u;                  /* -0xa0000 */
+        obj->field24 = 0xfff60000u + 0xa8000u;       /* wraps to 0x8000 */
+
+        next         = 0x1386;
+        next_handler = (MK3THREADFUNC)t_flight;
+
+    } else if (token == 0x138d) {
+        obj->field40 = 4;
+        find_ani2_part2(obj);
+
+        obj->field1c = 6;
+
+        next         = 0x1392;
+        next_handler = (MK3THREADFUNC)t_mframew;
+
+    } else if (token == 0x1396) {
+        call_for_him(obj, set_inviso);
+
+        obj->field1c = 0x18;
+        create_fx_for_him(obj);
+
+        next         = 0x13ab;
+        next_handler = (MK3THREADFUNC)t_white_flash;
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)next_handler;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
