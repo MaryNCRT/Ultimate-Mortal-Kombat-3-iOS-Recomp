@@ -1447,3 +1447,107 @@ long t_lk_skeleton_burn(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_sb_skeleton_burn);
 }
+
+
+/* ------------------------------------------------------------------------- t_grow_victum
+ *
+ * armv7 0x0003504c, 108 bytes.  **Complete.**
+ *
+ *      token == 0:       part->field2c = part->field24 + 0x1b00 + 0x12
+ *                        token := 0x100c, park 0x46
+ *
+ *      token == 0x100c:  death_scream(obj)
+ *                        frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:        return -3
+ *
+ * **The animation is a base plus the character number**, 0x1b12 + `part->field24`, and the two
+ * halves arrive as two instructions -- `add.w r3, r3, #0x1b00` then `adds r3, #0x12` -- because
+ * 0x1b12 will not fit in one Thumb immediate. Written as the sum for that reason.
+ *
+ * That is the same interface as mkanimal.c's `cutup_body_init(obj, delta)`, which adds its
+ * argument to the same field to pick a body-pieces set. So **"base plus character number" is
+ * how this engine indexes per-character animation blocks**, and the base is the only thing a
+ * caller supplies. Third site for it after `cutup_body_init`'s two callers.
+ *
+ * Seventy frames of growing, then the scream, then the thread parks forever -- so nothing here
+ * shrinks the victim back. Whatever ends the fatality does it from outside.
+ *
+ * `r0` holds the object on entry and is overwritten with the part inside the first state only,
+ * which is why the second state can call `death_scream` with no reload.
+ */
+long t_wait_forever(MK3THREAD *thread);
+
+long t_grow_victum(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        obj->field08->field2c =
+            obj->field08->field24 + 0x1b00 + 0x12;
+
+        *mk3_frame(thread, frame + 1) = 0x100c;
+        thread->fieldfc = 0x46;
+        return 0x46;
+    }
+
+    if (token != 0x100c)
+        return -3;
+
+    death_scream(obj);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+}
+
+/* ------------------------------------------------------------------------- t_nado_sounds
+ *
+ * armv7 0x00034060, 108 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field1c = 6; ochar_sound(obj)
+ *                       obj->field1c = 7; ochar_sound(obj)
+ *                       token := 0xeb8, park 0x40
+ *
+ *      token == 0xeb8:  frame[frame].handler = t_nado_sounds
+ *
+ *      otherwise:       return -3
+ *
+ * **The reinstall-self loop, and this one never stops.** The second state installs THIS routine
+ * over itself, which zeroes the token and therefore restarts at state 0 -- so sounds 6 and 7
+ * play together, sixty-four frames pass, and they play again, for as long as the thread lives.
+ *
+ * Fourth site for that idiom, after mkstat.c's `t_shake_suspended` and `t_noogy_suspended` and
+ * mkanimal.c's `t_animate_till_a11`. **The warning is the same every time: this is not "resume
+ * at 0xeb8".** An install writes the handler and clears the token slot above it, so the next
+ * tick enters at state 0. Reading it as a resume gives a routine that plays nothing.
+ *
+ * The two sounds are a pair with nothing between them, the same shape as `tsound_func(0x24)`
+ * and `tsound_func(0x25)` in mkanimal.c -- one noise made of two samples. This is the
+ * `ochar_sound` version, which takes its index in 0x1c rather than in a register.
+ */
+long t_nado_sounds(MK3THREAD *thread);
+
+long t_nado_sounds(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 6;
+        ochar_sound(obj);
+
+        obj->field1c = 7;
+        ochar_sound(obj);
+
+        *mk3_frame(thread, frame + 1) = 0xeb8;
+        thread->fieldfc = 0x40;
+        return 0x40;
+    }
+
+    if (token != 0xeb8)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_nado_sounds);
+}
