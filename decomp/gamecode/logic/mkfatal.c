@@ -12920,3 +12920,239 @@ long t_jade_shaker(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------------------ t_cyrax_helecopter
+ *
+ * armv7 0x0003a414, 968 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0xf12, descend into t_fatality_start_pause
+ *
+ *      token == 0xf12:    sans_repell_for_good(obj)
+ *                         obj->field40 = 0xe; pose2_a9_manual(obj)
+ *                         token := 0xf18, park 0x20
+ *
+ *      token == 0xf18:    hele_sound(obj)
+ *                         obj->field1c = 0x00020010
+ *                         token := 0xf1c, descend into t_animate_a0_frames
+ *
+ *      token == 0xf1c:    obj->field1c = 0x00010010
+ *                         token := 0xf1e, descend into t_animate_a0_frames
+ *
+ *      token == 0xf1e:    hele_sound(obj)
+ *                         obj->field40 = 0xe; find_ani2_part2(obj)
+ *                         obj->field1c = 0x00010010
+ *                         token := 0xf24, descend into t_animate_a0_frames
+ *
+ *      token == 0xf24:    hele_sound(obj)
+ *                         obj->field40 = 0xe; find_ani2_part2(obj)
+ *                         find_part2(obj)
+ *                         obj->a10 = 1
+ *                         obj->field1c = 1 + 1 = 2; init_anirate(obj)
+ *                         obj->field1c = -0x2000
+ *                         part->field20 = -0x2000
+ *                         -- falls into the climb tail --
+ *
+ *      the climb tail:    token := 0xf31, descend into t_hele_sleep
+ *
+ *      token == 0xf31:    distance_off_ground(obj)
+ *                         if (obj->field1c <= 0x5f) -- the climb tail --
+ *                         stop_me_player(obj)
+ *                         set_inviso(obj)
+ *                         match_me_with_him(obj)
+ *                         wfe_him(obj)
+ *                         him->field2c = him->field24 + 0x1b40 + 0x2c
+ *                         hele_sound(obj)
+ *                         token := 0xf3d, park 0xf
+ *
+ *      tokens 0xf3d..0xf47:
+ *                         if (token is 0xf3e, 0xf3f or 0xf40) {
+ *                             obj->field1c = 0x23; create_fx(obj)
+ *                         }
+ *                         hele_sound(obj)
+ *                         token := token + 1, park 0xf
+ *
+ *      token == 0xf48:    clear_inviso(obj)
+ *                         token := 0xf4a, descend into t_cyrax_implode
+ *
+ *      token == 0xf4a:    death_blow_complete(obj)
+ *                         frame[frame].handler = t_victory_animation
+ *
+ *      otherwise:         return -3
+ *
+ * **`t_hele_sleep` gets its parent, and the seeding explains its counter.** That routine decrements
+ * `obj->a10`, and when it hits zero resets it to 0x20 and makes the helicopter noise; its note said
+ * "a parent that descends into this each frame gets the sound once every thirty-two frames" and had
+ * no parent. Here it is -- and state 0xf24 seeds `a10 = 1`, so the **first** descent fires the sound
+ * immediately and every thirty-second one after that. The seed is what starts the rhythm on the
+ * beat rather than a third of a second late.
+ *
+ * **The climb is a loop over a helper that pops every time.** State 0xf31 measures the height and,
+ * while it is 0x5f or less, re-descends into `t_hele_sleep`; the velocity was set once, in state
+ * 0xf24, as -0x2000 into both 0x1c and the part's 0x20. So the state machine is in the object and
+ * the frame stack is used only to borrow one animation step per pass.
+ *
+ * **Eleven consecutive states, fifteen frames apart, and three registers hold their successors.**
+ * Tokens 0xf3d through 0xf47 each call `hele_sound` and park 0xf; three of them also spawn effect
+ * 0x23. Three of the eleven share ONE nine-instruction tail whose token comes out of `r6`, which
+ * the dispatch loaded with 0xf3f, 0xf44 or 0xf47 depending on which comparison the token failed --
+ * so the same `str.w r6` writes three different successors. That is the "comparison value doubles
+ * as the token" hazard at its most extreme, and it is why the eleven states are transcribed with
+ * their constants written out rather than as `token + 1`: the binary never computes that.
+ *
+ * `t_cyrax_implode` lives in **mkprop.c**, which is finished, so the routine this hands off to is
+ * already decompiled. Second cross-file reference out of this file, after `t_fat_robo_crush`'s two
+ * into mkzap.c.
+ *
+ * The victim's animation is base-plus-character again, `him->field24 + 0x1b6c`, built in two
+ * instructions because 0x1b6c is not one Thumb immediate.
+ *
+ * `obj->a10 = 1` then `adds r3, r3, r3` for `obj->field1c = 2` is the doubling form of the shared
+ * literal, the same shape `t_sw_plant_bomb` uses for 0xd and 0x1a.
+ */
+void pose2_a9_manual(MK3OBJ *obj);
+long t_cyrax_implode(MK3THREAD *thread);         /* mkprop.c, 0x0003d4f8 */
+
+long t_cyrax_helecopter(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3THREADFUNC next_handler;
+    MK3OBJ  *him;
+    uint32_t next;
+    int      fx;
+
+    if (token == 0) {
+        *mk3_frame(thread, frame + 1) = 0xf12;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_fatality_start_pause;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xf12) {
+        sans_repell_for_good(obj);
+
+        obj->field40 = 0xe;
+        pose2_a9_manual(obj);
+
+        *mk3_frame(thread, frame + 1) = 0xf18;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (token == 0xf4a) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+    }
+
+    /* the eleven-state chain: hele_sound every fifteen frames */
+    fx = 0;
+    if      (token == 0xf3d) { next = 0xf3e; }
+    else if (token == 0xf3e) { next = 0xf3f; fx = 1; }
+    else if (token == 0xf3f) { next = 0xf40; fx = 1; }
+    else if (token == 0xf40) { next = 0xf41; fx = 1; }
+    else if (token == 0xf41) { next = 0xf42; }
+    else if (token == 0xf42) { next = 0xf43; }
+    else if (token == 0xf43) { next = 0xf44; }     /* r6 */
+    else if (token == 0xf44) { next = 0xf45; }
+    else if (token == 0xf45) { next = 0xf46; }
+    else if (token == 0xf46) { next = 0xf47; }     /* r6 */
+    else if (token == 0xf47) { next = 0xf48; }
+    else                     { next = 0; }
+
+    if (next != 0) {
+        if (fx) {
+            obj->field1c = 0x23;
+            create_fx(obj);
+        }
+
+        hele_sound(obj);
+
+        *mk3_frame(thread, frame + 1) = next;
+        thread->fieldfc = 0xf;
+        return 0xf;
+    }
+
+    if (token == 0xf18) {
+        hele_sound(obj);
+
+        obj->field1c = 0x00020010;
+
+        next         = 0xf1c;
+        next_handler = (MK3THREADFUNC)t_animate_a0_frames;
+
+    } else if (token == 0xf1c) {
+        obj->field1c = 0x00010010;
+
+        next         = 0xf1e;
+        next_handler = (MK3THREADFUNC)t_animate_a0_frames;
+
+    } else if (token == 0xf1e) {
+        hele_sound(obj);
+
+        obj->field40 = 0xe;
+        find_ani2_part2(obj);
+
+        obj->field1c = 0x00010010;
+
+        next         = 0xf24;
+        next_handler = (MK3THREADFUNC)t_animate_a0_frames;
+
+    } else if (token == 0xf24 || token == 0xf31) {
+        if (token == 0xf24) {
+            hele_sound(obj);
+
+            obj->field40 = 0xe;
+            find_ani2_part2(obj);
+            find_part2(obj);
+
+            obj->a10     = 1;
+            obj->field1c = 1 + 1;                    /* the same register */
+            init_anirate(obj);
+
+            obj->field1c          = 0xffffe000u;     /* -0x2000 */
+            obj->field08->field20 = obj->field1c;
+
+        } else {
+            distance_off_ground(obj);
+
+            if ((long)obj->field1c > 0x5f) {
+                stop_me_player(obj);
+                set_inviso(obj);
+                match_me_with_him(obj);
+                wfe_him(obj);
+
+                him = (MK3OBJ *)(void *)(uintptr_t)obj->field00->him;
+                him->field2c = him->field24 + 0x1b40 + 0x2c;
+
+                hele_sound(obj);
+
+                *mk3_frame(thread, frame + 1) = 0xf3d;
+                thread->fieldfc = 0xf;
+                return 0xf;
+            }
+        }
+
+        next         = 0xf31;
+        next_handler = (MK3THREADFUNC)t_hele_sleep;
+
+    } else if (token == 0xf48) {
+        clear_inviso(obj);
+
+        next         = 0xf4a;
+        next_handler = (MK3THREADFUNC)t_cyrax_implode;
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)next_handler;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
