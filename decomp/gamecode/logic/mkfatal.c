@@ -12040,3 +12040,192 @@ long t_sg_pound(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* -------------------------------------------------------------------------- t_fat_robo_crush
+ *
+ * armv7 0x000342e8, 624 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0x1a16, descend into t_fatality_start_pause
+ *
+ *      token == 0x1a16:   token := 0x1a17, descend into t_robo_open_chest
+ *
+ *      token == 0x1a17:   obj->field1c = 0x16; ochar_sound(obj)
+ *                         obj->field1c = center_around_me; call_a0_for_him(obj)
+ *                         part->field2c = 0x158f
+ *                         token := 0x1a20, park 0x3c
+ *
+ *      token == 0x1a20:   part->field2c = 0x1590
+ *                         obj->field1c = 0x17; ochar_sound(obj)
+ *                         obj->field20 = -9
+ *                         obj->field40 = 0
+ *                         token := 0x1a4b, descend into t_crush_him_more
+ *
+ *      token == 0x1a4b:   obj->field1c = set_inviso; call_a0_for_him(obj)
+ *                         obj->field20 = -9
+ *                         obj->field40 = -9 + 0xd = 4          ; wraps
+ *                         token := 0x1a53, descend into t_crush_him_more
+ *
+ *      token == 0x1a53:   obj->field20 = -9
+ *                         obj->field40 = 0x00010004
+ *                         token := 0x1a56, descend into t_crush_him_more
+ *
+ *      token == 0x1a56:   obj->field20 = -0xf
+ *                         obj->field40 = 0x00020004
+ *                         token := 0x1a59, descend into t_crush_him_more
+ *
+ *      token == 0x1a59:   obj->field1c = clear_shadow_bit; call_a0_for_him(obj)
+ *                         obj->field1c = set_inviso;       call_a0_for_him(obj)
+ *                         obj->field1c = 0x18; ochar_sound(obj)
+ *                         token := 0x1a64, park 0x78
+ *
+ *      token == 0x1a64:   token := 0x1ab4, descend into t_robo_close_chest
+ *
+ *      token == 0x1ab4:   death_blow_complete(obj)
+ *                         frame[frame].handler = t_victory_animation
+ *
+ *      otherwise:         return -3
+ *
+ * **`t_crush_him_more` gets its caller, four times over, and the four calls say what its two
+ * parameters are.** That routine sets 0x1c to zero itself, calls `adjust_him_xy`, and then poses
+ * the victim only `if (obj->field40 != 0)`. The four descents pass:
+ *
+ *      state       0x20      0x40
+ *      0x1a20      -9        0            ; no pose
+ *      0x1a4b      -9        4
+ *      0x1a53      -9        0x00010004
+ *      0x1a56      -0xf      0x00020004
+ *
+ * So 0x20 is the vertical squash per step and 0x40 is the pose, a packed pair whose low half is 4
+ * throughout and whose high half counts 0, 1, 2 across the three that pose. The first call is the
+ * one that only moves. And `t_crush_sleep_5`, which `t_crush_him_more` descends into, is therefore
+ * reached four times from here -- a chain of three routines whose top end was missing until now.
+ *
+ * **`obj->field40 = 4` in state 0x1a4b wraps 32 bits.** The instructions are `mvn r3, #8` then
+ * `adds r3, #0xd`: 0xfffffff7 + 0xd is 0x100000004, truncated by the register to 4. Written as the
+ * addition so the shared literal between 0x20 and 0x40 stays visible -- fourth wrapping site in the
+ * tree, after `t_hit_by_bull`, `tl_kitana_bunny` and `tl_sektor_bat`.
+ *
+ * **First cross-file reference from this file into `mkzap.c`.** `t_robo_open_chest` (0x00075290)
+ * and `t_robo_close_chest` (0x00077eb4) both live there, and mkzap.c is at 32 of 174. Whoever gets
+ * to that file has two of its routines already placed: they bracket this whole fatality, one at the
+ * start and one at the end, and both are used as ordinary descents rather than handovers.
+ *
+ * **Four `call_a0_for_him` calls with four different leaves** -- `center_around_me`, `set_inviso`
+ * twice and `clear_shadow_bit` -- which is the largest use of that mechanism measured. All four are
+ * plain helpers rather than thread handlers, which is the distinction `t_crush_him_more`'s note
+ * drew between the 0x1c mechanism and the 0x38 handovers.
+ *
+ * `part->field2c` is given two consecutive bare constants, 0x158f then 0x1590, sixty frames apart
+ * -- props get constants, fighters get base-plus-character, and the chest is a prop.
+ */
+long t_robo_open_chest(MK3THREAD *thread);       /* mkzap.c, 0x00075290 */
+long t_robo_close_chest(MK3THREAD *thread);      /* mkzap.c, 0x00077eb4 */
+void clear_shadow_bit(MK3OBJ *obj);
+
+long t_fat_robo_crush(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3THREADFUNC next_handler;
+    uint32_t next;
+
+    if (token == 0) {
+        *mk3_frame(thread, frame + 1) = 0x1a16;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_fatality_start_pause;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1a17) {
+        obj->field1c = 0x16;
+        ochar_sound(obj);
+
+        obj->field1c = (uint32_t)(uintptr_t)center_around_me;
+        call_a0_for_him(obj);
+
+        obj->field08->field2c = 0x158f;
+
+        *mk3_frame(thread, frame + 1) = 0x1a20;
+        thread->fieldfc = 0x3c;
+        return 0x3c;
+    }
+
+    if (token == 0x1a59) {
+        obj->field1c = (uint32_t)(uintptr_t)clear_shadow_bit;
+        call_a0_for_him(obj);
+
+        obj->field1c = (uint32_t)(uintptr_t)set_inviso;
+        call_a0_for_him(obj);
+
+        obj->field1c = 0x18;
+        ochar_sound(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x1a64;
+        thread->fieldfc = 0x78;
+        return 0x78;
+    }
+
+    if (token == 0x1ab4) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+    }
+
+    if (token == 0x1a16) {
+        next         = 0x1a17;
+        next_handler = (MK3THREADFUNC)t_robo_open_chest;
+
+    } else if (token == 0x1a64) {
+        next         = 0x1ab4;
+        next_handler = (MK3THREADFUNC)t_robo_close_chest;
+
+    } else if (token == 0x1a20) {
+        obj->field08->field2c = 0x1590;
+
+        obj->field1c = 0x17;
+        ochar_sound(obj);
+
+        obj->field20 = (uint32_t)~8u;                /* -9 */
+        obj->field40 = 0;
+
+        next         = 0x1a4b;
+        next_handler = (MK3THREADFUNC)t_crush_him_more;
+
+    } else if (token == 0x1a4b) {
+        obj->field1c = (uint32_t)(uintptr_t)set_inviso;
+        call_a0_for_him(obj);
+
+        obj->field20 = (uint32_t)~8u;                /* -9 */
+        obj->field40 = (uint32_t)~8u + 0xd;          /* wraps to 4 */
+
+        next         = 0x1a53;
+        next_handler = (MK3THREADFUNC)t_crush_him_more;
+
+    } else if (token == 0x1a53) {
+        obj->field20 = (uint32_t)~8u;                /* -9 */
+        obj->field40 = 0x00010004;
+
+        next         = 0x1a56;
+        next_handler = (MK3THREADFUNC)t_crush_him_more;
+
+    } else if (token == 0x1a56) {
+        obj->field20 = (uint32_t)~0xeu;              /* -0xf */
+        obj->field40 = 0x00020004;
+
+        next         = 0x1a59;
+        next_handler = (MK3THREADFUNC)t_crush_him_more;
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)next_handler;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
