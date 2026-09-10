@@ -640,3 +640,125 @@ void q_bat_4(MK3OBJ *obj)
     else
         q_no(obj);
 }
+
+
+/* ------------------------------------------------------------------------ t_kitty_spin
+ *
+ * armv7 0x000a0c44, 64 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field40 = obj->field48
+ *      obj->field1c = 3
+ *      frame[frame].handler = t_mframew
+ *
+ * Two stores and an install. 0x48 is where the caller left the animation and 0x40 is
+ * where the animation routines read it from, so the whole routine is a move between
+ * the two plus a three-frame wait.
+ */
+long t_mframew(MK3THREAD *thread);
+
+long t_kitty_spin(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field40 = obj->field48;
+    obj->field1c = 3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_mframew);
+}
+
+/* ------------------------------------------------------------------------ t_odor_proc
+ *
+ * armv7 0x000a0bd4, 112 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field08->field2c = 0x11c0
+ *                       obj->field48 = 0x3c
+ *                       token := 0x216, park 2
+ *
+ *      token == 0x216:  if (--obj->field48 != 0) token := 0x216, park 2
+ *                       frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:       return -3
+ *
+ * Sixty passes, two frames apart -- a hundred and twenty frames of smell -- and then
+ * t_wait_forever. The animation for it goes into the part's 0x2c as a single constant,
+ * 0x11c0, with no table lookup, so the odour looks the same whoever produced it.
+ */
+long t_wait_forever(MK3THREAD *thread);
+
+long t_odor_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field08->field2c = 0x11c0;
+        obj->field48 = 0x3c;
+
+    } else if (token == 0x216) {
+        obj->field48 = obj->field48 - 1;
+        if (obj->field48 == 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = 0x216;
+    thread->fieldfc = 2;
+    return 2;
+}
+
+/* --------------------------------------------------------------------- t_crunch_sounds
+ *
+ * armv7 0x000a10e8, 116 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->a10 = 6
+ *      the pair:        tsound_func(obj, 0x24)
+ *                       tsound_func(obj, 0x25)
+ *                       token := 0x3d2, park 0x10
+ *
+ *      token == 0x3d2:  if (--obj->a10 > 0) -- back to the pair --
+ *                       token := 0x3d6, park 0x16462
+ *
+ *      otherwise:       return -3
+ *
+ * **Two sounds together, six times, sixteen frames apart.** 0x24 and 0x25 are always
+ * played as a pair with nothing between them, so they are one noise made of two
+ * samples rather than two events.
+ *
+ * **Token 0x3d6 is not in the dispatch.** Reaching it would return -3, and it is safe
+ * for the same reason it is safe in mkstat.c's `t_jade_flash_proc`: the park is
+ * 0x16462, the never-wake duration, so the state is a terminator and never runs. That
+ * is the second site for this pattern, which makes it an idiom rather than an oversight.
+ */
+long t_crunch_sounds(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->a10 = 6;
+
+    } else if (token == 0x3d2) {
+        obj->a10 = obj->a10 - 1;
+        if ((long)obj->a10 <= 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0x3d6;
+            thread->fieldfc = 0x16462;
+            return 0x16462;
+        }
+
+    } else {
+        return -3;
+    }
+
+    tsound_func(obj, 0x24);
+    tsound_func(obj, 0x25);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x3d2;
+    thread->fieldfc = 0x10;
+    return 0x10;
+}
