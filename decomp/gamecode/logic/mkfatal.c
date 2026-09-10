@@ -4500,3 +4500,95 @@ long t_sacred_2_death(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_mk_game_cabinet
+ *
+ * armv7 0x0003ae20, 228 bytes.  **Complete.**
+ *
+ *      token == 0:        part->field2c = 0x1b37
+ *                         part->y12 = *(long *)(G + 0xac) - 0x1b0
+ *                         obj->field1c = (int16_t)((MK3OBJ *)proc->him)->x0e
+ *                         center_about_x(obj)
+ *                         obj->field38 = t_r_mk_game_crush
+ *                         takeover_him(obj)
+ *                         obj->field20 = 0x20000
+ *                         obj->a10     = 0x20000 - 0x1a000 = 0x6000
+ *                         token := 0xa3e, descend into t_gravity_ani_ysize
+ *
+ *      token == 0xa3e:    part->field24 = 0xd
+ *                         obj->field1c = 0xd - 5 = 8; ochar_sound(obj)
+ *                         obj->field48 = 0x000a000a; shake_a11(obj)
+ *                         frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:         return -3
+ *
+ * **This is `t_gravity_ani_ysize`'s caller, and it supplies exactly the two fields that routine
+ * reads.** That one accumulates the part's 0x1c by `obj->a10` each frame and falls until the
+ * animation's own height puts its base on the floor; here 0x20 is the starting velocity, 0x20000,
+ * and 0x44 is the acceleration, 0x6000. Two routines written from their own disassembly in separate
+ * batches, and the interface matches with nothing left over.
+ *
+ * **`part->field24 = 0xd` WRITES the character-number field.** Everywhere else in the tree that
+ * offset is read as an index into a per-character table -- `ochar_reached`, `taser_lineups`,
+ * `ochar_shocked_ani`, `ochar_headrip_lineups` and the base-plus-character animations all use it
+ * that way. This is the first site that assigns it, so a prop can be given a character number and
+ * then indexed like a fighter. Worth knowing before assuming 0x24 is immutable.
+ *
+ * The cabinet starts 0x1b0 above the floor -- an eighth spelling of vertical placement, and the
+ * second that subtracts a bare constant after `t_freeze_into_boomer`'s 0x90.
+ *
+ * `center_about_x` is given the OPPONENT's x out of `proc->him`, so the cabinet is dropped over
+ * wherever the victim happens to be standing rather than over a fixed point.
+ *
+ * One literal feeds 0x20 and 0x44 (`sub.w r3, r3, #0x1a000`), and the sound index comes out of the
+ * same register as the character number (`subs r3, #5`). Two separate instances of the habit in one
+ * function.
+ */
+long t_r_mk_game_crush(MK3THREAD *thread);       /* 0x000350b8 */
+void center_about_x(MK3OBJ *obj);
+long t_gravity_ani_ysize(MK3THREAD *thread);
+
+long t_mk_game_cabinet(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        obj->field08->field2c = 0x1b37;
+
+        MK3_SET_FIELD12(obj->field08,
+                        *(uint32_t *)(G_BYTES + 0xac) - 0x1b0);
+
+        obj->field1c = (uint32_t)(int32_t)(int16_t)MK3_FIELD0E(
+            (MK3OBJ *)(void *)(uintptr_t)obj->field00->him);
+        center_about_x(obj);
+
+        obj->field38 = (uint32_t)(uintptr_t)t_r_mk_game_crush;
+        takeover_him(obj);
+
+        obj->field20 = 0x20000;
+        obj->a10     = 0x20000u - 0x1a000u;
+
+        *mk3_frame(thread, frame + 1) = 0xa3e;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_gravity_ani_ysize;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xa3e)
+        return -3;
+
+    obj->field08->field24 = 0xd;
+
+    obj->field1c = 0xd - 5;
+    ochar_sound(obj);
+
+    obj->field48 = 0x000a000a;
+    shake_a11(obj);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+}
