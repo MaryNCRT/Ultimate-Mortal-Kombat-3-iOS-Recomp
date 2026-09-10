@@ -2122,3 +2122,136 @@ long t_animate_a11(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+
+/* --------------------------------------------------------------------------- t_st_spiked
+ *
+ * armv7 0x0003ab70, 144 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = 0x28; create_fx(obj)
+ *      obj->field48 = 0x00060006; shake_a11(obj)
+ *      death_scream(obj)
+ *      rsnd_func(obj, 3)
+ *      ground_player(obj)
+ *      obj->field40 = 0x1e; find_ani_part2(obj)
+ *      find_last_frame(obj)
+ *      do_next_a9_frame(obj)
+ *      obj->field1c = 0
+ *      obj->field20 = ~9                 (-0xa)
+ *      multi_adjust_xy(obj)
+ *      frame[frame].handler = t_wait_forever
+ *
+ * **Nine calls in one state, then park forever.** The victim lands on the spikes: effect 0x28,
+ * a doubled 6/6 shake, the scream, sound 3, and then the body is grounded, posed at animation
+ * 0x1e, wound to that animation's LAST frame, advanced one more, and nudged up by 0xa.
+ *
+ * **`find_last_frame` is the interesting call.** `find_ani_part2` sets the animation up and this
+ * winds it to the end, so the corpse is drawn in its final pose rather than playing through --
+ * which is why a routine that never animates again still calls `do_next_a9_frame` once.
+ *
+ * `obj->field1c = 0` comes out of the token register, which the dispatch has already proved to be
+ * zero, so the store looks like `str r6, [r4, #0x1c]` rather than a `movs` and a store. Written as
+ * 0 because that is what it is.
+ *
+ * The shift is vertical only -- 0 across and -0xa up -- one of the few `multi_adjust_xy` calls in
+ * the tree that does not build both offsets from one literal.
+ */
+void find_last_frame(MK3OBJ *obj);
+
+long t_st_spiked(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0x28;
+    create_fx(obj);
+
+    obj->field48 = 0x00060006;
+    shake_a11(obj);
+
+    death_scream(obj);
+    rsnd_func(obj, 3);
+    ground_player(obj);
+
+    obj->field40 = 0x1e;
+    find_ani_part2(obj);
+    find_last_frame(obj);
+    do_next_a9_frame(obj);
+
+    obj->field1c = 0;
+    obj->field20 = (uint32_t)~9u;
+    multi_adjust_xy(obj);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+}
+
+/* ---------------------------------------------------------------------- t_init_death_blow
+ *
+ * armv7 0x00033c88, 152 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      kind = (uint16_t)obj->field20
+ *      *(short *)(G + 0x450) = kind
+ *      *(short *)(G + 0x458) = kind
+ *      init_special(obj)
+ *      NewThread(obj, t_make_db_tone)
+ *      obj->field1c = (int16_t)*(short *)(G + 0x450)
+ *      if (obj->field1c != 2) MKEvent_Add(3, 0xe, 0, 0)
+ *      pop a level, or t_local_reaction_exit at the bottom
+ *
+ * **This is the routine every finisher goes through, and it is where the kind number ends up.**
+ * mkanimal.c's `t_animality_start_pause` writes 3 into `obj->field20` and descends here;
+ * mkstat.c's `t_baby_start_pause` writes 5 and descends here. Both were transcribed with the note
+ * that 0x20 must be a kind selector. It is, and this is the proof: the halfword is copied
+ * straight out of 0x20 into **two** global slots, `G + 0x450` and `G + 0x458`, and everything
+ * downstream reads the globals.
+ *
+ * Two slots for one value, written back to back with no branch between them, so they are not
+ * per-player -- or if they are, this routine sets both players the same and something else
+ * separates them later. Recorded as observed.
+ *
+ * **`kind == 2` is special and gets no event.** The routine reads the global back with `ldrsh` --
+ * signed -- compares against 2, and skips `MKEvent_Add(3, 0xe, 0, 0)` when it matches. So one
+ * finisher kind is silent to whatever consumes event 3/0xe, and 3 (animality) and 5 (babality)
+ * both fire it. What kind 2 is has not been established; the two known values bracket it.
+ *
+ * The tone is a separate thread, `t_make_db_tone` -- the fourth site in the tree for spawning a
+ * thread so an effect can outlast the state that started it, after `t_skburn3`'s fire and
+ * mkanimal.c's crunches and odour.
+ *
+ * Note it POPS rather than parking: the death blow is set up in one tick and the caller resumes
+ * immediately, which is why `t_animality_start_pause` has its own thirty-frame wait afterwards.
+ */
+void MKEvent_Add(long a, long b, long c, long d);
+long t_make_db_tone(MK3THREAD *thread);          /* 0x00033c30 */
+
+long t_init_death_blow(MK3THREAD *thread)
+{
+    MK3OBJ   *obj = (MK3OBJ *)thread->proc;
+    uint16_t  kind;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    kind = (uint16_t)obj->field20;
+    *(uint16_t *)(G_BYTES + 0x450) = kind;
+    *(uint16_t *)(G_BYTES + 0x458) = kind;
+
+    init_special(obj);
+
+    NewThread(obj, (MK3THREADFUNC)t_make_db_tone);
+
+    obj->field1c = (uint32_t)(int32_t)*(int16_t *)(G_BYTES + 0x450);
+    if (obj->field1c != 2)
+        MKEvent_Add(3, 0xe, 0, 0);
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
