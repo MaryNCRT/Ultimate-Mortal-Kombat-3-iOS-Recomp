@@ -3214,3 +3214,147 @@ long t_grow_n_shake(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+
+/* ---------------------------------------------------------------------------- t_jax_grow
+ *
+ * armv7 0x00033720, 180 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0x102f, descend into t_fatality_start_pause
+ *
+ *      token == 0x102f:   sans_repell_for_good(obj)
+ *                         obj->field38 = t_grow_victum
+ *                         takeover_him(obj)
+ *                         part->field2c = 0x177d
+ *                         token := 0x10a1, park 0x10
+ *
+ *      token == 0x10a1:   death_blow_complete(obj)
+ *                         frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:         return -3
+ *
+ * **The attacker's half of the grow fatality, and both halves are now in this file.** It descends
+ * into `t_fatality_start_pause` -- which writes kind 1 into 0x20 and runs the death blow -- then
+ * hands `t_grow_victum` to the other fighter through 0x38 and `takeover_him`.
+ *
+ * So the full path is: `t_jax_grow` starts the finisher, `t_fatality_start_pause` sets kind 1 and
+ * goes through `t_init_death_blow`, and the victim's own thread runs `t_grow_victum`, which reads
+ * `part->field24 + 0x1b12` for its animation and screams. Four routines, all written from their own
+ * disassembly, and they fit together with nothing left over.
+ *
+ * The attacker's own animation is a bare constant, 0x177d, in the same style as
+ * `t_appearing_spikes` and `t_nail_spawn_proc` -- the grower gets a fixed pose while the victim
+ * gets base-plus-character.
+ *
+ * `r1` carries 0x102f from before the dispatch into state 0's store, so that store shows no
+ * constant of its own.
+ */
+long t_jax_grow(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x102f) {
+        sans_repell_for_good(obj);
+
+        obj->field38 = (uint32_t)(uintptr_t)t_grow_victum;
+        takeover_him(obj);
+
+        obj->field08->field2c = 0x177d;
+
+        *mk3_frame(thread, frame + 1) = 0x10a1;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (token == 0x10a1) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+    }
+
+    if (token != 0)
+        return -3;
+
+    *mk3_frame(thread, frame + 1) = 0x102f;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_fatality_start_pause;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+/* ---------------------------------------------------------------------- t_crush_him_more
+ *
+ * armv7 0x00034760, 188 bytes.  **Complete.**
+ *
+ *      token == 0:        obj->field1c = 0
+ *                         adjust_him_xy(obj)
+ *                         if (obj->field40 != 0) {
+ *                             obj->field1c = player_normpal; call_a0_for_him(obj)
+ *                             obj->field1c = pose_a9_manual; call_a0_for_him(obj)
+ *                         }
+ *                         token := 0x1a05, descend into t_crush_sleep_5
+ *
+ *      token == 0x1a05:   pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:         return -3
+ *
+ * **Two routines run on the opponent back to back through the 0x1c mechanism**, and both come out
+ * of pointer slots: `player_normpal` (0x000f36f4) and `pose_a9_manual` (0x000f3718). So when 0x40
+ * is set, the victim's palette is restored and they are posed by hand -- and when it is clear,
+ * neither happens and the routine only nudges them.
+ *
+ * That makes 0x40 a plain FLAG here, tested against zero and never dereferenced. In this file and
+ * in mkanimal.c the same offset is an animation cursor, a small index and a packed halfword pair;
+ * this is a fourth reading, and the cheapest one.
+ *
+ * **`call_a0_for_him` twice in a row is the clearest sample of that mechanism in the tree.** The
+ * two calls differ in nothing but the pointer written into 0x1c beforehand, which is exactly how
+ * mkstat.c's note describes it -- and both callees are ordinary helpers rather than thread
+ * handlers, like `tl_sonya_eagle`'s `death_scream` and unlike the 0x38 handovers.
+ *
+ * It then descends into `t_crush_sleep_5`, the four-frame wait written at the top of this batch of
+ * work, which had no known caller until now.
+ */
+void adjust_him_xy(MK3OBJ *obj);
+void call_a0_for_him(MK3OBJ *obj);
+long t_crush_sleep_5(MK3THREAD *thread);
+
+long t_crush_him_more(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 0;
+        adjust_him_xy(obj);
+
+        if (obj->field40 != 0) {
+            obj->field1c = (uint32_t)(uintptr_t)player_normpal;
+            call_a0_for_him(obj);
+
+            obj->field1c = (uint32_t)(uintptr_t)pose_a9_manual;
+            call_a0_for_him(obj);
+        }
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1a05;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_crush_sleep_5;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x1a05)
+        return -3;
+
+    if ((long)frame > 0) {
+        thread->frame = frame - 1;
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
