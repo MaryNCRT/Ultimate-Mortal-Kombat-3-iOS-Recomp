@@ -2288,3 +2288,360 @@ long t_lion_mauled(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+/* -------------------------------------------------------------------- tl_kabal_skeleton
+ *
+ * armv7 0x000a1578, 352 bytes.  **Complete.**
+ *
+ *      token == 0:      animality_tune(obj)
+ *                       obj->field40 = a_skeleton
+ *                       obj->a10 = 0x12
+ *                       token := 0x539, descend into t_animal_morph
+ *
+ *      token == 0x539:  obj->field1c = 0x80000; towards_x_vel(obj)
+ *                       obj->field1c = 4
+ *                       token := 0x53e, descend into t_mframew
+ *
+ *      token == 0x53e:  obj->field38 = t_dino_bucked
+ *                       takeover_him(obj)
+ *                       stop_me_player(obj)
+ *                       token := 0x543, park 0x10
+ *
+ *      token == 0x543:  obj->field1c = 5
+ *                       token := 0x546, descend into t_mframew
+ *
+ *      token == 0x546:  token := 0x547, park 0x10
+ *
+ *      token == 0x547:  obj->field40 = a_skeleton
+ *                       frame[frame].handler = t_unmorph_and_exit
+ *
+ *      otherwise:       return -3
+ *
+ * **The template with a charge in the middle and an unmorph at the end.** Six states where
+ * Sheeva's scorpion has four, and the two extra pieces are both plain:
+ * `towards_x_vel` at 0x80000 sends the skeleton at the opponent before the hit, and the
+ * ending goes through `t_unmorph_and_exit` -- which runs `t_backwards_ani` and only then
+ * installs `t_animality_complete` -- instead of installing it directly.
+ *
+ * **So there are three endings in the family so far**: install
+ * `t_animality_complete` (`tl_sheeva_scorpion`), unmorph first and then complete (this one),
+ * and never complete at all (`tl_reptile_monkey`). The animal that has to turn back into a
+ * fighter is the one that unmorphs; the skeleton is Kabal without his skin, so it does.
+ *
+ * **The victim's reaction is `t_dino_bucked`**, reused unchanged from the dinosaur. Nothing
+ * in this routine adapts it -- the same knock-into-the-air with the same five numbers -- so
+ * the reactions in this module are a shared pool and not one per animal. That is the second
+ * such reuse, after `t_eaten_by_shark` taking `t_eaten_by_snake` as its tail.
+ *
+ * 0x40 is set twice with the same list for the same reason as in `tl_sheeva_scorpion`: the
+ * morph advances it and the ending has to read it from the start again.
+ */
+extern uint32_t a_skeleton[];                    /* 0x00177498 */
+void towards_x_vel(MK3OBJ *obj);
+
+long tl_kabal_skeleton(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x539) {
+        obj->field1c = 0x80000;
+        towards_x_vel(obj);
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x53e;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x53e) {
+        obj->field38 = (uint32_t)(uintptr_t)t_dino_bucked;
+        takeover_him(obj);
+        stop_me_player(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x543;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (token == 0x543) {
+        obj->field1c = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x546;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x546) {
+        *mk3_frame(thread, frame + 1) = 0x547;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (token == 0x547) {
+        obj->field40 = (uint32_t)(uintptr_t)a_skeleton;
+
+        return mk3_install(thread, (MK3THREADFUNC)t_unmorph_and_exit);
+    }
+
+    if (token != 0)
+        return -3;
+
+    animality_tune(obj);
+
+    obj->field40 = (uint32_t)(uintptr_t)a_skeleton;
+    obj->a10 = 0x12;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x539;
+    thread->frame = thread->frame + 1;              /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_animal_morph;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+/* ----------------------------------------------------------------- tl_shang_tsung_snake
+ *
+ * armv7 0x000a1f1c, 336 bytes.  **Complete.**
+ *
+ *      token == 0:      animality_tune(obj)
+ *                       obj->field40 = a_snake
+ *                       obj->a10 = 0x12
+ *                       token := 0x4d7, descend into t_animal_morph
+ *
+ *      token == 0x4d7:  obj->field1c = 5
+ *                       token := 0x4db, descend into t_mframew
+ *
+ *      token == 0x4db:  obj->field38 = t_eaten_by_snake
+ *                       takeover_him(obj)
+ *                       obj->field48 = 0x000a000a; shake_a11(obj)
+ *                       token := 0x4e1, park 0x20
+ *
+ *      token == 0x4e1:  obj->field1c = 5
+ *                       token := 0x4e4, descend into t_mframew
+ *
+ *      token == 0x4e4:  token := 0x4e6, park 0x40
+ *
+ *      token == 0x4e6:  obj->field40 = a_snake
+ *                       frame[frame].handler = t_unmorph_and_exit
+ *
+ *      otherwise:       return -3
+ *
+ * **The same six states as `tl_kabal_skeleton`, state for state.** Both morph for 0x12,
+ * wait five frames, hand the victim their reaction, wait, wait five more, park, and unmorph.
+ * The only differences are what happens beside the handover -- the skeleton charges in
+ * beforehand with `towards_x_vel` and stops itself afterwards, the snake shakes the screen
+ * at 0x000a000a -- and the two park lengths, 0x10/0x10 against 0x20/0x40.
+ *
+ * So the six-state driver is a real template and not a coincidence of two routines: the
+ * animal supplies its word list, its morph length, its victim reaction, its two waits, and
+ * at most one extra call.
+ *
+ * **Both tokens that share a register are read from the right load.** 0x4d7's state stores
+ * `r2` still holding 0x4db from entry, and 0x4e1's state stores `r2` reloaded with 0x4e4 by
+ * the dispatch on the way past -- the same one-register-two-tokens hazard recorded for
+ * `t_sz_slam`, and transcribing either store without tracing which load reaches it would
+ * give two states the same token.
+ *
+ * The shake pair is doubled, 0xa and 0xa, so the snake's strike shakes evenly.
+ */
+extern uint32_t a_snake[];                       /* 0x00177378 */
+
+long tl_shang_tsung_snake(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x4d7) {
+        obj->field1c = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x4db;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x4db) {
+        obj->field38 = (uint32_t)(uintptr_t)t_eaten_by_snake;
+        takeover_him(obj);
+
+        obj->field48 = 0x000a000a;
+        shake_a11(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x4e1;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (token == 0x4e1) {
+        obj->field1c = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x4e4;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x4e4) {
+        *mk3_frame(thread, frame + 1) = 0x4e6;
+        thread->fieldfc = 0x40;
+        return 0x40;
+    }
+
+    if (token == 0x4e6) {
+        obj->field40 = (uint32_t)(uintptr_t)a_snake;
+
+        return mk3_install(thread, (MK3THREADFUNC)t_unmorph_and_exit);
+    }
+
+    if (token != 0)
+        return -3;
+
+    animality_tune(obj);
+
+    obj->field40 = (uint32_t)(uintptr_t)a_snake;
+    obj->a10 = 0x12;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x4d7;
+    thread->frame = thread->frame + 1;              /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_animal_morph;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+/* ------------------------------------------------------------------ tl_smoke_bull_shit
+ *
+ * armv7 0x000a2dfc, 356 bytes.  **Complete.**
+ *
+ *      token == 0:      animality_tune(obj)
+ *                       obj->field40 = a_bull
+ *                       obj->a10 = 0x12
+ *                       token := 0x63b, descend into t_animal_morph
+ *
+ *      token == 0x63b:  sans_repell_for_good(obj)
+ *                       kill_and_stop_scrolling(obj)
+ *                       obj->field1c = 0xa0000; towards_x_vel(obj)
+ *                       token := 0x641, park 1
+ *
+ *      token == 0x641:  sans_repell_for_good(obj)
+ *                       obj->field1c = 4; init_anirate(obj)
+ *                       token := 0x648, park 1
+ *
+ *      token == 0x648:  next_anirate(obj)
+ *                       get_x_dist(obj)
+ *                       if (obj->field28 > 0x60) { token := 0x648, park 1 }
+ *                       obj->field40 = a_bull; find_part2(obj)
+ *                       do_next_a9_frame(obj)
+ *                       stop_me_player(obj)
+ *                       obj->field48 = 0x000a000a; shake_a11(obj)
+ *                       obj->field38 = t_hit_by_bull
+ *                       takeover_him(obj)
+ *                       token := 0x658, park 0x60
+ *
+ *      token == 0x658:  obj->field40 = a_bull
+ *                       frame[frame].handler = t_unmorph_and_exit
+ *
+ *      otherwise:       return -3
+ *
+ * **The fourth driver shape: charge until you arrive.** Instead of a fixed wait between the
+ * morph and the handover, state 0x648 measures the gap every frame with `get_x_dist` and
+ * re-arms itself while the opponent is more than 0x60 away. So the bull's run is as long as
+ * the arena makes it, and the hit lands on contact rather than on a schedule.
+ *
+ * **The distance test is written out here rather than called.** `q_bat_1` and `q_bat_3`
+ * ask the same question about the same field with `get_x_dist` and answer in 0x5c; this
+ * routine calls `get_x_dist` and branches on 0x28 directly. So the `q_*` helpers exist for
+ * `t_animate_till_a11`, which needs a predicate it can call through a pointer, and a state
+ * machine that can just branch does not use them.
+ *
+ * **`sans_repell_for_good` is called twice, in two consecutive states.** Reading it (24
+ * bytes, mkfatal.c) it writes 0x500 into the object's 0x1c and a halfword into the global at
+ * 0x456, so the second call is not idempotent bookkeeping -- it restores 0x1c to 0x500 after
+ * `towards_x_vel` has used it, and only then is 0x1c reloaded with the animation rate 4.
+ * Transcribed as it stands; nothing here says whether the repetition is deliberate.
+ *
+ * The re-arming branch lands on the token store inside the 0x641 tail rather than at the top
+ * of its own state, so the charge loop and the frame after `init_anirate` share one store --
+ * which is why 0x648 is written from two places and 1 is the park in both.
+ */
+extern uint32_t a_bull[];                        /* 0x0017745c */
+void find_part2(MK3OBJ *obj);
+
+long tl_smoke_bull_shit(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x63b) {
+        sans_repell_for_good(obj);
+        kill_and_stop_scrolling(obj);
+
+        obj->field1c = 0xa0000;
+        towards_x_vel(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x641;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0x641 || token == 0x648) {
+        if (token == 0x641) {
+            sans_repell_for_good(obj);
+
+            obj->field1c = 4;
+            init_anirate(obj);
+
+        } else {
+            next_anirate(obj);
+            get_x_dist(obj);
+
+            if ((long)obj->field28 <= 0x60) {
+                obj->field40 = (uint32_t)(uintptr_t)a_bull;
+                find_part2(obj);
+                do_next_a9_frame(obj);
+                stop_me_player(obj);
+
+                obj->field48 = 0x000a000a;
+                shake_a11(obj);
+
+                obj->field38 = (uint32_t)(uintptr_t)t_hit_by_bull;
+                takeover_him(obj);
+
+                *mk3_frame(thread, thread->frame + 1) = 0x658;
+                thread->fieldfc = 0x60;
+                return 0x60;
+            }
+        }
+
+        *mk3_frame(thread, thread->frame + 1) = 0x648;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0x658) {
+        obj->field40 = (uint32_t)(uintptr_t)a_bull;
+
+        return mk3_install(thread, (MK3THREADFUNC)t_unmorph_and_exit);
+    }
+
+    if (token != 0)
+        return -3;
+
+    animality_tune(obj);
+
+    obj->field40 = (uint32_t)(uintptr_t)a_bull;
+    obj->a10 = 0x12;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x63b;
+    thread->frame = thread->frame + 1;              /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_animal_morph;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
