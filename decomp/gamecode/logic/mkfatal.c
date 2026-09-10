@@ -1756,3 +1756,120 @@ long t_kludge_flame_ani(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+
+/* ----------------------------------------------------------------- t_nails_blood_spawner
+ *
+ * armv7 0x0003aabc, 116 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->a10 = 0xa
+ *                       -- falls into the 0x40e tail --
+ *
+ *      token == 0x40e:  obj->field1c = 5; create_blood_proc(obj)
+ *                       obj->field1c = 5; create_blood_proc(obj)
+ *                       if (--obj->a10 == 0) { token := 0x416, park 0x16462 }
+ *                       -- falls into the 0x40e tail --
+ *
+ *      the 0x40e tail:  token := 0x40e, park 2
+ *
+ *      otherwise:       return -3
+ *
+ * **Two blood effects a frame apart, ten times over, then the thread parks forever.** Twenty
+ * spawns in twenty frames and no way back -- whatever cleans the fatality up does it from
+ * outside.
+ *
+ * **Token 0x416 is not in the dispatch and the park is 0x16462.** Fourth site for that
+ * terminator, after mkstat.c's `t_jade_flash_proc` and mkanimal.c's `t_crunch_sounds` and
+ * `t_egg_proc`. The pattern is settled: a state that has nothing left to do parks for a
+ * duration that never elapses, under a token the dispatch would refuse. Reaching it would
+ * return -3 and it cannot be reached.
+ *
+ * **5 is stored into 0x1c twice, once before each call, out of the same register.** That is
+ * `create_blood_proc` clobbering 0x1c -- the same reload mkanimal.c's `t_r_rabbit` needs around
+ * its single call. Neither store is dead.
+ */
+long t_nails_blood_spawner(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        obj->a10 = 0xa;
+
+    } else if (token == 0x40e) {
+        obj->field1c = 5;
+        create_blood_proc(obj);
+        obj->field1c = 5;
+        create_blood_proc(obj);
+
+        obj->a10 = obj->a10 - 1;
+        if (obj->a10 == 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0x416;
+            thread->fieldfc = 0x16462;
+            return 0x16462;
+        }
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = 0x40e;
+    thread->fieldfc = 2;
+    return 2;
+}
+
+/* ------------------------------------------------------------------------------ t_skburn3
+ *
+ * armv7 0x00034fd4, 120 bytes.  **Complete.**
+ *
+ *      token == 0:       death_scream(obj)
+ *                        NewThread(obj, t_skel_fire_proc)
+ *                        token := 0x1711, park 0x12
+ *
+ *      token == 0x1711:  set_inviso(obj)
+ *                        frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:        return -3
+ *
+ * **The end of the three burns, and the fire is a separate thread.** All three burn entry points
+ * in this file -- `t_sb_skeleton_burn`, `t_robo_skeleton_burn` and `t_lk_skeleton_burn` -- reach
+ * this routine, and it screams, starts `t_skel_fire_proc` on its own thread, waits eighteen
+ * frames and makes the fighter invisible.
+ *
+ * So the visible fire outlives the routine that lit it: `set_inviso` removes the body while the
+ * spawned thread keeps burning. Same division of labour as mkanimal.c's `t_r_rabbit` starting
+ * `t_crunch_sounds`, and mkanimal.c's `tl_mileena_skunk` starting `t_odor_proc` -- **when an
+ * effect has to outlast the state that caused it, this engine spawns a thread rather than
+ * lengthening the state.**
+ *
+ * `obj->field40` is never read here, which is what makes the +8 in `t_robo_skeleton_burn`
+ * interesting: the cursor that routine sets up must be consumed by `t_skel_fire_proc` or by the
+ * animation machinery, not by this. Worth checking when `t_skel_fire_proc` is written.
+ */
+MK3THREAD *NewThread(void *owner, MK3THREADFUNC func);
+long t_skel_fire_proc(MK3THREAD *thread);        /* 0x00036094 */
+
+long t_skburn3(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        death_scream(obj);
+
+        NewThread(obj, (MK3THREADFUNC)t_skel_fire_proc);
+
+        *mk3_frame(thread, frame + 1) = 0x1711;
+        thread->fieldfc = 0x12;
+        return 0x12;
+    }
+
+    if (token != 0x1711)
+        return -3;
+
+    set_inviso(obj);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+}
