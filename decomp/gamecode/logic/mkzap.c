@@ -1021,3 +1021,194 @@ void tell_world_stk(MK3OBJ *obj)
 
     obj->field1c = saved;
 }
+
+
+/* q_is_he_react_fk -- armv7 0x00074c9c, 32 bytes.  **Complete.**
+ *
+ *      obj->field20 = proc->field00->proc->field18
+ *      obj->field5c = (obj->field20 == 0x507)
+ *
+ * **The twin of `q_his_react_flag_set`, and the contrast is what makes that one
+ * suspicious.** Both walk the same four loads out to the OTHER fighter's proc.
+ * This one parks what it found and answers about it; that one parks what it
+ * found in 0x2c and then answers from `obj->field54`, which it never wrote.
+ *
+ * Written next to each other they are plainly meant to be the same shape, so
+ * either 0x54 is filled by the caller in that case or the routine is not doing
+ * what its name says. Recorded on both, decided on neither.
+ *
+ * 0x507 is an action number -- proc 0x18 is the field `get_his_action` reads.
+ */
+void q_is_he_react_fk(MK3OBJ *obj)
+{
+    obj->field20 = obj->field00->field00->field00->field18;
+    obj->field5c = (obj->field20 == 0x507) ? 1 : 0;
+}
+
+
+/* get_frontmost_point -- armv7 0x00075ea8, 36 bytes.  **Complete.**
+ *
+ *      obj->field2c = part->field28
+ *      if (part->field28 & 0x10) {
+ *          leftmost_mpart_ob(obj, part)
+ *          obj->field28 = obj->field24
+ *      } else {
+ *          rightmost_mpart_ob(obj, part)
+ *      }
+ *
+ * **The answer always ends up in 0x28, and the copy is only on one branch
+ * because the two helpers write different fields.** mkprop.c already recorded
+ * that `leftmost_mpart_ob` answers in 0x24 and `rightmost_mpart_ob` in 0x28;
+ * this routine normalises them, and the asymmetry in the code is exactly that
+ * asymmetry in the helpers. A transcription that copied 0x24 to 0x28 on both
+ * paths would clobber the right-hand answer with a stale left-hand one.
+ *
+ * "Frontmost" is decided by bit 4 of the part's 0x28 -- the flip bit -- so the
+ * front of a fighter is their left edge when they face left and their right when
+ * they face right, which is what the name means.
+ */
+void leftmost_mpart_ob(MK3OBJ *out, MK3OBJ *src);
+void rightmost_mpart_ob(MK3OBJ *out, MK3OBJ *src);
+
+void get_frontmost_point(MK3OBJ *obj)
+{
+    obj->field2c = obj->field08->field28;
+
+    if ((obj->field2c & 0x10u) != 0) {
+        leftmost_mpart_ob(obj, obj->field08);
+        obj->field28 = obj->field24;            /* left answers in 0x24 */
+    } else {
+        rightmost_mpart_ob(obj, obj->field08);  /* right already answers in 0x28 */
+    }
+}
+
+
+/* get_proj_obj_m -- armv7 0x0007822c, 36 bytes.  **Complete.**
+ *
+ *      p = NewThreadProc(obj, t_wait_forever)
+ *      proc->field64 = p
+ *      proc->slave   = p->field08
+ *      obj->a10      = p->field08
+ *
+ * **This is what creates the slave, and it closes issue #30.** Eight sites
+ * across mkfatal.c cleared or destroyed `proc->field64` and `proc->slave` --
+ * seven `delete_slave` calls and `detach_proj` above -- and none of them made
+ * one. This does: it starts a thread that does nothing at all, parks the new
+ * object in 0x64 and its part in 0x68, and hands the part back in `a10`.
+ *
+ * So a "slave" is a second object with no behaviour of its own, driven entirely
+ * by whoever owns it. `t_wait_forever` as the handler is the whole point --
+ * everything the slave does is done to it.
+ *
+ * The three routines make a complete set: **create** here, **let go**
+ * (`detach_proj`), **destroy** (`delete_slave`).
+ */
+long t_wait_forever(MK3THREAD *thread);
+void *NewThreadProc(void *owner, MK3THREADFUNC func);
+
+void get_proj_obj_m(MK3OBJ *obj)
+{
+    MK3OBJ *p = (MK3OBJ *)NewThreadProc(obj, (MK3THREADFUNC)t_wait_forever);
+
+    obj->field00->field64 = (uint32_t)(uintptr_t)p;
+    obj->field00->slave   = (uint32_t)(uintptr_t)p->field08;
+
+    obj->a10 = (uint32_t)(uintptr_t)p->field08;
+}
+
+
+/* set_proj_vel -- armv7 0x00075d6c, 36 bytes.  **Complete.**
+ *
+ *      obj->field2c = part->field28
+ *      if (part->field28 & 0x10) obj->field1c = -obj->field1c
+ *      part->field18 = obj->field1c
+ *      obj->field1c  = obj->field20
+ *      init_anirate(obj)
+ *
+ * **Two arguments in two fields**: the speed in 0x1c and the animation rate in
+ * 0x20. The speed is signed by the flip bit so a caller always passes a forward
+ * speed and never has to know which way the fighter is facing -- which is why
+ * every projectile launcher in this file writes a positive number.
+ *
+ * The negation is spelled as an `itett` block with the load duplicated in both
+ * halves, so the flipped path also writes the negated value back into 0x1c
+ * where the unflipped path leaves it alone. Both halves then share the store
+ * into the part.
+ *
+ * 0x1c is spent and reloaded with 0x20 before `init_anirate`, which reads it --
+ * the same one-field-two-callees squeeze the argument stack exists for, solved
+ * here by ordering instead, because nothing needs the speed afterwards.
+ */
+void set_proj_vel(MK3OBJ *obj)
+{
+    obj->field2c = obj->field08->field28;
+
+    if ((obj->field2c & 0x10u) != 0)
+        obj->field1c = (uint32_t)(-(long)obj->field1c);
+
+    obj->field08->field18 = obj->field1c;
+
+    obj->field1c = obj->field20;
+    init_anirate(obj);
+}
+
+
+/* setup_proj_obj -- armv7 0x00078250, 36 bytes.  **Complete.**
+ *
+ *      saved = obj->field40
+ *      obj->field40 = 0x3f; get_char_ani(obj)
+ *      obj->field48 = obj->field40
+ *      get_proj_obj_m(obj)
+ *      obj->field40 = saved
+ *      obj->field1c = obj->a10
+ *
+ * Animation 0x3f resolved into 0x48, a slave made, the caller's 0x40 put back,
+ * and the new part left in 0x1c for whoever called. **Every projectile in this
+ * file starts from the same animation number**, which is what makes 0x3f worth
+ * naming when someone gets to the animation tables.
+ *
+ * The save is a callee-saved register across two calls inside one function --
+ * the rule `t_sg_pound` settled, and the third routine in this batch to use it.
+ */
+void get_char_ani(MK3OBJ *obj);
+
+void setup_proj_obj(MK3OBJ *obj)
+{
+    uint32_t saved = obj->field40;
+
+    obj->field40 = 0x3f;
+    get_char_ani(obj);
+
+    obj->field48 = obj->field40;
+
+    get_proj_obj_m(obj);
+
+    obj->field40 = saved;
+    obj->field1c = obj->a10;
+}
+
+
+/* tl_delete_proj_and_die -- armv7 0x00075664, 40 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      frame[frame+1].w0 = 0x13c6
+ *      park 0x16462                     and never wakes
+ *
+ * **Eleventh 0x16462 site**, and the token 0x13c6 is not in any dispatch -- the
+ * routine has no second state. The name says the rest: whatever called it has
+ * already deleted the projectile, and this thread is finished.
+ *
+ * It is reached by `mk3_install` from the projectile drivers at the end of this
+ * file, so the thread that flew the projectile is the one that parks.
+ */
+long tl_delete_proj_and_die(MK3THREAD *thread)
+{
+    uint32_t frame = thread->frame;
+
+    if (*mk3_frame(thread, frame + 1) != 0)
+        return -3;
+
+    *mk3_frame(thread, frame + 1) = 0x13c6;
+    thread->fieldfc = 0x16462;              /* and never wakes */
+    return 0x16462;
+}

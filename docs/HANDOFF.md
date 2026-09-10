@@ -7,7 +7,7 @@ Read this, then [METHODOLOGY.md](METHODOLOGY.md). Everything else is reference.
 
 ## Where the project actually stands
 
-**70.42% of the total estimated effort. Nothing is playable.** The arithmetic is
+**70.50% of the total estimated effort. Nothing is playable.** The arithmetic is
 in the [README](../README.md#overall-progress) and the weights are a judgement
 call; the completion figures are measured by `tools/progress.py` on every run.
 
@@ -718,10 +718,12 @@ field does at the sites you measured, and say how many there were.
 
 ### 7. What did NOT close
 
-- **`delete_slave` has seven sites and nothing in the tree creates the slave.**
-  `t_sz_blow`, `t_ind_zap_kill`, `t_robo_flame_throw`, `t_smoke_arm`,
-  `t_kano_lazer` and `t_cyrax_self_destruct` (twice). Whatever writes
-  `proc->field64` is not among the 1,446 functions read so far.
+- ~~**`delete_slave` has seven sites and nothing in the tree creates the
+  slave.**~~ **Answered by `get_proj_obj_m` in mkzap.c**, read the same day: it
+  starts a thread on `t_wait_forever`, parks the new object in `proc->field64`
+  and its part in `proc->slave`, and hands the part back in `a10`. A slave is a
+  second object with no behaviour of its own. The set is complete -- **create**
+  (`get_proj_obj_m`), **let go** (`detach_proj`), **destroy** (`delete_slave`).
 - **Does `frame_a9` advance 0x40?** Two loops say it must: `t_scorpion_flame`
   descends into `t_double_flame_ani`, which does nothing but call `frame_a9`
   and pop, and then tests the word 0x40 points at. Neither `frame_a9` nor
