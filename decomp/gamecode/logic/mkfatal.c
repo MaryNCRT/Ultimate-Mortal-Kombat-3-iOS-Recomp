@@ -4771,3 +4771,102 @@ long t_skin_fall(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* -------------------------------------------------------------------------- t_r_kiss_suck
+ *
+ * armv7 0x00035eb8, 260 bytes.  **Complete.**
+ *
+ *      token == 0:        sans_repell_for_good(obj)
+ *                         face_opponent(obj)
+ *                         obj->field1c = 0x00020002
+ *                         obj->field20 = 3
+ *                         obj->field24 = 3 + 5 = 8
+ *                         token := 0x3e6, descend into t_shake_ob_up
+ *
+ *      token == 0x3e6:    flip_multi(obj)
+ *                         obj->field1c = ~0x35            (-0x36)
+ *                         obj->field20 = 0
+ *                         multi_adjust_xy(obj)
+ *                         obj->field40 = 0x17
+ *                         obj->field40 = *(long *)(&fn_ani_data[0x20a4]
+ *                                                  + part->field24 * 4)
+ *                         obj->field1c = 5
+ *                         token := 0x3f1, descend into t_mframew
+ *
+ *      token == 0x3f1:    set_inviso(obj)
+ *                         frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:         return -3
+ *
+ * **`obj->field40 = 0x17` is a dead store.** The very next instructions compute a table entry and
+ * write it to the same field, and nothing reads 0x40 in between -- no call, no branch. Transcribed
+ * as it stands rather than dropped, because the binary contains it and a reader comparing the two
+ * should see the same instructions. Fourth dead store recorded in the tree.
+ *
+ * **The table is an unnamed sub-table inside `fn_ani_data`**, at offset 0x20a4, indexed by the
+ * character number with `ldr.w r3, [r3, r2, lsl #2]`. `fn_ani_data` starts at 0x00172884 and the
+ * next symbol, `_fatality_animations`, is at 0x00174b5c, so the computed 0x00174928 is inside it
+ * and has no symbol of its own.
+ *
+ * That is the same shape as mkanimal.c's `lao_ani_data + 0x142c`, which `t_bit_in_half` reaches.
+ * **Two big named animation blocks, each holding per-character sub-tables at fixed offsets** --
+ * so a symbol in this data names where a block starts, not what any particular table in it is.
+ *
+ * The base is reached through pointer slot 0x000f36b4 rather than as a pc-relative address, which
+ * is how every runtime-relocated data symbol in this binary is loaded.
+ *
+ * The `t_shake_ob_up` call is a small-group one, 0x00020002 -- the same value `t_r_head_rip` uses,
+ * and the eighth caller measured.
+ */
+extern uint8_t fn_ani_data[];                    /* 0x00172884, pointer slot 0x000f36b4 */
+
+long t_r_kiss_suck(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x3e6) {
+        flip_multi(obj);
+
+        obj->field1c = (uint32_t)~0x35u;
+        obj->field20 = 0;
+        multi_adjust_xy(obj);
+
+        obj->field40 = 0x17;                     /* dead: overwritten below */
+        obj->field40 = *(uint32_t *)(&fn_ani_data[0x2080 + 0x24]
+                                     + obj->field08->field24 * 4);
+
+        obj->field1c = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x3f1;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x3f1) {
+        set_inviso(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+    }
+
+    if (token != 0)
+        return -3;
+
+    sans_repell_for_good(obj);
+    face_opponent(obj);
+
+    obj->field1c = 0x00020002;
+    obj->field20 = 3;
+    obj->field24 = 3 + 5;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x3e6;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_shake_ob_up;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
