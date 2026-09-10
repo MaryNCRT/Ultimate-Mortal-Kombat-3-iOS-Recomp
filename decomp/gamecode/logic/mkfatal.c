@@ -3142,3 +3142,75 @@ long t_gravity_ani_ysize(MK3THREAD *thread)
     thread->fieldfc = 1;
     return 1;
 }
+
+
+/* ------------------------------------------------------------------------ t_grow_n_shake
+ *
+ * armv7 0x00036ea0, 180 bytes.  **Complete.**
+ *
+ *      token == 0:       tsound_func(obj, 0x24)
+ *                        tsound_func(obj, 0x25)
+ *                        death_scream(obj)
+ *                        do_next_a9_frame(obj)
+ *                        obj->field1c = 0x00030003
+ *                        obj->field20 = 0x00030003 - 0x30000 = 3
+ *                        obj->field24 = 3 + 5 = 8
+ *                        token := 0x85a, descend into t_shake_ob_up
+ *
+ *      token == 0x85a:   pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:        return -3
+ *
+ * **Three fields out of one literal, and this is the furthest the idiom goes in the tree.**
+ * 0x00030003 is loaded once; `sub.w r3, r3, #0x30000` turns it into 3 for 0x20, and `adds r3, #5`
+ * turns that into 8 for 0x24. Written as the arithmetic, because the values alone -- 0x00030003, 3,
+ * 8 -- give no hint that they are one number walked twice.
+ *
+ * **It passes a packed halfword pair to `t_shake_ob_up` where mkanimal.c passes a plain 3.**
+ * `t_stung_by_scorpion` and `t_r_scared_of_monkey` both set 0x1c to 3 flat, with 0x20 = 3 and
+ * 0x24 = 0x14 or 8. This sets 0x1c to 0x00030003, whose LOW half is the same 3 -- so if the callee
+ * reads only the low halfword the three callers agree, and if it reads the word they do not.
+ * Nothing in these three routines settles which, and `t_shake_ob_up` itself is not written yet.
+ * Flagged for whoever writes it.
+ *
+ * Sounds 0x24 and 0x25 as a pair again -- fifth site in the tree, after `t_crunch_sounds`'s six
+ * repeats, `t_lion_mauled`'s split across two states, `tl_swat_dino`'s single pair and
+ * `tl_sonya_eagle`'s two pairs. Here it is one pair at the very start of the reaction.
+ *
+ * The whole routine is one state of setup and a pop, so the shake is `t_shake_ob_up`'s work and the
+ * grow is whatever `do_next_a9_frame` steps into.
+ */
+long t_grow_n_shake(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        tsound_func(obj, 0x24);
+        tsound_func(obj, 0x25);
+        death_scream(obj);
+        do_next_a9_frame(obj);
+
+        obj->field1c = 0x00030003;
+        obj->field20 = 0x00030003u - 0x30000u;
+        obj->field24 = (0x00030003u - 0x30000u) + 5u;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x85a;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_shake_ob_up;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x85a)
+        return -3;
+
+    if ((long)frame > 0) {
+        thread->frame = frame - 1;
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
