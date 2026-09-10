@@ -5341,3 +5341,113 @@ long t_r_stretch(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------------------------ t_my_ghost
+ *
+ * armv7 0x00037658, 288 bytes.  **Complete.**
+ *
+ *      token == 0:        player_swpal(obj, 6)
+ *                         obj->field40 = 0x48; pose_a9_manual(obj)
+ *                         obj->field20 = 3
+ *                         obj->field1c = 0xfffe0000; set_proj_vel(obj)
+ *                         obj->field20 = 3
+ *                         obj->field1c = 0x40000
+ *                         obj->field24 = 0xc
+ *                         token := 0xcb6, descend into t_shake_ob_up
+ *
+ *      token == 0xcb6:    stop_a8(obj->field08)
+ *                         token := 0xcb8, park 0xa
+ *
+ *      token == 0xcb8:    obj->field1c = 0xa0000; set_proj_vel(obj)
+ *                         obj->field40 = 0x46; get_char_ani(obj)
+ *                         obj->field1c = 3
+ *                         token := 0xcbf, descend into t_mframew
+ *
+ *      token == 0xcbf:    frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:         return -3
+ *
+ * **This is the thread `t_sacred_2_death` spawns, and the two use the SAME shake parameters.**
+ * Both pass `t_shake_ob_up` 0x40000 in 0x1c, 3 in 0x20 and 0xc in 0x24. The spawner and the spawned
+ * thread shaking identically at the same moment is presumably how one visible jolt is produced from
+ * two objects -- but nothing here proves that, and it is recorded as the coincidence it is measured
+ * to be.
+ *
+ * **`player_swpal(obj, 6)` is a third palette number.** With `t_stung_by_scorpion`'s 3 for poison
+ * and `t_shocker_shaker`'s 5 for shocked, 6 is the ghost. Three of the palette indices are now
+ * attached to what they look like.
+ *
+ * Animation 0x48 posed by hand, sixth site in the tree and third in this file.
+ *
+ * The ghost rises at -0x20000, is stopped by `stop_a8` on the part, then moves at 0xa0000 -- so
+ * `set_proj_vel` is called twice with opposite intents and the stop between them is what separates
+ * the two phases.
+ *
+ * `obj->field20 = 3` is written twice with the same value, once before `set_proj_vel` and once
+ * after, because that routine reads 0x20 and this needs it again for `t_shake_ob_up`. Not a dead
+ * store -- the same save-and-restore reasoning as `create_blood_proc` clobbering 0x1c elsewhere in
+ * this file.
+ *
+ * The frame index is shifted with `lsl.w r3, r2, r8` -- by the REGISTER holding 3 rather than by an
+ * immediate -- because the compiler already had 3 in `r8` for the two 0x20 stores. Same `<< 3` as
+ * every other frame computation in the tree, spelled differently.
+ */
+void set_proj_vel(MK3OBJ *obj);
+
+long t_my_ghost(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0xcb6) {
+        stop_a8(obj->field08);
+
+        *mk3_frame(thread, frame + 1) = 0xcb8;
+        thread->fieldfc = 0xa;
+        return 0xa;
+    }
+
+    if (token == 0xcb8) {
+        obj->field1c = 0xa0000;
+        set_proj_vel(obj);
+
+        obj->field40 = 0x46;
+        get_char_ani(obj);
+
+        obj->field1c = 3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xcbf;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xcbf)
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+
+    if (token != 0)
+        return -3;
+
+    player_swpal(obj, 6);
+
+    obj->field40 = 0x48;
+    pose_a9_manual(obj);
+
+    obj->field20 = 3;
+    obj->field1c = 0xfffe0000u;
+    set_proj_vel(obj);
+
+    obj->field20 = 3;
+    obj->field1c = 0x40000;
+    obj->field24 = 0xc;
+
+    *mk3_frame(thread, thread->frame + 1) = 0xcb6;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_shake_ob_up;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
