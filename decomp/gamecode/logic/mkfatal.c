@@ -12667,3 +12667,256 @@ long t_cyrax_self_destruct(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ----------------------------------------------------------------------------- t_jade_shaker
+ *
+ * armv7 0x0003b100, 828 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0x7fa, descend into t_fatality_start_pause
+ *
+ *      token == 0x7fa:    sans_repell_for_good(obj)
+ *                         obj->field40 = 0xa; get_char_ani2(obj)
+ *                         obj->field1c = 4
+ *                         token := 0x800, descend into t_mframew
+ *
+ *      token == 0x800:    set_his_noedge(obj)
+ *                         obj->field38 = t_r_jade_stab; takeover_him(obj)
+ *                         obj->field48 = 0x44; get_his_a11_ani(obj)
+ *                         match_him_with_me_f(obj)
+ *                         double_next_a9(obj)
+ *                         obj->field1c = 0x30000
+ *                         obj->field20 = 3
+ *                         obj->field24 = 3 + 2 = 5
+ *                         token := 0x80f, descend into t_shake_him_up
+ *
+ *      token == 0x80f:    obj->field1c = 8; his_group_sound(obj)
+ *                         obj->field1c = 6
+ *                         obj->field20 = 6 - 2 = 4
+ *                         token := 0x817, descend into t_jade_shake_loop
+ *
+ *      token == 0x817:    obj->field1c = 0xa
+ *                         obj->field20 = 0xa - 7 = 3
+ *                         token := 0x81a, descend into t_jade_shake_loop
+ *
+ *      token == 0x81a:    obj->field1c = 8; his_group_sound(obj)
+ *                         obj->field1c = 0x1f
+ *                         obj->field20 = 0x1f - 0x1d = 2
+ *                         token := 0x821, descend into t_jade_shake_loop
+ *
+ *      token == 0x821:    obj->field1c = 8; his_group_sound(obj)
+ *                         PUSH obj->field40
+ *                         obj->field40 = 0xa
+ *                         obj->field54 = 0xa - 7 = 3
+ *                         find_ani2_part_a14(obj)
+ *                         obj->field48 = obj->field40
+ *                         POP  obj->field40
+ *                         obj->field1c = 0x1e
+ *                         obj->field20 = 0x1e - 0x1c = 2
+ *                         token := 0x832, descend into t_jade_shake_loop
+ *
+ *      token == 0x832:    his_death_scream(obj)
+ *                         obj->field1c = 0x46
+ *                         obj->field20 = 0x46 - 0x45 = 1
+ *                         token := 0x838, descend into t_jade_shake_loop
+ *
+ *      token == 0x838:    obj->field1c = skeleton_explode
+ *                         call_a0_for_him(obj)
+ *                         token := 0x83c, descend into t_white_flash
+ *
+ *      token == 0x83c:    obj->field40 = 0xa; find_ani2_part2(obj)
+ *                         obj->field1c = 0x00030020
+ *                         token := 0x841, descend into t_animate_a0_frames
+ *
+ *      token == 0x841:    obj->field40 = 0xa
+ *                         obj->field1c = 0xa - 6 = 4
+ *                         token := 0x845, descend into t_backwards_ani2
+ *
+ *      token == 0x845:    death_blow_complete(obj)
+ *                         frame[frame].handler = t_victory_animation
+ *
+ *      otherwise:         return -3
+ *
+ * **`t_jade_shake_loop` gets its caller, and the five descents make the whole shape readable.**
+ * That routine takes a count in 0x1c and an animation rate in 0x20, parks for exactly as long as
+ * the current frame lasts, and counts down; its note called it the first data-driven park in the
+ * tree and had no caller to point at. Here are the five passes:
+ *
+ *      state     count (0x1c)   rate (0x20)
+ *      0x80f     6              4
+ *      0x817     0xa            3
+ *      0x81a     0x1f           2
+ *      0x821     0x1e           2
+ *      0x832     0x46           1
+ *
+ * **The shaking gets longer and faster at the same time** -- six passes at four frames each, then
+ * ten at three, then thirty-one and thirty at two, then seventy at one. Roughly two hundred and
+ * forty frames in all, accelerating the whole way. That is the sort of thing a port has to
+ * reproduce exactly and could not guess.
+ *
+ * **Every one of the five pairs is built from one literal**, `movs` then `subs`: 6 and 6-2, 0xa and
+ * 0xa-7, 0x1f and 0x1f-0x1d, 0x1e and 0x1e-0x1c, 0x46 and 0x46-0x45. The shared-literal habit
+ * applied five times in one routine, and the arithmetic is what makes the two columns above look
+ * unrelated in the disassembly.
+ *
+ * `t_r_jade_stab` gets its caller too -- handed over in state 0x800 -- and `skeleton_explode`, the
+ * thirty-six-byte leaf, is run on the opponent through `call_a0_for_him`.
+ *
+ * **Sixteenth argument-stack site.** 0x40 is pushed across `find_ani2_part_a14`, whose result is
+ * captured into 0x48 before the pop -- so the routine keeps the resolved a14 cursor and restores
+ * the animation cursor it had. `obj->field54 = 3` before that call is the second site for 0x54 as
+ * the a14 finders' parameter, after `t_sw_plant_bomb`'s `find_part_a14`.
+ *
+ * `t_animate_a0_frames` gets a high half of 3 again. Ten sites now read 5, 5, 5, 5, 8, 3, 3, 2, 4, 3.
+ */
+void set_his_noedge(MK3OBJ *obj);
+void get_his_a11_ani(MK3OBJ *obj);
+void match_him_with_me_f(MK3OBJ *obj);
+void find_ani2_part_a14(MK3OBJ *obj);
+
+long t_jade_shaker(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3THREADFUNC next_handler;
+    uint32_t argc, next;
+
+    if (token == 0) {
+        *mk3_frame(thread, frame + 1) = 0x7fa;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_fatality_start_pause;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x845) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+    }
+
+    if (token == 0x7fa) {
+        sans_repell_for_good(obj);
+
+        obj->field40 = 0xa;
+        get_char_ani2(obj);
+
+        obj->field1c = 4;
+
+        next         = 0x800;
+        next_handler = (MK3THREADFUNC)t_mframew;
+
+    } else if (token == 0x800) {
+        set_his_noedge(obj);
+
+        obj->field38 = (uint32_t)(uintptr_t)t_r_jade_stab;
+        takeover_him(obj);
+
+        obj->field48 = 0x44;
+        get_his_a11_ani(obj);
+
+        match_him_with_me_f(obj);
+        double_next_a9(obj);
+
+        obj->field1c = 0x30000;
+        obj->field20 = 3;
+        obj->field24 = 3 + 2;                        /* one literal */
+
+        next         = 0x80f;
+        next_handler = (MK3THREADFUNC)t_shake_him_up;
+
+    } else if (token == 0x80f) {
+        obj->field1c = 8;
+        his_group_sound(obj);
+
+        obj->field1c = 6;
+        obj->field20 = 6 - 2;                        /* one literal */
+
+        next         = 0x817;
+        next_handler = (MK3THREADFUNC)t_jade_shake_loop;
+
+    } else if (token == 0x817) {
+        obj->field1c = 0xa;
+        obj->field20 = 0xa - 7;                      /* one literal */
+
+        next         = 0x81a;
+        next_handler = (MK3THREADFUNC)t_jade_shake_loop;
+
+    } else if (token == 0x81a) {
+        obj->field1c = 8;
+        his_group_sound(obj);
+
+        obj->field1c = 0x1f;
+        obj->field20 = 0x1f - 0x1d;                  /* one literal */
+
+        next         = 0x821;
+        next_handler = (MK3THREADFUNC)t_jade_shake_loop;
+
+    } else if (token == 0x821) {
+        obj->field1c = 8;
+        his_group_sound(obj);
+
+        argc = thread->fieldf8;
+        *mk3_arg(thread, argc) = obj->field40;
+        thread->fieldf8 = argc + 1;
+
+        obj->field40 = 0xa;
+        obj->field54 = 0xa - 7;                      /* one literal */
+        find_ani2_part_a14(obj);
+
+        obj->field48 = obj->field40;                 /* keep the a14 cursor */
+
+        argc = thread->fieldf8 - 1;
+        thread->fieldf8 = argc;
+        obj->field40 = *mk3_arg(thread, argc);
+
+        obj->field1c = 0x1e;
+        obj->field20 = 0x1e - 0x1c;                  /* one literal */
+
+        next         = 0x832;
+        next_handler = (MK3THREADFUNC)t_jade_shake_loop;
+
+    } else if (token == 0x832) {
+        his_death_scream(obj);
+
+        obj->field1c = 0x46;
+        obj->field20 = 0x46 - 0x45;                  /* one literal */
+
+        next         = 0x838;
+        next_handler = (MK3THREADFUNC)t_jade_shake_loop;
+
+    } else if (token == 0x838) {
+        obj->field1c = (uint32_t)(uintptr_t)skeleton_explode;
+        call_a0_for_him(obj);
+
+        next         = 0x83c;
+        next_handler = (MK3THREADFUNC)t_white_flash;
+
+    } else if (token == 0x83c) {
+        obj->field40 = 0xa;
+        find_ani2_part2(obj);
+
+        obj->field1c = 0x00030020;
+
+        next         = 0x841;
+        next_handler = (MK3THREADFUNC)t_animate_a0_frames;
+
+    } else if (token == 0x841) {
+        obj->field40 = 0xa;
+        obj->field1c = 0xa - 6;                      /* one literal */
+
+        next         = 0x845;
+        next_handler = (MK3THREADFUNC)t_backwards_ani2;
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)next_handler;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
