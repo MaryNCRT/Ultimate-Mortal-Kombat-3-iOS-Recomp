@@ -13445,3 +13445,344 @@ long t_sz_lift_n_freeze(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------------- t_scorpion_hell
+ *
+ * armv7 0x0003b964, 1028 bytes.  **Complete**, and the largest routine in this file.
+ *
+ *      token == 0:        token := 0x29f, descend into t_fatality_start_pause
+ *
+ *      token == 0x29f:    center_around_him(obj)
+ *                         obj->field40 = 0x0005000d
+ *                         token := 0x2a3, descend into t_animate_a9
+ *
+ *      token == 0x2a3:    token := 0x2a5, park 8
+ *
+ *      token == 0x2a5:    obj->field48 = 0x00040020; shake_a11(obj)
+ *                         obj->a10 = 2
+ *                         -- falls into the sound tail --
+ *
+ *      the sound tail:    obj->field1c = 0xf; ochar_sound(obj)
+ *                         token := 0x2ad, park 0x30
+ *
+ *      token == 0x2ad:    if (--obj->a10 != 0) -- the sound tail --
+ *                         obj->field48 = 0x50
+ *                         is_he_right(obj)
+ *                         if (obj->field5c != 0) obj->field48 = -obj->field48
+ *                         kill_and_stop_scrolling(obj)
+ *                         tsound_func(obj, 0); tsound_func(obj, 1)
+ *                         token := 0x2bc, descend into t_white_flash
+ *
+ *      token == 0x2bc:    obj->field1c = 0x40; create_fx(obj)
+ *                         MKEvent_Add(1, 1, (int16_t)him->x0e,
+ *                                     other->proc->field08)
+ *                         token := 0x2c3, park 1
+ *
+ *      token == 0x2c3:    token := 0x2c8, park 6
+ *
+ *      token == 0x2c8:    obj->field48 = 3
+ *                         -- falls into the spawn tail --
+ *
+ *      the spawn tail:    half = (G[0x470] - G[0x468]) / 2 - 0x30
+ *                         obj->field1c = half; randu(obj)
+ *                         obj->a10 = G[0x468] + obj->field1c
+ *                         s = NewThreadProc(obj, t_another_scorpion)
+ *                         s->proc->field28 = obj
+ *                         obj->field1c = half; randu(obj)
+ *                         obj->a10 = G[0x470] - obj->field1c
+ *                         s = NewThreadProc(obj, t_another_scorpion)
+ *                         s->proc->field28 = obj
+ *                         obj->a10 += 0x12
+ *                         token := 0x2f4, park 8
+ *
+ *      token == 0x2f4:    if (--obj->field48 != 0) -- the spawn tail --
+ *                         token := 0x2f9, park 0x40
+ *
+ *      token == 0x2f9:    obj->field48 = 1
+ *                         token := 0x2fc, park 8
+ *
+ *      token == 0x2fc:    obj->a10 = 8                        ; dead
+ *                         MKEvent_Add(3, 9, 0, 0)
+ *                         obj->a10 = 7
+ *                         -- falls into the rumble tail --
+ *
+ *      the rumble tail:   rsnd_func(obj, 0xa)
+ *                         token := 0x305, park 8
+ *
+ *      token == 0x305:    if (--obj->a10 != 0) -- the rumble tail --
+ *                         token := 0x309, park 0x10
+ *
+ *      token == 0x309:    token := 0x30b, park 3
+ *      token == 0x30b:    rsnd_func(obj, 3); token := 0x30e, park 0xa
+ *      token == 0x30e:    rsnd_func(obj, 3); token := 0x310, park 0xa
+ *      token == 0x310:    rsnd_func(obj, 3); token := 0x312, park 0xa
+ *
+ *      token == 0x312:    tsound_func(obj, 0x24)
+ *                         token := 0x315, park 0x10
+ *
+ *      token == 0x315:    his_death_scream(obj)
+ *                         token := 0x317, park 0x20
+ *
+ *      token == 0x317:    death_blow_complete(obj)
+ *                         frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:         return -3
+ *
+ * **Six scorpions, and this closes the last loop in the file.** The spawn tail runs three times --
+ * `obj->field48` counts 3, 2, 1 -- and each pass starts two threads on `t_another_scorpion`, the
+ * entrance routine written a few functions ago whose caller was unknown. One comes in from the left
+ * edge and one from the right, each at a random distance up to half the view minus 0x30, and each
+ * spawn's **proc 0x28 is pointed back at this object**.
+ *
+ * That is exactly what `t_another_scorpion` reads: its state 0x270 takes `proc->field28` into `a10`
+ * and its 0x274 polls `a10->field48` until it is non-zero. **The flag they wait on is this
+ * routine's own 0x48**, the very counter driving the spawn loop -- so while it reads 3, 2 or 1 the
+ * arrivals walk in immediately, and the state it would block on is the 0 this loop stops at.
+ * Twelfth reading of 0x48 confirmed from both ends.
+ *
+ * **The x arrives through `a10` and that needs `NewThread` to settle it.** This routine writes the
+ * chosen x into its OWN `a10` immediately before each `NewThreadProc`, and `t_another_scorpion`'s
+ * state 0 reads it out of the SPAWN's `a10`. So `NewThread` must carry the owner's field across --
+ * `NewThreadProc` in other.c is sixteen bytes that only turn a thread into its proc, so the copy is
+ * inside `NewThread`, which is not decompiled. **Recorded as the reading, not as a fact**; whoever
+ * reads `NewThread` closes it, and both routines are transcribed exactly as they stand.
+ *
+ * `obj->a10 += 0x12` after the second spawn has no reader in this routine and is overwritten on the
+ * next pass. Transcribed because the binary contains it; it only means anything if the spawned
+ * thread reads the owner's `a10` lazily rather than at creation, which is the same open question.
+ *
+ * **Both `MKEvent_Add` shapes appear here, and one of them is new.** State 0x2fc fires
+ * `MKEvent_Add(3, 9, 0, 0)` -- the same pair `t_osz_head_rip` uses -- and state 0x2bc fires
+ * `MKEvent_Add(1, 1, x, y)` with **two real arguments**, the opponent's x and a field out of the
+ * other fighter's proc. Every other site in the tree passes zeros. So class 1 event 1 carries a
+ * position, and the last two parameters are not decoration. Fourth `MKEvent_Add` site.
+ *
+ * **`obj->a10 = 8` in state 0x2fc is dead**, overwritten with 7 four instructions later with only
+ * `MKEvent_Add` -- which never sees the object -- in between. Ninth dead store recorded.
+ *
+ * The screen edges are read as `G + 0x468` and `G + 0x470` again, halved with the same
+ * round-toward-zero idiom `t_another_scorpion` uses for its walk target. Two routines, one pair of
+ * globals, and both treat 0x468 as the left and 0x470 as the right.
+ *
+ * `rsnd_func(obj, 3)` four states running, ten frames apart, after a rumble of seven
+ * `rsnd_func(obj, 0xa)` calls eight frames apart. Two of the four share one tail whose token comes
+ * out of `r6` -- 0x30e for state 0x30b and 0x312 for state 0x310.
+ *
+ * **Fourth fatality in this file to end in `t_wait_forever`.**
+ */
+void randu(MK3OBJ *obj);
+
+long t_scorpion_hell(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3OBJ  *him, *other, *s;
+    uint32_t span, half, next;
+
+    if (token == 0) {
+        *mk3_frame(thread, frame + 1) = 0x29f;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_fatality_start_pause;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x29f) {
+        center_around_him(obj);
+
+        obj->field40 = 0x0005000d;
+
+        *mk3_frame(thread, frame + 1) = 0x2a3;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x2a3) {
+        *mk3_frame(thread, frame + 1) = 0x2a5;
+        thread->fieldfc = 8;
+        return 8;
+    }
+
+    if (token == 0x2bc) {
+        obj->field1c = 0x40;
+        create_fx(obj);
+
+        him   = (MK3OBJ *)(void *)(uintptr_t)obj->field00->him;
+        other = obj->field00->field00;
+        MKEvent_Add(1, 1,
+                    (long)(int32_t)(int16_t)MK3_FIELD0E(him),
+                    (long)other->field00->field08);
+
+        *mk3_frame(thread, frame + 1) = 0x2c3;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0x2c3) {
+        *mk3_frame(thread, frame + 1) = 0x2c8;
+        thread->fieldfc = 6;
+        return 6;
+    }
+
+    if (token == 0x2f9) {
+        obj->field48 = 1;
+
+        *mk3_frame(thread, frame + 1) = 0x2fc;
+        thread->fieldfc = 8;
+        return 8;
+    }
+
+    if (token == 0x309) {
+        *mk3_frame(thread, frame + 1) = 0x30b;
+        thread->fieldfc = 3;
+        return 3;
+    }
+
+    if (token == 0x30b || token == 0x30e || token == 0x310) {
+        rsnd_func(obj, 3);
+
+        next = (token == 0x30b) ? 0x30e            /* r6 */
+             : (token == 0x30e) ? 0x310
+             :                    0x312;           /* r6 */
+
+        *mk3_frame(thread, frame + 1) = next;
+        thread->fieldfc = 0xa;
+        return 0xa;
+    }
+
+    if (token == 0x312) {
+        tsound_func(obj, 0x24);
+
+        *mk3_frame(thread, frame + 1) = 0x315;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (token == 0x315) {
+        his_death_scream(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x317;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (token == 0x317) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+    }
+
+    /* the two shakes, then the hand-off to t_white_flash */
+    if (token == 0x2a5 || token == 0x2ad) {
+        if (token == 0x2a5) {
+            obj->field48 = 0x00040020;
+            shake_a11(obj);
+
+            obj->a10 = 2;
+
+        } else {
+            obj->a10 = obj->a10 - 1;
+
+            if (obj->a10 == 0) {
+                obj->field48 = 0x50;
+                is_he_right(obj);
+                if (obj->field5c != 0)
+                    obj->field48 = (uint32_t)(-(long)obj->field48);
+
+                kill_and_stop_scrolling(obj);
+
+                tsound_func(obj, 0);
+                tsound_func(obj, 1);
+
+                *mk3_frame(thread, thread->frame + 1) = 0x2bc;
+                thread->frame = thread->frame + 1;   /* push a level */
+                mk3_frame(thread, thread->frame)[1] =
+                    (uint32_t)(uintptr_t)t_white_flash;
+                *mk3_frame(thread, thread->frame + 1) = 0;
+                return 0;
+            }
+        }
+
+        obj->field1c = 0xf;
+        ochar_sound(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x2ad;
+        thread->fieldfc = 0x30;
+        return 0x30;
+    }
+
+    /* three passes, two scorpions each */
+    if (token == 0x2c8 || token == 0x2f4) {
+        if (token == 0x2c8) {
+            obj->field48 = 3;
+
+        } else {
+            obj->field48 = obj->field48 - 1;
+
+            if (obj->field48 == 0) {
+                *mk3_frame(thread, frame + 1) = 0x2f9;
+                thread->fieldfc = 0x40;
+                return 0x40;
+            }
+        }
+
+        span = *(uint32_t *)(G_BYTES + 0x470)
+               - *(uint32_t *)(G_BYTES + 0x468);
+        half = (uint32_t)((((int32_t)span + (int32_t)(span >> 31)) >> 1))
+               - 0x30;
+
+        obj->field1c = half;
+        randu(obj);
+        obj->a10 = *(uint32_t *)(G_BYTES + 0x468) + obj->field1c;
+
+        s = (MK3OBJ *)NewThreadProc(obj,
+                                    (MK3THREADFUNC)t_another_scorpion);
+        s->field00->field28 = (uint32_t)(uintptr_t)obj;
+
+        obj->field1c = half;
+        randu(obj);
+        obj->a10 = *(uint32_t *)(G_BYTES + 0x470) - obj->field1c;
+
+        s = (MK3OBJ *)NewThreadProc(obj,
+                                    (MK3THREADFUNC)t_another_scorpion);
+        s->field00->field28 = (uint32_t)(uintptr_t)obj;
+
+        obj->a10 = obj->a10 + 0x12;                  /* no reader here */
+
+        *mk3_frame(thread, frame + 1) = 0x2f4;
+        thread->fieldfc = 8;
+        return 8;
+    }
+
+    /* seven rumbles, eight frames apart */
+    if (token == 0x2fc || token == 0x305) {
+        if (token == 0x2fc) {
+            obj->a10 = 8;                            /* dead: rewritten */
+            MKEvent_Add(3, 9, 0, 0);
+            obj->a10 = 7;
+
+        } else {
+            obj->a10 = obj->a10 - 1;
+
+            if (obj->a10 == 0) {
+                *mk3_frame(thread, frame + 1) = 0x309;
+                thread->fieldfc = 0x10;
+                return 0x10;
+            }
+        }
+
+        rsnd_func(obj, 0xa);
+
+        *mk3_frame(thread, frame + 1) = 0x305;
+        thread->fieldfc = 8;
+        return 8;
+    }
+
+    return -3;
+}

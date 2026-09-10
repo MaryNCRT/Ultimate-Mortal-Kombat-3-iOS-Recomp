@@ -7,7 +7,7 @@ Read this, then [METHODOLOGY.md](METHODOLOGY.md). Everything else is reference.
 
 ## Where the project actually stands
 
-**70.33% of the total estimated effort. Nothing is playable.** The arithmetic is
+**70.34% of the total estimated effort. Nothing is playable.** The arithmetic is
 in the [README](../README.md#overall-progress) and the weights are a judgement
 call; the completion figures are measured by `tools/progress.py` on every run.
 
@@ -599,6 +599,143 @@ driver does not have, and a name for a slot whose symbol is already
 declaration corresponds to anything**, and an invented name in this tree is worse
 than a missing one, because the next reader will trust it.
 
+## mkfatal.c is finished, and seven things it settled
+
+149 of 149. The file is the finishers -- every fatality, the victim reactions
+they hand over, and the small helpers both ends share -- and it was read from
+the outside first, by `mkanimal.c`, which is why so many of its routines already
+had names before they had bodies.
+
+**Almost every chain in it closed inside it.** Six full chains and a dozen
+orphaned helpers found their callers without leaving the file:
+
+    t_jade_impale    -> t_r_impale_upcut -> t_flight_call -> t_impale_call
+    t_jax_slice      -> t_get_sliced_up  -> t_post_sliced_up
+    t_kano_lazer     -> t_local_r_laser
+    t_smoke_arm      -> t_open_wide + t_smoke_dropping -> t_eat_this_shit
+    t_ind_light      -> t_light_animator
+    t_kitana_kiss    -> t_r_stretch
+    t_kano_skeleton  -> t_skin_fall
+    t_sz_lift_n_freeze -> t_liftshake, t_freeze_into_boomer, t_frozen_half_ani
+    t_scorpion_hell  -> t_another_scorpion (six of them)
+
+If you are opening one of the remaining files, expect the same: the small
+routines are written first because they are small, and their callers turn up
+two hundred functions later.
+
+### 1. A handover can be revoked, two ways
+
+`obj->field38 = fn; takeover_him(obj)` gives the other fighter a routine. An
+**endless** victim routine is therefore safe to write, because the attacker owns
+the schedule and 0x38 is a slot it keeps writing. Two ways to end one:
+
+- **a second handover** -- `t_jax_slice` gives the victim `t_get_sliced_up`
+  and then, forty-eight frames later, `t_post_sliced_up` through the same slot.
+- **`wfe_him`** -- `t_kano_lazer` ends `t_local_r_laser` by parking the other
+  side outright (`field38 = t_wait_forever` + `takeover_him`, which is all
+  `wfe_him` is).
+
+Neither is visible from the victim's side. `xfer_otherguy` is a third spelling
+of the same 0x38 transfer; a port needs both it and `takeover_him`.
+
+### 2. The comparison value doubles as the next token
+
+This is the single most dangerous shape in the file, and it appears in almost
+every large routine. The dispatcher loads a token into a register to compare
+against, and a state later stores **that same register** as its successor:
+
+    t_smoke_arm         r6 = 0x924, reloaded 0x946 on the greater-than path
+    t_jax_slice         r1, ip and r6 hold three different successors
+    t_cyrax_helecopter  three states share one `str.w r6` -- three tokens
+    t_scorpion_hell     r6 is 0x30e for one state and 0x312 for another
+
+**Reading a shared tail alone gives some states the wrong successor.** Trace
+every store back to the load that reaches it. It is why the eleven-state chain
+in `t_cyrax_helecopter` is written with its constants spelled out rather than as
+`token + 1`: the binary never computes that.
+
+### 3. The argument stack, seventeen sites, and when a register will do
+
+`args[]` at 0x a8 with the cursor at `fieldf8` is a real stack -- `t_kissani`
+pushes two values and pops them in order. It exists for one reason: **one object
+field has to serve two callees with incompatible meanings.**
+
+`t_sg_pound` settles the choice between it and a register. Its state 0xbac pops
+a value into 0x40, **pushes it straight back**, and descends; the state on the
+far side pops it again -- because a register cannot survive a descent, the
+handler having returned. So:
+
+- a span inside one state can use a callee-saved register (`t_ind_light` keeps
+  0x40 and 0x08 in `sl` and `fp`, which is why it pushes `{r8, sl, fp}`)
+- anything crossing a descent needs `args[]` or a spare object field
+
+`t_sz_lift_n_freeze` uses both forms in one function, so the compiler picked
+whichever it had room for.
+
+### 4. Nine per-character tables, in three shapes
+
+None was referenced anywhere in the tree before this file was opened:
+
+| table | address | shape |
+|---|---|---|
+| `ochar_reached` | 0x1667c0 | words |
+| `ochar_reached_kn` | 0x166a34 | words (animation cursors) |
+| `ochar_wide_adjusts` | 0x166b54 | words, negated on use |
+| `ochar_shocked_ani` | 0x166e08 | words |
+| `ochar_staff_lineups` | 0x166af4 | words |
+| `taser_lineups` | 0x166c44 | signed halfwords |
+| `ochar_flesh_lineups` | 0x166bb4 | signed halfwords |
+| `ochar_headrip_lineups` | 0x166a94 | packed halfword pairs |
+| `ochar_skeleton_adj` | 0x166be4 | packed halfword pairs |
+| `ochar_laser_lineups` | 0x166c78 | packed halfword pairs |
+
+All are indexed by `part->field24`, the character number. The packed ones are
+unpacked with `asrs #16` and `lsls #16; asrs #16` -- high half into 0x20, low
+into 0x1c -- which is the same encoding `skinny_spawn` reads out of a field.
+
+### 5. Cross-object data has one channel, and it has four sites
+
+`proc->field00->field48 = obj->field40` -- fill the other fighter's 0x48 right
+after handing it a handler that reads 0x48. `t_kabal_inflator` and
+`t_kitana_kiss` both feed `t_r_stretch` this way; `t_lia_scream_rip` feeds
+`t_r_scream_ripped`; `t_kano_skeleton` feeds `t_skin_fall`. **Two readers, two
+writers each, one channel.** Hand over the handler, then fill the field.
+
+### 6. Two or three agreeing sites settle nothing
+
+Three readings recorded in this file did not survive their next counter-example,
+and the notes were softened in place rather than deleted:
+
+- `t_animate_a0_frames`' packed pair "always has 5 in the high half" -- four
+  sites agreed, then ten sites read 5 5 5 5 8 3 3 2 4 3.
+- `t_shake_ob_up`'s 0x1c as an encoded pair -- until `tl_r_scared_of_mileena`
+  passed both kinds in three consecutive descents.
+- `t_flight`'s 0x28 as a small "bounce kind" -- two sites had 4, then
+  `t_soul_float` passed 0xfff.
+
+**The routines are hand-written and the exceptions are not rare.** Say what a
+field does at the sites you measured, and say how many there were.
+
+### 7. What did NOT close
+
+- **`delete_slave` has seven sites and nothing in the tree creates the slave.**
+  `t_sz_blow`, `t_ind_zap_kill`, `t_robo_flame_throw`, `t_smoke_arm`,
+  `t_kano_lazer` and `t_cyrax_self_destruct` (twice). Whatever writes
+  `proc->field64` is not among the 1,446 functions read so far.
+- **Does `frame_a9` advance 0x40?** Two loops say it must: `t_scorpion_flame`
+  descends into `t_double_flame_ani`, which does nothing but call `frame_a9`
+  and pop, and then tests the word 0x40 points at. Neither `frame_a9` nor
+  `do_next_a9_frame` is decompiled. Settling it also settles the loop in
+  `t_sonya_kiss`, whose note was rewritten to say so.
+- **Does `t_mframew` write 0x48 back?** `t_cyrax_self_destruct` captures a
+  cursor once and runs `t_animate_a11` three times without recapturing.
+- **Does `NewThread` carry the owner's `a10` to the new object?**
+  `t_scorpion_hell` writes an x into its own `a10` before each spawn and
+  `t_another_scorpion` reads one out of the spawn's.
+- **`t_st_spike` does three quarters of `tl_do_swat_zoom`'s pose hand-off** and
+  never writes the fourth part. `t_double_mframew` (slot 0x000f36a8) is the
+  candidate reader and is not decompiled.
+
 ## Port-critical: five hard-coded character numbers
 
 The engine is almost entirely character-agnostic -- animations are looked up as
@@ -698,21 +835,20 @@ Three things worth carrying forward into the fight engine:
   Every one of them is invisible at 4:3 and wrong at any other aspect. A
   widescreen port has to decide each case deliberately.
 
-### The front is `gamecode/logic`, and it is at 1,431 of 2,172 (2026-09-10)
+### The front is `gamecode/logic`, and it is at 1,446 of 2,172 (2026-09-10)
 
-**Eight of the fourteen files are closed**, and they are the reference for the six
+**Nine of the fourteen files are closed**, and they are the reference for the five
 that are not:
 
     other.c      333/333      mkcombo.c     16/16
     moves.c      357/357      mkcanned.c    20/20
     mkprop.c      80/80       mkslam.c      60/60
     mkstat.c      62/62       mkanimal.c    63/63
+    mkfatal.c    149/149
 
-    mkfatal.c    134/149      mkdrone.c    154/394
-    mkzap.c       32/174      mkboss.c      29/104
-    mkreact.c     72/207      joy.c         19/73
-
-`mkfatal.c` is 15 functions from closing and is the one in progress.
+    mkdrone.c    154/394      mkzap.c       32/174
+    mkreact.c     72/207      mkboss.c      29/104
+    joy.c         19/73
 
 The tree is at **0 errors, 174 warnings, `instck` clean**, and `protos.py` is down
 to the single known `LIME_RenderMeshSingleIndexed` float-ABI disagreement recorded
@@ -739,20 +875,11 @@ time and two or three per commit:
 Reading them by hand is what did, and the paragraphs above each function are the
 part that will still be worth something in a year.
 
-**Finish `mkfatal.c` first (134/149).** The fifteen left are the largest in the
-file -- 508 to 1,028 bytes -- and the ones most likely to close the remaining
-loose ends, because every chain this file has opened so far has closed inside it:
-`t_jade_impale` -> `t_r_impale_upcut` -> `t_flight_call` -> `t_impale_call`,
-`t_jax_slice` -> `t_get_sliced_up` -> `t_post_sliced_up`, `t_kano_lazer` ->
-`t_local_r_laser`, `t_smoke_arm` -> `t_open_wide` + `t_smoke_dropping` ->
-`t_eat_this_shit`, `t_ind_light` -> `t_light_animator`, `t_kitana_kiss` ->
-`t_r_stretch`. Six chains in one batch of work, and none of them needed anything
-outside this file.
-
-**One loose end is still open**: four `delete_slave` sites (`t_sz_blow`,
-`t_ind_zap_kill`, `t_robo_flame_throw`, `t_smoke_arm`) and a fifth in
-`t_kano_lazer`, and **nothing measured anywhere in the tree creates the slave**.
-Whatever writes `proc->field64` is not in the 1,431 functions read so far.
+**`mkzap.c` (32/174) is the one to do next.** Not because it is the smallest --
+`joy.c` is -- but because `mkfatal.c` reached into it: `t_fat_robo_crush`
+descends into `t_robo_open_chest` (0x00075290) and `t_robo_close_chest`
+(0x00077eb4), both of which live there and bracket that whole fatality. The same
+argument that made `mkfatal.c` the right file after `mkanimal.c`.
 
 **Then `mkdrone.c` (154/394)**, the largest remaining, or `joy.c` (19/73) if the
 goal shifts to playability.
