@@ -5451,3 +5451,109 @@ long t_my_ghost(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_do_pit_fatality
+ *
+ * armv7 0x00033500, 284 bytes.  **Complete.**
+ *
+ *      token == 0:        init_special(obj)
+ *                         NewThread(obj, t_make_db_tone)
+ *                         *(short *)(G + 0x450) = 2
+ *                         obj->field20 = 0x000edb00
+ *                         proc->field00->a10 = 0x000edb00
+ *                         token := 0x1c80, descend into t_do_duck
+ *
+ *      token == 0x1c80:   token := 0x1c81, park 8
+ *
+ *      token == 0x1c81:   token := 0x1c82, descend into t_stat_do_uppercut
+ *
+ *      token == 0x1c82:   obj->field40 = 0xb; find_ani_part2(obj)
+ *                         obj->field1c = 5
+ *                         token := 0x1c87, descend into t_mframew
+ *
+ *      token == 0x1c87:   frame[frame].handler = t_victory_animation
+ *
+ *      otherwise:         return -3
+ *
+ * **This answers the kind-2 question I left open twice.** `t_init_death_blow` copies a small
+ * number out of `obj->field20` into `G + 0x450` and `G + 0x458` and fires `MKEvent_Add(3, 0xe, 0, 0)`
+ * for every value except 2; the three `*_start_pause` routines supply 1, 3 and 5 for fatality,
+ * animality and babality, and I recorded that 2 was bracketed but unaccounted for.
+ *
+ * **2 is the pit fatality**, and this routine writes it into `G + 0x450` DIRECTLY rather than going
+ * through `t_init_death_blow` at all. It does the rest of that routine's work itself -- `init_special`
+ * and the `t_make_db_tone` thread -- and skips the second global and the event.
+ *
+ * So the exemption is not a special case inside the death blow; it is that the pit fatality never
+ * runs the death blow. Whether anything ever reaches `t_init_death_blow` with 2 in 0x20 is still not
+ * shown by any routine measured, and that check may be unreachable. Recorded as measured.
+ *
+ * **The fatality itself is a duck and an uppercut.** `t_do_duck` off slot 0x000f3884, then
+ * `t_stat_do_uppercut` off 0x000f3848 -- an ordinary move from mkstat.c, not a bespoke routine --
+ * and then animation 0xb and the victory pose. That is the whole of it: the pit kills by dropping
+ * the opponent, so the attacker only has to hit them upward and the stage does the rest.
+ *
+ * 0x000edb00 goes into the object's 0x20 and into the OTHER object's 0x44, through
+ * `proc->field00`, so both fighters are given the same number before the duck. Nothing here reads it
+ * back.
+ */
+long t_do_duck(MK3THREAD *thread);               /* pointer slot 0x000f3884 */
+long t_stat_do_uppercut(MK3THREAD *thread);      /* pointer slot 0x000f3848 */
+long t_victory_animation(MK3THREAD *thread);     /* pointer slot 0x000f36e4 */
+
+long t_do_pit_fatality(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x1c80) {
+        *mk3_frame(thread, frame + 1) = 0x1c81;
+        thread->fieldfc = 8;
+        return 8;
+    }
+
+    if (token == 0x1c81) {
+        *mk3_frame(thread, frame + 1) = 0x1c82;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_stat_do_uppercut;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1c82) {
+        obj->field40 = 0xb;
+        find_ani_part2(obj);
+
+        obj->field1c = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1c87;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1c87)
+        return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+
+    if (token != 0)
+        return -3;
+
+    init_special(obj);
+
+    NewThread(obj, (MK3THREADFUNC)t_make_db_tone);
+
+    *(uint16_t *)(G_BYTES + 0x450) = 2;
+
+    obj->field20 = 0x000edb00;
+    obj->field00->field00->a10 = 0x000edb00;
+
+    *mk3_frame(thread, frame + 1) = 0x1c80;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_do_duck;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
