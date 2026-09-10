@@ -6923,3 +6923,129 @@ long t_scorpion_fire(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------------- t_ind_zap_kill
+ *
+ * armv7 0x000385cc, 336 bytes.  **Complete.**
+ *
+ *      token == 0:        him = proc->him
+ *                         *(long *)((char *)proc->field00->field00 + 0x3c)
+ *                             = (int16_t)him->y12
+ *                         token := 0x152d, descend into t_fatality_start_pause
+ *
+ *      token == 0x152d:   get_x_dist(obj)
+ *                         obj->field40 = 7; get_char_ani2(obj)
+ *                         obj->field1c = 5
+ *                         token := 0x1534, descend into t_mframew
+ *
+ *      token == 0x1534:   token := 0x1535, park 6
+ *
+ *      token == 0x1535:   obj->field1c = 3
+ *                         token := 0x1538, descend into t_mframew
+ *
+ *      token == 0x1538:   delete_slave(obj)
+ *                         obj->field38 = t_r_ind_lightning
+ *                         takeover_him(obj)
+ *                         token := 0x153d, park 0x28
+ *
+ *      token == 0x153d:   death_blow_complete(obj)
+ *                         frame[frame].handler = t_victory_animation
+ *
+ *      otherwise:         return -3
+ *
+ * **This is what writes `proc->field3c`, and it closes a question raised two batches ago.** When
+ * `t_r_ind_lightning` was written I recorded that it reads a halfword at proc + 0x3c to place the
+ * victim's final y, and that the offset was inside the header's `_pad2c` with no name and no other
+ * user in the tree. Here is the other end: state 0 saves the victim's y there before the fatality
+ * begins.
+ *
+ * So the pair is a hand-off through the proc: **the attacker records where the victim was standing,
+ * the fatality runs, and the victim's reaction puts them back at that height.** `t_r_tasered` reads
+ * the same field for the same purpose, so one write serves two reactions.
+ *
+ * The write goes through `proc->field00->field00` -- the opponent's object and then its proc -- the
+ * same two-hop route mkanimal.c's `create_fx_for_him` uses to reach the other fighter's proc. It is
+ * the OTHER proc's 0x3c that is written, not this one's.
+ *
+ * **`get_x_dist(obj)` in state 0x152d has its result discarded.** It answers in 0x28 and nothing in
+ * this routine reads 0x28 afterwards. Sixth dead operation recorded in the tree; transcribed
+ * because the binary contains it.
+ *
+ * `delete_slave` is the second site in this file after `t_sz_blow`, and again nothing here creates
+ * the slave -- so whatever makes it is still unaccounted for.
+ *
+ * `r2` carries 0x1538 into state 0x1535's store, having been loaded by the dispatch on the way
+ * past; the two-tokens-one-register hazard again.
+ */
+long t_r_ind_lightning(MK3THREAD *thread);
+
+long t_ind_zap_kill(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3OBJ  *him;
+
+    if (token == 0x152d) {
+        get_x_dist(obj);                     /* result discarded */
+
+        obj->field40 = 7;
+        get_char_ani2(obj);
+
+        obj->field1c = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1534;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1534) {
+        *mk3_frame(thread, frame + 1) = 0x1535;
+        thread->fieldfc = 6;
+        return 6;
+    }
+
+    if (token == 0x1535) {
+        obj->field1c = 3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1538;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1538) {
+        delete_slave(obj);
+
+        obj->field38 = (uint32_t)(uintptr_t)t_r_ind_lightning;
+        takeover_him(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x153d;
+        thread->fieldfc = 0x28;
+        return 0x28;
+    }
+
+    if (token == 0x153d) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+    }
+
+    if (token != 0)
+        return -3;
+
+    him = (MK3OBJ *)(void *)(uintptr_t)obj->field00->him;
+    *(uint32_t *)((char *)obj->field00->field00->field00 + 0x3c) =
+        (uint32_t)(int32_t)(int16_t)MK3_FIELD12(him);
+
+    *mk3_frame(thread, frame + 1) = 0x152d;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_fatality_start_pause;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
