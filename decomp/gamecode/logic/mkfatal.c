@@ -9358,3 +9358,143 @@ long t_crusher_orb(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
 }
+
+
+/* ------------------------------------------------------------------------------ t_smoke_arm
+ *
+ * armv7 0x00038238, 408 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0x91d, descend into t_fatality_start_pause
+ *
+ *      token == 0x91d:    sans_repell_for_good(obj)
+ *                         obj->field1c = 0; ochar_sound(obj)
+ *                         obj->field40 = 0xf; get_char_ani2(obj)
+ *                         obj->field1c = 6
+ *                         token := 0x924, descend into t_mframew
+ *
+ *      token == 0x924:    obj->field38 = t_open_wide
+ *                         takeover_him(obj)
+ *                         obj->field1c = 1; ochar_sound(obj)
+ *                         token := 0x92a, park 8
+ *
+ *      token == 0x92a:    spawn = NewThreadProc(obj, t_smoke_dropping)
+ *                         spawn->field08->field2c = 0x1b38
+ *                         obj->field1c = 2; ochar_sound(obj)
+ *                         obj->field1c = 6
+ *                         token := 0x946, descend into t_mframew
+ *
+ *      token == 0x946:    delete_slave(obj)
+ *                         token := 0x949, park 0x30
+ *
+ *      token == 0x949:    death_blow_complete(obj)
+ *                         frame[frame].handler = t_victory_animation
+ *
+ *      otherwise:         return -3
+ *
+ * **This closes a chain whose other three routines were written in earlier batches.** The victim
+ * gets `t_open_wide` -- the routine that reads `ochar_reached` and negates `ochar_wide_adjusts` to
+ * line the mouth up -- and a second object is spawned running `t_smoke_dropping`, the fall that
+ * accelerates by 0x2000 a frame and hands the victim `t_eat_this_shit` once it closes to 0x80 of
+ * `G + 0xac`. So the whole fatality is: open the victim's mouth, drop something into it, let the
+ * landing routine finish them. Three batches apart, and the interfaces meet with nothing left over.
+ *
+ * **The dispatch's comparison value doubles as the next token.** `r6` is loaded with 0x924 for the
+ * first `cmp`, then reloaded with 0x946 on the greater-than path -- and both states that share the
+ * `t_mframew` tail store whatever `r6` happens to hold. State 0x91d arrives with 0x924 still in it,
+ * state 0x92a with 0x946. One register, two tokens, and reading the tail alone would give either
+ * state the wrong successor. That hazard has now shown up in almost every large routine in this
+ * file; here it is at its cleanest, because the second value is written by the dispatch itself.
+ *
+ * **`spawn->field08->field2c = 0x1b38` writes through `NewThreadProc`'s return value**, giving the
+ * new object its part animation before it ever runs. Fifth site in the tree for that -- after
+ * mkprop.c's `t_s_t_scroller` (0x48 pointed back at the owner) and `t_decoy_proc` (0x48, the part's
+ * 0x2c and the thread's pid), mkstat.c's `NewThreadProcPid` (0x44) and mkanimal.c's `t_egg_proc`
+ * (the part's 0x18). **`t_decoy_proc` writes the same field this does** -- but copies the owner's
+ * `field08->field2c` into it, where this writes a literal. The decoy has to look like the fighter;
+ * whatever falls here does not.
+ *
+ * **Fourth `delete_slave` site**, after `t_sz_blow`, `t_ind_zap_kill` and `t_robo_flame_throw`. All
+ * four are fatalities that put a third object between the fighters, and none of the four creates
+ * the slave -- so whatever does is still not among the functions of this file written so far.
+ *
+ * Three `ochar_sound` calls carrying 0, 1 and 2, one per state across the first three -- the only
+ * place in the file where a sound index counts up state by state.
+ */
+void *NewThreadProc(void *owner, MK3THREADFUNC func);
+
+long t_smoke_arm(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3OBJ  *spawn;
+    uint32_t next;
+
+    if (token == 0x924) {
+        obj->field38 = (uint32_t)(uintptr_t)t_open_wide;
+        takeover_him(obj);
+
+        obj->field1c = 1;
+        ochar_sound(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x92a;
+        thread->fieldfc = 8;
+        return 8;
+    }
+
+    if (token == 0x946) {
+        delete_slave(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x949;
+        thread->fieldfc = 0x30;
+        return 0x30;
+    }
+
+    if (token == 0x949) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+    }
+
+    if (token == 0) {
+        *mk3_frame(thread, frame + 1) = 0x91d;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_fatality_start_pause;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x91d) {
+        sans_repell_for_good(obj);
+
+        obj->field1c = 0;
+        ochar_sound(obj);
+
+        obj->field40 = 0xf;
+        get_char_ani2(obj);
+
+        next = 0x924;                                /* r6 as first loaded */
+
+    } else if (token == 0x92a) {
+        spawn = (MK3OBJ *)NewThreadProc(obj,
+                                        (MK3THREADFUNC)t_smoke_dropping);
+        spawn->field08->field2c = 0x1b38;
+
+        obj->field1c = 2;
+        ochar_sound(obj);
+
+        next = 0x946;                                /* r6 as reloaded */
+
+    } else {
+        return -3;
+    }
+
+    obj->field1c = 6;
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
