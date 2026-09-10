@@ -2255,3 +2255,149 @@ long t_init_death_blow(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+
+/* --------------------------------------------------------------------- t_bone_vomit_proc
+ *
+ * armv7 0x0003a050, 152 bytes.  **Complete.**
+ *
+ *      token == 0:       obj->a10 = 8
+ *                        -- falls into the 0x3bd tail --
+ *
+ *      token == 0x3bd:   rsnd_func(obj, 3)
+ *                        token := 0x3bf, park 3
+ *
+ *      token == 0x3bf:   rsnd_func(obj, 3)
+ *                        if (--obj->a10 <= 0) { token := 0x3c4, park 0x16462 }
+ *                        -- falls into the 0x3bd tail --
+ *
+ *      the 0x3bd tail:   obj->field1c = 0x31; create_fx(obj)
+ *                        token := 0x3bd, park 3
+ *
+ *      otherwise:        return -3
+ *
+ * **A three-state ring: effect, sound, sound, round again -- eight times.** Each leg is three
+ * frames, so the whole thing runs seventy-two frames and spawns effect 0x31 eight times with
+ * sound 3 twice per spawn.
+ *
+ * Sound 3 fires from two different states with nothing else between them, which is the same
+ * two-samples-per-noise habit `hele_sound` wraps in a routine -- except here it is the SAME sample
+ * twice, three frames apart, rather than two different ones together. So the pair idiom is about
+ * rhythm and not only about layering.
+ *
+ * **Token 0x3c4 is not in the dispatch and the park is 0x16462.** Fifth site for that terminator
+ * in the tree, and the third in this file after `t_nails_blood_spawner` and `t_egg_proc` over in
+ * mkanimal.c. It is settled beyond doubt now.
+ */
+long t_bone_vomit_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x3bd) {
+        rsnd_func(obj, 3);
+
+        *mk3_frame(thread, frame + 1) = 0x3bf;
+        thread->fieldfc = 3;
+        return 3;
+    }
+
+    if (token == 0) {
+        obj->a10 = 8;
+
+    } else if (token == 0x3bf) {
+        rsnd_func(obj, 3);
+
+        obj->a10 = obj->a10 - 1;
+        if ((long)obj->a10 <= 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0x3c4;
+            thread->fieldfc = 0x16462;
+            return 0x16462;
+        }
+
+    } else {
+        return -3;
+    }
+
+    obj->field1c = 0x31;
+    create_fx(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x3bd;
+    thread->fieldfc = 3;
+    return 3;
+}
+
+/* --------------------------------------------------------------------- t_jade_shake_loop
+ *
+ * armv7 0x0003b43c, 152 bytes.  **Complete.**
+ *
+ *      token == 0:       me_in_front(obj)
+ *                        proc->field1c = obj->field20
+ *                        -- falls into the tail --
+ *
+ *      token == 0x7e6:   obj->field1c = proc->field20 - 1
+ *                        if (obj->field1c <= 0)
+ *                            pop a level, or t_local_reaction_exit at the bottom
+ *                        -- falls into the tail --
+ *
+ *      the tail:         proc->field20 = obj->field1c
+ *                        double_next_a9(obj)
+ *                        obj->field1c = proc->field1c
+ *                        token := 0x7e6, park obj->field1c
+ *
+ *      otherwise:        return -3
+ *
+ * **The park length is decided by the animation, not by the routine.** After `double_next_a9` the
+ * tail reads `proc->field1c` -- the animation rate -- into 0x1c and parks for exactly that many
+ * frames. So each pass of the shake waits as long as the current frame is meant to last, and the
+ * loop stays in step with the animation instead of guessing at a constant.
+ *
+ * That is the first data-driven park measured in the tree. Every other loop so far parks for a
+ * literal (1, 3, 4, 0x10, 0x20 ...) or for `obj->field1c` set from a literal a line earlier; this
+ * one takes the number from the engine.
+ *
+ * **The counter lives in `proc->field20` and the working value in `obj->field1c`**, and the two
+ * are shuffled between each pass: read the proc's count, decrement into the object, write it back.
+ * State 0 seeds the proc's 0x1c from `obj->field20` and leaves `obj->field1c` as the caller set
+ * it, so the caller supplies both the rate and the first count.
+ *
+ * `me_in_front` runs once, at entry, which is the only thing state 0 does beyond the seeding.
+ */
+void me_in_front(MK3OBJ *obj);
+long double_next_a9(MK3OBJ *obj);
+
+long t_jade_shake_loop(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        me_in_front(obj);
+
+        obj->field00->field1c = obj->field20;
+
+    } else if (token == 0x7e6) {
+        obj->field1c = obj->field00->field20 - 1;
+
+        if ((long)obj->field1c <= 0) {
+            if ((long)frame > 0) {
+                thread->frame = frame - 1;
+                return 0;
+            }
+            return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+        }
+
+    } else {
+        return -3;
+    }
+
+    obj->field00->field20 = obj->field1c;
+    double_next_a9(obj);
+    obj->field1c = obj->field00->field1c;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x7e6;
+    thread->fieldfc = obj->field1c;
+    return (long)obj->field1c;
+}
