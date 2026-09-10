@@ -4029,3 +4029,176 @@ long t_scorpion_remove_mask(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* -------------------------------------------------------------------------- t_r_head_rip
+ *
+ * armv7 0x00035fbc, 216 bytes.  **Complete.**
+ *
+ *      token == 0:       match_me_with_him(obj)
+ *                        obj->field40 = 0x25; get_char_ani(obj)
+ *                        p = &ochar_headrip_lineups[part->field24 * 2]
+ *                        obj->field1c =  (int16_t)p[0]
+ *                        obj->field20 = -(int16_t)p[1]
+ *                        multi_adjust_xy(obj)
+ *                        face_opponent(obj)
+ *                        obj->field40 = 0x48; pose_a9_manual(obj)
+ *                        obj->field1c = 2; group_sound(obj)
+ *                        obj->field1c = 0x00020002
+ *                        obj->field20 = 3
+ *                        obj->field24 = 3 + 5 = 8
+ *                        token := 0x365, descend into t_shake_ob_up
+ *
+ *      token == 0x365:   frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:        return -3
+ *
+ * **`ochar_headrip_lineups` holds a PAIR per fighter, and it is the first table in the tree that
+ * does.** The index is `char * 4` -- `lsls r2, r3, #2` -- and then TWO signed halfwords are read
+ * from it, at +0 and +2, with `ldrsh` both times. So each fighter gets an (x, y) offset rather than
+ * a single number, where `ochar_reached` and `ochar_wide_adjusts` give one word each and
+ * `taser_lineups` one halfword.
+ *
+ * Fourth per-character table found in this file. The y half is negated on the way in, exactly as
+ * `ochar_wide_adjusts` is in `t_open_wide` -- so these tables store positive distances and the
+ * caller decides the sign.
+ *
+ * **Animation 0x48 posed by hand, fourth site.** mkanimal.c's `t_stung_by_scorpion` and
+ * `t_r_scared_of_monkey` pose it on themselves and `tl_kano_spider` poses it on the opponent; this
+ * is the first in mkfatal.c. One pose, four routines, three files.
+ *
+ * **The `t_shake_ob_up` pair now has a varying low half.** The four callers measured pass 3 (twice,
+ * plain), 0x00030003 and 0x00020002 -- so the low half is 3, 3, 3, 2. It is the parameter that
+ * moves, which is what the note on `t_grow_n_shake` predicted and this is the site that confirms it.
+ */
+extern int16_t ochar_headrip_lineups[];          /* 0x00166a94 */
+
+long t_r_head_rip(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    int16_t *p;
+
+    if (token == 0) {
+        match_me_with_him(obj);
+
+        obj->field40 = 0x25;
+        get_char_ani(obj);
+
+        p = &ochar_headrip_lineups[obj->field08->field24 * 2];
+        obj->field1c = (uint32_t)(int32_t)p[0];
+        obj->field20 = (uint32_t)(-(int32_t)p[1]);
+        multi_adjust_xy(obj);
+
+        face_opponent(obj);
+
+        obj->field40 = 0x48;
+        pose_a9_manual(obj);
+
+        obj->field1c = 2;
+        group_sound(obj);
+
+        obj->field1c = 0x00020002;
+        obj->field20 = 3;
+        obj->field24 = 3 + 5;
+
+        *mk3_frame(thread, frame + 1) = 0x365;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_shake_ob_up;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x365)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+}
+
+/* --------------------------------------------------------------------------- t_crush_duck
+ *
+ * armv7 0x0003809c, 228 bytes.  **Complete.**
+ *
+ *      token == 0:        NewThread(obj, t_crush_blood)
+ *                         obj->field1c = 0x2c; create_fx(obj)
+ *                         obj->field48 = 0x000c000c; shake_a11(obj)
+ *                         tsound_func(obj, 0x23)
+ *                         obj->field40 = 0x00040004
+ *                         token := 0x15b2, descend into t_animate_a9
+ *
+ *      token == 0x15b2:   obj->field40 = 5; get_his_char_ani2(obj)
+ *                         do_next_a9_frame(obj)
+ *                         part->y12 = (uint16_t)*(short *)(G + 0xac)
+ *                         obj->field1c = 0
+ *                         obj->field20 = ~0x8f          (-0x90)
+ *                         multi_adjust_xy(obj)
+ *                         frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:         return -3
+ *
+ * **The same landing spot as `t_freeze_into_boomer`, reached the other way round.** That routine
+ * computes `floor - 0x90` and stores the result; this stores the floor and then shifts by -0x90
+ * through `multi_adjust_xy`. Two spellings of one position in one file -- and they are not
+ * interchangeable, because the second goes through the mover and so obeys whatever else
+ * `multi_adjust_xy` does.
+ *
+ * That makes seven spellings of vertical placement in the tree. Nothing shares a helper.
+ *
+ * The blood is a separate thread, `t_crush_blood` -- sixth site in the tree for spawning one so an
+ * effect outlasts the state that caused it.
+ *
+ * **0x40 carries a packed pair, 0x00040004, for `t_animate_a9`.** Eighth site for that reading, and
+ * the first in mkfatal.c; the seven before it are in mkanimal.c and mkcanned.c. Both halves are 4
+ * here, so this caller says nothing about which half means what.
+ *
+ * The shake pair is 0x000c000c, doubled and the largest in the tree so far -- 0xc against the 0xa
+ * the large animals use and the 3 the spikes use.
+ */
+long t_animate_a9(MK3THREAD *thread);            /* pointer slot 0x000f36d0 */
+long t_crush_blood(MK3THREAD *thread);           /* 0x000331d0 */
+
+long t_crush_duck(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        NewThread(obj, (MK3THREADFUNC)t_crush_blood);
+
+        obj->field1c = 0x2c;
+        create_fx(obj);
+
+        obj->field48 = 0x000c000c;
+        shake_a11(obj);
+
+        tsound_func(obj, 0x23);
+
+        obj->field40 = 0x00040004;
+
+        *mk3_frame(thread, frame + 1) = 0x15b2;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x15b2)
+        return -3;
+
+    obj->field40 = 5;
+    get_his_char_ani2(obj);
+
+    do_next_a9_frame(obj);
+
+    MK3_SET_FIELD12(obj->field08, *(uint16_t *)(G_BYTES + 0xac));
+
+    obj->field1c = 0;
+    obj->field20 = (uint32_t)~0x8fu;
+    multi_adjust_xy(obj);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+}
