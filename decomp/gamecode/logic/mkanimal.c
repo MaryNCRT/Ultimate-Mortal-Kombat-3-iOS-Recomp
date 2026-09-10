@@ -4042,3 +4042,167 @@ long tl_kitana_bunny(MK3THREAD *thread)
     thread->fieldfc = 1;
     return 1;
 }
+
+/* ----------------------------------------------------------------------- tl_lao_cheetah
+ *
+ * armv7 0x000a1ab0, 508 bytes.  **Complete.**
+ *
+ *      token == 0:      animality_tune(obj)
+ *                       obj->field40 = a_cheetah
+ *                       obj->a10 = 0x12
+ *                       token := 0x490, descend into t_animal_morph
+ *
+ *      token == 0x490:  sans_repell_for_good(obj)
+ *                       token := 0x493, park 0x18
+ *
+ *      token == 0x493:  tsound_func(obj, 0x95)
+ *                       obj->field1c = 0x30000; towards_x_vel(obj)
+ *                       obj->field1c = 7
+ *                       token := 0x499, descend into t_mframew
+ *
+ *      token == 0x499:  obj->field38 = t_lion_mauled
+ *                       takeover_him(obj)
+ *                       obj->field1c = 0x20000; away_x_vel_him(obj)
+ *                       obj->field1c = 6
+ *                       token := 0x4a0, descend into t_mframew
+ *
+ *      token == 0x4a0:  stop_me_player(obj)
+ *                       token := 0x4a3, park 8
+ *
+ *      token == 0x4a3:  stop_him(obj)
+ *                       obj->field1c = 0x00050010
+ *                       token := 0x4a7, descend into t_animate_a0_frames
+ *
+ *      token == 0x4a7:  obj->field40 = a_cheetah
+ *                       obj->field54 = 5; find_part_a14(obj)
+ *                       do_next_a9_frame(obj)
+ *                       wfe_him(obj)
+ *                       token := 0x4ae, park 0x28
+ *
+ *      token == 0x4ae:  obj->field40 = a_cheetah
+ *                       frame[frame].handler = t_unmorph_and_exit
+ *
+ *      otherwise:       return -3
+ *
+ * **Eight states, and the third driver to maul with `t_lion_mauled`.** The lion, the polar bear
+ * and the cheetah all hand the victim that same endless loop and all three end it with
+ * `wfe_him` -- so one reaction serves three animals, which is the clearest case yet of the
+ * pool.
+ *
+ * **It knocks the victim away as it bites**, `away_x_vel_him` at 0x20000 in the same state as
+ * the handover, where the lion and the bear stop both fighters instead. So the cheetah's
+ * mauling happens while the victim is still sliding.
+ *
+ * **`obj->field54 = 5` before `find_part_a14` is that routine's argument.** mkprop.c has the
+ * same pair with a 3, which is what settles it -- the header's "where a computed word is
+ * parked" and this are the same slot used as a parameter, and two files agreeing makes it the
+ * interface rather than a coincidence.
+ *
+ * Sound 0x95 during the charge is the polar bear's sound, in the same position in the schedule.
+ * So 0x95 is the run-up noise and 0x92 the large-animal noise, both shared.
+ *
+ * The dispatch is `ble` inside `ble` like `tl_cyrax_shark`'s, and `r8` carries three of the
+ * eight tokens -- 0x499 into state 0x493's store, 0x4a3 into 0x4a0's -- each traced to its own
+ * load.
+ */
+extern uint32_t a_cheetah[];                     /* 0x001772e8 */
+void find_part_a14(MK3OBJ *obj);
+
+long tl_lao_cheetah(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x490) {
+        sans_repell_for_good(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x493;
+        thread->fieldfc = 0x18;
+        return 0x18;
+    }
+
+    if (token == 0x493) {
+        tsound_func(obj, 0x95);
+
+        obj->field1c = 0x30000;
+        towards_x_vel(obj);
+        obj->field1c = 7;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x499;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x499) {
+        obj->field38 = (uint32_t)(uintptr_t)t_lion_mauled;
+        takeover_him(obj);
+
+        obj->field1c = 0x20000;
+        away_x_vel_him(obj);
+        obj->field1c = 6;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x4a0;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x4a0) {
+        stop_me_player(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x4a3;
+        thread->fieldfc = 8;
+        return 8;
+    }
+
+    if (token == 0x4a3) {
+        stop_him(obj);
+
+        obj->field1c = 0x00050010;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x4a7;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_a0_frames;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x4a7) {
+        obj->field40 = (uint32_t)(uintptr_t)a_cheetah;
+
+        obj->field54 = 5;
+        find_part_a14(obj);
+
+        do_next_a9_frame(obj);
+        wfe_him(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x4ae;
+        thread->fieldfc = 0x28;
+        return 0x28;
+    }
+
+    if (token == 0x4ae) {
+        obj->field40 = (uint32_t)(uintptr_t)a_cheetah;
+
+        return mk3_install(thread, (MK3THREADFUNC)t_unmorph_and_exit);
+    }
+
+    if (token != 0)
+        return -3;
+
+    animality_tune(obj);
+
+    obj->field40 = (uint32_t)(uintptr_t)a_cheetah;
+    obj->a10 = 0x12;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x490;
+    thread->frame = thread->frame + 1;              /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_animal_morph;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
