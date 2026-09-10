@@ -9042,3 +9042,163 @@ long t_osz_head_rip(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ----------------------------------------------------------------------------- t_impale_call
+ *
+ * armv7 0x0003b594, 436 bytes.  **Complete.**
+ *
+ *      token == 0:        distance_from_ground(obj)
+ *                         if (obj->field1c < 0x1a0)
+ *                             pop a level, or t_local_reaction_exit at the bottom
+ *                         reset_proc_stack(thread)
+ *                         stop_me_player(obj)
+ *                         token := 0x76a, park 0x40
+ *
+ *      token == 0x76a:    match_me_with_him(obj)
+ *                         flip_multi(obj)
+ *                         obj->field1c = ochar_staff_lineups[part->field24]
+ *                         obj->field20 = 0xfffffef0            (-0x110)
+ *                         multi_adjust_xy(obj)
+ *                         obj->field40 = 0x1e; find_ani_part2(obj)
+ *                         do_next_a9_frame(obj)
+ *                         part->field1c = 0x40000
+ *                         obj->field1c  = 0x40000 - 0x20000 = 0x20000
+ *                         part->field20 = 0x20000
+ *                         token := 0x77f, park 1
+ *
+ *      token == 0x77f:    distance_from_ground(obj)
+ *                         if (obj->field1c > 0x130) { token := 0x77f, park 1 }
+ *                         rsnd_func(obj, 3)
+ *                         death_scream(obj)
+ *                         obj->field1c = 0
+ *                         part->field20 = 0
+ *                         token := 0x788, descend into t_down_the_staff
+ *
+ *      token == 0x788:    token := 0x789, descend into t_down_the_staff
+ *
+ *      token == 0x789:    part->field1c = 0
+ *                         obj->field1c = 0xa; create_blood_proc(obj)
+ *                         stop_me_player(obj)
+ *                         frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:         return -3
+ *
+ * **This is `t_r_impale_upcut`'s per-frame callback, and it shows what such a callback looks like.**
+ * That routine puts this address in 0x34 and descends into `t_flight_call`, which calls it once
+ * per frame. State 0 measures the height and **pops immediately while the body is still below
+ * 0x1a0**, so on most frames the callback does nothing and hands control straight back to the
+ * flight.
+ *
+ * **When the trigger height is reached it calls `reset_proc_stack`**, which discards the flight's
+ * own frame -- so the callback stops being a callback and takes the thread over. That is the
+ * mechanism by which a `t_flight_call` arc ends somewhere other than the floor, and it is the first
+ * `reset_proc_stack` site measured in the tree.
+ *
+ * The second height test, in state 0x77f, is the other way round: it keeps parking while the body
+ * is ABOVE 0x130 and acts once it drops. So the routine catches the fighter on the way up at 0x1a0
+ * and again on the way down at 0x130.
+ *
+ * **`ochar_staff_lineups` is an eighth per-character table**, at 0x00166af4, plain words indexed by
+ * `lsl #2`. It gives the x offset for lining a fighter up with the staff; the y is a fixed -0x110.
+ *
+ * `t_down_the_staff` -- written earlier in this file, the signed halving of the part's 0x1c -- is
+ * descended into twice, so the slide decays by half twice before the blood.
+ *
+ * `part->field1c` and `obj->field1c` are given 0x40000 and 0x20000 from one literal with a
+ * `sub.w #0x20000`, and `part->field20` gets the same 0x20000. One literal, three fields.
+ */
+extern uint32_t ochar_staff_lineups[];           /* 0x00166af4 */
+void distance_from_ground(MK3OBJ *obj);
+void reset_proc_stack(MK3THREAD *thread);
+long t_down_the_staff(MK3THREAD *thread);
+
+long t_impale_call(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    uint32_t next;
+
+    if (token == 0x76a) {
+        match_me_with_him(obj);
+        flip_multi(obj);
+
+        obj->field1c = ochar_staff_lineups[obj->field08->field24];
+        obj->field20 = 0xfffffef0u;
+        multi_adjust_xy(obj);
+
+        obj->field40 = 0x1e;
+        find_ani_part2(obj);
+        do_next_a9_frame(obj);
+
+        obj->field08->field1c = 0x40000;
+        obj->field1c          = 0x40000u - 0x20000u;
+        obj->field08->field20 = obj->field1c;
+
+        *mk3_frame(thread, frame + 1) = 0x77f;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0x789) {
+        obj->field08->field1c = 0;
+
+        obj->field1c = 0xa;
+        create_blood_proc(obj);
+
+        stop_me_player(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+    }
+
+    if (token == 0) {
+        distance_from_ground(obj);
+
+        if ((long)obj->field1c < 0x1a0) {
+            if ((long)frame > 0) {
+                thread->frame = frame - 1;
+                return 0;
+            }
+            return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+        }
+
+        reset_proc_stack(thread);
+        stop_me_player(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x76a;
+        thread->fieldfc = 0x40;
+        return 0x40;
+    }
+
+    if (token == 0x77f) {
+        distance_from_ground(obj);
+
+        if ((long)obj->field1c > 0x130) {
+            *mk3_frame(thread, thread->frame + 1) = 0x77f;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        rsnd_func(obj, 3);
+        death_scream(obj);
+
+        obj->field1c          = 0;
+        obj->field08->field20 = 0;
+
+        next = 0x788;
+
+    } else if (token == 0x788) {
+        next = 0x789;
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_down_the_staff;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
