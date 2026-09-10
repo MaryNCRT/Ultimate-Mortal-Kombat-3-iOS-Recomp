@@ -6317,3 +6317,118 @@ long t_ermac_super_slam(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------------------- t_lia_hair_spin
+ *
+ * armv7 0x0003481c, 316 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0x127e, descend into t_fatality_start_pause
+ *
+ *      token == 0x127e:   obj->field40 = 0xa; get_char_ani2(obj)
+ *                         obj->field38 = t_slide_behind_hair
+ *                         takeover_him(obj)
+ *                         obj->field1c = 4
+ *                         token := 0x1287, descend into t_mframew
+ *
+ *      token == 0x1287:   token := 0x1288, park 0x30
+ *
+ *      token == 0x1288:   obj->field38 = t_hair_spun
+ *                         takeover_him(obj)
+ *                         obj->field1c = 3
+ *                         token := 0x128e, descend into t_mframew
+ *
+ *      token == 0x128e:   token := 0x128f, park 0x40
+ *
+ *      token == 0x128f:   death_blow_complete(obj)
+ *                         frame[frame].handler = t_victory_animation
+ *
+ *      otherwise:         return -3
+ *
+ * **This confirms a prediction made when `t_slide_behind_hair` was written.** That routine ends by
+ * installing `t_wait_forever`, and its note said the park had to be replaced from outside because
+ * nothing in it unwinds. Here is the outside: this fatality hands the victim
+ * `t_slide_behind_hair`, waits, and then hands them `t_hair_spun` instead, forty-eight frames
+ * later.
+ *
+ * Second routine in this file to use two handovers in sequence, after `t_reptile_vomit`. The two
+ * together make the pattern general: **a victim reaction ending in `t_wait_forever` is often
+ * waiting to be replaced, and the attacker's schedule is what replaces it.**
+ *
+ * **`t_hair_spun` is shared with mkanimal.c.** `tl_kano_spider` hands the victim the same routine
+ * through pointer slot 0x000f346c. So the reaction pool crosses files in both directions -- two
+ * fatalities here borrow reactions from the animality module, and this animality borrows one from
+ * the fatality module.
+ *
+ * `r6` carries 0x1287 into state 0x127e's store and 0x128e into state 0x1288's, the two-tokens-one-
+ * register hazard again.
+ *
+ * The two `t_mframew` waits are four and three frames and the two parks are 0x30 and 0x40, so the
+ * whole schedule is: resolve the animation, slide the victim, wait, spin them, wait, finish.
+ */
+long t_slide_behind_hair(MK3THREAD *thread);
+long t_hair_spun(MK3THREAD *thread);             /* 0x0003871c */
+
+long t_lia_hair_spin(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x127e) {
+        obj->field40 = 0xa;
+        get_char_ani2(obj);
+
+        obj->field38 = (uint32_t)(uintptr_t)t_slide_behind_hair;
+        takeover_him(obj);
+
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1287;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1287) {
+        *mk3_frame(thread, frame + 1) = 0x1288;
+        thread->fieldfc = 0x30;
+        return 0x30;
+    }
+
+    if (token == 0x1288) {
+        obj->field38 = (uint32_t)(uintptr_t)t_hair_spun;
+        takeover_him(obj);
+
+        obj->field1c = 3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x128e;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x128e) {
+        *mk3_frame(thread, frame + 1) = 0x128f;
+        thread->fieldfc = 0x40;
+        return 0x40;
+    }
+
+    if (token == 0x128f) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+    }
+
+    if (token != 0)
+        return -3;
+
+    *mk3_frame(thread, frame + 1) = 0x127e;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_fatality_start_pause;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
