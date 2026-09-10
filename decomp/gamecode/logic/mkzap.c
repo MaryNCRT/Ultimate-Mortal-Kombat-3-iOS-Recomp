@@ -2735,3 +2735,172 @@ void create_proj_proc(MK3OBJ *obj)
 
     slave->thread->pid = strength + 0x700;   /* the kind tag */
 }
+
+
+/* t_roc3 -- armv7 0x00077f00, 124 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      PUSH obj->field1c
+ *      obj->field1c = 0xb; ochar_sound(obj)
+ *      obj->field40 = 0; get_char_ani2(obj)
+ *      POP  obj->field1c
+ *      frame[frame].handler = t_mframew
+ *
+ * **Eighteenth argument-stack site, and the first in this file.** The caller's
+ * 0x1c is the frame count `t_mframew` will use, and both `ochar_sound` and the
+ * animation resolve want 0x1c for themselves -- so it goes on `args[]` and comes
+ * back before the hand-over. One field, three users, in twenty-two instructions.
+ *
+ * The span is inside one state, so a register would have done. Both forms appear
+ * in this file too -- `setup_proj_obj` and `tell_world_stk` use registers for the
+ * same job -- which is the third file to show the choice is the compiler's and
+ * not the code's.
+ *
+ * `obj->field40 = 0` comes out of the token register, which the dispatch has
+ * already proved to be zero. Written as 0 because that is what it is.
+ */
+long t_mframew(MK3THREAD *thread);
+
+long t_roc3(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t argc;
+
+    if (*mk3_frame(thread, frame + 1) != 0)
+        return -3;
+
+    argc = thread->fieldf8;
+    *mk3_arg(thread, argc) = obj->field1c;
+    thread->fieldf8 = argc + 1;
+
+    obj->field1c = 0xb;
+    ochar_sound(obj);
+
+    obj->field40 = 0;
+    get_char_ani2(obj);
+
+    argc = thread->fieldf8 - 1;
+    thread->fieldf8 = argc;
+    obj->field1c = *mk3_arg(thread, argc);
+
+    mk3_frame(thread, frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, frame + 1) = 0;
+    return 0;
+}
+
+
+/* tl_do_proj_sitting_duck -- armv7 0x00075698, 124 bytes.  **Complete.**
+ *
+ *      token == 0:        proc->field18 = 0x604
+ *                         obj->field1c  = obj->field20
+ *                         token := 0x1409, park obj->field1c
+ *
+ *      token == 0x1409:   detach_proj(obj)
+ *                         pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:         return -3
+ *
+ * **A projectile that sits still for as long as the caller says and then lets
+ * itself go.** The duration comes out of 0x20 rather than a literal, which makes
+ * this the only park in the file whose length the caller chooses.
+ *
+ * 0x604 into `proc->field18` is the action `i_am_a_sitting_duck` announces
+ * twelve hundred bytes earlier in this file -- second site for that number, and
+ * it confirms 0x604 is the sitting-duck action rather than something that
+ * routine invented.
+ *
+ * `detach_proj` clears `proc->slave` and `proc->field64` without killing
+ * anything, so the projectile survives the thread that was flying it. First
+ * caller for that routine.
+ *
+ * The park value is loaded from 0x1c twice, once for `fieldfc` and once for the
+ * return, rather than kept in a register. Transcribed as two reads.
+ */
+long tl_do_proj_sitting_duck(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        obj->field00->field18 = 0x604;      /* the sitting-duck action */
+        obj->field1c = obj->field20;
+
+        *mk3_frame(thread, frame + 1) = 0x1409;
+        thread->fieldfc = obj->field1c;
+        return (long)obj->field1c;
+    }
+
+    if (token != 0x1409)
+        return -3;
+
+    detach_proj(obj);
+
+    if ((long)thread->frame > 0) {           /* cmp #0 / ble: signed */
+        thread->frame = thread->frame - 1;   /* back up a level */
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* t_double_shaker -- armv7 0x00074ee4, 128 bytes.  **Complete.**
+ *
+ *      token == 0:       him->x12          += obj->field20
+ *                        proc->field88->part->x12 += obj->field20
+ *                        token := 0x354, park 2
+ *
+ *      token == 0x354:   pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:        return -3
+ *
+ * **"Double" means two bodies.** The same offset is added to the opponent's y
+ * and to the y of whatever `proc->field88` points at, so both jump together and
+ * two frames later the routine gives the level back.
+ *
+ * **`proc->field88` is new and nothing in the tree writes it.** It is
+ * dereferenced twice here -- once for the object, once for its part -- so it is
+ * an object pointer, and it is added to the header on that authority with the
+ * gap said out loud. Whoever finds the writer should say so in the header.
+ *
+ * The opponent is reached as `proc->him` and the second body through `field88`,
+ * which are two different words of the same structure holding two different
+ * objects -- so this routine is the reason to believe 0x88 is not just another
+ * name for `him`.
+ *
+ * Both adds are unsigned halfword arithmetic, `ldrh` / `add` / `strh`, the same
+ * as `t_target`'s placement. Fourth site siding with the unsigned reading.
+ */
+long t_double_shaker(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3OBJ  *him, *other;
+
+    if (token == 0) {
+        him = (MK3OBJ *)(void *)(uintptr_t)obj->field00->him;
+        MK3_SET_FIELD12(him, (uint32_t)MK3_FIELD12(him) + obj->field20);
+
+        other = obj->field00->field88;
+        MK3_SET_FIELD12(other->field08,
+                        obj->field20
+                        + (uint32_t)MK3_FIELD12(other->field08));
+
+        *mk3_frame(thread, frame + 1) = 0x354;
+        thread->fieldfc = 2;
+        return 2;
+    }
+
+    if (token != 0x354)
+        return -3;
+
+    if ((long)thread->frame > 0) {           /* cmp #0 / ble: signed */
+        thread->frame = thread->frame - 1;   /* back up a level */
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
