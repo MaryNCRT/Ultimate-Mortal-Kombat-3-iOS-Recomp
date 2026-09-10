@@ -2401,3 +2401,139 @@ long t_jade_shake_loop(MK3THREAD *thread)
     thread->fieldfc = obj->field1c;
     return (long)obj->field1c;
 }
+
+
+/* --------------------------------------------------------------------------- t_open_wide
+ *
+ * armv7 0x00035cec, 152 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      player_normpal(obj)
+ *      face_opponent(obj)
+ *      obj->field1c   = ochar_reached[part->field24]
+ *      part->field2c  = part->field24 + 0x1bc0 + 0x24
+ *      death_scream(obj)
+ *      match_me_with_him(obj)
+ *      flip_multi(obj)
+ *      obj->field20 = 0
+ *      obj->field1c = -ochar_wide_adjusts[part->field24]
+ *      multi_adjust_xy(obj)
+ *      frame[frame].handler = t_wait_forever
+ *
+ * **Two per-character tables, both named, and both new to the tree.** `ochar_reached` at
+ * 0x001667c0 and `ochar_wide_adjusts` at 0x00166b54, each indexed by `part->field24` with
+ * `ldr.w r3, [rN, r1, lsl #2]` -- so both are arrays of words, one entry per fighter.
+ *
+ * `ochar_wide_adjusts` is **negated before use** (`rsb r3, r3, #0`), and the result goes into 0x1c
+ * with 0 in 0x20, so the table holds a positive horizontal distance and the fighter is shifted
+ * backwards by it. That is the "wide" in the name: how far apart the two have to stand.
+ *
+ * **0x1c is written twice and the first value is consumed by one of the three calls between
+ * them.** `ochar_reached[char]` goes in, then `death_scream`, `match_me_with_him` and `flip_multi`
+ * run, then 0x1c is overwritten with the negated adjust. So the first store is NOT dead -- one of
+ * those three reads it -- but which one is not settled by this routine. Recorded rather than
+ * guessed.
+ *
+ * The animation is base plus character again, 0x1be4 + `part->field24`, arriving as
+ * `add.w #0x1bc0` then `adds #0x24` because the constant will not fit one Thumb immediate. Fourth
+ * site for that idiom after `t_grow_victum` here and `cutup_body_init`'s callers in mkanimal.c.
+ */
+extern uint32_t ochar_reached[];                 /* 0x001667c0 */
+extern uint32_t ochar_wide_adjusts[];            /* 0x00166b54 */
+void player_normpal(MK3OBJ *obj);
+
+long t_open_wide(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    player_normpal(obj);
+    face_opponent(obj);
+
+    obj->field1c = ochar_reached[obj->field08->field24];
+    obj->field08->field2c = obj->field08->field24 + 0x1bc0 + 0x24;
+
+    death_scream(obj);
+    match_me_with_him(obj);
+    flip_multi(obj);
+
+    obj->field20 = 0;
+    obj->field1c =
+        (uint32_t)(-(int32_t)ochar_wide_adjusts[obj->field08->field24]);
+    multi_adjust_xy(obj);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+}
+
+/* --------------------------------------------------------------------- t_nail_spawn_proc
+ *
+ * armv7 0x00039fb4, 156 bytes.  **Complete.**
+ *
+ *      token == 0:       part->field2c = 0x1dd
+ *                        obj->field1c = 0x2a
+ *                        obj->field20 = 0x2a - 0x30 = -6
+ *                        multi_adjust_xy(obj)
+ *                        obj->a10 = 0x28
+ *                        -- falls into the 0x448 tail --
+ *
+ *      token == 0x448:   token := 0x44a, park 1
+ *
+ *      token == 0x44a:   rsnd_func(obj, 6)
+ *                        if (--obj->a10 == 0)
+ *                            frame[frame].handler = t_wait_forever
+ *                        -- falls into the 0x448 tail --
+ *
+ *      the 0x448 tail:   token := 0x448, park 1
+ *
+ *      otherwise:        return -3
+ *
+ * **Forty nails, two frames apart, then park forever.** The two states exist only to make the
+ * period two frames rather than one: 0x448 waits and does nothing, 0x44a makes the noise and
+ * counts. A single state with a park of 2 would have done the same thing, and the routine does not
+ * do that.
+ *
+ * The animation is a bare constant, 0x1dd, with no character index -- the same distinction
+ * `t_appearing_spikes` draws against `t_grow_victum`. So props get constants and fighters get
+ * base-plus-character, and the block an animation lives in does not tell you which.
+ *
+ * One literal feeds both offsets again: `movs r3, #0x2a` then `subs r3, #0x30`, giving 0x2a across
+ * and -6 up.
+ */
+long t_nail_spawn_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x448) {
+        *mk3_frame(thread, frame + 1) = 0x44a;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0) {
+        obj->field08->field2c = 0x1dd;
+
+        obj->field1c = 0x2a;
+        obj->field20 = (uint32_t)(0x2a - 0x30);
+        multi_adjust_xy(obj);
+
+        obj->a10 = 0x28;
+
+    } else if (token == 0x44a) {
+        rsnd_func(obj, 6);
+
+        obj->a10 = obj->a10 - 1;
+        if (obj->a10 == 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = 0x448;
+    thread->fieldfc = 1;
+    return 1;
+}
