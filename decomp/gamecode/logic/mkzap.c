@@ -2488,3 +2488,250 @@ long t_sg_trail_spawn(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+
+/* t_rocket1_flight_call -- armv7 0x00075d90, 120 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field28 = 3
+ *      v = part->field18
+ *      obj->field20 = (int32_t)v >> 4
+ *      obj->field1c = obj->field20 + v                  ; 17/16 of it
+ *      if (obj->field1c < 0) obj->field1c = -obj->field1c
+ *      if (obj->field1c > 0xe0000) obj->field1c = 0xe0000
+ *      set_proj_vel(obj)
+ *      pop a level, or t_local_reaction_exit at the bottom
+ *
+ * **The rocket accelerates by a sixteenth a frame and tops out at 0xe0000**, and
+ * this is the routine that explains why `set_proj_vel` wants an unsigned speed:
+ * the magnitude is computed here, clamped here, and handed over for that helper
+ * to re-sign by the flip bit. Neither routine has to know which way the rocket
+ * is pointing.
+ *
+ * **The animation rate comes out of the same division.** `set_proj_vel` moves
+ * 0x20 into 0x1c and calls `init_anirate`, and 0x20 is `v >> 4` -- so the rocket
+ * animates faster as it goes faster, from one `asrs`. That is worth knowing
+ * before a port hard-codes a frame rate for it.
+ *
+ * `obj->field28 = 3` has no reader in this routine and none in `set_proj_vel`,
+ * which writes 0x2c and reads 0x1c and 0x20. Whether `init_anirate` reads 0x28 is
+ * not settled here, so it is transcribed rather than called dead.
+ */
+long t_rocket1_flight_call(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t v;
+
+    if (*mk3_frame(thread, frame + 1) != 0)
+        return -3;
+
+    obj->field28 = 3;
+
+    v = obj->field08->field18;
+    obj->field20 = (uint32_t)((int32_t)v >> 4);       /* also the anirate */
+    obj->field1c = obj->field20 + v;
+
+    if ((long)obj->field1c < 0)
+        obj->field1c = (uint32_t)(-(long)obj->field1c);
+
+    if ((long)obj->field1c > 0xe0000)
+        obj->field1c = 0xe0000;                      /* the top speed */
+
+    set_proj_vel(obj);
+
+    if ((long)thread->frame > 0) {          /* cmp #0 / ble: signed */
+        thread->frame = thread->frame - 1;  /* back up a level */
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* benedict_arnold_projectile -- armv7 0x00075f98, 120 bytes.  **Complete.**
+ *
+ *      other = proc->field00
+ *      obj->field34 = other
+ *      proc->him     = other->proc->him
+ *      proc->field00 = other->proc->field00
+ *
+ *      get_frontmost_point(obj); before = obj->field28
+ *      flip_multi(obj)
+ *      get_frontmost_point(obj); after  = obj->field28
+ *      d = -|after - before|
+ *      obj->field2c = before
+ *
+ *      rightmost_mpart_ob(obj, part)          -> obj->field28
+ *      leftmost_mpart_ob(obj, part)           -> obj->field24
+ *      obj->field24 = |obj->field24 - obj->field28|
+ *      obj->field1c = obj->field24 + d
+ *      obj->field20 = 0
+ *      multi_adjust_xy(obj)
+ *
+ * **The name is the whole explanation: the projectile changes sides.** The first
+ * four lines copy the OTHER object's proc's `him` and `field00` into this proc's,
+ * so a projectile that was aimed at the opponent is now aimed at whoever the
+ * opponent was aimed at -- its own owner. Nothing else in the tree rewrites a
+ * proc's `him`.
+ *
+ * **Then it re-centres itself for the turn.** A projectile that reverses has to
+ * move, because its art is drawn from one edge: the front point is measured,
+ * `flip_multi` mirrors it, the front point is measured again, and the shift is
+ * the body's width less the distance the front moved. The vertical shift is
+ * zero, so it only slides sideways.
+ *
+ * `-|after - before|` survives both edge calls in a callee-saved register, which
+ * it has to, because **`rightmost_mpart_ob` overwrites 0x28** -- the field the
+ * difference was stored in. That store is therefore dead, and so are two more to
+ * the same field inside the `it lt` block above it. **Three dead stores to 0x28
+ * in one routine**, all superseded before anything reads them; transcribed
+ * because a reader diffing against the disassembly will see all three.
+ *
+ * `obj->field2c = before` is written between the two halves of an `it lt` pair,
+ * which is the compiler interleaving an unconditional store into a conditional
+ * sequence. It is not conditional.
+ */
+void multi_adjust_xy(MK3OBJ *obj);
+
+void benedict_arnold_projectile(MK3OBJ *obj)
+{
+    MK3OBJ  *other;
+    uint32_t before, after;
+    int32_t  d;
+
+    other = obj->field00->field00;
+    obj->field34 = (uint32_t)(uintptr_t)other;
+
+    obj->field00->him     = other->field00->him;
+    obj->field00->field00 = other->field00->field00;
+
+    get_frontmost_point(obj);
+    before = obj->field28;
+
+    flip_multi(obj);
+
+    get_frontmost_point(obj);
+    after = obj->field28;
+
+    obj->field28 = after - before;              /* dead: 0x28 is clobbered */
+    d = (int32_t)(after - before);
+    if (d < 0) {
+        d = -d;
+        obj->field28 = (uint32_t)d;             /* dead as well */
+    }
+    obj->field2c = before;                      /* not conditional */
+    d = -d;
+    obj->field28 = (uint32_t)d;                 /* dead: rightmost writes it */
+
+    rightmost_mpart_ob(obj, obj->field08);      /* answers in 0x28 */
+    leftmost_mpart_ob(obj, obj->field08);       /* answers in 0x24 */
+
+    obj->field24 = obj->field24 - obj->field28;
+    if ((long)obj->field24 < 0)
+        obj->field24 = (uint32_t)(-(long)obj->field24);
+
+    obj->field28 = obj->field24 + (uint32_t)d;
+    obj->field1c = obj->field28;
+    obj->field20 = 0;                           /* sideways only */
+
+    multi_adjust_xy(obj);
+}
+
+
+/* create_proj_proc -- armv7 0x00075964, 120 bytes.  **Complete.**
+ *
+ *      obj->field20 = obj->field1c
+ *      strength = proc->field08
+ *
+ *      if (proc->field64 != 0) {
+ *          StartProcAt(proc->field64, obj->field38)
+ *          slave = proc->field64
+ *          obj->field1c = slave->field00                ; its proc
+ *          slave->field08->field30 &= ~MK3F_INVISO
+ *      } else {
+ *          slave = getprc_x(obj, 0)                     ; answers in 0x1c too
+ *          if (slave != NULL) slave->field08->field2c = -1
+ *          slave->field08->field30 &= ~MK3F_INVISO
+ *      }
+ *
+ *      ((MK3OBJPROC *)obj->field1c)->him     = proc->him
+ *      ((MK3OBJPROC *)obj->field1c)->field00 = proc->field00
+ *      obj->field20   = 0
+ *      proc->field84  = 0
+ *      slave->thread->pid = strength + 0x700
+ *
+ * **The pid is computed, and this is the second formula for it.** mkprop.c's
+ * `t_decoy_proc` sets `decoy->thread->pid = obj->field00->field08 + 0x204`; this
+ * sets `slave->thread->pid = obj->field00->field08 + 0x700`. **Same base, two
+ * per-kind constants** -- so a thread's pid is the owning fighter's strength
+ * index plus a tag saying what kind of thing it is, and `FindThread` can find
+ * "player 2's projectile" without a table.
+ *
+ * That makes three pid facts in the tree: 0x204 for decoys, 0x700 for
+ * projectiles, and the literal 0x11f mkstat.c uses for Jade's flash, which
+ * `is_jade_protected` searches for. The first two are derived and the third is
+ * not, which is worth flagging before a port assumes one scheme.
+ *
+ * **The new proc inherits both halves of the fighter's view of the fight** --
+ * `him` and `field00` -- so the projectile knows who it is aimed at from the
+ * moment it exists, and `benedict_arnold_projectile` above is what un-does that.
+ *
+ * `proc->field84 = 0` clears the slot `tell_world_stk` publishes into, so a
+ * fresh projectile starts with no published stick. Second writer of that field
+ * and still no reader anywhere in the tree.
+ *
+ * **Two paths, and the second reuses an object rather than making one.** With a
+ * slave already in `proc->field64` the routine restarts it in place through
+ * `StartProcAt` with the handler in 0x38; otherwise `getprc_x` supplies one and
+ * its part's 0x2c is set to -1, which no other routine in this file writes.
+ * Both paths clear MK3F_INVISO, because a projectile that has been used before
+ * was hidden rather than destroyed.
+ *
+ * **`getprc_x` answers in `obj->field1c` as well as in `r0`.** The code reads
+ * 0x1c as the new proc four instructions after the call without writing it, so
+ * the helper must fill it -- the same convention `mk_random` and every other
+ * 0x1c-answering helper in this engine follows. Recorded as the reading; the
+ * routine is at 0x000599b4 and is not decompiled.
+ */
+MK3OBJ *getprc_x(MK3OBJ *obj, uint32_t arg);
+void StartProcAt(MK3OBJ *obj, MK3THREADFUNC func);
+
+void create_proj_proc(MK3OBJ *obj)
+{
+    MK3OBJPROC *proc = obj->field00;
+    uint32_t    strength = proc->field08;
+    MK3OBJ     *slave;
+
+    obj->field20 = obj->field1c;
+
+    if (proc->field64 != 0) {
+        slave = (MK3OBJ *)(void *)(uintptr_t)proc->field64;
+
+        StartProcAt(slave, (MK3THREADFUNC)(uintptr_t)obj->field38);
+
+        slave = (MK3OBJ *)(void *)(uintptr_t)proc->field64;
+        obj->field1c = (uint32_t)(uintptr_t)slave->field00;
+
+        slave = (MK3OBJ *)(void *)(uintptr_t)proc->field64;
+        slave->field08->field30 =
+            slave->field08->field30 & ~(uint32_t)MK3F_INVISO;
+
+    } else {
+        slave = getprc_x(obj, 0);            /* answers in 0x1c as well */
+
+        if (slave != NULL)
+            slave->field08->field2c = 0xffffffffu;
+
+        slave->field08->field30 =
+            slave->field08->field30 & ~(uint32_t)MK3F_INVISO;
+    }
+
+    ((MK3OBJPROC *)(void *)(uintptr_t)obj->field1c)->him = proc->him;
+    ((MK3OBJPROC *)(void *)(uintptr_t)obj->field1c)->field00 = proc->field00;
+
+    obj->field20  = 0;
+    proc->field84 = 0;
+
+    slave->thread->pid = strength + 0x700;   /* the kind tag */
+}
