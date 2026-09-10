@@ -398,6 +398,12 @@ void borrow_char_ani(MK3OBJ *obj)
  * Two sounds, back to back, 0x1d then 0x1e. The object is kept in r4 across
  * the first call and put back in r0 for the second, which is the whole reason
  * this function pushes a register at all.
+ *
+ * **The pair is the house idiom for a noise, and this is the only one with a name.**
+ * `t_nado_sounds` later in this file plays 6 and 7 the same way, and mkanimal.c plays
+ * 0x24 and 0x25 through `tsound_func` in three separate routines. So a sound effect here
+ * is routinely two samples fired with nothing between them; do not read the second call
+ * as a different event.
  */
 void hele_sound(MK3OBJ *obj)
 {
@@ -1870,6 +1876,131 @@ long t_skburn3(MK3THREAD *thread)
         return -3;
 
     set_inviso(obj);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+}
+
+
+
+/* -------------------------------------------------------------------------- t_hele_sleep
+ *
+ * armv7 0x000371e0, 128 bytes.  **Complete.**
+ *
+ *      token == 0:      token := 0xefa, park 1
+ *
+ *      token == 0xefa:  if (--obj->a10 == 0) {
+ *                           obj->a10 = 0x20
+ *                           hele_sound(obj)
+ *                       }
+ *                       next_anirate(obj)
+ *                       pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:       return -3
+ *
+ * **It pops every time, so the counter is what carries across calls.** The routine animates one
+ * frame and gives the level straight back; `obj->a10` is not reset on entry, so a parent that
+ * descends into this each frame gets the helicopter sound once every thirty-two frames and an
+ * animation step on all of them.
+ *
+ * That is a different shape from the loops elsewhere in the tree: instead of holding the level
+ * and re-arming its own token, this hands control back and relies on the OBJECT to remember. The
+ * state machine is in the field, not in the frame.
+ *
+ * `obj->a10 = 0x20` is compiled as `adds r3, #0x20` on a register the branch has just proved to
+ * be zero -- the same trick mkanimal.c's `tl_reptile_monkey` uses. Transcribed as the value,
+ * because the arithmetic carries nothing the value does not.
+ */
+long t_hele_sleep(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, frame + 1) = 0xefa;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token != 0xefa)
+        return -3;
+
+    obj->a10 = obj->a10 - 1;
+    if (obj->a10 == 0) {
+        obj->a10 = 0x20;
+        hele_sound(obj);
+    }
+
+    next_anirate(obj);
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* -------------------------------------------------------------------- t_slide_behind_hair
+ *
+ * armv7 0x00038c04, 128 bytes.  **Complete.**
+ *
+ *      token == 0:       set_noedge(obj)
+ *                        obj->field1c = 0x40000; away_x_vel(obj)
+ *                        token := 0x124d, park 1
+ *
+ *      token == 0x124d:  get_x_dist(obj)
+ *                        if (obj->field28 <= 0x97) { token := 0x124d, park 1 }
+ *                        stop_me_player(obj)
+ *                        frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:        return -3
+ *
+ * **A DEPARTURE test, where every distance loop measured so far has been an arrival.**
+ * mkanimal.c has five ways of asking "have I arrived?"; this asks the opposite, re-arming while
+ * the gap is 0x97 or less and stopping once it is larger. Same instruction shape --
+ * `get_x_dist` then a branch on 0x28 -- and the comparison the other way round.
+ *
+ * So the loop is: remove the edge limit, push away at 0x40000, and keep going until the fighter
+ * is more than 0x97 clear. The `set_noedge` in state 0 is what makes that possible; without it
+ * the arena would stop the slide before the test could pass.
+ *
+ * Then `stop_me_player` and park forever -- no unwind, so whatever follows the fatality replaces
+ * this handler from outside.
+ */
+void set_noedge(MK3OBJ *obj);
+long get_x_dist(MK3OBJ *obj);
+void stop_me_player(MK3OBJ *obj);
+
+long t_slide_behind_hair(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        set_noedge(obj);
+
+        obj->field1c = 0x40000;
+        away_x_vel(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x124d;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token != 0x124d)
+        return -3;
+
+    get_x_dist(obj);
+
+    if ((long)obj->field28 <= 0x97) {
+        *mk3_frame(thread, thread->frame + 1) = 0x124d;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    stop_me_player(obj);
 
     return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
 }
