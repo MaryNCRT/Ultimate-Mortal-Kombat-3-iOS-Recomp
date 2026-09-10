@@ -5249,3 +5249,95 @@ long t_skel_blood(MK3THREAD *thread)
     thread->fieldfc = 0x10;
     return 0x10;
 }
+
+
+/* ---------------------------------------------------------------------------- t_r_stretch
+ *
+ * armv7 0x00034648, 280 bytes.  **Complete.**
+ *
+ *      token == 0:        e = ((long *)obj->field48)[part->field24]
+ *                         obj->field1c = e
+ *                         obj->field40 = e
+ *                         token := 0x864, descend into t_grow_n_shake
+ *
+ *      token == 0x864:    token := 0x865, descend into t_grow_n_shake
+ *
+ *      token == 0x865:    token := 0x866, descend into t_grow_n_shake
+ *
+ *      token == 0x866:    set_inviso(obj)
+ *                         obj->field1c = 0x18; create_fx(obj)
+ *                         token := 0x86a, descend into t_white_flash
+ *
+ *      token == 0x86a:    frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:         return -3
+ *
+ * **`obj->field48` is a TABLE BASE here, and that is a sixth reading of the field.** The caller
+ * leaves a pointer in it and this indexes it by the character number with `ldr.w r3, [r2, r3,
+ * lsl #2]`. Elsewhere in the tree 0x48 has been a shake magnitude pair, a plain counter, a function
+ * pointer for `t_animate_till_a11`, a packed coordinate pair for `skinny_spawn`, and an animation
+ * cursor. Six meanings, one word, and only the calling state tells them apart.
+ *
+ * **It descends into `t_grow_n_shake` three times in a row.** That routine -- written earlier in
+ * this file -- plays the crunch pair, screams, advances a frame and shakes, all in one state before
+ * popping. So the stretch is three of those cycles back to back, and the only thing that changes
+ * between them is that the first sets up 0x1c and 0x40 from the table.
+ *
+ * Three separate states each pushing the same handler, rather than one state re-arming itself,
+ * because the frame has to be popped and re-pushed between cycles for `t_grow_n_shake` to restart
+ * at its own state 0.
+ *
+ * **The ending is exactly `t_eat_this_shit`'s**: `set_inviso`, effect 0x18, then `t_white_flash`.
+ * Second site for that three-step disappearance, and the two agree on the effect number as well --
+ * so 0x18 is the vanishing effect specifically, where 0x15 and 0x24 are used by the other two
+ * `set_inviso` endings in the tree.
+ */
+long t_grow_n_shake(MK3THREAD *thread);
+
+long t_r_stretch(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    uint32_t next;
+
+    if (token == 0x866) {
+        set_inviso(obj);
+
+        obj->field1c = 0x18;
+        create_fx(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x86a;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_white_flash;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x86a)
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+
+    if (token == 0) {
+        obj->field1c =
+            ((uint32_t *)(uintptr_t)obj->field48)[obj->field08->field24];
+        obj->field40 = obj->field1c;
+        next = 0x864;
+
+    } else if (token == 0x864) {
+        next = 0x865;
+
+    } else if (token == 0x865) {
+        next = 0x866;
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_grow_n_shake;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
