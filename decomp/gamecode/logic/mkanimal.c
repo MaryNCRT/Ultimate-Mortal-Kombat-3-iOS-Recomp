@@ -1467,3 +1467,488 @@ long t_eaten_by_shark(MK3THREAD *thread)
     thread->fieldfc = 2;
     return 2;
 }
+
+/* ------------------------------------------------------------------------- t_egg_proc
+ *
+ * armv7 0x000a1440, 176 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field08->field2c = 0xb08
+ *                       obj->field40 = a_egg
+ *                       obj->field1c = 5
+ *                       token := 0x2a8, descend into t_mframew
+ *
+ *      token == 0x2a8:  token := 0x2aa, park 0x20
+ *
+ *      token == 0x2aa:  obj->field38 = t_r_egg
+ *                       takeover_him(obj)
+ *                       token := 0x2ad, park 0x16462
+ *
+ *      otherwise:       return -3
+ *
+ * **The egg's own thread.** It sets the part's animation to 0xb08, points 0x40 at the
+ * named word list `a_egg` (0x00177558 -- one of the few of these tables with a symbol of
+ * its own), waits five frames' worth through `t_mframew`, waits thirty-two more, and then
+ * hands `t_r_egg` to the other fighter through 0x38 and `takeover_him`.
+ *
+ * So the egg does not hatch by running code of its own: it makes the VICTIM's thread run
+ * `t_r_egg`, which is written earlier in this file, and then parks itself forever.
+ *
+ * **Token 0x2ad is not in the dispatch and the park is 0x16462.** Third site for that
+ * pattern, after mkstat.c's `t_jade_flash_proc` and `t_crunch_sounds` in this file -- and
+ * the first one where the reason is plainly visible: after the handover this thread has
+ * nothing left to do, and parking forever is cheaper than unwinding.
+ */
+extern uint32_t a_egg[];                         /* 0x00177558 */
+void takeover_him(MK3OBJ *obj);
+
+long t_egg_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x2a8) {
+        *mk3_frame(thread, frame + 1) = 0x2aa;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (token == 0x2aa) {
+        obj->field38 = (uint32_t)(uintptr_t)t_r_egg;
+        takeover_him(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x2ad;
+        thread->fieldfc = 0x16462;
+        return 0x16462;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field08->field2c = 0xb08;
+    obj->field40 = (uint32_t)(uintptr_t)a_egg;
+    obj->field1c = 5;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x2a8;
+    thread->frame = thread->frame + 1;              /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+/* ----------------------------------------------------------------------- t_hit_by_bull
+ *
+ * armv7 0x000a3284, 208 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field1c = 1; create_blood_proc(obj)
+ *                       obj->field48 = 0x00060006; shake_a11(obj)
+ *                       death_scream(obj)
+ *                       rsnd_func(obj, 3)
+ *                       set_noedge(obj)
+ *                       obj->field1c = 0x130000; away_x_vel(obj)
+ *                       obj->field08->field18 = obj->field1c
+ *                       obj->field1c = 0xd
+ *                       obj->field20 = 0xfff80000
+ *                       obj->field24 = 0xfff80000 + 0x86000 = 0x00006000
+ *                       obj->field28 = 4
+ *                       obj->field40 = 0x1e
+ *                       token := 0x632, descend into t_flight
+ *
+ *      token == 0x632:  frame[frame].handler = t_land_on_my_back
+ *
+ *      otherwise:       return -3
+ *
+ * **The twin of `t_dino_bucked` earlier in this file**, and reading the two together
+ * separates the fixed part of a knock-into-the-air from the per-animal part:
+ *
+ *      routine           x vel      0x20 (y vel)   0x24 (fall)   0x28   0x40
+ *      t_dino_bucked     0x30000    0xffeb0000     0x5000        4      0x1e
+ *      t_hit_by_bull     0xd        0xfff80000     0x6000        4      0x1e
+ *
+ * The blood, the shake pair, the scream and sound 3 are identical; the bounce kind and the
+ * animation are identical; only the three velocities differ. So `t_flight` takes five
+ * numbers and everything else is shared.
+ *
+ * **The 0x24 store wraps 32 bits and that is not a transcription slip.** The literal is
+ * 0xfff80000, the instruction is `add.w r3, r3, #0x86000`, and the sum 0x100006000 is
+ * truncated by the register to 0x00006000. Writing it out as an addition keeps the binary's
+ * arithmetic; writing 0x6000 directly would hide that 0x20 and 0x24 are computed from one
+ * literal and not two.
+ *
+ * The bull is also the only one of the pair to call `set_noedge` and `away_x_vel`, and to
+ * copy the resulting x velocity into the part's 0x18 -- so the victim is pushed away from
+ * the bull rather than in a fixed direction, and the screen is allowed to let them leave.
+ */
+void set_noedge(MK3OBJ *obj);
+void away_x_vel(MK3OBJ *obj);
+
+long t_hit_by_bull(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 1;
+        create_blood_proc(obj);
+
+        obj->field48 = 0x00060006;
+        shake_a11(obj);
+        death_scream(obj);
+        rsnd_func(obj, 3);
+        set_noedge(obj);
+
+        obj->field1c = 0x130000;
+        away_x_vel(obj);
+        obj->field08->field18 = obj->field1c;
+
+        obj->field1c = 0xd;
+        obj->field20 = 0xfff80000u;
+        obj->field24 = 0xfff80000u + 0x86000u;      /* wraps to 0x00006000 */
+        obj->field28 = 4;
+        obj->field40 = 0x1e;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x632;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x632)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_land_on_my_back);
+}
+
+/* -------------------------------------------------------------------------- t_r_rabbit
+ *
+ * armv7 0x000a3c44, 220 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field40 = 0x20; find_ani_part2(obj)
+ *                       obj->field1c = 4; init_anirate(obj)
+ *                       set_noedge(obj)
+ *                       death_scream(obj)
+ *                       face_opponent(obj)
+ *                       obj->field1c = 0x30000; away_x_vel(obj)
+ *                       NewThread(obj, t_crunch_sounds)
+ *                       obj->a10 = 0x140
+ *                       obj->field1c = 1
+ *                       -- falls through to the tail --
+ *
+ *      token == 0x3eb:  next_anirate(obj)
+ *                       obj->field1c = obj->field00->field28 - 1
+ *                       if (obj->field1c == 0) {
+ *                           obj->field1c = 5; create_blood_proc(obj)
+ *                           obj->field1c = 5
+ *                       }
+ *                       if (--obj->a10 <= 0) {
+ *                           stop_me_player(obj)
+ *                           frame[frame].handler = t_wait_forever
+ *                       }
+ *                       -- falls through to the tail --
+ *
+ *      the tail:        obj->field00->field28 = obj->field1c
+ *                       token := 0x3eb, park 1
+ *
+ *      otherwise:       return -3
+ *
+ * **Two counters that work differently, and one shared store.** `obj->a10` counts 0x140 --
+ * three hundred and twenty frames -- straight down, and ends the routine. `proc->field28`
+ * counts down too, but the tail RELOADS it from 0x1c every frame, so what 0x1c holds is
+ * the reload value: state 0 leaves 1 there, so the first pass of 0x3eb sees zero and draws
+ * blood, and each blood then sets 0x1c to 5, so blood comes every fifth frame after that.
+ * A repeating interval built out of one countdown and one store, with no second field.
+ *
+ * **This is a second reading of `proc->field28`.** The header describes it as who the shake
+ * is about, on the authority of the two shake routines that write `him` or the object's
+ * 0x08 there. Here it is a frame counter. Nothing in this routine settles which reading is
+ * the field's real purpose, so both stand; what is certain is that this one writes and
+ * reads it as a number of frames.
+ *
+ * `create_blood_proc` clobbers 0x1c, which is why 5 is stored twice around the call -- once
+ * as the effect's own argument and once to survive it. Not dead code.
+ *
+ * **The crunching is a separate thread.** `NewThread(obj, t_crunch_sounds)` starts the
+ * routine written earlier in this file, so the six pairs of crunches run on their own
+ * cadence while this loop draws blood on its own. Two independent timelines rather than one
+ * interleaved state machine -- and it explains why `t_crunch_sounds` needed a never-wake
+ * terminator instead of a way to unwind.
+ */
+void find_ani_part2(MK3OBJ *obj);
+void init_anirate(MK3OBJ *obj);
+MK3THREAD *NewThread(void *owner, MK3THREADFUNC func);
+
+long t_r_rabbit(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field40 = 0x20;
+        find_ani_part2(obj);
+
+        obj->field1c = 4;
+        init_anirate(obj);
+        set_noedge(obj);
+        death_scream(obj);
+        face_opponent(obj);
+
+        obj->field1c = 0x30000;
+        away_x_vel(obj);
+
+        NewThread(obj, (MK3THREADFUNC)t_crunch_sounds);
+
+        obj->a10 = 0x140;
+        obj->field1c = 1;
+
+    } else if (token == 0x3eb) {
+        next_anirate(obj);
+
+        obj->field1c = obj->field00->field28 - 1;
+        if (obj->field1c == 0) {
+            obj->field1c = 5;
+            create_blood_proc(obj);
+            obj->field1c = 5;
+        }
+
+        obj->a10 = obj->a10 - 1;
+        if ((long)obj->a10 <= 0) {
+            stop_me_player(obj);
+            return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+        }
+
+    } else {
+        return -3;
+    }
+
+    obj->field00->field28 = obj->field1c;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x3eb;
+    thread->fieldfc = 1;
+    return 1;
+}
+
+/* ------------------------------------------------------------------ t_stung_by_scorpion
+ *
+ * armv7 0x000a361c, 292 bytes.  **Complete.**
+ *
+ *      token == 0:      face_opponent(obj)
+ *                       obj->field1c = 0x40000; away_x_vel(obj)
+ *                       rsnd_func(obj, 3)
+ *                       obj->field1c = 2; group_sound(obj)
+ *                       obj->field40 = 0x00050020
+ *                       token := 0x4fa, descend into t_animate_a9
+ *
+ *      token == 0x4fa:  stop_me_player(obj)
+ *                       death_scream(obj)
+ *                       obj->field40 = 0x48; pose_a9_manual(obj)
+ *                       player_swpal(obj, 3)
+ *                       obj->field1c = 3
+ *                       obj->field20 = 3
+ *                       obj->field24 = 3 + 0x11 = 0x14
+ *                       token := 0x508, descend into t_shake_ob_up
+ *
+ *      token == 0x508:  set_inviso(obj)
+ *                       obj->field1c = 0x15; create_fx(obj)
+ *                       frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:       return -3
+ *
+ * **The victim dissolves rather than coming apart**, which is why nothing in here touches
+ * the blood or the body-pieces machinery. Three stages: knocked away with an animation,
+ * then poisoned -- posed by hand into animation 0x48 with palette 3 -- and shaken in place,
+ * and finally made invisible with effect 0x15 left where the body was.
+ *
+ * `player_swpal(obj, 3)` is the poison colour. It is the same call `t_r_egg` uses, so
+ * swapping the palette is how this module shows a state change on a fighter it is not
+ * animating.
+ *
+ * **`t_shake_ob_up` takes three numbers**, 0x1c, 0x20 and 0x24, and the third is computed
+ * from the second with `adds r3, #0x11` rather than loaded -- so 3 and 0x14 come from one
+ * literal. The same one-literal-two-fields shape as `t_hit_by_bull`'s flight constants.
+ *
+ * 0x40 is the packed halfword pair again -- animation 0x20 at rate 5 -- eighth site for
+ * that reading, and the second in this file after `t_stung_a_bunch`.
+ */
+void group_sound(MK3OBJ *obj);
+void pose_a9_manual(MK3OBJ *obj);
+void player_swpal(MK3OBJ *obj, uint32_t frozen);
+long t_shake_ob_up(MK3THREAD *thread);           /* pointer slot 0x000f36f8 */
+
+long t_stung_by_scorpion(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x4fa) {
+        stop_me_player(obj);
+        death_scream(obj);
+
+        obj->field40 = 0x48;
+        pose_a9_manual(obj);
+        player_swpal(obj, 3);
+
+        obj->field1c = 3;
+        obj->field20 = 3;
+        obj->field24 = 3 + 0x11;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x508;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_shake_ob_up;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x508) {
+        set_inviso(obj);
+
+        obj->field1c = 0x15;
+        create_fx(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+    }
+
+    if (token != 0)
+        return -3;
+
+    face_opponent(obj);
+
+    obj->field1c = 0x40000;
+    away_x_vel(obj);
+    rsnd_func(obj, 3);
+
+    obj->field1c = 2;
+    group_sound(obj);
+
+    obj->field40 = 0x00050020;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x4fa;
+    thread->frame = thread->frame + 1;              /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_animate_a9;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+/* ----------------------------------------------------------------- t_r_scared_of_monkey
+ *
+ * armv7 0x000a3fe8, 304 bytes.  **Complete.**
+ *
+ *      token == 0:      center_around_me(obj)
+ *                       death_scream(obj)
+ *                       face_opponent(obj)
+ *                       obj->field40 = 0x48; pose_a9_manual(obj)
+ *                       obj->field1c = 3
+ *                       obj->field20 = 3
+ *                       obj->field24 = 3 + 5 = 8
+ *                       token := 0x318, descend into t_shake_ob_up
+ *
+ *      token == 0x318:  token := 0x319, park 0x14
+ *
+ *      token == 0x319:  flip_multi(obj)
+ *                       kill_and_stop_scrolling(obj)
+ *                       sans_repell_for_good(obj)
+ *                       no_edge_both_players()
+ *                       obj->field1c = 0x80000; away_x_vel(obj)
+ *                       obj->field40 = 0x46; get_char_ani(obj)
+ *                       obj->field1c = 3; init_anirate(obj)
+ *                       obj->a10 = 0x50
+ *                       -- falls through to the tail --
+ *
+ *      token == 0x329:  next_anirate(obj)
+ *                       if (--obj->a10 <= 0) {
+ *                           stop_me_player(obj)
+ *                           frame[frame].handler = t_wait_forever
+ *                       }
+ *                       -- falls through to the tail --
+ *
+ *      the tail:        token := 0x329, park 1
+ *
+ *      otherwise:       return -3
+ *
+ * **The fighter runs away.** Posed into animation 0x48 and shaken, a twenty-frame pause,
+ * and then the whole arena is unlocked at once -- the camera stops following, the two
+ * fighters stop repelling each other, and both have their edge limits removed -- before the
+ * fighter is thrown away from the monkey at 0x80000 and animates for eighty frames.
+ *
+ * **`no_edge_both_players` takes no argument.** other.c defines it as `(void)`, reading
+ * both fighters out of the global; the `mov r0, r4` before the call is a setup the callee
+ * ignores. Transcribing it as a one-argument call would invent an interface.
+ *
+ * **The same `t_shake_ob_up` call as `t_stung_by_scorpion`, with one number changed**:
+ * both write 3 into 0x1c and 0x20, and the third field comes from the same register with
+ * `adds r3, #5` here and `adds r3, #0x11` there. So 0x24 is the only thing that varies
+ * between the two shakes, 8 against 0x14, and one literal still feeds two fields.
+ *
+ * Animation 0x48 is posed by hand in both routines as well -- the same frightened pose is
+ * shared by the monkey and the scorpion, and only what follows it differs.
+ */
+void center_around_me(MK3OBJ *obj);
+void flip_multi(MK3OBJ *obj);
+void sans_repell_for_good(MK3OBJ *obj);
+void no_edge_both_players(void);
+void get_char_ani(MK3OBJ *obj);
+
+long t_r_scared_of_monkey(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x318) {
+        *mk3_frame(thread, frame + 1) = 0x319;
+        thread->fieldfc = 0x14;
+        return 0x14;
+    }
+
+    if (token == 0x319) {
+        flip_multi(obj);
+        kill_and_stop_scrolling(obj);
+        sans_repell_for_good(obj);
+        no_edge_both_players();
+
+        obj->field1c = 0x80000;
+        away_x_vel(obj);
+
+        obj->field40 = 0x46;
+        get_char_ani(obj);
+
+        obj->field1c = 3;
+        init_anirate(obj);
+
+        obj->a10 = 0x50;
+
+    } else if (token == 0x329) {
+        next_anirate(obj);
+
+        obj->a10 = obj->a10 - 1;
+        if ((long)obj->a10 <= 0) {
+            stop_me_player(obj);
+            return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+        }
+
+    } else if (token == 0) {
+        center_around_me(obj);
+        death_scream(obj);
+        face_opponent(obj);
+
+        obj->field40 = 0x48;
+        pose_a9_manual(obj);
+
+        obj->field1c = 3;
+        obj->field20 = 3;
+        obj->field24 = 3 + 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x318;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_shake_ob_up;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = 0x329;
+    thread->fieldfc = 1;
+    return 1;
+}
