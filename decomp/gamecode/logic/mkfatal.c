@@ -7799,3 +7799,134 @@ long tl_r_scared_of_mileena(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ----------------------------------------------------------------------------- t_sonya_kiss
+ *
+ * armv7 0x00036ba4, 372 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0x16ac, descend into t_fatality_start_pause
+ *
+ *      token == 0x16ac:   obj->field40 = 2; find_ani2_part2(obj)
+ *                         obj->field48 = obj->field40
+ *                         obj->field30 = *(long *)obj->field40
+ *                         gso_dmawnz_insobja8(obj)
+ *                         obj->field40 = 2
+ *                         obj->a10     = obj->field3c
+ *                         get_char_ani2(obj)
+ *                         token := 0x16bb, descend into t_kissani
+ *
+ *      token == 0x16bb:   token := 0x16bc, descend into t_kissani
+ *
+ *      token == 0x16bc:   token := 0x16c8, descend into t_kissani
+ *
+ *      token == 0x16c8:   obj->field1c = *(long *)obj->field40
+ *                         if (obj->field1c != 0)
+ *                             token := 0x16c8, descend into t_kissani
+ *                         obj->field1c = 6; ochar_sound(obj)
+ *                         StartGrObjAt((char *)obj->a10, t_kiss_orb)
+ *                         token := 0x16d9, park 0x90
+ *
+ *      token == 0x16d9:   death_blow_complete(obj)
+ *                         frame[frame].handler = t_victory_animation
+ *
+ *      otherwise:         return -3
+ *
+ * **This is `t_kissani`'s driver, and it is what that routine was written to be called from.** The
+ * note there said the advanced cursor is kept in 0x48 so "the routine can be called repeatedly and
+ * walk the list one word per call". Here is the caller doing exactly that -- three fixed descents
+ * and then a state that keeps descending while a word reads non-zero.
+ *
+ * **But the termination test reads 0x40, not 0x48, and 0x40 does not advance.** `t_kissani` pushes
+ * 0x40, works on 0x48, and pops 0x40 back unchanged; this routine's 0x40 was set by
+ * `get_char_ani2` in state 0x16ac and nothing between the states writes it. So on the reading of
+ * both functions as transcribed, state 0x16c8 either exits on its first test or never exits.
+ *
+ * That is a real discrepancy and it is recorded rather than smoothed over. Either one of the two
+ * transcriptions has the wrong field somewhere, or something outside both routines advances 0x40.
+ * Both were read from their own disassembly and both compile; whoever resolves it should re-read
+ * `t_kissani` at 0x00036d18 and this state at 0x00036cca side by side.
+ *
+ * **Second `StartGrObjAt` site**, and it matches `t_sonya_kiss_crusher`'s exactly: an object is
+ * produced by a `gso_*`/`gmo_*` insert routine, lands in `obj->field3c`, is copied to `obj->a10`,
+ * and is started with a handler of its own -- `t_kiss_orb` here, `t_crusher_orb` there. Both are
+ * Sonya's kiss fatalities and both build their projectile the same way.
+ *
+ * `find_ani2_part2` and `get_char_ani2` are both called, filling 0x48 and 0x40 with two different
+ * lists -- which is what lets `t_kissani` drive a substituted part from one while the caller holds
+ * the other.
+ */
+void gso_dmawnz_insobja8(MK3OBJ *obj);
+long t_kissani(MK3THREAD *thread);
+long t_kiss_orb(MK3THREAD *thread);              /* 0x00036f54 */
+
+long t_sonya_kiss(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    uint32_t next;
+
+    if (token == 0x16d9) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+    }
+
+    if (token == 0) {
+        *mk3_frame(thread, frame + 1) = 0x16ac;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_fatality_start_pause;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x16ac) {
+        obj->field40 = 2;
+        find_ani2_part2(obj);
+
+        obj->field48 = obj->field40;
+        obj->field30 = *(uint32_t *)(uintptr_t)obj->field40;
+
+        gso_dmawnz_insobja8(obj);
+
+        obj->field40 = 2;
+        obj->a10     = obj->field3c;
+        get_char_ani2(obj);
+
+        next = 0x16bb;
+
+    } else if (token == 0x16bb) {
+        next = 0x16bc;
+
+    } else if (token == 0x16bc) {
+        next = 0x16c8;
+
+    } else if (token == 0x16c8) {
+        obj->field1c = *(uint32_t *)(uintptr_t)obj->field40;
+
+        if (obj->field1c == 0) {
+            obj->field1c = 6;
+            ochar_sound(obj);
+
+            StartGrObjAt((char *)(uintptr_t)obj->a10,
+                         (MK3THREADFUNC)t_kiss_orb);
+
+            *mk3_frame(thread, frame + 1) = 0x16d9;
+            thread->fieldfc = 0x90;
+            return 0x90;
+        }
+
+        next = 0x16c8;
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_kissani;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
