@@ -5063,3 +5063,93 @@ long t_reptile_tongue(MK3THREAD *thread)
     thread->fieldfc = 1;
     return 1;
 }
+
+
+/* ------------------------------------------------------------------ t_smoke_blowup_earth
+ *
+ * armv7 0x00034d04, 268 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0x959, descend into t_fatality_start_pause
+ *
+ *      token == 0x959:    token := 0x95a, descend into t_robo_open_chest
+ *
+ *      token == 0x95a:    part->field2c = 0x758
+ *                         token := 0x95d, park 0x12c
+ *
+ *      token == 0x95d:    part->field2c = 0x75b
+ *                         call_for_him(obj, set_inviso)
+ *                         token := 0x960, park 0xb4
+ *
+ *      token == 0x960:    death_blow_complete(obj)
+ *                         frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:         return -3
+ *
+ * **Two descents in a row before any work happens.** State 0 goes into
+ * `t_fatality_start_pause` and state 0x959 immediately goes into `t_robo_open_chest` -- so the
+ * opening is two shared routines stacked, where every other fatality in this file descends once and
+ * then does something. The chest has to be open before the rest can run.
+ *
+ * `call_for_him(obj, set_inviso)` makes the OPPONENT invisible, and it is the **second site of that
+ * exact pairing** -- mkanimal.c's `tl_sindel_wasp` does the same call with the same callee. So
+ * hiding the other fighter is a two-word idiom rather than a routine of its own.
+ *
+ * The two animations, 0x758 then 0x75b, are bare constants three apart, and 0x12c frames pass
+ * between them -- five seconds. The second is where the victim disappears, so the numbers are a
+ * charge and a detonation.
+ *
+ * The routine writes only `part->field2c` and never touches a velocity, a position or a shake: the
+ * whole visible event is in `t_robo_open_chest` and in whatever the animations do. That makes it
+ * the thinnest complete fatality measured -- five states, four of them pure scheduling.
+ */
+long t_robo_open_chest(MK3THREAD *thread);       /* pointer slot 0x000f36c4 */
+
+long t_smoke_blowup_earth(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x959) {
+        *mk3_frame(thread, frame + 1) = 0x95a;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_robo_open_chest;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x95a) {
+        obj->field08->field2c = 0x758;
+
+        *mk3_frame(thread, frame + 1) = 0x95d;
+        thread->fieldfc = 0x12c;
+        return 0x12c;
+    }
+
+    if (token == 0x95d) {
+        obj->field08->field2c = 0x75b;
+
+        call_for_him(obj, set_inviso);
+
+        *mk3_frame(thread, frame + 1) = 0x960;
+        thread->fieldfc = 0xb4;
+        return 0xb4;
+    }
+
+    if (token == 0x960) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+    }
+
+    if (token != 0)
+        return -3;
+
+    *mk3_frame(thread, frame + 1) = 0x959;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_fatality_start_pause;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
