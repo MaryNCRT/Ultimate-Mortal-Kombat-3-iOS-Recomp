@@ -11004,3 +11004,236 @@ long t_mileena_nails(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------------------ t_another_scorpion
+ *
+ * armv7 0x0003bd68, 544 bytes.  **Complete.**
+ *
+ *      token == 0:        part->x0e = (uint16_t)obj->a10          ; x arrives in a10
+ *                         obj->field1c = *(long *)(G + 0xac)
+ *                         part->x12 = (uint16_t)obj->field1c      ; put it on the floor
+ *                         obj->field40 = 0x00010016
+ *                         pose_a9_manual(obj)
+ *                         part->field28 &= ~0x10                  ; face right
+ *                         ground_ochar(obj)
+ *                         proc->field40 = (int16_t)part->x12      ; where the feet land
+ *                         part->x12 = (uint16_t)*(long *)(G + 0xac)
+ *                         obj->field1c = 0xa; ochar_sound(obj)
+ *                         obj->field1c = -0x100000
+ *                         part->field1c = -0x100000
+ *                         -- falls into the fall tail --
+ *
+ *      the fall tail:     token := 0x25f, park 1
+ *
+ *      token == 0x25f:    obj->field20 = part->field1c + 0xa000
+ *                         part->field1c = obj->field20
+ *                         if (obj->field20 < 0) -- the fall tail --
+ *                         obj->field20 = (int16_t)part->x12
+ *                         obj->field24 = proc->field40
+ *                         if (obj->field24 > obj->field20) -- the fall tail --
+ *                         stop_a8(part)
+ *                         obj->field40 = 0x00010016; pose_a9_manual(obj)
+ *                         token := 0x26d, park 4
+ *
+ *      token == 0x26d:    obj->field40 = 0x0005000d
+ *                         token := 0x270, descend into t_animate_a9
+ *
+ *      token == 0x270:    obj->a10 = proc->field28
+ *                         -- falls into the wait tail --
+ *
+ *      the wait tail:     token := 0x274, park 3
+ *
+ *      token == 0x274:    obj->field1c = ((MK3OBJ *)obj->a10)->field48
+ *                         if (obj->field1c == 0) -- the wait tail --
+ *                         mid = (*(long *)(G + 0x468) + *(long *)(G + 0x470)) / 2
+ *                         obj->a10 = mid
+ *                         obj->field1c = (int16_t)part->x0e
+ *                         if (obj->field1c >= mid) flip_multi(obj)
+ *                         obj->field1c = 0x60000; set_proj_vel(obj)
+ *                         obj->field40 = 0x46; get_char_ani(obj)
+ *                         obj->field1c = 3; init_anirate(obj)
+ *                         token := 0x289, park 1
+ *
+ *      token == 0x289:    next_anirate(obj)
+ *                         obj->field1c = (int16_t)part->x0e - obj->a10
+ *                         if (obj->field1c < 0) obj->field1c = -obj->field1c
+ *                         if (obj->field1c > 0x10) { token := 0x289, park 1 }
+ *                         stop_a8(part)
+ *                         frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:         return -3
+ *
+ * **The whole routine is an entrance: a second Scorpion drops in, waits for a signal, and walks to
+ * the middle of the screen.** Three phases, three different kinds of loop, and nothing about it is
+ * a fatality except the file it lives in.
+ *
+ * **`ground_ochar` is used as a measurement, not a placement.** State 0 puts the part on the floor,
+ * calls `ground_ochar` -- which moves it to where this character's feet actually belong -- reads the
+ * result out of `part->x12` into `proc->field40`, and then puts the part BACK on the floor so it can
+ * fall to the height just measured. That is the only place in the tree where a placement helper is
+ * called for its answer and its effect is then undone, and it explains why `proc->field40` is the
+ * landing height `t_soul_float` also writes: something has to compute it, and this is how.
+ *
+ * **The fall has two exit conditions and both must hold**: the velocity has to be non-negative --
+ * so a body still rising keeps falling through the loop -- and the part's y has to have reached
+ * `proc->field40`. `+0xa000` a frame is a third gravity constant, after `t_smoke_dropping`'s 0x2000
+ * and the `t_flight` fall rates of 0x5000, 0x6000 and 0x8000.
+ *
+ * **The wait is on another object's 0x48.** State 0x270 takes `proc->field28` -- which the header
+ * records as "who the shake is about" -- into `a10`, and state 0x274 polls `a10->field48` every
+ * three frames until it is non-zero. So one object signals another by writing its own 0x48, and
+ * that is a **twelfth reading of 0x48**: a flag another thread spins on.
+ *
+ * **`a10` is a pointer and then a number in the same state.** It comes in holding an object
+ * pointer, is dereferenced, and is immediately overwritten with the screen mid-x -- which the next
+ * state then uses as the walk target. The same word, two types, four instructions apart.
+ *
+ * The mid-x is `(G[0x468] + G[0x470]) / 2`, compiled as the signed halving
+ * `add r3, r3, r3, lsr #31` then `asrs #1`. mkanimal.c and mkprop.c both read `G + 0x468` as the
+ * camera's left edge, so `G + 0x470` is almost certainly the right edge and this the centre of the
+ * view -- transcribed as the arithmetic rather than named, because 0x470 has not been read
+ * anywhere else.
+ *
+ * `part->field28 &= ~0x10` is the flip bit cleared rather than toggled -- second site, after
+ * mkprop.c's, and the header records bit 4 there as what the `flip_multi` trio toggles. So this
+ * forces a facing rather than reversing one.
+ *
+ * `pose_a9_manual` is called twice with the same 0x00010016, once before the fall and once on
+ * landing, from one literal in the pool.
+ */
+void ground_ochar(MK3OBJ *obj);
+
+long t_another_scorpion(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    uint32_t sum, mid;
+
+    if (token == 0x26d) {
+        obj->field40 = 0x0005000d;
+
+        *mk3_frame(thread, frame + 1) = 0x270;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x289) {
+        next_anirate(obj);
+
+        obj->field1c =
+            (uint32_t)((int32_t)(int16_t)MK3_FIELD0E(obj->field08)
+                       - (int32_t)obj->a10);
+        if ((long)obj->field1c < 0)
+            obj->field1c = (uint32_t)(-(long)obj->field1c);
+
+        if ((long)obj->field1c <= 0x10) {
+            stop_a8(obj->field08);
+
+            return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+        }
+
+        *mk3_frame(thread, frame + 1) = 0x289;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0 || token == 0x25f) {
+        if (token == 0) {
+            MK3_SET_FIELD0E(obj->field08, (uint16_t)obj->a10);
+
+            obj->field1c = *(uint32_t *)(G_BYTES + 0xac);
+            MK3_SET_FIELD12(obj->field08, obj->field1c);
+
+            obj->field40 = 0x00010016;
+            pose_a9_manual(obj);
+
+            obj->field08->field28 =
+                obj->field08->field28 & ~0x10u;      /* cleared, not toggled */
+
+            ground_ochar(obj);
+
+            obj->field00->field40 =
+                (uint32_t)(int32_t)(int16_t)MK3_FIELD12(obj->field08);
+
+            MK3_SET_FIELD12(obj->field08,
+                            (uint16_t)*(uint32_t *)(G_BYTES + 0xac));
+
+            obj->field1c = 0xa;
+            ochar_sound(obj);
+
+            obj->field1c          = 0xfff00000u;     /* -0x100000 */
+            obj->field08->field1c = obj->field1c;
+
+        } else {
+            obj->field20 = obj->field08->field1c + 0xa000;
+            obj->field08->field1c = obj->field20;
+
+            if ((long)obj->field20 >= 0) {
+                obj->field20 =
+                    (uint32_t)(int32_t)(int16_t)MK3_FIELD12(obj->field08);
+                obj->field24 = obj->field00->field40;
+
+                if ((long)obj->field24 <= (long)obj->field20) {
+                    stop_a8(obj->field08);
+
+                    obj->field40 = 0x00010016;
+                    pose_a9_manual(obj);
+
+                    *mk3_frame(thread, frame + 1) = 0x26d;
+                    thread->fieldfc = 4;
+                    return 4;
+                }
+            }
+        }
+
+        *mk3_frame(thread, frame + 1) = 0x25f;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0x270 || token == 0x274) {
+        if (token == 0x270) {
+            obj->a10 = obj->field00->field28;
+
+        } else {
+            obj->field1c =
+                ((MK3OBJ *)(void *)(uintptr_t)obj->a10)->field48;
+
+            if (obj->field1c != 0) {
+                sum = *(uint32_t *)(G_BYTES + 0x468)
+                      + *(uint32_t *)(G_BYTES + 0x470);
+                mid = (uint32_t)(((int32_t)sum + (int32_t)(sum >> 31)) >> 1);
+                obj->a10 = mid;
+
+                obj->field1c =
+                    (uint32_t)(int32_t)(int16_t)MK3_FIELD0E(obj->field08);
+                if ((long)obj->field1c >= (long)mid)
+                    flip_multi(obj);
+
+                obj->field1c = 0x60000;
+                set_proj_vel(obj);
+
+                obj->field40 = 0x46;
+                get_char_ani(obj);
+
+                obj->field1c = 3;
+                init_anirate(obj);
+
+                *mk3_frame(thread, frame + 1) = 0x289;
+                thread->fieldfc = 1;
+                return 1;
+            }
+        }
+
+        *mk3_frame(thread, frame + 1) = 0x274;
+        thread->fieldfc = 3;
+        return 3;
+    }
+
+    return -3;
+}
