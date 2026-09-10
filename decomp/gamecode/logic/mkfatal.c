@@ -1651,3 +1651,108 @@ long t_appearing_spikes(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
 }
+
+
+/* ---------------------------------------------------------------------- t_down_the_staff
+ *
+ * armv7 0x00032ed0, 112 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field1c  = (int32_t)part->field1c >> 1
+ *                       part->field1c = obj->field1c
+ *                       token := 0x75d, park 1
+ *
+ *      token == 0x75d:  pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:       return -3
+ *
+ * **It halves a velocity and writes the result to both the object and the part.** One frame,
+ * then unwind -- so a parent that wants the slide down the staff to decay calls this repeatedly
+ * rather than looping here.
+ *
+ * **The shift is `asrs`, arithmetic, so the value is SIGNED.** Transcribed as
+ * `(int32_t)... >> 1` for that reason: an unsigned `>> 1` differs for every negative velocity,
+ * which is exactly the case that matters when something is sliding the other way. A `lsrs`
+ * would have been the unsigned halving and the binary does not use one.
+ *
+ * The same number lands in two places, `obj->field1c` and `part->field1c`, the way
+ * `tl_kitana_bunny` and `tl_sektor_bat` in mkanimal.c write one velocity to an object and its
+ * part together. So the object holds the working copy and the part holds the one the renderer
+ * reads.
+ */
+long t_down_the_staff(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        obj->field1c = (uint32_t)((int32_t)obj->field08->field1c >> 1);
+        obj->field08->field1c = obj->field1c;
+
+        *mk3_frame(thread, frame + 1) = 0x75d;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token != 0x75d)
+        return -3;
+
+    if ((long)frame > 0) {
+        thread->frame = frame - 1;
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* -------------------------------------------------------------------- t_kludge_flame_ani
+ *
+ * armv7 0x0003b798, 116 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field20 = obj->field1c
+ *                       multi_adjust_xy(obj)
+ *                       frame_a9(obj)
+ *                       token := 0x4b8, park 4
+ *
+ *      token == 0x4b8:  pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:       return -3
+ *
+ * **It copies 0x1c into 0x20 so that `multi_adjust_xy` gets the same number on both axes**, and
+ * the caller therefore supplies one offset instead of two. That is what the name is about: every
+ * other caller of `multi_adjust_xy` in the tree sets the two fields independently, usually from
+ * one literal with an `adds` or a `subs`, and this one deliberately does not.
+ *
+ * Which also means the caller cannot move the flame horizontally without moving it vertically by
+ * the same amount. A diagonal-only helper is a strange interface, and the routine is named for
+ * being one.
+ *
+ * After the shift it advances a frame and gives the level back, so like `t_orb_sleep_1` it is a
+ * one-shot a parent drives rather than a loop.
+ */
+long t_kludge_flame_ani(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        obj->field20 = obj->field1c;
+        multi_adjust_xy(obj);
+        frame_a9(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x4b8;
+        thread->fieldfc = 4;
+        return 4;
+    }
+
+    if (token != 0x4b8)
+        return -3;
+
+    if ((long)frame > 0) {
+        thread->frame = frame - 1;
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
