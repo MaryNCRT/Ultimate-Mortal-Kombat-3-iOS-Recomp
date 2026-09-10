@@ -3507,3 +3507,165 @@ long t_r_ind_lightning(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_collapse_on_ground);
 }
+
+
+/* -------------------------------------------------------------------------- t_r_prevomit
+ *
+ * armv7 0x00038860, 188 bytes.  **Complete.**
+ *
+ *      token == 0:       obj->field1c = (int16_t)part->y12
+ *                        -- PUSH: thread->args[thread->fieldf8++] = that y --
+ *                        match_me_with_him(obj)
+ *                        obj->field20 = 0
+ *                        obj->field1c = 0x5c
+ *                        multi_adjust_xy(obj)
+ *                        face_opponent(obj)
+ *                        -- POP: part->y12 = (uint16_t)thread->args[--thread->fieldf8] --
+ *                        obj->field1c = 0x13; his_ochar_sound(obj)
+ *                        token := 0x594, park 0xd
+ *
+ *      token == 0x594:   obj->field1c = 0x10; his_ochar_sound(obj)
+ *                        frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:        return -3
+ *
+ * **This is the first routine in the tree to use the thread's ARGUMENT STACK.** The header records
+ * `args[0x50]` at 0xa8 with the cursor in `fieldf8`, and nothing had been seen touching it until
+ * now. Here it is a save stack: the part's y is pushed, the body is moved to the opponent and
+ * shifted 0x5c across, and then the y is popped back -- so the repositioning changes x and leaves
+ * the height exactly where it was.
+ *
+ * That is the same job `fatal_offset` does two functions up, and the two solve it differently:
+ * `fatal_offset` keeps the fields in REGISTERS across the calls, and this keeps one in the thread's
+ * own stack. Both are save-around-clobber; only this one survives a call that could re-enter.
+ *
+ * **The push and the pop are not the same width.** `str.w` writes a full word and `ldrh` reads
+ * back only the low halfword, which is safe because the value came from an `ldrsh` of a halfword
+ * field -- but a caller that pushed anything wider would lose the top half. Transcribed at the
+ * widths the binary uses rather than normalised.
+ *
+ * Two sounds through `his_ochar_sound`, 0x13 then 0x10 thirteen frames apart -- the pair habit
+ * again, this time spread across two states and played on the OPPONENT.
+ */
+void his_ochar_sound(MK3OBJ *obj);
+
+long t_r_prevomit(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        obj->field1c = (uint32_t)(int32_t)(int16_t)MK3_FIELD12(obj->field08);
+
+        thread->args[thread->fieldf8] = obj->field1c;
+        thread->fieldf8 = thread->fieldf8 + 1;
+
+        match_me_with_him(obj);
+
+        obj->field20 = 0;
+        obj->field1c = 0x5c;
+        multi_adjust_xy(obj);
+
+        face_opponent(obj);
+
+        thread->fieldf8 = thread->fieldf8 - 1;
+        MK3_SET_FIELD12(obj->field08,
+                        (uint16_t)thread->args[thread->fieldf8]);
+
+        obj->field1c = 0x13;
+        his_ochar_sound(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x594;
+        thread->fieldfc = 0xd;
+        return 0xd;
+    }
+
+    if (token != 0x594)
+        return -3;
+
+    obj->field1c = 0x10;
+    his_ochar_sound(obj);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+}
+
+/* ---------------------------------------------------------------------- t_r_impale_upcut
+ *
+ * armv7 0x0003b4d4, 192 bytes.  **Complete.**
+ *
+ *      token == 0:       me_in_front(obj)
+ *                        obj->field1c = 1; create_blood_proc(obj)
+ *                        obj->field48 = 0x00060006; shake_a11(obj)
+ *                        rsnd_func(obj, 0xa)
+ *                        death_scream(obj)
+ *                        obj->field1c = 0x20000
+ *                        obj->field20 = 0x20000 - 0x120000 = -0x100000
+ *                        obj->field28 = 5
+ *                        obj->field24 = 0
+ *                        obj->field34 = t_impale_call
+ *                        token := 0x7a6, descend into t_flight_call
+ *
+ *      token == 0x7a6:   frame[frame].handler = t_reaction_land
+ *
+ *      otherwise:        return -3
+ *
+ * **The first `t_flight_call` caller measured, and it confirms what 0x34 is for.** The four flight
+ * fields go in as usual -- 0x1c across, 0x20 up, 0x24 the fall rate, 0x28 the bounce kind -- and
+ * then 0x34 gets the address of `t_impale_call`, which the flight routine calls once per frame.
+ * The plain `t_flight` used by mkanimal.c's `t_dino_bucked` and `t_hit_by_bull` reads no such
+ * field.
+ *
+ * So a caller that needs something to happen DURING the arc uses this variant and supplies the
+ * callback; one that only needs the arc uses `t_flight`. Same four numbers either way.
+ *
+ * **0x24 is zero here where every mkanimal.c flight sets it to 0x5000, 0x6000 or 0x8000.** With no
+ * fall rate the body rises at -0x100000 and does not come down on its own, which is consistent
+ * with an impaling: the arc ends on the spike, not on the floor. The landing is `t_reaction_land`
+ * off pointer slot 0x000f36ec.
+ *
+ * One literal feeds two fields again -- `mov.w r3, #0x20000` then `sub.w r3, r3, #0x120000` -- and
+ * this time the subtraction does NOT wrap: 0x20000 - 0x120000 is -0x100000, a perfectly ordinary
+ * negative. Not every one of these is an overflow, and each has to be worked out.
+ */
+long t_impale_call(MK3THREAD *thread);           /* 0x0003b594 */
+long t_flight_call(MK3THREAD *thread);           /* pointer slot 0x000f37f4 */
+long t_reaction_land(MK3THREAD *thread);         /* pointer slot 0x000f36ec */
+
+long t_r_impale_upcut(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        me_in_front(obj);
+
+        obj->field1c = 1;
+        create_blood_proc(obj);
+
+        obj->field48 = 0x00060006;
+        shake_a11(obj);
+
+        rsnd_func(obj, 0xa);
+        death_scream(obj);
+
+        obj->field1c = 0x20000;
+        obj->field20 = 0x20000u - 0x120000u;
+        obj->field28 = 5;
+        obj->field24 = 0;
+        obj->field34 = (uint32_t)(uintptr_t)t_impale_call;
+
+        *mk3_frame(thread, frame + 1) = 0x7a6;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_flight_call;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x7a6)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_reaction_land);
+}
