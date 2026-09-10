@@ -8208,3 +8208,130 @@ long t_sg_flesh_rip(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* -------------------------------------------------------------------------- t_ripped_skelton
+ *
+ * armv7 0x00039a34, 404 bytes.  **Complete.**
+ *
+ *      token == 0:        obj->field48 = &lia_ani_data[0x1540 + 0x14]
+ *                         adj = ochar_skeleton_adj[part->field24]
+ *                         obj->field1c = adj
+ *                         PUSH adj
+ *                         obj->field40 = obj->field48
+ *                         find_part2(obj)
+ *                         obj->field1c = part->field24
+ *                         if (part->field24 == 0xb) obj->field40 += 4
+ *                         obj->field40 = *(long *)obj->field40
+ *                         POP  adj
+ *                         obj->field1c = (int16_t)adj            ; low half, signed
+ *                         obj->field20 = (int32_t)adj >> 16      ; high half, signed
+ *                         multi_adjust_xy(obj)
+ *                         find_last_frame(obj)
+ *                         do_next_a9_frame(obj)
+ *                         obj->field1c = part->field24
+ *                         if (part->field24 == 0xb)
+ *                             frame[frame].handler = t_wait_forever
+ *                         token := 0xc3d, descend into t_skel_blood
+ *
+ *      token == 0xc3d:    token := 0xc3e, descend into t_skel_blood
+ *      token == 0xc3e:    token := 0xc3f, descend into t_skel_blood
+ *      token == 0xc3f:    token := 0xc40, descend into t_skel_blood
+ *
+ *      token == 0xc40:    frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:         return -3
+ *
+ * **Character 0xb is special TWICE in this one routine**, and it is the second place in the tree to
+ * single that fighter out. mkanimal.c's `tl_kano_spider` shifts by 0x20/0 only when the opponent's
+ * number is 0xb; here 0xb makes the cursor skip one word AND makes the whole blood sequence be
+ * skipped in favour of parking immediately.
+ *
+ * Two files, two routines, one character number treated as an exception -- so 0xb is a fighter
+ * whose body does not fit the shared machinery, and any port that renumbers the roster has to carry
+ * that. Worth flagging loudly; nothing else in the tree names a character by number.
+ *
+ * **`ochar_skeleton_adj` is a sixth per-character table** at 0x00166be4, words indexed by
+ * `lsl #2`, and each entry is a PACKED PAIR of signed halfwords -- low half into 0x1c and high half
+ * into 0x20 with `lsls #16; asrs #16` and `asrs #16`. That is exactly the encoding `skinny_spawn`
+ * reads out of 0x48, so the same packing appears in a table and in a field.
+ *
+ * **Sixth use of the argument stack**, saving that packed adjustment across `find_part2` -- which
+ * clobbers 0x1c. Same conflict as every other arg-stack site: one field, two callees.
+ *
+ * The cursor base is another unnamed sub-table, `lia_ani_data + 0x1554`, reached through pointer
+ * slot 0x000f36fc. Third such site after `lao_ani_data + 0x142c` and `fn_ani_data + 0x20a4`.
+ *
+ * **Four consecutive descents into `t_skel_blood`**, written earlier in this file, which spawns
+ * seven blood effects in three waves. Twenty-eight spawns in all, and the four states exist only to
+ * repeat it -- a loop would have needed a counter, and this file prefers unrolled schedules.
+ */
+extern uint8_t lia_ani_data[];                   /* 0x001567a0, pointer slot 0x000f36fc */
+extern uint32_t ochar_skeleton_adj[];            /* 0x00166be4 */
+long t_skel_blood(MK3THREAD *thread);
+
+long t_ripped_skelton(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    uint32_t argc, adj, next;
+
+    if (token == 0xc40)
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+
+    if (token == 0) {
+        obj->field48 = (uint32_t)(uintptr_t)&lia_ani_data[0x1540 + 0x14];
+
+        adj = ochar_skeleton_adj[obj->field08->field24];
+        obj->field1c = adj;
+
+        argc = thread->fieldf8;
+        *mk3_arg(thread, argc) = adj;
+        thread->fieldf8 = argc + 1;
+
+        obj->field40 = obj->field48;
+        find_part2(obj);
+
+        obj->field1c = obj->field08->field24;
+        if (obj->field08->field24 == 0xb)
+            obj->field40 = obj->field40 + 4;
+
+        obj->field40 = *(uint32_t *)(uintptr_t)obj->field40;
+
+        argc = thread->fieldf8 - 1;
+        thread->fieldf8 = argc;
+        adj = *mk3_arg(thread, argc);
+
+        obj->field1c = (uint32_t)(int32_t)(int16_t)adj;
+        obj->field20 = (uint32_t)((int32_t)adj >> 16);
+        multi_adjust_xy(obj);
+
+        find_last_frame(obj);
+        do_next_a9_frame(obj);
+
+        obj->field1c = obj->field08->field24;
+        if (obj->field08->field24 == 0xb)
+            return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+
+        next = 0xc3d;
+
+    } else if (token == 0xc3d) {
+        next = 0xc3e;
+
+    } else if (token == 0xc3e) {
+        next = 0xc3f;
+
+    } else if (token == 0xc3f) {
+        next = 0xc40;
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_skel_blood;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
