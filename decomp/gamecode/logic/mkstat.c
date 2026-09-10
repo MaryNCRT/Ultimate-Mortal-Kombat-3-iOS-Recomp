@@ -4465,3 +4465,263 @@ combo:
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------------------ tl_do_shake
+ *
+ * armv7 0x0004e368, 760 bytes.  **Complete.**  Nine states.
+ *
+ *      token == 0:      obj->field20 = 0x111
+ *                       init_special_act(obj)
+ *                       obj->field1c = 0x10
+ *                       *(uint32_t *)((char *)proc + 0x58) = 0x10
+ *                       obj->field40 = 0x00030002
+ *                       token := 0x58f, descend into t_animate2_a9
+ *
+ *      token == 0x58f:  obj->field48 = 6
+ *                       -- into the search --
+ *
+ *      the search:      q_is_he_a_boss(obj)
+ *                       if (obj->field5c == 0) {
+ *                           obj->field1c = 0x10
+ *                           strike_check_a0(obj)
+ *                           if (obj->field5c != 0) {
+ *                               lights_on_hit(obj)
+ *                               if (obj->field18 != 0) token := 0x5a1, park 0xa
+ *                               obj->field38 = t_shake_suspended
+ *                               takeover_him(obj)
+ *                               match_him_with_me_f(obj); me_in_front(obj)
+ *                               obj->field48 = 0x40; get_his_a11_ani(obj)
+ *                               obj->field1c = 8; his_group_sound(obj)
+ *                               obj->field1c = 5
+ *                               token := 0x5ba, descend into t_double_mframew
+ *                           }
+ *                       }
+ *                       token := 0x59b, park 1
+ *
+ *      token == 0x59b:  if (--obj->field48 > 0) -- back into the search --
+ *                       token := 0x5a1, park 0xa
+ *
+ *      token == 0x5a1:  obj->field40 = 2; get_char_ani2(obj)
+ *                       obj->field1c = 5
+ *                       frame[frame].handler = t_backwards_ani
+ *
+ *      token == 0x5ba:  obj->field1c = proc->field20 = 4
+ *                       push obj->field40; push obj->field48
+ *                       obj->field1c = 3
+ *                       token := 0x5c1, descend into t_double_mframew
+ *
+ *      token == 0x5c1:  obj->field48 = pop; obj->field40 = pop
+ *                       obj->field1c = 8; damage_to_him(obj)
+ *                       if (--proc->field20 > 0) -- back to the 0x5ba body --
+ *                       double_next_a9(obj)
+ *                       token := 0x5cb, park 3
+ *
+ *      token == 0x5cb:  double_next_a9(obj)
+ *                       token := 0x5cd, park 3
+ *
+ *      token == 0x5cd:  double_next_a9(obj)
+ *                       obj->field38 = t_r_post_shake
+ *                       takeover_him(obj)
+ *                       token := 0x5d3, park 8
+ *
+ *      token == 0x5d3:  obj->field40 = 2; get_char_ani2(obj)
+ *                       obj->field1c = 2
+ *                       token := 0x5d7, descend into t_backwards_ani
+ *
+ *      token == 0x5d7:  frame[frame].handler = t_local_reaction_exit
+ *
+ *      otherwise:       return -3
+ *
+ * **Two loops with a handover between them.** The first, 0x58f and 0x59b, gives the
+ * grab six frames to connect; the second, 0x5ba and 0x5c1, shakes four times and does
+ * damage on every pass, counted down in proc->field20. Between them the victim is
+ * taken over twice: `t_shake_suspended` when the grab lands, and `t_r_post_shake`
+ * when the shaking is done.
+ *
+ * **t_shake_suspended is the routine written earlier in this file that reinstalls
+ * itself and waits on action 0x111** -- which is exactly the action state 0 puts in
+ * 0x20 here. So the two ends match: this routine sets the action, hands the victim a
+ * poller that waits for it, and the victim stays held until the shaking ends.
+ *
+ * **0x40 and 0x48 are pushed and popped on every pass of the shake loop**, not once
+ * around it, because the loop re-enters the 0x5ba body which does the pushing. Four
+ * shakes therefore mean four push/pop pairs -- wasteful but harmless, and worth
+ * noting because it looks at first like a leak of two stack slots.
+ *
+ * A boss is exempt from the strike check, as in tl_do_ermac_slam and
+ * tl_stat_do_quake; and 0x18 being set on a connection skips the whole shake and goes
+ * straight to the recovery, which is the third rule in this file keyed on that field.
+ */
+void lights_on_hit(MK3OBJ *obj);
+void get_his_a11_ani(MK3OBJ *obj);
+void his_group_sound(MK3OBJ *obj);
+void match_him_with_me_f(MK3OBJ *obj);
+long t_shake_suspended(MK3THREAD *thread);
+long t_r_post_shake(MK3THREAD *thread);          /* pointer slot 0x000f3760 */
+long t_double_mframew(MK3THREAD *thread);        /* pointer slot 0x000f36a8 */
+long double_next_a9(MK3OBJ *obj);
+
+long tl_do_shake(MK3THREAD *thread)
+{
+    MK3OBJ      *obj   = (MK3OBJ *)thread->proc;
+    MK3OBJPROC  *proc  = obj->field00;
+    uint32_t     token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t     cur;
+
+    if (token == 0) {
+        obj->field20 = 0x111;
+        init_special_act(obj);
+
+        obj->field1c = 0x10;
+        *(uint32_t *)((char *)proc + 0x58) = 0x10;
+        obj->field40 = 0x00030002;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x58f;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate2_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x58f || token == 0x59b) {
+        if (token == 0x58f) {
+            obj->field48 = 6;
+        } else {
+            obj->field48 = obj->field48 - 1;
+            if ((long)obj->field48 <= 0) {
+                *mk3_frame(thread, thread->frame + 1) = 0x5a1;
+                thread->fieldfc = 0xa;
+                return 0xa;
+            }
+        }
+
+        q_is_he_a_boss(obj);
+        if (obj->field5c == 0) {
+            obj->field1c = 0x10;
+            strike_check_a0(obj);
+
+            if (obj->field5c != 0) {
+                lights_on_hit(obj);
+
+                if (obj->field18 != 0) {
+                    *mk3_frame(thread, thread->frame + 1) = 0x5a1;
+                    thread->fieldfc = 0xa;
+                    return 0xa;
+                }
+
+                obj->field38 = (uint32_t)(uintptr_t)t_shake_suspended;
+                takeover_him(obj);
+                match_him_with_me_f(obj);
+                me_in_front(obj);
+
+                obj->field48 = 0x40;
+                get_his_a11_ani(obj);
+
+                obj->field1c = 8;
+                his_group_sound(obj);
+
+                obj->field1c = 5;
+
+                *mk3_frame(thread, thread->frame + 1) = 0x5ba;
+                thread->frame = thread->frame + 1;  /* push a level */
+                mk3_frame(thread, thread->frame)[1] =
+                    (uint32_t)(uintptr_t)t_double_mframew;
+                *mk3_frame(thread, thread->frame + 1) = 0;
+                return 0;
+            }
+        }
+
+        *mk3_frame(thread, thread->frame + 1) = 0x59b;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0x5a1) {
+        obj->field40 = 2;
+        get_char_ani2(obj);
+        obj->field1c = 5;
+        return mk3_install(thread, (MK3THREADFUNC)t_backwards_ani);
+    }
+
+    if (token == 0x5ba || token == 0x5c1) {
+        if (token == 0x5c1) {
+            cur = thread->fieldf8 - 1;
+            thread->fieldf8 = cur;
+            obj->field48 = *mk3_arg(thread, cur);
+
+            cur = thread->fieldf8 - 1;
+            thread->fieldf8 = cur;
+            obj->field40 = *mk3_arg(thread, cur);
+
+            obj->field1c = 8;
+            damage_to_him(obj);
+
+            obj->field1c = proc->field20 - 1;
+            if ((long)obj->field1c <= 0) {
+                double_next_a9(obj);
+                *mk3_frame(thread, thread->frame + 1) = 0x5cb;
+                thread->fieldfc = 3;
+                return 3;
+            }
+        } else {
+            obj->field1c = 4;
+        }
+
+        proc->field20 = obj->field1c;
+
+        cur = thread->fieldf8;
+        *mk3_arg(thread, cur) = obj->field40;
+        thread->fieldf8 = cur + 1;
+
+        cur = thread->fieldf8;
+        *mk3_arg(thread, cur) = obj->field48;
+        thread->fieldf8 = cur + 1;
+
+        obj->field1c = 3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x5c1;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_double_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x5cb) {
+        double_next_a9(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x5cd;
+        thread->fieldfc = 3;
+        return 3;
+    }
+
+    if (token == 0x5cd) {
+        double_next_a9(obj);
+
+        obj->field38 = (uint32_t)(uintptr_t)t_r_post_shake;
+        takeover_him(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x5d3;
+        thread->fieldfc = 8;
+        return 8;
+    }
+
+    if (token == 0x5d3) {
+        obj->field40 = 2;
+        get_char_ani2(obj);
+        obj->field1c = 2;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x5d7;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_backwards_ani;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x5d7)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
