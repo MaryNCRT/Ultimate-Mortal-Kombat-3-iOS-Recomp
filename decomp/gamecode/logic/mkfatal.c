@@ -2429,6 +2429,12 @@ long t_jade_shake_loop(MK3THREAD *thread)
  * 0x001667c0 and `ochar_wide_adjusts` at 0x00166b54, each indexed by `part->field24` with
  * `ldr.w r3, [rN, r1, lsl #2]` -- so both are arrays of words, one entry per fighter.
  *
+ * **`ochar_reached` holds POINTERS, and `t_flesh_ripped_off` later in this file is what
+ * proves it**: that routine takes the same entry, adds 0xc, and puts the result in 0x40 --
+ * the animation cursor. An offset into a scalar would be meaningless. So the value this
+ * routine drops into 0x1c is the address of a word list, and whichever of the three calls
+ * below consumes it consumes a list.
+ *
  * `ochar_wide_adjusts` is **negated before use** (`rsb r3, r3, #0`), and the result goes into 0x1c
  * with 0 in 0x20, so the table holds a positive horizontal distance and the fighter is shifted
  * backwards by it. That is the "wide" in the name: how far apart the two have to stand.
@@ -2984,4 +2990,155 @@ long t_liftshake(MK3THREAD *thread)
     }
 
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* ------------------------------------------------------------------- t_flesh_ripped_off
+ *
+ * armv7 0x00035c40, 172 bytes.  **Complete.**
+ *
+ *      token == 0:       death_scream(obj)
+ *                        face_opponent(obj)
+ *                        NewThread(obj, t_ripped_skelton)
+ *                        obj->field40 = ochar_reached[part->field24] + 0xc
+ *                        obj->field1c = 3
+ *                        token := 0xc4f, descend into t_mframew
+ *
+ *      token == 0xc4f:   frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:        return -3
+ *
+ * **This is what settles what `ochar_reached` contains.** The entry is loaded, 0xc is added, and
+ * the sum goes into 0x40 -- the cursor the animation routines walk. An offset into a scalar would
+ * mean nothing, so **the table holds addresses of word lists**, one per fighter, and this routine
+ * starts three words in.
+ *
+ * That is the same enter-part-way trick `t_robo_skeleton_burn` uses at the top of this file with
+ * `&a_sb_skeleton_burn[2]`. Two sites, and in both the offset is what proves the type.
+ *
+ * `t_open_wide` earlier in this file reads the same table into 0x1c and lets one of three calls
+ * consume it; its comment has been corrected to say the value is a pointer.
+ *
+ * The skeleton is a separate thread, `t_ripped_skelton` -- fifth site in the tree for spawning a
+ * thread so an effect outlasts the state that started it, after `t_skburn3`'s fire,
+ * `t_init_death_blow`'s tone and mkanimal.c's crunches and odour.
+ */
+long t_ripped_skelton(MK3THREAD *thread);        /* 0x00039a34 */
+
+long t_flesh_ripped_off(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        death_scream(obj);
+        face_opponent(obj);
+
+        NewThread(obj, (MK3THREADFUNC)t_ripped_skelton);
+
+        obj->field40 = ochar_reached[obj->field08->field24] + 0xc;
+        obj->field1c = 3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xc4f;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xc4f)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+}
+
+/* ------------------------------------------------------------------ t_gravity_ani_ysize
+ *
+ * armv7 0x0003a918, 180 bytes.  **Complete.**
+ *
+ *      token == 0:       part->field1c = obj->field20
+ *                        -- falls into the tail --
+ *
+ *      token == 0xe99:   obj->field1c  = obj->a10 + part->field1c
+ *                        part->field1c = obj->field1c
+ *                        if (obj->field1c < 0) -- the tail --
+ *                        obj->field1c = GetFrameHeight(part->field2c)
+ *                        obj->field20 = (int16_t)part->y12
+ *                        obj->field1c = GetFrameHeight(...) + obj->field20
+ *                        obj->field24 = *(long *)(G + 0xac)
+ *                        if (obj->field24 > obj->field1c) -- the tail --
+ *                        stop_a8(part)
+ *                        pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      the tail:         token := 0xe99, park 1
+ *
+ *      otherwise:        return -3
+ *
+ * **Gravity again, and this time the landing test measures the body's BOTTOM rather than a fixed
+ * margin.** The velocity accumulates in the part's 0x1c by `obj->a10` per frame, and the loop has
+ * two ways to keep going:
+ *
+ *      still rising      obj->field1c < 0     -- a negative velocity means up, so do not test yet
+ *      not down yet      floor > y + height   -- the bottom of the body is still above the floor
+ *
+ * So it falls until the animation's own height puts its base on the floor. That is a third
+ * spelling of the fall, after `t_smoke_dropping`'s fixed 0x80 margin and `t_tornado_sucked`'s
+ * horizontal pull -- and the only one that consults `GetFrameHeight`, which is why the name says
+ * `ysize`.
+ *
+ * **`stop_a8` takes the PART, not the object.** It is eight bytes in other.c that zero 0x18 and
+ * 0x1c on whatever it is handed, and other.c's own caller passes `obj->field08` too. So the
+ * landing zeroes the part's two velocity words directly rather than going through the object.
+ *
+ * `obj->field1c` is written three times in the second state -- the velocity, then the height, then
+ * height plus y -- and only the last is read. The first two are the arithmetic passing through a
+ * field instead of a register, which is how this codebase does temporaries.
+ *
+ * The starting velocity comes from `obj->field20` and the acceleration from `obj->a10`, both left
+ * by the caller, so nothing here fixes the rate.
+ */
+int GetFrameHeight(uint32_t ani);
+void stop_a8(MK3OBJ *part);
+
+long t_gravity_ani_ysize(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        obj->field08->field1c = obj->field20;
+
+    } else if (token == 0xe99) {
+        obj->field1c          = obj->a10 + obj->field08->field1c;
+        obj->field08->field1c = obj->field1c;
+
+        if ((long)obj->field1c >= 0) {
+            obj->field1c = (uint32_t)GetFrameHeight(obj->field08->field2c);
+            obj->field20 = (uint32_t)(int32_t)(int16_t)
+                               MK3_FIELD12(obj->field08);
+            obj->field1c = obj->field1c + obj->field20;
+
+            obj->field24 = *(uint32_t *)(G_BYTES + 0xac);
+
+            if ((long)obj->field24 <= (long)obj->field1c) {
+                stop_a8(obj->field08);
+
+                if ((long)frame > 0) {
+                    thread->frame = frame - 1;
+                    return 0;
+                }
+                return mk3_install(thread,
+                                   (MK3THREADFUNC)t_local_reaction_exit);
+            }
+        }
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = 0xe99;
+    thread->fieldfc = 1;
+    return 1;
 }
