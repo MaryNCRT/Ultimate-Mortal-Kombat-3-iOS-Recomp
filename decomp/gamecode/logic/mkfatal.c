@@ -3358,3 +3358,152 @@ long t_crush_him_more(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+
+/* ------------------------------------------------------------------ t_freeze_into_boomer
+ *
+ * armv7 0x00038180, 184 bytes.  **Complete.**
+ *
+ *      token == 0:        obj->field40 = 6
+ *                         get_his_char_ani2(obj)
+ *                         obj->field40 = obj->field40 + 4
+ *                         do_next_a9_frame(obj)
+ *                         part->y12 = *(long *)(G + 0xac) - 0x90
+ *                         obj->field1c = 6
+ *                         token := 0x1459, descend into t_mframew
+ *
+ *      token == 0x1459:   frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:         return -3
+ *
+ * **`get_his_char_ani2` turns a small index into a pointer, and the +4 proves it.** That routine
+ * (other.c, 28 bytes) indexes `character_anitabs2` by the OPPONENT's character number and then by
+ * whatever is in 0x40, so 6 goes in and an address comes out. Adding 4 to the result enters the
+ * list one word in -- meaningless on a scalar.
+ *
+ * Third site in the tree for entering a word list part-way, after `t_robo_skeleton_burn`'s
+ * `&a_sb_skeleton_burn[2]` and `t_flesh_ripped_off`'s `ochar_reached[char] + 0xc`. In all three the
+ * offset is what settles the type.
+ *
+ * **The placement is floor minus a CONSTANT, not floor minus a measured height.** `G + 0xac` minus
+ * 0x90 goes straight into the part's 0x12. That is a sixth spelling of putting a body somewhere
+ * vertical -- the five in mkanimal.c and `tl_jade_kitty` all measure the sprite, and this one does
+ * not measure anything. So a routine that knows exactly which animation is playing can hard-code
+ * the offset, and this one does.
+ *
+ * `r8` holds 6 for the whole routine and is stored twice, into 0x40 as the index and into 0x1c as
+ * the frame count. One register, two unrelated uses, and the constant happens to suit both.
+ */
+void get_his_char_ani2(MK3OBJ *obj);
+
+long t_freeze_into_boomer(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        obj->field40 = 6;
+        get_his_char_ani2(obj);
+        obj->field40 = obj->field40 + 4;
+
+        do_next_a9_frame(obj);
+
+        MK3_SET_FIELD12(obj->field08,
+                        *(uint32_t *)(G_BYTES + 0xac) - 0x90);
+
+        obj->field1c = 6;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1459;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x1459)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+}
+
+/* --------------------------------------------------------------------- t_r_ind_lightning
+ *
+ * armv7 0x000361ec, 188 bytes.  **Complete.**
+ *
+ *      token == 0:        obj->field1c = ~0xb7            (-0xb8)
+ *                         obj->field20 = 0
+ *                         fatal_offset(obj)
+ *                         tsound_func(obj, 0)
+ *                         tsound_func(obj, 1)
+ *                         obj->field48 = 0x000a000d; shake_a11(obj)
+ *                         death_scream(obj)
+ *                         obj->field48 = 4
+ *                         token := 0x1525, descend into t_shocker_shaker
+ *
+ *      token == 0x1525:   part->y12 = *(short *)((char *)proc + 0x3c)
+ *                         frame[frame].handler = t_collapse_on_ground
+ *
+ *      otherwise:         return -3
+ *
+ * **0x48 is written twice for two different callees, four instructions apart.** First
+ * 0x000a000d, which `shake_a11` reads as a pair of halfwords, then 4, which `t_shocker_shaker`
+ * takes as a count. The clearest single-function example of that field's overloading in the tree:
+ * neither store is dead and neither reading is wrong.
+ *
+ * The shake pair is asymmetric, 0xa and 0xd -- fifth asymmetric site, after mkstat.c's 0x00030008
+ * and 0x0009000e, mkanimal.c's `t_r_bat_bite` 0x00060008 and `tl_sonya_eagle` 0x0008000c.
+ *
+ * **`fatal_offset` is the save-around-clobber idiom in 32 bytes**: it keeps 0x1c and 0x20 in
+ * registers, calls `match_me_with_him` and `flip_multi`, puts both fields back, and only then calls
+ * `multi_adjust_xy`. So a caller can set the offset first and trust it survives the repositioning
+ * -- which is why this routine writes -0xb8/0 before the call rather than after.
+ *
+ * **The final y comes out of the PROC at 0x3c**, read as a halfword. That offset is inside the
+ * header's `_pad2c`, so it has no name yet; reached here through the byte-offset idiom. First use
+ * of proc 0x3c in the tree, and it holds a vertical position.
+ *
+ * Sounds 0 and 1 as a pair, which is the same two-samples habit as 0x24/0x25 and 0x1d/0x1e -- and
+ * the first pair in the tree whose first index is zero, arriving as `mov r1, r6` off the token
+ * register rather than as a `movs`.
+ */
+void fatal_offset(MK3OBJ *obj);
+long t_shocker_shaker(MK3THREAD *thread);        /* 0x00033dcc */
+
+long t_r_ind_lightning(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        obj->field1c = (uint32_t)~0xb7u;
+        obj->field20 = 0;
+        fatal_offset(obj);
+
+        tsound_func(obj, 0);
+        tsound_func(obj, 1);
+
+        obj->field48 = 0x000a000d;
+        shake_a11(obj);
+
+        death_scream(obj);
+
+        obj->field48 = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1525;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_shocker_shaker;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x1525)
+        return -3;
+
+    MK3_SET_FIELD12(obj->field08,
+                    *(uint16_t *)((char *)obj->field00 + 0x3c));
+
+    return mk3_install(thread, (MK3THREADFUNC)t_collapse_on_ground);
+}
