@@ -8335,3 +8335,153 @@ long t_ripped_skelton(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ----------------------------------------------------------------------------- t_swat_taser
+ *
+ * armv7 0x0003934c, 400 bytes.  **Complete.**
+ *
+ *      token == 0:        him = proc->him
+ *                         *(long *)((char *)proc->field00->field00 + 0x3c)
+ *                             = (int16_t)him->y12
+ *                         token := 0x1403, descend into t_fatality_start_pause
+ *
+ *      token == 0x1403:   me_in_back(obj)
+ *                         obj->field40 = 3; get_char_ani2(obj)
+ *                         obj->field1c = 5
+ *                         token := 0x140a, descend into t_mframew
+ *
+ *      token == 0x140a:   token := 0x140b, park 0x10
+ *
+ *      token == 0x140b:   obj->field1c = 7; ochar_sound(obj)
+ *                         obj->field1c = 5
+ *                         token := 0x1410, descend into t_mframew
+ *
+ *      token == 0x1410:   obj->field38 = t_r_tasered
+ *                         takeover_him(obj)
+ *                         obj->a10 = 0x12
+ *                         -- falls into the loop body --
+ *
+ *      token == 0x141e:   if (--obj->a10 <= 0) {
+ *                             death_blow_complete(obj)
+ *                             frame[frame].handler = t_victory_animation
+ *                         }
+ *                         -- falls into the loop body --
+ *
+ *      the loop body:     obj->field1c = 6; ochar_sound(obj)
+ *                         obj->field40 = 3; find_ani2_part2(obj)
+ *                         find_part2(obj)
+ *                         obj->field1c = 4
+ *                         token := 0x141e, descend into t_mframew
+ *
+ *      otherwise:         return -3
+ *
+ * **This completes the `proc->field3c` pair.** `t_ind_zap_kill` writes the victim's y there and
+ * `t_r_ind_lightning` reads it back; this routine writes it the same way, through
+ * `proc->field00->field00`, and hands the victim `t_r_tasered` -- the other reader. Two writers,
+ * two readers, one field, and all four are now written.
+ *
+ * So the convention is settled: **a fatality that will move the victim saves their original y in
+ * the OTHER fighter's proc at 0x3c, and the victim's own reaction puts them back there.**
+ *
+ * **The tasering is an eighteen-pass loop**, and each pass makes sound 6, re-resolves the animation
+ * through `find_ani2_part2` and `find_part2`, and waits four frames through `t_mframew`. The
+ * re-resolution every pass is what makes the sprite flicker between two lookups rather than playing
+ * one animation.
+ *
+ * Both finders are called back to back with the same 0x40 -- `find_ani2_part2` then `find_part2` --
+ * which is the doubled-call shape `tl_sindel_wasp` shows with `find_part2` twice and mkstat.c's
+ * `tl_stat_do_fan_lift` shows as well. Third site, and the first where the two calls are the
+ * "2" variant and the plain one rather than the same routine twice.
+ *
+ * `me_in_back` puts the attacker behind the victim before the blow, where `t_tornado_sucked` uses
+ * it for the same purpose. Second site.
+ */
+long t_r_tasered(MK3THREAD *thread);
+
+long t_swat_taser(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3OBJ  *him;
+
+    if (token == 0x1403) {
+        me_in_back(obj);
+
+        obj->field40 = 3;
+        get_char_ani2(obj);
+
+        obj->field1c = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x140a;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x140a) {
+        *mk3_frame(thread, frame + 1) = 0x140b;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (token == 0x140b) {
+        obj->field1c = 7;
+        ochar_sound(obj);
+
+        obj->field1c = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1410;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1410) {
+        obj->field38 = (uint32_t)(uintptr_t)t_r_tasered;
+        takeover_him(obj);
+
+        obj->a10 = 0x12;
+
+    } else if (token == 0x141e) {
+        obj->a10 = obj->a10 - 1;
+        if ((long)obj->a10 <= 0) {
+            death_blow_complete(obj);
+
+            return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+        }
+
+    } else if (token == 0) {
+        him = (MK3OBJ *)(void *)(uintptr_t)obj->field00->him;
+        *(uint32_t *)((char *)obj->field00->field00->field00 + 0x3c) =
+            (uint32_t)(int32_t)(int16_t)MK3_FIELD12(him);
+
+        *mk3_frame(thread, frame + 1) = 0x1403;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_fatality_start_pause;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+
+    } else {
+        return -3;
+    }
+
+    obj->field1c = 6;
+    ochar_sound(obj);
+
+    obj->field40 = 3;
+    find_ani2_part2(obj);
+    find_part2(obj);
+
+    obj->field1c = 4;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x141e;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
