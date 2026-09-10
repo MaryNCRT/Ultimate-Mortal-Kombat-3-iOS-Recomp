@@ -488,7 +488,7 @@ long t_rocket1_proc(struct MK3THREAD *thread);
 long t_rocket2_proc(struct MK3THREAD *thread);
 long t_rzap3(struct MK3THREAD *thread);
 long tl_bomb33(struct MK3THREAD *thread);
-long get_bomb_vel(MK3OBJ *obj);
+void get_bomb_vel(MK3OBJ *obj);
 void get_char_ani2(MK3OBJ *obj);
 void ochar_sound(MK3OBJ *obj);
 void q_his_react_flag_set(MK3OBJ *obj);
@@ -1211,4 +1211,206 @@ long tl_delete_proj_and_die(MK3THREAD *thread)
     *mk3_frame(thread, frame + 1) = 0x13c6;
     thread->fieldfc = 0x16462;              /* and never wakes */
     return 0x16462;
+}
+
+
+/* proj_onscreen_test -- armv7 0x00075714, 52 bytes.  **Complete.**
+ * proj_onscreen_test_unsafe -- armv7 0x00075748, 48 bytes.  **Complete.**
+ *
+ *      x = (int16_t)part->x0e
+ *      obj->field5c = (x > left - m && x < right + m)
+ *      return obj->field5c
+ *
+ * where `m` is 0x64 for `proj_onscreen_test` and **0** for the one called
+ * unsafe. `left` is `G + 0x468` and `right` is `G + 0x470`.
+ *
+ * **The names are the wrong way round from what they sound like.** The "unsafe"
+ * one is the STRICTER test -- it fails the moment the projectile touches an
+ * edge, where the other allows a hundred units of slack outside the view before
+ * saying no. So "unsafe" means "will call it offscreen too eagerly", and a
+ * caller that deletes a projectile on a false answer would cut it off while it
+ * is still visible.
+ *
+ * Both **return the answer as well as leaving it in 0x5c** -- `ldr r0, [r0,
+ * #0x5c]` on the way out, which almost no predicate in this engine bothers to
+ * do. Declared `long` on that authority rather than by guessing.
+ *
+ * This is also the third and fourth routine to read `G + 0x468` and `G + 0x470`
+ * as the left and right edges of the view, after `t_another_scorpion` and
+ * `t_scorpion_hell` in mkfatal.c. Four sites, one reading, and the pair can now
+ * be named without hedging.
+ */
+long proj_onscreen_test(MK3OBJ *obj)
+{
+    int32_t x = (int32_t)(int16_t)MK3_FIELD0E(obj->field08);
+
+    obj->field5c =
+        (x > (long)(*(uint32_t *)(G_BYTES + 0x468) - 0x64)
+         && x < (long)(*(uint32_t *)(G_BYTES + 0x470) + 0x64)) ? 1 : 0;
+
+    return (long)obj->field5c;
+}
+
+long proj_onscreen_test_unsafe(MK3OBJ *obj)
+{
+    int32_t x = (int32_t)(int16_t)MK3_FIELD0E(obj->field08);
+
+    obj->field5c =
+        (x > (long)*(uint32_t *)(G_BYTES + 0x468)
+         && x < (long)*(uint32_t *)(G_BYTES + 0x470)) ? 1 : 0;
+
+    return (long)obj->field5c;
+}
+
+
+/* proj_strike_check -- armv7 0x00075f5c, 44 bytes.  **Complete.**
+ *
+ *      if (him->field24 == 0x18) { obj->field5c = 0; return }
+ *      saved = obj->field1c
+ *      is_jade_protected(obj)
+ *      obj->field1c = saved
+ *      if (obj->field5c != 0) { obj->field5c = 0; return }
+ *      strike_check_a0(obj)
+ *
+ * **Two fighters cannot be hit by a projectile: Motaro, and Jade while she is
+ * protected.** The check is the same shape twice -- ask, then zero the answer
+ * and leave -- and only if both say no does the real strike check run.
+ *
+ * **The Motaro test is inlined here as `cmp r3, #0x18`**, where
+ * `local_strike_check_box` below calls `is_he_motaro` for exactly the same
+ * question. So character 0x18 is named by number in two places in this file:
+ * once in a routine that says so and once buried in a comparison. **That second
+ * one belongs with the five in issue #29**, not with the named predicate.
+ *
+ * `is_jade_protected` clobbers 0x1c, so it is saved in a register across the
+ * call -- inside one function, the rule `t_sg_pound` settled.
+ */
+long is_jade_protected(MK3OBJ *obj);
+long strike_check_a0(MK3OBJ *obj);
+
+void proj_strike_check(MK3OBJ *obj)
+{
+    MK3OBJ  *him = (MK3OBJ *)(void *)(uintptr_t)obj->field00->him;
+    uint32_t saved;
+
+    if (him->field24 == 0x18) {                  /* Motaro, inlined */
+        obj->field5c = 0;
+        return;
+    }
+
+    saved = obj->field1c;
+    is_jade_protected(obj);
+    obj->field1c = saved;
+
+    if (obj->field5c != 0) {
+        obj->field5c = 0;
+        return;
+    }
+
+    strike_check_a0(obj);
+}
+
+
+/* local_strike_check_box -- armv7 0x00075f1c, 64 bytes.  **Complete.**
+ *
+ *      is_he_motaro(obj)
+ *      if (obj->field5c != 0) { obj->field5c = 0; return }
+ *      save 0x1c, 0x20 and 0x24
+ *      is_jade_protected(obj)
+ *      restore 0x1c, 0x20 and 0x24
+ *      if (obj->field5c != 0) { obj->field5c = 0; return }
+ *      strike_check_box(obj)
+ *
+ * **The box version of `proj_strike_check`, and the two differ in exactly two
+ * places.** This one asks the question through `is_he_motaro` instead of
+ * inlining the constant, and it saves **three** fields across
+ * `is_jade_protected` where the other saves one -- which is why it pushes `r8`
+ * and the other does not.
+ *
+ * Three fields is what a box needs: 0x1c, 0x20 and 0x24 are three of the four
+ * coordinate slots `strike_check_box` reads, and the predicate in the middle
+ * would otherwise trample them.
+ *
+ * Read side by side the pair says what `is_jade_protected` costs: it clobbers at
+ * least 0x1c, 0x20 and 0x24, and every caller has to know that.
+ */
+void strike_check_box(MK3OBJ *obj);
+
+void local_strike_check_box(MK3OBJ *obj)
+{
+    uint32_t s1c, s20, s24;
+
+    is_he_motaro(obj);
+    if (obj->field5c != 0) {
+        obj->field5c = 0;
+        return;
+    }
+
+    s1c = obj->field1c;
+    s20 = obj->field20;
+    s24 = obj->field24;
+
+    is_jade_protected(obj);
+
+    obj->field1c = s1c;
+    obj->field20 = s20;
+    obj->field24 = s24;
+
+    if (obj->field5c != 0) {
+        obj->field5c = 0;
+        return;
+    }
+
+    strike_check_box(obj);
+}
+
+
+/* get_bomb_vel -- armv7 0x0007534c, 56 bytes.  **Complete.**
+ *
+ *      obj->field1c = (int16_t)him->x0e
+ *      obj->field20 = (int16_t)part->x0e - obj->field1c
+ *      if (obj->field20 < 0) obj->field20 = -obj->field20
+ *      obj->field48 = 0x20
+ *      obj->field20 = (obj->field20 << 16) / 0x20
+ *      obj->field1c = obj->field20
+ *
+ * **A thirty-two step interpolation, the same idea `t_kiss_orb` uses with
+ * sixteen.** The gap between the two fighters is taken in pixels, shifted into
+ * 16.16 and divided by 0x20, so the bomb covers it in exactly thirty-two
+ * frames whatever the distance. The divisor is published in 0x48 so the caller
+ * can count the same thirty-two.
+ *
+ * The division is the round-toward-zero idiom again --
+ * `add.w r2, r3, #0x1f` / `bics.w r3, r3, r3, asr #32` / `it hs` / `movhs` /
+ * `asrs #5`, where the carry out of `asr #32` is the sign bit. Exactly C's
+ * signed `/ 0x20`, and written as that.
+ *
+ * The distance is made absolute with the `itt lt` / `rsblt` pair, so the speed
+ * comes out positive and `set_proj_vel` signs it by the flip bit afterwards.
+ * The two routines are built to be used together and neither duplicates the
+ * other's work.
+ *
+ * **It was declared `long` earlier in this file and it is not** -- the body
+ * never touches `r0`, so a `long` caller reads back the object pointer it passed
+ * in. Second such declaration corrected in this file, after
+ * `q_his_react_flag_set`; both were written from call sites that discard the
+ * result, which is the failure mode `tools/protos.py` exists to catch.
+ */
+void get_bomb_vel(MK3OBJ *obj)
+{
+    int32_t dx;
+
+    obj->field1c = (uint32_t)(int32_t)(int16_t)
+                   MK3_FIELD0E((MK3OBJ *)(void *)(uintptr_t)obj->field00->him);
+
+    obj->field20 = (uint32_t)((int32_t)(int16_t)MK3_FIELD0E(obj->field08)
+                              - (int32_t)obj->field1c);
+    if ((long)obj->field20 < 0)
+        obj->field20 = (uint32_t)(-(long)obj->field20);
+
+    obj->field48 = 0x20;
+
+    dx = (int32_t)(obj->field20 << 16);
+    obj->field20 = (uint32_t)(dx / 0x20);        /* thirty-two frames */
+    obj->field1c = obj->field20;
 }
