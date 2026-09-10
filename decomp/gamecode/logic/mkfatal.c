@@ -9810,3 +9810,146 @@ long t_kano_lazer(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* -------------------------------------------------------------------------- t_remaining_skel
+ *
+ * armv7 0x000379c0, 440 bytes.  **Complete.**
+ *
+ *      token == 0:        adj = ochar_skeleton_adj[part->field24]
+ *                         obj->field1c = adj
+ *                         PUSH adj
+ *                         obj->field40 = obj->field48       ; the cursor arrives set
+ *                         find_part2(obj)
+ *                         obj->field1c = part->field24
+ *                         if (part->field24 == 0xb) obj->field40 += 4
+ *                         obj->field40 = *(long *)obj->field40
+ *                         POP  adj
+ *                         obj->field20 = (int32_t)adj >> 16      ; high half
+ *                         obj->field1c = (int16_t)adj            ; low half
+ *                         multi_adjust_xy(obj)
+ *                         token := 0x12c3, descend into t_initial_skeleton_shake
+ *
+ *      token == 0x12c3:   obj->field1c = 8
+ *                         token := 0x12c5, descend into t_mframew
+ *
+ *      token == 0x12c5:   token := 0x12c7, descend into t_skel_blood
+ *      token == 0x12c7:   token := 0x12c8, descend into t_skel_blood
+ *      token == 0x12c8:   token := 0x12c9, descend into t_skel_blood
+ *      token == 0x12c9:   token := 0x12ca, descend into t_skel_blood
+ *
+ *      token == 0x12ca:   frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:         return -3
+ *
+ * **A near-twin of `t_ripped_skelton`**, written earlier in this file, and the four differences are
+ * the whole of what makes it a second routine:
+ *
+ *   - it does NOT set 0x48. Its twin points the cursor at `lia_ani_data + 0x1554` itself; this one
+ *     reads 0x48 without ever writing it, so the cursor arrives from whoever installed it. That is
+ *     the same "0x48 as a cursor stash" reading, but here it crosses a routine boundary.
+ *   - no `find_last_frame` / `do_next_a9_frame` after the lineup.
+ *   - no early park for character 0xb -- the second of the twin's two 0xb tests is absent.
+ *   - the four `t_skel_blood` descents are prefixed by `t_initial_skeleton_shake` and a
+ *     `t_mframew` wait of 8, where the twin runs straight into the blood.
+ *
+ * Everything else is instruction-for-instruction the same: the same table, the same packed pair, the
+ * same push across `find_part2`, the same 0xb word-skip, and the same four unrolled descents.
+ *
+ * **Third site of the character-0xb exception in this file, and the second routine to carry it.**
+ * `t_ripped_skelton` singles 0xb out twice and mkanimal.c's `tl_kano_spider` once; this adds a
+ * fourth test across the tree. **Any port that renumbers the roster has to carry all four**, and
+ * they are the only places in the tree where a fighter is named by number.
+ *
+ * **Eighth use of the argument stack**, and the second for this exact conflict: `find_part2`
+ * clobbers 0x1c, so the packed adjustment goes to `args[]` and comes back after. Same table, same
+ * two callees, same rescue -- so the stack is not an ad-hoc trick but the idiom this file reaches
+ * for whenever one field has to serve two callees.
+ *
+ * The halves are unpacked in the opposite order from the twin -- 0x20 before 0x1c -- with the same
+ * `asrs #16` and `lsls #16; asrs #16`. Transcribed in the binary's order; the result is identical.
+ *
+ * `obj->field1c = part->field24` before the 0xb test is overwritten by the low half four
+ * instructions later with nothing reading it in between. Eighth dead store recorded, and the twin
+ * has the same one.
+ *
+ * **The 0x12ca install writes through the frame index loaded at entry**, not a freshly reloaded
+ * one -- the only state here that does. No path to 0x12ca changes the index, so it is equivalent;
+ * it is transcribed as `mk3_install` because that is what it computes.
+ */
+
+long t_remaining_skel(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    uint32_t argc, adj, next;
+
+    if (token == 0x12ca)
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+
+    if (token == 0x12c3) {
+        obj->field1c = 8;
+
+        *mk3_frame(thread, frame + 1) = 0x12c5;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0) {
+        adj = ochar_skeleton_adj[obj->field08->field24];
+        obj->field1c = adj;
+
+        argc = thread->fieldf8;
+        *mk3_arg(thread, argc) = adj;
+        thread->fieldf8 = argc + 1;
+
+        obj->field40 = obj->field48;                 /* arrives set */
+        find_part2(obj);
+
+        obj->field1c = obj->field08->field24;        /* overwritten below */
+        if (obj->field08->field24 == 0xb)
+            obj->field40 = obj->field40 + 4;
+
+        obj->field40 = *(uint32_t *)(uintptr_t)obj->field40;
+
+        argc = thread->fieldf8 - 1;
+        thread->fieldf8 = argc;
+        adj = *mk3_arg(thread, argc);
+
+        obj->field20 = (uint32_t)((int32_t)adj >> 16);
+        obj->field1c = (uint32_t)(int32_t)(int16_t)adj;
+        multi_adjust_xy(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x12c3;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_initial_skeleton_shake;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x12c5) {
+        next = 0x12c7;
+
+    } else if (token == 0x12c7) {
+        next = 0x12c8;
+
+    } else if (token == 0x12c8) {
+        next = 0x12c9;
+
+    } else if (token == 0x12c9) {
+        next = 0x12ca;
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_skel_blood;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
