@@ -7,7 +7,7 @@ Read this, then [METHODOLOGY.md](METHODOLOGY.md). Everything else is reference.
 
 ## Where the project actually stands
 
-**68.27% of the total estimated effort. Nothing is playable.** The arithmetic is
+**68.28% of the total estimated effort. Nothing is playable.** The arithmetic is
 in the [README](../README.md#overall-progress) and the weights are a judgement
 call; the completion figures are measured by `tools/progress.py` on every run.
 
@@ -452,6 +452,51 @@ a dereference with a note and no name.
 a field `mk3logic.h` declares as a halfword. The header already records the
 disagreement; these are reached by byte offset for that reason, as
 `tl_do_lao_tele` and `tl_do_robo_tele` are.
+
+## mkstat.c is finished, and five things it settled
+
+`mkstat.c` is **62 of 62**. Five findings generalise to the six files still open.
+
+**1. There are THREE ways to run a routine on the other fighter, not one.** The
+mkslam note above found `call_a0_for_him`, which takes the address out of 0x1c.
+mkstat.c adds two more, and `tl_do_leg_throw` uses all three in one function:
+
+    obj->field1c = fn;  call_a0_for_him(obj);   /* through 0x1c   */
+    call_for_him(obj, fn);                      /* in a register  */
+    obj->field38 = fn;  takeover_him(obj);      /* installed      */
+
+The third one is a handover -- the routine becomes the other fighter's thread
+handler -- where the first two are immediate calls. Do not read them as
+interchangeable.
+
+**2. `obj->field48` and `obj->a10` are borrowed constantly, and the thread's own
+argument stack is how they are given back.** The push/pop idiom at 0xa8 with the
+cursor at 0xf8 shows up eleven times in this file, spanning anything from a single
+call (`t_grab_animation`) to four states (`t_edge_of_world_lineup`). **Any state that
+pushes must be matched against the state that pops** -- `tl_do_shake` pushes and pops
+on every pass of a loop rather than once around it, and `tl_do_noogy` pushes in one
+state and pops in another two states away.
+
+**3. Several rules are stated in the move, not in the shared helper.** A boss is
+exempt from `strike_check_a0` in three separate routines, each testing
+`q_is_he_a_boss` itself. An airborne opponent is exempt from the quake and shortens
+the swat gun's recovery by twenty-four frames. Damage is gated on the `p_hit`
+counter in `t_r_leg_slammed` and nowhere else. **Do not assume a gameplay rule lives
+in one place** -- these are per-move and there is no central table.
+
+**4. `obj->field18` is a modifier three routines key on**, and each pays a different
+price for it: `tl_do_lao_spin` recovers in 0x30 frames instead of 0x20,
+`tl_stat_do_fan_lift` in 0x50 instead of 0x10, and `tl_do_shake` and
+`tl_do_leg_throw` skip their whole payload. Whatever it means, it is consulted after
+a connection and it always costs the attacker.
+
+**5. Imports are named through `tools/imports.py`, and the stub arithmetic is
+checkable.** `t_stat_do_uppercut` calls `fflush` four times. The stub at
+`0x000dd794` is ARM (`ldr ip,[pc,#0]; ldr pc,[ip]`), its pointer word sits at
+**stub + 8**, and stubs are **12 bytes apart** -- so the neighbours should read as a
+run of alphabetically ordered imports, and here they do (`_dlsym`, `_fflush`,
+`_floorf`, `_free`). That cross-check is worth doing every time, because a
+one-stub error still produces a plausible libc name.
 
 ## Open questions worth someone's time
 
