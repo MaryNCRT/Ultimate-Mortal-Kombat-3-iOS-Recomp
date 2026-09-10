@@ -1105,3 +1105,365 @@ long t_animal_morph(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+/* -------------------------------------------------------------- t_animality_start_pause
+ *
+ * armv7 0x000a0e64, 168 bytes.  **Complete.**
+ *
+ *      token == 0:      obj->field20 = 3
+ *                       token := 0x8ec, descend into t_init_death_blow
+ *
+ *      token == 0x8ec:  token := 0x8ed, park 0x1e
+ *
+ *      token == 0x8ed:  pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:       return -3
+ *
+ * **The twin of mkstat.c's `t_baby_start_pause`, and reading the two together says what
+ * 0x20 is for.** Both write a small constant into 0x20 and then descend into the same
+ * `t_init_death_blow` off pointer slot 0x000f3194: this one writes 3, the babality one
+ * writes 5. So **the death-blow routine is shared by every finisher kind and 0x20 is the
+ * kind selector** -- the routine is not per-fatality, the number is.
+ *
+ * After the death blow this waits thirty frames and unwinds. `t_do_animality` descends
+ * into this and then indexes `ochar_animalities`, so the wait is what separates the
+ * killing blow from the animal appearing.
+ *
+ * The babality version poses animation zero by hand in its middle state where this one
+ * only waits, which is the whole difference between the two beyond the constant.
+ */
+long t_init_death_blow(MK3THREAD *thread);        /* pointer slot 0x000f3194 */
+
+long t_animality_start_pause(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x8ec) {
+        *mk3_frame(thread, frame + 1) = 0x8ed;
+        thread->fieldfc = 0x1e;
+        return 0x1e;
+    }
+
+    if (token == 0x8ed) {
+        if ((long)frame > 0) {
+            thread->frame = frame - 1;
+            return 0;
+        }
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field20 = 3;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x8ec;
+    thread->frame = thread->frame + 1;              /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_init_death_blow;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+/* --------------------------------------------------------------- t_cute_animality_start
+ *
+ * armv7 0x000a117c, 164 bytes.  **Complete.**
+ *
+ *      token == 0:      face_opponent(obj)
+ *                       animality_tune(obj)
+ *                       token := 0x3c0, park 0x20
+ *
+ *      token == 0x3c0:  tsound_func(obj, 0x8c)
+ *                       obj->a10 = obj->field3c
+ *                       obj->field1c = 0x1e
+ *                       create_fx(obj)
+ *                       token := 0x3c5, park 8
+ *
+ *      token == 0x3c5:  pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:       return -3
+ *
+ * **The other opening**, used by the animalities that appear in a puff rather than by
+ * morphing: turn to face the opponent, start the animality music, wait thirty-two
+ * frames, then a sound, effect 0x1e, and eight more frames.
+ *
+ * `obj->a10 = obj->field3c` is copied immediately before `create_fx`, so 0x44 is an
+ * argument to the effect and 0x3c is where the caller left it. `create_fx_for_him`
+ * earlier in this file shows the other half of that interface -- 0x00 and 0x08 select
+ * whose effect it is, 0x1c its kind, 0x44 its parameter.
+ *
+ * This does NOT go through `t_init_death_blow` the way `t_animality_start_pause` does, so
+ * the two openings are alternatives and not stages: one kills first, this one does not.
+ */
+long t_cute_animality_start(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x3c0) {
+        tsound_func(obj, 0x8c);
+
+        obj->a10 = obj->field3c;
+        obj->field1c = 0x1e;
+        create_fx(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x3c5;
+        thread->fieldfc = 8;
+        return 8;
+    }
+
+    if (token == 0x3c5) {
+        if ((long)frame > 0) {
+            thread->frame = frame - 1;
+            return 0;
+        }
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (token != 0)
+        return -3;
+
+    face_opponent(obj);
+    animality_tune(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x3c0;
+    thread->fieldfc = 0x20;
+    return 0x20;
+}
+
+/* ------------------------------------------------------------------------ t_r_bat_bite
+ *
+ * armv7 0x000a2adc, 116 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field48 = 0x00060008; shake_a11(obj)
+ *      rsnd_func(obj, 3)
+ *      obj->field1c = 1; create_blood_proc(obj)
+ *      cutup_body_init(obj, 0x1ab8)
+ *      obj->field1c = 0x10000
+ *      obj->field20 = 0x10000 - 0x30000 = -0x20000
+ *      frame[frame].handler = t_head_pop_off
+ *
+ * **The same five steps as `t_r_ermac_upcut`, with every constant changed.** Reading the
+ * pair gives the whole parameter set of a decapitation:
+ *
+ *      routine            shake        sound   cutup delta   x vel     y vel
+ *      t_r_ermac_upcut    0x00080008   0xa     0x1af4        0x10000   -0x80000
+ *      t_r_bat_bite       0x00060008   3       0x1ab8        0x10000   -0x20000
+ *
+ * So the two differ in how hard the screen shakes, which noise is made, which set of
+ * body pieces is used, and how high the head goes -- and in nothing else. The bat throws
+ * the head a quarter as high as the uppercut does, which is what you would expect from a
+ * bite rather than a punch.
+ *
+ * **0x48 here is an asymmetric pair, 6 and 8.** That is a third asymmetric site for the
+ * shake halfwords, after mkstat.c's 0x00030008 and 0x0009000e, so the two halves are
+ * definitely independent and this is not a doubled constant.
+ */
+long t_r_bat_bite(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field48 = 0x00060008;
+    shake_a11(obj);
+    rsnd_func(obj, 3);
+
+    obj->field1c = 1;
+    create_blood_proc(obj);
+
+    cutup_body_init(obj, 0x1ab8);
+
+    obj->field1c = 0x10000;
+    obj->field20 = (uint32_t)(0x10000 - 0x30000);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_head_pop_off);
+}
+
+/* ---------------------------------------------------------------------- t_stung_a_bunch
+ *
+ * armv7 0x000a1cac, 128 bytes.  **Complete.**
+ *
+ *      token == 0:      token := 0x662, park 8
+ *
+ *      token == 0x662:  death_scream(obj)
+ *                       -- falls through --
+ *
+ *      token == 0x666:  obj->field40 = 0x0003001c
+ *                       token := 0x666, descend into t_animate_a9
+ *
+ *      otherwise:       return -3
+ *
+ * **A loop with no exit.** The 0x666 state sets the token back to 0x666 before descending,
+ * so when the child animation finishes and pops, this state runs again, sets 0x40 again,
+ * and descends again -- forever, until something outside the thread replaces the handler.
+ * Which is the correct behaviour for a scorpion animality: the stinging does not stop, the
+ * round ending is what stops it.
+ *
+ * **0x662 falls through into 0x666 rather than branching to its own tail**, so the scream
+ * happens once and the animation from then on is identical. One `beq` to 0xa1cde and the
+ * next instruction after the call is the 0x666 entry at 0xa1ce4.
+ *
+ * 0x40 is the packed halfword pair again -- animation 0x1c at rate 3 -- handed to
+ * `t_animate_a9` off pointer slot 0x000f36d0. Seventh site for that pair, and the first
+ * one in this module.
+ */
+long t_animate_a9(MK3THREAD *thread);           /* pointer slot 0x000f36d0 */
+
+long t_stung_a_bunch(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, frame + 1) = 0x662;
+        thread->fieldfc = 8;
+        return 8;
+    }
+
+    if (token == 0x662) {
+        death_scream(obj);
+
+    } else if (token != 0x666) {
+        return -3;
+    }
+
+    obj->field40 = 0x0003001c;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x666;
+    thread->frame = thread->frame + 1;              /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_animate_a9;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+/* ----------------------------------------------------------------------- t_bit_in_half
+ *
+ * armv7 0x000a29e0, 136 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field48 = 0x00060006; shake_a11(obj)
+ *      death_scream(obj)
+ *      rsnd_func(obj, 3)
+ *      obj->field1c = 8; create_blood_proc(obj)
+ *      p = &lao_ani_data[0x142c + obj->field08->field24 * 4]
+ *      obj->field1c = p
+ *      obj->field40 = p
+ *      do_next_a9_frame(obj)
+ *      frame[frame].handler = t_wait_forever
+ *
+ * **The third decapitation-shaped reaction, and the one that does not use
+ * `cutup_body_init`.** Instead of handing the body to the pieces machinery it computes an
+ * ADDRESS -- 0x142c into `lao_ani_data`, indexed by the character number -- and puts it in
+ * both 0x1c and 0x40, then advances one frame by hand and waits forever.
+ *
+ * 0x142c is an offset INSIDE `lao_ani_data` (the symbol runs from 0x00155200 to the next
+ * one, `lia_ani_data`, at 0x001567a0), so the table this indexes has no symbol of its own.
+ * The computed address is 0x0015662c + char*4.
+ *
+ * **That confirms the pointer reading of 0x40**: `do_next_a9_frame` dereferences it twice
+ * and steps it by four, so what goes in is the address of a per-character word list, not
+ * an animation number. Same field, and `t_stung_a_bunch` two functions up puts a packed
+ * halfword pair in it -- the caller and the callee agree, the field does not care.
+ *
+ * The shake pair is 0x00060006, doubled, where `t_r_bat_bite` uses 0x00060008. So the bite
+ * that cuts a fighter in half shakes less than the bite that takes the head off.
+ */
+extern uint8_t lao_ani_data[];                   /* 0x00155200, pointer slot 0x000f3460 */
+
+long t_bit_in_half(MK3THREAD *thread)
+{
+    MK3OBJ   *obj = (MK3OBJ *)thread->proc;
+    uint32_t  p;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field48 = 0x00060006;
+    shake_a11(obj);
+    death_scream(obj);
+    rsnd_func(obj, 3);
+
+    obj->field1c = 8;
+    create_blood_proc(obj);
+
+    p = (uint32_t)(uintptr_t)&lao_ani_data[0x142c + obj->field08->field24 * 4];
+    obj->field1c = p;
+    obj->field40 = p;
+    do_next_a9_frame(obj);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+}
+
+/* --------------------------------------------------------------------- t_eaten_by_shark
+ *
+ * armv7 0x000a1d44, 152 bytes.  **Complete.**
+ *
+ *      token == 0:      death_scream(obj)
+ *                       obj->field1c = 0x20; create_fx(obj)
+ *                       token := 0x453, park 2
+ *
+ *      token == 0x453:  obj->field1c = 0x20; create_fx(obj)
+ *                       token := 0x456, park 2
+ *
+ *      token == 0x456:  obj->field1c = 0x20; create_fx(obj)
+ *                       frame[frame].handler = t_eaten_by_snake
+ *
+ *      otherwise:       return -3
+ *
+ * **Effect 0x20 three times, two frames apart, and then it becomes a different routine.**
+ * The three states are identical except for what they do next, so the bites are one
+ * repeated event rather than three different ones -- but they are written out three times
+ * with three tokens instead of counting, because the third one has to install rather than
+ * park.
+ *
+ * **The install target is `t_eaten_by_snake`**, taken as a direct pc-relative address
+ * rather than through a pointer slot. So the shark reaction runs the snake reaction's tail
+ * -- the swallowing is shared and only the three bites are the shark's. That is worth
+ * knowing before writing `t_eaten_by_snake`: it has to work as both an entry point and a
+ * continuation.
+ *
+ * Only state 0 screams. The two later effects are silent.
+ */
+long t_eaten_by_snake(MK3THREAD *thread);        /* 0x000a2f60 */
+
+long t_eaten_by_shark(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x453) {
+        obj->field1c = 0x20;
+        create_fx(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x456;
+        thread->fieldfc = 2;
+        return 2;
+    }
+
+    if (token == 0x456) {
+        obj->field1c = 0x20;
+        create_fx(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_eaten_by_snake);
+    }
+
+    if (token != 0)
+        return -3;
+
+    death_scream(obj);
+
+    obj->field1c = 0x20;
+    create_fx(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x453;
+    thread->fieldfc = 2;
+    return 2;
+}
