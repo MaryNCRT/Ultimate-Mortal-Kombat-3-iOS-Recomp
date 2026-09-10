@@ -7930,3 +7930,140 @@ long t_sonya_kiss(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ---------------------------------------------------------------------------- t_kabal_scare
+ *
+ * armv7 0x000340cc, 384 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0xce7, descend into t_fatality_start_pause
+ *
+ *      token == 0xce7:    part->field2c = 0x136f
+ *                         token := 0xcea, park 0x14
+ *
+ *      token == 0xcea:    token := 0xceb, park 0xc
+ *
+ *      token == 0xceb:    obj->field1c = 9; ochar_sound(obj)
+ *                         token := 0xcee, park 0x28
+ *
+ *      token == 0xcee:    token := 0xcef, park 0x2d
+ *
+ *      token == 0xcef:    token := 0xcf0, park 6
+ *
+ *      token == 0xcf0:    obj->field1c = 9; ochar_sound(obj)
+ *                         token := 0xcf5, park 0xc
+ *
+ *      token == 0xcf5:    obj->field38 = t_sacred_2_death
+ *                         takeover_him(obj)
+ *                         token := 0xcf8, park 0x7d
+ *
+ *      token == 0xcf8:    token := 0xcf9, park 0xc
+ *
+ *      token == 0xcf9:    death_blow_complete(obj)
+ *                         frame[frame].handler = t_victory_animation
+ *
+ *      otherwise:         return -3
+ *
+ * **Nine states and six of them do nothing but wait.** One animation, two sounds, one handover and
+ * a close -- the rest is 0x14, 0xc, 0x28, 0x2d, 6, 0xc, 0x7d and 0xc frames of pure timing. This is
+ * the longest schedule in the file and the least busy: the whole effect is in the animation the
+ * part is given in state 0xce7 and in the victim's reaction.
+ *
+ * **The victim gets `t_sacred_2_death`**, written earlier in this file -- which poses animation
+ * 0x48, spawns `t_my_ghost` as its own thread, screams, recoils at 0x10000 and shakes. So the
+ * ghost that appears is two routines removed from this schedule, and the timing here has to leave
+ * room for both.
+ *
+ * That is a third fatality reaching `t_sacred_2_death`-shaped machinery, and the second whose
+ * visible content lives entirely in routines it hands off to.
+ *
+ * The dispatch is three levels deep -- `ble` inside `ble`, with a `bgt` branch as well -- and `r5`
+ * carries 0xcee into state 0xceb's store and 0xcf5 into state 0xcf0's, while `r1` carries 0xce7
+ * into state 0's. Three tokens across two registers, each store traced back to its own load.
+ *
+ * Sound 9 is played twice through `ochar_sound`, sixty-one frames apart. Not a pair in the
+ * back-to-back sense the rest of this file uses; two separate beats of the same noise.
+ */
+long t_sacred_2_death(MK3THREAD *thread);
+
+long t_kabal_scare(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0xce7) {
+        obj->field08->field2c = 0x136f;
+
+        *mk3_frame(thread, frame + 1) = 0xcea;
+        thread->fieldfc = 0x14;
+        return 0x14;
+    }
+
+    if (token == 0xcea) {
+        *mk3_frame(thread, frame + 1) = 0xceb;
+        thread->fieldfc = 0xc;
+        return 0xc;
+    }
+
+    if (token == 0xceb) {
+        obj->field1c = 9;
+        ochar_sound(obj);
+
+        *mk3_frame(thread, frame + 1) = 0xcee;
+        thread->fieldfc = 0x28;
+        return 0x28;
+    }
+
+    if (token == 0xcee) {
+        *mk3_frame(thread, frame + 1) = 0xcef;
+        thread->fieldfc = 0x2d;
+        return 0x2d;
+    }
+
+    if (token == 0xcef) {
+        *mk3_frame(thread, frame + 1) = 0xcf0;
+        thread->fieldfc = 6;
+        return 6;
+    }
+
+    if (token == 0xcf0) {
+        obj->field1c = 9;
+        ochar_sound(obj);
+
+        *mk3_frame(thread, frame + 1) = 0xcf5;
+        thread->fieldfc = 0xc;
+        return 0xc;
+    }
+
+    if (token == 0xcf5) {
+        obj->field38 = (uint32_t)(uintptr_t)t_sacred_2_death;
+        takeover_him(obj);
+
+        *mk3_frame(thread, frame + 1) = 0xcf8;
+        thread->fieldfc = 0x7d;
+        return 0x7d;
+    }
+
+    if (token == 0xcf8) {
+        *mk3_frame(thread, frame + 1) = 0xcf9;
+        thread->fieldfc = 0xc;
+        return 0xc;
+    }
+
+    if (token == 0xcf9) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+    }
+
+    if (token != 0)
+        return -3;
+
+    *mk3_frame(thread, frame + 1) = 0xce7;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_fatality_start_pause;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
