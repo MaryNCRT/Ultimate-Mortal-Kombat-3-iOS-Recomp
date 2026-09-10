@@ -3979,10 +3979,11 @@ long t_kissani(MK3THREAD *thread)
  * halves are 5/2 then 5/4. The high half is 5 in both, so whatever it selects does not change
  * between the two runs and only the low half does.
  *
- * That is a useful constraint on the pair's meaning: across the four sites now measured
- * (0x00050020, 0x00050010, 0x00050002, 0x00050004) the high half is 5 every time. So 5 is not a
- * per-caller number -- it is what this animator is normally asked for -- and the low half is the
- * parameter that varies.
+ * Across the four sites measured when this was written (0x00050020, 0x00050010, 0x00050002,
+ * 0x00050004) the high half was 5 every time, and I recorded that as a constraint. **It is not
+ * one**: `t_skin_fall` later in this file passes 0x00080002, whose high half is 8. Five sites,
+ * high halves 5, 5, 5, 5, 8 -- so 5 is merely common, and both halves vary. The note stands only
+ * as a frequency observation.
  *
  * `get_char_ani2` resolves 0xd into 0x40 before the first run, so both runs walk the same resolved
  * list and the second continues where the first left off.
@@ -4682,6 +4683,91 @@ long t_reptile_vomit(MK3THREAD *thread)
     thread->frame = thread->frame + 1;               /* push a level */
     mk3_frame(thread, thread->frame)[1] =
         (uint32_t)(uintptr_t)t_fatality_start_pause;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ---------------------------------------------------------------------------- t_skin_fall
+ *
+ * armv7 0x000332f4, 256 bytes.  **Complete.**
+ *
+ *      token == 0:        obj->field40 = obj->field48
+ *                         obj->field1c = 0x00080002
+ *                         token := 0x1770, descend into t_animate_a0_frames
+ *
+ *      token == 0x1770:   obj->field1c = 3
+ *                         obj->field20 = 3
+ *                         obj->field24 = 3 + 7 = 0xa
+ *                         token := 0x1775, descend into t_shake_ob_up
+ *
+ *      token == 0x1775:   obj->field1c = 8
+ *                         token := 0x177a, descend into t_mframew
+ *
+ *      token == 0x177a:   frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:         return -3
+ *
+ * **Four states, three different helpers, and nothing of its own.** Animate, shake, wait, park --
+ * the routine is a schedule and every line of work is somewhere else.
+ *
+ * **Its 0x00080002 corrects a claim I made two batches ago.** After `t_scorpion_remove_mask` I
+ * recorded that `t_animate_a0_frames`'s pair always has 5 in the high half, on four sites. This is
+ * the fifth and it has 8. Both halves vary; 5 is only the common case. That note has been softened.
+ *
+ * That is the second reading in this file that did not survive its next counter-example, after the
+ * `t_shake_ob_up` one. **Four or five agreeing sites are not enough to call a field's shape settled
+ * in this codebase** -- the routines are hand-written and the exceptions are not rare.
+ *
+ * `obj->field40 = obj->field48` is the cursor move `t_kitty_spin` and `t_animate_a11` also do --
+ * third site, and the first where it is inlined into a larger routine rather than being the whole
+ * of one.
+ *
+ * The `t_shake_ob_up` call is in the small group: 3 into 0x1c, 3 into 0x20, 0xa into 0x24 from the
+ * same literal with an `adds`. Seventh caller measured.
+ */
+long t_skin_fall(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x1770) {
+        obj->field1c = 3;
+        obj->field20 = 3;
+        obj->field24 = 3 + 7;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1775;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_shake_ob_up;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1775) {
+        obj->field1c = 8;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x177a;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x177a)
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+
+    if (token != 0)
+        return -3;
+
+    obj->field40 = obj->field48;
+    obj->field1c = 0x00080002;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x1770;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_animate_a0_frames;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
