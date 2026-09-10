@@ -1414,3 +1414,198 @@ void get_bomb_vel(MK3OBJ *obj)
     obj->field20 = (uint32_t)(dx / 0x20);        /* thirty-two frames */
     obj->field1c = obj->field20;
 }
+
+
+/* ============================================================ t_do_zap
+ *
+ * armv7 0x000758bc, 68 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = projectile_jumps[obj->field1c]
+ *      frame[frame].handler = obj->field1c
+ *      frame[frame+1].w0 = 0
+ *
+ * **This is the projectile dispatcher for the whole game**, and it is sixty-eight
+ * bytes: take the kind out of 0x1c, index a table of thread handlers, install
+ * what comes back. Every zap, spear, bomb, orb and net in UMK3 starts here.
+ *
+ * `projectile_jumps` is at **0x00172694, forty-five words**, each a thread entry
+ * point with the Thumb bit set. The whole table, because a port needs the
+ * numbering and nothing else in the tree gives it:
+ *
+ *       0 tl_do_kano_zap          15 tl_do_robo_bomb        30 tl_do_smoke_spear
+ *       1 tl_do_sonya_zap         16 tl_do_bomb_mid         31 tl_do_motaro_zap
+ *       2 tl_do_jax_zap1          17 tl_do_tusk_zap         32 tl_do_kitana_zap
+ *       3 tl_do_jax_zap2          18 tl_do_summon           33 tl_do_jade_zap_med
+ *       4 tl_do_ind_zap           19 tl_do_st_zap1          34 tl_do_reptile_orb
+ *       5 tl_do_sky_ice_on        20 tl_do_st_zap2          35 tl_do_spit
+ *       6 tl_do_sky_ice_behind    21 tl_do_st_zap3          36 tl_do_scorpion_spear
+ *       7 tl_do_sky_ice_front     22 tl_lk_zap_hi           37 tl_do_jade_zap_hi
+ *       8 tl_do_sw_zap            23 tl_lk_zap_lo           38 tl_do_jade_zap_lo
+ *       9 tl_do_robo_zap          24 tl_do_sg_zap           39 tl_do_jade_zap_ret
+ *      10 tl_do_robo_zap2         25 tl_do_swat_bomb_hi     40 tl_do_reptile_orb_fast
+ *      11 tl_do_robo_net          26 tl_do_swat_bomb_lo     41 tl_do_mileena_zap
+ *      12 tl_do_sz_zap            27 tl_do_lia_forward_zap  42 tl_do_osz_zap
+ *      13 tl_do_lia_anglez        28 tl_do_tusk_floor       43 tl_do_floor_ice
+ *      14 tl_do_lao_zap           29 tl_do_sk_zap           44 tl_do_ermac_zap
+ *
+ * The word after entry 44 is 0x6168636f -- ASCII "ocha" -- so forty-five is the
+ * whole table and not a guess about where it stops.
+ *
+ * **The index is unchecked.** Nothing here compares 0x1c against 45, so a bad
+ * kind reads whatever follows the table and installs it as a handler. Whatever
+ * fills 0x1c is responsible, and a port that keeps this shape inherits that.
+ *
+ * The looked-up value is written back into 0x1c on the way past -- one register,
+ * two destinations, and 0x1c ends up holding a function pointer. That is a
+ * reading of 0x1c the tree has seen before, in `t_crusher_orb` and the
+ * `call_a0_for_him` sites.
+ */
+extern uint32_t projectile_jumps[];              /* 0x00172694, 45 entries */
+
+long t_do_zap(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+
+    if (*mk3_frame(thread, frame + 1) != 0)
+        return -3;
+
+    obj->field1c = projectile_jumps[obj->field1c];   /* unchecked */
+
+    mk3_frame(thread, frame)[1] = obj->field1c;
+    *mk3_frame(thread, frame + 1) = 0;
+    return 0;
+}
+
+
+/* ================================== t_boomerang_trail and t_rr_nothing
+ *
+ * armv7 0x00074f64 and 0x00075538, 68 bytes each.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      if (thread->frame > 0) { thread->frame -= 1; return 0 }
+ *      frame[frame].handler = t_local_reaction_exit
+ *      frame[frame+1].w0 = 0
+ *
+ * **Two names for one function.** The bodies are instruction-for-instruction
+ * identical -- same registers, same order, same pointer slot at 0x000f3708 --
+ * and they are 1,492 bytes apart. Not a tail call, not a jump: the source had
+ * two routines that both do nothing but give the level back, and the compiler
+ * emitted both.
+ *
+ * That is worth saying because it says something about the original source: a
+ * do-nothing thread handler was written once per caller and named for what the
+ * caller wanted, rather than shared. Expect more of these in this file.
+ *
+ * The frame index is signed here -- `cmp #0` then `ble`, not `cbz` -- so a
+ * negative index takes the install path, exactly as in `t_double_flame_ani`.
+ */
+long t_local_reaction_exit(MK3THREAD *thread); /* pointer slot 0x000f3708 */
+
+long t_boomerang_trail(MK3THREAD *thread)
+{
+    uint32_t frame = thread->frame;
+
+    if (*mk3_frame(thread, frame + 1) != 0)
+        return -3;
+
+    if ((long)frame > 0) {                  /* cmp #0 / ble: signed */
+        thread->frame = frame - 1;          /* back up a level */
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+long t_rr_nothing(MK3THREAD *thread)
+{
+    uint32_t frame = thread->frame;
+
+    if (*mk3_frame(thread, frame + 1) != 0)
+        return -3;
+
+    if ((long)frame > 0) {                  /* cmp #0 / ble: signed */
+        thread->frame = frame - 1;          /* back up a level */
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* tl_do_jade_zap_hi -- armv7 0x000750a8, 64 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = -0xc000
+ *      frame[frame].handler = tl_jzap3
+ *      frame[frame+1].w0 = 0
+ *
+ * Entry 37 of `projectile_jumps`, and one of three -- `_hi`, `_lo` and `_med`
+ * -- that differ only in the number they put in 0x1c before handing over to the
+ * same routine. So the high, low and medium versions of Jade's zap are one
+ * routine and three constants, which is the cheapest possible way to write three
+ * moves.
+ *
+ * -0xc000 arrives as a literal pool word rather than a `mvn`, because it does
+ * not fit the small-immediate encodings.
+ */
+long tl_do_jade_zap_hi(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+
+    if (*mk3_frame(thread, frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0xffff4000u;             /* -0xc000 */
+
+    mk3_frame(thread, frame)[1] = (uint32_t)(uintptr_t)tl_jzap3;
+    *mk3_frame(thread, frame + 1) = 0;
+    return 0;
+}
+
+
+/* make_dragon_explode -- armv7 0x00076bfc, 60 bytes.  **Complete.**
+ *
+ *      obj->field1c = 1; ochar_sound(obj)
+ *      rightmost_mpart_ob(obj, part)          -> obj->field28
+ *      leftmost_mpart_ob(obj, part)           -> obj->field24
+ *      obj->field28 = obj->field28 - obj->field24
+ *      if (obj->field28 < 0) obj->field28 = -obj->field28
+ *      obj->field48 = obj->field28 + 0x100000
+ *      make_lineup_explode(obj)
+ *
+ * **It measures the body and pays for the explosion by the inch.** Both edge
+ * helpers are called for their answers, the difference is the width, and the
+ * width goes into 0x48 with 0x10 added in the high half -- so 0x48 is a packed
+ * pair again, `(0x10 << 16) | width`, and `make_lineup_explode` gets a count and
+ * a span rather than a fixed number of pieces.
+ *
+ * `get_frontmost_point` earlier in this file calls the same two helpers to pick
+ * ONE of the two answers; this calls both and subtracts. Two routines, two uses
+ * of the same pair, and between them they settle that `leftmost_mpart_ob` writes
+ * 0x24 and `rightmost_mpart_ob` writes 0x28 -- which is what mkprop.c recorded
+ * and neither routine alone would prove.
+ *
+ * The absolute value is the `itt lt` / `rsblt` pair, so a mirrored body gives
+ * the same width.
+ */
+void make_lineup_explode(MK3OBJ *obj);
+
+void make_dragon_explode(MK3OBJ *obj)
+{
+    obj->field1c = 1;
+    ochar_sound(obj);
+
+    rightmost_mpart_ob(obj, obj->field08);       /* answers in 0x28 */
+    leftmost_mpart_ob(obj, obj->field08);        /* answers in 0x24 */
+
+    obj->field28 = obj->field28 - obj->field24;
+    if ((long)obj->field28 < 0)
+        obj->field28 = (uint32_t)(-(long)obj->field28);
+
+    obj->field48 = obj->field28 + 0x100000;      /* (0x10 << 16) | width */
+
+    make_lineup_explode(obj);
+}
