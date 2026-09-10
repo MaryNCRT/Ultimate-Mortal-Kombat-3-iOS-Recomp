@@ -845,8 +845,12 @@ Three things worth carrying forward into the fight engine:
 
 ### The front is `gamecode/logic`, and it is at 1,446 of 2,172 (2026-09-10)
 
-**Nine of the fourteen files are closed**, and they are the reference for the five
-that are not:
+**`gamecode/logic` is twenty-one source files, not fourteen.** `tools/progress.py`
+was skipping any file with nothing written, so its table showed 2,092 functions
+against a TOTAL of 2,172 and hid seven files that had never been started. Fixed;
+the rows add up now. **If a table cannot be added up, distrust it.**
+
+**Nine of the twenty-one are closed**, and they are the reference for the rest:
 
     other.c      333/333      mkcombo.c     16/16
     moves.c      357/357      mkcanned.c    20/20
@@ -854,9 +858,17 @@ that are not:
     mkstat.c      62/62       mkanimal.c    63/63
     mkfatal.c    149/149
 
-    mkdrone.c    154/394      mkzap.c       32/174
+    mkdrone.c    154/394      mkzap.c       58/174
     mkreact.c     72/207      mkboss.c      29/104
     joy.c         19/73
+
+    mkfriend.c     0/45       mk3.c          0/19
+    mkbonus.c       0/8       playback.c     0/4
+    a_robo.c        0/2       mkrepell.c     0/1
+    a_fn.c          0/1
+
+The seven at the bottom are 80 functions that no one has looked at. `mkfriend.c`
+is the friendships and is the only one of any size; the other six total 35.
 
 The tree is at **0 errors, 174 warnings, `instck` clean**, and `protos.py` is down
 to the single known `LIME_RenderMeshSingleIndexed` float-ABI disagreement recorded
