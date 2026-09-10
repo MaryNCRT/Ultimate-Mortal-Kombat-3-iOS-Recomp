@@ -10632,3 +10632,207 @@ long t_scorpion_flame(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------------------------ t_soul_float
+ *
+ * armv7 0x00038d68, 512 bytes.  **Complete.**
+ *
+ *      token == 0:        obj->field40 = 0x25; pose_a9_manual(obj)
+ *                         obj->field1c = -0x1000
+ *                         part->field20 = -0x1000
+ *                         token := 0xab3, park 0x2d
+ *
+ *      token == 0xab3:    obj->field1c = 0
+ *                         part->field20 = 0
+ *                         -- falls into the decay tail --
+ *
+ *      the decay tail:    token := 0xab9, park 1
+ *
+ *      token == 0xab9:    v = part->field1c
+ *                         obj->field20 = v >> 3                  ; signed
+ *                         obj->field1c = v - (v >> 3)
+ *                         part->field1c = obj->field1c
+ *                         if (obj->field1c < 0) obj->field1c = -obj->field1c
+ *                         if (obj->field1c > 0x800) -- the decay tail --
+ *                         stop_me_player(obj)
+ *                         obj->field40 = 0x18; get_his_char_ani2(obj)
+ *                         NewThread(obj, t_green_shit)
+ *                         token := 0xac8, park 5
+ *
+ *      token == 0xac8:    obj->field1c = 8; his_ochar_sound(obj)
+ *                         token := 0xacb, park 0xa
+ *
+ *      token == 0xacb:    death_scream(obj)
+ *                         obj->field40 = 0x18; get_his_char_ani2(obj)
+ *                         find_part2(obj); find_part2(obj)
+ *                         do_next_a9_frame(obj)
+ *                         token := 0xad3, park 0x30
+ *
+ *      token == 0xad3:    proc->field40 = *(long *)(G + 0xac) - 0xb0
+ *                         obj->field1c = 0
+ *                         obj->field20 = 0x20000
+ *                         obj->field24 = 0x20000 - 0x18000 = 0x8000
+ *                         obj->field28 = 0xfff
+ *                         token := 0xadd, descend into t_flight
+ *
+ *      token == 0xadd:    obj->field1c = 9; his_ochar_sound(obj)
+ *                         obj->field1c = 4
+ *                         token := 0xae2, descend into t_mframew
+ *
+ *      token == 0xae2:    frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:         return -3
+ *
+ * **A geometric decay, and the first in the tree.** State 0xab9 replaces the part's 0x1c with
+ * `v - (v >> 3)` every frame -- seven eighths of itself, an arithmetic shift so it works on
+ * negative velocities too -- and loops while the magnitude is above 0x800. Every other slowdown
+ * measured so far subtracts a constant or halves once (`t_down_the_staff`); this one is a real
+ * exponential, and it needs the absolute value because the sign is kept in the part while the
+ * magnitude is tested in 0x1c.
+ *
+ * Fourth site of the `itt lt` / `rsblt` absolute value, after `tl_scorpion_pengo`,
+ * `t_smoke_dropping` and `t_crusher_orb` -- and the first where the value tested and the value kept
+ * are in two different fields.
+ *
+ * **A third row for the `t_flight` table**, which mkanimal.c started:
+ *
+ *      routine           0x1c (x)   0x20 (y)      0x24 (fall)   0x28     0x40
+ *      t_dino_bucked     0x30000    0xffeb0000    0x5000        4        0x1e
+ *      t_hit_by_bull     0xd        0xfff80000    0x6000        4        0x1e
+ *      t_soul_float      0          0x20000       0x8000        0xfff    --
+ *
+ * Two things it breaks. The y velocity is **positive** where both mkanimal rows are negative, so
+ * whatever 0x20 means it is not simply "up". And 0x28 is **0xfff** where both rows have 4 -- so the
+ * "bounce kind" reading, which was only ever supported by two agreeing sites, does not survive a
+ * third. Same lesson as `t_shake_ob_up`'s 0x1c and `t_animate_a0_frames`' high half: **two or three
+ * agreeing sites settle nothing in this codebase.**
+ *
+ * **It sets the landing height in the PROC, not the object**: `proc->field40 = floor - 0xb0`, the
+ * floor being `G + 0xac`. mkprop.c already reads `obj->field00->field40` as the height a fall is
+ * watched against, so this is the writer for that reading and `t_flight` is what consumes it.
+ * Seventh routine in the tree to read `G + 0xac`.
+ *
+ * **`t_green_shit` gets a caller.** It was written earlier in this file as one of the routines that
+ * park on 0x16462 and never wake; here it is started on its own thread with `NewThread` while the
+ * body is still slowing down.
+ *
+ * The dispatch tail at 0x38daa serves **both an install and a descent**: state 0xae2 reaches it
+ * with the entry frame index still in `r2` and so writes the handler at the current level, while
+ * state 0xadd reaches it after incrementing and so writes one level down. Same nine instructions,
+ * two different meanings, and only the register's history tells them apart.
+ */
+long t_flight(MK3THREAD *thread);                /* pointer slot 0x000f3720 */
+
+long t_soul_float(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3THREADFUNC next_handler;
+    uint32_t next, v;
+
+    if (token == 0xae2)
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+
+    if (token == 0) {
+        obj->field40 = 0x25;
+        pose_a9_manual(obj);
+
+        obj->field1c          = 0xfffff000u;         /* -0x1000 */
+        obj->field08->field20 = 0xfffff000u;
+
+        *mk3_frame(thread, frame + 1) = 0xab3;
+        thread->fieldfc = 0x2d;
+        return 0x2d;
+    }
+
+    if (token == 0xac8) {
+        obj->field1c = 8;
+        his_ochar_sound(obj);
+
+        *mk3_frame(thread, frame + 1) = 0xacb;
+        thread->fieldfc = 0xa;
+        return 0xa;
+    }
+
+    if (token == 0xacb) {
+        death_scream(obj);
+
+        obj->field40 = 0x18;
+        get_his_char_ani2(obj);
+
+        find_part2(obj);
+        find_part2(obj);
+        do_next_a9_frame(obj);
+
+        *mk3_frame(thread, frame + 1) = 0xad3;
+        thread->fieldfc = 0x30;
+        return 0x30;
+    }
+
+    if (token == 0xab3 || token == 0xab9) {
+        if (token == 0xab3) {
+            obj->field1c          = 0;
+            obj->field08->field20 = 0;
+
+        } else {
+            v = obj->field08->field1c;
+
+            obj->field20 = (uint32_t)((int32_t)v >> 3);
+            obj->field1c = v - obj->field20;
+            obj->field08->field1c = obj->field1c;
+
+            if ((long)obj->field1c < 0)              /* magnitude only */
+                obj->field1c = (uint32_t)(-(long)obj->field1c);
+
+            if ((long)obj->field1c <= 0x800) {
+                stop_me_player(obj);
+
+                obj->field40 = 0x18;
+                get_his_char_ani2(obj);
+
+                NewThread(obj, (MK3THREADFUNC)t_green_shit);
+
+                *mk3_frame(thread, frame + 1) = 0xac8;
+                thread->fieldfc = 5;
+                return 5;
+            }
+        }
+
+        *mk3_frame(thread, thread->frame + 1) = 0xab9;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0xad3) {
+        obj->field00->field40 =
+            *(uint32_t *)(G_BYTES + 0xac) - 0xb0;
+
+        obj->field1c = 0;
+        obj->field20 = 0x20000;
+        obj->field24 = 0x20000u - 0x18000u;          /* one literal */
+        obj->field28 = 0xfff;
+
+        next         = 0xadd;
+        next_handler = (MK3THREADFUNC)t_flight;
+
+    } else if (token == 0xadd) {
+        obj->field1c = 9;
+        his_ochar_sound(obj);
+
+        obj->field1c = 4;
+
+        next         = 0xae2;
+        next_handler = (MK3THREADFUNC)t_mframew;
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)next_handler;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
