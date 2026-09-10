@@ -4067,9 +4067,10 @@ long t_scorpion_remove_mask(MK3THREAD *thread)
  * `t_r_scared_of_monkey` pose it on themselves and `tl_kano_spider` poses it on the opponent; this
  * is the first in mkfatal.c. One pose, four routines, three files.
  *
- * **The `t_shake_ob_up` pair now has a varying low half.** The four callers measured pass 3 (twice,
- * plain), 0x00030003 and 0x00020002 -- so the low half is 3, 3, 3, 2. It is the parameter that
- * moves, which is what the note on `t_grow_n_shake` predicted and this is the site that confirms it.
+ * **The `t_shake_ob_up` values vary in their low half.** The four callers measured here pass 3
+ * (twice, plain), 0x00030003 and 0x00020002 -- low halves 3, 3, 3, 2. That looked like the
+ * parameter, but `t_eat_this_shit` later in this file passes 0x20000, whose low half is ZERO, and
+ * the reading does not survive it. See that routine; the question is open.
  */
 extern int16_t ochar_headrip_lineups[];          /* 0x00166a94 */
 
@@ -4305,6 +4306,101 @@ long t_shocker_shaker(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0x1b9c;
     thread->frame = thread->frame + 1;               /* push a level */
     mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ----------------------------------------------------------------------- t_eat_this_shit
+ *
+ * armv7 0x00039d0c, 232 bytes.  **Complete.**
+ *
+ *      token == 0:        rsnd_func(obj, 5)
+ *                         obj->field1c = 0x20000
+ *                         obj->field20 = 2
+ *                         obj->field24 = 2 + 2 = 4
+ *                         token := 0x8e4, descend into t_shake_ob_up
+ *
+ *      token == 0x8e4:    token := 0x8e6, park 0x20
+ *
+ *      token == 0x8e6:    set_inviso(obj)
+ *                         obj->field1c = 0x18; create_fx(obj)
+ *                         token := 0x8eb, descend into t_white_flash
+ *
+ *      token == 0x8eb:    frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:         return -3
+ *
+ * **The victim's half of `t_smoke_dropping`**, handed across through 0x38 when that routine's fall
+ * ends within 0x80 of the floor. Shake, wait, vanish, flash, park -- and the two routines together
+ * are the whole of that fatality's landing.
+ *
+ * **This caller complicates what I claimed about `t_shake_ob_up`'s 0x1c, and the earlier note is
+ * too confident.** After `t_r_head_rip` the four callers read 3, 3, 0x00030003 and 0x00020002, and
+ * I recorded that the low half is the parameter that varies. This one passes **0x20000**, whose low
+ * half is zero and whose high half is 2. Five callers now:
+ *
+ *      3            (mkanimal.c, twice)
+ *      0x00030003   (t_grow_n_shake)
+ *      0x00020002   (t_r_head_rip)
+ *      0x20000      (here)
+ *
+ * A zero low half does not fit the reading, so **0x1c to `t_shake_ob_up` is not settled** and the
+ * packed-pair interpretation may have been the wrong frame for it entirely. `t_shake_ob_up` is
+ * still unwritten; whoever writes it settles this, and should not take the earlier note as fact.
+ *
+ * `obj->field24 = 4` is compiled as `adds r3, r3, r3` -- a DOUBLING of the 2 already in the
+ * register, rather than the add-a-constant form every other shared-literal site uses. Same habit,
+ * a third spelling of it.
+ *
+ * The ending is `set_inviso` plus an effect, the disappear idiom shared with mkanimal.c's
+ * `t_stung_by_scorpion` (effect 0x15) and `t_tornado_sucked` (effect 0x24); here it is 0x18, and
+ * a white flash follows.
+ */
+long t_white_flash(MK3THREAD *thread);           /* pointer slot 0x000f36f0 */
+
+long t_eat_this_shit(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x8e4) {
+        *mk3_frame(thread, frame + 1) = 0x8e6;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (token == 0x8e6) {
+        set_inviso(obj);
+
+        obj->field1c = 0x18;
+        create_fx(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x8eb;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_white_flash;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x8eb)
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+
+    if (token != 0)
+        return -3;
+
+    rsnd_func(obj, 5);
+
+    obj->field1c = 0x20000;
+    obj->field20 = 2;
+    obj->field24 = 2 + 2;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x8e4;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_shake_ob_up;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
