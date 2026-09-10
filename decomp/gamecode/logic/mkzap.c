@@ -491,7 +491,7 @@ long tl_bomb33(struct MK3THREAD *thread);
 long get_bomb_vel(MK3OBJ *obj);
 void get_char_ani2(MK3OBJ *obj);
 void ochar_sound(MK3OBJ *obj);
-long q_his_react_flag_set(MK3OBJ *obj);
+void q_his_react_flag_set(MK3OBJ *obj);
 void zap_init_special_act(MK3OBJ *obj);
 
 /* t_robo_bomb_full -- armv7 0x00075424, 64 bytes.  **Complete.**
@@ -864,4 +864,160 @@ long t_photon_proc(MK3THREAD *thread)
     obj->field1c = 0x5;
     create_fx(obj);
     return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+}
+
+
+/* ========================================================================
+ * Six leaves, read one at a time because neither `pushfn.py` nor
+ * `microfn.py` matches any of their shapes.
+ * ======================================================================== */
+
+/* detach_proj -- armv7 0x0007568c, 12 bytes.  **Complete.**
+ *
+ *      proc->slave   = 0
+ *      proc->field64 = 0
+ *
+ * **The other half of `delete_slave`.** That routine, in mkfatal.c, hands
+ * `proc->field64` to `KillProc`; this one clears both slave slots and kills
+ * nothing. So a slave can be let go as well as destroyed, and the two words at
+ * 0x64 and 0x68 are written and cleared together.
+ *
+ * It still does not say who CREATES the slave -- that is issue #30, and seven
+ * `delete_slave` sites plus this one have now failed to answer it.
+ *
+ * The proc pointer is loaded twice, once for each store, rather than kept in a
+ * register. Transcribed as two stores through the same field because that is
+ * what it computes.
+ */
+void detach_proj(MK3OBJ *obj)
+{
+    obj->field00->slave   = 0;
+    obj->field00->field64 = 0;
+}
+
+
+/* i_am_a_sitting_duck -- armv7 0x000758b0, 12 bytes.  **Complete.**
+ *
+ *      obj->field1c     = 0x604
+ *      proc->field18    = 0x604
+ *
+ * One literal into two fields, and 0x18 on the proc is the action
+ * `get_his_action` reads and `init_special_act` writes. So the routine
+ * announces an action to whoever asks and leaves the same number in 0x1c for
+ * whoever called it -- the pattern `mk_random` and the other 0x1c-returning
+ * helpers use.
+ */
+void i_am_a_sitting_duck(MK3OBJ *obj)
+{
+    obj->field1c          = 0x604;
+    obj->field00->field18 = 0x604;
+}
+
+
+/* zinit3 -- armv7 0x00075f88, 16 bytes.  **Complete.**
+ *
+ *      if (obj->a10 != 0) flip_multi(obj)
+ *
+ * A conditional tail call and nothing else. `a10` is the argument slot, so the
+ * caller decides by writing 0x44 before the call rather than by picking a
+ * different function -- which is how most of this engine passes a boolean.
+ */
+void flip_multi(MK3OBJ *obj);
+
+void zinit3(MK3OBJ *obj)
+{
+    if (obj->a10 != 0)
+        flip_multi(obj);
+}
+
+
+/* is_he_motaro -- armv7 0x00075818, 20 bytes.  **Complete.**
+ *
+ *      obj->field5c = (him->field24 == 0x18)
+ *
+ * **Motaro is character 0x18, and this is the sixth place in the tree that
+ * names a fighter by number** -- but the first that does so in a routine named
+ * for the question. The other five (issue #29) are anonymous exceptions buried
+ * inside larger routines: 0xb in `tl_kano_spider`, `t_ripped_skelton` twice and
+ * `t_remaining_skel`, and {7, 8, 0xe} in `t_kitana_kiss`.
+ *
+ * A named predicate is a different thing from a hidden special case, and a port
+ * that renumbers the roster fixes this one by editing a single constant in a
+ * function whose name says what it is for. It is listed here so the count stays
+ * honest, not because it is the same hazard.
+ *
+ * The answer goes in 0x5c, which is where every predicate in this engine puts
+ * its result.
+ */
+void is_he_motaro(MK3OBJ *obj)
+{
+    MK3OBJ *him = (MK3OBJ *)(void *)(uintptr_t)obj->field00->him;
+
+    obj->field5c = (him->field24 == 0x18) ? 1 : 0;
+}
+
+
+/* q_his_react_flag_set -- armv7 0x0007582c, 24 bytes.  **Complete.**
+ *
+ *      obj->field2c = proc->field00->proc->field10
+ *      obj->field5c = (obj->field54 >> 2) & 1
+ *
+ * **The value it fetches is not the value it answers with**, and that is worth
+ * saying plainly rather than smoothing over. The four loads walk out to the
+ * OTHER fighter's proc and bring back its 0x10 -- the word the header records
+ * `isp2` as OR-ing bit 4 into -- and park it in 0x2c. The answer then comes from
+ * `obj->field54`, a field this routine never writes.
+ *
+ * Two readings are possible and neither is settled here: the fetch is a side
+ * effect the caller wants (0x2c as a place to leave the other guy's flags), or
+ * 0x54 was filled by whatever ran before and the fetch is stale bookkeeping. The
+ * instructions are transcribed as they stand.
+ *
+ * Bit 2 of 0x54 is isolated with `lsrs #2` then `and #1`, the same two-instruction
+ * shape `am_i_joy` uses on 0x5c.
+ *
+ * **It was declared `long` earlier in this file and it is not.** That declaration
+ * was written from the call site in `t_robo_bomb_full`, which discards the
+ * result; the body never touches `r0`, so what a `long` caller would read back is
+ * the object pointer it passed in, by accident. The answer is in 0x5c like every
+ * other predicate here. The declaration has been removed rather than the
+ * definition bent to match it -- the same correction `rip_ani` needed in
+ * mkfatal.c, and the reason `tools/protos.py` exists.
+ */
+void q_his_react_flag_set(MK3OBJ *obj)
+{
+    obj->field2c = obj->field00->field00->field00->field10;
+    obj->field5c = (obj->field54 >> 2) & 1u;
+}
+
+
+/* tell_world_stk -- armv7 0x00075900, 24 bytes.  **Complete.**
+ *
+ *      saved = obj->field1c
+ *      get_char_stk(obj)
+ *      proc->field84 = obj->field1c
+ *      obj->field1c  = saved
+ *
+ * **A publish-and-restore.** `get_char_stk` answers in 0x1c like every other
+ * helper here, the answer is copied into the proc's 0x84 where anything can
+ * read it, and 0x1c is put back exactly as the caller left it -- so the routine
+ * is invisible to whoever called it apart from the field it publishes.
+ *
+ * The save is a callee-saved register, not the argument stack, and the span is
+ * inside one call: the rule `t_sg_pound` settled in mkfatal.c, seen again here
+ * in twenty-four bytes.
+ *
+ * `proc->field84` had no field in the header before this; it has one now, and
+ * **no reader for it has been measured anywhere in the tree**.
+ */
+void get_char_stk(MK3OBJ *obj);
+
+void tell_world_stk(MK3OBJ *obj)
+{
+    uint32_t saved = obj->field1c;
+
+    get_char_stk(obj);
+    obj->field00->field84 = obj->field1c;
+
+    obj->field1c = saved;
 }

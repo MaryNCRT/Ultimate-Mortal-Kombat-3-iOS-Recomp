@@ -103,6 +103,11 @@ typedef struct MK3OBJPROC {
     uint32_t slave;              /* 0x68  per f_set_a10_to_slave */
     uint8_t  _pad6c[0x10];
     uint16_t field7c;            /* 0x7c  the four-button gate, signed */
+    uint8_t  _pad7e[6];
+    uint32_t field84;            /* 0x84  where tell_world_stk publishes the
+                                  *       stick get_char_stk resolved. Only
+                                  *       writer measured so far; no reader
+                                  *       is in the tree yet. */
 } MK3OBJPROC;
 
 /* The high half of the word at 0x0c, which several routines read on its own
