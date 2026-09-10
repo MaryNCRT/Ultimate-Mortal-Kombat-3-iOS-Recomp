@@ -4404,3 +4404,99 @@ long t_eat_this_shit(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ---------------------------------------------------------------------- t_sacred_2_death
+ *
+ * armv7 0x00038c84, 228 bytes.  **Complete.**
+ *
+ *      token == 0:        center_around_me(obj)
+ *                         obj->field40 = 0x48; pose_a9_manual(obj)
+ *                         NewThread(obj, t_my_ghost)
+ *                         face_opponent(obj)
+ *                         death_scream(obj)
+ *                         obj->field1c = 0x10000; away_x_vel(obj)
+ *                         obj->field1c = 0x40000
+ *                         obj->field20 = 3
+ *                         obj->field24 = 3 + 9 = 0xc
+ *                         token := 0xcd5, descend into t_shake_ob_up
+ *
+ *      token == 0xcd5:    stop_me_player(obj)
+ *                         token := 0xcd7, park 0xa
+ *
+ *      token == 0xcd7:    frame[frame].handler = t_collapse_on_ground
+ *
+ *      otherwise:         return -3
+ *
+ * **A second caller passing `t_shake_ob_up` a large value with a zero low half**, and it settles
+ * that the packed-pair reading I recorded earlier was wrong. Six callers are now measured and they
+ * fall into two groups that share nothing:
+ *
+ *      3, 3, 0x00030003, 0x00020002    small, low half 2 or 3
+ *      0x20000, 0x40000                large, low half 0, high half 2 and 4
+ *
+ * The large pair look like 16.16 quantities and the small ones do not. **`t_shake_ob_up` is still
+ * unwritten and this is the question to answer first when it is** -- whether 0x1c is read as a
+ * word, a pair, or a fixed-point magnitude, because the callers do not agree and no amount of
+ * reading them further will decide it.
+ *
+ * `obj->field20 = 3` and `obj->field24 = 0xc` are the one-literal habit again (`adds r3, #9`), and
+ * those two DO agree with the other callers, which all pass small numbers there. So whatever is
+ * unsettled is confined to 0x1c.
+ *
+ * **Animation 0x48 posed by hand, fifth site.** Three files, five routines, one pose -- and this is
+ * the second in mkfatal.c after `t_r_head_rip`.
+ *
+ * The ghost is a separate thread, `t_my_ghost` -- seventh site in the tree for spawning one so an
+ * effect outlasts the state that started it. That idiom is now the most common structural pattern
+ * found outside the thread machinery itself.
+ *
+ * `away_x_vel` at 0x10000 pushes the fighter back before the shake, and `stop_me_player` in the
+ * next state halts them -- so the recoil lasts exactly as long as the shake does.
+ */
+long t_my_ghost(MK3THREAD *thread);              /* 0x00037658 */
+
+long t_sacred_2_death(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0xcd5) {
+        stop_me_player(obj);
+
+        *mk3_frame(thread, frame + 1) = 0xcd7;
+        thread->fieldfc = 0xa;
+        return 0xa;
+    }
+
+    if (token == 0xcd7)
+        return mk3_install(thread, (MK3THREADFUNC)t_collapse_on_ground);
+
+    if (token != 0)
+        return -3;
+
+    center_around_me(obj);
+
+    obj->field40 = 0x48;
+    pose_a9_manual(obj);
+
+    NewThread(obj, (MK3THREADFUNC)t_my_ghost);
+
+    face_opponent(obj);
+    death_scream(obj);
+
+    obj->field1c = 0x10000;
+    away_x_vel(obj);
+
+    obj->field1c = 0x40000;
+    obj->field20 = 3;
+    obj->field24 = 3 + 9;
+
+    *mk3_frame(thread, thread->frame + 1) = 0xcd5;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_shake_ob_up;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
