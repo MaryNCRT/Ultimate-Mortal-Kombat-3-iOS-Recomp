@@ -4797,3 +4797,233 @@ long tl_sektor_bat(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ----------------------------------------------------------------------- tl_sonya_eagle
+ *
+ * armv7 0x000a21e8, 612 bytes.  **Complete.**
+ *
+ *      token == 0:      animality_tune(obj)
+ *                       obj->field1c = 2
+ *                       obj->field40 = a_sonya_hawk
+ *                       obj->a10 = 1
+ *                       token := 0x766, descend into t_animal_morph
+ *
+ *      token == 0x766:  sans_repell_for_good(obj)
+ *                       obj->field1c = 5; init_anirate(obj)
+ *                       obj->field1c = 0xffffe000
+ *                       part->field20 = 0xffffe000
+ *                       kill_and_stop_scrolling(obj)
+ *                       -- falls into the 0x771 tail --
+ *
+ *      token == 0x771:  next_anirate(obj)
+ *                       distance_off_ground(obj)
+ *                       if (obj->field1c > 0x37) {
+ *                           stop_me_player(obj)
+ *                           -- falls into the 0x77a tail --
+ *                       }
+ *                       -- falls into the 0x771 tail --
+ *
+ *      token == 0x77a:  obj->field1c = 0xa000; towards_x_vel(obj)
+ *                       next_anirate(obj)
+ *                       get_x_dist(obj)
+ *                       if (obj->field28 <= 8) {
+ *                           stop_me_player(obj)
+ *                           obj->a10 = 0x30
+ *                           token := 0x784, descend into t_next_anirate_a10
+ *                       }
+ *                       -- falls into the 0x77a tail --
+ *
+ *      token == 0x784:  obj->field1c = 0xffff0000
+ *                       part->field20 = 0xffff0000
+ *                       ((MK3OBJ *)proc->him)->field20 = obj->field1c
+ *                       obj->a10 = 0x18
+ *                       token := 0x78c, descend into t_next_anirate_a10
+ *
+ *      token == 0x78c:  stop_me_player(obj)
+ *                       stop_him(obj)
+ *                       obj->field1c = death_scream
+ *                       call_a0_for_him(obj)
+ *                       token := 0x792, park 0x30
+ *
+ *      token == 0x792:  obj->field1c = 0x1b; create_fx_for_him(obj)
+ *                       obj->field48 = 0x0008000c; shake_a11(obj)
+ *                       tsound_func(obj, 0x24)
+ *                       tsound_func(obj, 0x25)
+ *                       token := 0x79b, park 0x20
+ *
+ *      token == 0x79b:  tsound_func(obj, 0x24)
+ *                       tsound_func(obj, 0x25)
+ *                       token := 0x79f, park 0x10
+ *
+ *      token == 0x79f:  death_blow_complete(obj)
+ *                       frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:       return -3
+ *
+ * **The eagle climbs, then closes, then carries -- three loops with three different exit
+ * tests, and this is the only driver in the file with two arrival conditions.** 0x771 rises
+ * until `distance_off_ground` puts more than 0x37 in 0x1c; 0x77a then flies at the opponent
+ * until `get_x_dist` puts 8 or less in 0x28; and only then does the carrying begin. The bat
+ * does the same thing with four `q_bat_*` predicates called through 0x48; this writes both
+ * tests inline. Two routines, one problem, two spellings -- and the bat's is the reusable one.
+ *
+ * **This is the caller `create_fx_for_him` was written for.** That helper (32 bytes, earlier in
+ * this file) swaps the object 0x00 and 0x08 for the other fighter, calls `create_fx`, and puts
+ * both back; state 0x792 is the only place in the module that uses it, with effect 0x1b. So the
+ * helper exists for exactly one call site, which is worth knowing before assuming it is general.
+ *
+ * **And it is the caller that shows the 0x1c handover mechanism carrying a plain routine.**
+ * `obj->field1c = death_scream; call_a0_for_him(obj)` makes the OTHER fighter scream -- the
+ * third of the three ways this engine runs code on the opponent, and the first site measured
+ * where what is handed across is an ordinary helper rather than a thread handler.
+ *
+ * **The morph is one pass.** Every other driver in the file uses 0x12, the spider uses 0x40 and
+ * the wasp 0xa; the eagle uses 1, so Sonya barely changes shape before flying.
+ *
+ * The two rise velocities are separate literals, 0xffffe000 for the climb and 0xffff0000 for
+ * the carry, and the carry writes the SAME value into three places: the object 0x1c, the part
+ * 0x20 and the opponent 0x20. Which is how the victim comes up with the bird.
+ *
+ * **The shake pair is 0x0008000c, asymmetric.** Fourth asymmetric site in the tree, after
+ * mkstat.c 0x00030008 and 0x0009000e and `t_r_bat_bite` 0x00060008 -- and the first where the
+ * second half is the larger of the two.
+ *
+ * Sounds 0x24 and 0x25 are played as a pair twice, 0x20 frames apart. Fourth spelling of that
+ * pair in the module.
+ */
+extern uint32_t a_sonya_hawk[];                  /* 0x001772b0 */
+
+long tl_sonya_eagle(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    uint32_t next;
+
+    if (token == 0x784) {
+        obj->field1c          = 0xffff0000u;
+        obj->field08->field20 = 0xffff0000u;
+        ((MK3OBJ *)(void *)(uintptr_t)obj->field00->him)->field20 = obj->field1c;
+
+        obj->a10 = 0x18;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x78c;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_next_anirate_a10;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x78c) {
+        stop_me_player(obj);
+        stop_him(obj);
+
+        obj->field1c = (uint32_t)(uintptr_t)death_scream;
+        call_a0_for_him(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x792;
+        thread->fieldfc = 0x30;
+        return 0x30;
+    }
+
+    if (token == 0x792) {
+        obj->field1c = 0x1b;
+        create_fx_for_him(obj);
+
+        obj->field48 = 0x0008000c;
+        shake_a11(obj);
+
+        tsound_func(obj, 0x24);
+        tsound_func(obj, 0x25);
+
+        *mk3_frame(thread, frame + 1) = 0x79b;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (token == 0x79b) {
+        tsound_func(obj, 0x24);
+        tsound_func(obj, 0x25);
+
+        *mk3_frame(thread, frame + 1) = 0x79f;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (token == 0x79f) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+    }
+
+    if (token == 0) {
+        animality_tune(obj);
+
+        obj->field1c = 2;
+        obj->field40 = (uint32_t)(uintptr_t)a_sonya_hawk;
+        obj->a10 = 1;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x766;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animal_morph;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x766) {
+        sans_repell_for_good(obj);
+
+        obj->field1c = 5;
+        init_anirate(obj);
+
+        obj->field1c          = 0xffffe000u;
+        obj->field08->field20 = 0xffffe000u;
+
+        kill_and_stop_scrolling(obj);
+
+        next = 0x771;
+
+    } else if (token == 0x771) {
+        next_anirate(obj);
+        distance_off_ground(obj);
+
+        if ((long)obj->field1c > 0x37) {
+            stop_me_player(obj);
+            next = 0x77a;
+        } else {
+            next = 0x771;
+        }
+
+    } else if (token == 0x77a) {
+        obj->field1c = 0xa000;
+        towards_x_vel(obj);
+
+        next_anirate(obj);
+        get_x_dist(obj);
+
+        if ((long)obj->field28 <= 8) {
+            stop_me_player(obj);
+
+            obj->a10 = 0x30;
+
+            *mk3_frame(thread, thread->frame + 1) = 0x784;
+            thread->frame = thread->frame + 1;      /* push a level */
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)t_next_anirate_a10;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+
+        next = 0x77a;
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->fieldfc = 1;
+    return 1;
+}
