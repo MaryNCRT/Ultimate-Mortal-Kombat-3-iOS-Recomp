@@ -1285,7 +1285,7 @@ long proj_onscreen_test_unsafe(MK3OBJ *obj)
  * `is_jade_protected` clobbers 0x1c, so it is saved in a register across the
  * call -- inside one function, the rule `t_sg_pound` settled.
  */
-long is_jade_protected(MK3OBJ *obj);
+void is_jade_protected(MK3OBJ *obj);
 long strike_check_a0(MK3OBJ *obj);
 
 void proj_strike_check(MK3OBJ *obj)
@@ -1608,4 +1608,219 @@ void make_dragon_explode(MK3OBJ *obj)
     obj->field48 = obj->field28 + 0x100000;      /* (0x10 << 16) | width */
 
     make_lineup_explode(obj);
+}
+
+
+/* ===================================================== is_jade_protected
+ *
+ * armv7 0x00075ecc, 80 bytes.  **Complete.**
+ *
+ *      if (him->field24 != 0x10) { q_no(obj); return }       ; not Jade
+ *      for (th = TList; th != NULL; th = th->next)
+ *          if (th->pid == 0x11f && th->proc->a10 == proc->field00) {
+ *              q_yes(obj);
+ *              return;
+ *          }
+ *      q_no(obj)
+ *
+ * **It searches the live thread list for Jade's flash, and mkstat.c is what
+ * created it.** That file's `t_jade_flash` does:
+ *
+ *      p = NewThreadProcPid(obj, t_jade_flash_proc, 0x11f);
+ *      *(uint32_t *)((char *)p + 0x44) = (uint32_t)(uintptr_t)obj;
+ *
+ * -- a thread with pid 0x11f whose proc's `a10` points back at the fighter that
+ * started it. This walks `TList` looking for exactly that, and answers yes when
+ * the owner is the fighter being asked about. **Two files, one protocol: the pid
+ * is the handshake and 0x44 is the payload.** The mkstat.c note called that 0x44
+ * store "the argument slot" without knowing who reads it; this is the reader.
+ *
+ * So a port must keep the pid. 0x11f is not decoration -- it is how one system
+ * finds another system's thread, and it is the only pid in the tree with a
+ * measured reader.
+ *
+ * **Jade is character 0x10**, named by number here as Motaro is 0x18 in
+ * `is_he_motaro`. Both are named predicates, so both are the mild form of the
+ * hazard in issue #29 rather than the dangerous one.
+ *
+ * The list link is at offset 0 of a thread, which is where `frame[0]` sits --
+ * so a thread on the list has its first frame word standing in as the next
+ * pointer, or the two overlap by design. Written as a cast rather than as a
+ * struct field because the header does not name it.
+ *
+ * **It answers only through 0x5c.** It was declared `long` in mkprop.c on the
+ * theory that `q_yes` and `q_no` forward a value; they are eight bytes each that
+ * write 0x5c and return, so they do not. That declaration has been corrected --
+ * the third `long`-from-a-call-site fix in this batch of work, after
+ * `q_his_react_flag_set` and `get_bomb_vel`.
+ *
+ * **There are three `q_yes`/`q_no` pairs in the binary**, at 0x000501ac
+ * (moves.c), 0x00067524 (mkdrone.c) and 0x000a85cc (mkboss.c), and this routine
+ * calls mkdrone.c's. Whether they are per-file duplicates or one pair the STABS
+ * attributes three ways is not settled here; what matters for a port is that one
+ * shared `q_yes` reproduces all three, because the body is `field5c = 1`.
+ */
+void q_yes(MK3OBJ *obj);
+void q_no(MK3OBJ *obj);
+extern MK3THREAD *TList;                         /* 0x0038ed48 */
+
+void is_jade_protected(MK3OBJ *obj)
+{
+    MK3THREAD *th;
+
+    if (((MK3OBJ *)(void *)(uintptr_t)obj->field00->him)->field24 != 0x10) {
+        q_no(obj);                               /* not Jade */
+        return;
+    }
+
+    for (th = TList; th != NULL; th = *(MK3THREAD **)(void *)th) {
+        if (th->pid != 0x11f)
+            continue;
+
+        if ((MK3OBJ *)(void *)(uintptr_t)((MK3OBJ *)th->proc)->a10
+            == obj->field00->field00) {
+            q_yes(obj);
+            return;
+        }
+    }
+
+    q_no(obj);
+}
+
+
+/* make_lineup_explode -- armv7 0x00076ac4, 72 bytes.  **Complete.**
+ *
+ *      w  = (int16_t)obj->field48                 ; the low half
+ *      sx = part->x0e ; sy = part->x12            ; saved
+ *      if (part->field28 & 0x10) w = -w
+ *      part->x0e = sx + w                         ; DEAD -- see below
+ *      part->x12 = part->x12 + ((int32_t)obj->field48 >> 16)
+ *      obj->field1c = 0x10
+ *      part->x0e = him->x0e
+ *      create_fx(obj)
+ *      part->x0e = sx ; part->x12 = sy            ; restored
+ *
+ * **The width it is given never reaches anything.** `make_dragon_explode` above
+ * measures the body, packs `(0x10 << 16) | width` into 0x48 and calls this; the
+ * low half is sign-flipped by the facing, added to the part's x, stored -- and
+ * then **overwritten with the opponent's x eight instructions later, with no
+ * call in between**. The effect is created at the opponent's x and the part's
+ * shifted y, and the width is discarded.
+ *
+ * That is transcribed rather than tidied away, and it is the largest dead store
+ * measured in the tree: a whole computation with a flip test in it, feeding a
+ * field that is rewritten before anything reads it. Either the source meant
+ * `strh` into a different object, or the lineup this routine is named for stopped
+ * happening at some point and only the y offset survived.
+ *
+ * The high half of 0x48 does work: the effect is placed 0x10 above the part.
+ *
+ * **The part's x and y are borrowed and put back**, so `create_fx` -- which
+ * reads the part's position -- can be aimed somewhere else for one call without
+ * the caller noticing. Both saves are callee-saved registers across one call,
+ * the rule `t_sg_pound` settled.
+ */
+void make_lineup_explode(MK3OBJ *obj)
+{
+    MK3OBJ  *part = obj->field08;
+    uint16_t sx   = MK3_FIELD0E(part);
+    uint16_t sy   = MK3_FIELD12(part);
+    int32_t  w    = (int32_t)(int16_t)obj->field48;
+
+    if ((part->field28 & 0x10u) != 0)
+        w = -w;
+
+    MK3_SET_FIELD0E(part, (uint32_t)((int32_t)sx + w));   /* dead: rewritten */
+
+    MK3_SET_FIELD12(part,
+                    (uint32_t)MK3_FIELD12(part)
+                    + (uint32_t)((int32_t)obj->field48 >> 16));
+
+    obj->field1c = 0x10;
+
+    MK3_SET_FIELD0E(part,
+                    MK3_FIELD0E((MK3OBJ *)(void *)(uintptr_t)obj->field00->him));
+
+    create_fx(obj);
+
+    MK3_SET_FIELD0E(part, sx);
+    MK3_SET_FIELD12(part, sy);
+}
+
+
+/* t_robo_bomb_mid -- armv7 0x000753dc, 72 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      get_bomb_vel(obj)
+ *      obj->field1c = (int32_t)obj->field1c >> 1
+ *      frame[frame].handler = t_rbomb4
+ *      frame[frame+1].w0 = 0
+ *
+ * **The mid bomb is the full bomb thrown half as hard.** `t_robo_bomb_full`
+ * earlier in this file calls the same `get_bomb_vel` and installs the same
+ * `t_rbomb4` without the shift, so the two differ in one `asrs`.
+ *
+ * The shift is arithmetic, so a negative velocity halves the same way -- though
+ * `get_bomb_vel` makes its answer positive, so the sign only matters if someone
+ * calls this with 0x1c already set.
+ */
+long t_rbomb4(MK3THREAD *thread);
+
+long t_robo_bomb_mid(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+
+    if (*mk3_frame(thread, frame + 1) != 0)
+        return -3;
+
+    get_bomb_vel(obj);
+    obj->field1c = (uint32_t)((int32_t)obj->field1c >> 1);   /* half */
+
+    mk3_frame(thread, frame)[1] = (uint32_t)(uintptr_t)t_rbomb4;
+    *mk3_frame(thread, frame + 1) = 0;
+    return 0;
+}
+
+
+/* tl_projectile_flight_call -- armv7 0x00075918, 76 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      proc->field28 = obj->field34
+ *      obj->field1c  = obj->field48
+ *      tell_world_stk(obj)
+ *      frame[frame].handler = tl_pflt3
+ *      frame[frame+1].w0 = 0
+ *
+ * **It publishes three things and hands over.** 0x34 -- the per-frame callback
+ * slot `t_flight_call` reads in mkfatal.c -- is copied into the proc's 0x28, the
+ * animation in 0x48 is moved into 0x1c where `tell_world_stk` will resolve it,
+ * and the stick that comes back is published in `proc->field84`.
+ *
+ * So a projectile in flight announces both its callback and its stick before the
+ * flight routine starts, and `tell_world_stk` -- which had no caller when it was
+ * read four functions ago -- has one now.
+ *
+ * `proc->field28` is the field the header records as "who the shake is about".
+ * Here it holds a function pointer, which is a second reading of that offset and
+ * is left as an observation rather than reconciled.
+ */
+long tl_pflt3(MK3THREAD *thread);
+
+long tl_projectile_flight_call(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+
+    if (*mk3_frame(thread, frame + 1) != 0)
+        return -3;
+
+    obj->field00->field28 = obj->field34;
+    obj->field1c          = obj->field48;
+
+    tell_world_stk(obj);
+
+    mk3_frame(thread, frame)[1] = (uint32_t)(uintptr_t)tl_pflt3;
+    *mk3_frame(thread, frame + 1) = 0;
+    return 0;
 }
