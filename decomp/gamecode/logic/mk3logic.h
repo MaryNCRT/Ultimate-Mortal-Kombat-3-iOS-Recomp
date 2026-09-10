@@ -94,7 +94,11 @@ typedef struct MK3OBJPROC {
     uint8_t  _pad30[8];
     uint32_t field38;            /* 0x38  the same idea in t_jax_proj_calla,
                                   *       counting 3, 2, 1 between effects */
-    uint8_t  _pad3c[4];
+    uint32_t field3c;            /* 0x3c  t_boomerang_call reads it as a mode:
+                                  *       0 do nothing, 1 hand over to the
+                                  *       return check, anything else use the
+                                  *       value itself as a per-frame fall.
+                                  *       No writer in the tree yet. */
     /* 0x40  ground_player copies it out as a HALFWORD, but
      * tl_do_lao_tele and tl_do_robo_tele both read it with `ldr`, a
      * full word, and compare the result against a signed y. Two

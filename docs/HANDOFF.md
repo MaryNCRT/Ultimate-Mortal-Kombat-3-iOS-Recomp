@@ -7,7 +7,7 @@ Read this, then [METHODOLOGY.md](METHODOLOGY.md). Everything else is reference.
 
 ## Where the project actually stands
 
-**70.93% of the total estimated effort. Nothing is playable.** The arithmetic is
+**70.97% of the total estimated effort. Nothing is playable.** The arithmetic is
 in the [README](../README.md#overall-progress) and the weights are a judgement
 call; the completion figures are measured by `tools/progress.py` on every run.
 
@@ -738,7 +738,7 @@ field does at the sites you measured, and say how many there were.
   never writes the fourth part. `t_double_mframew` (slot 0x000f36a8) is the
   candidate reader and is not decompiled.
 
-## Port-critical: six hard-coded character numbers
+## Port-critical: seven hard-coded character numbers
 
 The engine is almost entirely character-agnostic -- animations are looked up as
 `base + part->field24`, tables are indexed by `part->field24`, and nothing else
@@ -753,9 +753,15 @@ port that renumbers the roster has to carry every one of them:
 | `t_remaining_skel` | mkfatal.c | part `== 0xb` | skips one word in the cursor |
 | `t_kitana_kiss` | mkfatal.c | opponent in `{7, 8, 0xe}` | pose `0x00070025` instead of `0x25` |
 | `proj_strike_check` | mkzap.c | opponent `== 0x18` | projectiles cannot hit Motaro |
+| `t_sz_post_zap` | mkzap.c | part `== 0x15` | a different animation finder, with different arguments |
 
-Three disjoint sets: **0xb** on its own in four of the six, **{7, 8, 0xe}** in
-`t_kitana_kiss`, and **0x18** -- Motaro -- in `proj_strike_check`.
+Four disjoint sets: **0xb** on its own in four of the seven, **{7, 8, 0xe}** in
+`t_kitana_kiss`, **0x18** -- Motaro -- in `proj_strike_check`, and **0x15** in
+`t_sz_post_zap`.
+
+`t_sz_post_zap` is the easiest of the seven to miss: it runs the ordinary lookup
+first and throws the result away for that one character, so the exception reads
+as a wasted call rather than as a choice.
 
 **mkzap.c also has a NAMED predicate for the same question**, `is_he_motaro`,
 and `local_strike_check_box` calls it where `proj_strike_check` inlines the

@@ -2904,3 +2904,179 @@ long t_double_shaker(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+
+/* t_summon_spawn -- armv7 0x00077aa0, 128 bytes.  **Complete.**
+ *
+ *      token == 0:       NewThread(obj, t_summon_proc)
+ *                        token := 0xb6a, park 0x12
+ *
+ *      token == 0xb6a:   obj->field48 += obj->a10
+ *                        pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:        return -3
+ *
+ * **Start the summon, wait eighteen frames, advance a counter, hand back.** The
+ * accumulate is `0x48 += a10`, so the caller supplies both the running total and
+ * the step -- a second reading of `a10` as a plain increment rather than an
+ * argument or a pointer.
+ *
+ * `NewThread` and not `NewThreadProc`, so the return value is discarded and the
+ * summoned thread is on its own from the first frame.
+ */
+MK3THREAD *NewThread(void *owner, MK3THREADFUNC func);
+long t_summon_proc(MK3THREAD *thread);
+
+long t_summon_spawn(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        NewThread(obj, (MK3THREADFUNC)t_summon_proc);
+
+        *mk3_frame(thread, frame + 1) = 0xb6a;
+        thread->fieldfc = 0x12;
+        return 0x12;
+    }
+
+    if (token != 0xb6a)
+        return -3;
+
+    obj->field48 = obj->field48 + obj->a10;
+
+    if ((long)thread->frame > 0) {           /* cmp #0 / ble: signed */
+        thread->frame = thread->frame - 1;   /* back up a level */
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* t_sz_post_zap -- armv7 0x0007b990, 128 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0x87d, park 0x10
+ *
+ *      token == 0x87d:    obj->field40 = 0x24
+ *                         obj->field54 = 4
+ *                         find_ani_part_a14(obj)
+ *                         obj->field1c = part->field24
+ *                         if (part->field24 == 0x15) {
+ *                             obj->field40 = 0x24 - 4  = 0x11
+ *                             obj->field54 = 0x11 - 0xe = 3
+ *                             find_ani2_part_a14(obj)
+ *                         }
+ *                         obj->field1c = 4
+ *                         frame[frame].handler = t_mframew
+ *
+ *      otherwise:         return -3
+ *
+ * **A seventh hard-coded character number, and this one is anonymous.**
+ * Character 0x15 gets a different animation resolved -- `find_ani2_part_a14` with
+ * 0x11 and 3 instead of `find_ani_part_a14` with 0x24 and 4 -- and nothing in the
+ * routine's name says a fighter is being singled out. **It belongs with the six
+ * in issue #29**, not with the named predicates.
+ *
+ * Note the first lookup runs unconditionally and is then thrown away for that one
+ * character, so the exception costs a wasted call rather than being written as a
+ * choice. That is what makes it easy to miss.
+ *
+ * The three constants come off one register: 0x24, then `subs #4` for 0x11, then
+ * `subs #0xe` for 3. Three values, one literal, and the shared-literal habit is
+ * what makes 0x11 and 3 look unrelated to 0x24 in the disassembly.
+ *
+ * `obj->field54` is the a14 finders' second parameter -- third site, after
+ * `t_sw_plant_bomb` and `t_jade_shaker` in mkfatal.c, and the first where two
+ * different finders are given two different values for it.
+ */
+void find_ani_part_a14(MK3OBJ *obj);
+void find_ani2_part_a14(MK3OBJ *obj);
+
+long t_sz_post_zap(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, frame + 1) = 0x87d;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (token != 0x87d)
+        return -3;
+
+    obj->field40 = 0x24;
+    obj->field54 = 4;
+    find_ani_part_a14(obj);
+
+    obj->field1c = obj->field08->field24;
+
+    if (obj->field1c == 0x15) {              /* one character, unnamed */
+        obj->field40 = 0x24 - 4;
+        obj->field54 = 0x24 - 4 - 0xe;       /* the same register */
+        find_ani2_part_a14(obj);
+    }
+
+    obj->field1c = 4;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_mframew);
+}
+
+
+/* t_boomerang_call -- armv7 0x00074fa8, 136 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = proc->field3c
+ *      if (obj->field1c == 0)
+ *          pop a level, or t_local_reaction_exit at the bottom
+ *      if (obj->field1c == 1)
+ *          frame[frame].handler = t_boom_return_check
+ *      obj->field20   = part->field1c + obj->field1c
+ *      part->field1c  = obj->field20
+ *      pop a level, or t_local_reaction_exit at the bottom
+ *
+ * **`proc->field3c` is a three-way mode, and the third way is the value
+ * itself.** Zero does nothing, one hands the thread to `t_boom_return_check`,
+ * and anything else IS the per-frame fall added to the y velocity. So the caller
+ * steers the boomerang by writing one word, and two of the four billion possible
+ * values mean something other than "fall this fast".
+ *
+ * That is a shape worth flagging for a port: a field that is a mode for two
+ * values and data for the rest. Nothing in the tree writes 0x3c yet, so what
+ * range the game actually uses is not known -- but 1 as a sentinel means a fall
+ * of exactly one unit per frame cannot be expressed.
+ *
+ * The two "pop or install" tails are separate copies in the binary, one for the
+ * zero case and one for the fall case, which is why the routine is 136 bytes.
+ */
+long t_boom_return_check(MK3THREAD *thread);
+
+long t_boomerang_call(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+
+    if (*mk3_frame(thread, frame + 1) != 0)
+        return -3;
+
+    obj->field1c = obj->field00->field3c;
+
+    if (obj->field1c == 1)
+        return mk3_install(thread, (MK3THREADFUNC)t_boom_return_check);
+
+    if (obj->field1c != 0) {
+        obj->field20          = obj->field08->field1c + obj->field1c;
+        obj->field08->field1c = obj->field20;
+    }
+
+    if ((long)thread->frame > 0) {           /* cmp #0 / ble: signed */
+        thread->frame = thread->frame - 1;   /* back up a level */
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
