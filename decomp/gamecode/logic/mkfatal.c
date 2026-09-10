@@ -8067,3 +8067,144 @@ long t_kabal_scare(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------------- t_sg_flesh_rip
+ *
+ * armv7 0x000363c8, 388 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0xc56, descend into t_fatality_start_pause
+ *
+ *      token == 0xc56:    obj->field38 = t_about_2b_ripped
+ *                         takeover_him(obj)
+ *                         sans_repell_for_good(obj)
+ *                         obj->field40 = 3; get_char_ani2(obj)
+ *                         obj->field1c = 4
+ *                         token := 0xc5f, descend into t_mframew
+ *
+ *      token == 0xc5f:    obj->field1c = (int16_t)ochar_flesh_lineups[part->field24]
+ *                         obj->field20 = 0
+ *                         adjust_him_xy(obj)
+ *                         make_him_face_me(obj)
+ *                         token := 0xc66, park 0x20
+ *
+ *      token == 0xc66:    obj->field38 = t_flesh_ripped_off
+ *                         takeover_him(obj)
+ *                         tsound_func(obj, 0x70)
+ *                         obj->field48 = 0x00050007; shake_a11(obj)
+ *                         obj->field1c = 4
+ *                         token := 0xc6f, descend into t_mframew
+ *
+ *      token == 0xc6f:    token := 0xc70, park 0x40
+ *
+ *      token == 0xc70:    death_blow_complete(obj)
+ *                         frame[frame].handler = t_victory_animation
+ *
+ *      otherwise:         return -3
+ *
+ * **`ochar_flesh_lineups` is a fifth per-character table**, at 0x00166bb4, read with
+ * `ldrsh.w [r2, r3, lsl #1]` -- signed halfwords, one per fighter, the same shape as
+ * `taser_lineups`. It goes into 0x1c with 0 in 0x20 and is handed to `adjust_him_xy`, so it is how
+ * far the victim has to be moved before the rip.
+ *
+ * Five tables found in this file now -- `ochar_reached` and `ochar_wide_adjusts` (words),
+ * `taser_lineups` and this one (halfwords), and `ochar_headrip_lineups` (halfword pairs) -- and
+ * none of the five was referenced anywhere in the tree before.
+ *
+ * **Fourth routine to use two handovers in sequence**, after `t_reptile_vomit`,
+ * `t_lia_hair_spin` and `t_scorpion_fire`: the victim gets `t_about_2b_ripped` while the attacker
+ * lines them up, then `t_flesh_ripped_off` -- written earlier in this file -- once the shake lands.
+ *
+ * That second one starts `t_ripped_skelton` on its own thread and points 0x40 at
+ * `ochar_reached[char] + 0xc`, so the skeleton that appears is three routines removed from this
+ * schedule.
+ *
+ * `adjust_him_xy` moves the OTHER fighter, where `multi_adjust_xy` and `adjust_xy_a5` move this
+ * one; the "him" in the name is the whole difference and this is the second site for it after
+ * `t_crush_him_more`.
+ *
+ * `r6` carries 0xc5f into state 0xc56's store and 0xc6f into state 0xc66's, the two-tokens-one-
+ * register hazard again.
+ */
+extern int16_t ochar_flesh_lineups[];            /* 0x00166bb4 */
+long t_about_2b_ripped(MK3THREAD *thread);       /* 0x0003a9cc */
+long t_flesh_ripped_off(MK3THREAD *thread);
+void make_him_face_me(MK3OBJ *obj);
+
+long t_sg_flesh_rip(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0xc56) {
+        obj->field38 = (uint32_t)(uintptr_t)t_about_2b_ripped;
+        takeover_him(obj);
+
+        sans_repell_for_good(obj);
+
+        obj->field40 = 3;
+        get_char_ani2(obj);
+
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xc5f;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xc5f) {
+        obj->field1c = (uint32_t)(int32_t)
+                           ochar_flesh_lineups[obj->field08->field24];
+        obj->field20 = 0;
+        adjust_him_xy(obj);
+
+        make_him_face_me(obj);
+
+        *mk3_frame(thread, frame + 1) = 0xc66;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (token == 0xc66) {
+        obj->field38 = (uint32_t)(uintptr_t)t_flesh_ripped_off;
+        takeover_him(obj);
+
+        tsound_func(obj, 0x70);
+
+        obj->field48 = 0x00050007;
+        shake_a11(obj);
+
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xc6f;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xc6f) {
+        *mk3_frame(thread, frame + 1) = 0xc70;
+        thread->fieldfc = 0x40;
+        return 0x40;
+    }
+
+    if (token == 0xc70) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+    }
+
+    if (token != 0)
+        return -3;
+
+    *mk3_frame(thread, frame + 1) = 0xc56;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_fatality_start_pause;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
