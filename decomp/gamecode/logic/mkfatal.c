@@ -6087,3 +6087,123 @@ long t_sz_blow(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_sonya_kiss_crusher
+ *
+ * armv7 0x00037260, 308 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0x1609, descend into t_fatality_start_pause
+ *
+ *      token == 0x1609:   obj->field40 = 2; get_char_ani2(obj)
+ *                         obj->field1c = 3
+ *                         token := 0x160e, descend into t_mframew
+ *
+ *      token == 0x160e:   obj->field40 = 4; get_char_ani2(obj)
+ *                         obj->field48 = obj->field40
+ *                         gmo_proc_insobja8(obj)
+ *                         obj->field1c = ~0x1f              (-0x20)
+ *                         obj->a10     = obj->field3c
+ *                         obj->field30 = obj->field3c
+ *                         obj->field20 = -0x20 + 0x10 = -0x10
+ *                         adjust_xy_a5(obj)
+ *                         obj->field1c = 6; ochar_sound(obj)
+ *                         StartGrObjAt((char *)obj->a10, t_crusher_orb)
+ *                         obj->field1c = 7; ochar_sound(obj)
+ *                         center_around_him(obj)
+ *                         token := 0x162f, park 0x90
+ *
+ *      token == 0x162f:   death_blow_complete(obj)
+ *                         frame[frame].handler = t_victory_animation
+ *
+ *      otherwise:         return -3
+ *
+ * **First `StartGrObjAt` call measured in the tree.** other.c defines it as
+ * `void StartGrObjAt(char *grobj, MK3THREADFUNC func)`, and here the object comes from
+ * `obj->a10` -- copied from 0x3c a few lines earlier -- and the routine it is started with is
+ * `t_crusher_orb`. So a graphics object is created and given its own handler in one call, which is
+ * a fourth way this engine gets code running beside the current thread, after `NewThread`,
+ * `NewThreadProc` and the three handover mechanisms.
+ *
+ * `gmo_proc_insobja8` returns `void *` per other.c and its result is discarded here; what it leaves
+ * behind is in `obj->field3c`, which the next three lines read. So the call is used for its side
+ * effect and 0x3c is where the new object arrives.
+ *
+ * **`obj->field3c` is copied into TWO fields, 0x44 and 0x30**, and only 0x44 is read back (by
+ * `StartGrObjAt`). `adjust_xy_a5` reads 0x30 along with 0x1c and 0x20 -- it is a three-argument
+ * wrapper round `multi_adjust_xy_ob` -- so both stores are live and they feed different callees.
+ *
+ * Two sounds through `ochar_sound`, 6 and 7, one on each side of the orb being started. Same pair
+ * `t_nado_sounds` plays together; here they bracket the event instead.
+ *
+ * The offsets -0x20 and -0x10 come from one literal with an `adds r3, #0x10`, the habit again.
+ */
+long t_crusher_orb(MK3THREAD *thread);           /* 0x00037778 */
+void *gmo_proc_insobja8(MK3OBJ *obj);
+void adjust_xy_a5(MK3OBJ *obj);
+void StartGrObjAt(char *grobj, MK3THREADFUNC func);
+
+long t_sonya_kiss_crusher(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x1609) {
+        obj->field40 = 2;
+        get_char_ani2(obj);
+
+        obj->field1c = 3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x160e;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x160e) {
+        obj->field40 = 4;
+        get_char_ani2(obj);
+        obj->field48 = obj->field40;
+
+        gmo_proc_insobja8(obj);
+
+        obj->field1c = (uint32_t)~0x1fu;
+        obj->a10     = obj->field3c;
+        obj->field30 = obj->field3c;
+        obj->field20 = (uint32_t)(~0x1fu + 0x10u);
+        adjust_xy_a5(obj);
+
+        obj->field1c = 6;
+        ochar_sound(obj);
+
+        StartGrObjAt((char *)(uintptr_t)obj->a10,
+                     (MK3THREADFUNC)t_crusher_orb);
+
+        obj->field1c = 7;
+        ochar_sound(obj);
+
+        center_around_him(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x162f;
+        thread->fieldfc = 0x90;
+        return 0x90;
+    }
+
+    if (token == 0x162f) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+    }
+
+    if (token != 0)
+        return -3;
+
+    *mk3_frame(thread, frame + 1) = 0x1609;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_fatality_start_pause;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
