@@ -4202,3 +4202,109 @@ long t_crush_duck(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
 }
+
+
+/* ----------------------------------------------------------------------- t_shocker_shaker
+ *
+ * armv7 0x00033dcc, 244 bytes.  **Complete.**
+ *
+ *      token == 0:        obj->field1c = ochar_shocked_ani[part->field24]
+ *                         obj->field40 = same
+ *                         player_swpal(obj, 5)
+ *                         obj->a10 = obj->field40
+ *                         -- falls into the loop head --
+ *
+ *      the loop head:     obj->field40 = obj->a10
+ *                         PUSH obj->a10
+ *                         obj->a10     = 3
+ *                         obj->field1c = 3 + 0x11 = 0x14
+ *                         create_fx(obj)
+ *                         POP  obj->a10
+ *                         obj->field1c = 4
+ *                         token := 0x1b9c, descend into t_mframew
+ *
+ *      token == 0x1b9c:   if (--obj->field48 > 0) -- the loop head --
+ *                         pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:         return -3
+ *
+ * **This is what consumes the 0x48 count the two shock reactions leave behind.**
+ * `t_r_ind_lightning` sets it to 4 and `t_r_tasered` to 9, and both descend here; the loop runs
+ * that many times, four frames apart, spawning effect 0x14 each pass. Three routines, one counter,
+ * and none of them makes sense without the others.
+ *
+ * **Third user of the argument stack, and the first to use it inside a LOOP.** `t_r_prevomit`
+ * pushes one word around a repositioning and `t_kissani` pushes two around a swap; this pushes one
+ * on every pass, because `obj->a10` has to hold 3 for `create_fx` and hold the animation cursor for
+ * everything else.
+ *
+ * That closes a question left open in mkanimal.c. `t_cute_animality_start` sets `obj->a10` from
+ * 0x3c immediately before calling `create_fx`, which showed 0x44 is an INPUT to that routine. This
+ * shows the other half: a caller that already had something in 0x44 must save it, because the call
+ * needs the slot. The argument stack is what makes both uses possible in one routine.
+ *
+ * **`ochar_shocked_ani` is the fifth per-character table found in this file** -- words, `lsl #2`,
+ * one entry per fighter, at 0x00166e08. It goes into 0x1c and 0x40 together, and 0x40 is the
+ * animation cursor, so the entries are animations or lists of them.
+ *
+ * `player_swpal(obj, 5)` is the shocked palette, where mkanimal.c's `t_stung_by_scorpion` uses 3
+ * for poison. Two of the palette numbers are now known.
+ *
+ * The 0x14 in 0x1c is built as `movs r3, #3` then `adds r3, #0x11` off the same register that just
+ * supplied 3 to 0x44 -- one literal feeding a counter and an effect number, which have nothing to
+ * do with each other. The habit again.
+ */
+extern uint32_t ochar_shocked_ani[];             /* 0x00166e08 */
+void player_swpal(MK3OBJ *obj, uint32_t which);
+
+long t_shocker_shaker(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    uint32_t argc;
+
+    if (token == 0) {
+        obj->field1c = ochar_shocked_ani[obj->field08->field24];
+        obj->field40 = obj->field1c;
+
+        player_swpal(obj, 5);
+
+        obj->a10 = obj->field40;
+
+    } else if (token == 0x1b9c) {
+        obj->field48 = obj->field48 - 1;
+        if ((long)obj->field48 <= 0) {
+            if ((long)frame > 0) {
+                thread->frame = frame - 1;
+                return 0;
+            }
+            return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+        }
+
+    } else {
+        return -3;
+    }
+
+    obj->field40 = obj->a10;
+
+    argc = thread->fieldf8;
+    *mk3_arg(thread, argc) = obj->a10;
+    thread->fieldf8 = argc + 1;
+
+    obj->a10     = 3;
+    obj->field1c = 3 + 0x11;
+    create_fx(obj);
+
+    argc = thread->fieldf8 - 1;
+    thread->fieldf8 = argc;
+    obj->a10 = *mk3_arg(thread, argc);
+
+    obj->field1c = 4;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x1b9c;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
