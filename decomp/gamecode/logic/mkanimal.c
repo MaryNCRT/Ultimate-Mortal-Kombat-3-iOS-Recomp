@@ -2645,3 +2645,272 @@ long tl_smoke_bull_shit(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+/* ------------------------------------------------------------------ tl_liu_kang_dragon
+ *
+ * armv7 0x000a206c, 380 bytes.  **Complete.**
+ *
+ *      token == 0:      animality_tune(obj)
+ *                       tsound_func(obj, 0x92)
+ *                       obj->field40 = a_dragon
+ *                       obj->a10 = 0x12
+ *                       token := 0x4bd, descend into t_animal_morph
+ *
+ *      token == 0x4bd:  token := 0x4be, park 0x30
+ *
+ *      token == 0x4be:  obj->field1c = 4
+ *                       token := 0x4c1, descend into t_mframew
+ *
+ *      token == 0x4c1:  obj->field38 = t_bit_in_half
+ *                       takeover_him(obj)
+ *                       obj->field48 = 0x000a000a; shake_a11(obj)
+ *                       token := 0x4c6, park 0x40
+ *
+ *      token == 0x4c6:  obj->field1c = 4
+ *                       token := 0x4c9, descend into t_mframew
+ *
+ *      token == 0x4c9:  token := 0x4cb, park 0x30
+ *
+ *      token == 0x4cb:  obj->field40 = a_dragon
+ *                       frame[frame].handler = t_unmorph_and_exit
+ *
+ *      otherwise:       return -3
+ *
+ * **The six-state template with a park added on each side of the bite.** Seven states, and
+ * the two new ones are both bare parks of 0x30 -- one after the morph and one before the
+ * unmorph -- so the dragon is on screen longer than the snake without doing anything more.
+ *
+ * It is also the only driver so far to play a sound of its own, `tsound_func(obj, 0x92)`,
+ * beside the animality music. The roar is the dragon's alone.
+ *
+ * **Its victim reaction is `t_bit_in_half`, which settles who reads the unnamed table.**
+ * That routine indexes `lao_ani_data + 0x142c` by the character number, and this is the
+ * driver that reaches it -- so the offset is a shared body-pieces list reached by whichever
+ * animal cuts a fighter in half, not something belonging to Kung Lao. The symbol
+ * `lao_ani_data` names only where the block starts.
+ *
+ * **Three tokens live in `r2` across the dispatch and each state stores a different one.**
+ * 0x4be stores 0x4c1 (r2 as loaded at entry, on the `ble` path where nothing reassigns it),
+ * 0x4c6 stores 0x4c9 (r2 reloaded by the dispatch on the way past), and the top of the
+ * function compares against the same register. Three reads of one register with three
+ * values, and every store had to be traced back to its own load.
+ */
+extern uint32_t a_dragon[];                      /* 0x001773fc */
+
+long tl_liu_kang_dragon(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x4bd) {
+        *mk3_frame(thread, frame + 1) = 0x4be;
+        thread->fieldfc = 0x30;
+        return 0x30;
+    }
+
+    if (token == 0x4be) {
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x4c1;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x4c1) {
+        obj->field38 = (uint32_t)(uintptr_t)t_bit_in_half;
+        takeover_him(obj);
+
+        obj->field48 = 0x000a000a;
+        shake_a11(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x4c6;
+        thread->fieldfc = 0x40;
+        return 0x40;
+    }
+
+    if (token == 0x4c6) {
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x4c9;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x4c9) {
+        *mk3_frame(thread, frame + 1) = 0x4cb;
+        thread->fieldfc = 0x30;
+        return 0x30;
+    }
+
+    if (token == 0x4cb) {
+        obj->field40 = (uint32_t)(uintptr_t)a_dragon;
+
+        return mk3_install(thread, (MK3THREADFUNC)t_unmorph_and_exit);
+    }
+
+    if (token != 0)
+        return -3;
+
+    animality_tune(obj);
+    tsound_func(obj, 0x92);
+
+    obj->field40 = (uint32_t)(uintptr_t)a_dragon;
+    obj->a10 = 0x12;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x4bd;
+    thread->frame = thread->frame + 1;              /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_animal_morph;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+/* -------------------------------------------------------------------- tl_mileena_skunk
+ *
+ * armv7 0x000a3d20, 396 bytes.  **Complete.**
+ *
+ *      token == 0:      token := 0x222, descend into t_cute_animality_start
+ *
+ *      token == 0x222:  sans_repell_for_good(obj)
+ *                       obj->field40 = 0x19; get_char_ani2(obj)
+ *                       obj->field08->field2c = *(long *)obj->field40 & 0x3fff
+ *                       obj->field1c = ~0x1f          (-0x20)
+ *                       obj->field20 = -0x20 + 0x40 = 0x20
+ *                       multi_adjust_xy(obj)
+ *                       ground_ob(obj, obj->field08)
+ *                       obj->a10 = obj->field40
+ *                       obj->field48 = 3
+ *                       -- falls into the 0x247 tail --
+ *
+ *      token == 0x247:  if (--obj->field48 != 0) -- the 0x247 tail --
+ *                       NewThread(obj, t_odor_proc)
+ *                       obj->field48 = 2
+ *                       -- falls into the 0x250 tail --
+ *
+ *      token == 0x250:  if (--obj->field48 != 0) -- the 0x250 tail --
+ *                       obj->field38 = t_r_scared_of_skunk
+ *                       takeover_him(obj)
+ *                       token := 0x257, park 0x30
+ *
+ *      the 0x247 tail:  obj->field40 = obj->a10; obj->field1c = 5
+ *                       token := 0x247, descend into t_mframew
+ *
+ *      the 0x250 tail:  obj->field40 = obj->a10; obj->field1c = 5
+ *                       token := 0x250, descend into t_mframew
+ *
+ *      token == 0x257:  death_blow_complete(obj)
+ *                       frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:       return -3
+ *
+ * **This is the routine that explains why every driver writes 0x40 twice.** `get_char_ani2`
+ * turns the small index 0x19 into a POINTER, which this saves into 0x44 -- and then both
+ * animation loops reload 0x40 from 0x44 before every descent into `t_mframew`, because
+ * `t_mframew` walks 0x40 forward as a cursor and leaves it past the end. So **0x44 is the
+ * saved copy of the 0x40 cursor**, and the other drivers' second `obj->field40 = a_<animal>`
+ * is the same reset written with the constant instead of a saved copy.
+ *
+ * The first word of the list is masked with 0x3fff before it becomes the part's animation, so
+ * the top two bits of an entry in these lists are flags and not part of the number. First
+ * place in this module where that mask is visible.
+ *
+ * **Two counted loops, three passes then two**, both counting in 0x48 and both descending
+ * into the same routine -- and the odour thread starts between them. So the skunk animates,
+ * starts `t_odor_proc` as a separate thread (the second such thread in this file, after
+ * `t_r_rabbit` and `t_crunch_sounds`), animates twice more, and only then frightens the
+ * opponent.
+ *
+ * 0x48 is a plain counter here, where `shake_a11` reads it as a pair of halfwords and
+ * `t_animate_till_a11` calls it as a function pointer. Third reading of that field in this
+ * module; the state decides, not the field.
+ *
+ * The negative 0x1c is written as `mvn r3, #0x1f` and the 0x20 beside it as `adds r3, #0x40`
+ * -- one literal, two fields, -0x20 and 0x20 -- the same shape as every `t_shake_ob_up`
+ * caller.
+ */
+void get_char_ani2(MK3OBJ *obj);
+void multi_adjust_xy(MK3OBJ *obj);
+long t_r_scared_of_skunk(MK3THREAD *thread);     /* pointer slot 0x000f3468 */
+
+long tl_mileena_skunk(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    uint32_t next;
+
+    if (token == 0) {
+        *mk3_frame(thread, frame + 1) = 0x222;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_cute_animality_start;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x257) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+    }
+
+    if (token == 0x222) {
+        sans_repell_for_good(obj);
+
+        obj->field40 = 0x19;
+        get_char_ani2(obj);
+
+        obj->field08->field2c =
+            *(uint32_t *)(uintptr_t)obj->field40 & 0x3fff;
+
+        obj->field1c = (uint32_t)~0x1fu;
+        obj->field20 = (uint32_t)(~0x1fu + 0x40u);
+        multi_adjust_xy(obj);
+
+        ground_ob(obj, obj->field08);
+
+        obj->a10    = obj->field40;
+        obj->field48 = 3;
+
+        next = 0x247;
+
+    } else if (token == 0x247) {
+        obj->field48 = obj->field48 - 1;
+        if (obj->field48 != 0) {
+            next = 0x247;
+        } else {
+            NewThread(obj, (MK3THREADFUNC)t_odor_proc);
+            obj->field48 = 2;
+            next = 0x250;
+        }
+
+    } else if (token == 0x250) {
+        obj->field48 = obj->field48 - 1;
+        if (obj->field48 != 0) {
+            next = 0x250;
+        } else {
+            obj->field38 = (uint32_t)(uintptr_t)t_r_scared_of_skunk;
+            takeover_him(obj);
+
+            *mk3_frame(thread, thread->frame + 1) = 0x257;
+            thread->fieldfc = 0x30;
+            return 0x30;
+        }
+
+    } else {
+        return -3;
+    }
+
+    obj->field40 = obj->a10;
+    obj->field1c = 5;
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
