@@ -8485,3 +8485,148 @@ long t_swat_taser(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* -------------------------------------------------------------------------- t_kabal_inflator
+ *
+ * armv7 0x000374c8, 400 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0xdc8, descend into t_fatality_start_pause
+ *
+ *      token == 0xdc8:    center_around_him(obj)
+ *                         obj->field40 = 5; get_char_ani2(obj)
+ *                         obj->field1c = 4
+ *                         token := 0xdcf, descend into t_mframew
+ *
+ *      token == 0xdcf:    obj->field48 = obj->field40
+ *                         obj->field40 = 4; get_char_ani2(obj)
+ *                         obj->field38 = t_pumped
+ *                         takeover_him(obj)
+ *                         proc->field00->field48 = obj->field40
+ *                         obj->a10 = 3
+ *                         -- falls into the loop body --
+ *
+ *      token == 0xddf:    if (--obj->a10 == 0) {
+ *                             obj->field1c = 5
+ *                             token := 0xde5, descend into t_mframew
+ *                         }
+ *                         -- falls into the loop body --
+ *
+ *      the loop body:     obj->field40 = obj->field48
+ *                         obj->field1c = 7; ochar_sound(obj)
+ *                         obj->field1c = 5
+ *                         token := 0xddf, descend into t_mframew
+ *
+ *      token == 0xde5:    token := 0xde6, park 0x40
+ *
+ *      token == 0xde6:    death_blow_complete(obj)
+ *                         frame[frame].handler = t_victory_animation
+ *
+ *      otherwise:         return -3
+ *
+ * **This is how a victim reaction receives a table, and it closes a mechanism `t_r_stretch` left
+ * open.** That routine reads `obj->field48` as a per-character table base and indexes it, and
+ * nothing measured had shown where the base comes from. Here it is: the attacker resolves a list
+ * with `get_char_ani2` and writes it into **the other object's 0x48** -- `proc->field00` is the
+ * opponent's object and `+0x48` is that object's own field -- immediately after `takeover_him`.
+ *
+ * So the hand-off to a victim routine has two channels, not one: the handler goes through 0x38 and
+ * `takeover_him`, and any data it needs is written directly into the other object's fields. The
+ * proc-based `0x3c` convention from `t_swat_taser` is a third.
+ *
+ * **The attacker resolves TWO lists and keeps them apart.** 0x40 gets index 5 in state 0xdc8, which
+ * is moved to 0x48 and used as the attacker's own animation for the whole loop; then 0x40 gets
+ * index 4, which is what the victim is given. One field, two resolutions, and the save into 0x48 is
+ * what makes both survive.
+ *
+ * The loop is three passes of sound 7 and a five-frame wait, with 0x40 restored from 0x48 at the
+ * top of each -- because `t_mframew` walks it forward. Same cursor-save shape as
+ * `t_skel_fire_proc`, and again in a plain field rather than the argument stack because 0x48 is
+ * free here.
+ */
+long t_pumped(MK3THREAD *thread);                /* 0x00033018 */
+
+long t_kabal_inflator(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0xdc8) {
+        center_around_him(obj);
+
+        obj->field40 = 5;
+        get_char_ani2(obj);
+
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xdcf;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xde5) {
+        *mk3_frame(thread, frame + 1) = 0xde6;
+        thread->fieldfc = 0x40;
+        return 0x40;
+    }
+
+    if (token == 0xde6) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+    }
+
+    if (token == 0xdcf) {
+        obj->field48 = obj->field40;
+
+        obj->field40 = 4;
+        get_char_ani2(obj);
+
+        obj->field38 = (uint32_t)(uintptr_t)t_pumped;
+        takeover_him(obj);
+
+        obj->field00->field00->field48 = obj->field40;
+
+        obj->a10 = 3;
+
+    } else if (token == 0xddf) {
+        obj->a10 = obj->a10 - 1;
+        if (obj->a10 == 0) {
+            obj->field1c = 5;
+
+            *mk3_frame(thread, thread->frame + 1) = 0xde5;
+            thread->frame = thread->frame + 1;       /* push a level */
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)t_mframew;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+
+    } else if (token == 0) {
+        *mk3_frame(thread, frame + 1) = 0xdc8;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_fatality_start_pause;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+
+    } else {
+        return -3;
+    }
+
+    obj->field40 = obj->field48;
+
+    obj->field1c = 7;
+    ochar_sound(obj);
+
+    obj->field1c = 5;
+
+    *mk3_frame(thread, thread->frame + 1) = 0xddf;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
