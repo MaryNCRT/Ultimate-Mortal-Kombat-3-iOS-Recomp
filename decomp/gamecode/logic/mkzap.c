@@ -3278,3 +3278,125 @@ long t_summon_flame_animator(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
 }
+
+
+/* t_angle_zap_explode -- armv7 0x00077408, 156 bytes.  **Complete.**
+ *
+ *      token == 0:       obj->field48 = 0x00040008; shake_a11(obj)
+ *                        stop_a8(part)
+ *                        obj->field40 = 0x3f; find_ani_part2(obj)
+ *                        obj->field1c = 2
+ *                        token := 0xdf8, descend into t_mframew
+ *
+ *      token == 0xdf8:   frame[frame].handler = tl_delete_proj_and_die
+ *
+ *      otherwise:        return -3
+ *
+ * **The explosion reuses the projectile's own animation base.** 0x3f is the same
+ * number `setup_proj_obj` resolves when the projectile is created, so the
+ * explosion frames live in the same block as the flight frames and one lookup
+ * covers both. Second site for 0x3f and it makes the number worth naming.
+ *
+ * `stop_a8` before the new animation, so the flight's frame stepping is halted
+ * rather than left running underneath the explosion.
+ *
+ * The shake pair is 0x00040008 -- asymmetric, twice as much vertically as
+ * horizontally -- and the first site in the tree for that exact value.
+ *
+ * `t_angle_zap_call` hands over to this and it hands over to
+ * `tl_delete_proj_and_die`, so the angle zap's last three routines are a straight
+ * chain: watch the floor, explode, park for ever.
+ */
+void stop_a8(MK3OBJ *part);
+void find_ani_part2(MK3OBJ *obj);
+
+long t_angle_zap_explode(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        obj->field48 = 0x00040008;
+        shake_a11(obj);
+
+        stop_a8(obj->field08);
+
+        obj->field40 = 0x3f;                 /* the projectile's own base */
+        find_ani_part2(obj);
+
+        obj->field1c = 2;
+
+        *mk3_frame(thread, frame + 1) = 0xdf8;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xdf8)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+}
+
+
+/* tl_do_jax_zap1 -- armv7 0x00079778, 160 bytes.  **Complete.**
+ *
+ *      token == 0:        obj->field20 = 3
+ *                         obj->a10     = 0
+ *                         zap_init_special_act(obj)
+ *                         token := 0x1297, descend into tl_jax_zap_jsrp
+ *
+ *      token == 0x1297:   obj->field1c = G + 0x410; update_tsl(obj)
+ *                         obj->field20 = 0x16
+ *                         frame[frame].handler = tl_do_proj_sitting_duck
+ *
+ *      otherwise:         return -3
+ *
+ * **Entry 2 of `projectile_jumps`, and it closes `tl_do_proj_sitting_duck`.**
+ * That routine parks for however long 0x20 says and then detaches the
+ * projectile; here is the caller, and the number is **0x16** -- twenty-two
+ * frames. So 0x20 is confirmed as the duration and the only park in this file
+ * whose length the caller chooses is chosen right here.
+ *
+ * **`G + 0x410` is the base of the timer block.** mkstat.c reaches
+ * `G + 0x410 + 0xc` for Jade's flash and the two Reptile orbs use `G + 0x438`
+ * and `G + 0x43c`. So 0x410 onwards is a run of per-move timer slots, this is
+ * the first of them, and `update_tsl` is what stamps one.
+ *
+ * The two states are the shape most of this file's `tl_do_*` entries have: set up
+ * a couple of numbers, descend into the move's own routine, and on the way back
+ * arrange what happens after. Nothing in between is this routine's business.
+ */
+long tl_jax_zap_jsrp(MK3THREAD *thread);
+
+long tl_do_jax_zap1(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        obj->field20 = 3;
+        obj->a10     = 0;
+        zap_init_special_act(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x1297;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)tl_jax_zap_jsrp;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x1297)
+        return -3;
+
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x410);
+    update_tsl(obj);
+
+    obj->field20 = 0x16;                     /* the sitting-duck duration */
+
+    return mk3_install(thread, (MK3THREADFUNC)tl_do_proj_sitting_duck);
+}
