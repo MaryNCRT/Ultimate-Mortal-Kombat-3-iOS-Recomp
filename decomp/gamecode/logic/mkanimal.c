@@ -365,3 +365,278 @@ long t_r_egg(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
 }
+
+
+/* ------------------------------------------------------------ kill_and_stop_scrolling
+ *
+ * armv7 0x000a0fbc, 20 bytes.  **Complete.**
+ *
+ *      MKEvent_Add(1, 2, 0, obj->field00->field08)
+ *
+ * One event and nothing else. The fourth argument is the proc's 0x08 -- the
+ * strength index, the player number -- so the event says which player it is about;
+ * the first three are constants.
+ */
+void MKEvent_Add(long a, long b, long c, long d);
+
+void kill_and_stop_scrolling(MK3OBJ *obj)
+{
+    MKEvent_Add(1, 2, 0, (long)obj->field00->field08);
+}
+
+/* --------------------------------------------------------------------- face_him_at_me
+ *
+ * armv7 0x000a0fd0, 24 bytes.  **Complete.**
+ *
+ *      obj->field1c = (uint32_t)face_opponent
+ *      call_a0_for_him(obj)
+ *
+ * The A0 mechanism with nothing around it: put `face_opponent` in 0x1c and let
+ * `call_a0_for_him` run it on the OTHER fighter. Same routine and same pointer slot
+ * 0x000f3758 that tl_do_shake and tl_do_leg_throw hand across in mkstat.c, here as a
+ * named one-line helper.
+ */
+void face_opponent(MK3OBJ *obj);                 /* pointer slot 0x000f3758 */
+void call_a0_for_him(MK3OBJ *obj);
+
+void face_him_at_me(MK3OBJ *obj)
+{
+    obj->field1c = (uint32_t)(uintptr_t)face_opponent;
+    call_a0_for_him(obj);
+}
+
+/* -------------------------------------------------------------------- cutup_body_init
+ *
+ * armv7 0x000a1d2c, 24 bytes.  **Complete.**
+ *
+ *      death_scream(obj)
+ *      obj->field08->field2c = obj->field08->field24 + delta
+ *
+ * **Two arguments.** The second arrives in r1 and is added to the part's 0x24 to
+ * produce its 0x2c, so the caller supplies an offset from the character number --
+ * 0x24 is the field every per-character table in this module indexes by. Only two of
+ * the routines in these files take a second argument at all, and this is one.
+ */
+void death_scream(MK3OBJ *obj);
+
+void cutup_body_init(MK3OBJ *obj, uint32_t delta)
+{
+    MK3OBJ *part;
+
+    death_scream(obj);
+
+    part = obj->field08;
+    part->field2c = part->field24 + delta;
+}
+
+/* ----------------------------------------------------------------------- set_vel_flip
+ *
+ * armv7 0x000a3c28, 28 bytes.  **Complete.**
+ *
+ *      obj->field2c = obj->field08->field28
+ *      if (obj->field2c & 0x10) obj->field1c = -obj->field1c
+ *      set_x_vel_player(obj)
+ *
+ * **Bit 4 of the part's 0x28 mirrors the velocity.** 0x1c holds the speed the caller
+ * wants; if that bit is set the sign is flipped before `set_x_vel_player` reads it, so
+ * one caller can ask for "forwards" and get the right direction either way.
+ *
+ * The whole conditional is one `ittt ne` block -- three instructions predicated on the
+ * `tst`, so there is no branch and 0x1c is left alone when the bit is clear.
+ */
+void set_x_vel_player(MK3OBJ *obj);
+
+void set_vel_flip(MK3OBJ *obj)
+{
+    obj->field2c = obj->field08->field28;
+
+    if ((obj->field2c & 0x10u) != 0)
+        obj->field1c = (uint32_t)(-(int32_t)obj->field1c);
+
+    set_x_vel_player(obj);
+}
+
+
+/* ------------------------------------------------------------------ create_fx_for_him
+ *
+ * armv7 0x000a115c, 32 bytes.  **Complete.**
+ *
+ *      saved_proc = obj->field00
+ *      saved_part = obj->field08
+ *      obj->field08 = saved_proc->him
+ *      obj->field00 = saved_proc->field00->field00
+ *      create_fx(obj)
+ *      obj->field00 = saved_proc
+ *      obj->field08 = saved_part
+ *
+ * **The swap-call-restore idiom on two fields at once.** `create_fx` works on
+ * whatever obj->field00 and obj->field08 point at, so to make the effect happen at the
+ * OTHER fighter this routine writes that fighter's proc and part into its own object,
+ * calls, and puts both back. mkslam.c's `stick_him_with_me` does the same with one
+ * field; this is the two-field version.
+ *
+ * The new proc comes through two hops -- `proc->field00->field00`, this proc's
+ * opponent object and then that object's own proc -- while the part comes from
+ * `proc->him` directly. So the two pointers are reached by different routes and the
+ * routine does not assume they agree.
+ */
+void create_fx(MK3OBJ *obj);
+
+void create_fx_for_him(MK3OBJ *obj)
+{
+    MK3OBJPROC *saved_proc = obj->field00;
+    MK3OBJ     *saved_part = obj->field08;
+
+    obj->field08 = (MK3OBJ *)(void *)(uintptr_t)saved_proc->him;
+    obj->field00 = saved_proc->field00->field00;
+
+    create_fx(obj);
+
+    obj->field00 = saved_proc;
+    obj->field08 = saved_part;
+}
+
+/* ---------------------------------------------------------------------- pengo_animate
+ *
+ * armv7 0x000a2c08, 32 bytes.  **Complete.**
+ *
+ *      next_anirate(obj)
+ *      obj->field1c = obj->field00->field20
+ *      if (obj->field1c == 1) rsnd_func(obj, 6)
+ *
+ * A sound on one exact frame. The proc's 0x20 is the animation counter, and sound 6
+ * fires only on the pass where it reads 1 -- not above and not below -- so the noise
+ * lands once per animation rather than once per frame.
+ *
+ * `next_lao_anirate` in mkstat.c is the same shape with its own counter in 0x44 and a
+ * reload; this one has no counter of its own and rides the proc's.
+ */
+long next_anirate(MK3OBJ *obj);
+
+void pengo_animate(MK3OBJ *obj)
+{
+    next_anirate(obj);
+
+    obj->field1c = obj->field00->field20;
+    if (obj->field1c == 1)
+        rsnd_func(obj, 6);
+}
+
+/* --------------------------------------------------------------------------- ground_ob
+ *
+ * armv7 0x000a0f90, 44 bytes.  **Complete.**
+ *
+ *      obj->field1c = *(uint32_t *)(G + 0xac)
+ *      obj->field20 = GetFrameHeight(target->field2c)
+ *      obj->field1c = obj->field1c - obj->field20 - 9
+ *      *(uint16_t *)((char *)target + 0x12) = obj->field1c
+ *
+ * **Two arguments, and it stands the second one on the floor.** The floor is the word
+ * at G + 0xac, the height comes from `GetFrameHeight` on the target's 0x2c, and the
+ * nine is a fixed inset. So the y written into the target's 0x12 is floor minus height
+ * minus nine.
+ *
+ * This is the second routine in the module to read G + 0xac: mkstat.c's
+ * `t_turn_into_a_baby` does the same placement but takes its height from
+ * `mk3_getbbox` instead of `GetFrameHeight`, and uses no inset. Two ways to measure
+ * the same thing, in two files.
+ */
+int GetFrameHeight(uint32_t ani);
+
+void ground_ob(MK3OBJ *obj, MK3OBJ *target)
+{
+    obj->field1c = *(uint32_t *)(G_BYTES + 0xac);
+    obj->field20 = (uint32_t)GetFrameHeight(target->field2c);
+    obj->field1c = obj->field1c - obj->field20 - 9;
+
+    MK3_SET_FIELD12(target, obj->field1c);
+}
+
+/* ----------------------------------------------------------------------------- q_bat_1
+ *
+ * armv7 0x000a359c, 32 bytes.  **Complete.**
+ *
+ *      get_x_dist(obj)
+ *      if (obj->field28 > 0xff) q_yes(obj); else q_no(obj)
+ *
+ * A distance predicate in the q_ family: it answers in 0x5c through `q_yes` / `q_no`
+ * like every other one, and the question is "is the opponent more than 255 away".
+ */
+long get_x_dist(MK3OBJ *obj);
+void distance_off_ground(MK3OBJ *obj);
+void q_yes(MK3OBJ *obj);
+void q_no(MK3OBJ *obj);
+
+void q_bat_1(MK3OBJ *obj)
+{
+    get_x_dist(obj);
+
+    if ((long)obj->field28 > 0xff)
+        q_yes(obj);
+    else
+        q_no(obj);
+}
+
+/* ----------------------------------------------------------------------------- q_bat_2
+ *
+ * armv7 0x000a35bc, 32 bytes.  **Complete.**
+ *
+ *      get_x_dist(obj)
+ *      if (obj->field28 <= 0x20) q_yes(obj); else q_no(obj)
+ *
+ * The near test to q_bat_1's far one -- thirty-two or closer.
+ */
+void q_bat_2(MK3OBJ *obj)
+{
+    get_x_dist(obj);
+
+    if ((long)obj->field28 <= 0x20)
+        q_yes(obj);
+    else
+        q_no(obj);
+}
+
+/* ----------------------------------------------------------------------------- q_bat_3
+ *
+ * armv7 0x000a35dc, 32 bytes.  **Complete.**
+ *
+ * **The same routine as q_bat_1, instruction for instruction.** The two differ only in
+ * their pc-relative displacements -- three bytes, at offsets 8, 0x14 and 0x1c, being
+ * the `bgt` and the two `bl` encodings shifted by the 0x40 between them. Same call,
+ * same field, same threshold of 0xff, same answer.
+ *
+ * Checked by comparing the two byte ranges rather than assumed from reading them: the
+ * ranges are NOT identical, and it would have been wrong to say so. What is identical
+ * is the behaviour.
+ */
+void q_bat_3(MK3OBJ *obj)
+{
+    get_x_dist(obj);
+
+    if ((long)obj->field28 > 0xff)
+        q_yes(obj);
+    else
+        q_no(obj);
+}
+
+/* ----------------------------------------------------------------------------- q_bat_4
+ *
+ * armv7 0x000a35fc, 32 bytes.  **Complete.**
+ *
+ *      distance_off_ground(obj)
+ *      if (obj->field1c <= 3) q_yes(obj); else q_no(obj)
+ *
+ * **The odd one of the four**: a different call, a different field and a vertical
+ * question. `distance_off_ground` answers in 0x1c where `get_x_dist` answers in 0x28,
+ * so the three horizontal predicates and this one do not share a slot -- which is why
+ * they cannot be collapsed into one parameterised helper.
+ */
+void q_bat_4(MK3OBJ *obj)
+{
+    distance_off_ground(obj);
+
+    if ((long)obj->field1c <= 3)
+        q_yes(obj);
+    else
+        q_no(obj);
+}
