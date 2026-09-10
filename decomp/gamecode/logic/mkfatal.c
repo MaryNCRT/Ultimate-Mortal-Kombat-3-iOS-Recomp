@@ -9498,3 +9498,152 @@ long t_smoke_arm(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------------------------- t_jax_slice
+ *
+ * armv7 0x00039894, 416 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0x1116, descend into t_fatality_start_pause
+ *
+ *      token == 0x1116:   obj->field1c = 7; ochar_sound(obj)
+ *                         obj->field40 = 0x00050003
+ *                         token := 0x111b, descend into t_animate2_a9
+ *
+ *      token == 0x111b:   token := 0x111c, park 0x30
+ *
+ *      token == 0x111c:   obj->field38 = t_get_sliced_up
+ *                         takeover_him(obj)
+ *                         obj->field1c = 0x00030020
+ *                         token := 0x1122, descend into t_animate_a0_frames
+ *
+ *      token == 0x1122:   obj->field40 = 3; get_char_ani2(obj)
+ *                         find_last_frame(obj)
+ *                         do_next_a9_frame(obj)
+ *                         token := 0x1127, park 0x10
+ *
+ *      token == 0x1127:   obj->field38 = t_post_sliced_up
+ *                         takeover_him(obj)
+ *                         obj->field40 = 3; find_ani2_part2(obj)
+ *                         find_part2(obj)
+ *                         obj->field1c = 5
+ *                         token := 0x1130, descend into t_mframew
+ *
+ *      token == 0x1130:   death_blow_complete(obj)
+ *                         frame[frame].handler = t_victory_animation
+ *
+ *      otherwise:         return -3
+ *
+ * **This is what ends `t_get_sliced_up`.** That routine, written earlier in this file, has two
+ * counters on two periods and no exit at all -- every path falls through to the same token store,
+ * and its note said the slicing runs until something outside replaces the handler. This is that
+ * something: state 0x111c hands the victim `t_get_sliced_up`, and state 0x1127 hands the SAME
+ * victim `t_post_sliced_up` through the SAME 0x38 channel, forty-eight frames later.
+ *
+ * **So a handover can be revoked by a second handover.** Both go through `obj->field38` and
+ * `takeover_him`, and the second simply overwrites the first. That is why an endless victim routine
+ * is safe to write: the attacker owns the schedule, and the victim's handler is a slot the attacker
+ * keeps writing. First routine in the tree measured handing two handlers to one victim, and it
+ * settles how every other endless reaction in the tree must be terminated.
+ *
+ * **Three tokens, three registers, every one of them a comparison value first.** `r1` holds 0x111c
+ * for the entry `cmp`, `ip` holds 0x1116 for the less-than path's first `cmp`, `r6` holds 0x1127 for
+ * the greater-than path's first `cmp` -- and each is later stored as a successor token by a state
+ * that reached the dispatch down a different branch. State 0 stores `ip`, state 0x111b stores `r1`,
+ * state 0x1122 stores `r6`. Back-to-back with `t_smoke_arm`, which does the same thing with one
+ * register; here it is three-fold, and no state's successor can be read off its own body.
+ *
+ * **Two animators, and they take their packed pair in different fields.** `t_animate2_a9` reads
+ * 0x40 (0x00050003 here, the same slot `t_robo_flame_throw` fills with 0x0005000a) and
+ * `t_animate_a0_frames` reads 0x1c (0x00030020). One routine, two animators, two fields -- a reader
+ * who assumes the parameter is always in the same place gets one of the two wrong.
+ *
+ * `t_animate_a0_frames`'s high half is 3 again, after `t_crusher_orb`. Seven sites now read
+ * 5, 5, 5, 5, 8, 3, 3 -- the 5 was never a constraint, and this is the second value to repeat.
+ *
+ * `find_ani2_part2` then `find_part2` back to back in state 0x1127, both after `obj->field40 = 3`,
+ * so the second finder walks from where the first landed.
+ */
+
+long t_jax_slice(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3THREADFUNC next_handler;
+    uint32_t next;
+
+    if (token == 0x1130) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+    }
+
+    if (token == 0x111b) {
+        *mk3_frame(thread, frame + 1) = 0x111c;      /* r1, the entry cmp */
+        thread->fieldfc = 0x30;
+        return 0x30;
+    }
+
+    if (token == 0x1122) {
+        obj->field40 = 3;
+        get_char_ani2(obj);
+
+        find_last_frame(obj);
+        do_next_a9_frame(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x1127;      /* r6, the > path cmp */
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (token == 0) {
+        *mk3_frame(thread, frame + 1) = 0x1116;      /* ip, the < path cmp */
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_fatality_start_pause;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1116) {
+        obj->field1c = 7;
+        ochar_sound(obj);
+
+        obj->field40 = 0x00050003;
+
+        next         = 0x111b;
+        next_handler = (MK3THREADFUNC)t_animate2_a9;
+
+    } else if (token == 0x111c) {
+        obj->field38 = (uint32_t)(uintptr_t)t_get_sliced_up;
+        takeover_him(obj);
+
+        obj->field1c = 0x00030020;
+
+        next         = 0x1122;
+        next_handler = (MK3THREADFUNC)t_animate_a0_frames;
+
+    } else if (token == 0x1127) {
+        obj->field38 = (uint32_t)(uintptr_t)t_post_sliced_up;
+        takeover_him(obj);                           /* revokes the last one */
+
+        obj->field40 = 3;
+        find_ani2_part2(obj);
+        find_part2(obj);
+
+        obj->field1c = 5;
+
+        next         = 0x1130;
+        next_handler = (MK3THREADFUNC)t_mframew;
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)next_handler;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
