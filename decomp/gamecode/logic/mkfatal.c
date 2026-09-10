@@ -4592,3 +4592,96 @@ long t_mk_game_cabinet(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
 }
+
+
+/* ----------------------------------------------------------------------- t_reptile_vomit
+ *
+ * armv7 0x000338dc, 248 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0x5ab, descend into t_fatality_start_pause
+ *
+ *      token == 0x5ab:    part->field2c = 0x13d4
+ *                         obj->field38 = t_r_prevomit
+ *                         takeover_him(obj)
+ *                         token := 0x5b0, park 0x60
+ *
+ *      token == 0x5b0:    obj->field38 = t_r_vomit
+ *                         takeover_him(obj)
+ *                         token := 0x5b3, park 0x34
+ *
+ *      token == 0x5b3:    token := 0x5b4, park 0x30
+ *
+ *      token == 0x5b4:    death_blow_complete(obj)
+ *                         frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:         return -3
+ *
+ * **Two handovers in sequence, and that is a shape not seen before.** Every other `takeover_him`
+ * measured in the tree hands the victim one routine and lets it run to the end. This gives them
+ * `t_r_prevomit` for ninety-six frames, then REPLACES it with `t_r_vomit` for fifty-two more --
+ * so the attacker drives the victim through two phases from the outside rather than letting the
+ * first routine chain to the second itself.
+ *
+ * That explains something about `t_r_prevomit`, written earlier in this file: it ends by installing
+ * `t_wait_forever`, which looked like the end of the reaction. It is not -- it is a park that this
+ * routine overwrites on schedule. **A victim reaction ending in `t_wait_forever` may be waiting to
+ * be replaced rather than finished**, and the attacker's routine is where to look.
+ *
+ * The whole thing is the standard fatality opening -- `t_fatality_start_pause`, which writes kind 1
+ * into 0x20 and runs the death blow -- followed by two handovers and a close. Third complete
+ * fatality traced end to end in this file, after the grow and the crush.
+ *
+ * `part->field2c = 0x13d4` is a bare constant, so the attacker's own pose is fixed while the
+ * victim's routines pick their own.
+ */
+long t_r_prevomit(MK3THREAD *thread);
+long t_r_vomit(MK3THREAD *thread);               /* 0x0003511c */
+
+long t_reptile_vomit(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x5ab) {
+        obj->field08->field2c = 0x13d4;
+
+        obj->field38 = (uint32_t)(uintptr_t)t_r_prevomit;
+        takeover_him(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x5b0;
+        thread->fieldfc = 0x60;
+        return 0x60;
+    }
+
+    if (token == 0x5b0) {
+        obj->field38 = (uint32_t)(uintptr_t)t_r_vomit;
+        takeover_him(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x5b3;
+        thread->fieldfc = 0x34;
+        return 0x34;
+    }
+
+    if (token == 0x5b3) {
+        *mk3_frame(thread, frame + 1) = 0x5b4;
+        thread->fieldfc = 0x30;
+        return 0x30;
+    }
+
+    if (token == 0x5b4) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+    }
+
+    if (token != 0)
+        return -3;
+
+    *mk3_frame(thread, frame + 1) = 0x5ab;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_fatality_start_pause;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
