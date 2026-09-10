@@ -6207,3 +6207,113 @@ long t_sonya_kiss_crusher(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ---------------------------------------------------------------------- t_ermac_super_slam
+ *
+ * armv7 0x000339d4, 308 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0x3a2, descend into t_fatality_start_pause
+ *
+ *      token == 0x3a2:    obj->field40 = 0x0002000c
+ *                         token := 0x3a5, descend into t_animate2_a9
+ *
+ *      token == 0x3a5:    obj->field38 = t_r_ermac_fatal_slam
+ *                         takeover_him(obj)
+ *                         token := 0x3a9, park 0xa0
+ *
+ *      token == 0x3a9:    obj->field1c = 2
+ *                         obj->field40 = 2 + 0xa = 0xc
+ *                         token := 0x3ad, descend into t_backwards_ani
+ *
+ *      token == 0x3ad:    token := 0x3af, park 0xa
+ *
+ *      token == 0x3af:    death_blow_complete(obj)
+ *                         frame[frame].handler = t_victory_animation
+ *
+ *      otherwise:         return -3
+ *
+ * **First `t_animate2_a9` caller measured in this file.** The routine sits at pointer slot
+ * 0x000f36c0, one slot below `t_animate_a9` at 0x000f36d0, and takes the same packed halfword pair
+ * in 0x40 -- 0x0002000c here. Nine sites for `t_animate_a9` and this is the first for the "2"
+ * variant, so the two are interchangeable from the caller's side and whatever differs is inside.
+ *
+ * **The forward run uses a packed pair and the backward run uses a plain number.** 0x3a2 puts
+ * 0x0002000c in 0x40 for `t_animate2_a9`; 0x3a9 puts 0xc in 0x40 and 2 in 0x1c for
+ * `t_backwards_ani`. Same two numbers, one packed and one split across two fields -- which is the
+ * clearest evidence yet that the pair IS a rate and an index travelling together, and that the two
+ * animators simply take them differently.
+ *
+ * That is worth more than any of the individual pair sites: `t_animate2_a9` gets (2, 0xc) packed and
+ * `t_backwards_ani` gets rate 2 in 0x1c and index 0xc in 0x40. The low half is the index.
+ *
+ * `obj->field40 = 0xc` is built as `adds r3, #0xa` off the 2 just written to 0x1c, so even here the
+ * two numbers come from one literal.
+ *
+ * `r1` carries 0x3a5 into state 0x3a2's store and 0x3ad into state 0x3a9's -- the two-tokens-one-
+ * register hazard again, and each store traced back to its own load.
+ */
+long t_animate2_a9(MK3THREAD *thread);           /* pointer slot 0x000f36c0 */
+long t_r_ermac_fatal_slam(MK3THREAD *thread);    /* pointer slot 0x000f3714 */
+long t_backwards_ani(MK3THREAD *thread);         /* pointer slot 0x000f37c4 */
+
+long t_ermac_super_slam(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x3a2) {
+        obj->field40 = 0x0002000c;
+
+        *mk3_frame(thread, frame + 1) = 0x3a5;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate2_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x3a5) {
+        obj->field38 = (uint32_t)(uintptr_t)t_r_ermac_fatal_slam;
+        takeover_him(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x3a9;
+        thread->fieldfc = 0xa0;
+        return 0xa0;
+    }
+
+    if (token == 0x3a9) {
+        obj->field1c = 2;
+        obj->field40 = 2 + 0xa;
+
+        *mk3_frame(thread, frame + 1) = 0x3ad;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_backwards_ani;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x3ad) {
+        *mk3_frame(thread, frame + 1) = 0x3af;
+        thread->fieldfc = 0xa;
+        return 0xa;
+    }
+
+    if (token == 0x3af) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+    }
+
+    if (token != 0)
+        return -3;
+
+    *mk3_frame(thread, frame + 1) = 0x3a2;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_fatality_start_pause;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
