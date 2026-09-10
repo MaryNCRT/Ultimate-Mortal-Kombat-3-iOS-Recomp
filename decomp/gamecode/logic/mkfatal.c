@@ -3514,13 +3514,13 @@ long t_r_ind_lightning(MK3THREAD *thread)
  * armv7 0x00038860, 188 bytes.  **Complete.**
  *
  *      token == 0:       obj->field1c = (int16_t)part->y12
- *                        -- PUSH: thread->args[thread->fieldf8++] = that y --
+ *                        -- PUSH: *mk3_arg(thread, argc++) = that y --
  *                        match_me_with_him(obj)
  *                        obj->field20 = 0
  *                        obj->field1c = 0x5c
  *                        multi_adjust_xy(obj)
  *                        face_opponent(obj)
- *                        -- POP: part->y12 = (uint16_t)thread->args[--thread->fieldf8] --
+ *                        -- POP: part->y12 = (uint16_t)*mk3_arg(thread, --argc) --
  *                        obj->field1c = 0x13; his_ochar_sound(obj)
  *                        token := 0x594, park 0xd
  *
@@ -3554,12 +3554,14 @@ long t_r_prevomit(MK3THREAD *thread)
     MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t frame = thread->frame;
     uint32_t token = *mk3_frame(thread, frame + 1);
+    uint32_t argc;
 
     if (token == 0) {
         obj->field1c = (uint32_t)(int32_t)(int16_t)MK3_FIELD12(obj->field08);
 
-        thread->args[thread->fieldf8] = obj->field1c;
-        thread->fieldf8 = thread->fieldf8 + 1;
+        argc = thread->fieldf8;
+        *mk3_arg(thread, argc) = obj->field1c;
+        thread->fieldf8 = argc + 1;
 
         match_me_with_him(obj);
 
@@ -3569,9 +3571,9 @@ long t_r_prevomit(MK3THREAD *thread)
 
         face_opponent(obj);
 
-        thread->fieldf8 = thread->fieldf8 - 1;
-        MK3_SET_FIELD12(obj->field08,
-                        (uint16_t)thread->args[thread->fieldf8]);
+        argc = thread->fieldf8 - 1;
+        thread->fieldf8 = argc;
+        MK3_SET_FIELD12(obj->field08, (uint16_t)*mk3_arg(thread, argc));
 
         obj->field1c = 0x13;
         his_ochar_sound(obj);
@@ -3856,4 +3858,174 @@ long t_get_sliced_up(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0x10de;
     thread->fieldfc = 1;
     return 1;
+}
+
+
+/* ----------------------------------------------------------------------------- t_kissani
+ *
+ * armv7 0x00036d18, 208 bytes.  **Complete.**
+ *
+ *      token == 0:        do_next_a9_frame(obj)
+ *                         PUSH obj->field08
+ *                         PUSH obj->field40
+ *                         obj->field40 = obj->field48
+ *                         obj->field08 = (MK3OBJ *)obj->a10
+ *                         if (*(long *)obj->field40 != 0)
+ *                             obj->field08->field2c = *(long *)obj->field40
+ *                         obj->field40 += 4
+ *                         obj->field48  = obj->field40
+ *                         POP  obj->field40
+ *                         POP  obj->field08
+ *                         token := 0x16a3, park 4
+ *
+ *      token == 0x16a3:   pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:         return -3
+ *
+ * **The second user of the argument stack, and it pushes TWO values -- which is what proves the
+ * thing is a stack and not a single save slot.** `t_r_prevomit` pushes one word around a
+ * repositioning; this pushes the part and the cursor, works on a completely different pair, and
+ * pops both back in the reverse order. The cursor at `fieldf8` moves by one each time in both
+ * directions.
+ *
+ * **What it does between the pushes is the two-field swap.** `obj->field08` and `obj->field40` are
+ * replaced by `obj->a10` and `obj->field48`, one word of the substituted list is read and copied
+ * into the substituted part's animation, the substituted cursor is advanced by four, and then the
+ * originals come back. So the object drives a SECOND body for one frame without disturbing its own.
+ *
+ * mkanimal.c's `create_fx_for_him` does the same two-field swap in registers, for one call. This
+ * does it across a longer body and so needs somewhere to put the saved values -- and the argument
+ * stack is where.
+ *
+ * The advanced cursor is written to BOTH 0x40 and 0x48 before the pop, so 0x48 keeps the progress
+ * and 0x40 is thrown away by the restore. That is why the routine can be called repeatedly and
+ * walk the list one word per call.
+ *
+ * `if (*(long *)obj->field40 != 0)` guards the animation store, so a zero entry leaves the part
+ * as it was -- a terminator that means "no change" rather than "stop".
+ */
+long t_kissani(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    uint32_t argc;
+    uint32_t entry;
+
+    if (token == 0) {
+        do_next_a9_frame(obj);
+
+        argc = thread->fieldf8;
+        *mk3_arg(thread, argc) = (uint32_t)(uintptr_t)obj->field08;
+        argc = argc + 1;
+        thread->fieldf8 = argc;
+
+        *mk3_arg(thread, argc) = obj->field40;
+        argc = argc + 1;
+        thread->fieldf8 = argc;
+
+        obj->field40 = obj->field48;
+        obj->field08 = (MK3OBJ *)(void *)(uintptr_t)obj->a10;
+
+        entry = *(uint32_t *)(uintptr_t)obj->field40;
+        if (entry != 0)
+            obj->field08->field2c = entry;
+
+        obj->field40 = obj->field40 + 4;
+        obj->field48 = obj->field40;
+
+        argc = thread->fieldf8 - 1;
+        thread->fieldf8 = argc;
+        obj->field40 = *mk3_arg(thread, argc);
+
+        argc = thread->fieldf8 - 1;
+        thread->fieldf8 = argc;
+        obj->field08 = (MK3OBJ *)(void *)(uintptr_t)*mk3_arg(thread, argc);
+
+        *mk3_frame(thread, frame + 1) = 0x16a3;
+        thread->fieldfc = 4;
+        return 4;
+    }
+
+    if (token != 0x16a3)
+        return -3;
+
+    if ((long)frame > 0) {
+        thread->frame = frame - 1;
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* ------------------------------------------------------------------ t_scorpion_remove_mask
+ *
+ * armv7 0x00034c0c, 208 bytes.  **Complete.**
+ *
+ *      token == 0:        obj->field40 = 0xd
+ *                         get_char_ani2(obj)
+ *                         obj->field1c = 0x00050002
+ *                         token := 0x529, descend into t_animate_a0_frames
+ *
+ *      token == 0x529:    obj->field1c = 0x00050004
+ *                         token := 0x547, descend into t_animate_a0_frames
+ *
+ *      token == 0x547:    pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:         return -3
+ *
+ * **Two runs of the same animator with two packed pairs.** `t_animate_a0_frames` takes its pair in
+ * 0x1c -- the reading `tl_jax_lion` and `tl_sz_polar` established in mkanimal.c -- and here the
+ * halves are 5/2 then 5/4. The high half is 5 in both, so whatever it selects does not change
+ * between the two runs and only the low half does.
+ *
+ * That is a useful constraint on the pair's meaning: across the four sites now measured
+ * (0x00050020, 0x00050010, 0x00050002, 0x00050004) the high half is 5 every time. So 5 is not a
+ * per-caller number -- it is what this animator is normally asked for -- and the low half is the
+ * parameter that varies.
+ *
+ * `get_char_ani2` resolves 0xd into 0x40 before the first run, so both runs walk the same resolved
+ * list and the second continues where the first left off.
+ */
+void get_char_ani2(MK3OBJ *obj);
+
+long t_scorpion_remove_mask(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x529) {
+        obj->field1c = 0x00050004;
+
+        *mk3_frame(thread, frame + 1) = 0x547;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_a0_frames;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x547) {
+        if ((long)frame > 0) {
+            thread->frame = frame - 1;
+            return 0;
+        }
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field40 = 0xd;
+    get_char_ani2(obj);
+
+    obj->field1c = 0x00050002;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x529;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_animate_a0_frames;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
 }
