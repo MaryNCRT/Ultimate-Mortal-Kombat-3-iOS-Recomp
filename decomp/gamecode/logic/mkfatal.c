@@ -22,7 +22,14 @@
 
 #include "mk3logic.h"
 
-long a_sb_skeleton_burn(struct MK3THREAD *thread);
+/* 0x001664d4, and the symbol table puts it in __DATA,__data -- NOT a routine.
+ * An earlier pass declared it `long a_sb_skeleton_burn(MK3THREAD *)` because the
+ * only thing reaching it was `obj->field40 = <address>`, which is exactly what a
+ * handler store looks like. It is a word list, the same shape as the twenty
+ * `a_<animal>` lists in mkanimal.c, and `t_robo_skeleton_burn` below proves it by
+ * entering it at +8 -- an offset that would be meaningless on a function. */
+extern uint32_t a_sb_skeleton_burn[];
+
 long t_skburn3(struct MK3THREAD *thread);
 
 /* t_sb_skeleton_burn -- armv7 0x0003322c, 64 bytes.  **Complete.**
@@ -1315,4 +1322,128 @@ long t_kang_reform(MK3THREAD *thread)
 
     death_blow_complete(obj);
     return mk3_install(thread, (MK3THREADFUNC)t_null_fatality);
+}
+
+
+/* ------------------------------------------------------------------ t_robo_skeleton_burn
+ *
+ * armv7 0x00035b58, 84 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      face_opponent(obj)
+ *      center_around_me(obj)
+ *      obj->field40 = &a_sb_skeleton_burn[2]
+ *      frame[frame].handler = t_skburn3
+ *
+ * **The same three lines as `t_sb_skeleton_burn` at the top of this file, entering the list
+ * two words in.** `add r3, #8` after the pc-relative load, and then the address goes into
+ * 0x40 -- so the robot's burn plays the same sequence as Sub-Zero's from the third frame
+ * rather than the first.
+ *
+ * **That +8 is what proves `a_sb_skeleton_burn` is data.** An offset into a function address
+ * would be meaningless; an offset into a word list the cursor walks is the obvious way to
+ * skip its first two entries. The declaration at the top of this file has been corrected
+ * accordingly.
+ *
+ * `face_opponent` and `center_around_me` before the install are the two calls
+ * `t_sb_skeleton_burn` does without, so the robot is also turned and centred first.
+ */
+void face_opponent(MK3OBJ *obj);
+
+long t_robo_skeleton_burn(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    face_opponent(obj);
+    center_around_me(obj);
+
+    obj->field40 = (uint32_t)(uintptr_t)&a_sb_skeleton_burn[2];
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_skburn3);
+}
+
+/* ----------------------------------------------------------------------- t_crush_sleep_5
+ *
+ * armv7 0x000333f4, 92 bytes.  **Complete.**
+ *
+ *      token == 0:       token := 0x19ea, park 4
+ *      token == 0x19ea:  pop a level, or t_local_reaction_exit at the bottom
+ *      otherwise:        return -3
+ *
+ * **A four-frame wait and nothing else.** It never touches `thread->proc` -- there is no
+ * `ldr [r0, #0x108]` in the body -- so it is a pure delay inserted into a chain, and the
+ * name says which chain.
+ *
+ * It is also the leanest routine in the file: no prologue, no frame pointer, `bx lr` from
+ * every path, because it makes no calls. Worth recognising the shape -- a park-and-pop with
+ * no object access compiles to about ninety bytes and is always this.
+ */
+long t_crush_sleep_5(MK3THREAD *thread)
+{
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, frame + 1) = 0x19ea;
+        thread->fieldfc = 4;
+        return 4;
+    }
+
+    if (token != 0x19ea)
+        return -3;
+
+    if ((long)frame > 0) {
+        thread->frame = frame - 1;
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* -------------------------------------------------------------------- t_lk_skeleton_burn
+ *
+ * armv7 0x0003428c, 92 bytes.  **Complete.**
+ *
+ *      token == 0:      center_around_me(obj)
+ *                       token := 0xa51, park 0xa
+ *
+ *      token == 0xa51:  frame[frame].handler = t_sb_skeleton_burn
+ *
+ *      otherwise:       return -3
+ *
+ * **Liu Kang's burn is Sub-Zero's, ten frames later.** Centre the fighter, wait, then install
+ * `t_sb_skeleton_burn` -- which sets 0x40 to the start of the list and descends into
+ * `t_skburn3`. So three routines in this file share one burn sequence and differ only in
+ * their approach:
+ *
+ *      t_sb_skeleton_burn      the list from word 0, no preamble
+ *      t_robo_skeleton_burn    the list from word 2, turned and centred
+ *      t_lk_skeleton_burn      centred, ten frames, then t_sb_skeleton_burn
+ *
+ * The third one reaching the first through an install rather than repeating its two lines is
+ * the clearest evidence that this is deliberate sharing and not three copies.
+ */
+long t_sb_skeleton_burn(MK3THREAD *thread);
+
+long t_lk_skeleton_burn(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        center_around_me(obj);
+
+        *mk3_frame(thread, frame + 1) = 0xa51;
+        thread->fieldfc = 0xa;
+        return 0xa;
+    }
+
+    if (token != 0xa51)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_sb_skeleton_burn);
 }
