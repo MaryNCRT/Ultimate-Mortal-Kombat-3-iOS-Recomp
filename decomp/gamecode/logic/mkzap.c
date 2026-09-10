@@ -3149,3 +3149,132 @@ long t_boom_return_check(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+
+/* t_angle_zap_call -- armv7 0x00076388, 148 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field30 = 0x88
+ *      y     = (int16_t)part->x12
+ *      floor = *(long *)(G + 0xac)
+ *      obj->field1c = y
+ *      obj->field20 = floor - y
+ *      if (obj->field20 > 0x88)
+ *          pop a level, or t_local_reaction_exit at the bottom
+ *      obj->field20 = floor - 0x88
+ *      part->x12 = (uint16_t)obj->field20            ; snapped, not eased
+ *      obj->field1c = 3; ochar_sound(obj)
+ *      frame[frame].handler = t_angle_zap_explode
+ *
+ * **A per-frame callback that catches the zap 0x88 above the floor and snaps it
+ * exactly there.** Not eased, not clamped -- the y is overwritten with
+ * `floor - 0x88` on the frame the gap first closes, so the last step of the
+ * descent is however far it had left to travel. A port that interpolates instead
+ * will draw one frame differently.
+ *
+ * **Tenth routine to read `G + 0xac`** as the floor, and the first in this file.
+ *
+ * `obj->field30 = 0x88` is the threshold written into a field before it is used
+ * as a literal in the comparison, and nothing here reads it back. Whether
+ * `t_angle_zap_explode` does is not settled; transcribed rather than dropped.
+ *
+ * The subtraction is `rsb r3, r2, r1` -- floor minus y, so a bigger number means
+ * higher up. Every height test in this tree is that way round and it is worth
+ * saying once.
+ */
+long t_angle_zap_explode(MK3THREAD *thread);
+
+long t_angle_zap_call(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t floor;
+
+    if (*mk3_frame(thread, frame + 1) != 0)
+        return -3;
+
+    obj->field30 = 0x88;
+
+    obj->field1c = (uint32_t)(int32_t)(int16_t)MK3_FIELD12(obj->field08);
+    floor = *(uint32_t *)(G_BYTES + 0xac);
+    obj->field20 = floor - obj->field1c;
+
+    if ((long)obj->field20 <= 0x88) {
+        obj->field20 = floor - 0x88;
+        MK3_SET_FIELD12(obj->field08, obj->field20);   /* snapped */
+
+        obj->field1c = 3;
+        ochar_sound(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_angle_zap_explode);
+    }
+
+    if ((long)thread->frame > 0) {           /* cmp #0 / ble: signed */
+        thread->frame = thread->frame - 1;   /* back up a level */
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* t_summon_flame_animator -- armv7 0x000774a4, 152 bytes.  **Complete.**
+ *
+ *      token == 0:       part->field24 = 0xc
+ *                        obj->field1c  = 0; ochar_sound(obj)
+ *                        obj->field48  = 0x00060006; shake_a11(obj)
+ *                        obj->field1c  = 4
+ *                        token := 0xb0b, descend into t_mframew
+ *
+ *      token == 0xb0b:   frame[frame].handler = tl_delete_proj_and_die
+ *
+ *      otherwise:        return -3
+ *
+ * **The flame identifies as character 0xc, permanently.** `part->field24` is the
+ * table index -- the field `borrow_ochar_sound` in other.c lends for exactly one
+ * call and then puts back -- and this routine writes 0xc into it and never
+ * restores it. So every table lookup this object makes for the rest of its life
+ * resolves against character 0xc's row.
+ *
+ * That is the difference from every other site: `borrow_ochar_sound` borrows and
+ * `t_hair_spun` in mkfatal.c borrows across one `get_char_ani2` using the
+ * argument stack, but a summoned flame has no identity of its own to go back to,
+ * so it simply takes one. **A port must not "fix" the missing restore.**
+ *
+ * The shake pair 0x00060006 is the symmetric one `t_r_impale_upcut` and
+ * `t_st_spiked` also use -- third site for that exact value.
+ *
+ * `obj->field1c = 0` comes out of the token register the dispatch has proved to
+ * be zero, so the sound index is 0 from character 0xc's table.
+ */
+void shake_a11(MK3OBJ *obj);
+
+long t_summon_flame_animator(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        obj->field08->field24 = 0xc;         /* taken, not borrowed */
+
+        obj->field1c = 0;
+        ochar_sound(obj);
+
+        obj->field48 = 0x00060006;
+        shake_a11(obj);
+
+        obj->field1c = 4;
+
+        *mk3_frame(thread, frame + 1) = 0xb0b;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xb0b)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+}
