@@ -9202,3 +9202,159 @@ long t_impale_call(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ----------------------------------------------------------------------------- t_crusher_orb
+ *
+ * armv7 0x00037778, 420 bytes.  **Complete.**
+ *
+ *      token == 0:        obj->field40 = obj->field48
+ *                         obj->field1c = 3
+ *                         token := 0x15d4, descend into t_mframew
+ *
+ *      token == 0x15d4:   obj->field1c = 0x20000; set_proj_vel(obj)
+ *                         obj->field1c = 3; init_anirate(obj)
+ *                         token := 0x15dc, park 1
+ *
+ *      token == 0x15dc:   next_anirate(obj)
+ *                         obj->field1c = proc->him
+ *                         obj->field20 = (int16_t)him->x0e
+ *                         obj->field24 = (int16_t)part->x0e - obj->field20
+ *                         if (obj->field24 < 0) obj->field24 = -obj->field24
+ *                         if (obj->field24 > 0xb1) { token := 0x15dc, park 1 }
+ *                         stop_a8(part)
+ *                         obj->field38 = t_crush_stuggle
+ *                         takeover_him(obj)
+ *                         obj->field1c = 0x0003000d
+ *                         token := 0x15f6, descend into t_animate_a0_frames
+ *
+ *      token == 0x15f6:   obj->field38 = t_crush_duck
+ *                         takeover_him(obj)
+ *                         obj->field40 = obj->field48
+ *                         find_part2(obj); find_part2(obj)
+ *                         obj->field1c = 4
+ *                         token := 0x15ff, descend into t_mframew
+ *
+ *      token == 0x15ff:   token := 0x1604, park 0x16462
+ *
+ *      token == 0x1604:   frame[frame].handler = t_wait_forever
+ *
+ *      otherwise:         return -3
+ *
+ * **This is the orb `t_sonya_kiss_crusher` starts through `StartGrObjAt`**, and it is the first
+ * routine measured that runs as a graphics object rather than as a fighter's thread. It flies at
+ * 0x20000, measures the gap to the opponent every frame, and acts when it closes to 0xb1.
+ *
+ * **The 0x16462 terminator, and this time the follow-on token IS in the dispatch.** Every other
+ * site -- `t_jade_flash_proc`, `t_crunch_sounds`, `t_egg_proc`, `t_nails_blood_spawner`,
+ * `t_bone_vomit_proc`, `t_green_shit`, `t_smoke_dropping` -- parks under a token the dispatch would
+ * refuse. Here state 0x15ff parks on 0x16462 and hands over to 0x1604, which is dispatched and
+ * installs `t_wait_forever`.
+ *
+ * So the pattern is not "park under an unreachable token"; it is just "park for a duration that
+ * never elapses", and whether the successor state exists varies. **Eighth site, and the one that
+ * shows the unreachable token was incidental.**
+ *
+ * **Two handovers in sequence again** -- `t_crush_stuggle` then `t_crush_duck` -- and the second is
+ * a routine written earlier in this file, the one that spawns `t_crush_blood` and lands the victim
+ * at floor minus 0x90. Fifth routine in this file with two sequential handovers.
+ *
+ * The arrival test is the `itt lt` / `rsblt` absolute value again, third site after
+ * `tl_scorpion_pengo` and `t_smoke_dropping`, and it measures between the ORB's own part and the
+ * opponent rather than between two fighters.
+ *
+ * `find_part2` twice in a row, fourth site for that doubled call.
+ */
+long t_crush_stuggle(MK3THREAD *thread);         /* 0x00035bac */
+long t_crush_duck(MK3THREAD *thread);
+
+long t_crusher_orb(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3OBJ  *him;
+
+    if (token == 0) {
+        obj->field40 = obj->field48;
+        obj->field1c = 3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x15d4;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x15d4) {
+        obj->field1c = 0x20000;
+        set_proj_vel(obj);
+
+        obj->field1c = 3;
+        init_anirate(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x15dc;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0x15dc) {
+        next_anirate(obj);
+
+        him = (MK3OBJ *)(void *)(uintptr_t)obj->field00->him;
+        obj->field1c = (uint32_t)(uintptr_t)him;
+        obj->field20 = (uint32_t)(int32_t)(int16_t)MK3_FIELD0E(him);
+        obj->field24 = (uint32_t)(int32_t)(int16_t)MK3_FIELD0E(obj->field08)
+                       - obj->field20;
+        if ((long)obj->field24 < 0)
+            obj->field24 = (uint32_t)(-(long)obj->field24);
+
+        if ((long)obj->field24 > 0xb1) {
+            *mk3_frame(thread, thread->frame + 1) = 0x15dc;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        stop_a8(obj->field08);
+
+        obj->field38 = (uint32_t)(uintptr_t)t_crush_stuggle;
+        takeover_him(obj);
+
+        obj->field1c = 0x0003000d;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x15f6;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_a0_frames;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x15f6) {
+        obj->field38 = (uint32_t)(uintptr_t)t_crush_duck;
+        takeover_him(obj);
+
+        obj->field40 = obj->field48;
+        find_part2(obj);
+        find_part2(obj);
+
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x15ff;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x15ff) {
+        *mk3_frame(thread, frame + 1) = 0x1604;
+        thread->fieldfc = 0x16462;
+        return 0x16462;
+    }
+
+    if (token != 0x1604)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+}
