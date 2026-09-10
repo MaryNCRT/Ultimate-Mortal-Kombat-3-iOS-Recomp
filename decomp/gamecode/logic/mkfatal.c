@@ -1551,3 +1551,103 @@ long t_nado_sounds(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_nado_sounds);
 }
+
+
+/* ------------------------------------------------------------------------- t_orb_sleep_1
+ *
+ * armv7 0x00037174, 108 bytes.  **Complete.**
+ *
+ *      token == 0:       next_anirate(obj)
+ *                        token := 0x163c, park 1
+ *
+ *      token == 0x163c:  pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:        return -3
+ *
+ * **One animation step and unwind.** The whole routine is a single call and the standard pop,
+ * so it exists to give a parent one frame of animation at a known point rather than to do
+ * anything of its own.
+ *
+ * Compare `t_crush_sleep_5` earlier in this batch, which is the same shape without the call and
+ * with a four-frame park. The two together are the minimum useful thread handler in this engine:
+ * do one thing, park, pop.
+ */
+long next_anirate(MK3OBJ *obj);
+
+long t_orb_sleep_1(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        next_anirate(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x163c;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token != 0x163c)
+        return -3;
+
+    if ((long)frame > 0) {
+        thread->frame = frame - 1;
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* --------------------------------------------------------------------- t_appearing_spikes
+ *
+ * armv7 0x00035ae8, 112 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field48 = 0x00030003; shake_a11(obj)
+ *      obj->field1c = 7; ochar_sound(obj)
+ *      part->field2c = 0x1b30
+ *      obj->field1c = ~0x9f              (-0xa0)
+ *      obj->field20 = -0xa0 + 0xf0 = 0x50
+ *      multi_adjust_xy(obj)
+ *      frame[frame].handler = t_wait_forever
+ *
+ * **One state, five effects, then park forever.** The spikes shake the screen, make a noise, set
+ * an animation and move themselves, and then the thread has nothing left to do.
+ *
+ * **The animation is a bare constant, 0x1b30, where `t_grow_victum` computes 0x1b12 plus the
+ * character number.** Both are in the same 0x1b00 block, so that block holds both per-character
+ * runs and shared props -- and which it is depends on the routine, not the range. Do not assume
+ * an animation number in this block needs indexing.
+ *
+ * The two `multi_adjust_xy` offsets come from one literal, `mvn r3, #0x9f` then `adds r3, #0xf0`,
+ * giving -0xa0 and 0x50. Written as the arithmetic because the shared literal is the thing worth
+ * seeing; the values alone would hide it. Same idiom as every `t_shake_ob_up` caller in
+ * mkanimal.c.
+ *
+ * The shake pair is 0x00030003, doubled -- so the spikes shake evenly and softly, three against
+ * the 0xa/0xa the large animals use.
+ */
+void shake_a11(MK3OBJ *obj);
+
+long t_appearing_spikes(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field48 = 0x00030003;
+    shake_a11(obj);
+
+    obj->field1c = 7;
+    ochar_sound(obj);
+
+    obj->field08->field2c = 0x1b30;
+
+    obj->field1c = (uint32_t)~0x9fu;
+    obj->field20 = (uint32_t)(~0x9fu + 0xf0u);
+    multi_adjust_xy(obj);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+}
