@@ -2004,3 +2004,121 @@ long t_slide_behind_hair(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
 }
+
+
+/* ------------------------------------------------------------------------- t_r_jade_stab
+ *
+ * armv7 0x0003aa38, 132 bytes.  **Complete.**
+ *
+ *      token == 0:      rsnd_func(obj, 3)
+ *                       death_scream(obj)
+ *                       obj->a10 = 6
+ *                       -- falls into the 0x7d7 tail --
+ *
+ *      token == 0x7d7:  if (--obj->a10 <= 0) frame[frame].handler = t_wait_forever
+ *                       -- falls into the 0x7d7 tail --
+ *
+ *      the 0x7d7 tail:  obj->field1c = 5; create_blood_proc(obj)
+ *                       token := 0x7d7, park 4
+ *
+ *      otherwise:       return -3
+ *
+ * **Sound, scream, then six blood spawns four frames apart, then park forever.** The victim's
+ * side of a Jade stab, and the shape is the same counted spawn loop as
+ * `t_nails_blood_spawner` earlier in this batch -- ten pairs two frames apart there, six singles
+ * four frames apart here.
+ *
+ * The two differ in how they finish: `t_nails_blood_spawner` parks on 0x16462 under a token the
+ * dispatch would refuse, and this installs `t_wait_forever`. **Both mean "this thread is done",
+ * and the file uses them interchangeably** -- so neither is the canonical way to stop, and a
+ * reader should not draw a distinction between them.
+ *
+ * The counter is set once in state 0 and the loop entry is shared, so 0x7d7 is written from two
+ * places and 4 is the park in both.
+ */
+void rsnd_func(MK3OBJ *unused, uint32_t which);
+
+long t_r_jade_stab(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        rsnd_func(obj, 3);
+        death_scream(obj);
+
+        obj->a10 = 6;
+
+    } else if (token == 0x7d7) {
+        obj->a10 = obj->a10 - 1;
+        if ((long)obj->a10 <= 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+
+    } else {
+        return -3;
+    }
+
+    obj->field1c = 5;
+    create_blood_proc(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x7d7;
+    thread->fieldfc = 4;
+    return 4;
+}
+
+/* ------------------------------------------------------------------------- t_animate_a11
+ *
+ * armv7 0x00033064, 144 bytes.  **Complete.**
+ *
+ *      token == 0:       obj->field40 = obj->field48
+ *                        token := 0xfc4, descend into t_mframew
+ *
+ *      token == 0xfc4:   pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:        return -3
+ *
+ * **The close cousin of mkanimal.c's `t_kitty_spin`, and the difference is the whole point.**
+ * Both move the cursor from 0x48 to 0x40, which is where the animation routines read it:
+ *
+ *      t_kitty_spin     also sets obj->field1c = 3, then INSTALLS t_mframew
+ *      t_animate_a11    leaves 0x1c alone, then DESCENDS into t_mframew and pops
+ *
+ * So `t_kitty_spin` replaces itself and fixes the frame count at three, while this one keeps its
+ * level, takes whatever count the caller left in 0x1c, and hands control back when the animation
+ * finishes. A parent that needs to do something afterwards has to use this one.
+ *
+ * Reading the two together is what settles that **0x48 is where a caller parks an animation
+ * cursor for a helper to pick up** -- two files, two routines, one convention. In mkanimal.c 0x48
+ * is also a shake magnitude pair and a function pointer; the state decides, and here the state is
+ * "about to animate".
+ *
+ * The routine makes no calls -- no prologue, `bx lr` from every path -- which is why it can keep
+ * the object in `ip` throughout.
+ */
+long t_animate_a11(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        obj->field40 = obj->field48;
+
+        *mk3_frame(thread, frame + 1) = 0xfc4;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xfc4)
+        return -3;
+
+    if ((long)frame > 0) {
+        thread->frame = frame - 1;
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
