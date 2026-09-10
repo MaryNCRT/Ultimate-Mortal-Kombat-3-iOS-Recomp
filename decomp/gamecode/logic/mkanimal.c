@@ -762,3 +762,209 @@ long t_crunch_sounds(MK3THREAD *thread)
     thread->fieldfc = 0x10;
     return 0x10;
 }
+
+
+/* --------------------------------------------------------------------- t_r_ermac_upcut
+ *
+ * armv7 0x000a2a68, 116 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field48 = 0x00080008; shake_a11(obj)
+ *      rsnd_func(obj, 0xa)
+ *      obj->field1c = 1; create_blood_proc(obj)
+ *      cutup_body_init(obj, 0x1af4)
+ *      obj->field1c = 0x10000
+ *      obj->field20 = 0x10000 - 0x90000 = -0x80000
+ *      frame[frame].handler = t_head_pop_off
+ *
+ * The victim's side of an Ermac uppercut animality: shake, sound, blood, and then the
+ * body is cut up and the head sent off through `t_head_pop_off`, which is written
+ * earlier in this file.
+ *
+ * **This is the caller that shows what `cutup_body_init`'s second argument is for.**
+ * 0x1af4 is added to the part's character number to give its 0x2c, so the offset picks
+ * a body-pieces animation set and the character number picks the entry within it.
+ *
+ * 0x48 is the shake magnitude again, 0x00080008 -- a doubled pair, like most of them.
+ */
+void shake_a11(MK3OBJ *obj);
+long create_blood_proc(MK3OBJ *obj);
+void cutup_body_init(MK3OBJ *obj, uint32_t delta);
+long t_head_pop_off(MK3THREAD *thread);
+
+long t_r_ermac_upcut(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field48 = 0x00080008;
+    shake_a11(obj);
+    rsnd_func(obj, 0xa);
+
+    obj->field1c = 1;
+    create_blood_proc(obj);
+
+    cutup_body_init(obj, 0x1af4);
+
+    obj->field1c = 0x10000;
+    obj->field20 = (uint32_t)(0x10000 - 0x90000);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_head_pop_off);
+}
+
+/* ------------------------------------------------------------------ t_next_anirate_a10
+ *
+ * armv7 0x000a1220, 128 bytes.  **Complete.**
+ *
+ *      token == 0:      token := 0x819, park 1
+ *
+ *      token == 0x819:  next_anirate(obj)
+ *                       if (--obj->a10 > 0) token := 0x819, park 1
+ *                       pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:       return -3
+ *
+ * **A generic "step the animation rate for 0x44 frames" helper**, with the count
+ * supplied by the caller in 0x44 and nothing else of its own. State 0 does no work at
+ * all -- it exists only to get the thread onto the one-frame cadence.
+ *
+ * The two paths that write the token share one store site, entered with the frame
+ * index either loaded at entry or reloaded after the decrement, which is why the
+ * `ldrgt` sits inside the `it gt` block rather than after the branch.
+ */
+long t_local_reaction_exit(MK3THREAD *thread);
+
+long t_next_anirate_a10(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x819) {
+        next_anirate(obj);
+
+        obj->a10 = obj->a10 - 1;
+        if ((long)obj->a10 <= 0) {
+            if ((long)thread->frame > 0) {
+                thread->frame = thread->frame - 1;
+                return 0;
+            }
+            return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+        }
+
+    } else if (token != 0) {
+        return -3;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = 0x819;
+    thread->fieldfc = 1;
+    return 1;
+}
+
+
+/* ------------------------------------------------------------------ t_animate_till_a11
+ *
+ * armv7 0x000a12a0, 148 bytes.  **Complete.**
+ *
+ *      token == 0:      token := 0x572, park 1
+ *
+ *      token == 0x572:  next_anirate(obj)
+ *                       ((void (*)(MK3OBJ *))obj->field48)(obj)
+ *                       if (obj->field5c != 0)
+ *                           pop a level, or t_local_reaction_exit
+ *                       frame[frame].handler = t_animate_till_a11
+ *
+ *      otherwise:       return -3
+ *
+ * **0x48 holds a PREDICATE and this routine calls it through the register.**
+ * `ldr r3, [r5, #0x48]; blx r3` -- so the caller puts a function there, and every frame
+ * this steps the animation rate, calls it, and looks at 0x5c. A set answer ends the
+ * loop; a clear one goes round again.
+ *
+ * **That is what the four `q_bat_*` routines are for.** They take an object, ask a
+ * distance question, and answer in 0x5c through `q_yes` / `q_no` -- exactly the shape
+ * this expects. So an animality animates until whichever predicate the caller chose
+ * says yes, and the predicate is a parameter rather than a branch.
+ *
+ * The loop reinstalls ITSELF, which restarts it at state 0 and its one-frame park --
+ * the same shape mkstat.c's `t_shake_suspended` and `t_noogy_suspended` use, and the
+ * same warning applies: this is not "resume at 0x572".
+ *
+ * 0x48 is a counter in most of this module, a ring pointer in `t_combo_air_pause`, and
+ * a function pointer here. The state decides, not the field.
+ */
+long t_animate_till_a11(MK3THREAD *thread);
+
+long t_animate_till_a11(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x572;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token != 0x572)
+        return -3;
+
+    next_anirate(obj);
+
+    ((void (*)(MK3OBJ *))(void *)(uintptr_t)obj->field48)(obj);
+
+    if (obj->field5c != 0) {
+        if ((long)thread->frame > 0) {
+            thread->frame = thread->frame - 1;
+            return 0;
+        }
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_animate_till_a11);
+}
+
+/* ------------------------------------------------------------- t_animate_till_a11_stop
+ *
+ * armv7 0x000a14f0, 136 bytes.  **Complete.**
+ *
+ *      token == 0:      token := 0x57b, descend into t_animate_till_a11
+ *
+ *      token == 0x57b:  stop_me_player(obj)
+ *                       pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:       return -3
+ *
+ * The wrapper: run the loop above and stop the fighter when it ends. Nothing else --
+ * so a caller that wants the animation to leave the fighter moving installs
+ * `t_animate_till_a11` and one that wants it halted installs this.
+ */
+void stop_me_player(MK3OBJ *obj);
+
+long t_animate_till_a11_stop(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x57b;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_till_a11;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x57b)
+        return -3;
+
+    stop_me_player(obj);
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
