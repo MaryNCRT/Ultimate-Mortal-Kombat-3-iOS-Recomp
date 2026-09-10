@@ -7546,3 +7546,137 @@ long t_mileena_suck_kiss(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------------------------ t_kang_fire
+ *
+ * armv7 0x0003522c, 368 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0xa57, descend into t_fatality_start_pause
+ *
+ *      token == 0xa57:    proc->field34 = (int16_t)part->x0e
+ *                         sans_repell_for_good(obj)
+ *                         wfe_him(obj)
+ *                         obj->field1c = 7; ochar_sound(obj)
+ *                         obj->field1c = 6; ochar_sound(obj)
+ *                         obj->field40 = 6
+ *                         obj->field1c = 4
+ *                         token := 0xa62, descend into t_backwards_ani2
+ *
+ *      token == 0xa62:    obj->field38 = t_lk_skeleton_burn
+ *                         takeover_him(obj)
+ *                         match_me_with_him(obj)
+ *                         obj->field40 = 5; get_char_ani2(obj)
+ *                         obj->field1c = 4
+ *                         token := 0xa6b, descend into t_mframew
+ *
+ *      token == 0xa6b:    set_inviso(obj)
+ *                         token := 0xa6e, park 0x60
+ *
+ *      token == 0xa6e:    obj->field1c = 6; ochar_sound(obj)
+ *                         part->x0e = (uint16_t)proc->field34
+ *                         frame[frame].handler = t_kang_reform
+ *
+ *      otherwise:         return -3
+ *
+ * **`proc->field34` saves the attacker's own x across the whole fatality**, which is the same trick
+ * `t_ind_zap_kill` plays with `proc->field3c` and the victim's y. Two proc fields, two coordinates,
+ * two fatalities -- so the proc is where a routine parks a position it will need after
+ * `match_me_with_him` has moved it.
+ *
+ * The save reads with `ldrsh` and the restore writes back what `ldrh` produced, so the value goes
+ * out signed and comes back unsigned. Transcribed at the widths the binary uses; for any position
+ * that fits sixteen bits the round trip is exact either way.
+ *
+ * **`t_lk_skeleton_burn` is handed to the VICTIM here**, which is the third of the four burn entries
+ * to be reached as a reaction. Only `t_sb_skeleton_burn` -- the one that sets 0x40 to the start of
+ * the list and descends straight into `t_skburn3` -- has no caller yet, and this routine's target is
+ * the one that centres the body and waits ten frames before reaching it.
+ *
+ * **`t_kang_reform` is shared with `t_kang_mk_game`.** Both of Liu Kang's fatalities end by
+ * installing it, so the reform is written once and reached from two schedules.
+ *
+ * `set_inviso` here is the hide-so-a-prop-can-take-over kind, as in `t_kang_mk_game`, not the
+ * disappear-and-die kind -- the reform brings the fighter back ninety-six frames later.
+ *
+ * Sound 6 is played three times across the routine, twice in state 0xa57 alongside 7 and once at the
+ * end. `r6` holds 6 for the first two and it is reloaded for the third.
+ */
+long t_lk_skeleton_burn(MK3THREAD *thread);
+long t_kang_reform(MK3THREAD *thread);
+
+long t_kang_fire(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0xa57) {
+        *(uint32_t *)((char *)obj->field00 + 0x34) =
+            (uint32_t)(int32_t)(int16_t)MK3_FIELD0E(obj->field08);
+
+        sans_repell_for_good(obj);
+        wfe_him(obj);
+
+        obj->field1c = 7;
+        ochar_sound(obj);
+        obj->field1c = 6;
+        ochar_sound(obj);
+
+        obj->field40 = 6;
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xa62;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_backwards_ani2;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xa62) {
+        obj->field38 = (uint32_t)(uintptr_t)t_lk_skeleton_burn;
+        takeover_him(obj);
+
+        match_me_with_him(obj);
+
+        obj->field40 = 5;
+        get_char_ani2(obj);
+
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xa6b;
+        thread->frame = thread->frame + 1;           /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xa6b) {
+        set_inviso(obj);
+
+        *mk3_frame(thread, frame + 1) = 0xa6e;
+        thread->fieldfc = 0x60;
+        return 0x60;
+    }
+
+    if (token == 0xa6e) {
+        obj->field1c = 6;
+        ochar_sound(obj);
+
+        MK3_SET_FIELD0E(obj->field08,
+                        *(uint16_t *)((char *)obj->field00 + 0x34));
+
+        return mk3_install(thread, (MK3THREADFUNC)t_kang_reform);
+    }
+
+    if (token != 0)
+        return -3;
+
+    *mk3_frame(thread, frame + 1) = 0xa57;
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_fatality_start_pause;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
