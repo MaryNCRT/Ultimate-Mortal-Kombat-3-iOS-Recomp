@@ -5126,3 +5126,169 @@ long tl_kit_zap_air(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* t_st_zap_jsrp -- armv7 0x0007659c, 224 bytes.  **Complete.**
+ *
+ *      token == 0:        obj->field1c = 3; ochar_sound(obj)
+ *                         obj->field40 = 0x24; get_char_ani(obj)
+ *                         obj->field1c = 3
+ *                         obj->field40 = obj->a10 + obj->field40
+ *                         token := 0xaba, descend into t_mframew
+ *
+ *      token == 0xaba:    obj->field38 = t_skull_proc
+ *                         create_proj_proc(obj)
+ *                         obj->field1c = G + 0x440; update_tsl(obj)
+ *                         pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:         return -3
+ *
+ * **`obj->a10` is added to the resolved animation cursor**, which is a use of
+ * that slot the tree has not seen before: not an argument, not a counter, not a
+ * pointer, but a per-variant OFFSET into the animation the finder just returned.
+ *
+ * That explains `projectile_jumps` entries 19, 20 and 21 -- `tl_do_st_zap1`,
+ * `_zap2` and `_zap3`. Three moves, one routine, and the caller sets `a10` to
+ * pick which animation comes out. **Worth confirming when those three are
+ * read**; if they set 0, 1 and 2 there is nothing else to the three-way split.
+ *
+ * It ends by popping rather than installing, so whatever descended into this
+ * gets control back after the projectile exists -- unlike the `tl_do_*` entries,
+ * which install a sitting duck and are finished.
+ *
+ * `G + 0x440` is a fifth slot in the timer block after 0x410, 0x41c, 0x42c and
+ * 0x438/0x43c.
+ *
+ * `lsl.w r3, r2, r8` with `r8` holding 3 -- the register-shift spelling of the
+ * frame stride, second site after `t_motaro_zap_proc`. Same arithmetic.
+ */
+long t_skull_proc(MK3THREAD *thread);
+
+long t_st_zap_jsrp(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 3;
+        ochar_sound(obj);
+
+        obj->field40 = 0x24;
+        get_char_ani(obj);
+
+        obj->field1c = 3;
+        obj->field40 = obj->a10 + obj->field40;   /* the variant's offset */
+
+        *mk3_frame(thread, frame + 1) = 0xaba;
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xaba)
+        return -3;
+
+    obj->field38 = (uint32_t)(uintptr_t)t_skull_proc;
+    create_proj_proc(obj);
+
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x440);
+    update_tsl(obj);
+
+    if ((long)thread->frame > 0) {                /* cmp #0 / ble: signed */
+        thread->frame = thread->frame - 1;        /* back up a level */
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* t_sai3 -- armv7 0x00078818, 220 bytes.  **Complete.**
+ *
+ *      token == 0:        multi_adjust_xy(obj)
+ *                         obj->field40 = 0x15; get_char_ani2(obj)
+ *                         obj->field1c = 0xb0000
+ *                         obj->field20 = 4
+ *                         set_proj_vel(obj)
+ *                         obj->field20 = 3
+ *                         obj->a10     = 3
+ *                         obj->field48 = 0x17
+ *                         token := 0x1ca, descend into tl_projectile_flight
+ *
+ *      token == 0x1ca:    stop_a8(part)
+ *                         obj->field40 = 0x15; find_ani2_part2(obj)
+ *                         obj->field1c = 3
+ *                         token := 0x1d0, descend into t_mframew
+ *
+ *      token == 0x1d0:    frame[frame].handler = tl_delete_proj_and_die
+ *
+ *      otherwise:         return -3
+ *
+ * **It calls `multi_adjust_xy` with whatever 0x1c and 0x20 already hold.** Every
+ * other caller in this file writes the two offsets immediately before; this one
+ * uses what the caller left, and then overwrites both four instructions later
+ * for `set_proj_vel`. So the launch position is the caller's business and the
+ * launch velocity is this routine's.
+ *
+ * **Animation 0x15 twice, resolved two different ways.** `get_char_ani2` at the
+ * start and `find_ani2_part2` on impact -- same number, different finder -- so
+ * the sai's flight frames and its impact frames come out of one animation and
+ * the two finders pick different parts of it.
+ *
+ * `obj->field20 = 3` and `obj->a10 = 3` from one register right after
+ * `set_proj_vel` has consumed the 4 that was in 0x20. Three values through one
+ * field in five instructions: the anirate for the launch, then the flight's own
+ * pair.
+ */
+
+long t_sai3(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3THREADFUNC next_handler;
+    uint32_t next;
+
+    if (token == 0x1d0)
+        return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+
+    if (token == 0) {
+        multi_adjust_xy(obj);                /* the caller's offsets */
+
+        obj->field40 = 0x15;
+        get_char_ani2(obj);
+
+        obj->field1c = 0xb0000;
+        obj->field20 = 4;
+        set_proj_vel(obj);
+
+        obj->field20 = 3;                    /* the same register */
+        obj->a10     = 3;
+        obj->field48 = 0x17;
+
+        next         = 0x1ca;
+        next_handler = (MK3THREADFUNC)tl_projectile_flight;
+
+    } else if (token == 0x1ca) {
+        stop_a8(obj->field08);
+
+        obj->field40 = 0x15;                 /* the same animation, other finder */
+        find_ani2_part2(obj);
+
+        obj->field1c = 3;
+
+        next         = 0x1d0;
+        next_handler = (MK3THREADFUNC)t_mframew;
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, frame + 1) = next;
+    thread->frame = thread->frame + 1;       /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)next_handler;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
