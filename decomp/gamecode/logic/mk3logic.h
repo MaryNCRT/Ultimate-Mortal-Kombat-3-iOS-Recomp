@@ -188,6 +188,9 @@ typedef struct MK3OBJPROC {
 
 /* And the same pair for 0x10, whose high half is the halfword at 0x12. */
 #define MK3_FIELD12(o)   ((uint16_t)((o)->field10 >> 16))
+/* and signed, for the same reason MK3_FIELD0E_S exists: get_y_dist
+ * subtracts two of these and takes the absolute value. */
+#define MK3_FIELD12_S(o) ((int16_t)((o)->field10 >> 16))
 #define MK3_SET_FIELD12(o, v)                                               \
     ((o)->field10 = ((o)->field10 & 0x0000ffffu)                            \
                     | ((uint32_t)(uint16_t)(v) << 16))
