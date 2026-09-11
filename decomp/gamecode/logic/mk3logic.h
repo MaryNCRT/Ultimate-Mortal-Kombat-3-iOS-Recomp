@@ -112,7 +112,10 @@ typedef struct MK3OBJPROC {
                                   *       init_special_act writes */
     uint32_t field1c;            /* 0x1c  the animation rate */
     uint32_t field20;            /* 0x20  its counter, normally 1 */
-    uint8_t  _pad24[4];
+    /* 0x24  The animation `plyrthread` has just resolved. It writes 0x28 and
+     * 0x24 from the same register on the way out of every walk state, so the
+     * two are the animation and its index kept together on the proc. */
+    uint32_t field24;            /* 0x24 */
     uint32_t field28;            /* 0x28  who the shake is about: the shake
                                   *       pair write `him` or the object's
                                   *       0x08 here and differ in nothing
