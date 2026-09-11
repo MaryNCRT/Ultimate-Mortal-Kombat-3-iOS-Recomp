@@ -4134,3 +4134,167 @@ long tl_do_sonya_zap(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)tl_do_proj_sitting_duck);
 }
+
+
+/* t_sg_zap_proc -- armv7 0x000762c8, 192 bytes.  **Complete.**
+ *
+ *      token == 0:       obj->field40  = a_small_explode
+ *                        part->field2c = 0x6ae
+ *                        proc->field18 = 0x17
+ *                        obj->field1c  = 0x17 + 0x19 = 0x30
+ *                        obj->field20  = 0x30
+ *                        multi_adjust_xy(obj)
+ *                        proc->field2c = 4
+ *                        obj->field1c = 0xa0000
+ *                        obj->field20 = 0xfff
+ *                        set_proj_vel(obj)
+ *                        obj->field48 = 0x11
+ *                        obj->field34 = t_sg_trail_spawn
+ *                        token := 0x987, descend into tl_projectile_flight_call
+ *
+ *      token == 0x987:   frame[frame].handler = tl_delete_proj_and_die
+ *
+ *      otherwise:        return -3
+ *
+ * **This closes `t_sg_trail_spawn`, and it seeds the counter that routine
+ * counts down.** That callback fires effect 0x35 whenever `proc->field2c`
+ * reaches zero and reloads it with 4; here is the launcher, writing **4** into
+ * that same field two instructions before it hands the callback over. So the
+ * trail starts on the fourth frame rather than immediately.
+ *
+ * Same shape as `t_cyrax_helecopter` seeding `a10 = 1` for `t_hele_sleep` in
+ * mkfatal.c: the driver decides where in the cycle the effect first lands, and
+ * the callback only knows the period. **Two systems, one convention.**
+ *
+ * The callback goes into `obj->field34` and `tl_projectile_flight_call`
+ * publishes it to `proc->field28` -- the third complete instance of that chain,
+ * after Motaro's zap and the impale in mkfatal.c.
+ *
+ * `a_small_explode` is a `__DATA,__data` array at 0x00172624, assigned to 0x40
+ * as an address. The same trap `a_sb_skeleton_burn` and `a_kano_rip_skel` set:
+ * a symbol beginning `a_` is data, not a routine.
+ *
+ * One literal three times: `movs #0x17` for the action, then `adds #0x19` gives
+ * 0x30 for both halves of the `multi_adjust_xy` offset. The action number and
+ * the placement have nothing to do with each other and share a register anyway.
+ */
+extern uint32_t a_small_explode[];               /* 0x00172624 */
+long t_sg_trail_spawn(MK3THREAD *thread);
+
+long t_sg_zap_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        obj->field40          = (uint32_t)(uintptr_t)a_small_explode;
+        obj->field08->field2c = 0x6ae;
+
+        obj->field00->field18 = 0x17;
+        obj->field1c          = 0x17 + 0x19;     /* the same register */
+        obj->field20          = obj->field1c;
+        multi_adjust_xy(obj);
+
+        obj->field00->field2c = 4;               /* the trail's first tick */
+
+        obj->field1c = 0xa0000;
+        obj->field20 = 0xfff;
+        set_proj_vel(obj);
+
+        obj->field48 = 0x11;
+        obj->field34 = (uint32_t)(uintptr_t)t_sg_trail_spawn;
+
+        *mk3_frame(thread, frame + 1) = 0x987;
+        thread->frame = thread->frame + 1;       /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)tl_projectile_flight_call;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x987)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+}
+
+
+/* tl_do_sz_zap -- armv7 0x0007a79c, 192 bytes.  **Complete.**
+ *
+ *      token == 0:        obj->field20 = 0x1a
+ *                         obj->a10     = 0
+ *                         zap_init_special_act(obj)
+ *                         obj->field1c = 0; ochar_sound(obj)
+ *                         obj->field40 = 0x00030024
+ *                         token := 0x856, descend into t_animate_a9
+ *
+ *      token == 0x856:    obj->field1c = 0x30
+ *                         obj->field20 = 0x30 + 8 = 0x38
+ *                         obj->field30 = proc->slave
+ *                         adjust_xy_a5(obj)
+ *                         proc->field64->field40 = &sz_ani_data[0x1220]
+ *                         frame[frame].handler = t_osz_forward_entry
+ *
+ *      otherwise:         return -3
+ *
+ * **It reaches into the slave and sets its animation cursor directly.** Every
+ * other launcher in this file hands the slave a HANDLER through `obj->field38`
+ * and lets `create_proj_proc` start it; this one writes
+ * `proc->field64->field40` from outside. A fourth channel into another object,
+ * after 0x38 for the handler, `proc->field00->field48` for a table, and
+ * `NewThreadProc`'s return value.
+ *
+ * **`sz_ani_data + 0x1220` is a fifth unnamed sub-table inside a named
+ * animation block**, after `lao_ani_data + 0x142c`, `fn_ani_data + 0x20a4` and
+ * `+ 0x1a84`, and `lia_ani_data + 0x1554`. The base arrives through pointer slot
+ * 0x000f33d8. A symbol names where a block starts, not what any table in it is.
+ *
+ * `adjust_xy_a5` takes three fields -- 0x1c, 0x20 and 0x30 -- and 0x30 holds
+ * `proc->slave`, the slave's PART. So the placement is "put this at that
+ * object's position plus (0x30, 0x38)", which is the three-argument form
+ * mkfatal.c's note describes.
+ *
+ * 0x30 and 0x38 come off one register with an `adds #8`.
+ */
+extern uint8_t sz_ani_data[];                    /* 0x00162914, slot 0x000f33d8 */
+void adjust_xy_a5(MK3OBJ *obj);
+long t_osz_forward_entry(MK3THREAD *thread);
+
+long tl_do_sz_zap(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        obj->field20 = 0x1a;
+        obj->a10     = 0;
+        zap_init_special_act(obj);
+
+        obj->field1c = 0;
+        ochar_sound(obj);
+
+        obj->field40 = 0x00030024;
+
+        *mk3_frame(thread, frame + 1) = 0x856;
+        thread->frame = thread->frame + 1;       /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x856)
+        return -3;
+
+    obj->field1c = 0x30;
+    obj->field20 = 0x30 + 8;                     /* the same register */
+    obj->field30 = obj->field00->slave;
+    adjust_xy_a5(obj);
+
+    ((MK3OBJ *)(void *)(uintptr_t)obj->field00->field64)->field40 =
+        (uint32_t)(uintptr_t)&sz_ani_data[0x1220];
+
+    return mk3_install(thread, (MK3THREADFUNC)t_osz_forward_entry);
+}
