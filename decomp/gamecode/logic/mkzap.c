@@ -4944,3 +4944,185 @@ long tl_do_floor_ice(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)tl_do_proj_sitting_duck);
 }
+
+
+/* t_rocket1_proc -- armv7 0x00077bf4, 216 bytes.  **Complete.**
+ *
+ *      token == 0:         obj->field1c = 3; ochar_sound(obj)
+ *                          obj->field40 = 0x3f; get_char_ani(obj)
+ *                          obj->field54 = 4; find_part_a14(obj)
+ *                          obj->field1c = 0x70000
+ *                          q_his_react_flag_set(obj)
+ *                          if (obj->field5c == 0) obj->field1c = 0x40000
+ *                          obj->field20 = 3
+ *                          set_proj_vel(obj)
+ *                          obj->field1c  = 0
+ *                          proc->field30 = 0
+ *                          obj->field48 = 0x12
+ *                          obj->field34 = t_rocket1_flight_call
+ *                          token := 0x1122, descend into tl_projectile_flight_call
+ *
+ *      token == 0x1122:    frame[frame].handler = t_rocket_explode_fx
+ *
+ *      otherwise:          return -3
+ *
+ * **The rocket launches faster at an opponent who is reacting.**
+ * `q_his_react_flag_set` is asked, and the answer chooses between 0x70000 and
+ * 0x40000 -- nearly double. So a rocket fired at someone already in a reaction
+ * travels at almost twice the speed of one fired at a standing opponent.
+ *
+ * That is the first measured USE of that predicate, and it matters because the
+ * routine itself is the odd one in this file: it fetches the other fighter's
+ * proc 0x10 into 0x2c and then answers from `obj->field54`, a field it never
+ * writes. **And this caller sets 0x54 four instructions earlier**, for
+ * `find_part_a14`. So either the predicate is reading a leftover from the a14
+ * finder, or the two uses of 0x54 are unrelated and it is reading rubbish.
+ *
+ * Recorded, not resolved. What is certain is that the launch speed of a rocket
+ * depends on a field the animation lookup just used, and that a port which
+ * "tidies" either side changes how fast the rocket flies.
+ *
+ * **The negation is spelled as an addition.** `obj->field1c = 0x40000` is
+ * `add.w r3, r3, #0x40000` on the zero the branch has just proved, not a fresh
+ * load -- so the slow speed is reached from the failed comparison rather than
+ * from a literal.
+ *
+ * It closes `t_rocket1_flight_call`, the callback that accelerates by a
+ * sixteenth a frame and clamps at 0xe0000. Fifth instance of the
+ * 0x34 -> `proc->field28` chain.
+ */
+void q_his_react_flag_set(MK3OBJ *obj);
+void find_part_a14(MK3OBJ *obj);
+long t_rocket1_flight_call(MK3THREAD *thread);
+
+long t_rocket1_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 3;
+        ochar_sound(obj);
+
+        obj->field40 = 0x3f;
+        get_char_ani(obj);
+
+        obj->field54 = 4;
+        find_part_a14(obj);
+
+        obj->field1c = 0x70000;
+        q_his_react_flag_set(obj);
+        if (obj->field5c == 0)
+            obj->field1c = 0x40000;          /* not reacting: slower */
+
+        obj->field20 = 3;
+        set_proj_vel(obj);
+
+        obj->field1c          = 0;
+        obj->field00->field30 = 0;
+
+        obj->field48 = 0x12;
+        obj->field34 = (uint32_t)(uintptr_t)t_rocket1_flight_call;
+
+        *mk3_frame(thread, frame + 1) = 0x1122;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)tl_projectile_flight_call;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x1122)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_rocket_explode_fx);
+}
+
+
+/* tl_kit_zap_air -- armv7 0x0007b654, 220 bytes.  **Complete.**
+ *
+ *      token == 0:        obj->a10 = 0
+ *                         zap_air_init_special(obj)
+ *                         obj->field20  = 0x1f
+ *                         proc->field18 = 0x1f
+ *                         obj->field40 = 0; get_char_ani2(obj)
+ *                         obj->field1c = 2
+ *                         token := 0x630, descend into t_mframew
+ *
+ *      token == 0x630:    obj->field38 = tl_fan_proc
+ *                         create_proj_proc(obj)
+ *                         detach_proj(obj)
+ *                         obj->field1c = 3
+ *                         token := 0x63f, descend into t_mframew
+ *
+ *      token == 0x63f:    frame[frame].handler = t_drop_down_land
+ *
+ *      otherwise:         return -3
+ *
+ * **It makes the projectile and lets it go in the same breath.**
+ * `create_proj_proc` fills `proc->field64` and `proc->slave`; `detach_proj`
+ * clears both, two instructions later, without killing anything. So the fan
+ * exists and the fighter stops owning it immediately -- which is the first
+ * caller measured for `detach_proj` and the reason that routine is not simply a
+ * weaker `delete_slave`.
+ *
+ * A thrown thing you keep is a slave; a thrown thing you forget is a fan. The
+ * difference is two instructions.
+ *
+ * **It ends in `t_drop_down_land`**, not in a sitting duck -- because the
+ * fighter is in the air and has to come down before anything else happens. The
+ * grounded zaps park; this one falls.
+ *
+ * The tail at 0x7b6d2 serves both an install and a descent, the same nine
+ * instructions reached with a different frame index in `r2`. State 0x63f arrives
+ * with the entry index and installs; state 0x630 arrives after incrementing and
+ * descends.
+ */
+long tl_fan_proc(MK3THREAD *thread);
+long t_drop_down_land(MK3THREAD *thread);        /* pointer slot 0x000f33d4 */
+void detach_proj(MK3OBJ *obj);
+
+long tl_kit_zap_air(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    uint32_t next;
+
+    if (token == 0x63f)
+        return mk3_install(thread, (MK3THREADFUNC)t_drop_down_land);
+
+    if (token == 0) {
+        obj->a10 = 0;
+        zap_air_init_special(obj);
+
+        obj->field20          = 0x1f;        /* one register, two fields */
+        obj->field00->field18 = 0x1f;
+
+        obj->field40 = 0;
+        get_char_ani2(obj);
+
+        obj->field1c = 2;
+
+        next = 0x630;
+
+    } else if (token == 0x630) {
+        obj->field38 = (uint32_t)(uintptr_t)tl_fan_proc;
+        create_proj_proc(obj);
+        detach_proj(obj);                    /* made, then let go */
+
+        obj->field1c = 3;
+
+        next = 0x63f;
+
+    } else {
+        return -3;
+    }
+
+    *mk3_frame(thread, frame + 1) = next;
+    thread->frame = thread->frame + 1;       /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
