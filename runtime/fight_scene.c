@@ -167,6 +167,54 @@ void repell_func(void) { }
 #define BOX_W  56
 #define BOX_H  72
 
+/* ============================================ the walk, and it is MEASURED
+ *
+ * `_walk_forward_info` at 0x0016ef6c and `_walk_backward_info` at 0x0016f03c:
+ * eight bytes per character, indexed by `part->field24`, the character number.
+ * `decode_walk_table` (0x000552dc) reads both halves:
+ *
+ *     entry[0]       -> obj->field1c, which `init_anirate` takes as the RATE:
+ *                       one animation frame every N game frames
+ *     entry[1] << 4  -> obj->field20, the speed, already in 16.16
+ *
+ * `walk_flip_reverse` then negates the speed when bit 4 of the part's 0x28 is
+ * set, and `get_walk_info_b` negates it once more -- which is the whole of what
+ * makes backing up go the other way.
+ *
+ * State 0x45c of `plyrthread` calls the routine, calls `init_anirate`, copies
+ * the speed into 0x1c and calls `set_x_vel_player`, which writes it to
+ * G + 0xb8 for player one and G + 0x210 for player two -- the same 0x158 stride
+ * `repell_func` uses.
+ *
+ * **Both numbers were guesses here until now**: 4.0 and 3.0 units a frame
+ * against a real 3.25 and 2.25, and a walk cycle driven by distance against a
+ * real fixed rate of five game frames a frame. The distance drive existed to
+ * stop the feet skating at a speed that was itself invented; with the game's
+ * own speed and the game's own rate there is nothing to compensate for.
+ */
+typedef struct { int rate; long speed; } walkinfo;
+
+static const walkinfo WALK_FWD[26] = {
+    {5, 229376}, {5, 196608}, {5, 196608}, {5, 212992}, {5, 212992},
+    {5, 196608}, {5, 229376}, {5, 212992}, {5, 212992}, {5, 212992},
+    {5, 196608}, {5, 196608}, {5, 204800}, {5, 204800}, {5, 212992},
+    {5, 212992}, {5, 229376}, {5, 212992}, {5, 212992}, {5, 212992},
+    {5, 212992}, {5, 212992}, {5, 262144}, {5, 327680}, {4, 270336},
+    {3, 327680}
+};
+
+static const walkinfo WALK_BACK[26] = {
+    {5, 147456}, {5, 147456}, {5, 147456}, {5, 147456}, {5, 147456},
+    {5, 147456}, {5, 147456}, {5, 147456}, {5, 147456}, {5, 147456},
+    {5, 147456}, {5, 147456}, {5, 147456}, {5, 147456}, {5, 147456},
+    {5, 147456}, {5, 147456}, {5, 147456}, {5, 147456}, {5, 147456},
+    {5, 147456}, {5, 147456}, {5, 163840}, {5, 196608}, {4, 262144},
+    {4, 262144}
+};
+
+/* 18 is SCORPION, from docs/ROSTER.md -- six independent readings agreeing. */
+#define CHARACTER 18
+
 /* The ten input bits, and the two button masks buttons_in_a2 picks between. */
 enum { IN_UP = 1 << 0, IN_DOWN = 1 << 1, IN_LEFT = 1 << 2, IN_RIGHT = 1 << 3,
        IN_HP = 1 << 4, IN_LP = 1 << 5, IN_BL = 1 << 6,
@@ -223,8 +271,6 @@ static const char *g_move_name[] = {
 #define FX          16                  /* 16.16, the engine's fixed point */
 #define FIX(n)      ((long)((n) * (1L << FX)))
 
-#define WALK_VX      FIX(4.0)           /* forward walk, units per frame */
-#define WALK_BACK_VX FIX(3.0)           /* backing up is slower */
 #define JUMP_VY      FIX(-10.0)         /* one negative vy ... */
 #define GRAVITY      FIX(0.40)          /* ... against one positive g */
 #define JUMP_VX      FIX(6.0)           /* an angled jump's horizontal speed */
@@ -243,10 +289,6 @@ static const char *g_move_name[] = {
 
 #define T_HIT        16                 /* how long a reaction lasts */
 
-/* How far a fighter travels per animation frame of the walk cycle. This is
- * what keeps the feet from skating: the clip advances with DISTANCE, so at
- * half speed it plays at half rate and the contact foot stays planted. */
-#define WALK_STRIDE   8
 
 #define REACH_PUNCH  70                 /* how far a move connects */
 #define REACH_KICK   86
@@ -329,7 +371,11 @@ typedef struct {
      * TRAVELLED instead means the contact foot stays put by construction, and
      * it costs one divide. `anim_last` is the integer frame it was on, for
      * spotting the two footfalls in a cycle. */
-    float          anim_t;
+    /* The engine's animation clock, from `init_anirate` and `next_anirate`:
+     * `ani_rate` game frames per animation frame, counted down in `ani_count`. */
+    int            ani_rate;
+    int            ani_count;
+    int            ani_index;
     int            anim_last;
     int            was_airborne;
 } fighter;
@@ -375,7 +421,9 @@ static void fighter_reset(fighter *f, int which)
     f->connected = 0;
     f->prev_buttons = 0;
     f->table = bt_stance;
-    f->anim_t = 0.0f;
+    f->ani_rate = WALK_FWD[CHARACTER].rate;
+    f->ani_count = 1;
+    f->ani_index = 0;
     f->anim_last = -1;
     f->was_airborne = 0;
 }
@@ -564,6 +612,29 @@ static void start_attack(fighter *f, int mv)
     fa_swing(mv == MV_UPPERCUT || mv == MV_HI_KICK || mv == MV_LO_KICK);
 }
 
+/* init_anirate: the rate is loaded and the countdown starts at ONE, so the
+ * first advance lands on the very next frame rather than `rate` frames later. */
+static void start_anirate(fighter *f, int rate)
+{
+    f->ani_rate = rate > 0 ? rate : 1;
+    f->ani_count = 1;
+    f->ani_index = 0;
+}
+
+/* next_anirate: decrement, and on reaching zero reload and step the frame. */
+static void tick_anirate(fighter *f, int span)
+{
+    if (--f->ani_count > 0)
+        return;
+    f->ani_count = f->ani_rate;
+    f->ani_index = (f->ani_index + 1) % (span > 0 ? span : 1);
+
+    /* Two footfalls in the cycle. WHICH frames they land on is a choice: the
+     * clip names them SCWALK1..9 and nothing marks contact. */
+    if (f->ani_index == 0 || f->ani_index == span / 2)
+        fa_step();
+}
+
 static void fighter_think(fighter *f, fighter *other, int which, long raw)
 {
     int  dir_f, dir_b;                  /* forward and back, in input bits */
@@ -639,11 +710,15 @@ static void fighter_think(fighter *f, fighter *other, int which, long raw)
         } else if (raw & dir_f) {
             f->st = ST_WALK_F;
             f->table = bt_stance;
-            vx = WALK_VX * f->facing;
+            if (f->st != ST_WALK_F)
+                start_anirate(f, WALK_FWD[CHARACTER].rate);
+            vx = WALK_FWD[CHARACTER].speed * f->facing;
         } else if (raw & dir_b) {
             f->st = ST_WALK_B;
             f->table = bt_stance;
-            vx = -WALK_BACK_VX * f->facing;
+            if (f->st != ST_WALK_B)
+                start_anirate(f, WALK_BACK[CHARACTER].rate);
+            vx = -WALK_BACK[CHARACTER].speed * f->facing;
         } else {
             f->st = ST_STANCE;
             f->table = bt_stance;
@@ -723,6 +798,11 @@ static void scene_tick(void)
 
     for (i = 0; i < 2; i++)
         fighter_think(&g_f[i], &g_f[1 - i], i, joy[i]);
+
+    /* The animation clock runs on the GAME's tick, not the renderer's. */
+    for (i = 0; i < 2; i++)
+        if (g_f[i].st == ST_WALK_F || g_f[i].st == ST_WALK_B)
+            tick_anirate(&g_f[i], CL_WALK.to - CL_WALK.from + 1);
 
     resolve_hits(&g_f[0], &g_f[1]);
     resolve_hits(&g_f[1], &g_f[0]);
@@ -841,29 +921,19 @@ static void pose_fighter(fighter *f, double now)
     span = c->to - c->from + 1;
     if (span < 1) span = 1;
 
-    /* **The walk is driven by distance, not by the clock.** `anim_t` counts
-     * animation frames and advances by however far the fighter actually moved
-     * divided by the stride, so the contact foot stays planted at any speed --
-     * and a footfall is simply the phase crossing one of the two contacts. */
+    /* **The walk runs on the engine's own clock**: one animation frame every
+     * `ani_rate` game frames, and that rate is the other half of the same eight
+     * bytes of the walk table the speed came from. See WALK_FWD.
+     *
+     * It used to advance with DISTANCE, to stop the feet skating at a speed
+     * that was itself invented. With the real speed and the real rate there is
+     * nothing left to compensate for. */
     if (f->st == ST_WALK_F || f->st == ST_WALK_B) {
-        int idx;
-
-        f->anim_t += fabsf((float)p_get(f, P_VX) / (float)(1L << FX))
-                     / (float)WALK_STRIDE;
-        pos = fmod((double)f->anim_t, (double)span);
-        idx = (int)pos;
-
-        /* Two footfalls in a nine-frame cycle. Which frames they are on is a
-         * choice: the clip names them SCWALK1..9 and nothing marks contact. */
-        if (idx != f->anim_last) {
-            if (idx == 0 || idx == span / 2)
-                fa_step();
-            f->anim_last = idx;
-        }
-
-        fa = c->from + idx;
-        fb = c->from + ((idx + 1) % span);
-        fr_char_pose(fa, fb, (float)(pos - floor(pos)));
+        float frac = 1.0f - (float)f->ani_count / (float)(f->ani_rate > 0
+                                                          ? f->ani_rate : 1);
+        fa = c->from + f->ani_index;
+        fb = c->from + ((f->ani_index + 1) % span);
+        fr_char_pose(fa, fb, frac);
         return;
     }
     f->anim_last = -1;
