@@ -3991,3 +3991,146 @@ long t_lk_zap_proc(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
 }
+
+
+/* t_angle_zap_hit -- armv7 0x00078e24, 180 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *      obj->field1c = (obj->field18 != 0) ? 4 : 3
+ *      ochar_sound(obj)
+ *      lowest_mpart_ob(obj, part)                  -> obj->field20
+ *      PUSH obj->field20
+ *      if (part->field28 & 0x10) a3_leftmost_mpart_ob(obj, part)
+ *      else                      rightmost_mpart_ob(obj, part)
+ *      POP  obj->field20
+ *      part->x0e = (uint16_t)obj->field28
+ *      part->x12 = (uint16_t)obj->field20
+ *      obj->field1c = -0x80
+ *      obj->field20 = -0x80
+ *      multi_adjust_xy(obj)
+ *      frame[frame].handler = t_angle_zap_explode
+ *
+ * **The impact is placed at the front-bottom corner of the body.** The vertical
+ * comes from `lowest_mpart_ob` and the horizontal from whichever edge is in
+ * front -- left when the flip bit is set, right otherwise -- and then both are
+ * pulled back 0x80.
+ *
+ * **`a3_leftmost_mpart_ob` exists so the caller does not have to normalise.**
+ * Plain `leftmost_mpart_ob` answers in 0x24 and `rightmost_mpart_ob` in 0x28,
+ * which is why `get_frontmost_point` earlier in this file has a copy on one
+ * branch and not the other. This routine reads **0x28 on both paths** without
+ * any such copy, so the `a3_` variant must answer there too. That is what the
+ * prefix buys: one slot, two directions, no fix-up.
+ *
+ * **Nineteenth argument-stack site**, and the reason is the same as always: the
+ * vertical answer lands in 0x20, the horizontal helper is about to overwrite
+ * 0x20 as well, and the two are needed together afterwards.
+ *
+ * The sound index is 3 or 4 chosen on `obj->field18`, which nothing here sets --
+ * so whoever launched the zap decides which of the two impact sounds it makes.
+ */
+void lowest_mpart_ob(MK3OBJ *out, MK3OBJ *src);
+void a3_leftmost_mpart_ob(MK3OBJ *out, MK3OBJ *src);
+
+long t_angle_zap_hit(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t argc;
+
+    if (*mk3_frame(thread, frame + 1) != 0)
+        return -3;
+
+    obj->field1c = (obj->field18 != 0) ? 4 : 3;
+    ochar_sound(obj);
+
+    lowest_mpart_ob(obj, obj->field08);          /* answers in 0x20 */
+
+    argc = thread->fieldf8;
+    *mk3_arg(thread, argc) = obj->field20;
+    thread->fieldf8 = argc + 1;
+
+    if ((obj->field08->field28 & 0x10u) != 0)
+        a3_leftmost_mpart_ob(obj, obj->field08); /* also answers in 0x28 */
+    else
+        rightmost_mpart_ob(obj, obj->field08);
+
+    argc = thread->fieldf8 - 1;
+    thread->fieldf8 = argc;
+    obj->field20 = *mk3_arg(thread, argc);
+
+    MK3_SET_FIELD0E(obj->field08, obj->field28);
+    MK3_SET_FIELD12(obj->field08, obj->field20);
+
+    obj->field1c = (uint32_t)~0x7fu;             /* -0x80 */
+    obj->field20 = (uint32_t)~0x7fu;
+    multi_adjust_xy(obj);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_angle_zap_explode);
+}
+
+
+/* tl_do_sonya_zap -- armv7 0x000796c4, 180 bytes.  **Complete.**
+ *
+ *      token == 0:         obj->field20 = 2
+ *                          obj->a10     = 0
+ *                          zap_init_special_act(obj)
+ *                          obj->field1c = 0; ochar_sound(obj)
+ *                          obj->field40 = 0x24; get_char_ani(obj)
+ *                          obj->field1c = 3
+ *                          token := 0x12df, descend into t_mframew
+ *
+ *      token == 0x12df:    obj->field38 = tl_sonya_zap_proc
+ *                          create_proj_proc(obj)
+ *                          obj->field20 = 0x23
+ *                          frame[frame].handler = tl_do_proj_sitting_duck
+ *
+ *      otherwise:          return -3
+ *
+ * **Entry 1 of `projectile_jumps`, and the same two states as `tl_do_sw_zap`:**
+ * set up, animate, then name the projectile's handler in 0x38, call
+ * `create_proj_proc` and park as a sitting duck.
+ *
+ * **Third duration measured for `tl_do_proj_sitting_duck`: 0x23.** With Jax's
+ * 0x16 and Swat's 0x18 that is 22, 24 and 35 frames -- so the recovery after a
+ * projectile is per-move and the field is carrying real data, not a constant
+ * three routines happen to share.
+ */
+long tl_sonya_zap_proc(MK3THREAD *thread);
+
+long tl_do_sonya_zap(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        obj->field20 = 2;
+        obj->a10     = 0;
+        zap_init_special_act(obj);
+
+        obj->field1c = 0;
+        ochar_sound(obj);
+
+        obj->field40 = 0x24;
+        get_char_ani(obj);
+
+        obj->field1c = 3;
+
+        *mk3_frame(thread, frame + 1) = 0x12df;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x12df)
+        return -3;
+
+    obj->field38 = (uint32_t)(uintptr_t)tl_sonya_zap_proc;
+    create_proj_proc(obj);
+
+    obj->field20 = 0x23;                     /* the sitting-duck duration */
+
+    return mk3_install(thread, (MK3THREADFUNC)tl_do_proj_sitting_duck);
+}
