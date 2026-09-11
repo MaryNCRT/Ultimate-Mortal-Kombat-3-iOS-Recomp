@@ -23,14 +23,14 @@
  * They are two apart, not adjacent, so 0x1b belongs to something else in the
  * same set. Whatever that is has not been read.
  */
-void ochar_sound_n(MK3OBJ *obj, long which);
+void ochar_sound_n(MK3OBJ *obj, uint32_t which);
 
 void do_robo_laugh_sound(MK3OBJ *obj)
 {
-    ochar_sound_n(obj, 0x1c);
+    ochar_sound_n(obj, 0x1cu);
 }
 
 void do_beep_sound(MK3OBJ *obj)
 {
-    ochar_sound_n(obj, 0x1a);
+    ochar_sound_n(obj, 0x1au);
 }

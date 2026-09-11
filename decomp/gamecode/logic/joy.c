@@ -1192,3 +1192,576 @@ long t_local_reaction_exit(MK3THREAD *thread)
         return 0;
     }
 }
+
+
+/* ===================================================================== plyrthread
+ *
+ * armv7 0x00030fec, **2,124 bytes -- the largest function in the directory**,
+ * and the one that makes a human-controlled fighter a human-controlled
+ * fighter. `mk3_init` starts a thread here when bit 7 of the character number
+ * is clear, and `t_local_reaction_exit` hands the fighter back here after every
+ * hit.
+ *
+ * ## How it was read
+ *
+ * The dispatch is a compiled switch three levels deep with the bodies
+ * interleaved between the branches, and reading that by eye gets a case wrong
+ * eventually. It was not read by eye: `tools/dispatch.py` executes the compare
+ * tree for every token and reports where each lands. **43 tokens over 36
+ * bodies**, plus one refusal. The case list below is that output, not a
+ * transcription.
+ *
+ * ## Four shared tails
+ *
+ * Almost every state ends in one of four places, and they are the file's whole
+ * vocabulary:
+ *
+ *      RET          pop -- return whatever is in r0
+ *      PARK1        token := 0x46d, fieldfc = 1, return 1
+ *                   (sleep exactly one frame and come back at 0x46d)
+ *      INSTALL      frame[frame].handler = H; frame[frame+1].w0 = 0; return 0
+ *      PUSH_INSTALL the same, after thread->frame has already been advanced
+ *
+ * **`mk3_update` re-runs a thread whose handler returns 0**, so INSTALL means
+ * "become this and act now", while PARK1's `return 1` ends the thread's frame.
+ * The difference is one register and it is the difference between a state
+ * change and a frame passing.
+ *
+ * ## What the states are
+ *
+ * Reading the tokens against what they install, the machine is:
+ *
+ *      0, 0x3a9      enter: mark "driven from outside", per-character begin
+ *      0x3e1         stance table, arm 0x3e4
+ *      0x3e4, 0x3e6  descend into t_wait_for_start
+ *      0x3e8, 0x3eb  round start: GLBL_joy_entry := 0x3eb, buttons on,
+ *                    reset_proc_stack, then read the stick
+ *      0x3f8         clear 0x1c and the proc's 0x14, stance_setup
+ *      0x3fd         am_i_facing_him? no -> t_turn_around, yes -> 0x404
+ *      0x400,0x42e,
+ *      0x5e3,0x5f2,
+ *      0x63b         stop_me_player, become t_local_reaction_exit
+ *      0x403         become t_check_winner_status
+ *      0x404         G[0x44e] -- the round timer -- zero means wait
+ *      0x408         check_block_bit: blocking -> t_joy_block
+ *      0x417         next_anirate, then the 0x3fd facing check
+ *      0x424         face_opponent, buttons off, arm 0x427
+ *      0x427         bt_jump, distance_from_ground, descend t_do_jump_up
+ *      0x43a, 0x446  the two walk directions
+ *      0x44c, 0x455  pick the walk info, forward or back
+ *      0x45c         call obj->field30 -- the walk routine -- then animate
+ *      0x46c, 0x46d  PARK1's own token: fall through to the walk call
+ *      0x471, 0x478,
+ *      0x479, 0x47b  the walk loop and its flip check
+ *      0x49a, 0x4a7  reduce_turbo_bar, stop
+ *      0x4a0, 0x4a3,
+ *      0x4a4, 0x4a5  run: run_setup and next_anirate
+ *      0x4b5         compare the walk routine against the stick
+ *      0x5dc         the 0x40000/0x70000 pair and a descend into t_do_flip
+ *      0x5eb         pop a level, set 0x1a/0x1b, descend into t_do_flip
+ *      0x5fd         read the stick and branch on up+down / up+left
+ *      0x617         count 0x48 down, then pop
+ *      0x61f         push a level and read the stick
+ *
+ * ## Two findings worth carrying out of here
+ *
+ * **`obj->field30` holds the fighter's WALK ROUTINE, and the state machine
+ * calls it indirectly.** State 0x45c does `blx obj->field30` -- the only
+ * indirect call in the function -- and states 0x44c/0x455 choose between
+ * `get_walk_info_f` and `get_walk_info_b` to fill it. So walking forward and
+ * walking backward are the same state with a different function pointer, and
+ * 0x4b5 decides whether to keep it by comparing it against what the stick now
+ * says. That is the same handover shape `obj->field34` has for projectiles.
+ *
+ * **The stick is tested as bit PAIRS, not as four directions.** 0x5fd masks
+ * with 9 and then with 5 -- bits 0 and 3, then bits 0 and 2 -- and branches
+ * only when the whole pair is present. `Playback_Update` established that bits
+ * 2 and 3 are the horizontal pair; so `& 9` and `& 5` are "up and one of the
+ * two horizontals", which is a diagonal. The jump states are reached from
+ * exactly there.
+ */
+long t_turn_around(MK3THREAD *thread);        /* slot 0x000f3844 */
+long t_wait_for_start(MK3THREAD *thread);     /* slot 0x000f388c */
+long t_do_jump_up(MK3THREAD *thread);         /* slot 0x000f3854 */
+long t_check_winner_status(MK3THREAD *thread);
+long t_do_flip(MK3THREAD *thread);
+long t_joy_block(MK3THREAD *thread);
+long t_walk_flip_check(MK3THREAD *thread);
+long t_joy_down(MK3THREAD *thread);
+
+void get_walk_info_f(MK3OBJ *obj);            /* slot 0x000f37d4 */
+void get_walk_info_b(MK3OBJ *obj);            /* slot 0x000f37d0 */
+
+void init_anirate(MK3OBJ *obj);
+void set_x_vel_player(MK3OBJ *obj);
+void get_char_ani(MK3OBJ *obj);
+void stance_setup(MK3OBJ *obj);
+long am_i_facing_him(MK3OBJ *obj);
+long next_anirate(MK3OBJ *obj);
+void run_setup(MK3OBJ *obj);
+void distance_from_ground(MK3OBJ *obj);
+void face_opponent(MK3OBJ *obj);
+void get_my_height(MK3OBJ *obj);
+void reduce_turbo_bar(MK3OBJ *obj);
+/* `is_run_pressed` is defined earlier in this file; it answers in
+ * `obj->field5c`, the boolean slot, and returns it as well. */
+long is_run_pressed(MK3OBJ *obj);
+
+/* The four tails, as the binary spells them. `install` is the common one; the
+ * caller has already decided which frame index it means. */
+static long plyr_install(MK3THREAD *t, uint32_t frame, const void *handler)
+{
+    mk3_frame(t, frame)[1] = (uint32_t)(uintptr_t)handler;
+    *mk3_frame(t, frame + 1) = 0;
+    return 0;
+}
+
+static long plyr_park1(MK3THREAD *t)
+{
+    *mk3_frame(t, t->frame + 1) = 0x46d;
+    t->fieldfc = 1;
+    return 1;
+}
+
+long plyrthread(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    uint32_t bits;
+
+    switch (token) {
+
+    /* ---------------------------------------------------------------- enter */
+    case 0:
+    case 0x3a9:
+        obj->field00->field10 |= 1;         /* driven from outside */
+        ochar_begin_calls(obj);
+        /* fall through */
+    case 0x3e1:
+        stuff_buttons(obj, (uint32_t)(uintptr_t)&bt_stance);
+        obj->field00->field10 |= 1;
+        *mk3_frame(thread, frame + 1) = 0x3e4;
+        thread->fieldfc = 1;
+        return 1;
+
+    case 0x3e4:
+    case 0x3e6:
+        *mk3_frame(thread, frame + 1) = 0x3e8;
+        thread->frame = frame + 1;
+        return plyr_install(thread, thread->frame, (const void *)t_wait_for_start);
+
+    /* ------------------------------------------------------- the round starts */
+    case 0x3e8:
+    case 0x3eb:
+        GLBL_joy_entry = 0x3eb;             /* where a reaction comes back to */
+        enable_all_buttons(obj);
+        reset_proc_stack(thread);
+        joystick_in_a0(obj);
+        if ((obj->field1c & 2u) != 0)
+            goto duck_check;                /* down: the duck path */
+        /* fall through */
+
+    case 0x3f8:
+        obj->field1c = 0;
+        obj->field00->field14 = 0;
+        stance_setup(obj);
+        /* fall through */
+
+    case 0x3fd:
+        if (am_i_facing_him(obj) == 0) {
+            *mk3_frame(thread, frame + 1) = 0x400;
+            thread->frame = frame + 1;
+            return plyr_install(thread, thread->frame,
+                                (const void *)t_turn_around);
+        }
+        *mk3_frame(thread, frame + 1) = 0x404;
+        thread->frame = frame + 1;
+        return plyr_install(thread, thread->frame,
+                            (const void *)t_check_winner_status);
+
+    /* ------------------------------------------------- the round-over endings */
+    case 0x400:
+    case 0x42e:
+    case 0x5e3:
+    case 0x5f2:
+    case 0x63b:
+        stop_me_player(obj);
+        return plyr_install(thread, thread->frame,
+                            (const void *)t_local_reaction_exit);
+
+    case 0x403:
+        thread->frame = frame + 1;
+        return plyr_install(thread, thread->frame,
+                            (const void *)t_check_winner_status);
+
+    /* **The round timer.** G + 0x44e is a halfword; zero means the round has
+     * not started and the fighter goes back to waiting. */
+    case 0x404:
+        obj->field1c = (uint32_t)(long)
+            *(const int16_t *)(const void *)(G_BYTES + 0x44e);
+        if (*(const uint16_t *)(const void *)(G_BYTES + 0x44e) == 0) {
+            *mk3_frame(thread, frame + 1) = 0x3e8;
+            thread->frame = frame + 1;
+            return plyr_install(thread, thread->frame,
+                                (const void *)t_wait_for_start);
+        }
+        *mk3_frame(thread, frame + 1) = 0x408;
+        thread->fieldfc = 1;
+        return 1;
+
+    case 0x408:
+        check_block_bit(obj);
+        if (obj->field5c != 0)
+            return plyr_install(thread, thread->frame,
+                                (const void *)t_joy_block);
+        goto read_stick;
+
+    case 0x417:
+        next_anirate(obj);
+        goto facing_check;
+
+    /* ------------------------------------------------------------- the jump */
+    case 0x424:
+        face_opponent(obj);
+        disable_all_buttons(obj);
+        *mk3_frame(thread, frame + 1) = 0x427;
+        thread->frame = frame + 1;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        /* copy the handler down a level -- the binary reads [r3,#-4] and
+         * writes [r3,#4], which is frame[n-1].handler into frame[n].handler */
+        mk3_frame(thread, thread->frame)[1] =
+            mk3_frame(thread, thread->frame - 1)[1];
+        goto stick_state;
+
+    case 0x427:
+        stuff_buttons(obj, (uint32_t)(uintptr_t)&bt_jump);
+        distance_from_ground(obj);
+        obj->field48 = 0;
+        obj->a10 = obj->field1c;
+        *mk3_frame(thread, frame + 1) = 0x42e;
+        thread->frame = frame + 1;
+        return plyr_install(thread, thread->frame,
+                            (const void *)t_do_jump_up);
+
+    /* --------------------------------------------------------- walking, both */
+    case 0x43a:
+        obj->field2c = (*(const uint32_t *)(const void *)
+                          ((const char *)(const void *)obj->field08 + 0x28)
+                        & 0x10u) ^ 0x10u;
+        obj->field1c = 4;
+        goto walk_common;
+
+    case 0x446:
+        obj->field2c = *(const uint32_t *)(const void *)
+                          ((const char *)(const void *)obj->field08 + 0x28)
+                       & 0x10u;
+        obj->field1c = 8;
+        goto walk_common;
+
+    case 0x44c:
+        goto walk_pick;
+
+    case 0x455:
+        obj->field30 = (uint32_t)(uintptr_t)get_walk_info_b;
+        goto walk_pick_tail;
+
+    /* **The one indirect call in the function**: whatever 0x30 holds is the
+     * walk routine, and 0x44c / 0x455 chose it. */
+    case 0x45c:
+        ((void (*)(MK3OBJ *))(uintptr_t)obj->field30)(obj);
+        obj->field40 = obj->field24;
+        init_anirate(obj);
+        obj->field1c = obj->field20;
+        set_x_vel_player(obj);
+        obj->field00->field28 = obj->field40;
+        get_char_ani(obj);
+        obj->field00->field24 = obj->field40;
+        return plyr_park1(thread);
+
+    case 0x46c:
+    case 0x46d:
+        return plyr_park1(thread);
+
+    case 0x471:
+        obj->field1c = obj->field00->field28;
+        if (obj->field00->field28 == 1) {
+            is_run_pressed(obj);
+            if (obj->field5c != 0)
+                goto run_start;
+        }
+        /* fall through */
+    case 0x478:
+        *mk3_frame(thread, frame + 1) = 0x479;
+        goto push_and_copy;
+
+    case 0x479:
+        *mk3_frame(thread, frame + 1) = 0x47b;
+        thread->frame = frame + 1;
+        return plyr_install(thread, thread->frame,
+                            (const void *)t_walk_flip_check);
+
+    case 0x47b:
+        next_anirate(obj);
+        mask_joystick(obj);
+        if (obj->field1c == 0)
+            goto stop_state;
+        return plyr_park1(thread);
+
+    /* --------------------------------------------------------------- the bars */
+    case 0x49a:
+        goto stop_state;
+
+    case 0x4a7:
+        reduce_turbo_bar(obj);
+        if (obj->field1c != 0)
+            goto turbo_run;
+        goto stop_state;
+
+    /* ------------------------------------------------------------------- run */
+    case 0x4a0:
+    case 0x4a3:
+    run_start:
+        run_setup(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x4a4;
+        thread->fieldfc = 1;
+        return 1;
+
+    case 0x4a4:
+        *mk3_frame(thread, frame + 1) = 0x4a5;
+        goto push_and_copy;
+
+    case 0x4a5:
+        next_anirate(obj);
+        *mk3_frame(thread, frame + 1) = 0x4a7;
+        thread->frame = frame + 1;
+        return plyr_install(thread, thread->frame,
+                            (const void *)t_check_winner_status);
+
+    /* **Has the stick changed since the walk routine was chosen?** 0x30 still
+     * holds it, and the fighter's own 0x18 says what it is doing now. */
+    case 0x4b5:
+        obj->field1c = *(const uint32_t *)(const void *)
+                          ((const char *)(const void *)obj->field08 + 0x18);
+        if (obj->field1c == obj->field30)
+            goto stop_state;
+        mask_joystick(obj);
+        if (obj->field1c == 0)
+            goto stop_state;
+        goto run_start;
+
+    case 0x5dc:
+        thread->frame = frame - 1;          /* pop a level, keeping the pair */
+        goto flip_5dc;
+
+    case 0x5eb:
+        goto pop_and_flip;
+
+    case 0x5fd:
+        obj->field48 = 3;
+        goto read_stick;
+
+    case 0x617:
+        obj->field48 = obj->field48 - 1;
+        if ((long)obj->field48 > 0)
+            goto read_stick_again;
+        if ((long)thread->frame <= 0)
+            return plyr_install(thread, thread->frame,
+                                (const void *)t_local_reaction_exit);
+        thread->frame = frame - 1;
+        return 0;
+
+    case 0x61f:
+        goto push_and_read;
+
+    default:
+        return -3;
+    }
+
+    /* ================================================== the shared bodies ==== */
+
+duck_check:
+    obj->field2c = *(const uint32_t *)(const void *)
+                      ((const char *)(const void *)obj->field08 + 0x28) & 0x10u;
+    obj->field1c = 8;
+    goto walk_common;
+
+walk_common:
+    obj->field00->field34 = obj->field1c;   /* the direction mask */
+    obj->field24 = 0;
+    obj->field00->field18 = 0;
+    obj->field40 = 1;
+    if (obj->field2c != 0) {
+        obj->field30 = (uint32_t)(uintptr_t)get_walk_info_b;
+        goto walk_pick_tail;
+    }
+    obj->field30 = (uint32_t)(uintptr_t)get_walk_info_f;
+    goto run_or_walk;
+
+walk_pick:
+    obj->field00->field34 = obj->field1c;
+    goto walk_common;
+
+walk_pick_tail:
+    if (obj->field30 != (uint32_t)(uintptr_t)get_walk_info_f)
+        goto walk_call;
+    goto run_or_walk;
+
+run_or_walk:
+    is_run_pressed(obj);
+    if (obj->field5c == 0)
+        goto walk_call;
+    goto run_start;
+
+walk_call:
+    ((void (*)(MK3OBJ *))(uintptr_t)obj->field30)(obj);
+    obj->field40 = obj->field24;
+    init_anirate(obj);
+    obj->field1c = obj->field20;
+    set_x_vel_player(obj);
+    obj->field00->field28 = obj->field40;
+    get_char_ani(obj);
+    obj->field00->field24 = obj->field40;
+    return plyr_park1(thread);
+
+read_stick:
+    joystick_in_a0(obj);
+    bits = obj->field1c;
+    if ((bits & 8u) != 0 && (int16_t)obj->field00->field7c == 0)
+        goto duck_check;
+    if ((bits & 4u) != 0 && (int16_t)obj->field00->field7c == 0)
+        goto back_walk;
+    if ((bits & 1u) != 0)
+        goto jump_prep;
+    if ((bits & 2u) == 0)
+        goto down_state;
+    return plyr_install(thread, thread->frame, (const void *)t_joy_down);
+
+read_stick_again:
+    obj->field48 = 3;
+    joystick_in_a0(obj);
+    bits = obj->field1c;
+    obj->field20 = bits;
+    obj->field1c = bits & 9u;
+    if ((bits & 9u) == 9u)
+        goto pop_and_flip_hi;
+    obj->field20 = bits & 5u;
+    if ((bits & 5u) == 5u)
+        goto pop_and_flip;
+    *mk3_frame(thread, thread->frame + 1) = 0x617;
+    thread->fieldfc = 1;
+    return 1;
+
+back_walk:
+    obj->field2c = (*(const uint32_t *)(const void *)
+                      ((const char *)(const void *)obj->field08 + 0x28)
+                    & 0x10u) ^ 0x10u;
+    obj->field1c = 4;
+    goto walk_common;
+
+jump_prep:
+    face_opponent(obj);
+    disable_all_buttons(obj);
+    *mk3_frame(thread, frame + 1) = 0x427;
+    thread->frame = frame + 1;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    mk3_frame(thread, thread->frame)[1] =
+        mk3_frame(thread, thread->frame - 1)[1];
+    goto stick_state;
+
+down_state:
+    *mk3_frame(thread, frame + 1) = 0x417;
+    thread->frame = frame + 1;
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_back_to_shang_check;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
+facing_check:
+    if (am_i_facing_him(obj) == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x400;
+        thread->frame = thread->frame + 1;
+        return plyr_install(thread, thread->frame,
+                            (const void *)t_turn_around);
+    }
+    *mk3_frame(thread, thread->frame + 1) = 0x404;
+    thread->frame = thread->frame + 1;
+    return plyr_install(thread, thread->frame,
+                        (const void *)t_check_winner_status);
+
+stop_state:
+    stop_me_player(obj);
+    return plyr_install(thread, thread->frame,
+                        (const void *)t_local_reaction_exit);
+
+turbo_run:
+    obj->field30 = 0xfffc0000u;             /* -4.0 in 16.16 */
+    joystick_in_a0(obj);
+    if ((obj->field1c & 8u) != 0)
+        goto compare_walk;
+    if ((obj->field1c & 4u) != 0) {
+        obj->field30 = (uint32_t)(-(long)obj->field30);
+        goto compare_walk_tail;
+    }
+    goto stop_state;
+
+compare_walk:
+    obj->field1c = *(const uint32_t *)(const void *)
+                      ((const char *)(const void *)obj->field08 + 0x18);
+compare_walk_tail:
+    if (obj->field1c == obj->field30)
+        goto stop_state;
+    mask_joystick(obj);
+    if (obj->field1c == 0)
+        goto stop_state;
+    goto run_start;
+
+push_and_copy:
+    thread->frame = thread->frame + 1;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    mk3_frame(thread, thread->frame)[1] =
+        mk3_frame(thread, thread->frame - 1)[1];
+    goto read_stick_again;
+
+push_and_read:
+    thread->frame = thread->frame + 1;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    mk3_frame(thread, thread->frame)[1] =
+        mk3_frame(thread, thread->frame - 1)[1];
+    goto read_stick_again;
+
+stick_state:
+    goto read_stick_again;
+
+/* **The 0x40000 / 0x70000 pair, from one register.** `mov #0x40000` then
+ * `add #0x30000` -- the shared-literal habit, so they must be transcribed as
+ * the addition and not as two constants. */
+flip_5dc:
+    obj->field48 = 0x40000;
+    obj->field34 = 0x40000 + 0x30000;
+    obj->field1c = 0x1a;
+    obj->field20 = 0x1a + 1;
+    *mk3_frame(thread, thread->frame + 1) = 0x5e3;
+    thread->frame = thread->frame + 1;
+    return plyr_install(thread, thread->frame, (const void *)t_do_flip);
+
+pop_and_flip_hi:
+    if ((long)thread->frame <= 0)
+        return plyr_install(thread, thread->frame,
+                            (const void *)t_local_reaction_exit);
+    thread->frame = thread->frame - 1;
+    goto flip_5dc;
+
+pop_and_flip:
+    if ((long)thread->frame <= 0)
+        return plyr_install(thread, thread->frame,
+                            (const void *)t_local_reaction_exit);
+    thread->frame = thread->frame - 1;
+    obj->field20 = 0x1a;
+    obj->field1c = 0x1a + 1;
+    obj->field34 = 0;
+    obj->field48 = 0xfff80000u;             /* -8.0 in 16.16 */
+    *mk3_frame(thread, thread->frame + 1) = 0x5f2;
+    thread->frame = thread->frame + 1;
+    return plyr_install(thread, thread->frame, (const void *)t_do_flip);
+}
