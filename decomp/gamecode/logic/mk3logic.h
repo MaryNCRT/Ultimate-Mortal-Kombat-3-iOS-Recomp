@@ -106,7 +106,8 @@ typedef struct MK3OBJPROC {
                                   *       lights_on_hit passes on */
     uint8_t  _pad0c[4];
     uint32_t field10;            /* 0x10  isp2 ORs bit 4 into this */
-    uint8_t  _pad14a[4];
+    uint32_t field14;            /* 0x14  a counter inc_downcount bumps and
+                                  *       reads straight back out */
     uint32_t field18;            /* 0x18  the action get_his_action reads and
                                   *       init_special_act writes */
     uint32_t field1c;            /* 0x1c  the animation rate */
@@ -124,7 +125,10 @@ typedef struct MK3OBJPROC {
     uint32_t field30;            /* 0x30  t_rocket1_proc clears it as the
                                   *       rocket launches. No other writer and
                                   *       no reader in the tree. */
-    uint8_t  _pad34[4];
+    /* 0x34  A DIRECTION MASK. `mask_joystick` ANDs the four stick bits with
+     * it, so a state can forbid individual directions by clearing them here
+     * once instead of testing at every read. */
+    uint32_t field34;
     uint32_t field38;            /* 0x38  the same idea in t_jax_proj_calla,
                                   *       counting 3, 2, 1 between effects */
     uint32_t field3c;            /* 0x3c  t_boomerang_call reads it as a mode:
@@ -240,7 +244,20 @@ typedef struct MK3OBJ {
     uint8_t     _pad4c[8];
     uint32_t    field54;         /* 0x54  where a computed word is parked */
     uint8_t     _pad58[4];
-    uint32_t    field5c;         /* 0x5c  am_i_joy's isolated bit */
+    /* 0x5c  This file's BOOLEAN RETURN SLOT. am_i_joy isolates a bit into it,
+     * check_block_bit and is_run_pressed leave a 0 or a 1 there. A routine that
+     * answers a yes/no question writes it here rather than returning it. */
+    uint32_t    field5c;         /* 0x5c */
+    /* 0x60  THE BUTTON TABLE. `stuff_buttons` -- four bytes, the smallest
+     * function in the directory -- does nothing but store a pointer here, and
+     * the five tables it is handed are `bt_null`, `bt_stance`, `bt_duck`,
+     * `bt_jump` and `bt_angle_jump`. Which moves a fighter can do is this one
+     * pointer, and taking input away is `bt_null`. */
+    uint32_t    field60;         /* 0x60 */
+    /* 0x64..0x6b  Nothing known. The struct is 0x6c bytes -- `Plyr`'s stride is
+     * 108 and `no_ai_hack` reads `Plyr[1]` as `[r1, #0x6c]` -- so these eight
+     * bytes exist and are unread by anything decompiled so far. */
+    uint8_t     _pad64[8];
 } MK3OBJ;
 
 /* ------------------------------------------------------------------------
