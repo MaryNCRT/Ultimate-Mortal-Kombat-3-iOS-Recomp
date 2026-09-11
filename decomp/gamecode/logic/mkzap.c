@@ -3845,3 +3845,149 @@ long t_scorp_waiting_sleep(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+
+/* t_angle_zap_jsrp -- armv7 0x00077010, 172 bytes.  **Complete.**
+ *
+ *      token == 0:       do_next_a9_frame(obj)
+ *                        obj->a10 = 4
+ *                        -- falls into the check --
+ *
+ *      the check:        obj->field1c = obj->field48
+ *                        strike_check_a0(obj)
+ *                        if (obj->field5c != 0)
+ *                            frame[frame].handler = t_angle_zap_hit
+ *                        token := 0xe06, park 1
+ *
+ *      token == 0xe06:   if (--obj->a10 != 0) -- the check --
+ *                        pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:        return -3
+ *
+ * **Four swings, one frame apart, and the first one that connects wins.** The
+ * counter starts at 4 and the routine re-tests every frame until it runs out,
+ * so the zap has a four-frame window to hit rather than one instant.
+ *
+ * That is worth a port knowing exactly: a re-implementation that checks once
+ * makes the move miss where the original hits, and the difference is invisible
+ * except in edge cases -- which is where fighting games live.
+ *
+ * **The strike parameter comes out of 0x48**, copied into 0x1c for the call, so
+ * whoever launched the zap chose how hard it lands and this routine only decides
+ * when.
+ *
+ * `strike_check_a0` and not `strike_check_a0_test` -- the committing twin -- so
+ * a hit here registers rather than being asked about, which is the difference
+ * `t_rocket_explode` uses the other way round.
+ */
+long strike_check_a0(MK3OBJ *obj);
+long t_angle_zap_hit(MK3THREAD *thread);
+long do_next_a9_frame(MK3OBJ *obj);
+
+long t_angle_zap_jsrp(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        do_next_a9_frame(obj);
+        obj->a10 = 4;                        /* four frames to connect */
+
+    } else if (token == 0xe06) {
+        obj->a10 = obj->a10 - 1;
+
+        if (obj->a10 == 0) {
+            if ((long)thread->frame > 0) {   /* cmp #0 / ble: signed */
+                thread->frame = thread->frame - 1;
+                return 0;
+            }
+            return mk3_install(thread,
+                               (MK3THREADFUNC)t_local_reaction_exit);
+        }
+
+    } else {
+        return -3;
+    }
+
+    obj->field1c = obj->field48;             /* the launcher chose the hit */
+    strike_check_a0(obj);
+
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_angle_zap_hit);
+
+    *mk3_frame(thread, frame + 1) = 0xe06;
+    thread->fieldfc = 1;
+    return 1;
+}
+
+
+/* t_lk_zap_proc -- armv7 0x00077814, 176 bytes.  **Complete.**
+ *
+ *      token == 0:       find_part2(obj)
+ *                        obj->field40 -= 4
+ *                        obj->field1c = 0x80000
+ *                        obj->field20 = 4
+ *                        set_proj_vel(obj)
+ *                        obj->field48 = 0x11
+ *                        token := 0xa08, descend into tl_projectile_flight
+ *
+ *      token == 0xa08:   obj->field1c = 0x00010003
+ *                        hob_ochar_sound(obj)
+ *                        make_dragon_explode(obj)
+ *                        frame[frame].handler = tl_delete_proj_and_die
+ *
+ *      otherwise:        return -3
+ *
+ * **`obj->field40 -= 4` right after `find_part2`** -- the cursor stepped back one
+ * word by hand, the fourth site in the tree after `t_scorpion_flame`'s `-= 4`,
+ * `t_mileena_nails`' `+= 0x10` and `t_st_spike`'s `+= 0x90`. All four move a
+ * cursor a finder has just resolved, and none of them asks the finder for the
+ * position instead.
+ *
+ * `hob_ochar_sound` rather than plain `ochar_sound`, and its argument is a
+ * packed pair -- 0x00010003 -- where every `ochar_sound` site in the tree passes
+ * a small index. So the "hob" variant takes two numbers in one word; which half
+ * is which is not settled here.
+ *
+ * It shares `make_dragon_explode` with `t_lk_prezap_hit`, which borrows the
+ * slave's part for the call; this one explodes its own. Same helper, two bodies,
+ * and the difference is entirely in what 0x08 points at when it runs.
+ */
+void hob_ochar_sound(MK3OBJ *obj);
+void find_part2(MK3OBJ *obj);
+
+long t_lk_zap_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        find_part2(obj);
+        obj->field40 = obj->field40 - 4;     /* back one word, by hand */
+
+        obj->field1c = 0x80000;
+        obj->field20 = 4;
+        set_proj_vel(obj);
+
+        obj->field48 = 0x11;
+
+        *mk3_frame(thread, frame + 1) = 0xa08;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)tl_projectile_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xa08)
+        return -3;
+
+    obj->field1c = 0x00010003;               /* a packed pair, not an index */
+    hob_ochar_sound(obj);
+
+    make_dragon_explode(obj);
+
+    return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+}
