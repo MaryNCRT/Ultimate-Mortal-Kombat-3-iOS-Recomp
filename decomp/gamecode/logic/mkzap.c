@@ -5311,3 +5311,184 @@ long t_sai3(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* tl_do_ermac_zap -- armv7 0x0007b0b0, 224 bytes.  **Complete.**
+ *
+ *      token == 0:        obj->field20 = 0x27
+ *                         obj->a10     = 0
+ *                         zap_init_special_act(obj)
+ *                         obj->field40 = 0x11; get_char_ani2(obj)
+ *                         obj->field1c = 0x00040003
+ *                         q_is_he_react_fk(obj)
+ *                         if (obj->field5c != 0) obj->field1c = 0x00020003
+ *                         token := 0xf1, descend into t_animate_a0_frames
+ *
+ *      token == 0xf1:     obj->field1c = 9; ochar_sound(obj)
+ *                         obj->field1c = -0x28
+ *                         obj->field20 = -0x28 + 0x18 = -0x10
+ *                         obj->field30 = proc->slave
+ *                         adjust_xy_a5(obj)
+ *                         obj->field38 = t_ermac_zap_proc
+ *                         create_proj_proc(obj)
+ *                         obj->field20 = 0x23
+ *                         frame[frame].handler = tl_do_proj_sitting_duck
+ *
+ *      otherwise:         return -3
+ *
+ * **The windup is shorter against an opponent who is already reacting.** Both
+ * animation pairs share the low half -- 3 -- and differ in the count: **4 frames
+ * normally, 2 if `q_is_he_react_fk` says yes.** So Ermac throws faster at
+ * someone who cannot answer, which is the same idea `t_rocket1_proc` applies to
+ * a rocket's speed with the other react predicate.
+ *
+ * Two predicates, two moves, one design: **ask what the opponent is doing and
+ * change a number, never the structure.** A port that treats the react flags as
+ * cosmetic gets every one of these subtly wrong.
+ *
+ * `q_is_he_react_fk` tests the other fighter's action against 0x507, so 0x507 is
+ * the action number this whole mechanism turns on.
+ *
+ * The placement is the `adjust_xy_a5` three-argument form off `proc->slave`
+ * again -- third site, after `tl_do_sz_zap` and `tl_do_osz_zap` -- and the
+ * offsets are -0x28 and -0x10 from one register with an `adds #0x18`.
+ *
+ * Sixth sitting-duck duration: 0x23, the same as Sonya's.
+ */
+void q_is_he_react_fk(MK3OBJ *obj);
+long t_ermac_zap_proc(MK3THREAD *thread);
+long t_animate_a0_frames(MK3THREAD *thread);     /* pointer slot 0x000f36b8 */
+
+long tl_do_ermac_zap(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        obj->field20 = 0x27;
+        obj->a10     = 0;
+        zap_init_special_act(obj);
+
+        obj->field40 = 0x11;
+        get_char_ani2(obj);
+
+        obj->field1c = 0x00040003;
+        q_is_he_react_fk(obj);
+        if (obj->field5c != 0)
+            obj->field1c = 0x00020003;       /* reacting: half the windup */
+
+        *mk3_frame(thread, frame + 1) = 0xf1;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_a0_frames;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xf1)
+        return -3;
+
+    obj->field1c = 9;
+    ochar_sound(obj);
+
+    obj->field1c = (uint32_t)~0x27u;         /* -0x28 */
+    obj->field20 = (uint32_t)~0x27u + 0x18;  /* -0x10, the same register */
+    obj->field30 = obj->field00->slave;
+    adjust_xy_a5(obj);
+
+    obj->field38 = (uint32_t)(uintptr_t)t_ermac_zap_proc;
+    create_proj_proc(obj);
+
+    obj->field20 = 0x23;                     /* the sitting-duck duration */
+
+    return mk3_install(thread, (MK3THREADFUNC)tl_do_proj_sitting_duck);
+}
+
+
+/* t_ermac_zap_proc -- armv7 0x0007c100, 228 bytes.  **Complete.**
+ *
+ *      token == 0:        obj->field40 = 0x17
+ *                         obj->field1c = 0x19
+ *                         borrow_char_ani(obj)
+ *                         obj->field1c = 0xa0000
+ *                         q_is_he_react_fk(obj)
+ *                         if (obj->field5c != 0) obj->field1c = 0xd0000
+ *                         obj->field20 = 3
+ *                         set_proj_vel(obj)
+ *                         obj->field48 = 0x19
+ *                         token := 0xc7, descend into tl_projectile_flight
+ *
+ *      token == 0xc7:     obj->field1c = 0xd; ochar_sound(obj)
+ *                         part->x0e += (obj->field2c & 0x10) ? -0x60 : +0x60
+ *                         obj->field1c = 5; create_fx(obj)
+ *                         frame[frame].handler = tl_delete_proj_and_die
+ *
+ *      otherwise:         return -3
+ *
+ * **The same predicate again, and this time it changes the SPEED**: 0xa0000
+ * normally, 0xd0000 against a reacting opponent. So Ermac's zap both winds up
+ * faster and flies faster at someone mid-reaction, and the two decisions are
+ * made in two different routines from the same question.
+ *
+ * **The impact effect is offset by the facing, not placed by a helper.** 0x60 is
+ * added to the part's x, or subtracted when bit 4 of `obj->field2c` is set --
+ * and 0x2c holds whatever `set_proj_vel` last copied out of `part->field28`, so
+ * the flip bit is being read from a stale copy rather than from the part. That
+ * works because nothing between the two touches it, and it is the kind of thing
+ * a port breaks by reordering.
+ *
+ * `borrow_char_ani` rather than `get_char_ani2` -- the variant that takes the
+ * index in 0x1c as well as 0x40. 0x19 goes into both 0x1c here and 0x48 later,
+ * from one register held across the whole routine.
+ */
+void borrow_char_ani(MK3OBJ *obj);
+
+long t_ermac_zap_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        obj->field40 = 0x17;
+        obj->field1c = 0x19;
+        borrow_char_ani(obj);
+
+        obj->field1c = 0xa0000;
+        q_is_he_react_fk(obj);
+        if (obj->field5c != 0)
+            obj->field1c = 0xd0000;          /* reacting: faster */
+
+        obj->field20 = 3;
+        set_proj_vel(obj);
+
+        obj->field48 = 0x19;                 /* the same register as above */
+
+        *mk3_frame(thread, frame + 1) = 0xc7;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)tl_projectile_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xc7)
+        return -3;
+
+    obj->field1c = 0xd;
+    ochar_sound(obj);
+
+    /* 0x2c is set_proj_vel's copy of part->field28, read back here. */
+    if ((obj->field2c & 0x10u) != 0)
+        MK3_SET_FIELD0E(obj->field08,
+                        (uint32_t)MK3_FIELD0E(obj->field08) - 0x60);
+    else
+        MK3_SET_FIELD0E(obj->field08,
+                        (uint32_t)MK3_FIELD0E(obj->field08) + 0x60);
+
+    obj->field1c = 5;
+    create_fx(obj);
+
+    return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+}
