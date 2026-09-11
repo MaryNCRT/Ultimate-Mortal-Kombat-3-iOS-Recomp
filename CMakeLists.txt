@@ -52,6 +52,7 @@ add_executable(umk3-fight
     runtime/fight_scene.c
     runtime/fight_render.c
     runtime/fight_audio.c
+    runtime/fight_select.c
     runtime/fight_stubs.c
     runtime/lime/meshset.c
     runtime/lime/scene.c

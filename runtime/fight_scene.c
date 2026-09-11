@@ -101,6 +101,7 @@
 #include "platform/gl.h"
 #include "fight_render.h"
 #include "fight_audio.h"
+#include "fight_select.h"
 
 /* ------------------------------------------------------------------ the engine
  *
@@ -465,10 +466,20 @@ static const clip CL_MOVE[] = {
     {  54,  56, "SCFLIPKICK"   }    /* MV_FLIP_KICK   */
 };
 
-/* How fast a clip plays. demo.c uses 12 Hz for an idle and says the same
- * thing: the engine's rate comes from `next_anirate`, which nobody has read. */
+/* How fast a LOOPING clip plays.
+ *
+ * There is exactly one of these left. Action clips are driven by the state's
+ * own timer -- their length is the clip's -- and the walk is driven by
+ * distance, so the two extra rates this file used to carry (an ACTION_HZ and a
+ * separate walk rate) were dead: `clip_for` returned them and `pose_fighter`
+ * never looked. Removed rather than left to mislead.
+ *
+ * 12 Hz for the idle is demo.c's number and its reasoning: ten frames at 12 Hz
+ * is a breathing stance. `next_anirate` is the engine's own animation clock
+ * and is not decompiled, so this is a chosen tempo -- as is ANIM_HOLD, which
+ * paces everything else at 30 Hz. **Those two are the whole animation
+ * timing.** */
 #define IDLE_HZ    12.0
-#define ACTION_HZ  22.0
 
 static const clip *clip_for(const fighter *f, double *hz, int *loop)
 {
@@ -476,15 +487,15 @@ static const clip *clip_for(const fighter *f, double *hz, int *loop)
     *loop = 1;
 
     switch (f->st) {
-    case ST_ATTACK: *hz = ACTION_HZ; *loop = 0; return &CL_MOVE[f->move];
-    case ST_HIT:    *hz = ACTION_HZ; *loop = 0;
+    case ST_ATTACK: *loop = 0; return &CL_MOVE[f->move];
+    case ST_HIT:    *loop = 0;
                     return (f->table == bt_duck) ? &CL_DUCKHIT : &CL_HIT;
     case ST_BLOCK:  *loop = 0; return &CL_BLOCK;
     case ST_DUCK:   *loop = 0; return &CL_DUCK;
     case ST_JUMP:   *loop = 0;
                     return (f->table == bt_angle_jump) ? &CL_JUMPFLIP : &CL_JUMP;
     case ST_WALK_F:
-    case ST_WALK_B: *hz = 14.0; return &CL_WALK;
+    case ST_WALK_B: return &CL_WALK;      /* driven by distance, not by hz */
     default:
         if (f->health == 0) { *loop = 0; return &CL_VICTORY; }
         return &CL_STANCE;
@@ -760,6 +771,16 @@ static void scene_tick(void)
 static float g_yaw = 0.0f;
 static int   g_debug;
 
+/* The debug selector's state. `g_stage_i` is the one the scene is showing;
+ * `g_pick` is what the panel is pointing at, so browsing does not disturb the
+ * fight behind it until Enter. */
+static int         g_menu;
+static int         g_stage_i;
+static int         g_pick;
+static const char *g_res;
+static const char *g_chr;
+static char        g_note[128];
+
 static float g_scale;        /* engine units -> scene units */
 static float g_feet;         /* the character's feet in its own model space */
 static float g_height;       /* and how tall it is, in scene units */
@@ -899,11 +920,34 @@ static void scene_draw(double now, int w, int h)
 }
 
 
+/* Swap the stage without restarting. `fr_stage_free` exists for exactly this;
+ * without it every switch would leak a whole stage and its textures. */
+static int load_stage(int idx)
+{
+    g_note[0] = 0;
+
+    fr_stage_free();
+    if (!fr_stage_load(g_res, fs_stage(idx))) {
+        _snprintf(g_note, sizeof g_note, "COULD NOT LOAD %s", fs_stage(idx));
+        g_note[sizeof g_note - 1] = 0;
+        /* Fall back to the one that was working, so a bad pick leaves a usable
+         * tool rather than a black screen. */
+        fr_stage_free();
+        fr_stage_load(g_res, fs_stage(g_stage_i));
+        return 0;
+    }
+    g_stage_i = idx;
+    fa_music(g_res, fs_music(idx));
+    printf("stage: %s   music: %s\n", fs_stage(idx), fs_music(idx));
+    return 1;
+}
+
+
 int main(int argc, char **argv)
 {
     const char *res   = NULL;
     const char *chr   = "SCORPION_STANDARD";
-    const char *stage = "GRAVEYARD_LEVEL_SCENE";
+    const char *stage = NULL;
     int    i, pos = 0;
     float  lo[3], hi[3];
     double t0, prev = 0.0, accum = 0.0;
@@ -927,10 +971,62 @@ int main(int argc, char **argv)
         else if (pos == 2) { stage = argv[i]; pos++; }
     }
 
+    /* Default to the first entry of the selector's own catalogue, so the
+     * command line and the panel agree about what stage 1 is. */
+    if (stage == NULL)
+        stage = fs_stage(0);
+    g_chr = chr;
+    {
+        int s;
+        for (s = 0; s < fs_stage_count(); s++)
+            if (!strcmp(stage, fs_stage(s))) { g_stage_i = s; break; }
+        g_pick = g_stage_i;
+    }
+
+    /* With no path given, look for a `res` folder beside the executable. That
+     * is what the packaged build ships as: the user drops their own extracted
+     * `UMK3.app/res` in next to the .exe and double-clicks it.
+     *
+     * **No game data is in this repository or in that package.** The folder
+     * has to come from the user's own copy of the app. The probe is for a file
+     * deep inside it rather than for the directory, so a half-copied `res`
+     * fails here with a clear message instead of failing later with "no
+     * .bones". */
+    if (res == NULL) {
+        static char beside[1024];
+        char *slash;
+        FILE *probe;
+        char  test[1200];
+
+        _snprintf(beside, sizeof beside, "%s", argv[0]);
+        beside[sizeof beside - 1] = 0;
+        slash = strrchr(beside, '\\');
+        if (!slash)
+            slash = strrchr(beside, '/');
+        if (slash)
+            slash[1] = 0;
+        else
+            beside[0] = 0;
+        strncat(beside, "res", sizeof beside - strlen(beside) - 1);
+
+        _snprintf(test, sizeof test, "%s/framelists/scorpionframes.txt", beside);
+        test[sizeof test - 1] = 0;
+        probe = fopen(test, "rb");
+        if (probe) {
+            fclose(probe);
+            res = beside;
+        }
+    }
+
     if (res == NULL) {
         printf("usage: %s <path to UMK3.app/res> [character] [stage]\n"
-               "\nThis repository ships no game data: the path is your own\n"
-               "extracted copy of the app.\n", argv[0]);
+               "\n"
+               "No path was given and there is no usable `res` folder next to\n"
+               "this executable.\n"
+               "\n"
+               "This build ships NO GAME DATA. Copy the `res` folder out of\n"
+               "your own extracted UMK3.app and put it beside this .exe, or\n"
+               "pass its path on the command line.\n", argv[0]);
         return 2;
     }
 
@@ -939,6 +1035,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    g_res = res;
     printf("loading from %s\n", res);
     if (!fr_stage_load(res, stage)) {
         fprintf(stderr, "could not load the stage %s\n", stage);
@@ -977,10 +1074,10 @@ int main(int argc, char **argv)
            WALL_L, WALL_R, FLOOR_Y);
     printf("\n  P1  W A S D   U I O = HP LP BL   J K L = HK LK RUN\n");
     printf("  P2  arrows    numpad 7 8 9 / 4 5 6\n");
-    printf("  F5 resets, Escape quits.\n\n");
+    printf("  F1 opens the stage selector, F5 resets, Escape quits.\n\n");
 
     fa_open(res);
-    fa_music(res, "GraveYard");
+    fa_music(res, fs_music(g_stage_i));
 
     scene_reset();
 
@@ -993,9 +1090,47 @@ int main(int argc, char **argv)
     while (plat_poll()) {
         int    w, h, steps = 0;
         double now = plat_time() - t0;
+        static int was_menu, was_ok, was_next, was_prev, was_reset;
+        int    k;
 
-        if (plat_key(PK_RESET))
-            scene_reset();
+        /* Edge-triggered, because these are commands and not held inputs.
+         * The fight's own buttons go through TranslateJoybits and get their
+         * edges from G + 0x1c; these never touch it. */
+        k = plat_key(PK_MENU);
+        if (k && !was_menu) { g_menu = !g_menu; g_pick = g_stage_i; }
+        was_menu = k;
+
+        k = plat_key(PK_RESET);
+        if (k && !was_reset) scene_reset();
+        was_reset = k;
+
+        /* **Every edge is tracked unconditionally, and only ACTED on while the
+         * panel is open.** Clearing these in an else branch was a real bug:
+         * closing the panel with Enter still held cleared `was_ok`, so the key
+         * looked freshly pressed the moment the panel reopened and loaded a
+         * stage nobody asked for. A held key is not a new press, whatever mode
+         * the program is in. */
+        {
+            int next = plat_key(PK_NEXT);
+            int prev = plat_key(PK_PREV);
+            int ok   = plat_key(PK_OK);
+
+            if (g_menu) {
+                if (next && !was_next) g_pick++;
+                if (prev && !was_prev) g_pick--;
+                if (ok && !was_ok) {
+                    int want = ((g_pick % fs_stage_count())
+                                + fs_stage_count()) % fs_stage_count();
+                    if (load_stage(want)) {
+                        scene_reset();
+                        g_menu = 0;
+                    }
+                }
+            }
+            was_next = next;
+            was_prev = prev;
+            was_ok   = ok;
+        }
 
         /* Fixed 60 Hz, however fast the display is running. */
         accum += now - prev;
@@ -1003,7 +1138,8 @@ int main(int argc, char **argv)
         if (accum > (double)MAX_CATCHUP / TICK_HZ)
             accum = (double)MAX_CATCHUP / TICK_HZ;
         while (accum >= 1.0 / TICK_HZ && steps < MAX_CATCHUP) {
-            scene_tick();
+            if (!g_menu)                /* the panel pauses the fight */
+                scene_tick();
             accum -= 1.0 / TICK_HZ;
             steps++;
         }
@@ -1013,6 +1149,12 @@ int main(int argc, char **argv)
         glViewport(0, 0, w, h);
 
         scene_draw(now, w, h);
+
+        if (g_menu)
+            fs_draw(w, h, 0,
+                    ((g_pick % fs_stage_count()) + fs_stage_count())
+                        % fs_stage_count(),
+                    0, 0, g_note);
 
         fa_update();
 

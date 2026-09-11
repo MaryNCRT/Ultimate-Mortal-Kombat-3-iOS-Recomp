@@ -83,3 +83,4 @@ Thumbs.db
 # build directories
 build/
 build_*/
+dist/

@@ -47,6 +47,11 @@ void  fr_char_draw(float x, float y, float z, float yaw, int shadow);
  * engine-to-scene scale from the height, and the feet from lo[1]. */
 void  fr_char_extent(float *lo, float *hi);
 
+/* Release a stage or a character so another can be loaded in its place.
+ * Needed by the debug selector; demo.c never switched. */
+void  fr_stage_free(void);
+void  fr_char_free(void);
+
 void  fr_perspective(float fovy, float aspect, float zn, float zf);
 float fr_fov(void);
 float fr_player_scale(void);
