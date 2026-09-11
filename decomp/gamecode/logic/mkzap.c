@@ -3400,3 +3400,141 @@ long tl_do_jax_zap1(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)tl_do_proj_sitting_duck);
 }
+
+
+/* t_motaro_zap_proc -- armv7 0x00076c38, 160 bytes.  **Complete.**
+ *
+ *      token == 0:       obj->field20 = 3
+ *                        obj->field1c = 0xa0000
+ *                        set_proj_vel(obj)
+ *                        obj->field48 = 3
+ *                        obj->field34 = t_mot_zap_call
+ *                        token := 0x683, descend into tl_projectile_flight_call
+ *
+ *      token == 0x683:   obj->field48 = 0
+ *                        make_lineup_explode(obj)
+ *                        frame[frame].handler = tl_delete_proj_and_die
+ *
+ *      otherwise:        return -3
+ *
+ * **This closes the callback chain.** `t_mot_zap_call` -- the eighty-eight byte
+ * routine that adds 0x5000 to the y velocity and pops -- goes into `obj->field34`
+ * here; `tl_projectile_flight_call` copies 0x34 into `proc->field28`; and the
+ * flight calls whatever is in 0x28 once a frame. Three routines written in three
+ * separate batches, and the interfaces meet with nothing left over.
+ *
+ * So `obj->field34` is where a driver names its per-frame callback and
+ * `proc->field28` is where the flight reads it. mkfatal.c's `t_r_impale_upcut`
+ * puts `t_impale_call` in the same 0x34, which makes this the second system
+ * using that slot the same way.
+ *
+ * **`obj->field48 = 0` before the explosion, where `make_dragon_explode` passes
+ * `(0x10 << 16) | width`.** Only the high half of 0x48 does any work in
+ * `make_lineup_explode` -- the low half feeds a store that is overwritten before
+ * anything reads it -- so passing zero means no vertical offset, and the width
+ * being zero costs nothing that was ever spent. The two callers together are
+ * what make that reading safe.
+ *
+ * `lsl.w r3, r3, r8` with `r8` holding 3 -- a register shift where every other
+ * push in the tree uses `lsls r3, r3, #3`, because the 3 was already in a
+ * register from `obj->field20`. Same arithmetic, and worth naming once so nobody
+ * reads it as a different stride.
+ */
+long t_mot_zap_call(MK3THREAD *thread);
+long tl_projectile_flight_call(MK3THREAD *thread);
+
+long t_motaro_zap_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        obj->field20 = 3;
+        obj->field1c = 0xa0000;
+        set_proj_vel(obj);
+
+        obj->field48 = 3;
+        obj->field34 = (uint32_t)(uintptr_t)t_mot_zap_call;
+
+        *mk3_frame(thread, frame + 1) = 0x683;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)tl_projectile_flight_call;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x683)
+        return -3;
+
+    obj->field48 = 0;                        /* no vertical offset */
+    make_lineup_explode(obj);
+
+    return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+}
+
+
+/* t_lk_zap_air -- armv7 0x0007b5b8, 156 bytes.  **Complete.**
+ *
+ *      token == 0:        obj->a10 = 0
+ *                         zap_air_init_special(obj)
+ *                         obj->field20  = 0x15
+ *                         proc->field18 = 0x15
+ *                         obj->field1c = 0; ochar_sound(obj)
+ *                         obj->field40 = 1; get_char_ani2(obj)
+ *                         obj->field1c = 2
+ *                         token := 0xa20, descend into t_mframew
+ *
+ *      token == 0xa20:    frame[frame].handler = t_lk_zap_entry
+ *
+ *      otherwise:         return -3
+ *
+ * **0x15 goes into two places from one register**: `obj->field20`, where the
+ * caller can read it back, and `proc->field18`, which is the action
+ * `get_his_action` reports. That is the same shape `i_am_a_sitting_duck` uses
+ * with 0x604 and `tl_do_proj_sitting_duck` repeats -- announce the action and
+ * keep a copy -- so it is the file's convention and not a one-off.
+ *
+ * `obj->field1c = 0` comes out of the token register the dispatch proved to be
+ * zero, so the sound index is 0.
+ *
+ * The whole routine is a setup and a hand-over: nothing here moves anything, and
+ * `t_lk_zap_entry` is where the move actually starts.
+ */
+void zap_air_init_special(MK3OBJ *obj);
+long t_lk_zap_entry(MK3THREAD *thread);
+
+long t_lk_zap_air(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        obj->a10 = 0;
+        zap_air_init_special(obj);
+
+        obj->field20          = 0x15;        /* one register, two fields */
+        obj->field00->field18 = 0x15;
+
+        obj->field1c = 0;
+        ochar_sound(obj);
+
+        obj->field40 = 1;
+        get_char_ani2(obj);
+
+        obj->field1c = 2;
+
+        *mk3_frame(thread, frame + 1) = 0xa20;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xa20)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_lk_zap_entry);
+}
