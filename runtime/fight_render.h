@@ -40,8 +40,13 @@ void  fr_char_pose(int fa, int fb, float frac);
  * the flattened black pass instead of the body.
  *
  * The yaw is a number rather than a facing flag because the model's authored
- * direction is not known a priori and has to be measured. */
-void  fr_char_draw(float x, float y, float z, float yaw, int shadow);
+ * direction is not known a priori and has to be measured. It is 0: these models
+ * are sculpted three-quarters on.
+ *
+ * `mirror` flips the model across X, which is how the fighter on the other side
+ * is drawn -- the same pose reflected, exactly as a 2D fighter flips a sprite,
+ * and never a 180-degree turn. A turn shows his back; the game never does. */
+void  fr_char_draw(float x, float y, float z, float yaw, int mirror, int shadow);
 
 /* The built pose's extent in scene units: the fight scene derives the
  * engine-to-scene scale from the height, and the feet from lo[1]. */
@@ -55,5 +60,8 @@ void  fr_char_free(void);
 void  fr_perspective(float fovy, float aspect, float zn, float zf);
 float fr_fov(void);
 float fr_player_scale(void);
+
+/* One frame of the framebuffer to a PPM. See fight_render.c. */
+void fr_screenshot(const char *path, int w, int h);
 
 #endif

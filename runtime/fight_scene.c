@@ -765,18 +765,35 @@ static void scene_tick(void)
  * character rather than picked: the engine says a fighter is 72 units tall and
  * the model says how tall it is in scene units.
  */
-/* The model's authored facing, in degrees about Y, for a fighter facing RIGHT.
+/* ===========================================================================
+ * SETTLED -- DO NOT CHANGE. The facing is yaw 0 plus a MIRROR.
  *
- * **Measured, after a wrong guess.** The first version rotated by 90 degrees,
- * reasoning that a model is authored facing the camera. The extent says
- * otherwise: Scorpion is 78.5 units along X and only 50.4 along Z, and a human
- * figure is not deeper front-to-back than it is wide. The long axis is the one
- * it faces, so **the model is already side-on, along X**, and rotating it 90
- * degrees turned it to face the viewer -- which is exactly what it did.
+ * Decided by the person who can see the screen, against a retail frame, after
+ * this was got wrong twice in one day. If a future reading of the data seems
+ * to argue otherwise, the data is not the authority here -- the retail frame
+ * is. Change it only if the USER reports that the fighters look wrong.
+ * ===========================================================================
  *
- * So a fighter facing right needs no rotation at all, and one facing left needs
- * a half turn. Still a flag, so the next character can be checked rather than
- * assumed.
+ * The model's authored facing, in degrees about Y, for a fighter facing RIGHT.
+ *
+ * **Zero, and the other side is a MIRROR rather than a turn.**
+ *
+ * These models are sculpted in three-quarter view, the same stance the arcade's
+ * digitised actors were photographed in: at yaw 0 a fighter is already angled
+ * toward the opponent with his front half toward the camera. That is why the
+ * number is 0 and not 90 -- a 90 turns him fully side-on, showing an edge the
+ * game never shows.
+ *
+ * And the fighter on the other side is not this model rotated 180 degrees,
+ * which would show his BACK. He is this model MIRRORED: the same pose, flipped
+ * across X, exactly as a 2D fighter flips a sprite. Look at any retail frame --
+ * both fighters face the camera three-quarters on, and neither is seen from
+ * behind.
+ *
+ * Recorded because I broke this twice in one day. First by reasoning from an
+ * extent (78.5 wide against 50.4 deep) instead of looking at the frame I had
+ * already rendered; then by "fixing" the working 0 to 90 when the real fault
+ * was the 180 on the other fighter. The width is the span of his ARMS.
  */
 static float g_yaw = 0.0f;
 static int   g_debug;
@@ -923,9 +940,10 @@ static void scene_draw(double now, int w, int h)
     for (i = 0; i < 2; i++) {
         fighter *f = &g_f[i];
         pose_fighter(f, now);
-        float yaw = (f->facing > 0) ? g_yaw : g_yaw + 180.0f;
-        fr_char_draw(scene_x(f), scene_y(f), 0.0f, yaw, 1);   /* shadow */
-        fr_char_draw(scene_x(f), scene_y(f), 0.0f, yaw, 0);   /* body   */
+        /* Mirrored, not turned around. See g_yaw. */
+        int mirror = f->facing < 0;
+        fr_char_draw(scene_x(f), scene_y(f), 0.0f, g_yaw, mirror, 1);
+        fr_char_draw(scene_x(f), scene_y(f), 0.0f, g_yaw, mirror, 0);
     }
 }
 
@@ -1114,6 +1132,7 @@ int main(int argc, char **argv)
     const char *chr   = "SCORPION_STANDARD";
     const char *stage = NULL;
     int    i, pos = 0;
+    const char *shot = NULL;
     float  lo[3], hi[3];
     double t0, prev = 0.0, accum = 0.0;
     int    frames = 0;
@@ -1127,6 +1146,15 @@ int main(int argc, char **argv)
     for (i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--yaw") && i + 1 < argc)
             g_yaw = (float)atof(argv[++i]);
+        /* `--shot out.ppm` renders one frame and exits, the same as demo.c.
+         *
+         * This scene did not have it, and that is how it shipped with the
+         * fighters facing the camera: the orientation was argued from an
+         * extent instead of checked against a picture, because checking meant
+         * looking at a window by hand. A program that photographs itself is
+         * the only honest way to verify a renderer. */
+        else if (!strcmp(argv[i], "--shot") && i + 1 < argc)
+            shot = argv[++i];
         else if (!strcmp(argv[i], "--debug"))
             g_debug = 1;
         else if (argv[i][0] == '-')
@@ -1322,6 +1350,14 @@ int main(int argc, char **argv)
                     0, 0, g_note);
 
         fa_update();
+
+        if (shot) {
+            int sw, sh;
+            plat_size(&sw, &sh);
+            fr_screenshot(shot, sw, sh);
+            plat_swap();
+            break;
+        }
 
         if (!plat_swap())
             break;
