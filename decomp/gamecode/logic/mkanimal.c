@@ -562,7 +562,10 @@ void ground_ob(MK3OBJ *obj, MK3OBJ *target)
  * A distance predicate in the q_ family: it answers in 0x5c through `q_yes` / `q_no`
  * like every other one, and the question is "is the opponent more than 255 away".
  */
-long get_x_dist(MK3OBJ *obj);
+/* Read from the binary in joy.c: nothing is deliberately left in r0.
+ * The `long` this used to be declared as came from a call site that
+ * ignored the result. */
+void get_x_dist(MK3OBJ *obj);
 void distance_off_ground(MK3OBJ *obj);
 void q_yes(MK3OBJ *obj);
 void q_no(MK3OBJ *obj);

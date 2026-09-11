@@ -40,4 +40,30 @@ int plat_mouse(int *x, int *y);
 /* Seconds since plat_open, monotonic. */
 double plat_time(void);
 
+/* ------------------------------------------------------------------ input
+ *
+ * The fight engine takes ONE TEN-BIT WORD PER PLAYER and nothing else -- see
+ * "THE INPUT CONTRACT" at the top of decomp/gamecode/logic/joy.c, where the
+ * six buttons are named from three independent measurements. These two calls
+ * are how a keyboard and a gamepad produce that word.
+ *
+ * `plat_key` takes a platform-independent code from the list below. The engine
+ * never sees these; the caller maps them onto the ten bits.
+ */
+enum {
+    PK_UP, PK_DOWN, PK_LEFT, PK_RIGHT,
+    PK_HP, PK_LP, PK_BL, PK_HK, PK_LK, PK_RUN,
+    PK_P2_UP, PK_P2_DOWN, PK_P2_LEFT, PK_P2_RIGHT,
+    PK_P2_HP, PK_P2_LP, PK_P2_BL, PK_P2_HK, PK_P2_LK, PK_P2_RUN,
+    PK_RESET, PK_COUNT
+};
+
+/* Is that key down right now? */
+int plat_key(int code);
+
+/* The first attached gamepad, as the same ten bits the engine wants, or -1
+ * when there is none. Bit order is the engine's: 0..3 directions, then HP, LP,
+ * BL, HK, LK, RUN. */
+int plat_pad(int which);
+
 #endif

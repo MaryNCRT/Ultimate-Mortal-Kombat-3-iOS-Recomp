@@ -1801,10 +1801,13 @@ long t_run_in_close_now(struct MK3THREAD *thread);
 long t_stalk_in_close(struct MK3THREAD *thread);
 long ask_mr_diff(MK3OBJ *obj);
 void get_his_action(MK3OBJ *obj);
-long get_x_dist(MK3OBJ *obj);
+/* Read from the binary in joy.c: nothing is deliberately left in r0.
+ * The `long` this used to be declared as came from a call site that
+ * ignored the result. */
+void get_x_dist(MK3OBJ *obj);
 long is_throwing_allowed(MK3OBJ *obj);
 long is_towards_me(MK3OBJ *obj);
-long ochar_begin_calls(MK3OBJ *obj);
+void ochar_begin_calls(MK3OBJ *obj);
 long q_am_i_cornered(MK3OBJ *obj);
 long q_will_he_reach_me(MK3OBJ *obj);
 

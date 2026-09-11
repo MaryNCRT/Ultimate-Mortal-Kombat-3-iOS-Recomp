@@ -1974,7 +1974,10 @@ long t_hele_sleep(MK3THREAD *thread)
  * this handler from outside.
  */
 void set_noedge(MK3OBJ *obj);
-long get_x_dist(MK3OBJ *obj);
+/* Read from the binary in joy.c: nothing is deliberately left in r0.
+ * The `long` this used to be declared as came from a call site that
+ * ignored the result. */
+void get_x_dist(MK3OBJ *obj);
 void stop_me_player(MK3OBJ *obj);
 
 long t_slide_behind_hair(MK3THREAD *thread)

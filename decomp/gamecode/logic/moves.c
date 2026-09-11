@@ -92,7 +92,7 @@ void get_his_dfe(MK3OBJ *obj);
 long is_he_airborn(MK3OBJ *obj);
 long t_dizzy_sleep(MK3THREAD *thread);
 extern uint32_t scom_robo_tele[];        /* 0x0016a34c */
-long get_y_dist(MK3OBJ *obj);
+void get_y_dist(MK3OBJ *obj);
 long t_air_sleep3(MK3THREAD *thread);
 long t_do_air_slam(MK3THREAD *thread);
 extern uint32_t scom_fly[];               /* 0x0016a3e8 */
@@ -128,7 +128,10 @@ long is_stick_down(MK3OBJ *obj);
 void q_mercy(MK3OBJ *obj);
 void q_fatality_req(MK3OBJ *obj);
 void free_xfer(MK3OBJ *obj, MK3OBJ *other);
-long get_x_dist(MK3OBJ *obj);
+/* Read from the binary in joy.c: nothing is deliberately left in r0.
+ * The `long` this used to be declared as came from a call site that
+ * ignored the result. */
+void get_x_dist(MK3OBJ *obj);
 long stick_look_lr(MK3OBJ *obj, uint32_t a, uint32_t b,
                    uint32_t *pair);
 void button_bit_check(MK3OBJ *obj);

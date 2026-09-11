@@ -717,9 +717,9 @@ long t_joy_back_up(MK3THREAD *thread)
  * be in it. 0x60 is the first field found in that space, and it is **the
  * fighter's current button table.**
  */
-void stuff_buttons(MK3OBJ *obj, const void *table)
+void stuff_buttons(MK3OBJ *obj, uint32_t table)
 {
-    obj->field60 = (uint32_t)(uintptr_t)table;
+    obj->field60 = table;
 }
 
 
@@ -752,17 +752,17 @@ extern const void *bt_jump;        /* 0x00165624 */
 
 void enable_all_buttons(MK3OBJ *obj)
 {
-    stuff_buttons(obj, &bt_stance);
+    stuff_buttons(obj, (uint32_t)(uintptr_t)&bt_stance);
 }
 
 void disable_all_buttons(MK3OBJ *obj)
 {
-    stuff_buttons(obj, &bt_null);
+    stuff_buttons(obj, (uint32_t)(uintptr_t)&bt_null);
 }
 
 void disable_his_buttons(MK3OBJ *obj)
 {
-    stuff_buttons(obj->field00->field00, &bt_null);
+    stuff_buttons(obj->field00->field00, (uint32_t)(uintptr_t)&bt_null);
 }
 
 
