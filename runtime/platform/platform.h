@@ -57,7 +57,7 @@ enum {
     PK_P2_HP, PK_P2_LP, PK_P2_BL, PK_P2_HK, PK_P2_LK, PK_P2_RUN,
     PK_RESET,
     /* the debug selector's own keys, kept apart from the fight's */
-    PK_MENU, PK_OK, PK_NEXT, PK_PREV,
+    PK_MENU, PK_OK, PK_NEXT, PK_PREV, PK_BACK, PK_TEST,
     PK_COUNT
 };
 

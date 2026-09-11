@@ -121,10 +121,20 @@ void gravity_n_bounds(void *obj);
 
 /* `G`. The engine reaches its globals through this pointer and indexes it by
  * byte offset, so a plain buffer is the whole requirement. 0x478 is its size,
- * from `mk3_init`'s `memset(G, 0, 0x478)`. */
-static char  g_state[0x478];
-void        *G = g_state;
+ * from `mk3_init`'s `memset(G, 0, 0x478)`.
+ *
+ * In the SHELL build `runtime/gamecode_globals.c` owns the pointer -- it is
+ * the file that transcribes the binary's data section -- and `test_main.c`
+ * points it at storage before anything runs. Standalone, this file owns both.
+ */
+#ifdef UMK3_SHELL
+extern void *G;
+#else
+static char  g_state_store[0x478];
+void        *G = g_state_store;
+#endif
 
+#define g_state   ((char *)G)
 #define G_L(off)  (*(long     *)(void *)(g_state + (off)))
 #define G_U(off)  (*(unsigned *)(void *)(g_state + (off)))
 
@@ -943,6 +953,161 @@ static int load_stage(int idx)
 }
 
 
+/* ===================================================== the scene as a module
+ *
+ * `umk3-fight` still has its own `main` below and behaves exactly as before.
+ * These three entry points exist so `runtime/test_main.c` can run the real
+ * front end and this scene in one process, switching between them -- which is
+ * what "integrate the menu" means when the menu must not be modified.
+ *
+ * The split is: setup owns the loading, `fight_frame` owns ONE displayed frame
+ * including its own fixed 60 Hz ticks, and shutdown owns the freeing. Nothing
+ * about the simulation changed.
+ */
+static double g_t0, g_prev, g_accum;
+static int    g_frames;
+
+int fight_setup(const char *res, const char *chr, int stage_idx)
+{
+    float lo[3], hi[3];
+
+    g_res    = res;
+    g_chr    = chr;
+    g_stage_i = stage_idx;
+    g_pick    = stage_idx;
+
+    printf("loading from %s\n", res);
+    if (!fr_stage_load(res, fs_stage(stage_idx))) {
+        fprintf(stderr, "could not load the stage %s\n", fs_stage(stage_idx));
+        return 0;
+    }
+    if (!fr_char_load(res, chr)) {
+        fprintf(stderr, "could not load the character %s\n", chr);
+        return 0;
+    }
+
+    /* One pose up front, to measure the character and derive the single number
+     * that joins the engine's world to the stage's. */
+    fr_char_pose(CL_STANCE.from, CL_STANCE.from, 0.0f);
+    fr_char_extent(lo, hi);
+    g_height = hi[1] - lo[1];
+    g_width  = hi[0] - lo[0];
+    g_feet   = lo[1];
+    g_scale  = g_height / (float)BOX_H;
+
+    printf("  %s extent: x %.1f..%.1f (%.1f wide)  y %.1f..%.1f (%.1f tall)\n",
+           chr, lo[0], hi[0], g_width, lo[1], hi[1], g_height);
+    printf("  arena %d..%d, floor %d   (measured from the binary)\n",
+           WALL_L, WALL_R, FLOOR_Y);
+
+    fa_open(res);
+    fa_music(res, fs_music(stage_idx));
+
+    scene_reset();
+    g_t0 = plat_time();
+    g_prev = 0.0;
+    g_accum = 0.0;
+    return 1;
+}
+
+/* One displayed frame. Returns 0 when the player asked to leave the scene. */
+int fight_frame(int w, int h)
+{
+    double now = plat_time() - g_t0;
+    int    steps = 0;
+    static int was_menu, was_ok, was_next, was_prev, was_reset, was_back;
+    int    k;
+
+    if (h <= 0)
+        h = 1;
+
+    k = plat_key(PK_MENU);
+    if (k && !was_menu) { g_menu = !g_menu; g_pick = g_stage_i; }
+    was_menu = k;
+
+    k = plat_key(PK_RESET);
+    if (k && !was_reset) scene_reset();
+    was_reset = k;
+
+    /* **Every edge is tracked unconditionally, and only ACTED on while the
+     * panel is open.** Clearing these in an else branch was a real bug:
+     * closing the panel with Enter still held cleared `was_ok`, so the key
+     * looked freshly pressed the moment the panel reopened and loaded a stage
+     * nobody asked for. A held key is not a new press, whatever mode the
+     * program is in. */
+    {
+        int next = plat_key(PK_NEXT);
+        int prev = plat_key(PK_PREV);
+        int ok   = plat_key(PK_OK);
+
+        if (g_menu) {
+            if (next && !was_next) g_pick++;
+            if (prev && !was_prev) g_pick--;
+            if (ok && !was_ok) {
+                int want = ((g_pick % fs_stage_count())
+                            + fs_stage_count()) % fs_stage_count();
+                if (load_stage(want)) {
+                    scene_reset();
+                    g_menu = 0;
+                }
+            }
+        }
+        was_next = next;
+        was_prev = prev;
+        was_ok   = ok;
+    }
+
+    g_accum += now - g_prev;
+    g_prev = now;
+    if (g_accum > (double)MAX_CATCHUP / TICK_HZ)
+        g_accum = (double)MAX_CATCHUP / TICK_HZ;
+    while (g_accum >= 1.0 / TICK_HZ && steps < MAX_CATCHUP) {
+        if (!g_menu)                    /* the panel pauses the fight */
+            scene_tick();
+        g_accum -= 1.0 / TICK_HZ;
+        steps++;
+    }
+
+    glViewport(0, 0, w, h);
+    scene_draw(now, w, h);
+
+    if (g_menu)
+        fs_draw(w, h, 0,
+                ((g_pick % fs_stage_count()) + fs_stage_count())
+                    % fs_stage_count(),
+                0, 0, g_note);
+
+    fa_update();
+
+    if (++g_frames % 30 == 0 && g_debug) {
+        static const char *sn[] = { "stance", "walk-f", "walk-b", "duck",
+                                    "block", "jump", "attack", "hit" };
+        int j;
+        for (j = 0; j < 2; j++) {
+            fighter *f = &g_f[j];
+            printf("p%d %-6s ex=%5d ey=%4d vx=%8ld  face=%+d  %s\n",
+                   j + 1, sn[f->st], p_xi(f), p_yi(f),
+                   (long)p_get(f, P_VX), f->facing, g_move_name[f->move]);
+        }
+    }
+
+    /* F3 leaves the scene. Only the shell has anywhere to go, so standalone
+     * ignores what this returns. */
+    k = plat_key(PK_BACK);
+    if (k && !was_back) { was_back = k; return 0; }
+    was_back = k;
+    return 1;
+}
+
+void fight_shutdown(void)
+{
+    fa_close();
+    fr_char_free();
+    fr_stage_free();
+}
+
+
+#ifndef UMK3_SHELL
 int main(int argc, char **argv)
 {
     const char *res   = NULL;
@@ -1191,3 +1356,4 @@ int main(int argc, char **argv)
     plat_close();
     return 0;
 }
+#endif /* UMK3_SHELL -- test_main.c supplies its own */

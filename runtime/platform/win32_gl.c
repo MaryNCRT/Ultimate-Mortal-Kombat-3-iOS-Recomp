@@ -176,7 +176,9 @@ static const int g_vk[PK_COUNT] = {
     VK_NUMPAD7, VK_NUMPAD8, VK_NUMPAD9, /* P2  HP LP BL */
     VK_NUMPAD4, VK_NUMPAD5, VK_NUMPAD6, /* P2  HK LK RUN */
     VK_F5,                              /* reset the scene */
-    VK_F1, VK_RETURN, VK_RIGHT, VK_LEFT /* the debug selector */
+    VK_F1, VK_RETURN, VK_RIGHT, VK_LEFT, /* the debug selector */
+    VK_F3,                              /* leave the scene */
+    VK_F2                               /* enter the test mode */
 };
 
 int plat_key(int code)
