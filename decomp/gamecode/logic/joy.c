@@ -870,3 +870,316 @@ void mask_joystick(MK3OBJ *obj)
     obj->field20  = obj->field00->field34;
     obj->field1c &= obj->field20;
 }
+
+
+/* ------------------------------------------------------ get_x_dist, get_y_dist
+ *
+ * armv7 0x0002f3a0 and 0x0002f3c0; 32 and 36 bytes.  **Complete.**
+ *
+ *      get_x_dist(obj)   obj->field2c = (int16_t)obj->field08->0x0e
+ *                        obj->field28 = |proc->him->0x0e - obj->field2c|
+ *
+ *      get_y_dist(obj)   obj->field2c = (int16_t)obj->field08->0x12
+ *                        obj->a10     = proc->him
+ *                        obj->field28 = |proc->him->0x12 - obj->field2c|
+ *
+ * **These two settle a question mk3logic.h has carried open since the proc
+ * struct was first written.** That header says of `field00` and `him`:
+ *
+ *      "the field is still called field00 and not `him`, because `him` is
+ *       already taken by 0x04 ... one of the two readings is incomplete and
+ *       nothing here settles which."
+ *
+ * **Neither is incomplete. They point at different structs.** Six functions
+ * reach `obj->field00->field00` and are named for the opponent, so 0x00 is the
+ * opponent's MK3OBJ. These two dereference `proc->him` at **0x0e and 0x12** --
+ * the two halfword coordinates that live on a GrObj -- so **0x04 is the
+ * opponent's GrObj**, their position record.
+ *
+ * Both are "the opponent". One is the object, one is where it is standing.
+ *
+ * The two functions are the same routine over the two coordinates, and the
+ * absolute value is the same `cmp`/`rsblt` pair in both. `get_y_dist` also
+ * parks the opponent's part in `a10` on the way past, which `get_x_dist` does
+ * not -- the one asymmetry between them, and the reason `get_y_dist` is four
+ * bytes longer.
+ *
+ * `field2c` gets MY coordinate and `field28` gets the DISTANCE, always
+ * positive. A caller that needs the sign has to take it from `field2c` and the
+ * opponent itself; it is thrown away here.
+ */
+void get_x_dist(MK3OBJ *obj)
+{
+    MK3OBJ *him = (MK3OBJ *)(uintptr_t)obj->field00->him;
+    long    d;
+
+    obj->field2c = (uint32_t)(long)MK3_FIELD0E_S(obj->field08);
+
+    d = (long)MK3_FIELD0E_S(him) - (long)obj->field2c;
+    obj->field28 = (uint32_t)d;
+    if (d < 0)
+        obj->field28 = (uint32_t)(-d);
+}
+
+void get_y_dist(MK3OBJ *obj)
+{
+    MK3OBJ *him;
+    long    d;
+
+    obj->field2c = (uint32_t)(long)MK3_FIELD12_S(obj->field08);
+
+    obj->a10 = obj->field00->him;          /* the opponent's part, parked */
+
+    him = (MK3OBJ *)(uintptr_t)obj->field00->him;
+    d = (long)MK3_FIELD12_S(him) - (long)obj->field2c;
+    obj->field28 = (uint32_t)d;
+    if (d < 0)
+        obj->field28 = (uint32_t)(-d);
+}
+
+
+/* ------------------------------------------------------------ ochar_begin_calls
+ *
+ * armv7 0x0002f48c, 20 bytes.  **Complete.**
+ *
+ *      if (obj->field08->0x24 == 0xc) shang_begin(obj)
+ *
+ * **`GrObj + 0x24` is the CHARACTER NUMBER**, and 0xc is Shang Tsung -- the
+ * function called for it says so. `mk3_update` copies that same field into the
+ * display record's 0x0c, so the renderer is told which character it is drawing
+ * through the same byte.
+ *
+ * A **ninth hard-coded character number** for the port-critical table, and the
+ * mild kind: the constant is right next to a function whose name identifies it,
+ * the way `is_he_motaro` and `is_jade_protected` are. The dangerous ones are
+ * the bare numbers.
+ *
+ * The name is plural and the body has one case, so this is the hook where
+ * per-character round-start work goes and only one character needed any.
+ */
+void shang_begin(MK3OBJ *obj);
+
+#define MK3_SHANG_TSUNG  0xc
+
+void ochar_begin_calls(MK3OBJ *obj)
+{
+    if (obj->field08->field24 == MK3_SHANG_TSUNG)
+        shang_begin(obj);
+}
+
+
+/* ------------------------------------------------------------ reset_proc_stack
+ *
+ * armv7 0x0002ebdc, 72 bytes.  **Complete.**
+ *
+ *      handler = mk3_frame(t, t->frame)[1]      ; save the current two
+ *      token   = mk3_frame(t, t->frame + 1)[0]
+ *
+ *      t->frame   = 0
+ *      t->fieldf8 = 0                           ; the argument cursor
+ *      t->func    = t_local_reaction_exit       ; = mk3_frame(t, 0)[1]
+ *      mk3_frame(t, 1)[0] = 0
+ *
+ *      t->frame = 1
+ *      mk3_frame(t, 1)[1] = handler             ; put the saved pair back
+ *      mk3_frame(t, 2)[0] = token
+ *
+ * **It throws the whole frame stack away and rebuilds a two-level one.** Level
+ * 0 becomes `t_local_reaction_exit` and level 1 becomes whatever the thread was
+ * doing, so however deep a fighter was nested -- a special move inside a combo
+ * inside a stance -- one call collapses it to "do this, then leave the
+ * reaction".
+ *
+ * That is what a hit does. Everything the fighter had pending is discarded, not
+ * unwound, and there is no way back to it.
+ *
+ * **`t->func` at 0x04 IS `mk3_frame(t, 0)[1]`.** The frame array starts at the
+ * thread's own address with eight-byte entries, so entry 0's handler word is
+ * the struct's `func` field -- which is why mk3logic.h says the array "sits at
+ * the thread's own address and overlaps them, which is why `frame` is never
+ * small". This routine writes the same word both ways in nine instructions and
+ * is the clearest demonstration of it in the tree.
+ *
+ * `fieldf8` is cleared too, so the argument stack goes with the frame stack.
+ * Anything a caller pushed for a callee that is now discarded is gone, which is
+ * the only safe thing to do and the reason the two are cleared together.
+ */
+long t_local_reaction_exit(MK3THREAD *thread);
+
+void reset_proc_stack(MK3THREAD *thread)
+{
+    uint32_t handler = mk3_frame(thread, thread->frame)[1];
+    uint32_t token   = *mk3_frame(thread, thread->frame + 1);
+
+    thread->frame   = 0;
+    thread->fieldf8 = 0;
+    mk3_frame(thread, 0)[1] = (uint32_t)(uintptr_t)t_local_reaction_exit;
+    *mk3_frame(thread, 1) = 0;
+
+    thread->frame = 1;
+    mk3_frame(thread, 1)[1] = handler;
+    *mk3_frame(thread, 2) = token;
+}
+
+
+/* ------------------------------------------------------- t_local_reaction_exit
+ *
+ * armv7 0x00030060, 356 bytes.  **Complete.**
+ *
+ * The bottom of the frame stack `reset_proc_stack` installs. **Every hit a
+ * fighter takes ends here**, and this decides what they become afterwards.
+ *
+ *      token == 0:
+ *          c = obj->field08->0x24                   ; the character number
+ *          if (c == 0xe || c == 0x12) ReallyKillProjectile(obj)
+ *          airborne = am_i_airborn(obj)
+ *          if (airborne) {
+ *              obj->field20 = 1
+ *              obj->field24 = 0x6000
+ *              obj->field28 = 5
+ *              obj->field1c = 0
+ *              frame[frame].handler = t_fall_on_my_back
+ *              frame[frame+1].w0 = 0
+ *              return 0
+ *          }
+ *          stop_me_player(obj)
+ *          back_to_normal(obj)
+ *          reset_proc_stack(thread)
+ *          token := 0x65b, push a level, handler = t_back_to_shang_check
+ *          return 0
+ *
+ *      token == 0x65b:
+ *          f = obj->field00->field10                ; the proc's flag word
+ *          obj->field2c = f
+ *          if (f & 0x40)  frame[frame].handler = t_collapse_on_ground
+ *          else if (f & 1) {
+ *              frame[frame].handler = plyrthread
+ *              frame[frame+1].w0    = GLBL_joy_entry
+ *          } else         frame[frame].handler = t_drone_entry
+ *          return 0
+ *
+ *      otherwise: return -3
+ *
+ * ## Bit 0 of the proc's 0x10 is the human/AI switch, and here is where it is read
+ *
+ * `no_ai_hack` in mk3.c sets that bit on both fighters and its name says what
+ * that means. `mk3_init` starts each fighter's thread at `plyrthread` or
+ * `t_drone_begin` on bit 7 of the character argument. **This is the third site,
+ * and it is the one that matters every round**: after every single reaction the
+ * fighter is handed back to `plyrthread` if bit 0 is set and to
+ * `t_drone_entry` if it is not.
+ *
+ * So the CPU flag is not just an initial condition. A fighter that loses that
+ * bit mid-match stops responding to the stick the next time it is hit, and
+ * one that gains it starts responding. **That is the whole mechanism behind
+ * `no_ai_hack`**, and it is why that function is thirty-two bytes and needs no
+ * cooperation from anything else.
+ *
+ * **Bit 6 (0x40) of the same word outranks it**: a fighter with that set
+ * collapses on the ground instead of getting up, whether it is human-driven or
+ * not. Checked first, and the human/AI question is never asked.
+ *
+ * ## GLBL_joy_entry
+ *
+ * `plyrthread` is not resumed at token 0. It is resumed at whatever
+ * `_GLBL_joy_entry` holds -- a global at 0x00165580, **initialised to 0 in the
+ * file** -- so the entry point of the human state machine is a variable and
+ * something can change where a fighter comes back to. Nothing decompiled writes
+ * it yet.
+ *
+ * ## Airborne is a different ending
+ *
+ * Being hit in the air does not reset the proc stack at all. Four fields are
+ * set -- 0x20 = 1, 0x24 = 0x6000, 0x28 = 5, 0x1c = 0 -- and the handler becomes
+ * `t_fall_on_my_back` in place, with the stack left as deep as it was. The
+ * grounded path is the one that unwinds.
+ *
+ * ## Two more hard-coded character numbers
+ *
+ * 0xe and 0x12 get `ReallyKillProjectile` called on them before anything else,
+ * and they are bare numbers with no named predicate around them -- the
+ * dangerous kind. **Tenth and eleventh entries in the port-critical table.**
+ * Whatever those two characters are, a hit cancels a projectile they own and no
+ * other character gets that.
+ */
+long am_i_airborn(MK3OBJ *obj);
+void ReallyKillProjectile(MK3OBJ *obj);
+void stop_me_player(MK3OBJ *obj);
+void back_to_normal(MK3OBJ *obj);
+long t_fall_on_my_back(MK3THREAD *thread);      /* slot 0x000f38ac */
+long t_collapse_on_ground(MK3THREAD *thread);   /* slot 0x000f385c */
+long t_back_to_shang_check(MK3THREAD *thread);  /* slot 0x000f38c0 */
+long t_drone_entry(MK3THREAD *thread);          /* slot 0x000f37ec */
+long plyrthread(MK3THREAD *thread);
+
+extern uint32_t GLBL_joy_entry;                 /* 0x00165580, starts at 0 */
+
+#define MK3_KILLS_PROJ_A  0x0e
+#define MK3_KILLS_PROJ_B  0x12
+
+long t_local_reaction_exit(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t c;
+    long     airborne;
+
+    if (token == 0) {
+        c = obj->field08->field24;
+
+        if (c == MK3_KILLS_PROJ_A || c == MK3_KILLS_PROJ_B)
+            ReallyKillProjectile(obj);
+
+        airborne = am_i_airborn(obj);
+
+        if (airborne != 0) {
+            obj->field20 = 1;
+            obj->field24 = 0x6000;
+            obj->field28 = 5;
+            obj->field1c = 0;
+
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)t_fall_on_my_back;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+
+        stop_me_player(obj);
+        back_to_normal(obj);
+        reset_proc_stack(thread);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x65b;
+        thread->frame = thread->frame + 1;          /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_back_to_shang_check;
+        *mk3_frame(thread, thread->frame + 1) = (uint32_t)airborne;  /* 0 */
+        return airborne;
+    }
+
+    if (token != 0x65b)
+        return -3;
+
+    {
+        uint32_t f = obj->field00->field10;
+        obj->field2c = f;
+
+        if ((f & 0x40u) != 0) {                     /* collapse outranks all */
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)t_collapse_on_ground;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+
+        if ((f & 1u) != 0) {                        /* bit 0: a human drives me */
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)plyrthread;
+            *mk3_frame(thread, thread->frame + 1) = GLBL_joy_entry;
+            return 0;
+        }
+
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_drone_entry;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+}

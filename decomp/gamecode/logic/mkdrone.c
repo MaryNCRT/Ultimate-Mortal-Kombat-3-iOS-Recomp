@@ -3449,3 +3449,48 @@ long t_d_fflip_kick_jump(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+
+/* ------------------------------------------------- bossck, q_is_he_a_boss
+ *
+ * armv7 0x00068e00 and 0x00068e20; 20 and 16 bytes.  **Complete.**
+ *
+ *      bossck(obj, part)      obj->field54 = part->0x24
+ *                             obj->field5c = (part->0x24 - 0x18 <= 1u)
+ *
+ *      q_is_he_a_boss(obj)    bossck(obj, obj->field00->him)
+ *
+ * **A boss is character 0x18 or 0x19**, tested with the range idiom -- subtract
+ * the low end and compare unsigned against the span, so two characters cost one
+ * branch.
+ *
+ * Both numbers were already known from elsewhere and this is the first place
+ * they appear together: **0x18 is Motaro**, from `is_he_motaro` and from
+ * `proj_strike_check`, and **0x19 is Shao Kahn**, which Blood.c spells out as
+ * `#define SHAO_KAHN 0x19`. So "boss" means exactly those two and the engine
+ * has no other notion of one.
+ *
+ * The character number comes from the PART's 0x24 -- third independent
+ * confirmation that `GrObj + 0x24` is where a fighter's identity lives, after
+ * `ochar_begin_calls` and `mk3_update`'s display record.
+ *
+ * `q_is_he_a_boss` asks it about `proc->him`, the opponent's part, and the
+ * answer lands in `obj->field5c` -- the boolean return slot the `q_` family
+ * uses. The wrapper shape this directory is full of: a core that takes the part
+ * and a `q_` that supplies the opponent's.
+ */
+#define MK3_MOTARO     0x18
+#define MK3_SHAO_KAHN  0x19
+
+void bossck(MK3OBJ *obj, MK3OBJ *part)
+{
+    uint32_t c = part->field24;
+
+    obj->field54 = c;
+    obj->field5c = ((c - MK3_MOTARO) <= 1u);
+}
+
+void q_is_he_a_boss(MK3OBJ *obj)
+{
+    bossck(obj, (MK3OBJ *)(uintptr_t)obj->field00->him);
+}
