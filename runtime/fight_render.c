@@ -985,6 +985,27 @@ static void perspective(float fovy, float aspect, float zn, float zf)
 /* Grab the framebuffer to a PPM. There is no way to claim a renderer works
  * without looking at what it drew, and a window nobody can see is not
  * evidence. `--shot out.ppm` renders one frame and exits. */
+void fr_screenshot(const char *path, int w, int h)
+{
+    unsigned char *px = (unsigned char *)malloc((size_t)w * h * 3);
+    FILE *fh;
+    int y;
+
+    if (!px) return;
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, px);
+
+    fh = fopen(path, "wb");
+    if (!fh) { free(px); return; }
+    fprintf(fh, "P6\n%d %d\n255\n", w, h);
+    /* GL row 0 is the bottom; PPM row 0 is the top */
+    for (y = h - 1; y >= 0; y--)
+        fwrite(px + (size_t)y * w * 3, 1, (size_t)w * 3, fh);
+    fclose(fh);
+    free(px);
+    printf("  wrote %s (%dx%d)\n", path, w, h);
+}
+
 
 /* ======================================================== the public surface
  *
@@ -1038,13 +1059,24 @@ void fr_char_pose(int fa, int fb, float frac)
 
 /* Draw whatever `fr_char_pose` last built, at a place and a facing.
  *
- * `facing` is +1 or -1 and becomes a 180-degree turn, which is how a fighter
- * turns around: the engine keeps the same idea as bit 4 of the part's 0x28. */
-void fr_char_draw(float x, float y, float z, float yaw, int shadow)
+ * **`mirror` is a reflection, not a rotation.** Bit 4 of the part's 0x28 is the
+ * facing flag, and a 2D fighting game flips its sprite -- it does not walk the
+ * actor around behind himself. These models are sculpted three-quarters on, so
+ * turning one 180 degrees shows his back, which is a view the game never has.
+ * Scaling X by -1 gives the other fighter the same pose, flipped, which is what
+ * a retail frame shows.
+ *
+ * The reflection reverses triangle winding. Nothing here depends on it: the
+ * scene runs with GL_CULL_FACE disabled, and the lighting is baked per vertex
+ * before this point, so the greys are the un-mirrored model's -- as they are in
+ * the original, which mirrors after lighting for the same reason. */
+void fr_char_draw(float x, float y, float z, float yaw, int mirror, int shadow)
 {
     glPushMatrix();
     glTranslatef(x, y, z);
     glRotatef(yaw, 0.0f, 1.0f, 0.0f);
+    if (mirror)
+        glScalef(-1.0f, 1.0f, 1.0f);
     character_draw(shadow, 0.0f);
     glPopMatrix();
 }
