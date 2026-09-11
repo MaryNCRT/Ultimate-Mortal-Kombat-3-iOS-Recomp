@@ -691,9 +691,18 @@ long t_joy_back_up(MK3THREAD *thread)
  * So **the four direction bits survive translation unmoved, at bits 0..3**,
  * and they are read from a different place than the buttons.
  *
- * **Which of the four is up, down, left and right is NOT yet established** and
- * is not guessed here. `mask_joystick` below shows they are then filtered by
- * `proc->field34`, so a state can forbid individual directions.
+ * **Bits 2 and 3 are the horizontal pair; bits 0 and 1 are the vertical one.**
+ * Established by `Playback_Update` in playback.c: replaying a recorded motion
+ * for a fighter facing the other way exchanges exactly bits 2 and 3 and
+ * touches nothing else, and mirroring a motion swaps left and right while
+ * leaving up and down alone.
+ *
+ * **Which of 2 and 3 is LEFT is still open**, and so is which of 0 and 1 is
+ * UP -- swapping a pair is symmetric and says nothing about polarity. The
+ * pairing is settled; the polarity is not, and is not guessed here.
+ *
+ * `mask_joystick` below shows they are then filtered by `proc->field34`, so a
+ * state can forbid individual directions.
  *
  * ## What this means for the port
  *
