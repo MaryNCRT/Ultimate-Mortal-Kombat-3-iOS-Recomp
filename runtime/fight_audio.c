@@ -235,7 +235,8 @@ static void play_group(const char *const *g, float gain)
 
     for (i = 0; i < g_count; i++)
         if (!strcmp(g_snd[i].name, pick)) {
-            plat_audio_play(g_snd[i].pcm, g_snd[i].frames, gain);
+            plat_audio_play_at(g_snd[i].pcm, g_snd[i].frames,
+                               g_snd[i].rate, gain);
             return;
         }
 }

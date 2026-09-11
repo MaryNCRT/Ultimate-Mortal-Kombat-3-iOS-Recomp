@@ -55,7 +55,10 @@ enum {
     PK_HP, PK_LP, PK_BL, PK_HK, PK_LK, PK_RUN,
     PK_P2_UP, PK_P2_DOWN, PK_P2_LEFT, PK_P2_RIGHT,
     PK_P2_HP, PK_P2_LP, PK_P2_BL, PK_P2_HK, PK_P2_LK, PK_P2_RUN,
-    PK_RESET, PK_COUNT
+    PK_RESET,
+    /* the debug selector's own keys, kept apart from the fight's */
+    PK_MENU, PK_OK, PK_NEXT, PK_PREV,
+    PK_COUNT
 };
 
 /* Is that key down right now? */
@@ -94,6 +97,13 @@ void plat_audio_close(void);
  * quietest new sound is what a fixed voice count means, and the engine's own
  * event queue drops its eleventh event the same way. */
 int  plat_audio_play(const unsigned char *pcm, int frames, float gain);
+
+/* The same, for a source whose rate is NOT the device's. The game's assets are
+ * not uniform -- 496 of its 497 .wav files are 16 kHz and one is 44,100 -- so
+ * a caller that loaded a file should pass what the file actually said rather
+ * than assume. */
+int  plat_audio_play_at(const unsigned char *pcm, int frames, int rate,
+                        float gain);
 
 /* Feed the device. Call once a frame. */
 void plat_audio_update(void);

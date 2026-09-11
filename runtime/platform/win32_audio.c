@@ -20,10 +20,13 @@
  *
  * ## The sources
  *
- * The game's .wav files are **unsigned 8-bit mono PCM at 16 kHz**, which is
- * what the RIFF header says: `fmt` tag 1, one channel, 0x3e80 samples per
- * second, 8 bits. So a source sample is 0..255 with 128 as silence, and the
- * mix is `(s - 128) << 8` scaled by the voice's gain.
+ * The game's .wav files are **unsigned 8-bit mono PCM**, so a source sample is
+ * 0..255 with 128 as silence and the mix is `(s - 128) << 8` scaled by gain.
+ *
+ * **They are not all one sample rate.** 496 of the 497 are 16 kHz and
+ * `Arrowhit.wav` is 44,100 -- surveyed, not assumed, and the one exception is
+ * why each voice carries a 16.16 step instead of the mixer taking the device
+ * rate for granted. One odd file is enough to make the assumption wrong.
  *
  * ## When the device is missing
  *
@@ -48,7 +51,10 @@
 typedef struct {
     const unsigned char *pcm;   /* caller-owned, unsigned 8-bit mono */
     int                  frames;
-    int                  pos;
+    unsigned             pos;   /* 16.16 into pcm, so a source rate that is
+                                 * not the device rate still plays at the
+                                 * right SPEED */
+    unsigned             step;  /* 16.16: src_rate / device_rate */
     float                gain;
     int                  active;
 } voice;
@@ -118,19 +124,31 @@ void plat_audio_close(void)
     g_open = 0;
 }
 
-int plat_audio_play(const unsigned char *pcm, int frames, float gain)
+int plat_audio_play_at(const unsigned char *pcm, int frames, int rate, float gain)
 {
     int i, quietest = -1;
     float lowest = 1e30f;
+    unsigned step;
 
     if (!g_open || pcm == NULL || frames <= 0)
         return 0;
+
+    /* **The assets are NOT all one rate.** 496 of the game's 497 .wav files are
+     * 16 kHz and `Arrowhit.wav` is 44,100 -- so a mixer that assumes the device
+     * rate plays that one at a third of its speed. One 16.16 step per voice
+     * fixes it for any file and costs a shift in the inner loop. */
+    if (rate <= 0)
+        rate = g_rate;
+    step = (unsigned)(((double)rate / (double)g_rate) * 65536.0 + 0.5);
+    if (step == 0)
+        step = 1;
 
     for (i = 0; i < VOICES; i++) {
         if (!g_voice[i].active) {
             g_voice[i].pcm    = pcm;
             g_voice[i].frames = frames;
             g_voice[i].pos    = 0;
+            g_voice[i].step   = step;
             g_voice[i].gain   = gain;
             g_voice[i].active = 1;
             return 1;
@@ -148,11 +166,18 @@ int plat_audio_play(const unsigned char *pcm, int frames, float gain)
         g_voice[quietest].pcm    = pcm;
         g_voice[quietest].frames = frames;
         g_voice[quietest].pos    = 0;
+        g_voice[quietest].step   = step;
         g_voice[quietest].gain   = gain;
         g_voice[quietest].active = 1;
         return 1;
     }
     return 0;
+}
+
+/* The old spelling, for callers whose source really is the device rate. */
+int plat_audio_play(const unsigned char *pcm, int frames, float gain)
+{
+    return plat_audio_play_at(pcm, frames, g_rate, gain);
 }
 
 static void fill(short *out)
@@ -163,25 +188,28 @@ static void fill(short *out)
 
     for (i = 0; i < VOICES; i++) {
         voice *v = &g_voice[i];
-        int    left, take;
 
         if (!v->active)
             continue;
 
-        left = v->frames - v->pos;
-        take = left < BUF_FRAMES ? left : BUF_FRAMES;
+        for (n = 0; n < BUF_FRAMES; n++) {
+            unsigned idx = v->pos >> 16;
+            int s, m;
 
-        for (n = 0; n < take; n++) {
+            if ((int)idx >= v->frames) {
+                v->active = 0;
+                break;
+            }
             /* unsigned 8-bit, 128 is silence */
-            int s = ((int)v->pcm[v->pos + n] - 128) << 8;
-            int m = out[n] + (int)((float)s * v->gain);
+            s = ((int)v->pcm[idx] - 128) << 8;
+            m = out[n] + (int)((float)s * v->gain);
             if (m >  32767) m =  32767;
             if (m < -32768) m = -32768;
             out[n] = (short)m;
-        }
 
-        v->pos += take;
-        if (v->pos >= v->frames)
+            v->pos += v->step;
+        }
+        if ((int)(v->pos >> 16) >= v->frames)
             v->active = 0;
     }
 }

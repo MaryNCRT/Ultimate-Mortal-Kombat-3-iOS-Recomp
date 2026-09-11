@@ -1081,3 +1081,53 @@ void fr_char_extent(float *lo, float *hi)
         }
 }
 
+/* ---------------------------------------------------------------- unloading
+ *
+ * demo.c never needed these: it loaded one stage and one character and ran
+ * until the window closed. A debug selector that switches stage without
+ * restarting does, and without them every switch leaks a whole stage --
+ * Graveyard alone is 58 meshes and their textures.
+ */
+void fr_stage_free(void)
+{
+    int i;
+
+    if (g_stage.loaded) {
+        if (g_stage.tex) {
+            for (i = 0; i < g_stage.ms.num_meshes; i++)
+                if (g_stage.tex[i])
+                    glDeleteTextures(1, &g_stage.tex[i]);
+            free(g_stage.tex);
+            g_stage.tex = NULL;
+        }
+        if (g_stage.has_scene)
+            lime_scene_free(&g_stage.sc);
+        lime_meshset_free(&g_stage.ms);
+    }
+    if (g_mist.loaded) {
+        lime_scene_free(&g_mist.sc);
+        lime_meshset_free(&g_mist.ms);
+        if (g_mist.tex)
+            glDeleteTextures(1, &g_mist.tex);
+    }
+    memset(&g_stage, 0, sizeof g_stage);
+    memset(&g_mist, 0, sizeof g_mist);
+    g_stage_reach = 0.0f;
+}
+
+void fr_char_free(void)
+{
+    lime_bones_free(&g_sk);
+    lime_skin_free(&g_skin);
+    lime_anim_free(&g_anim);
+    if (g_char_tex)
+        glDeleteTextures(1, &g_char_tex);
+    g_char_tex = 0;
+    free(g_pos); free(g_lit); free(g_vb); free(g_tb); free(g_cb);
+    g_pos = NULL; g_lit = NULL; g_vb = NULL; g_tb = NULL; g_cb = NULL;
+    g_tri_count = 0;
+    memset(&g_sk, 0, sizeof g_sk);
+    memset(&g_skin, 0, sizeof g_skin);
+    memset(&g_anim, 0, sizeof g_anim);
+}
+
