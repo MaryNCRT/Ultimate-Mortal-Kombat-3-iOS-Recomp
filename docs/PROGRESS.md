@@ -12,9 +12,12 @@ Current state of the project. Written so that someone can pick it up with no pri
 > for a finger. `UMK3_SHOT=<n>` ticks n frames, writes `umk3-menu.ppm` and
 > quits, which is where the screenshot in the repo root comes from.
 >
-> The fight engine is at **1,500 of 2,172** and nine of its twenty-one files
+> The fight engine is at **1,561 of 2,172** and ten of its twenty-one files
 > are closed. Nothing is playable: the menu draws and responds, and the fight
 > itself has no runtime yet.
+>
+> **The function count is not the whole job.** See "The other axis" below:
+> 229 data tables are missing and nothing has ever counted them.
 >
 > Before that: **all 18 arenas render, textured, with their effects and an
 > animated fighter standing in them.**
@@ -82,11 +85,23 @@ four that contradicted a hand-written runtime definition.
 
 The menu is drawn. What is left, in order:
 
-1. **`gamecode/logic`, 1,500 of 2,172.** The fight engine, and by a wide margin
-   the largest block left. Nine of its twenty-one files are closed;
-   `mkdrone.c` (240 left), `mkreact.c` (135) and `mkzap.c` (88) are the bulk of
-   the rest, and seven small files totalling 80 functions have never been
+1. **`gamecode/logic`, 1,561 of 2,172.** The fight engine, and by a wide margin
+   the largest block left. Ten of its twenty-one files are closed;
+   `mkdrone.c` (238 left), `mkreact.c` (135) and `mkzap.c` (62) are the bulk of
+   the rest, and six small files totalling 68 functions have never been
    opened.
+
+   **For a minimal playable scene the number is much smaller and it has been
+   measured, not estimated.** All fifteen logic files were compiled to objects
+   and linked against storage for the six globals; the undefined symbols were
+   then intersected with the transitive closure of the call graph from
+   `mk3_update`, `mk3_init`, `plyrthread`, `t_one_on_one`, `DisplayUpdate` and
+   the fifteen basic moves the button tables name. **110 symbols are reachable
+   and nine were missing.** Seven are now written. What remains is `plyrthread`
+   (2,124 bytes, the largest function in the directory -- its dispatch is
+   mapped: 43 tokens over 36 states) and `repell_func` (440 bytes).
+   `seq_lookup` is 7,608 bytes of special-move decoding that a keyboard scene
+   never reaches, because it only runs for input words with bit 10 set.
 2. **The menu's remaining pixel errors** — [#27](../../issues/27).
    `limeGetStringWidth` and the three alignment cases in `limeDrawFONTAtAngle`
    are not transcribed, so right-aligned strings land a few pixels wide. The
@@ -100,6 +115,39 @@ The menu is drawn. What is left, in order:
    lime types and functions, which is why `GAMEFONT` had to be copied instead of
    included. Deleting the local copies and including `lime.h` is the real fix
    and removes the whole class of disagreement above.
+
+## The other axis: 229 data tables nobody has counted
+
+Every percentage in this document counts **functions**. Linking the fight
+engine for the first time showed that is only part of the work.
+
+423 symbols came back undefined. **229 of them are not code.** They are arrays
+in the binary that no extractor has touched:
+
+| kind | examples | what they are |
+|---|---|---|
+| `sm_*` (about 120) | `sm_scorp_hpc`, `sm_lk_dc` | the special-move command lists — one per character per button |
+| `ochar_*` (about 25) | `ochar_fatalities1`, `ochar_ground_offsets` | per-character parameter tables |
+| `a_*` (about 28) | `a_scorpion`, `a_monkey` | animation scripts |
+| `scom_*`, `sm_all_ro` | `scom_lao_teleport` | special-move scripts |
+| single tables | `reaction_table`, `strike_tables`, `propell_table`, `swtab` | engine-wide dispatch data |
+
+Three of them are already decoded and in the tree — `projectile_jumps` (45
+entries), `rocket_routines` (4), and the five `bt_*` button tables (6 entries
+each) — which is how we know what the work looks like: each one needs its
+extent measured from the symbol gap, its stride derived from a multiply at a
+use site, and its entries resolved.
+
+**None of this is in the 71.87%.** A fighter cannot throw a special move
+without `sm_*`, cannot react to a hit without `reaction_table`, and cannot
+animate without `a_*`. The function bar is honest about functions and silent
+about everything else, and this section exists so that silence is on the record
+rather than discovered later.
+
+The bar is not being revised downward, because nobody has yet counted how much
+work a table is. What can be said is that **the remaining work is two axes, not
+one**, and only one of them has ever been measured.
+
 
 ## Overall progress
 
@@ -116,7 +164,7 @@ maintains. Two numbers are worth keeping apart:
 
 - **~71%** — share of the *whole project*, counting analysis, tooling and formats.
 - **~70%** — share of the *decompilation itself*: 1,900 finished functions of
-  2,572 (109 `lime/common` + 291 `gamecode` + 1,500 `gamecode/logic`).
+  2,633 (109 `lime/common` + 291 `gamecode` + 1,561 `gamecode/logic`).
 
 Both are true. The first says the foundations are in place and the engine core is
 done; the second says the fight engine has barely been touched.
@@ -169,7 +217,7 @@ any of the port is written.
 | 5 — Native PC platform layer | ⬜ not started |
 | 6 — EA SDK stubs | ⬜ not started (scope reduced, see below) |
 | 7 — Decompile `gamecode` | ✅ 291/291 |
-| 8 — Decompile fight logic | 🔄 1,500/2,172 — nine of twenty-one files closed |
+| 8 — Decompile fight logic | 🔄 1,561/2,172 — ten of twenty-one files closed |
 | 9 — Widescreen, gamepad, mods | ⬜ not started |
 
 **Honest framing:** 1,900 of 2,572 functions are done. The percentage is not the
@@ -208,7 +256,7 @@ are where the next person should look.
 
 ## Module status — `gamecode`
 
-**35 of 291, every one verified.** Plus 3 of 2,172 in `gamecode/logic`.
+**291 of 291.** Plus 1,561 of 2,172 in `gamecode/logic`.
 
 | file | done | total | test | checks |
 |---|---:|---:|---|---:|
