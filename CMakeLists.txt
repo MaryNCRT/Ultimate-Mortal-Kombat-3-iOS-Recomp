@@ -51,6 +51,7 @@ target_compile_definitions(umk3-menu PRIVATE UMK3_REAL_GL)
 add_executable(umk3-fight
     runtime/fight_scene.c
     runtime/fight_render.c
+    runtime/fight_audio.c
     runtime/fight_stubs.c
     runtime/lime/meshset.c
     runtime/lime/scene.c
@@ -82,8 +83,9 @@ if(UMK3_BACKEND STREQUAL "win32")
     target_link_libraries(umk3 PRIVATE opengl32 gdi32)
     target_sources(umk3-menu PRIVATE runtime/platform/win32_gl.c)
     target_link_libraries(umk3-menu PRIVATE opengl32 gdi32)
-    target_sources(umk3-fight PRIVATE runtime/platform/win32_gl.c)
-    target_link_libraries(umk3-fight PRIVATE opengl32 gdi32)
+    target_sources(umk3-fight PRIVATE runtime/platform/win32_gl.c
+                                     runtime/platform/win32_audio.c)
+    target_link_libraries(umk3-fight PRIVATE opengl32 gdi32 winmm)
 elseif(UMK3_BACKEND STREQUAL "sdl2")
     find_package(SDL2 REQUIRED)
     find_package(OpenGL REQUIRED)

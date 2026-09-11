@@ -100,6 +100,7 @@
 #include "platform/platform.h"
 #include "platform/gl.h"
 #include "fight_render.h"
+#include "fight_audio.h"
 
 /* ------------------------------------------------------------------ the engine
  *
@@ -217,10 +218,24 @@ static const char *g_move_name[] = {
 #define GRAVITY      FIX(0.40)          /* ... against one positive g */
 #define JUMP_VX      FIX(6.0)           /* an angled jump's horizontal speed */
 
-#define T_PUNCH      14                 /* frames a move occupies */
-#define T_KICK       18
-#define T_UPPERCUT   24
-#define T_HIT        16                 /* and how long a reaction lasts */
+/* **How long a move lasts is the CLIP's length, not a number picked here.**
+ *
+ * SCHIPUNCH is seven animation frames, SCUPPERCUT five, SCHIKICK six -- the
+ * frame list says so. What is chosen is only the TEMPO: how many 60 Hz game
+ * frames one animation frame is held for. So a move's duration is
+ * `clip_length * ANIM_HOLD`, and correcting the tempo later corrects every
+ * move at once instead of eighteen separate constants.
+ *
+ * `next_anirate` is the engine's own animation clock and is not decompiled,
+ * which is why the tempo is still a choice. Two frames is 30 Hz. */
+#define ANIM_HOLD     2
+
+#define T_HIT        16                 /* how long a reaction lasts */
+
+/* How far a fighter travels per animation frame of the walk cycle. This is
+ * what keeps the feet from skating: the clip advances with DISTANCE, so at
+ * half speed it plays at half rate and the contact foot stays planted. */
+#define WALK_STRIDE   8
 
 #define REACH_PUNCH  70                 /* how far a move connects */
 #define REACH_KICK   86
@@ -295,6 +310,17 @@ typedef struct {
 
     unsigned       prev_buttons;        /* for edge detection */
     const unsigned char *table;         /* MK3OBJ + 0x60 */
+
+    /* Animation phase, in ANIMATION FRAMES rather than seconds.
+     *
+     * A walk cycle driven by wall-clock slides its feet whenever the walk
+     * speed is not exactly what the artist assumed. Driving it by DISTANCE
+     * TRAVELLED instead means the contact foot stays put by construction, and
+     * it costs one divide. `anim_last` is the integer frame it was on, for
+     * spotting the two footfalls in a cycle. */
+    float          anim_t;
+    int            anim_last;
+    int            was_airborne;
 } fighter;
 
 static fighter g_f[2];
@@ -338,6 +364,9 @@ static void fighter_reset(fighter *f, int which)
     f->connected = 0;
     f->prev_buttons = 0;
     f->table = bt_stance;
+    f->anim_t = 0.0f;
+    f->anim_last = -1;
+    f->was_airborne = 0;
 }
 
 static void scene_reset(void)
@@ -390,16 +419,91 @@ static long read_player(int which)
 }
 
 
+/* ============================================== Scorpion's animation clips
+ *
+ * Every one of these is a real clip name and a real frame range out of
+ * `res/framelists/scorpionframes.txt` -- `python tools/animate.py
+ * SCORPION_STANDARD --list` prints all fifty-two. A `.skinanim` is one long
+ * stream holding every animation the character has, so a range only means
+ * something because the frame list names each frame.
+ *
+ * **The mapping from state to clip is the game's own**, because the names say
+ * what they are: SCHIPUNCH is the high punch, SCDUCKLOKICK is the low kick
+ * while ducking. What is chosen is the RATE -- `next_anirate` is the engine's
+ * animation clock and it is not decompiled.
+ */
+typedef struct { int from, to; const char *name; } clip;
+
+static const clip CL_STANCE   = { 216, 224, "SCSTANCE"   };
+static const clip CL_WALK     = { 282, 290, "SCWALK"     };
+static const clip CL_DUCK     = {  20,  22, "SCDUCK"     };
+static const clip CL_BLOCK    = {   1,   3, "SCBLOCK"    };
+static const clip CL_JUMP     = {  94,  96, "SCJUMP"     };
+static const clip CL_JUMPFLIP = {  97, 104, "SCJUMPFLIP" };
+static const clip CL_HIT      = {  71,  73, "SCHIHIT"    };
+static const clip CL_DUCKHIT  = {  30,  32, "SCDUCKHIT"  };
+static const clip CL_VICTORY  = { 276, 281, "SCVICTORY"  };
+
+static const clip CL_MOVE[] = {
+    {   0,   0, ""             },   /* MV_NONE        */
+    {  80,  86, "SCHIPUNCH"    },   /* MV_HI_PUNCH    */
+    { 136, 141, "SCLOPUNCH"    },   /* MV_LO_PUNCH    */
+    {   1,   3, "SCBLOCK"      },   /* MV_BLOCK       */
+    {  74,  79, "SCHIKICK"     },   /* MV_HI_KICK     */
+    { 130, 135, "SCLOKICK"     },   /* MV_LO_KICK     */
+    { 271, 275, "SCUPPERCUT"   },   /* MV_UPPERCUT    */
+    {  36,  38, "SCDUCKPUNCH"  },   /* MV_DUCK_PUNCH  */
+    {  23,  25, "SCDUCKBLOCK"  },   /* MV_DUCK_BLOCK  */
+    {  26,  29, "SCDUCKHIKICK" },   /* MV_DUCK_KICKH  */
+    {  33,  35, "SCDUCKLOKICK" },   /* MV_DUCK_KICKL  */
+    /* There is no SCJUMPPUNCH in the frame list. The flip punch is the one
+     * airborne punch Scorpion has, and it stands in for both -- noted rather
+     * than hidden, because it is a substitution and not a reading. */
+    {  62,  64, "SCFLIPUNCH"   },   /* MV_JUMP_PUNCH  */
+    { 105, 107, "SCJUMPKICK"   },   /* MV_JUMP_KICK   */
+    {  62,  64, "SCFLIPUNCH"   },   /* MV_FLIP_PUNCH  */
+    {  54,  56, "SCFLIPKICK"   }    /* MV_FLIP_KICK   */
+};
+
+/* How fast a clip plays. demo.c uses 12 Hz for an idle and says the same
+ * thing: the engine's rate comes from `next_anirate`, which nobody has read. */
+#define IDLE_HZ    12.0
+#define ACTION_HZ  22.0
+
+static const clip *clip_for(const fighter *f, double *hz, int *loop)
+{
+    *hz = IDLE_HZ;
+    *loop = 1;
+
+    switch (f->st) {
+    case ST_ATTACK: *hz = ACTION_HZ; *loop = 0; return &CL_MOVE[f->move];
+    case ST_HIT:    *hz = ACTION_HZ; *loop = 0;
+                    return (f->table == bt_duck) ? &CL_DUCKHIT : &CL_HIT;
+    case ST_BLOCK:  *loop = 0; return &CL_BLOCK;
+    case ST_DUCK:   *loop = 0; return &CL_DUCK;
+    case ST_JUMP:   *loop = 0;
+                    return (f->table == bt_angle_jump) ? &CL_JUMPFLIP : &CL_JUMP;
+    case ST_WALK_F:
+    case ST_WALK_B: *hz = 14.0; return &CL_WALK;
+    default:
+        if (f->health == 0) { *loop = 0; return &CL_VICTORY; }
+        return &CL_STANCE;
+    }
+}
+
+
 /* ------------------------------------------------- the stand-in for plyrthread */
+/* A move lasts exactly as long as its animation: the clip's length in frames,
+ * held ANIM_HOLD game frames each. Nothing here is per-move. */
 static int move_frames(int mv)
 {
-    switch (mv) {
-    case MV_UPPERCUT:                                   return T_UPPERCUT;
-    case MV_HI_KICK: case MV_LO_KICK:
-    case MV_DUCK_KICKH: case MV_DUCK_KICKL:
-    case MV_JUMP_KICK: case MV_FLIP_KICK:               return T_KICK;
-    default:                                            return T_PUNCH;
-    }
+    const clip *c;
+
+    if (mv <= MV_NONE || mv >= (int)(sizeof CL_MOVE / sizeof CL_MOVE[0]))
+        return ANIM_HOLD;
+
+    c = &CL_MOVE[mv];
+    return (c->to - c->from + 1) * ANIM_HOLD;
 }
 
 static int move_reach(int mv)
@@ -436,6 +540,7 @@ static void start_attack(fighter *f, int mv)
     f->move = mv;
     f->timer = f->timer_total = move_frames(mv);
     f->connected = 0;
+    fa_swing(mv == MV_UPPERCUT || mv == MV_HI_KICK || mv == MV_LO_KICK);
 }
 
 static void fighter_think(fighter *f, fighter *other, int which, long raw)
@@ -483,6 +588,7 @@ static void fighter_think(fighter *f, fighter *other, int which, long raw)
             p_set(f, P_Y, (long)(FLOOR_Y - BOX_H) << FX);
             f->st = ST_STANCE;
             f->table = bt_stance;
+            fa_land();
         } else {
             btn = pressed_button(f, which);
             if (btn >= 0 && f->table[btn])
@@ -562,15 +668,19 @@ static void resolve_hits(fighter *a, fighter *b)
 
     if (b->st == ST_BLOCK) {
         b->health -= 1;                 /* chip */
+        fa_block();
     } else {
         b->health -= DAMAGE;
         b->st = ST_HIT;
         b->timer = b->timer_total = T_HIT;
         b->table = bt_null;             /* how the engine takes input away */
+        fa_hit(a->move == MV_UPPERCUT,
+               a->move == MV_HI_PUNCH || a->move == MV_HI_KICK);
     }
     if (b->health <= 0) {
         b->health = 0;
         a->wins++;
+        fa_voice();
     }
 }
 
@@ -622,79 +732,6 @@ static void scene_tick(void)
             scene_reset();
     }
     g_frame++;
-}
-
-
-/* ============================================== Scorpion's animation clips
- *
- * Every one of these is a real clip name and a real frame range out of
- * `res/framelists/scorpionframes.txt` -- `python tools/animate.py
- * SCORPION_STANDARD --list` prints all fifty-two. A `.skinanim` is one long
- * stream holding every animation the character has, so a range only means
- * something because the frame list names each frame.
- *
- * **The mapping from state to clip is the game's own**, because the names say
- * what they are: SCHIPUNCH is the high punch, SCDUCKLOKICK is the low kick
- * while ducking. What is chosen is the RATE -- `next_anirate` is the engine's
- * animation clock and it is not decompiled.
- */
-typedef struct { int from, to; const char *name; } clip;
-
-static const clip CL_STANCE   = { 216, 224, "SCSTANCE"   };
-static const clip CL_WALK     = { 282, 290, "SCWALK"     };
-static const clip CL_DUCK     = {  20,  22, "SCDUCK"     };
-static const clip CL_BLOCK    = {   1,   3, "SCBLOCK"    };
-static const clip CL_JUMP     = {  94,  96, "SCJUMP"     };
-static const clip CL_JUMPFLIP = {  97, 104, "SCJUMPFLIP" };
-static const clip CL_HIT      = {  71,  73, "SCHIHIT"    };
-static const clip CL_DUCKHIT  = {  30,  32, "SCDUCKHIT"  };
-static const clip CL_VICTORY  = { 276, 281, "SCVICTORY"  };
-
-static const clip CL_MOVE[] = {
-    {   0,   0, ""             },   /* MV_NONE        */
-    {  80,  86, "SCHIPUNCH"    },   /* MV_HI_PUNCH    */
-    { 136, 141, "SCLOPUNCH"    },   /* MV_LO_PUNCH    */
-    {   1,   3, "SCBLOCK"      },   /* MV_BLOCK       */
-    {  74,  79, "SCHIKICK"     },   /* MV_HI_KICK     */
-    { 130, 135, "SCLOKICK"     },   /* MV_LO_KICK     */
-    { 271, 275, "SCUPPERCUT"   },   /* MV_UPPERCUT    */
-    {  36,  38, "SCDUCKPUNCH"  },   /* MV_DUCK_PUNCH  */
-    {  23,  25, "SCDUCKBLOCK"  },   /* MV_DUCK_BLOCK  */
-    {  26,  29, "SCDUCKHIKICK" },   /* MV_DUCK_KICKH  */
-    {  33,  35, "SCDUCKLOKICK" },   /* MV_DUCK_KICKL  */
-    /* There is no SCJUMPPUNCH in the frame list. The flip punch is the one
-     * airborne punch Scorpion has, and it stands in for both -- noted rather
-     * than hidden, because it is a substitution and not a reading. */
-    {  62,  64, "SCFLIPUNCH"   },   /* MV_JUMP_PUNCH  */
-    { 105, 107, "SCJUMPKICK"   },   /* MV_JUMP_KICK   */
-    {  62,  64, "SCFLIPUNCH"   },   /* MV_FLIP_PUNCH  */
-    {  54,  56, "SCFLIPKICK"   }    /* MV_FLIP_KICK   */
-};
-
-/* How fast a clip plays. demo.c uses 12 Hz for an idle and says the same
- * thing: the engine's rate comes from `next_anirate`, which nobody has read. */
-#define IDLE_HZ    12.0
-#define ACTION_HZ  22.0
-
-static const clip *clip_for(const fighter *f, double *hz, int *loop)
-{
-    *hz = IDLE_HZ;
-    *loop = 1;
-
-    switch (f->st) {
-    case ST_ATTACK: *hz = ACTION_HZ; *loop = 0; return &CL_MOVE[f->move];
-    case ST_HIT:    *hz = ACTION_HZ; *loop = 0;
-                    return (f->table == bt_duck) ? &CL_DUCKHIT : &CL_HIT;
-    case ST_BLOCK:  *loop = 0; return &CL_BLOCK;
-    case ST_DUCK:   *loop = 0; return &CL_DUCK;
-    case ST_JUMP:   *loop = 0;
-                    return (f->table == bt_angle_jump) ? &CL_JUMPFLIP : &CL_JUMP;
-    case ST_WALK_F:
-    case ST_WALK_B: *hz = 14.0; return &CL_WALK;
-    default:
-        if (f->health == 0) { *loop = 0; return &CL_VICTORY; }
-        return &CL_STANCE;
-    }
 }
 
 
@@ -755,6 +792,33 @@ static void pose_fighter(fighter *f, double now)
 
     span = c->to - c->from + 1;
     if (span < 1) span = 1;
+
+    /* **The walk is driven by distance, not by the clock.** `anim_t` counts
+     * animation frames and advances by however far the fighter actually moved
+     * divided by the stride, so the contact foot stays planted at any speed --
+     * and a footfall is simply the phase crossing one of the two contacts. */
+    if (f->st == ST_WALK_F || f->st == ST_WALK_B) {
+        int idx;
+
+        f->anim_t += fabsf((float)p_get(f, P_VX) / (float)(1L << FX))
+                     / (float)WALK_STRIDE;
+        pos = fmod((double)f->anim_t, (double)span);
+        idx = (int)pos;
+
+        /* Two footfalls in a nine-frame cycle. Which frames they are on is a
+         * choice: the clip names them SCWALK1..9 and nothing marks contact. */
+        if (idx != f->anim_last) {
+            if (idx == 0 || idx == span / 2)
+                fa_step();
+            f->anim_last = idx;
+        }
+
+        fa = c->from + idx;
+        fb = c->from + ((idx + 1) % span);
+        fr_char_pose(fa, fb, (float)(pos - floor(pos)));
+        return;
+    }
+    f->anim_last = -1;
 
     if (loop) {
         pos = now * hz;
@@ -915,6 +979,9 @@ int main(int argc, char **argv)
     printf("  P2  arrows    numpad 7 8 9 / 4 5 6\n");
     printf("  F5 resets, Escape quits.\n\n");
 
+    fa_open(res);
+    fa_music(res, "GraveYard");
+
     scene_reset();
 
     glEnable(GL_DEPTH_TEST);
@@ -947,6 +1014,8 @@ int main(int argc, char **argv)
 
         scene_draw(now, w, h);
 
+        fa_update();
+
         if (!plat_swap())
             break;
 
@@ -976,6 +1045,7 @@ int main(int argc, char **argv)
         }
     }
 
+    fa_close();
     plat_close();
     return 0;
 }
