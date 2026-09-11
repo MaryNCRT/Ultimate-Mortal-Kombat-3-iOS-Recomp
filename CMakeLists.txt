@@ -40,6 +40,30 @@ add_executable(umk3-menu
 target_include_directories(umk3-menu PRIVATE runtime decomp/lime)
 target_compile_definitions(umk3-menu PRIVATE UMK3_REAL_GL)
 
+# The fight scene. It links ONLY mk3.c out of decomp/gamecode/logic, because
+# that is the one file whose functions this scene actually calls --
+# TranslateJoybits for the input and gravity_n_bounds for the physics -- and
+# the rest of the directory still has 159 undefined functions and 229
+# unextracted data tables between it and a link.
+#
+# What the scene supplies instead of the missing engine is written down at the
+# top of runtime/fight_scene.c, under "WHAT IS REAL HERE, AND WHAT IS NOT".
+add_executable(umk3-fight
+    runtime/fight_scene.c
+    runtime/fight_render.c
+    runtime/fight_stubs.c
+    runtime/lime/meshset.c
+    runtime/lime/scene.c
+    runtime/lime/events.c
+    runtime/lime/skin.c
+    runtime/lime/light.c
+    runtime/lime/limemath.c
+    runtime/lime/pvr.c
+    runtime/lime/png.c
+    decomp/gamecode/logic/mk3.c
+)
+target_include_directories(umk3-fight PRIVATE runtime decomp/lime)
+
 # win32 needs nothing installed and is what the vertical slice was built on;
 # sdl2 is the portable path. Both implement platform.h and nothing else.
 if(WIN32)
@@ -58,6 +82,8 @@ if(UMK3_BACKEND STREQUAL "win32")
     target_link_libraries(umk3 PRIVATE opengl32 gdi32)
     target_sources(umk3-menu PRIVATE runtime/platform/win32_gl.c)
     target_link_libraries(umk3-menu PRIVATE opengl32 gdi32)
+    target_sources(umk3-fight PRIVATE runtime/platform/win32_gl.c)
+    target_link_libraries(umk3-fight PRIVATE opengl32 gdi32)
 elseif(UMK3_BACKEND STREQUAL "sdl2")
     find_package(SDL2 REQUIRED)
     find_package(OpenGL REQUIRED)

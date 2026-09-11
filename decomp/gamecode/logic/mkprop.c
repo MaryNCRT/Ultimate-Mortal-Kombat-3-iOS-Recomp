@@ -175,7 +175,10 @@ void check_block_bit(MK3OBJ *obj);
 void clear_shadow_bit(MK3OBJ *obj);
 long tl_ind_charge(MK3THREAD *thread);
 long get_rough_hypotenuse(MK3OBJ *obj);
-long get_x_dist(MK3OBJ *obj);
+/* Read from the binary in joy.c: nothing is deliberately left in r0.
+ * The `long` this used to be declared as came from a call site that
+ * ignored the result. */
+void get_x_dist(MK3OBJ *obj);
 long tl_do_tusk_blur(MK3THREAD *thread);
 long t_shake_and_collision(MK3THREAD *thread);
 long tl_do_tele_explode(MK3THREAD *thread);
