@@ -4298,3 +4298,164 @@ long tl_do_sz_zap(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_osz_forward_entry);
 }
+
+
+/* t_swat_bomb_proc -- armv7 0x00078754, 196 bytes.  **Complete.**
+ *
+ *      token == 0:       obj->field40 = 0; find_ani2_part2(obj)
+ *                        obj->field1c = -0x30000
+ *                        if (obj->field48 != 0) obj->field1c = -0x60000
+ *                        part->field1c = obj->field1c
+ *                        obj->field1c = 0x80000
+ *                        obj->field20 = 4
+ *                        set_proj_vel(obj)
+ *                        obj->field48 = 0x10
+ *                        obj->field34 = t_bomb_call
+ *                        token := 0x8d6, descend into tl_projectile_flight_call
+ *
+ *      token == 0x8d6:   obj->field48 = 0
+ *                        make_lineup_explode(obj)
+ *                        obj->field1c = 0; ochar_sound(obj)
+ *                        frame[frame].handler = tl_delete_proj_and_die
+ *
+ *      otherwise:        return -3
+ *
+ * **The high and low bombs are one routine and one branch.** `projectile_jumps`
+ * has `tl_do_swat_bomb_hi` at 25 and `tl_do_swat_bomb_lo` at 26; both end up
+ * here, and 0x48 on entry decides the launch velocity -- **-0x30000 for the low
+ * arc, -0x60000 for the high one**, exactly double. Then 0x48 is immediately
+ * reused as the flight's own parameter, 0x10, so the selector is consumed the
+ * instant it has been read.
+ *
+ * **This closes `t_bomb_call`**, the eighty-eight byte callback that adds 0x6000
+ * to the y velocity every frame. Fourth complete instance of the
+ * 0x34 -> `proc->field28` chain, after Motaro's zap, the SG zap and the impale.
+ *
+ * So a Swat bomb is: an upward kick chosen by one bit, a fixed forward speed,
+ * and a constant fall -- three numbers and no special case anywhere else.
+ *
+ * `obj->field48 = 0` before `make_lineup_explode` again, the second launcher to
+ * pass zero there after `t_motaro_zap_proc`. Only the high half of that field
+ * does anything in the explosion, and both of these pass none.
+ */
+long t_bomb_call(MK3THREAD *thread);
+void find_ani2_part2(MK3OBJ *obj);
+
+long t_swat_bomb_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        obj->field40 = 0;
+        find_ani2_part2(obj);
+
+        obj->field1c = 0xfffd0000u;              /* -0x30000, the low arc */
+        if (obj->field48 != 0)
+            obj->field1c = 0xfffa0000u;          /* -0x60000, the high one */
+
+        obj->field08->field1c = obj->field1c;
+
+        obj->field1c = 0x80000;
+        obj->field20 = 4;
+        set_proj_vel(obj);
+
+        obj->field48 = 0x10;                     /* the selector, reused */
+        obj->field34 = (uint32_t)(uintptr_t)t_bomb_call;
+
+        *mk3_frame(thread, frame + 1) = 0x8d6;
+        thread->frame = thread->frame + 1;       /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)tl_projectile_flight_call;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x8d6)
+        return -3;
+
+    obj->field48 = 0;
+    make_lineup_explode(obj);
+
+    obj->field1c = 0;
+    ochar_sound(obj);
+
+    return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+}
+
+
+/* tl_do_sg_zap -- armv7 0x0007a640, 196 bytes.  **Complete.**
+ *
+ *      token == 0:        obj->field20 = 0x17
+ *                         obj->a10     = 0
+ *                         zap_init_special_act(obj)
+ *                         obj->field1c = 4; ochar_sound(obj)
+ *                         obj->field40 = 0x24; get_char_ani(obj)
+ *                         obj->field1c = 2
+ *                         token := 0x996, descend into t_mframew
+ *
+ *      token == 0x996:    obj->field1c = 3; ochar_sound(obj)
+ *                         obj->field38 = t_sg_zap_proc
+ *                         create_proj_proc(obj)
+ *                         do_next_a9_frame(obj)
+ *                         obj->field20 = 0x2a
+ *                         frame[frame].handler = tl_do_proj_sitting_duck
+ *
+ *      otherwise:         return -3
+ *
+ * Entry 24 of `projectile_jumps`, and it names `t_sg_zap_proc` in 0x38 -- so the
+ * routine that seeds the trail counter is started from here, and the whole SG
+ * zap is now readable end to end: launcher, projectile, trail callback.
+ *
+ * **A fourth sitting-duck duration: 0x2a.** With 0x16, 0x18 and 0x23 that is 22,
+ * 24, 35 and 42 frames across four moves. The recovery is per-move and the
+ * spread is wide enough that no port can guess it.
+ *
+ * Two `ochar_sound` calls with 4 and 3, one per state -- the second one after
+ * the projectile exists, so the launch noise and the throw noise are separate
+ * and sixteen-odd frames apart.
+ */
+long t_sg_zap_proc(MK3THREAD *thread);
+
+long tl_do_sg_zap(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        obj->field20 = 0x17;
+        obj->a10     = 0;
+        zap_init_special_act(obj);
+
+        obj->field1c = 4;
+        ochar_sound(obj);
+
+        obj->field40 = 0x24;
+        get_char_ani(obj);
+
+        obj->field1c = 2;
+
+        *mk3_frame(thread, frame + 1) = 0x996;
+        thread->frame = thread->frame + 1;       /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x996)
+        return -3;
+
+    obj->field1c = 3;
+    ochar_sound(obj);
+
+    obj->field38 = (uint32_t)(uintptr_t)t_sg_zap_proc;
+    create_proj_proc(obj);
+
+    do_next_a9_frame(obj);
+
+    obj->field20 = 0x2a;                         /* the sitting-duck duration */
+
+    return mk3_install(thread, (MK3THREADFUNC)tl_do_proj_sitting_duck);
+}
