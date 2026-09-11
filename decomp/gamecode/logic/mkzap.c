@@ -147,6 +147,18 @@ long tl_do_jade_zap_lo(MK3THREAD *thread)
  *      obj->field20 = 0x10
  *      frame[frame].handler = t_stz1
  *      frame[frame+1].w0 = 0
+ *
+ * **This and the two below are one constant apart**, instruction for
+ * instruction, and the two fields come from the same register: `movs #N` then
+ * `adds #0xf`. So the variant number and the action number are welded together
+ * and always differ by 0xf -- `projectile_jumps` entries 19, 20 and 21 all land
+ * on `t_stz1`, which reads the two fields and does the work.
+ *
+ * **They also refute a guess made while reading `t_st_zap_jsrp`.** That routine
+ * adds `obj->a10` to a resolved animation cursor, and these three were the
+ * obvious candidates for setting it. They do not touch `a10` at all, and they
+ * install `t_stz1` rather than descending into that routine. What fills `a10`
+ * before it runs is still unknown, and a port must not assume zero.
  */
 
 long tl_do_st_zap1(MK3THREAD *thread)
@@ -5147,10 +5159,17 @@ long tl_kit_zap_air(MK3THREAD *thread)
  * that slot the tree has not seen before: not an argument, not a counter, not a
  * pointer, but a per-variant OFFSET into the animation the finder just returned.
  *
- * That explains `projectile_jumps` entries 19, 20 and 21 -- `tl_do_st_zap1`,
- * `_zap2` and `_zap3`. Three moves, one routine, and the caller sets `a10` to
- * pick which animation comes out. **Worth confirming when those three are
- * read**; if they set 0, 1 and 2 there is nothing else to the three-way split.
+ * `projectile_jumps` entries 19, 20 and 21 -- `tl_do_st_zap1`, `_zap2` and
+ * `_zap3` -- looked like the obvious source. **They are not, and the guess is
+ * left here because it was wrong.** Those three were read straight after this
+ * one: they are identical apart from a single constant, and it goes into
+ * `obj->field48` (1, 2, 3) and `obj->field20` (that plus 0xf), never into
+ * `a10`. They also install `t_stz1`, not this routine.
+ *
+ * So the shape was right -- three moves, one routine, one constant -- and the
+ * field was wrong. **Whatever fills `a10` before this runs is still unknown**,
+ * and a port must not assume it is zero: this adds it to a real animation
+ * cursor.
  *
  * It ends by popping rather than installing, so whatever descended into this
  * gets control back after the projectile exists -- unlike the `tl_do_*` entries,
