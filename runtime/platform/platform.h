@@ -66,4 +66,42 @@ int plat_key(int code);
  * BL, HK, LK, RUN. */
 int plat_pad(int which);
 
+
+/* ------------------------------------------------------------------ audio
+ *
+ * The game's sounds are plain RIFF/WAVE: PCM, mono, 8-bit unsigned, 16 kHz.
+ * 497 of them sit in `res/audio`, and which ones belong together is the sound
+ * group table `tools/sounds.py` recovers from the binary.
+ *
+ * The mixer is deliberately small: one output stream, a fixed number of
+ * one-shot voices, no streaming and no 3D. A fighting game plays short
+ * overlapping samples and nothing else, and anything more would be a
+ * capability this port has no use for yet.
+ *
+ * Every call is safe to make when the audio device failed to open -- it
+ * silently does nothing. A machine with no sound card still plays the game.
+ */
+
+/* Open the mixer at the sample rate the assets use. */
+int  plat_audio_open(int rate);
+void plat_audio_close(void);
+
+/* Start one sound. `pcm` is unsigned 8-bit mono at the rate `plat_audio_open`
+ * was given, and the CALLER OWNS IT -- it must stay alive until the sound has
+ * finished, which for a loaded .wav held for the life of the program it does.
+ *
+ * Returns 0 when every voice is busy. That is not an error: dropping the
+ * quietest new sound is what a fixed voice count means, and the engine's own
+ * event queue drops its eleventh event the same way. */
+int  plat_audio_play(const unsigned char *pcm, int frames, float gain);
+
+/* Feed the device. Call once a frame. */
+void plat_audio_update(void);
+
+/* Background music, straight from a file. MP3 in this game's case, which is
+ * why it goes to the OS rather than through the mixer above: writing an MP3
+ * decoder to play a menu loop would be absurd. */
+void plat_music_play(const char *path, int loop);
+void plat_music_stop(void);
+
 #endif
