@@ -3676,3 +3676,172 @@ long tl_do_sw_zap(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)tl_do_proj_sitting_duck);
 }
+
+
+/* t_rocket_explode -- armv7 0x00077ccc, 176 bytes.  **Complete.**
+ *
+ *      if (frame[frame+1].w0 != 0) return -3
+ *
+ *      obj->field20 = him->field24
+ *      if (him->field24 != 0x18) {
+ *          get_his_action(obj)                  ; answers in 0x20
+ *          if (obj->field20 != 0x402) goto hit
+ *      }
+ *
+ *      reflect:  obj->field1c = 0x12
+ *                strike_check_a0_test(obj)
+ *                if (obj->field5c == 0) goto hit
+ *                KillProc(proc->field78)
+ *                obj->a10 = proc->him
+ *                benedict_arnold_projectile(obj)
+ *                frame[frame].handler = t_rocket2_proc
+ *
+ *      hit:      obj->field1c = 0x12
+ *                proj_strike_check(obj)
+ *                KillProc(proc->field78)
+ *                frame[frame].handler = t_rocket_explode_fx
+ *
+ * **This is what `benedict_arnold_projectile` is for: the rocket gets reflected
+ * and comes back at whoever fired it.** Two conditions send it down that path --
+ * the opponent is **character 0x18** (Motaro), or the opponent is performing
+ * **action 0x402**. Either way the projectile's proc has its `him` and
+ * `field00` swapped for the other fighter's, and it carries on flying under
+ * `t_rocket2_proc`.
+ *
+ * So the traitor routine, read a hundred functions ago with nothing but its name
+ * to go on, is the projectile-reflect. Motaro reflects by identity; everyone else
+ * has to be doing 0x402 at the moment of contact.
+ *
+ * **An eighth hard-coded character number, and anonymous again.** 0x18 appears
+ * here and in `proj_strike_check`, in two routines whose names say nothing about
+ * Motaro, while `is_he_motaro` sits in the same file doing exactly this test
+ * with a name. Issue #29.
+ *
+ * **The reflect still has to connect.** `strike_check_a0_test` is the
+ * non-committing twin of `strike_check_a0` -- the pair differ only in a flag --
+ * so the routine asks "would this hit?" and falls through to the ordinary
+ * explosion when the answer is no. A Motaro standing out of range does not
+ * reflect anything.
+ *
+ * `KillProc(proc->field78)` happens on **both** paths, so whatever 0x78 holds
+ * dies whether the rocket is reflected or spent. It is not the slave -- that is
+ * 0x64 -- and nothing in the tree writes it; the field is added to the header
+ * with the gap said out loud.
+ *
+ * `obj->field20` carries the character number, then `get_his_action` overwrites
+ * it with the action, and the second test reads it back. One field, two
+ * questions, four instructions apart -- and a transcription that kept them in
+ * separate variables would lose the fact that the helper answers there.
+ */
+void get_his_action(MK3OBJ *obj);
+long strike_check_a0_test(MK3OBJ *obj);
+void KillProc(MK3OBJ *obj);
+void proj_strike_check(MK3OBJ *obj);
+void benedict_arnold_projectile(MK3OBJ *obj);
+long t_rocket_explode_fx(MK3THREAD *thread);
+long t_rocket2_proc(MK3THREAD *thread);
+
+long t_rocket_explode(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    int      reflect;
+
+    if (*mk3_frame(thread, frame + 1) != 0)
+        return -3;
+
+    obj->field20 =
+        ((MK3OBJ *)(void *)(uintptr_t)obj->field00->him)->field24;
+
+    reflect = (obj->field20 == 0x18);        /* Motaro, by identity */
+    if (!reflect) {
+        get_his_action(obj);                 /* answers in 0x20 */
+        reflect = (obj->field20 == 0x402);   /* or anyone doing this */
+    }
+
+    if (reflect) {
+        obj->field1c = 0x12;
+        strike_check_a0_test(obj);           /* would it connect? */
+
+        if (obj->field5c != 0) {
+            KillProc((MK3OBJ *)(void *)(uintptr_t)obj->field00->field78);
+
+            obj->a10 = obj->field00->him;
+            benedict_arnold_projectile(obj);
+
+            return mk3_install(thread, (MK3THREADFUNC)t_rocket2_proc);
+        }
+    }
+
+    obj->field1c = 0x12;
+    proj_strike_check(obj);
+
+    KillProc((MK3OBJ *)(void *)(uintptr_t)obj->field00->field78);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_rocket_explode_fx);
+}
+
+
+/* t_scorp_waiting_sleep -- armv7 0x00074e38, 172 bytes.  **Complete.**
+ *
+ *      token == 0:        token := 0x293, park 0x30
+ *
+ *      token == 0x293:    obj->field40 = 9
+ *                         obj->field1c = 9 - 7 = 2
+ *                         token := 0x298, descend into t_backwards_ani2
+ *
+ *      token == 0x298:    obj->field20  = 0
+ *                         proc->field18 = 0
+ *                         pop a level, or t_local_reaction_exit at the bottom
+ *
+ *      otherwise:         return -3
+ *
+ * **Wait, rewind, clear the action.** Forty-eight frames of nothing, the
+ * animation played backwards, and then 0 into both `obj->field20` and
+ * `proc->field18` -- the same pair `t_lk_zap_air` fills with 0x15 and
+ * `i_am_a_sitting_duck` with 0x604. Announcing an action and clearing one use
+ * the same two fields, so a port that only clears the proc leaves a stale copy
+ * where the caller looks.
+ *
+ * The 9 and the 2 come off one register, `movs #9` then `subs #7`, which is why
+ * they look unrelated.
+ */
+long t_backwards_ani2(MK3THREAD *thread);        /* pointer slot 0x000f3704 */
+
+long t_scorp_waiting_sleep(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, frame + 1) = 0x293;
+        thread->fieldfc = 0x30;
+        return 0x30;
+    }
+
+    if (token == 0x293) {
+        obj->field40 = 9;
+        obj->field1c = 9 - 7;                /* the same register */
+
+        *mk3_frame(thread, frame + 1) = 0x298;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_backwards_ani2;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x298)
+        return -3;
+
+    obj->field20          = 0;
+    obj->field00->field18 = 0;
+
+    if ((long)thread->frame > 0) {           /* cmp #0 / ble: signed */
+        thread->frame = thread->frame - 1;   /* back up a level */
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}

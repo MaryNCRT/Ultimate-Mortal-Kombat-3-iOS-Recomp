@@ -113,7 +113,11 @@ typedef struct MK3OBJPROC {
     uint32_t field64;            /* 0x64  the slave's object; delete_slave
                                   *       hands it to KillProc */
     uint32_t slave;              /* 0x68  per f_set_a10_to_slave */
-    uint8_t  _pad6c[0x10];
+    uint8_t  _pad6c[0x0c];
+    struct MK3OBJ *field78;      /* 0x78  the object t_rocket_explode hands to
+                                  *       KillProc on both of its paths. Not
+                                  *       the slave -- that is 0x64 -- and
+                                  *       nothing in the tree writes it yet. */
     uint16_t field7c;            /* 0x7c  the four-button gate, signed */
     uint8_t  _pad7e[6];
     uint32_t field84;            /* 0x84  where tell_world_stk publishes the
