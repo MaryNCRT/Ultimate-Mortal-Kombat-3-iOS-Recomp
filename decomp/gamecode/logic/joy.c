@@ -627,3 +627,246 @@ long t_joy_back_up(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+
+/* ========================================================================
+ * THE INPUT CONTRACT
+ *
+ * Everything a keyboard or a gamepad has to produce, and every bit of it is
+ * measured rather than assumed. Three independent readings agree.
+ *
+ * ## One ten-bit word per player
+ *
+ * `mk3_update` takes `long joy[2]` and hands it to `TranslateJoybits`:
+ *
+ *      bit 0..3   the four directions
+ *      bit 4      HP        high punch
+ *      bit 5      LP        low punch
+ *      bit 6      BL        block
+ *      bit 7      HK        high kick
+ *      bit 8      LK        low kick
+ *      bit 9      RUN
+ *      bit 10     a SPECIAL-MOVE REQUEST, not a button -- leave it clear
+ *
+ * ## How the six buttons were named
+ *
+ * Not guessed. Three measurements, and the last two pin the whole row:
+ *
+ *   1. **`bt_stance` names the moves in order.** It is a table of six words
+ *      and its entries are `t_joy_hi_punch`, `t_joy_lo_punch`, `t_joy_block`,
+ *      `t_joy_hi_kick`, `t_joy_lo_kick`, and nothing. So the table index runs
+ *      HP, LP, BL, HK, LK, RUN.
+ *
+ *   2. **`check_block_bit` measures BLOCK**: it masks the translated word with
+ *      0x20 for player 0 and 0x2000 for player 1. `TranslateJoybits` puts
+ *      input bit 6 at exactly those two positions. **So BL is input bit 6, and
+ *      it is table index 2.**
+ *
+ *   3. **`is_run_pressed` measures RUN**: 0x40000 and 0x400000, which
+ *      `TranslateJoybits` fills from input bit 9. **So RUN is input bit 9, and
+ *      it is table index 5.**
+ *
+ * Index 2 is input bit 6 and index 5 is input bit 9, so **index = input bit
+ * minus four**, and the other four fall out: HP 4, LP 5, HK 7, LK 8. Two
+ * independent constraints, both satisfied, no freedom left.
+ *
+ * ## Where the bits end up
+ *
+ * `TranslateJoybits` spreads them, and the layout looks arbitrary until the
+ * names are on it:
+ *
+ *      HP  -> bit  4 (P1) / bit 12 (P2)      LP  -> bit 16 / bit 20
+ *      BL  -> bit  5      / bit 13           LK  -> bit 17 / bit 21
+ *      HK  -> bit  6      / bit 14           RUN -> bit 18 / bit 22
+ *
+ * The low trio is **HP, BL, HK** and the high trio is **LP, LK, RUN** -- the
+ * high attacks with block, against the low attacks with run. That grouping is
+ * why `buttons_in_a2` in moves.c can mask a player's whole button set with one
+ * constant: 0x00070070 for player 0, 0x00707000 for player 1.
+ *
+ * ## The directions
+ *
+ * `joystick_in_a0_px` in other.c reads `G[player]` -- the per-player word
+ * `mk3_update` stores at `G + 0x00` and `G + 0x04` -- and masks it with 0xf.
+ * So **the four direction bits survive translation unmoved, at bits 0..3**,
+ * and they are read from a different place than the buttons.
+ *
+ * **Which of the four is up, down, left and right is NOT yet established** and
+ * is not guessed here. `mask_joystick` below shows they are then filtered by
+ * `proc->field34`, so a state can forbid individual directions.
+ *
+ * ## What this means for the port
+ *
+ * There is no touch input anywhere in the fight engine and there never was.
+ * The iOS build's touch layer sits above `UpdateArcadeCode`, filling `joy[2]`.
+ * **Replacing it with a keyboard or a gamepad is a matter of filling two
+ * ten-bit words**, and nothing below that line needs to change.
+ * ======================================================================== */
+
+
+/* ----------------------------------------------------------- stuff_buttons
+ *
+ * armv7 0x0002ec50, FOUR bytes.  **Complete.**
+ *
+ *      obj->field60 = table
+ *
+ * One store and a return, and it is the smallest function in the directory.
+ *
+ * **It also proves MK3OBJ reaches 0x60.** The struct as this project had it
+ * ended at 0x5c; `Plyr`'s stride is 108, so there was room and nothing known to
+ * be in it. 0x60 is the first field found in that space, and it is **the
+ * fighter's current button table.**
+ */
+void stuff_buttons(MK3OBJ *obj, const void *table)
+{
+    obj->field60 = (uint32_t)(uintptr_t)table;
+}
+
+
+/* ============================ enable_all_buttons, disable_all_buttons,
+ *                              disable_his_buttons
+ *
+ * armv7 0x0002ec54, 0x0002ec68 and 0x0002ec7c; 20, 20 and 24 bytes.
+ * **Complete.**
+ *
+ *      enable_all_buttons(obj)   stuff_buttons(obj,                  bt_stance)
+ *      disable_all_buttons(obj)  stuff_buttons(obj,                  bt_null)
+ *      disable_his_buttons(obj)  stuff_buttons(obj->field00->field00, bt_null)
+ *
+ * **"Enable all buttons" means "go back to the standing table".** Not a flag,
+ * not a mask -- the standing move set IS the enabled state, and `bt_null` is a
+ * table of ten zeroes that answers every button with nothing.
+ *
+ * So disabling input costs one pointer store and no branches anywhere else, and
+ * a state that wants to take control away from the player just parks `bt_null`
+ * in 0x60 until it is done. That is the whole mechanism.
+ *
+ * `disable_his_buttons` reaches the opponent through `obj->field00->field00`,
+ * the two-hop that mk3logic.h documents as "him".
+ */
+extern const void *bt_null;        /* 0x00165584 */
+extern const void *bt_angle_jump;  /* 0x001655ac */
+extern const void *bt_duck;        /* 0x001655d4 */
+extern const void *bt_stance;      /* 0x001655fc */
+extern const void *bt_jump;        /* 0x00165624 */
+
+void enable_all_buttons(MK3OBJ *obj)
+{
+    stuff_buttons(obj, &bt_stance);
+}
+
+void disable_all_buttons(MK3OBJ *obj)
+{
+    stuff_buttons(obj, &bt_null);
+}
+
+void disable_his_buttons(MK3OBJ *obj)
+{
+    stuff_buttons(obj->field00->field00, &bt_null);
+}
+
+
+/* ------------------------------------------------- me_in_front, me_in_back
+ *
+ * armv7 0x0002ec24 and 0x0002ec38; 20 and 24 bytes.  **Complete.**
+ *
+ *      me_in_front(obj)   G[0x474] =  obj->field00->field08
+ *      me_in_back(obj)    G[0x474] =  obj->field00->field08 ^ 1
+ *
+ * `G + 0x474` is what `mk3_who_in_front` returns and `RenderLevelPlayers`
+ * reads, and `mk3_init` seeds it from one random bit. **So it holds a PLAYER
+ * INDEX, 0 or 1, and these two are how a fighter claims or yields the front of
+ * the draw order.**
+ *
+ * `field08` on the proc is the side index -- the same field `buttons_in_a2`
+ * uses to choose a button mask and `mk3_update` uses to set a display flag --
+ * so "me" is spelled as "my side" and "him" as that XOR 1.
+ *
+ * Two functions, one XOR apart. The pair shape this directory is full of.
+ */
+void me_in_front(MK3OBJ *obj)
+{
+    *(uint32_t *)(void *)(G_BYTES + 0x474) = obj->field00->field08;
+}
+
+void me_in_back(MK3OBJ *obj)
+{
+    *(uint32_t *)(void *)(G_BYTES + 0x474) = obj->field00->field08 ^ 1u;
+}
+
+
+/* ----------------------------------------------------------- inc_downcount
+ *
+ * armv7 0x0002ec94, 20 bytes.  **Complete.**
+ *
+ *      obj->field00->field14 += 1
+ *      obj->field1c = obj->field00->field14
+ *
+ * A counter on the proc, bumped and then copied back into the object's
+ * scratch word so the caller can read it without a second load. **The proc is
+ * re-loaded between the two** (`ldr r2, [r0]` after the store), which is the
+ * compiler refusing to keep a pointer live across a store through it -- not a
+ * hint that anything changed.
+ */
+void inc_downcount(MK3OBJ *obj)
+{
+    obj->field00->field14 += 1;
+    obj->field1c = obj->field00->field14;
+}
+
+
+/* ---------------------------------------------------------- check_block_bit
+ *
+ * armv7 0x0002eca8, 44 bytes.  **Complete.**
+ *
+ *      obj->field1c = G[0x1c]
+ *      mask = obj->field00->field08 ? 0x2000 : 0x20
+ *      obj->field1c = G[0x1c] & mask
+ *      obj->field5c = (obj->field1c != 0)
+ *
+ * **One of the two measurements that name the buttons.** 0x20 and 0x2000 are
+ * where `TranslateJoybits` puts input bit 6 for player 0 and player 1, so
+ * **block is input bit 6** -- see the input contract above.
+ *
+ * The answer lands in `obj->field5c`, which mk3logic.h already calls "am_i_joy's
+ * isolated bit": **0x5c is this file's boolean return slot**, and three
+ * functions here write it.
+ *
+ * `field1c` is written twice, first with the whole word and then with the
+ * masked one. A spill, not two meanings.
+ */
+void check_block_bit(MK3OBJ *obj)
+{
+    uint32_t now  = *(const uint32_t *)(const void *)(G_BYTES + 0x1c);
+    uint32_t mask = obj->field00->field08 ? 0x2000u : 0x20u;
+
+    obj->field1c = now;
+    obj->field1c = now & mask;
+    obj->field5c = (obj->field1c != 0);
+}
+
+
+/* ------------------------------------------------------------ mask_joystick
+ *
+ * armv7 0x000304b8, 24 bytes.  **Complete.**
+ *
+ *      joystick_in_a0(obj)                  ; fills obj->field1c with G[player] & 0xf
+ *      obj->field20  = obj->field00->field34
+ *      obj->field1c &= obj->field20
+ *
+ * **`proc->field34` is a per-state direction filter.** The four direction bits
+ * arrive from `joystick_in_a0` and are ANDed with whatever the proc has parked
+ * at 0x34, so a state that must not accept "back" clears that bit once and
+ * every read after it is already filtered.
+ *
+ * A port that reads the raw stick and forgets this mask will let a fighter walk
+ * out of animations it is not supposed to be able to leave.
+ */
+long joystick_in_a0(MK3OBJ *obj);
+
+void mask_joystick(MK3OBJ *obj)
+{
+    joystick_in_a0(obj);
+    obj->field20  = obj->field00->field34;
+    obj->field1c &= obj->field20;
+}
