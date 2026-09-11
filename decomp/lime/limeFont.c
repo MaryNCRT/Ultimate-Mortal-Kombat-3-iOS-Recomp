@@ -780,12 +780,50 @@ void limeDrawFONTAtAngle(FONT *font, const char *text, float x, float y,
 
     RotMatrixZ(rot, rad);               /* Matrix.cpp, verified */
 
-    /* See the note in limeDrawFONT: the three alignment cases are read off the
-     * call sites, not off the disassembly. */
-    if (alignment == 1)
-        x -= limeGetStringWidth(font, text) * scale * 0.5f;
-    else if (alignment == 2)
-        x -= limeGetStringWidth(font, text) * scale;
+    /* **The alignment shift runs along the TILTED line, not along x.**
+     * Transcribed from the dispatch at 0x0007e154 -- the thing issue #27 said
+     * was missing. `limeGetStringWidth` answers in r0 and is moved into a float
+     * register whole (`vmov s22, r0`, so the return is raw bits, soft-float),
+     * then multiplied by the caller's scale:
+     *
+     *      0x7e12e  bl       limeGetStringWidth
+     *      0x7e13a  vmov     s22, r0          ; s22 = the width
+     *      0x7e15a  vmul.f32 d7, d11, d13     ; s14 = s22 * s26 = width * scale
+     *
+     * and the two non-zero cases then shift the pen along the ROTATED
+     * direction `RotVector` left at sp+0x68 and sp+0x6c -- the same unit vector
+     * (1,0,0) the anchor note above describes:
+     *
+     *      alignment 2, at 0x7e59c:
+     *          vldr     s12, [sp, #0x68]      ; dir.x
+     *          vmls.f32 s18, s14, s12        ; penX -= width*scale * dir.x
+     *          vldr     s12, [sp, #0x6c]      ; dir.y
+     *          vmls.f32 s20, s14, s12        ; penY -= width*scale * dir.y
+     *
+     *      alignment 1, at 0x7e57a:
+     *          vmov.f32 s12, #-0.5
+     *          vmul.f32 d6, d7, d6           ; s12 = width*scale * -0.5
+     *          ...                            ; then the same two axes
+     *
+     * So centring and right-alignment move the pen BACK ALONG THE TEXT, which
+     * on a line tilted by a few degrees is not the same as moving it left. The
+     * old code moved it left, and that is where the residual error in issue #27
+     * came from: the anchors were already exact, and so was the width.
+     *
+     * `(ca, sa)` below is that same direction -- the glyph loop already
+     * advances along it -- so it is computed here rather than twice. */
+    ca = (float)cos((double)rad);
+    sa = (float)sin((double)rad);
+
+    if (alignment == 1 || alignment == 2) {
+        float w = limeGetStringWidth(font, text) * scale;
+
+        if (alignment == 1)
+            w *= 0.5f;
+
+        x -= w * ca;
+        y -= w * sa;
+    }
 
     /* **The ANCHOR is not rotated.** What goes through the matrix is the unit
      * vector (1,0,0) -- the direction the glyphs advance along:
@@ -813,9 +851,8 @@ void limeDrawFONTAtAngle(FONT *font, const char *text, float x, float y,
 
     /* The advance runs along the tilted line, so it is added as a rotated
      * offset rather than to pos.x -- through the same radians the matrix was
-     * built from, not a second conversion. */
-    ca = (float)cos((double)rad);
-    sa = (float)sin((double)rad);
+     * built from, not a second conversion. `ca` and `sa` were computed above,
+     * because the alignment shift needs the same direction. */
 
     p = text;
     if ((uint8_t)p[0] == 0xff && (uint8_t)p[1] == 0xfe)
