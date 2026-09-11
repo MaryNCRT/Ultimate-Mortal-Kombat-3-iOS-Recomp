@@ -91,7 +91,10 @@ typedef struct MK3OBJPROC {
                                   *       lives on the proc rather than the
                                   *       object, so it survives the object
                                   *       being reused */
-    uint8_t  _pad30[8];
+    uint32_t field30;            /* 0x30  t_rocket1_proc clears it as the
+                                  *       rocket launches. No other writer and
+                                  *       no reader in the tree. */
+    uint8_t  _pad34[4];
     uint32_t field38;            /* 0x38  the same idea in t_jax_proj_calla,
                                   *       counting 3, 2, 1 between effects */
     uint32_t field3c;            /* 0x3c  t_boomerang_call reads it as a mode:
