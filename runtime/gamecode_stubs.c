@@ -172,8 +172,18 @@ long setNextSpritesAndEvents(void) { return 0; }
 
 /* ------------------------------------------- gamecode/logic, the fight ---- */
 
-/* 3 of 2,172 written. The menus call into these only on the way out, so a menu
- * build links against these and a fight build must not. */
+/* The menus call into these only on the way out, so a MENU-ONLY build links
+ * against these and any build that carries the real `mk3.c` must not.
+ *
+ * `mk3.c` is now decompiled -- all nineteen of its functions -- so
+ * `UMK3_HAVE_MK3` is what a target sets to say "the real ones are in this
+ * link". `umk3-test` sets it; `umk3-menu` does not, because it links no
+ * gamecode/logic at all and would otherwise fail to resolve them.
+ *
+ * The stubs stay rather than being deleted: the menu build is still the thing
+ * that proves the front end works on its own, and it must keep building. */
+#ifndef UMK3_HAVE_MK3
+
 void mk3_init(long p1model, long p2model, void (*getBBox)(void), long flag)
 { (void)p1model; (void)p2model; (void)getBBox; (void)flag; }
 
@@ -183,6 +193,8 @@ void mk3_dizzy(void)                           { }
 void mk3_set_four_button(long side, long four) { (void)side; (void)four; }
 long mk3_who_in_front(void)                    { return 0; }
 void no_ai_hack(void)                          { }
+
+#endif /* UMK3_HAVE_MK3 */
 
 
 /* ------------------------------------------------- compiler support ---- */

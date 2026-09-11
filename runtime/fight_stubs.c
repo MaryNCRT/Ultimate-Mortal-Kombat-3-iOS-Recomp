@@ -73,11 +73,24 @@ STUB(UnstackSwitches)
 STUB(RaiseTurboBars)
 
 /* The globals mk3.c names. The scene owns its own fighters and never reads
- * these; they exist so the translation unit links. */
-char *Plyr, *Pp, *GrObj, *mo, *Playback, *H;
-void *MKEventQueue;
-long *RoundParam;
+ * these; they exist so the translation unit links.
+ *
+ * **Four of them are NOT here**: `G`, `H`, `MKEventQueue` and `RoundParam` are
+ * defined by `runtime/gamecode_globals.c`, which the combined build also
+ * links. Defining them twice is a link error, and the right owner is the file
+ * that transcribes the binary's data section -- not this one, which exists to
+ * list what is missing. A standalone fight build gets them from
+ * `runtime/logic_globals.c` instead. */
+char *Plyr, *Pp, *GrObj, *mo, *Playback;
 long  blood[2];
 void *TList, *TList_Free;
 char  mytc[30 * 268];
 void (*mk3_getbbox_cb)(long, int *, int *, int *, int *);
+
+#ifndef UMK3_SHELL
+/* Only the standalone fight build owns these; the shell build takes
+ * gamecode_globals.c's. */
+char *H;
+void *MKEventQueue;
+long *RoundParam;
+#endif

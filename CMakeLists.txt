@@ -66,6 +66,39 @@ add_executable(umk3-fight
 )
 target_include_directories(umk3-fight PRIVATE runtime decomp/lime)
 
+# UMK3-Test: the front end and the fight scene in one program.
+#
+# This is the build to hand someone for testing. It links the whole of
+# decomp/gamecode (the front end) AND decomp/gamecode/logic/mk3.c (the fight's
+# input translation and physics), with runtime/test_main.c owning which of the
+# two is running. UMK3_SHELL tells fight_scene.c to leave out its own main.
+add_executable(umk3-test
+    runtime/test_main.c
+    runtime/fight_scene.c
+    runtime/fight_render.c
+    runtime/fight_audio.c
+    runtime/fight_select.c
+    runtime/fight_stubs.c
+    runtime/draw_gl.c
+    runtime/gamecode_globals.c
+    runtime/gamecode_stubs.c
+    runtime/lime_menu.c
+    runtime/lime_platform.c
+    runtime/lime/meshset.c
+    runtime/lime/scene.c
+    runtime/lime/events.c
+    runtime/lime/skin.c
+    runtime/lime/light.c
+    runtime/lime/limemath.c
+    runtime/lime/pvr.c
+    runtime/lime/png.c
+    decomp/gamecode/logic/mk3.c
+    ${UMK3_MENU_GAMECODE}
+    ${UMK3_MENU_LIME}
+)
+target_include_directories(umk3-test PRIVATE runtime decomp/lime)
+target_compile_definitions(umk3-test PRIVATE UMK3_REAL_GL UMK3_SHELL UMK3_HAVE_MK3)
+
 # win32 needs nothing installed and is what the vertical slice was built on;
 # sdl2 is the portable path. Both implement platform.h and nothing else.
 if(WIN32)
@@ -87,6 +120,9 @@ if(UMK3_BACKEND STREQUAL "win32")
     target_sources(umk3-fight PRIVATE runtime/platform/win32_gl.c
                                      runtime/platform/win32_audio.c)
     target_link_libraries(umk3-fight PRIVATE opengl32 gdi32 winmm)
+    target_sources(umk3-test PRIVATE runtime/platform/win32_gl.c
+                                    runtime/platform/win32_audio.c)
+    target_link_libraries(umk3-test PRIVATE opengl32 gdi32 winmm m)
 elseif(UMK3_BACKEND STREQUAL "sdl2")
     find_package(SDL2 REQUIRED)
     find_package(OpenGL REQUIRED)
