@@ -4792,3 +4792,155 @@ long t_rzap3(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_robo_close_chest);
 }
+
+
+/* tl_do_osz_zap -- armv7 0x0007af28, 176 bytes.  **Complete.**
+ *
+ *      token == 0:        obj->field20 = 0x1a
+ *                         obj->a10     = 0
+ *                         zap_init_special_act(obj)
+ *                         obj->field1c = 0xb; ochar_sound(obj)
+ *                         obj->field40 = 0x00040011
+ *                         token := 0x199, descend into t_animate2_a9
+ *
+ *      token == 0x199:    obj->field1c = 0x30
+ *                         obj->field20 = 0x30 + 8 = 0x38
+ *                         obj->field30 = proc->slave
+ *                         adjust_xy_a5(obj)
+ *                         frame[frame].handler = t_osz_forward_entry
+ *
+ *      otherwise:         return -3
+ *
+ * **`tl_do_sz_zap` without the cursor write.** The two are the same routine with
+ * the same action number (0x1a), the same placement (0x30, 0x38 off
+ * `proc->slave`) and the same ending -- and the Sub-Zero version additionally
+ * points the slave at `sz_ani_data + 0x1220` while this one leaves whatever
+ * `create_proj_proc` set.
+ *
+ * So the older and the classic Sub-Zero share a move and differ in one
+ * assignment. Entry 42 of `projectile_jumps` against 12.
+ *
+ * The sound is 0xb here and 0 there, and the animation 0x00040011 against
+ * 0x00030024 -- so the two do look different on screen; it is the machinery that
+ * is shared, not the presentation.
+ */
+
+long tl_do_osz_zap(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        obj->field20 = 0x1a;
+        obj->a10     = 0;
+        zap_init_special_act(obj);
+
+        obj->field1c = 0xb;
+        ochar_sound(obj);
+
+        obj->field40 = 0x00040011;
+
+        *mk3_frame(thread, frame + 1) = 0x199;
+        thread->frame = thread->frame + 1;       /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate2_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x199)
+        return -3;
+
+    obj->field1c = 0x30;
+    obj->field20 = 0x30 + 8;                     /* the same register */
+    obj->field30 = obj->field00->slave;
+    adjust_xy_a5(obj);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_osz_forward_entry);
+}
+
+
+/* tl_do_floor_ice -- armv7 0x0007afd8, 216 bytes.  **Complete.**
+ *
+ *      token == 0:        obj->field20 = 0x26
+ *                         obj->a10     = 0
+ *                         zap_init_special_act(obj)
+ *                         obj->field1c = 0xe; ochar_sound(obj)
+ *                         obj->field40 = 0x00030010
+ *                         token := 0x170, descend into t_animate2_a9
+ *
+ *      token == 0x170:    obj->field38 = t_floor_ice_proc
+ *                         slave = create_proj_proc(obj)
+ *                         slave->thread->pid = proc->field08 + 0x700 + 7
+ *                         obj->field1c = G + 0x420 + 0xc; update_tsl(obj)
+ *                         obj->field20 = 0x20
+ *                         frame[frame].handler = tl_do_proj_sitting_duck
+ *
+ *      otherwise:         return -3
+ *
+ * **It overwrites the pid `create_proj_proc` just computed.** That routine sets
+ * `strength + 0x700`; this one immediately rewrites the same word as
+ * `strength + 0x700 + 7`. So **0x700 is the family tag and the low bits
+ * distinguish members of it** -- the floor ice is findable separately from every
+ * other projectile the same fighter can have out.
+ *
+ * That is the first evidence in the tree that a pid carries more than "whose
+ * projectile". A port that collapses the two writes into one loses the
+ * distinction, and `FindThread` is how something else goes looking.
+ *
+ * The rewrite is done through the slave's own thread -- `slave->thread->pid` --
+ * which is what `create_proj_proc`'s return value is for, and the second caller
+ * to use it after `t_rzap3`.
+ *
+ * `G + 0x42c` is another slot in the timer block that starts at `G + 0x410`;
+ * fourth measured, after Jax's 0x410, Jade's 0x41c and Reptile's 0x438/0x43c.
+ * The offset arrives as `add.w #0x420` then `adds #0xc`, so it looks like 0x420
+ * at a glance and is not.
+ *
+ * A fifth sitting-duck duration: 0x20.
+ */
+long t_floor_ice_proc(MK3THREAD *thread);
+
+long tl_do_floor_ice(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3OBJ  *slave;
+
+    if (token == 0) {
+        obj->field20 = 0x26;
+        obj->a10     = 0;
+        zap_init_special_act(obj);
+
+        obj->field1c = 0xe;
+        ochar_sound(obj);
+
+        obj->field40 = 0x00030010;
+
+        *mk3_frame(thread, frame + 1) = 0x170;
+        thread->frame = thread->frame + 1;       /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate2_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x170)
+        return -3;
+
+    obj->field38 = (uint32_t)(uintptr_t)t_floor_ice_proc;
+    slave = create_proj_proc(obj);
+
+    /* create_proj_proc just set this to strength + 0x700; the low bits are
+     * what make this projectile findable apart from the others. */
+    slave->thread->pid = obj->field00->field08 + 0x700 + 7;
+
+    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x420 + 0xc);
+    update_tsl(obj);
+
+    obj->field20 = 0x20;                         /* the sitting-duck duration */
+
+    return mk3_install(thread, (MK3THREADFUNC)tl_do_proj_sitting_duck);
+}
