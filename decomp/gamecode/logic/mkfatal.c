@@ -912,7 +912,7 @@ void tsound_func(MK3OBJ *obj, uint32_t arg);
  *          obj->field1c = 0x6
  *          token := 0x154a, then descend into t_mframew
  *      token == 0x154a:
- *          park(token 0x154b, duration 0x16462)   and never wakes
+ *          park(token 0x154b, returns 0x16462)  -- the DELETE sentinel; see mk3logic.h
  *      otherwise:  return -3
  */
 long t_light_animator(MK3THREAD *thread)
@@ -945,7 +945,7 @@ long t_light_animator(MK3THREAD *thread)
  *          park(token 0x15a1, duration 0x4)
  *      token == 0x15a1:
  *          obj->field1c = 0x1
- *          park(token 0x15a4, duration 0x16462)   and never wakes
+ *          park(token 0x15a4, returns 0x16462)  -- the DELETE sentinel; see mk3logic.h
  *      otherwise:  return -3
  */
 long t_crush_blood(MK3THREAD *thread)
@@ -976,7 +976,7 @@ long t_crush_blood(MK3THREAD *thread)
  *      token == 0x1c04:
  *          obj->field28 = 0x36
  *          send_code_a3(obj)
- *          park(token 0x1c08, duration 0x16462)   and never wakes
+ *          park(token 0x1c08, returns 0x16462)  -- the DELETE sentinel; see mk3logic.h
  *      otherwise:  return -3
  */
 long t_make_db_tone(MK3THREAD *thread)
@@ -1036,7 +1036,7 @@ long t_r_mk_game_crush(MK3THREAD *thread)
  *          park(token 0x12d1, duration 0x40)
  *      token == 0x12d1:
  *          tsound_func(obj, 0x70)
- *          park(token 0x12d3, duration 0x16462)   and never wakes
+ *          park(token 0x12d3, returns 0x16462)  -- the DELETE sentinel; see mk3logic.h
  *      otherwise:  return -3
  */
 long t_flesh_rip_sound(MK3THREAD *thread)
@@ -1778,7 +1778,7 @@ long t_kludge_flame_ani(MK3THREAD *thread)
  *
  *      token == 0x40e:  obj->field1c = 5; create_blood_proc(obj)
  *                       obj->field1c = 5; create_blood_proc(obj)
- *                       if (--obj->a10 == 0) { token := 0x416, park 0x16462 }
+ *                       if (--obj->a10 == 0) { token := 0x416, return 0x16462 (delete) }
  *                       -- falls into the 0x40e tail --
  *
  *      the 0x40e tail:  token := 0x40e, park 2
@@ -1789,7 +1789,7 @@ long t_kludge_flame_ani(MK3THREAD *thread)
  * spawns in twenty frames and no way back -- whatever cleans the fatality up does it from
  * outside.
  *
- * **Token 0x416 is not in the dispatch and the park is 0x16462.** Fourth site for that
+ * **Token 0x416 is not in the dispatch and the return is the 0x16462 delete sentinel.** Fourth site for that
  * terminator, after mkstat.c's `t_jade_flash_proc` and mkanimal.c's `t_crunch_sounds` and
  * `t_egg_proc`. The pattern is settled: a state that has nothing left to do parks for a
  * duration that never elapses, under a token the dispatch would refuse. Reaching it would
@@ -2033,7 +2033,7 @@ long t_slide_behind_hair(MK3THREAD *thread)
  * `t_nails_blood_spawner` earlier in this batch -- ten pairs two frames apart there, six singles
  * four frames apart here.
  *
- * The two differ in how they finish: `t_nails_blood_spawner` parks on 0x16462 under a token the
+ * The two differ in how they finish: `t_nails_blood_spawner` returns the 0x16462 delete sentinel under a token the
  * dispatch would refuse, and this installs `t_wait_forever`. **Both mean "this thread is done",
  * and the file uses them interchangeably** -- so neither is the canonical way to stop, and a
  * reader should not draw a distinction between them.
@@ -2273,7 +2273,7 @@ long t_init_death_blow(MK3THREAD *thread)
  *                        token := 0x3bf, park 3
  *
  *      token == 0x3bf:   rsnd_func(obj, 3)
- *                        if (--obj->a10 <= 0) { token := 0x3c4, park 0x16462 }
+ *                        if (--obj->a10 <= 0) { token := 0x3c4, return 0x16462 (delete) }
  *                        -- falls into the 0x3bd tail --
  *
  *      the 0x3bd tail:   obj->field1c = 0x31; create_fx(obj)
@@ -2290,7 +2290,7 @@ long t_init_death_blow(MK3THREAD *thread)
  * twice, three frames apart, rather than two different ones together. So the pair idiom is about
  * rhythm and not only about layering.
  *
- * **Token 0x3c4 is not in the dispatch and the park is 0x16462.** Fifth site for that terminator
+ * **Token 0x3c4 is not in the dispatch and the return is the 0x16462 delete sentinel.** Fifth site for that terminator
  * in the tree, and the third in this file after `t_nails_blood_spawner` and `t_egg_proc` over in
  * mkanimal.c. It is settled beyond doubt now.
  */
@@ -2561,7 +2561,7 @@ long t_nail_spawn_proc(MK3THREAD *thread)
  *                        part->field1c  = 0xffffd000
  *                        token := 0xaa7, park 0x40
  *
- *      token == 0xaa7:   token := 0xaa9, park 0x16462
+ *      token == 0xaa7:   token := 0xaa9, return 0x16462 (delete)
  *
  *      otherwise:        return -3
  *
@@ -2569,7 +2569,7 @@ long t_nail_spawn_proc(MK3THREAD *thread)
  * -0x3000 -- negative, so up -- and it goes into the object and the part together, the same
  * two-places-one-value pattern `t_down_the_staff` uses for its halved velocity.
  *
- * **Token 0xaa9 is not in the dispatch and the park is 0x16462.** Sixth site for that terminator.
+ * **Token 0xaa9 is not in the dispatch and the return is the 0x16462 delete sentinel.** Sixth site for that terminator.
  *
  * The routine keeps the object in `ip` and the first token in `lr` for its whole length, and
  * pushes only `lr` -- so it makes no calls of its own beyond the descent. `t_mframew` does all the
@@ -2624,7 +2624,7 @@ long t_green_shit(MK3THREAD *thread)
  *                        if (obj->field20 > 0x80) { token := 0x8f3, park 1 }
  *                        obj->field38 = t_eat_this_shit
  *                        takeover_him(obj)
- *                        token := 0x901, park 0x16462
+ *                        token := 0x901, return 0x16462 (delete)
  *
  *      otherwise:        return -3
  *
@@ -2642,7 +2642,7 @@ long t_green_shit(MK3THREAD *thread)
  * the floor; this one asks how far above it something still is. Same global, different question.
  *
  * When it lands, the victim gets `t_eat_this_shit` through 0x38 and `takeover_him`, and this thread
- * parks on 0x16462 under token 0x901 -- not in the dispatch. Seventh site for that terminator, and
+ * returns the 0x16462 delete sentinel under token 0x901 -- not in the dispatch. Seventh site for that terminator, and
  * the same reason as `t_egg_proc` in mkanimal.c: after the handover there is nothing left to do.
  */
 long t_eat_this_shit(MK3THREAD *thread);         /* 0x00039d0c */
@@ -7462,7 +7462,7 @@ long t_r_ice_blow(MK3THREAD *thread)
  * **It ties together two routines already written in this file.** `t_r_kiss_suck` is handed to the
  * victim -- the one with the dead `obj->field40 = 0x17` and the unnamed sub-table inside
  * `fn_ani_data` -- and `t_bone_vomit_proc` is spawned as its own thread, the three-state ring that
- * ends on the 0x16462 terminator. So the vomiting outlives this routine, which is why that ring
+ * ends on the 0x16462 delete sentinel. So the vomiting outlives this routine, which is why that ring
  * needed a never-wake state rather than a way out.
  *
  * Two `t_animate2_a9` runs with 0x00060006 and 0x00040018 -- third and fourth sites for that
@@ -7728,7 +7728,7 @@ long t_kang_fire(MK3THREAD *thread)
  * `t_eat_this_shit` are corrected by this one.
  *
  * **`t_nails_blood_spawner` is spawned here**, the ten-pairs blood loop written earlier in this
- * file that ends on the 0x16462 never-wake terminator. Another case of a spawned thread needing no
+ * file that ends on the 0x16462 delete sentinel. Another case of a spawned thread needing no
  * exit because the thread that started it does not wait for it.
  *
  * `scared_pose` and animation 0x1c4b open the reaction; `set_noedge` and
@@ -9243,7 +9243,7 @@ long t_impale_call(MK3THREAD *thread)
  *                         obj->field1c = 4
  *                         token := 0x15ff, descend into t_mframew
  *
- *      token == 0x15ff:   token := 0x1604, park 0x16462
+ *      token == 0x15ff:   token := 0x1604, return 0x16462 (delete)
  *
  *      token == 0x1604:   frame[frame].handler = t_wait_forever
  *
@@ -9256,7 +9256,7 @@ long t_impale_call(MK3THREAD *thread)
  * **The 0x16462 terminator, and this time the follow-on token IS in the dispatch.** Every other
  * site -- `t_jade_flash_proc`, `t_crunch_sounds`, `t_egg_proc`, `t_nails_blood_spawner`,
  * `t_bone_vomit_proc`, `t_green_shit`, `t_smoke_dropping` -- parks under a token the dispatch would
- * refuse. Here state 0x15ff parks on 0x16462 and hands over to 0x1604, which is dispatched and
+ * refuse. Here state 0x15ff returns the 0x16462 delete sentinel and hands over to 0x1604, which is dispatched and
  * installs `t_wait_forever`.
  *
  * So the pattern is not "park under an unreachable token"; it is just "park for a duration that
@@ -10516,7 +10516,7 @@ long t_kitana_kiss(MK3THREAD *thread)
  *      token == 0x516:    obj->field1c = *(long *)obj->field40
  *                         if (obj->field1c != 0)
  *                             token := 0x515, descend into t_double_flame_ani
- *                         token := 0x51f, park 0x16462
+ *                         token := 0x51f, return 0x16462 (delete)
  *
  *      otherwise:         return -3
  *
@@ -10720,7 +10720,7 @@ long t_scorpion_flame(MK3THREAD *thread)
  * Seventh routine in the tree to read `G + 0xac`.
  *
  * **`t_green_shit` gets a caller.** It was written earlier in this file as one of the routines that
- * park on 0x16462 and never wake; here it is started on its own thread with `NewThread` while the
+ * return 0x16462 and are deleted; here it is started on its own thread with `NewThread` while the
  * body is still slowing down.
  *
  * The dispatch tail at 0x38daa serves **both an install and a descent**: state 0xae2 reaches it
@@ -11296,7 +11296,7 @@ long t_another_scorpion(MK3THREAD *thread)
  *                         takeover_him(obj)
  *                         token := 0x1687, park 0x90
  *
- *      token == 0x1687:   token := 0x1688, park 0x16462
+ *      token == 0x1687:   token := 0x1688, return 0x16462 (delete)
  *
  *      otherwise:         return -3
  *

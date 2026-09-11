@@ -74,8 +74,8 @@ int  sprintf(char *dst, const char *fmt, ...);
  * this is how `gamecode/logic` reaches frame bounding boxes -- it is handed
  * the lookup rather than calling it directly, which is worth knowing before
  * that module is decompiled. */
-void mk3_init(long p1model, long p2model,
-              void (*getBBox)(void), long flag);
+long mk3_init(long p1model, long p2model,
+              void (*getBBox)(void), long flag);   /* returns 0; flag is unread */
 void mk3_dizzy(void);
 void LIME_KillAllEvents(void);
 

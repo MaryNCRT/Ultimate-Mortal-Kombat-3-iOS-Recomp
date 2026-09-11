@@ -722,7 +722,7 @@ long t_odor_proc(MK3THREAD *thread)
  *                       token := 0x3d2, park 0x10
  *
  *      token == 0x3d2:  if (--obj->a10 > 0) -- back to the pair --
- *                       token := 0x3d6, park 0x16462
+ *                       token := 0x3d6, return 0x16462 (delete)
  *
  *      otherwise:       return -3
  *
@@ -732,7 +732,8 @@ long t_odor_proc(MK3THREAD *thread)
  *
  * **Token 0x3d6 is not in the dispatch.** Reaching it would return -3, and it is safe
  * for the same reason it is safe in mkstat.c's `t_jade_flash_proc`: the park is
- * 0x16462, the never-wake duration, so the state is a terminator and never runs. That
+ * 0x16462, the DELETE sentinel -- so the state is a terminator and the thread is
+ * released by mk3_update rather than merely parked. See mk3logic.h. That
  * is the second site for this pattern, which makes it an idiom rather than an oversight.
  */
 long t_crunch_sounds(MK3THREAD *thread)
@@ -1481,7 +1482,7 @@ long t_eaten_by_shark(MK3THREAD *thread)
  *
  *      token == 0x2aa:  obj->field38 = t_r_egg
  *                       takeover_him(obj)
- *                       token := 0x2ad, park 0x16462
+ *                       token := 0x2ad, return 0x16462 (delete)
  *
  *      otherwise:       return -3
  *
@@ -1493,7 +1494,7 @@ long t_eaten_by_shark(MK3THREAD *thread)
  * So the egg does not hatch by running code of its own: it makes the VICTIM's thread run
  * `t_r_egg`, which is written earlier in this file, and then parks itself forever.
  *
- * **Token 0x2ad is not in the dispatch and the park is 0x16462.** Third site for that
+ * **Token 0x2ad is not in the dispatch and the return is the 0x16462 delete sentinel.** Third site for that
  * pattern, after mkstat.c's `t_jade_flash_proc` and `t_crunch_sounds` in this file -- and
  * the first one where the reason is plainly visible: after the handover this thread has
  * nothing left to do, and parking forever is cheaper than unwinding.
@@ -2103,7 +2104,7 @@ long tl_sheeva_scorpion(MK3THREAD *thread)
  * four back.
  */
 extern uint32_t a_monkey[];                      /* 0x001771fc */
-void mk3_getbbox(uint32_t ani, int *p1, int *p2, int *p3, int *p4);
+void mk3_getbbox(long ani, int *p1, int *p2, int *p3, int *p4);
 void frame_a9(MK3OBJ *obj);
 
 long tl_reptile_monkey(MK3THREAD *thread)

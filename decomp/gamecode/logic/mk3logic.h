@@ -39,7 +39,10 @@ typedef struct MK3THREAD {
                                   *       pushed by the striker pair */
     uint32_t      fieldf8;       /* 0xf8  the cursor into them; fastxfer_thread
                                   *       clears it too */
-    uint32_t      fieldfc;       /* 0xfc  cleared on start, set on terminate */
+    /* 0xfc  A SLEEP COUNTER. `mk3_update` decrements it when positive and runs
+     * the thread only when it reaches zero, so a handler that stores N here
+     * skips the next N frames. Cleared on start. */
+    uint32_t      fieldfc;       /* 0xfc */
     uint32_t      player;        /* 0x100 getobjectinsert multiplies it by
                                   *       PLYR_STRIDE to index Plyr */
     uint32_t      pid;           /* 0x104 NewThreadProcPid sets it */
@@ -52,6 +55,33 @@ typedef struct MK3THREAD {
  * one word short of it, so the stride is the struct and not a gap between
  * elements. */
 #define MK3THREAD_STRIDE  0x10c
+
+/* **0x16462 is a SENTINEL, not a duration.** Eleven handlers across this
+ * directory end with
+ *
+ *      thread->fieldfc = 0x16462;  return 0x16462;
+ *
+ * and for a long time this project could only say that the number was "the
+ * park-and-never-wake duration", because `fieldfc` counts down and 0x16462 is
+ * far larger than any real sleep.
+ *
+ * `mk3_update` settles it: the comparison is against the RETURN VALUE, and a
+ * thread whose handler returns this is unlinked from `TList` and pushed back on
+ * the free list on the spot -- with its owner's slave fields cleared first. So
+ * those eleven lines mean **"I am finished, delete me"**, and the `fieldfc`
+ * store is belt-and-braces that is never consulted.
+ *
+ * The sites that describe it as a duration are wrong in wording only: they all
+ * correctly called the state a terminator. The mechanism is what was missing. */
+#define MK3_THREAD_DONE  0x16462
+
+/* And the shape a FRAME HANDLER really has. `MK3THREADFUNC` above is what
+ * `StartThreadAt` takes; every handler stored in `mk3_frame(t, n)[1]` is
+ * called by `mk3_update` as `long (*)(MK3THREAD *)` and its return value is
+ * acted on -- negative abandons the frame, 0 re-runs the thread immediately,
+ * and 0x16462 deletes it. The two types have coexisted because nothing called
+ * a handler until mk3.c was decompiled. */
+typedef long (*MK3THREADLONGFUNC)(MK3THREAD *thread);
 
 
 void  KillSThread(MK3THREAD *thread);
@@ -135,6 +165,16 @@ typedef struct MK3OBJPROC {
 /* The high half of the word at 0x0c, which several routines read on its own
  * and one of them sign-extends. Little-endian: 0x0e is the top two bytes. */
 #define MK3_FIELD0E(o)   ((uint16_t)((o)->field0c >> 16))
+
+/* And the SIGNED read, which is what `gravity_n_bounds` actually does:
+ * `ldrsh.w r3, [r2, #0xe]`. The coordinate is signed -- a fighter left of the
+ * origin reads negative -- and that routine COMPARES it against the arena
+ * bounds, where the unsigned form would wrap and clamp the wrong way.
+ *
+ * The unsigned macro above stays, because every other site so far only adds a
+ * constant and stores the result back, where the two are identical. Any NEW
+ * site that compares must use this one. */
+#define MK3_FIELD0E_S(o) ((int16_t)((o)->field0c >> 16))
 
 /* And the write. `multi_adjust_xy_ob` stores a halfword there, which on the
  * word at 0x0c is a read-modify-write of the top half. */

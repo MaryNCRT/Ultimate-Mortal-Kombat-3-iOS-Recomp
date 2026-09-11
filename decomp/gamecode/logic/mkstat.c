@@ -1213,7 +1213,7 @@ long t_noogy_suspended(MK3THREAD *thread)
  *                       obj->field2c = f
  *                       if ((f & 4) != 0) {
  *                           jade_normpal(obj)
- *                           token := 0xf4, park 0x16462
+ *                           token := 0xf4, return 0x16462 (delete)
  *                       } else {
  *                           pop a level, or t_local_reaction_exit
  *                       }
@@ -1602,7 +1602,7 @@ long t_stat_do_duck_punch(MK3THREAD *thread)
  *
  *      token == 0x100:  obj->field1c = 0xc; ochar_sound(obj)
  *                       if (--obj->field40 > 0) -- back to the swap body --
- *                       token := 0x108, park 0x16462
+ *                       token := 0x108, return 0x16462 (delete)
  *
  *      otherwise:       return -3
  *
@@ -1947,7 +1947,7 @@ long t_stat_do_sweep_kick(MK3THREAD *thread)
  * the routine finishes in t_wait_forever -- the baby never does anything again.
  */
 extern uint32_t ochar_babies[];                   /* 0x00167350 */
-void mk3_getbbox(uint32_t ani, int *p1, int *p2, int *p3, int *p4);
+void mk3_getbbox(long ani, int *p1, int *p2, int *p3, int *p4);
 void tsound_func(MK3OBJ *obj, uint32_t arg);
 long t_wait_forever(MK3THREAD *thread);
 
