@@ -4459,3 +4459,162 @@ long tl_do_sg_zap(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)tl_do_proj_sitting_duck);
 }
+
+
+/* tl_lk_zap_hi -- armv7 0x0007a4a4, 208 bytes.  **Complete.**
+ *
+ *      token == 0:        am_i_airborn(obj)
+ *                         if (obj->field5c != 0) {
+ *                             frame[frame].handler = t_lk_zap_air
+ *                             return
+ *                         }
+ *                         obj->field20 = 0x13
+ *                         obj->a10     = 0
+ *                         zap_init_special_act(obj)
+ *                         obj->field1c = 0; ochar_sound(obj)
+ *                         obj->field40 = 0x00040024
+ *                         token := 0xa40, descend into t_animate_a9
+ *
+ *      token == 0xa40:    frame[frame].handler = t_lk_zap_entry
+ *
+ *      otherwise:         return -3
+ *
+ * **This closes `t_lk_zap_air`**, written a few batches ago with nothing
+ * pointing at it. The split is the first line: ask whether the fighter is off
+ * the ground and, if so, **hand the whole move over** rather than branch inside
+ * it. The grounded path then does the ordinary setup.
+ *
+ * So a move with an air version is two routines and one predicate at the top,
+ * not one routine with a flag threaded through it. `t_lk_zap_air` sets its own
+ * action (0x15) and animation and ends at `t_lk_zap_entry` -- the same place
+ * this one ends -- so the two paths rejoin after the setup differs.
+ *
+ * Entry 22 of `projectile_jumps`; `tl_lk_zap_lo` at 23 is the twin.
+ *
+ * `obj->field5c` is read into a callee-saved register before the test and then
+ * reused as the ZERO written into `a10` and `0x1c` on the grounded path -- the
+ * predicate answered no, so the register already holds 0. Transcribed as 0,
+ * because that is what it is.
+ */
+long am_i_airborn(MK3OBJ *obj);
+long t_lk_zap_air(MK3THREAD *thread);
+
+long tl_lk_zap_hi(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        am_i_airborn(obj);
+
+        if (obj->field5c != 0)                   /* the whole move differs */
+            return mk3_install(thread, (MK3THREADFUNC)t_lk_zap_air);
+
+        obj->field20 = 0x13;
+        obj->a10     = 0;
+        zap_init_special_act(obj);
+
+        obj->field1c = 0;
+        ochar_sound(obj);
+
+        obj->field40 = 0x00040024;
+
+        *mk3_frame(thread, frame + 1) = 0xa40;
+        thread->frame = thread->frame + 1;       /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xa40)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_lk_zap_entry);
+}
+
+
+/* spit_prezap_hit -- armv7 0x0007bb08, 196 bytes.  **Complete.**
+ *
+ *      token == 0:        stop_a8(part)
+ *                         obj->a10 = proc->him
+ *                         obj->field40 = 7; get_char_ani2(obj)
+ *                         obj->field1c = 0x2f; create_fx(obj)
+ *                         match_me_with_him(obj)
+ *                         flip_multi(obj)
+ *                         obj->field20 = 0
+ *                         obj->field1c = -0xc0
+ *                         multi_adjust_xy(obj)
+ *                         obj->field40 = 6
+ *                         obj->field54 = 6 - 2 = 4
+ *                         find_ani2_part_a14(obj)
+ *                         obj->field1c = 3
+ *                         token := 0x4a9, descend into t_mframew
+ *
+ *      token == 0x4a9:    frame[frame].handler = tl_delete_proj_and_die
+ *
+ *      otherwise:         return -3
+ *
+ * **The spit lands ON the victim and then moves back 0xc0.** `match_me_with_him`
+ * puts it at the opponent's position, `flip_multi` mirrors it to face the same
+ * way, and the shift is horizontal only -- 0 into 0x20 -- so it ends up
+ * 0xc0 in front of where the opponent stands rather than on top of them.
+ *
+ * The order matters and a port must keep it: match, flip, THEN shift. Shifting
+ * before the flip would move it the other way, because `multi_adjust_xy` reads
+ * the flip bit.
+ *
+ * `obj->field54 = 4` for `find_ani2_part_a14` -- fourth site for 0x54 as the a14
+ * finders' second parameter, and the 6 and the 4 come off one register with a
+ * `subs #2`.
+ *
+ * `obj->a10 = proc->him` is set and never read here, so it is left for whatever
+ * runs next -- the same hand-off `t_rocket_explode` makes before calling
+ * `benedict_arnold_projectile`.
+ */
+void stop_a8(MK3OBJ *part);
+void match_me_with_him(MK3OBJ *obj);
+
+long spit_prezap_hit(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        stop_a8(obj->field08);
+
+        obj->a10 = obj->field00->him;
+
+        obj->field40 = 7;
+        get_char_ani2(obj);
+
+        obj->field1c = 0x2f;
+        create_fx(obj);
+
+        match_me_with_him(obj);
+        flip_multi(obj);                         /* before the shift */
+
+        obj->field20 = 0;
+        obj->field1c = (uint32_t)~0xbfu;         /* -0xc0, sideways only */
+        multi_adjust_xy(obj);
+
+        obj->field40 = 6;
+        obj->field54 = 6 - 2;                    /* the same register */
+        find_ani2_part_a14(obj);
+
+        obj->field1c = 3;
+
+        *mk3_frame(thread, frame + 1) = 0x4a9;
+        thread->frame = thread->frame + 1;       /* push a level */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x4a9)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+}
