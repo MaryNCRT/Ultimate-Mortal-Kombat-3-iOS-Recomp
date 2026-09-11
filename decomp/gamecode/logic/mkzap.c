@@ -1204,7 +1204,7 @@ void setup_proj_obj(MK3OBJ *obj)
  *
  *      if (frame[frame+1].w0 != 0) return -3
  *      frame[frame+1].w0 = 0x13c6
- *      park 0x16462                     and never wakes
+ *      return 0x16462 (delete)                     and never wakes
  *
  * **Eleventh 0x16462 site**, and the token 0x13c6 is not in any dispatch -- the
  * routine has no second state. The name says the rest: whatever called it has

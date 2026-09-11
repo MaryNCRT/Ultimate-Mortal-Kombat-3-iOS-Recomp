@@ -6866,7 +6866,9 @@ void  HUDANIM_Init(void);
 void  mk3_init_game(void);
 void  LoadAllSounds(void);
 void  mk3_set_four_button(long side, long four);
-void  mk3_init(long p1model, long p2model, void (*getBBox)(void), long flag);
+/* Returns 0 always; no caller reads it. `flag` is passed as 1 by both callers
+ * and is never read inside -- see decomp/gamecode/logic/mk3.c. */
+long  mk3_init(long p1model, long p2model, void (*getBBox)(void), long flag);
 
 /* Return 0 to keep loading, non-zero when the last step is done. */
 long GameInit_LoadABit(long step)
@@ -8847,7 +8849,9 @@ void LIME_UpdateEvents(void);
 void HUDANIM_Update(void);
 void RunJaxGrowCounters(void);
 void TrackCam(const float *a, const float *b, long flag);
-void mk3_update(const long *joy, void **objects);
+/* Returns 1 when a thread handler returned negative and the frame was
+ * abandoned, 0 otherwise. Declared void here until mk3.c was read. */
+long mk3_update(const long *joy, void **objects);
 long setNextSpritesAndEvents(void);
 void sendSpriteListPacket(void *objects, long a, long b);
 void sendJoystickInputPacket(long a, long bits);

@@ -1344,7 +1344,7 @@ void gso_dmawnz_insobja8(MK3OBJ *obj)
  * chooses which lighting event and the first two are the event system's own
  * vocabulary rather than anything this file establishes.
  */
-void MKEvent_Add(long a, long b, long c, uint32_t d);
+void MKEvent_Add(long a, long b, long c, long d);
 
 void lights_on_hit(MK3OBJ *obj)
 {
@@ -2225,7 +2225,8 @@ void sweep_sounds(MK3OBJ *obj)
  * `script[0] & 0x3fff` into the same call, which settles it, and the
  * correction propagates back here.
  */
-void mk3_getbbox(uint32_t ani, int *p1, int *p2, int *p3, int *p4);
+/* The id is SIGNED: mk3_update passes -1 to mean "the camera". */
+void mk3_getbbox(long ani, int *p1, int *p2, int *p3, int *p4);
 
 int GetFrameWidth(uint32_t ani)
 {
@@ -2355,7 +2356,8 @@ void away_x_vel(MK3OBJ *obj)
  * than wrapping into it. 0x1c is re-read after the event and returned, so the
  * event can change it -- which is why the reload is kept.
  */
-long mk3_bloodevent(uint32_t a, uint32_t n);
+/* No return value: it tail-calls MKEvent_Add, which is void. */
+void mk3_bloodevent(long a, long n);
 
 long create_blood_proc(MK3OBJ *obj)
 {

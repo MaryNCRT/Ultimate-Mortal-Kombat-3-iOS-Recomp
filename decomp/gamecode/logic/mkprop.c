@@ -1136,7 +1136,7 @@ void bike_hit_call(MK3OBJ *obj)
  * 0x297 wakes it after one tick straight back into the shared part, so it
  * polls the field at +0x18 of whatever 0x48 points at, once a frame, for as
  * long as that reads 0x215. When it stops, the second event goes out and it
- * parks on 0x16462 with a token its own dispatch rejects -- the never-wake
+ * returns the 0x16462 delete sentinel with a token its own dispatch rejects -- the never-wake
  * ending this directory uses when a sequence must not unwind to its caller.
  *
  * The first event is only sent on the way in, not on the polling passes, which
@@ -4908,7 +4908,7 @@ long tl_do_sz_decoy(MK3THREAD *thread)
  *                       token := 0xcf3, descend into t_shake_and_collision
  *
  *      token == 0xcf3:  -- GO AWAY --
- *      token == 0xcfd:  token := 0xd03, park 0x16462
+ *      token == 0xcfd:  token := 0xd03, return 0x16462 (delete)
  *      token == 0xd03:  -- FLASH AND STOP --
  *      otherwise:       return -3
  *
@@ -4919,7 +4919,7 @@ long tl_do_sz_decoy(MK3THREAD *thread)
  *                     obj->field1c = 3 ; create_fx(obj)
  *                     token := 0xcfd, park 0xc
  *      FLASH AND STOP obj->field1c = 3 ; create_fx(obj)
- *                     token := 0xd09, park 0x16462
+ *                     token := 0xd09, return 0x16462 (delete)
  *
  * **How long the decoy stands there is decided by who the opponent is.**
  * 0x2a frames normally and 0x20 if `is_he_joy` comes back clear -- ten frames

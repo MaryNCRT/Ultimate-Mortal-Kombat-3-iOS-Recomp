@@ -1287,6 +1287,27 @@ extern float  ShadowHeightFromGround;   /* 0x00171364 */
 extern limeVECTOR3 *RenderVerts;        /* pointer slot */
 
 /* The two skinning generators are defined above. */
+/* **This prototype and RenderMesh.c's definition disagree, and MEASUREMENT SAYS
+ * NEITHER IS RIGHT.** Left as an open finding rather than guessed at.
+ *
+ * RenderMesh.c read the armv6 slice (0x00080a7c) and has
+ * `(MESHINFO *, TEXTURE *, TEXTURE *, float, long)`; this call site was read
+ * independently and has the float one position earlier.
+ *
+ * The armv7 slice (0x0005e358) settles that both are short a parameter. Its
+ * prologue uses r0, r1, r2 and r3, AND reads a fifth argument from
+ * `[sp, #0x4c]` -- which is the first stack slot once the 76 bytes of
+ * `push`/`vpush`/`sub sp` are accounted for. **And s0 is never read anywhere in
+ * the 628 bytes.** Under the armv7 hard-float ABI a `float` parameter arrives
+ * in s0 and consumes no core register, so a five-parameter signature with one
+ * float would put everything in r0-r3 and nothing on the stack.
+ *
+ * So armv7 takes **five core-register arguments plus an unread float**: six
+ * parameters, not five. The armv6 slice passes floats in core registers, which
+ * is why the two readings drifted.
+ *
+ * Fixing it properly means reading both slices and this call site together.
+ * `tools/protos.py` reports the disagreement and should keep reporting it. */
 void LIME_RenderMeshSingleIndexed(void *frame, void *tex, float grey,
                                   void *arg, long flag);
 void LIME_printf(int window, const char *fmt, ...);
