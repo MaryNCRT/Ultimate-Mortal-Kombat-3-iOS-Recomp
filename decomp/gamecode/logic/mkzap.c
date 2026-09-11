@@ -3538,3 +3538,141 @@ long t_lk_zap_air(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_lk_zap_entry);
 }
+
+
+/* t_sk_zap_proc -- armv7 0x00076cd8, 160 bytes.  **Complete.**
+ *
+ *      token == 0:       obj->field20 = 3
+ *                        obj->field1c = 0xa0000
+ *                        set_proj_vel(obj)
+ *                        obj->field48 = 4
+ *                        token := 0x6ad, descend into tl_projectile_flight
+ *
+ *      token == 0x6ad:   part->x0e = (uint16_t)him->x0e
+ *                        obj->field1c = 5; create_fx(obj)
+ *                        frame[frame].handler = tl_delete_proj_and_die
+ *
+ *      otherwise:        return -3
+ *
+ * **A third data point on how `create_fx` is aimed, and it tilts the question.**
+ * `make_lineup_explode` moves the part's x to the opponent's, calls, and puts
+ * the part back; `t_rocket_explode_fx` instead fills 0x44 and 0x48 with
+ * coordinates; this one moves the part to the opponent's x and **does not put it
+ * back**, because the projectile is about to be deleted.
+ *
+ * Two of the three callers aim by moving the part. So `create_fx` most likely
+ * reads the PART's position, and `t_rocket_explode_fx`'s 0x44/0x48 stores are
+ * either a different parameter or dead. That would also explain why
+ * `make_lineup_explode`'s width computation never mattered: it feeds an x that
+ * gets overwritten with the opponent's before the call, exactly as here.
+ *
+ * **Still a reading, not a measurement** -- `create_fx` at 0x00058d70 is not
+ * decompiled and settles it in one look. But three callers now say the same
+ * thing and none of them says the other.
+ *
+ * The same launch numbers as `t_motaro_zap_proc`: 3 into 0x20, 0xa0000 into
+ * 0x1c, `set_proj_vel`. The two differ in 0x48 -- 4 here, 3 there -- and in
+ * which flight they descend into.
+ */
+long tl_projectile_flight(MK3THREAD *thread);
+
+long t_sk_zap_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        obj->field20 = 3;
+        obj->field1c = 0xa0000;
+        set_proj_vel(obj);
+
+        obj->field48 = 4;
+
+        *mk3_frame(thread, frame + 1) = 0x6ad;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)tl_projectile_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x6ad)
+        return -3;
+
+    MK3_SET_FIELD0E(obj->field08,                /* aimed, and not put back */
+                    MK3_FIELD0E((MK3OBJ *)(void *)(uintptr_t)
+                                obj->field00->him));
+
+    obj->field1c = 5;
+    create_fx(obj);
+
+    return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+}
+
+
+/* tl_do_sw_zap -- armv7 0x00079db8, 164 bytes.  **Complete.**
+ *
+ *      token == 0:        obj->field20 = 7
+ *                         obj->a10     = 0
+ *                         zap_init_special_act(obj)
+ *                         obj->field40 = 0x00030024
+ *                         token := 0xea2, descend into t_animate_a9
+ *
+ *      token == 0xea2:    obj->field38 = t_swat_proj_proc
+ *                         create_proj_proc(obj)
+ *                         obj->field20 = 0x18
+ *                         frame[frame].handler = tl_do_proj_sitting_duck
+ *
+ *      otherwise:         return -3
+ *
+ * **This closes `create_proj_proc`.** That routine restarts an existing slave
+ * through `StartProcAt(proc->field64, obj->field38)` or makes a new one, and
+ * nothing had shown who fills 0x38. Here it is: the driver writes the handler
+ * the projectile will run -- `t_swat_proj_proc` -- and then calls. So 0x38 is
+ * the projectile's entry point, which is the same slot the fatality files use
+ * to hand a routine to the other fighter. **One field, two systems, the same
+ * meaning: "the code this other object is about to run".**
+ *
+ * `obj->field20 = 0x18` is the second duration measured for
+ * `tl_do_proj_sitting_duck`, after Jax's 0x16 -- twenty-four frames against
+ * twenty-two, so the field really is a per-move number and not a constant
+ * dressed up.
+ *
+ * Entry 8 of `projectile_jumps`.
+ */
+long t_swat_proj_proc(MK3THREAD *thread);
+void create_proj_proc(MK3OBJ *obj);
+long t_animate_a9(MK3THREAD *thread);            /* pointer slot 0x000f36d0 */
+
+long tl_do_sw_zap(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        obj->field20 = 7;
+        obj->a10     = 0;
+        zap_init_special_act(obj);
+
+        obj->field40 = 0x00030024;
+
+        *mk3_frame(thread, frame + 1) = 0xea2;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xea2)
+        return -3;
+
+    obj->field38 = (uint32_t)(uintptr_t)t_swat_proj_proc;
+    create_proj_proc(obj);
+
+    obj->field20 = 0x18;                     /* the sitting-duck duration */
+
+    return mk3_install(thread, (MK3THREADFUNC)tl_do_proj_sitting_duck);
+}
