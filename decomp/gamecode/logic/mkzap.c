@@ -2701,11 +2701,21 @@ void benedict_arnold_projectile(MK3OBJ *obj)
  * the helper must fill it -- the same convention `mk_random` and every other
  * 0x1c-answering helper in this engine follows. Recorded as the reading; the
  * routine is at 0x000599b4 and is not decompiled.
+ *
+ * **It returns the slave, and this was first written as `void`.** The last
+ * instruction before the epilogue is `mov r0, r1`, and `r1` is the slave object
+ * on both paths. Nothing caught it: the two callers written at the time ignored
+ * the result, so a `void` declaration compiled and ran. `t_rzap3` is what found
+ * it -- that one does `ldr r3, [r0, #8]` on the way back, reading the slave's
+ * part straight out of the return value.
+ *
+ * A return value nobody reads is invisible to the compiler, to `protos.py` and
+ * to a differential test. The only thing that finds one is reading the caller.
  */
 MK3OBJ *getprc_x(MK3OBJ *obj, uint32_t arg);
 void StartProcAt(MK3OBJ *obj, MK3THREADFUNC func);
 
-void create_proj_proc(MK3OBJ *obj)
+MK3OBJ *create_proj_proc(MK3OBJ *obj)
 {
     MK3OBJPROC *proc = obj->field00;
     uint32_t    strength = proc->field08;
@@ -2742,6 +2752,8 @@ void create_proj_proc(MK3OBJ *obj)
     proc->field84 = 0;
 
     slave->thread->pid = strength + 0x700;   /* the kind tag */
+
+    return slave;                            /* `mov r0, r1` */
 }
 
 
@@ -3642,7 +3654,7 @@ long t_sk_zap_proc(MK3THREAD *thread)
  * Entry 8 of `projectile_jumps`.
  */
 long t_swat_proj_proc(MK3THREAD *thread);
-void create_proj_proc(MK3OBJ *obj);
+MK3OBJ *create_proj_proc(MK3OBJ *obj);
 long t_animate_a9(MK3THREAD *thread);            /* pointer slot 0x000f36d0 */
 
 long tl_do_sw_zap(MK3THREAD *thread)
@@ -4617,4 +4629,166 @@ long spit_prezap_hit(MK3THREAD *thread)
         return -3;
 
     return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+}
+
+
+/* tl_lk_zap_lo -- armv7 0x0007a574, 204 bytes.  **Complete.**
+ *
+ *      token == 0:        am_i_airborn(obj)
+ *                         if (obj->field5c != 0) {
+ *                             frame[frame].handler = t_lk_zap_air
+ *                             return
+ *                         }
+ *                         obj->field20 = 0x14
+ *                         obj->a10     = 0
+ *                         zap_init_special_act(obj)
+ *                         obj->field1c = 0; ochar_sound(obj)
+ *                         obj->field40 = 0x40000
+ *                         token := 0xa30, descend into t_animate2_a9
+ *
+ *      token == 0xa30:    frame[frame].handler = t_lk_zap_entry
+ *
+ *      otherwise:         return -3
+ *
+ * **The twin of `tl_lk_zap_hi`, four constants apart**: action 0x14 against
+ * 0x13, animation 0x40000 against 0x00040024, `t_animate2_a9` against
+ * `t_animate_a9`, token 0xa30 against 0xa40. The airborne branch and the ending
+ * are identical, so the high and low versions of Liu Kang's zap share their air
+ * form and their entry point and differ only in the grounded setup.
+ *
+ * **`obj->field40 = 0x40000` is a second large value passed to
+ * `t_animate2_a9`.** mkfatal.c's `t_lia_scream_rip` note flagged the first one
+ * and said not to assume the packed-pair reading of 0x40 survives. It does not:
+ * the four small sites read 0x0002000c, 0x0005000a, 0x00060006 and 0x00040018,
+ * and these two read 0x40000 and -- next door -- 0x00040024. **A field that
+ * takes both a packed pair and a plain magnitude, like `t_shake_ob_up`'s 0x1c
+ * before it.** Six sites and the reading is still not settled; it is recorded
+ * as unsettled rather than picked.
+ */
+long t_lk_zap_entry(MK3THREAD *thread);
+long t_animate2_a9(MK3THREAD *thread);           /* pointer slot 0x000f36c0 */
+
+long tl_lk_zap_lo(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0) {
+        am_i_airborn(obj);
+
+        if (obj->field5c != 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_lk_zap_air);
+
+        obj->field20 = 0x14;
+        obj->a10     = 0;
+        zap_init_special_act(obj);
+
+        obj->field1c = 0;
+        ochar_sound(obj);
+
+        obj->field40 = 0x40000;              /* not a packed pair */
+
+        *mk3_frame(thread, frame + 1) = 0xa30;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate2_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xa30)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_lk_zap_entry);
+}
+
+
+/* t_rzap3 -- armv7 0x00077b20, 212 bytes.  **Complete.**
+ *
+ *      token == 0:         PUSH obj->field38
+ *                          token := 0x113c, descend into t_robo_open_chest_fast
+ *
+ *      token == 0x113c:    POP  obj->field38
+ *                          slave = create_proj_proc(obj)
+ *                          obj->field30 = slave->field08
+ *                          obj->field1c = 7
+ *                          obj->field20 = 7 + 0x26 = 0x2d
+ *                          adjust_xy_a5(obj)
+ *                          i_am_a_sitting_duck(obj)
+ *                          token := 0x1156, park 0x20
+ *
+ *      token == 0x1156:    frame[frame].handler = t_robo_close_chest
+ *
+ *      otherwise:          return -3
+ *
+ * **Twentieth argument-stack site, and the clearest example of why it exists.**
+ * `obj->field38` holds the handler the projectile will run, and it has to
+ * survive the descent into `t_robo_open_chest_fast` -- a descent, so the routine
+ * RETURNS and a register cannot carry it. That is exactly the rule `t_sg_pound`
+ * settled in mkfatal.c, and here it is with nothing else in the way: push,
+ * descend, pop, use.
+ *
+ * **This is what found `create_proj_proc`'s return value.** The instruction
+ * after the call is `ldr r3, [r0, #8]` -- the slave's part, read straight out of
+ * `r0`. That routine was transcribed as `void` because the two callers written
+ * at the time ignored the result, which compiled and ran. Its note now says so.
+ *
+ * `i_am_a_sitting_duck` rather than the `tl_do_proj_sitting_duck` handler the
+ * other launchers install: the twelve-byte leaf just announces the action and
+ * this routine parks 0x20 itself. Two ways to be a sitting duck, and only the
+ * handler form takes a per-move duration.
+ *
+ * `adjust_xy_a5` with the slave's part in 0x30 and (7, 0x2d) as the offset --
+ * the second site for that three-argument placement, after `tl_do_sz_zap`. The
+ * 7 and the 0x2d come off one register with an `adds #0x26`.
+ */
+long t_robo_open_chest_fast(MK3THREAD *thread);
+long t_robo_close_chest(MK3THREAD *thread);
+void i_am_a_sitting_duck(MK3OBJ *obj);
+
+long t_rzap3(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3OBJ  *slave;
+    uint32_t argc;
+
+    if (token == 0) {
+        argc = thread->fieldf8;
+        *mk3_arg(thread, argc) = obj->field38;   /* must cross a descent */
+        thread->fieldf8 = argc + 1;
+
+        *mk3_frame(thread, frame + 1) = 0x113c;
+        thread->frame = thread->frame + 1;       /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_robo_open_chest_fast;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x113c) {
+        argc = thread->fieldf8 - 1;
+        thread->fieldf8 = argc;
+        obj->field38 = *mk3_arg(thread, argc);
+
+        slave = create_proj_proc(obj);
+        obj->field30 = (uint32_t)(uintptr_t)slave->field08;
+
+        obj->field1c = 7;
+        obj->field20 = 7 + 0x26;                 /* the same register */
+        adjust_xy_a5(obj);
+
+        i_am_a_sitting_duck(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x1156;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (token != 0x1156)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_robo_close_chest);
 }
