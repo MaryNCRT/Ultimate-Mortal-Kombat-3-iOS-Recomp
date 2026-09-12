@@ -8,6 +8,8 @@
 
 [Getting started](docs/GETTING-STARTED.md) · [Methodology](docs/METHODOLOGY.md) · [LIME engine](docs/LIME-ENGINE.md) · [Asset formats](docs/X-TABLES.md) · [Mesh viewer](docs/MESH-VIEWER.md) · [Game bugs](docs/GAME-BUGS.md) · [Hidden content](docs/HIDDEN-CONTENT.md) · [Stages](docs/STAGES.md) · [Roster](docs/ROSTER.md) · [Move tables](docs/MOVES-TABLES.md) · [Lighting](docs/LIGHTING.md) · [Font format](docs/FONT-FORMAT.md) · [Scene format](docs/SCENE-FORMAT.md) · [PVR format](docs/PVR-FORMAT.md) · [Frame lists](docs/FRAMELISTS.md) · [MAME reference](docs/MAME-ARCADE.md) · [iPad build](docs/IPAD-BUILD.md) · [Architecture](docs/ARCHITECTURE.md) · [Progress](docs/PROGRESS.md) · [Handoff](docs/HANDOFF.md) · [Next task](docs/ENCARGO.md) · [AI disclosure](AI-DISCLOSURE.md) · [Español](README.es.md)
 
+**Companion project:** [**UMK3 — Godot Remake**](https://github.com/MaryNCRT/UMK3-IOS-GODOT-REMAKE) — a playable remake built on what this repository measures. [How the two fit together](#the-companion-repository).
+
 </div>
 
 ---
@@ -59,6 +61,48 @@ The long-term goals, in order:
 | 60 fps, modern netcode | ⬜ long term |
 
 **This is a long project.** Realistically it is a year or more of work. Nothing here is playable yet. What *is* here is a working method, a large amount of verified knowledge, and tooling that makes the remaining work tractable.
+
+---
+
+## The companion repository
+
+There is a second project: [**UMK3 — Godot Remake**](https://github.com/MaryNCRT/UMK3-IOS-GODOT-REMAKE).
+It is **playable now** — one character, two players on one machine — and it is
+built entirely out of what this repository has measured.
+
+They are not the same effort with two front ends. They answer different
+questions and they are finished at different moments:
+
+| | **This repository** — step one | [**Godot Remake**](https://github.com/MaryNCRT/UMK3-IOS-GODOT-REMAKE) — step two |
+|---|---|---|
+| **Question** | *What does the original do?* | *Can we play it again?* |
+| **Output** | Readable C, checked against a static ARM→C recompiler | A running game |
+| **Fidelity rule** | The C must match the disassembly | The *behaviour* must match the measurements |
+| **Renderer** | The original's own GL calls, transcribed | Godot's, written fresh |
+| **Finished when** | The C compiles and plays | It plays like the phone game |
+
+**Why the split exists.** This project transcribes the original *including* the
+way it talks to the hardware: 366 direct OpenGL calls, because the 2011 game
+made them. Putting a modern engine underneath that would mean either writing a
+fixed-function GL shim on top of it, or editing the transcription until it no
+longer matches the disassembly — and the second destroys the only property that
+makes a transcription worth having.
+
+So the work divides along the one seam where nothing is lost:
+
+> **This repository owns the ANSWERS. The remake owns the ENGINE.**
+
+When this project reads `strike_check_regs` and works out that a strike box is
+`[X + x - w, X + x]` rather than `[X + x, X + x + w]`, that fact is not C and it
+is not GL. It is just true, and it is as useful to a remake as it is to a
+transcription. Every measured constant in the remake carries the same hex
+address that appears in the notes here, so the two are a reference and an
+implementation of the same subject and can be checked against each other.
+
+Neither replaces the other. A faithful native port is still the goal here; the
+remake is how the knowledge gets played with while that work continues, and it
+has already sent findings back — the animation streams turning out to have two
+parts each was discovered by a fall that looked unfinished on screen.
 
 ---
 
@@ -444,6 +488,8 @@ becomes.
 ## Prior work and acknowledgements
 
 This project stands on other people's work:
+
+- **[UMK3 — Godot Remake](https://github.com/MaryNCRT/UMK3-IOS-GODOT-REMAKE)** — this project's companion: a playable remake built on these measurements.
 
 - **[touchHLE](https://github.com/touchHLE/touchHLE)** — high-level emulator for iPhone OS applications. Used as a behavioural reference, and the target of our compatibility patch.
 - **[N64Recomp](https://github.com/N64Recomp/N64Recomp)** and **[Zelda64Recomp](https://github.com/Zelda64Recomp/Zelda64Recomp)** — the static recompilation approach that `recomp.py` is modelled on.
