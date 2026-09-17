@@ -1763,7 +1763,12 @@ pop_and_flip:
     obj->field20 = 0x1a;
     obj->field1c = 0x1a + 1;
     obj->field34 = 0;
-    obj->field48 = 0xfff80000u;             /* -8.0 in 16.16 */
+    /* `ldr.w r3, [pc, #0x560]` at 0x0003126c, so the literal is at
+     * Align(0x31270,4) + 0x560 = 0x000317d0, and the word there is
+     * 0xfffc0000. This was transcribed as -8.0 and it is -4.0: the exact
+     * mirror of the +0x40000 the other flip path loads. Both angled jumps
+     * cover the same ground. */
+    obj->field48 = 0xfffc0000u;             /* -4.0 in 16.16 */
     *mk3_frame(thread, thread->frame + 1) = 0x5f2;
     thread->frame = thread->frame + 1;
     return plyr_install(thread, thread->frame, (const void *)t_do_flip);
@@ -3125,21 +3130,38 @@ long t_joy_duck_kickl(MK3THREAD *thread)
  *                        else -> retract
  *
  * **The two swings of one punch ping-pong.** t_jhp4 continues into t_jhp5 and
- * t_jhp5 continues back into t_jhp4; the low pair does the same. So holding
- * the button alternates between two procs, each of which plays its own part of
- * animation 14 or 15 -- which is what makes a string of jabs look like one
- * chain rather than the same three frames over and over.
+ * t_jhp5 continues back into t_jhp4; the low pair does the same. So a string
+ * of jabs alternates between two procs, each of which plays its own part of
+ * animation 14 or 15 -- which is what makes it look like one chain rather than
+ * the same three frames over and over.
  *
  * Case 1 crosses to the other punch entirely: t_jhp4 to t_joy_punch_htm1,
  * t_jhp5 to t_joy_punch_htm2, and the low pair to mth1 and mth2. Those are the
  * procs that walk six zero-terminators into the stream to reach its transition
  * parts.
  *
- * **What the selector IS is not pinned down.** It is the top half of the word
- * the strike check leaves in field1c, and its three cases are observable --
- * 0 continues, 1 crosses over, anything else retracts -- but which quantity
- * that half-word carries has not been traced and is deliberately not guessed
- * at here.
+ * **THE SELECTOR IS THE BUTTON YOU PRESSED.** This was left open when the four
+ * swings first landed; it closes through three functions.
+ *
+ * t_punch_sleep's last act before popping is `get_last_button`, which leaves a
+ * BUTTON-QUEUE ENTRY in field1c -- so the word state B shifts is that entry and
+ * not anything the strike check wrote. `stick_look_lr` (0x0005369c) gives the
+ * entry's layout, because it matches against `(field1c & 0xffff0000) ==
+ * code << 16` and then narrows field1c to sixteen bits to read a deadline:
+ *
+ *      high halfword = the button code      low halfword = a timestamp
+ *
+ * and `four_button_switch` (0x00057274) fixes the codes at HP 0, LP 1, BL 2,
+ * HK 3, LK 4, RUN 5. So `field1c >> 16` is which button, and the three cases
+ * read:
+ *
+ *      HP (0)                  -> the other swing of the same punch
+ *      LP (1)                  -> cross into the other punch
+ *      BL, HK, LK, RUN (2..5)  -> retract
+ *
+ * Which is the jab string exactly as the game plays: HP,HP,HP walks the high
+ * chain, HP,LP crosses into the low one, and a kick in the middle of it drops
+ * the whole thing.
  *
  * G[0x452] is the halfword reaction_start_chores writes a 1 into when a
  * fighter enters a reaction. A punch whose animation finishes while that is
@@ -3598,20 +3620,32 @@ pop:
  *          if (--obj->a10 > 0) { token = 0x67d ; fieldfc = 1 ; return 1 }
  *          obj->field5c = 0 ; pop
  *
- * **The chain continues on a DIFFERENT button, not on the same one.** This is
- * the loop the four punch swings push after their strike check, and it is what
- * decides whether the swing that follows is another swing or a retraction.
+ * **The chain continues when a NEW BUTTON GETS QUEUED, and holding queues
+ * nothing.** This is the loop the four punch swings push after their strike
+ * check, and it is what decides whether the swing that follows is another
+ * swing or a retraction.
  *
- * part->field30 holds the button the swing started with -- every swing copies
- * it there on its first frame. Each pass this loop asks the buttons again. If
- * the answer still matches, nothing has changed: it burns one of the five live
- * frames in obj->a10 and sleeps. When those five are gone it sets field5c to 0
- * and the swing above retracts.
+ * The comparison is not "is a different button down" -- it is a comparison of
+ * two QUEUE ENTRIES, and that is a stronger statement. `get_last_button` resets
+ * the ring cursor to the head and steps back exactly one, so it always answers
+ * "the entry before the head". part->field30 holds that same answer from the
+ * swing's first frame.
  *
- * If the answer does NOT match, you have pressed something else inside the
- * window, and field5c gets am_i_facing_him instead -- so the chain continues
- * as long as you are still turned towards him. That is why a jab string in
- * this game is tapped rather than held: holding is the case that ends it.
+ * While you hold, no entry is queued, the head does not move, and the two
+ * readings are the same word -- so the loop burns one of the five frames in
+ * obj->a10 and sleeps. When the five are gone field5c goes to 0 and the swing
+ * above retracts.
+ *
+ * Press anything -- INCLUDING the same button again -- and a fresh entry goes
+ * in with a fresh timestamp in its low half. The head moves, the two readings
+ * differ, and field5c takes am_i_facing_him: the chain continues as long as
+ * you are still turned towards him. The swing above then reads the high half
+ * of that entry to decide WHICH continuation, which is the button code.
+ *
+ * So the rule is tap, not hold, and re-tapping the same button is the ordinary
+ * case rather than the excluded one. (An earlier note here said the chain
+ * needed a *different* button; that was a misreading of a queue comparison as
+ * a button comparison.)
  *
  * The strike check is re-run every pass, but only while field48 is
  * non-negative. t_jmp4 sets field48 to -1 right after its own check for
