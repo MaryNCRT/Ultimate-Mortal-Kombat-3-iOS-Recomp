@@ -1812,6 +1812,20 @@ void call_for_him(MK3OBJ *obj, void (*fn)(MK3OBJ *));
 uint32_t random32(void);
 void stop_me_player(MK3OBJ *obj);
 void me_in_front(MK3OBJ *obj);
+long t_do_block_hi(struct MK3THREAD *thread);         /* GOT 0x000f37d8 */
+long t_do_unblock_hi(struct MK3THREAD *thread);       /* GOT 0x000f38a0 */
+long t_duck_turnaround(struct MK3THREAD *thread);     /* GOT 0x000f38a4 */
+long t_backwards_ani(struct MK3THREAD *thread);       /* GOT 0x000f37c4 */
+long t_joy_block_loop(struct MK3THREAD *thread);
+long t_joy_duck_block_loop(struct MK3THREAD *thread);
+long t_jdblk2(struct MK3THREAD *thread);
+long t_joy_back_up(struct MK3THREAD *thread);
+long t_joy_down(struct MK3THREAD *thread);
+long t_turn_around(struct MK3THREAD *thread);         /* GOT 0x000f3844 */
+long t_check_winner_status(struct MK3THREAD *thread);
+void face_opponent(MK3OBJ *obj);
+void find_ani_last_frame(MK3OBJ *obj);
+void inc_downcount(MK3OBJ *obj);
 
 extern const void *bt_duck;                /* 0x001655d4 */
 
@@ -2630,4 +2644,222 @@ long t_joy_lo_punch(MK3THREAD *thread)
     obj->field40 = 0xf;
     get_char_ani(obj);
     return mk3_install(thread, (MK3THREADFUNC)t_jmp4);
+}
+
+
+/* ------------------------------------------------------------- t_joy_block
+ *
+ * armv7 0x000304d0, a hundred and twenty-eight bytes.
+ *
+ *      state 0      disable_all_buttons ; face_opponent
+ *                   push t_do_block_hi            (0x280)
+ *      state 0x280  install t_joy_block_loop
+ *
+ * Getting into a block is a press like any other -- QueueAndJump skips the
+ * button table entirely for a release event, so bt_stance slot 2 fires on the
+ * way down. Staying in it is not: that is the loop below, and it reads a
+ * level.
+ */
+long t_joy_block(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        disable_all_buttons(obj);
+        face_opponent(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x280;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_do_block_hi;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x280)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_joy_block_loop);
+}
+
+
+/* -------------------------------------------------------- t_joy_block_loop
+ *
+ * armv7 0x000301c4, two hundred and seventy-two bytes.
+ *
+ *      state 0       token = 0x283 ; thread->fieldfc = 1
+ *      state 0x283   joystick_in_a0(obj)
+ *                    if (obj->field1c & 2)      install t_joy_down
+ *                    if (!am_i_facing_him)      push t_turn_around   (0x28b)
+ *                    check_block_bit(obj)
+ *                        held -> install t_joy_block_loop   (itself)
+ *                        not  -> push t_do_unblock_hi       (0x292)
+ *      state 0x28b   install t_local_reaction_exit
+ *      state 0x28e   fall into the check_block_bit test
+ *      state 0x292   install t_local_reaction_exit
+ *
+ * **A block is held, not tapped.** check_block_bit (0x0002eca8) masks the
+ * translated joy word with 0x20 for player one and 0x2000 for player two --
+ * the same button either way, since TranslateJoybits puts player two's bits
+ * eight places up -- and hands back whether it is down at this instant. The
+ * loop tail-calls ITSELF for as long as that keeps coming back non-zero, one
+ * frame at a time.
+ *
+ * State 0x28e is the door back in from a blocked hit. Nothing in this function
+ * sets it; the block reactions in _block_xfers return with it, and it lands
+ * straight on the check_block_bit test without the one-frame wait. So a block
+ * that took a hit resumes on the bit alone, while a block knocked out by an
+ * unguarded hit has to be pressed again.
+ *
+ * Down while blocking hands the fighter to t_joy_down, which is how the duck
+ * block is reached; there is no separate button for it.
+ */
+long t_joy_block_loop(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x283;
+        thread->fieldfc = 1;               /* sleep one frame */
+        return 0;
+    }
+
+    if (token == 0x28b || token == 0x292)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token == 0x283) {
+        joystick_in_a0(obj);
+        if (obj->field1c & 2)
+            return mk3_install(thread, (MK3THREADFUNC)t_joy_down);
+
+        if (!am_i_facing_him(obj)) {
+            *mk3_frame(thread, thread->frame + 1) = 0x28b;
+            thread->frame = thread->frame + 1;
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)t_turn_around;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+    } else if (token != 0x28e) {
+        return -3;
+    }
+
+    /* 0x283 facing him, and 0x28e coming back from a blocked hit. */
+    check_block_bit(obj);
+    if (obj->field5c)
+        return mk3_install(thread, (MK3THREADFUNC)t_joy_block_loop);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x292;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_do_unblock_hi;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* --------------------------------------------------- t_joy_duck_block_loop
+ *
+ * armv7 0x00031838, three hundred and ninety-six bytes.
+ *
+ *      state 0       token = 0x256 ; thread->fieldfc = 1
+ *      state 0x256   am_i_facing_him ?  no  -> push t_duck_turnaround (0x25a)
+ *                                       yes -> fall to the poll
+ *      state 0x25a   install t_jdblk2
+ *      state 0x25d   fall to the poll
+ *      the poll      joystick_in_a0(obj)
+ *                    down still held ? inc_downcount
+ *                                      push t_check_winner_status  (0x263)
+ *                    down released    ? install t_joy_back_up
+ *      state 0x263   obj->field1c = 0x701 ; part->field18 = 0x701
+ *                    check_block_bit ?
+ *                        held -> install t_joy_duck_block_loop  (itself)
+ *                        not  -> obj->field20 = 0x302 ; part->field18 = 0x302
+ *                                obj->field40 = 6 ; obj->field1c = 3
+ *                                push t_backwards_ani            (0x26e)
+ *      state 0x26e   obj->field40 = 4 ; find_ani_last_frame ; do_next_a9_frame
+ *                    install t_joyd3
+ *
+ * The standing loop with two things bolted on, and both are about the tag.
+ *
+ * **0x701 is written every frame, not once.** is_he_blocking (0x0005837c)
+ * reads part->field18 back and treats 0x700 as a standing block and 0x701 as a
+ * ducking one; this loop refreshes it on every pass, so anything that
+ * overwrote it in between is corrected before the next hit can be tested.
+ *
+ * **Letting go of block does not stand you up.** It writes 0x302 -- plain
+ * ducking -- and plays animation 6 BACKWARDS at rate 3 through
+ * t_backwards_ani. Only releasing DOWN reaches t_joy_back_up. So the release
+ * is a return to a crouch, which is the same thing the ducking attacks do when
+ * they end on frame 22.
+ */
+long t_joy_duck_block_loop(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x256;
+        thread->fieldfc = 1;               /* sleep one frame */
+        return 0;
+    }
+
+    if (token == 0x25a)
+        return mk3_install(thread, (MK3THREADFUNC)t_jdblk2);
+
+    if (token == 0x26e) {
+        obj->field40 = 4;
+        find_ani_last_frame(obj);
+        do_next_a9_frame(obj);
+        return mk3_install(thread, (MK3THREADFUNC)t_joyd3);
+    }
+
+    if (token == 0x263) {
+        obj->field1c = 0x701;
+        obj->field00->field18 = 0x701;
+
+        check_block_bit(obj);
+        if (obj->field5c)
+            return mk3_install(thread,
+                               (MK3THREADFUNC)t_joy_duck_block_loop);
+
+        obj->field20 = 0x302;
+        obj->field00->field18 = 0x302;
+        obj->field40 = 6;
+        obj->field1c = 3;
+        *mk3_frame(thread, thread->frame + 1) = 0x26e;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_backwards_ani;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x256) {
+        if (!am_i_facing_him(obj)) {
+            *mk3_frame(thread, thread->frame + 1) = 0x25a;
+            thread->frame = thread->frame + 1;
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)t_duck_turnaround;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+    } else if (token != 0x25d) {
+        return -3;
+    }
+
+    /* The poll: 0x256 already facing him, and 0x25d coming back in. */
+    joystick_in_a0(obj);
+    if (obj->field1c & 2) {
+        inc_downcount(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x263;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_check_winner_status;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_joy_back_up);
 }
