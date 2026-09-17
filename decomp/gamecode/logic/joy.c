@@ -1790,6 +1790,10 @@ void get_char_ani(MK3OBJ *obj);
 void do_next_a9_frame(MK3OBJ *obj);
 void find_ani_part2(MK3OBJ *obj);
 void find_part2(MK3OBJ *obj);
+long t_stat_do_roundhouse(struct MK3THREAD *thread);   /* GOT 0x000f37f0 */
+long t_do_knee(struct MK3THREAD *thread);              /* GOT 0x000f38b4 */
+void get_x_dist(MK3OBJ *obj);
+long is_he_airborn(MK3OBJ *obj);
 
 extern const void *bt_duck;                /* 0x001655d4 */
 
@@ -2139,4 +2143,117 @@ long t_joy_punch_mth2(MK3THREAD *thread)
         find_part2(obj);
 
     return mk3_install(thread, (MK3THREADFUNC)t_jhp4);
+}
+
+
+/* --------------------------------------------------------- t_joy_roundhouse
+ *
+ * armv7 0x0002f148, a hundred and eight bytes.
+ *
+ *      state 0     push t_stat_do_roundhouse, return token 0x210
+ *      state 0x210 install t_local_reaction_exit
+ *      anything else  -3
+ *
+ * The plainest shape in the file: call one thing, then leave. Holding the
+ * stick away turns a high kick into this, and `is_stick_away` decides that in
+ * `t_joy_hi_kick` before either is reached.
+ */
+long t_joy_roundhouse(MK3THREAD *thread)
+{
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x210;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_stat_do_roundhouse;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x210)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* ------------------------------------------------------------ t_knee_check
+ *
+ * armv7 0x0002f9d4, two hundred and fifty-six bytes.
+ *
+ *      state 0
+ *          get_x_dist(obj)
+ *          if (obj->field28 > 0x4a)        -> not a knee: pop and leave
+ *          is_he_airborn(obj)
+ *          if (airborne)                   -> not a knee: pop and leave
+ *          -- close, and on the ground --
+ *          pop one level, shuffle the level above down into it,
+ *          then push t_do_knee with return token 0x1fe
+ *      state 0x1fe   install t_local_reaction_exit
+ *
+ * **Seventy-four units, and what happens either side of it.** `get_x_dist`
+ * (0x0002f3a0) is centre to centre with no boxes involved, and 0x4a is 74.
+ * Inside that, a kick is not a kick: it is a knee. Outside it -- or against an
+ * opponent who is off the ground -- this proc removes itself and the kick it
+ * was checking carries on as a kick.
+ *
+ * The stack surgery in the middle is the part worth reading slowly. It does
+ * not push the knee on top of the kick; it pops a level, moves the frame ABOVE
+ * down into the one it just vacated, and only then pushes. The check erases
+ * itself from the stack, so when the knee finishes it returns to whoever asked
+ * for the kick rather than to a checker that has nothing left to do.
+ *
+ * The branch at 0x0002faa8 is the same thing at the bottom of the stack: with
+ * no level below to shuffle down, it installs `t_local_reaction_exit` as the
+ * caller first and then performs the identical shuffle. There is always
+ * something to return to.
+ */
+long t_knee_check(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t below, carried;
+
+    if (token != 0) {
+        if (token != 0x1fe)
+            return -3;
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    get_x_dist(obj);
+    if ((long)obj->field28 > 0x4a)
+        goto not_a_knee;
+
+    if (is_he_airborn(obj))
+        goto not_a_knee;
+
+    /* Close, and he is on the ground. */
+    if ((long)thread->frame <= 0) {
+        /* Nothing below to return to: make one. */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_local_reaction_exit;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+    } else {
+        thread->frame = thread->frame - 1;
+    }
+
+    /* Shuffle the level above down into this one, so the check leaves no
+     * trace on the stack, then push the knee. */
+    below   = mk3_frame(thread, thread->frame + 1)[1];
+    carried = *mk3_frame(thread, thread->frame + 2);
+    *mk3_frame(thread, thread->frame + 1) = carried;
+    mk3_frame(thread, thread->frame)[1] = below;
+    *mk3_frame(thread, thread->frame + 1) = 0x1fe;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_do_knee;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
+not_a_knee:
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
