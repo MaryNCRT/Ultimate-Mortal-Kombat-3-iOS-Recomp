@@ -65,11 +65,27 @@ already built on the right principle: they execute or match a body and
 Two limits make them the wrong tool for *checking* what is already
 written. They skip written functions by construction — `pushfn.main`
 does `done = dumpfn.written()` and filters on `n not in done` — and they
-only handle the shapes they know. Forced over eight hand-written
-functions from `joy.c` they accepted two and refused six, each with an
-honest reason (`push.w`, `not the guard`, `a pointer slot with no
-symbol`). Those refusals are correct behaviour, but a checker that
-covers a quarter of the code is not a checker.
+only handle the shapes they know.
+
+Forced over **all 1,604 already-written `gamecode/logic` functions**,
+`pushfn` could read **329 of them, 20.5%**. The refusals, and they are
+honest ones:
+
+| count | reason |
+|---|---|
+| 932 | `not the guard` — not the frame-push shape at all |
+| 162 | `cmp` — a comparison the interpreter does not model |
+| 55 | `store r8, [sp, #-0x4]!` — a register-save form it does not read |
+| 37 | body over 512 bytes |
+| 30 | `cmp.w` |
+| 17 | a pointer slot with no symbol |
+| 15 | `push.w` |
+| 22 | nine smaller reasons |
+
+Refusing is correct behaviour and the reason it can be trusted where it
+does accept. But a checker that covers a fifth of the code is not a
+checker, and the fifth it covers is the shape least likely to be got
+wrong by hand.
 
 Keep them for what they are good at: writing new functions of a known
 shape, correctly, without a human in the loop.
