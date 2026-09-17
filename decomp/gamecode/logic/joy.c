@@ -1765,3 +1765,166 @@ pop_and_flip:
     thread->frame = thread->frame + 1;
     return plyr_install(thread, thread->frame, (const void *)t_do_flip);
 }
+
+
+/* ======================================================================
+ * The six that were still pending in this file.
+ *
+ * Transcribed instruction by instruction from the annotated armv7
+ * disassembly. Two of them reach the globals through the pointer slots that
+ * happen to sit at `bt_jump + 0x28` and `bt_jump + 0x2c`; those slots hold
+ * `G` and `H`, which this file already names, so they are spelled that way
+ * here rather than as pointer arithmetic off a button table they have
+ * nothing to do with.
+ * ====================================================================== */
+
+long strike_check_a0(MK3OBJ *obj);
+void get_bcq_next_pointer_idx(MK3OBJ *obj, long which);
+void previous_q_entry(MK3OBJ *obj);
+void MKEvent_Add(long a, long b, long c, long d);
+void turbo_bar_setup(MK3OBJ *obj);
+long t_joyd4(struct MK3THREAD *thread);
+
+extern const void *bt_duck;                /* 0x001655d4 */
+
+
+/* ------------------------------------------------------------ shang_begin
+ *
+ * armv7 0x0002f47c, sixteen bytes.
+ *
+ *      v = proc->field10 | 0x200
+ *      obj->field2c = v ; proc->field10 = v
+ *
+ * One flag, set in both the object's scratch and the proc it came from --
+ * the same write-it-twice shape `reaction_start_chores` uses, and the reason
+ * the scratch copy exists at all is that the caller reads it back.
+ */
+void shang_begin(MK3OBJ *obj)
+{
+    MK3OBJPROC *proc = obj->field00;
+    uint32_t v = proc->field10 | 0x200u;
+
+    obj->field2c = v;
+    proc->field10 = v;
+}
+
+
+/* ------------------------------------------------------- punch_strike_check
+ *
+ * armv7 0x0002f7d8, twenty-four bytes.
+ *
+ *      strike_check_a0(obj)
+ *      if (obj->field5c != 0) obj->field48 = -1
+ *
+ * `field5c` is the engine's "did that connect" flag -- `t_attk2` reads the
+ * same one. The -1 into field48 is what stops the swing checking again: the
+ * strike id becomes invalid, so a punch lands once however many frames it
+ * stays out.
+ */
+void punch_strike_check(MK3OBJ *obj)
+{
+    strike_check_a0(obj);
+    if (obj->field5c != 0)
+        obj->field48 = (uint32_t)-1;
+}
+
+
+/* --------------------------------------------------------- get_last_button
+ *
+ * armv7 0x000308c4, twenty-four bytes.
+ *
+ *      get_bcq_next_pointer_idx(obj, obj->field00->field08)
+ *      previous_q_entry(obj)
+ *
+ * field08 is the player index, and the bcq is the per-player button ring G
+ * carries at 0x0c0 / 0x218. Walking back one entry is how a move asks what
+ * was pressed before the button that started it.
+ */
+void get_last_button(MK3OBJ *obj)
+{
+    get_bcq_next_pointer_idx(obj, (long)obj->field00->field08);
+    previous_q_entry(obj);
+}
+
+
+/* ---------------------------------------------------------- turbo_bar_setup
+ *
+ * armv7 0x0002f3e4, forty-four bytes.
+ *
+ *      p = obj->field00->field08                  ; the player index
+ *      obj->field30 = &G[0x378 + p * 4]           ; the run bar itself
+ *      obj->field34 = &G[0x388 + p * 4]           ; its lockout counter
+ *
+ * Two pointers, parked in the object so the three routines that move the bar
+ * do not each have to compute them. Which array is which is settled by the
+ * three that use them: `is_run_pressed` refuses when 0x378 is zero and writes
+ * 40 into 0x388 on the way out, `reduce_turbo_bar` takes one off 0x378 a
+ * frame while holding 0x388 at 40, and `RaiseTurboBars` counts 0x388 down
+ * and only then puts 0x378 back, stopping at 48.
+ */
+void turbo_bar_setup(MK3OBJ *obj)
+{
+    uint32_t p = obj->field00->field08;
+
+    obj->field30 = (uint32_t)(uintptr_t)(G_BYTES + 0x378 + p * 4);
+    obj->field34 = (uint32_t)(uintptr_t)(G_BYTES + 0x388 + p * 4);
+}
+
+
+/* ------------------------------------------------------------------ t_joyd3
+ *
+ * armv7 0x0002ee30, seventy-two bytes.
+ *
+ *      if (frame[frame+1] != 0) return -3
+ *      stuff_buttons(obj, &bt_duck)
+ *      install t_joyd4
+ *
+ * The duck's button table goes in before the state that reads it, which is
+ * the same order `plyrthread` installs `bt_stance`.
+ */
+long t_joyd3(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+    stuff_buttons(obj, (uint32_t)(uintptr_t)&bt_duck);
+    return mk3_install(thread, (MK3THREADFUNC)t_joyd4);
+}
+
+
+/* --------------------------------------------------------- zero_turbo_bar
+ *
+ * armv7 0x0003087c, seventy-two bytes.
+ *
+ *      v = (int16_t)H[0x18] ; obj->field20 = v
+ *      if (v != 0) return                        ; frozen: do nothing
+ *      turbo_bar_setup(obj)
+ *      *obj->field34 = 0x28                      ; lock it out for 40 frames
+ *      obj->field1c = 0 ; *obj->field30 = 0      ; and empty it
+ *      MKEvent_Add(3, 5, G[0x378 + p * 4], 0)    ; tell the HUD
+ *
+ * `H[0x18]` is the same halfword `reduce_turbo_bar` opens with, and it gates
+ * both the same way: while it is non-zero the bar does not move at all. So
+ * this is "empty the run bar now" -- the bar to nothing and the lockout to
+ * its full 40 -- and the event is the HUD being told the new value, which is
+ * zero.
+ */
+void zero_turbo_bar(MK3OBJ *obj)
+{
+    int32_t v = *(const int16_t *)(const void *)(H + 0x18);
+
+    obj->field20 = (uint32_t)v;
+    if (v != 0)
+        return;
+
+    turbo_bar_setup(obj);
+    *(uint32_t *)(uintptr_t)obj->field34 = 0x28;
+    obj->field1c = 0;
+    *(uint32_t *)(uintptr_t)obj->field30 = 0;
+
+    MKEvent_Add(3, 5,
+                *(const uint32_t *)(const void *)
+                    (G_BYTES + 0x378 + obj->field00->field08 * 4),
+                0);
+}
