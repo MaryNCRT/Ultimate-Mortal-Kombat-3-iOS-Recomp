@@ -2092,3 +2092,256 @@ long t_combo2(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_land_on_my_back);
 }
+
+
+/* ======================================================================
+ * The reactions. What happens to the fighter who is HIT, which is the half
+ * of a fight this port has been missing.
+ *
+ * Every one below was read from the annotated disassembly and checked with
+ * tools/factdiff.py against tools/facts_asm.py's reading of the same
+ * function, so a store, a call, a handler or a token that differs between
+ * the two is a difference the tool names rather than something a person has
+ * to notice.
+ * ====================================================================== */
+
+void delete_slave_notproj(MK3OBJ *obj);
+void player_normpal(MK3OBJ *obj);
+void face_opponent(MK3OBJ *obj);
+void stop_me_player(MK3OBJ *obj);
+long t_rst5(struct MK3THREAD *thread);
+
+
+/* ----------------------------------------------------- reaction_start_chores
+ *
+ * armv7 0x00044b0c, a hundred and twenty bytes.
+ *
+ *      inc_p_hit(obj)
+ *      obj->field38 = 0 ; obj->field08->field20 = 0
+ *      if (obj->field00->field10 & 8) {
+ *          obj->field1c = 1 ; G[0x452] = 1        ; the halfword, as a SHORT
+ *      }
+ *      obj->field2c = obj->field00->field10 | 4
+ *      obj->field00->field10 = obj->field2c
+ *      delete_slave_notproj(obj)
+ *      obj->field2c = (obj->field08->field30 & ~0x1a4) | 0x10
+ *      obj->field08->field30 = obj->field2c
+ *      obj->field1c = 0
+ *      obj->field00->field50 = 0 ; obj->field00->field58 = 0
+ *      player_normpal ; face_opponent ; stop_me_player ; uhq_entry
+ *
+ * **Everything that has to be true before a reaction can play**, in one
+ * routine that eight of them call. Read as a list of what a hit costs you:
+ * your slave object, your palette, your facing, your velocity, and four
+ * separate flag words.
+ *
+ * `G[0x452]` is the halfword the punch swings test before their strike check
+ * -- `t_jhp4` and its three siblings retract instead of striking when it is
+ * set. This is where the 1 comes from, and it is written only when bit 3 of
+ * the header's 0x10 is already up, so not every reaction raises it.
+ *
+ * The mask `~0x1a4` clears bits 2, 5, 7 and 8 of the other object's 0x30 and
+ * then sets bit 4. Five bits touched in one expression, which the compiler
+ * folded into a `bic` and an `orr`; both are kept rather than collapsed into
+ * a single constant, because the pair is what the original says.
+ *
+ * `stop_me_player` here is the same full stop `t_air_strike` uses to land a
+ * fighter: velocity cleared and then applied, so it is zero.
+ */
+void reaction_start_chores(MK3OBJ *obj)
+{
+    uint32_t flags;
+
+    inc_p_hit(obj);
+
+    obj->field38 = 0;
+    obj->field08->field20 = 0;
+
+    flags = obj->field00->field10;
+    obj->field2c = flags;
+    if (flags & 8) {
+        obj->field1c = 1;
+        *(uint16_t *)(void *)(G_BYTES + 0x452) = 1;
+    }
+
+    obj->field2c = obj->field2c | 4;
+    obj->field00->field10 = obj->field2c;
+
+    delete_slave_notproj(obj);
+
+    obj->field2c = (obj->field08->field30 & ~0x1a4u) | 0x10u;
+    obj->field08->field30 = obj->field2c;
+
+    obj->field1c = 0;
+    obj->field00->field50 = 0;
+    obj->field00->field58 = obj->field1c;
+
+    player_normpal(obj);
+    face_opponent(obj);
+    stop_me_player(obj);
+    uhq_entry(obj);
+}
+
+
+/* --------------------------------------------------------- t_reaction_start
+ *
+ * armv7 0x00044b84, a hundred and eight bytes.
+ *
+ *      state 0 only
+ *          obj->field1c = 0x503 ; part->field18 = 0x503
+ *          save obj->field30, obj->field34, obj->field38
+ *          reaction_start_chores(obj)
+ *          restore the three
+ *          install t_rst5
+ *
+ * **The save and restore is the whole point.** `reaction_start_chores` zeroes
+ * field38 on its second line and writes field2c all over, and this routine
+ * pulls 0x30, 0x34 and 0x38 into three registers BEFORE the call and puts
+ * them back after it. So whatever the hit deposited in those three survives
+ * the housekeeping, and the housekeeping does not have to know about them.
+ *
+ * The compiler keeps them in fp, sl and r8 -- three callee-saved registers
+ * pushed in the prologue for exactly this -- which is how you can tell the
+ * saving is deliberate and not an artefact.
+ *
+ * 0x503 is the action tag for a reaction. It goes in both places the tag
+ * lives: the object's own 0x1c and the header's 0x18, which is the pair
+ * `is_he_blocking` and the strike tests read.
+ */
+long t_reaction_start(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t saved30, saved34, saved38;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0x503;
+    obj->field00->field18 = 0x503;
+
+    saved30 = obj->field30;
+    saved34 = obj->field34;
+    saved38 = obj->field38;
+
+    reaction_start_chores(obj);
+
+    obj->field30 = saved30;
+    obj->field34 = saved34;
+    obj->field38 = saved38;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_rst5);
+}
+
+
+/* ======================================================================
+ * The one-shot reaction steps.
+ *
+ * Three of the same shape, and it is the commonest shape in this file: do
+ * one thing, then POP. No token of their own, no state to resume at -- the
+ * caller pushed them, they act once, and the frame index comes back down.
+ * The `t_local_reaction_exit` at the bottom of each is the floor: a routine
+ * pushed at the bottom of the stack has nothing to pop to, and that is where
+ * it goes instead.
+ * ====================================================================== */
+
+void repell_one_of_us(MK3OBJ *obj);
+
+
+/* ------------------------------------------------------- t_block_shake_wake
+ *
+ * armv7 0x00041e04, sixty-eight bytes.
+ *
+ *      state 0 only:  pop
+ *
+ * **It does nothing.** No call, no store, not one field touched -- the whole
+ * body is the guard and the pop. It exists to be a NAME in the frame: the
+ * block shake pushes it, sleeps, and the wake-up is this routine returning
+ * control to whatever was underneath.
+ *
+ * Worth writing out rather than folding into its caller, because a handler
+ * is identified by its address and the shake needs something to point at.
+ * Several of these appear in this file and none of them is dead code.
+ */
+long t_block_shake_wake(MK3THREAD *thread)
+{
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* ----------------------------------------------------------- t_net_struggle
+ *
+ * armv7 0x0004416c, eighty bytes.
+ *
+ *      state 0 only:  next_anirate(obj) ; pop
+ *
+ * One frame of animation and out. `next_anirate` is the clock -- it counts
+ * the rate down and advances a frame only when it reaches zero -- so a
+ * caller that pushes this on a loop plays the struggle at whatever rate is
+ * already installed, without knowing what that rate is.
+ *
+ * The name says a net; nothing here does. What it is a struggle AGAINST is
+ * decided entirely by whichever animation the caller set up.
+ */
+long t_net_struggle(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    next_anirate(obj);
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* --------------------------------------------------------- t_cc_block_sweep
+ *
+ * armv7 0x000432f8, ninety-two bytes.
+ *
+ *      state 0 only
+ *          obj->field38 = 0
+ *          obj->field1c = 0x30000 ; obj->field20 = 0x30000
+ *          repell_one_of_us(obj)
+ *          pop
+ *
+ * **0x30000 is 3.0.** The same 16.16 the jump's -10.0 and +0.5 are written
+ * in, and it goes into BOTH velocity slots from one register -- `mov.w r3,
+ * #0x30000` and two stores. So this is three units a frame, in whichever
+ * pair 0x1c and 0x20 are, applied just before the two fighters are pushed
+ * apart.
+ *
+ * `repell_one_of_us` is the separation. `_repell` in the port's own tick
+ * carries the reading of the leash at 304 units; this is the half of it that
+ * moves ONE fighter, which is what a sweep needs -- the man on the floor
+ * stays put and the man who swept is the one who gives ground.
+ */
+long t_cc_block_sweep(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field38 = 0;
+    obj->field1c = 0x30000;         /* 3.0 in 16.16 */
+    obj->field20 = 0x30000;
+    repell_one_of_us(obj);
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}

@@ -147,7 +147,9 @@ typedef struct MK3OBJPROC {
     uint16_t field40;
     uint8_t  _pad42[2];
     uint32_t p_hit;              /* 0x44  per zero_my_p_hit */
-    uint8_t  _pad48[0x0c];
+    uint8_t  _pad48[8];
+    uint32_t field50;            /* 0x50  reaction_start_chores clears it
+                                  *       alongside field58 */
     uint32_t field54;            /* 0x54  add_combo_damage accumulates here */
     uint32_t field58;            /* 0x58  every punch swing writes a 2 here on
                                   *       its first frame, right after copying
