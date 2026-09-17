@@ -1784,6 +1784,12 @@ void previous_q_entry(MK3OBJ *obj);
 void MKEvent_Add(long a, long b, long c, long d);
 void turbo_bar_setup(MK3OBJ *obj);
 long t_joyd4(struct MK3THREAD *thread);
+long t_jhp4(struct MK3THREAD *thread);
+long t_jmp4(struct MK3THREAD *thread);
+void get_char_ani(MK3OBJ *obj);
+void do_next_a9_frame(MK3OBJ *obj);
+void find_ani_part2(MK3OBJ *obj);
+void find_part2(MK3OBJ *obj);
 
 extern const void *bt_duck;                /* 0x001655d4 */
 
@@ -1927,4 +1933,210 @@ void zero_turbo_bar(MK3OBJ *obj)
                 *(const uint32_t *)(const void *)
                     (G_BYTES + 0x378 + obj->field00->field08 * 4),
                 0);
+}
+
+
+/* ---------------------------------------------------------- is_run_pressed
+ *
+ * armv7 0x0002f344, ninety-two bytes.
+ *
+ *      p = obj->field00->field08                 ; the player index
+ *      obj->field28 = G[0x1c]                    ; the translated joy word
+ *      obj->a10     = p ? 0x400000 : 0x40000     ; that player's run bit
+ *      obj->field28 &= obj->a10
+ *      if (obj->field28 == 0)  { obj->field5c = 0 ; return 0 }
+ *      bar = G[0x378 + p * 4] ; obj->field1c = bar
+ *      if (bar != 0)           { obj->field5c = 1 ; return 1 }
+ *      obj->field1c = 0x28 ; G[0x388 + p * 4] = 0x28
+ *      obj->field5c = 0 ; return 0
+ *
+ * Two questions in one function: is the button down, and is there anything
+ * left to spend. The masks are the same bit eight places apart -- 0x40000 for
+ * player one and 0x400000 for player two -- which is what `TranslateJoybits`
+ * does to every button.
+ *
+ * The last branch is the one worth reading twice. Asking for a run on an
+ * EMPTY bar does not merely refuse: it writes 40 into the lockout on the way
+ * out. So hammering the button on an empty bar keeps it empty, because
+ * `RaiseTurboBars` will not put anything back while that counter is running.
+ */
+long is_run_pressed(MK3OBJ *obj)
+{
+    uint32_t p = obj->field00->field08;
+
+    obj->field28 = *(const uint32_t *)(const void *)(G_BYTES + 0x1c);
+    obj->a10 = p ? 0x400000u : 0x40000u;     /* 0x44, the argument slot */
+    obj->field28 = obj->field28 & obj->a10;
+    if (obj->field28 == 0) {
+        obj->field5c = 0;
+        return 0;
+    }
+
+    {
+        uint32_t bar =
+            *(const uint32_t *)(const void *)(G_BYTES + 0x378 + p * 4);
+
+        obj->field1c = bar;
+        if (bar != 0) {
+            obj->field5c = 1;
+            return 1;
+        }
+    }
+
+    obj->field1c = 0x28;
+    *(uint32_t *)(void *)(G_BYTES + 0x388 + p * 4) = 0x28;
+    obj->field5c = 0;
+    return 0;
+}
+
+
+/* -------------------------------------------------------- reduce_turbo_bar
+ *
+ * armv7 0x00030820, ninety-two bytes.
+ *
+ *      obj->field1c = 1
+ *      v = (int16_t)H[0x18] ; obj->field20 = v
+ *      if (v != 0) return                        ; frozen
+ *      turbo_bar_setup(obj)
+ *      *obj->field34 = 0x28 ; obj->field1c = 0x28      ; hold the lockout AT 40
+ *      bar = *obj->field30 ; obj->field1c = bar
+ *      if (bar == 0) return
+ *      bar -= 1 ; obj->field1c = bar ; *obj->field30 = bar
+ *      MKEvent_Add(3, 5, G[0x378 + p * 4], 0)
+ *
+ * One unit a frame while the run is held -- and the lockout is written back
+ * to its full 40 on EVERY one of those frames, not just at the end. That is
+ * why an emptied bar feels so much worse than a half-used one: the forty
+ * frames start counting from when you stop, not from when you ran out.
+ *
+ * `H[0x18]` is the same halfword `zero_turbo_bar` opens with. While it is
+ * non-zero the bar does not move at all.
+ */
+void reduce_turbo_bar(MK3OBJ *obj)
+{
+    int32_t v;
+    uint32_t bar;
+
+    obj->field1c = 1;
+    v = *(const int16_t *)(const void *)(H + 0x18);
+    obj->field20 = (uint32_t)v;
+    if (v != 0)
+        return;
+
+    turbo_bar_setup(obj);
+    *(uint32_t *)(uintptr_t)obj->field34 = 0x28;
+    obj->field1c = 0x28;
+
+    bar = *(const uint32_t *)(uintptr_t)obj->field30;
+    obj->field1c = bar;
+    if (bar == 0)
+        return;
+
+    bar -= 1;
+    obj->field1c = bar;
+    *(uint32_t *)(uintptr_t)obj->field30 = bar;
+
+    MKEvent_Add(3, 5,
+                *(const uint32_t *)(const void *)
+                    (G_BYTES + 0x378 + obj->field00->field08 * 4),
+                0);
+}
+
+
+/* -------------------------------------------------------- t_joy_duck_entry
+ *
+ * armv7 0x000319c4, eighty-four bytes.
+ *
+ *      if (frame[frame+1] != 0) return -3
+ *      obj->field40 = 4 ; get_char_ani(obj)      ; animation 4, SCDUCK
+ *      obj->field40 += 8                         ; and skip two frames
+ *      do_next_a9_frame(obj)
+ *      install t_joyd3
+ *
+ * The `+= 8` is two stream words, and it is the whole character of ducking in
+ * this game: going down does not play the crouch from its first frame, it
+ * starts two in. A duck is fast because it skips the beginning of its own
+ * animation, not because the animation is short.
+ */
+long t_joy_duck_entry(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field40 = 4;
+    get_char_ani(obj);
+    obj->field40 = obj->field40 + 8;
+    do_next_a9_frame(obj);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_joyd3);
+}
+
+
+/* --------------------------------------------- t_joy_punch_htm2 / _mth2
+ *
+ * armv7 0x0002f528 and 0x0002f5f0, a hundred and four bytes each.
+ *
+ *      if (frame[frame+1] != 0) return -3
+ *      obj->field40 = 0xe (htm) or 0xf (mth)     ; SCHIPUNCH / SCLOPUNCH
+ *      find_ani_part2(obj)                       ; -> part 1
+ *      find_part2(obj) x5                        ; -> part 6
+ *      install t_jmp4 (htm) or t_jhp4 (mth)
+ *
+ * **A punch stream is not two parts, it is eight.** `find_part2` walks to the
+ * next zero word, and these two walk six of them. Out of `nj_ani_data`,
+ * animation 14:
+ *
+ *      part 0   5809 5812 5815          the jab going out
+ *      part 1   5818 5821 5824          and coming back
+ *      part 2   5821 5818 <jump>
+ *      part 3   5812 5809
+ *      part 4   5827
+ *      part 5   5818 3137 <jump>
+ *      part 6   5821 3134 <jump>        <- where these two land
+ *      part 7   3132 3134 3135          which are animation 15's frames
+ *
+ * Part 6 holds one frame of the high punch and one of the LOW punch, and part
+ * 7 is the low punch's opening outright. So the back half of the stream is a
+ * combo graph: the transition frames that carry one punch into the next, with
+ * an opcode-1 jump at the end of each to say where to continue.
+ *
+ * Which is exactly what these two do. `htm` -- high to mid -- takes the high
+ * punch's stream, walks to its transition part, and hands the fighter to
+ * `t_jmp4`, the LOW punch's swing. `mth` does the mirror. Neither is a move a
+ * player can ask for; they are reached from the combo checker, and they are
+ * the reason a two-punch string looks like one motion rather than two.
+ */
+long t_joy_punch_htm2(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    int i;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field40 = 0xe;
+    find_ani_part2(obj);
+    for (i = 0; i < 5; i++)
+        find_part2(obj);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_jmp4);
+}
+
+
+long t_joy_punch_mth2(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    int i;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field40 = 0xf;
+    find_ani_part2(obj);
+    for (i = 0; i < 5; i++)
+        find_part2(obj);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_jhp4);
 }
