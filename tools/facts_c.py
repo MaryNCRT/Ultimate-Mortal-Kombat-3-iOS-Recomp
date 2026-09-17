@@ -161,6 +161,9 @@ NOT_A_CALL = frozenset((
     "uint32_t", "uintptr_t", "int32_t", "int16_t", "uint16_t", "uint8_t",
     "long", "void", "const", "MK3THREADFUNC", "MK3OBJ", "MK3OBJPROC",
     "MK3THREAD", "G_BYTES",
+    # accessor macros for the half-word fields: they compile to a ldrh/strh,
+    # not to anything the binary branches to
+    "MK3_FIELD12", "MK3_SET_FIELD12", "MK3_FIELD0E", "MK3_SET_FIELD0E",
 ))
 
 
