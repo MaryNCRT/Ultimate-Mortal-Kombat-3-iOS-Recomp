@@ -1826,6 +1826,11 @@ long t_check_winner_status(struct MK3THREAD *thread);
 void face_opponent(MK3OBJ *obj);
 void find_ani_last_frame(MK3OBJ *obj);
 void inc_downcount(MK3OBJ *obj);
+long t_stat_do_duck_punch(struct MK3THREAD *thread);   /* GOT 0x000f38b8 */
+long t_stat_do_duck_kickh(struct MK3THREAD *thread);   /* GOT 0x000f3894 */
+long t_stat_do_duck_kickl(struct MK3THREAD *thread);   /* GOT 0x000f389c */
+long t_retract_strike(struct MK3THREAD *thread);       /* GOT 0x000f38c8 */
+long t_post_joy_duck_kick(struct MK3THREAD *thread);
 
 extern const void *bt_duck;                /* 0x001655d4 */
 
@@ -2862,4 +2867,208 @@ long t_joy_duck_block_loop(MK3THREAD *thread)
     }
 
     return mk3_install(thread, (MK3THREADFUNC)t_joy_back_up);
+}
+
+
+/* ------------------------------------------------------ t_post_joy_duck_kick
+ *
+ * armv7 0x000302d4, a hundred and eight bytes.
+ *
+ *      joystick_in_a0(obj)
+ *      obj->field1c & 2 ?  install t_joyd3        ; still holding down
+ *                          install t_joy_back_up  ; let go: stand up
+ *
+ * Where both ducking kicks land when they are finished. Whether you stay in a
+ * crouch is decided here and nowhere else, by asking the stick again rather
+ * than by remembering what it said when the kick started.
+ */
+long t_post_joy_duck_kick(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    joystick_in_a0(obj);
+    if (obj->field1c & 2)
+        return mk3_install(thread, (MK3THREADFUNC)t_joyd3);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_joy_back_up);
+}
+
+
+/* ---------------------------------------------------------- t_joy_duck_punch
+ *
+ * armv7 0x00030340, a hundred and seventy-six bytes.
+ *
+ *      state 0       disable_all_buttons
+ *                    push t_stat_do_duck_punch          (0x185)
+ *      state 0x185   joystick_in_a0(obj)
+ *                    obj->field1c & 2 ? install t_joyd3
+ *                                       install t_joy_back_up
+ *
+ * The same ending as the ducking kicks, written out here rather than shared:
+ * the punch asks the stick itself instead of going through
+ * t_post_joy_duck_kick. No hit-stop and no retraction state -- the duck
+ * punch's own proc does all of that and this is only the door in and out.
+ */
+long t_joy_duck_punch(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        disable_all_buttons(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x185;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_stat_do_duck_punch;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x185)
+        return -3;
+
+    joystick_in_a0(obj);
+    if (obj->field1c & 2)
+        return mk3_install(thread, (MK3THREADFUNC)t_joyd3);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_joy_back_up);
+}
+
+
+/* --------------------------------------------------------- t_joy_duck_kickh
+ *
+ * armv7 0x0002ee78, two hundred and thirty-two bytes.
+ *
+ *      state 0       push t_stat_do_duck_kickh              (0x194)
+ *      state 0x194   part->field18 = 0x60b
+ *                    obj->field1c = 8
+ *                    if (obj->field5c != 0) obj->field1c = 0x10
+ *                    thread->fieldfc = obj->field1c         (0x19c)
+ *      state 0x19c   obj->field1c = 4 ; push t_retract_strike (0x19e)
+ *      state 0x19e   part->field14 += 0x26
+ *                    install t_post_joy_duck_kick
+ *
+ * **Eight frames on a miss, sixteen on a hit.** field5c is the file's boolean
+ * slot and the swing loop leaves the "did that connect" answer in it, so this
+ * state is reading its child's verdict rather than asking anything itself.
+ * t_kick2 does the same thing with twelve; every attack carries its own pause.
+ *
+ * The retraction comes back at 4, which is neither the swing's rate nor the
+ * standing kicks' 3.
+ */
+long t_joy_duck_kickh(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x194;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_stat_do_duck_kickh;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x194) {
+        obj->field00->field18 = 0x60b;
+        obj->field1c = 8;
+        if (obj->field5c != 0)
+            obj->field1c = 0x10;
+        *mk3_frame(thread, thread->frame + 1) = 0x19c;
+        thread->fieldfc = obj->field1c;
+        return (long)obj->field1c;
+    }
+
+    if (token == 0x19c) {
+        obj->field1c = 4;
+        *mk3_frame(thread, thread->frame + 1) = 0x19e;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_retract_strike;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x19e)
+        return -3;
+
+    obj->field1c = obj->field00->field14 + 0x26;
+    obj->field00->field14 = obj->field1c;
+    return mk3_install(thread, (MK3THREADFUNC)t_post_joy_duck_kick);
+}
+
+
+/* --------------------------------------------------------- t_joy_duck_kickl
+ *
+ * armv7 0x0002fc5c, two hundred and fifty-two bytes.
+ *
+ *      state 0       push t_stat_do_duck_kickl              (0x1aa)
+ *      state 0x1aa   part->field18 = 0x60b
+ *                    obj->field54 = 6
+ *                    is_he_joy(obj) ; if he is NOT one, obj->field54 = 0xa
+ *                    thread->fieldfc = obj->field54         (0x1b3)
+ *      state 0x1b3   obj->field1c = 2 ; push t_retract_strike (0x1b6)
+ *      state 0x1b6   part->field14 += 8
+ *                    install t_post_joy_duck_kick
+ *
+ * **Six frames against a person, ten against the machine.** Its twin above
+ * picks its pause from whether the kick connected; this one picks it from WHO
+ * was kicked. `is_he_joy` asks whether the victim is under joystick control,
+ * and against the AI the attacker is left standing there four frames longer.
+ *
+ * That is the second assist of this shape in the file -- `toss_check` refuses
+ * half of all throws against the machine and none against a player -- and both
+ * are hidden inside ordinary moves rather than in anything called difficulty.
+ *
+ * Note the answer is parked in field54 rather than field1c, and field1c only
+ * receives it at the end. The retraction rate is 2, and the step added to the
+ * part is 8 where the high kick adds 0x26.
+ */
+long t_joy_duck_kickl(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x1aa;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_stat_do_duck_kickl;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1aa) {
+        obj->field1c = 0x60b;
+        obj->field00->field18 = 0x60b;
+        obj->field54 = 6;
+        is_he_joy(obj);
+        if (obj->field5c == 0)
+            obj->field54 = 0xa;
+        obj->field1c = obj->field54;
+        *mk3_frame(thread, thread->frame + 1) = 0x1b3;
+        thread->fieldfc = obj->field1c;
+        return (long)obj->field1c;
+    }
+
+    if (token == 0x1b3) {
+        obj->field1c = 2;
+        *mk3_frame(thread, thread->frame + 1) = 0x1b6;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_retract_strike;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x1b6)
+        return -3;
+
+    obj->field1c = obj->field00->field14 + 8;
+    obj->field00->field14 = obj->field1c;
+    return mk3_install(thread, (MK3THREADFUNC)t_post_joy_duck_kick);
 }
