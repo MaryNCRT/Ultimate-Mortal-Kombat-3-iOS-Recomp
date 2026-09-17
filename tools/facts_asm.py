@@ -48,6 +48,15 @@ RE_LD = re.compile(r"^\s*ctx->r\[(\d+)\] = MEM_LD32\(\(ctx->r\[(\d+)\]"
 # MEM_ST32((ctx->r[N] + OFF), ctx->r[M]);
 RE_ST = re.compile(r"^\s*MEM_ST32\(\(ctx->r\[(\d+)\](?: \+ (-?\d+))?\),"
                    r"\s*ctx->r\[(\d+)\]\);")
+# MEM_ST32((ctx->r[5] + (ctx->r[3] << 3)), ctx->r[8]);
+#
+# The STATE TOKEN. `mk3_frame(thread, N)` is `thread + N * 8`, so a store
+# indexed by a register shifted left three is a write into the frame array at
+# a computed level -- which in this codebase is always the token slot. The
+# value is what matters and the index is not something this tool resolves, so
+# it is reported as a token rather than as a store at a known offset.
+RE_STIDX = re.compile(r"^\s*MEM_ST32\(\(ctx->r\[(\d+)\] \+ "
+                      r"\(ctx->r\[(\d+)\] << 3\)\), ctx->r\[(\d+)\]\);")
 # func_0003f00d_name(ctx);
 RE_CALL = re.compile(r"^\s*func_[0-9a-fA-F]+_([A-Za-z_][A-Za-z_0-9]*)\(ctx\);")
 # if (ctx->zf) goto L_00030e0c;
@@ -137,7 +146,16 @@ def name_of(val):
     syms = load_symbols()
     if not syms:
         return None
-    n = int(val, 16) if isinstance(val, str) else val
+    if isinstance(val, str):
+        try:
+            n = int(val, 16)
+        except ValueError:
+            # already a name -- resolving twice is harmless and happens
+            # because the caller may be looking at a value this module has
+            # itself already turned into a symbol.
+            return val if val in syms.values() else None
+    else:
+        n = val
     return syms.get(n) or syms.get(n & ~1)
 
 
@@ -232,8 +250,23 @@ def facts(lines):
             b, v = int(m.group(1)), int(m.group(3))
             off = int(m.group(2) or 0)
             val = ("0x%x" % known[v]) if v in known else "?"
+            # A value that IS a routine is reported by its name, wherever it
+            # is stored. `obj->field34 = t_angle_jump_call` lands at 0x34, not
+            # at the frame's 0x4, and comparing 0x30789 against the name it
+            # spells would report a difference that is not one.
+            if val != "?":
+                nm = name_of(val)
+                if nm:
+                    val = nm
             out.append(("store", "0x%x" % off, val,
                         origin.get(b, "r%d" % b), addr))
+            continue
+
+        m = RE_STIDX.match(line)
+        if m:
+            v = int(m.group(3))
+            out.append(("token", ("0x%x" % known[v]) if v in known else "?",
+                        addr))
             continue
 
         m = RE_CALL.match(line)
@@ -305,6 +338,8 @@ def main(argv):
                 print("    %-8s %s  @%s" % (f[0], f[1], f[2]))
             elif f[0] == "branch":
                 print("    %-8s %-22s -> %s  @%s" % (f[0], f[1], f[2], f[3]))
+            elif f[0] == "token":
+                print("    %-8s %s  @%s" % (f[0], f[1], f[2]))
             else:
                 print("    %-8s %s  @%s" % (f[0], f[1], f[2]))
     return 0
