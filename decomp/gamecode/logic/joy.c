@@ -1831,6 +1831,18 @@ long t_stat_do_duck_kickh(struct MK3THREAD *thread);   /* GOT 0x000f3894 */
 long t_stat_do_duck_kickl(struct MK3THREAD *thread);   /* GOT 0x000f389c */
 long t_retract_strike(struct MK3THREAD *thread);       /* GOT 0x000f38c8 */
 long t_post_joy_duck_kick(struct MK3THREAD *thread);
+long t_act_mframew(struct MK3THREAD *thread);          /* GOT 0x000f37e8 */
+long t_punch_sleep(struct MK3THREAD *thread);
+long t_jhp5(struct MK3THREAD *thread);
+long t_jmp5(struct MK3THREAD *thread);
+long t_joy_un_hi_punch1(struct MK3THREAD *thread);
+long t_joy_un_hi_punch2(struct MK3THREAD *thread);
+long t_joy_un_lo_punch1(struct MK3THREAD *thread);
+long t_joy_un_lo_punch2(struct MK3THREAD *thread);
+long t_joy_punch_htm1(struct MK3THREAD *thread);
+long t_joy_punch_mth1(struct MK3THREAD *thread);
+void group_sound(MK3OBJ *obj);
+/* rsnd_func is declared in mk3logic.h */
 
 extern const void *bt_duck;                /* 0x001655d4 */
 
@@ -3071,4 +3083,294 @@ long t_joy_duck_kickl(MK3THREAD *thread)
     obj->field1c = obj->field00->field14 + 8;
     obj->field00->field14 = obj->field1c;
     return mk3_install(thread, (MK3THREADFUNC)t_post_joy_duck_kick);
+}
+
+
+/* =========================================================================
+ * t_jhp4, t_jhp5, t_jmp4, t_jmp5 -- the four punch swings
+ *
+ * armv7 0x00030d68, 0x00030be4, 0x00030a60 and 0x000308dc. Three hundred and
+ * eighty-eight bytes each, and the same three states each:
+ *
+ *      state 0       get_last_button ; part->field30 = obj->field1c
+ *                    part->field58 = 2
+ *                    group_sound(obj, 0) ; rsnd_func(obj, 0xe)
+ *                    obj->field1c = 3          ; the rate
+ *                    obj->field20 = tag        ; 0x101 high, 0x102 low
+ *                    push t_act_mframew
+ *      state A       (uint16_t)G[0x452] != 0 ? retract
+ *                    obj->field48 = strike id  ; 2 high, 3 low
+ *                    obj->field1c = it ; obj->field44 = 0
+ *                    the strike check
+ *                    obj->field44 = 5          ; five live frames
+ *                    push t_punch_sleep
+ *      state B       obj->field5c == 0 ? retract       ; nothing connected
+ *                    switch (obj->field1c >> 16)
+ *                        0    -> the OTHER swing of the same punch
+ *                        1    -> the transition into the other punch
+ *                        else -> retract
+ *
+ * **The two swings of one punch ping-pong.** t_jhp4 continues into t_jhp5 and
+ * t_jhp5 continues back into t_jhp4; the low pair does the same. So holding
+ * the button alternates between two procs, each of which plays its own part of
+ * animation 14 or 15 -- which is what makes a string of jabs look like one
+ * chain rather than the same three frames over and over.
+ *
+ * Case 1 crosses to the other punch entirely: t_jhp4 to t_joy_punch_htm1,
+ * t_jhp5 to t_joy_punch_htm2, and the low pair to mth1 and mth2. Those are the
+ * procs that walk six zero-terminators into the stream to reach its transition
+ * parts.
+ *
+ * **What the selector IS is not pinned down.** It is the top half of the word
+ * the strike check leaves in field1c, and its three cases are observable --
+ * 0 continues, 1 crosses over, anything else retracts -- but which quantity
+ * that half-word carries has not been traced and is deliberately not guessed
+ * at here.
+ *
+ * G[0x452] is the halfword reaction_start_chores writes a 1 into when a
+ * fighter enters a reaction. A punch whose animation finishes while that is
+ * set skips its strike check entirely and goes straight to the retraction.
+ *
+ * The rsnd index 0xe is the whoosh and group_sound 0 is the attack grunt, the
+ * pair every ordinary swing in the game makes.
+ * ========================================================================= */
+
+long t_jhp4(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t sel;
+
+    if (token == 0) {
+        get_last_button(obj);
+        obj->field00->field30 = obj->field1c;
+        obj->field00->field58 = 2;
+        obj->field1c = 0;
+        group_sound(obj);
+        rsnd_func(obj, 0xe);
+        obj->field1c = 3;
+        obj->field20 = 0x101;
+        *mk3_frame(thread, thread->frame + 1) = 0x744;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_act_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x744) {
+        uint16_t busy = *(const uint16_t *)(const void *)(G_BYTES + 0x452);
+
+        obj->field1c = (uint32_t)(int32_t)(int16_t)busy;
+        if (busy != 0)
+            return mk3_install(thread,
+                               (MK3THREADFUNC)t_joy_un_hi_punch1);
+
+        obj->field48 = 2;
+        obj->field1c = 2;
+        obj->a10 = 0;
+        punch_strike_check(obj);
+        obj->a10 = 5;
+        *mk3_frame(thread, thread->frame + 1) = 0x751;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_punch_sleep;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x751)
+        return -3;
+
+    if (obj->field5c == 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_joy_un_hi_punch1);
+
+    sel = obj->field1c >> 16;
+    obj->field1c = sel;
+    if (sel == 1)
+        return mk3_install(thread, (MK3THREADFUNC)t_joy_punch_htm1);
+    if (sel == 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_jhp5);
+    return mk3_install(thread, (MK3THREADFUNC)t_joy_un_hi_punch1);
+}
+
+
+long t_jhp5(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t sel;
+
+    if (token == 0) {
+        get_last_button(obj);
+        obj->field00->field30 = obj->field1c;
+        obj->field00->field58 = 2;
+        obj->field1c = 0;
+        group_sound(obj);
+        rsnd_func(obj, 0xe);
+        obj->field1c = 3;
+        obj->field20 = 0x101;
+        *mk3_frame(thread, thread->frame + 1) = 0x771;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_act_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x771) {
+        uint16_t busy = *(const uint16_t *)(const void *)(G_BYTES + 0x452);
+
+        obj->field1c = (uint32_t)(int32_t)(int16_t)busy;
+        if (busy != 0)
+            return mk3_install(thread,
+                               (MK3THREADFUNC)t_joy_un_hi_punch2);
+
+        obj->field48 = 2;
+        obj->field1c = 2;
+        obj->a10 = 0;
+        punch_strike_check(obj);
+        obj->a10 = 5;
+        *mk3_frame(thread, thread->frame + 1) = 0x77d;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_punch_sleep;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x77d)
+        return -3;
+
+    if (obj->field5c == 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_joy_un_hi_punch2);
+
+    sel = obj->field1c >> 16;
+    obj->field1c = sel;
+    if (sel == 1)
+        return mk3_install(thread, (MK3THREADFUNC)t_joy_punch_htm2);
+    if (sel == 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_jhp4);
+    return mk3_install(thread, (MK3THREADFUNC)t_joy_un_hi_punch2);
+}
+
+
+long t_jmp4(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t sel;
+
+    if (token == 0) {
+        get_last_button(obj);
+        obj->field00->field30 = obj->field1c;
+        obj->field00->field58 = 2;
+        obj->field1c = 0;
+        group_sound(obj);
+        rsnd_func(obj, 0xe);
+        obj->field1c = 3;
+        obj->field20 = 0x102;
+        *mk3_frame(thread, thread->frame + 1) = 0x7f7;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_act_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x7f7) {
+        uint16_t busy = *(const uint16_t *)(const void *)(G_BYTES + 0x452);
+
+        obj->field1c = (uint32_t)(int32_t)(int16_t)busy;
+        if (busy != 0)
+            return mk3_install(thread,
+                               (MK3THREADFUNC)t_joy_un_lo_punch1);
+
+        obj->a10 = 1;
+        obj->field48 = 3;
+        obj->field1c = 3;
+        strike_check_a0(obj);
+        obj->field48 = (uint32_t)-1;
+        obj->a10 = 5;
+        *mk3_frame(thread, thread->frame + 1) = 0x807;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_punch_sleep;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x807)
+        return -3;
+
+    if (obj->field5c == 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_joy_un_lo_punch1);
+
+    sel = obj->field1c >> 16;
+    obj->field1c = sel;
+    if (sel == 1)
+        return mk3_install(thread, (MK3THREADFUNC)t_joy_punch_mth1);
+    if (sel == 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_jmp5);
+    return mk3_install(thread, (MK3THREADFUNC)t_joy_un_lo_punch1);
+}
+
+
+long t_jmp5(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t sel;
+
+    if (token == 0) {
+        get_last_button(obj);
+        obj->field00->field30 = obj->field1c;
+        obj->field00->field58 = 2;
+        obj->field1c = 0;
+        group_sound(obj);
+        rsnd_func(obj, 0xe);
+        obj->field1c = 3;
+        obj->field20 = 0x102;
+        *mk3_frame(thread, thread->frame + 1) = 0x826;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_act_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x826) {
+        uint16_t busy = *(const uint16_t *)(const void *)(G_BYTES + 0x452);
+
+        obj->field1c = (uint32_t)(int32_t)(int16_t)busy;
+        if (busy != 0)
+            return mk3_install(thread,
+                               (MK3THREADFUNC)t_joy_un_lo_punch2);
+
+        obj->a10 = 1;
+        obj->field48 = 3;
+        obj->field1c = 3;
+        strike_check_a0(obj);
+        obj->a10 = 5;
+        *mk3_frame(thread, thread->frame + 1) = 0x837;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_punch_sleep;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x837)
+        return -3;
+
+    if (obj->field5c == 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_joy_un_lo_punch2);
+
+    sel = obj->field1c >> 16;
+    obj->field1c = sel;
+    if (sel == 1)
+        return mk3_install(thread, (MK3THREADFUNC)t_joy_punch_mth2);
+    if (sel == 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_jmp4);
+    return mk3_install(thread, (MK3THREADFUNC)t_joy_un_lo_punch2);
 }

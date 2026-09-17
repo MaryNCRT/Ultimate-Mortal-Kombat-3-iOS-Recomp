@@ -149,7 +149,10 @@ typedef struct MK3OBJPROC {
     uint32_t p_hit;              /* 0x44  per zero_my_p_hit */
     uint8_t  _pad48[0x0c];
     uint32_t field54;            /* 0x54  add_combo_damage accumulates here */
-    uint8_t  _pad58[0x0c];
+    uint32_t field58;            /* 0x58  every punch swing writes a 2 here on
+                                  *       its first frame, right after copying
+                                  *       obj->field1c into field30 */
+    uint8_t  _pad5c[8];
     uint32_t field64;            /* 0x64  the slave's object; delete_slave
                                   *       hands it to KillProc */
     uint32_t slave;              /* 0x68  per f_set_a10_to_slave */
