@@ -70,7 +70,15 @@ sending somebody to "fix" correct code.
    reached through `G` or `H` goes unchecked.
 4. **Values that are expressions.** `obj->field1c = obj->field48;` is `?`
    on both sides. Following one level of copy would recover a good many.
-5. **Flow facts.** After `cbz r6`, r6 is zero on that path -- the binary
+5. **Jump tables.** A `switch` the compiler emitted as `tbb` -- a byte table
+   of branch offsets indexed by a register -- has every case branching into
+   ONE shared store, so the asm side reports a single handler with an
+   unresolved value and the readable C reports one per case. Every one of
+   those cases then comes out as "the C has a handler the binary does not".
+   `t_background_death` in mkreact.c is the first; a reading of the table
+   itself would fix it, and until then such a function has to say in its
+   banner that it was checked by hand.
+6. **Flow facts.** After `cbz r6`, r6 is zero on that path -- the binary
    gets a constant from a branch rather than from a load, and the asm reader
    does not. Several `?` on the asm side are this one case.
 
