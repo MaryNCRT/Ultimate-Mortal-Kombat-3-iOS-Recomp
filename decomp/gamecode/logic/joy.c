@@ -1799,6 +1799,19 @@ long t_stat_do_lo_kick(struct MK3THREAD *thread);      /* GOT 0x000f3858 */
 long t_joy_sweep_kick(struct MK3THREAD *thread);
 long is_stick_away(MK3OBJ *obj);
 void disable_all_buttons(MK3OBJ *obj);
+long t_do_elbow(struct MK3THREAD *thread);             /* GOT 0x000f3888 */
+long t_joy_lo_punch(struct MK3THREAD *thread);
+long t_joy_toss(struct MK3THREAD *thread);
+void q_is_he_a_boss(MK3OBJ *obj);
+long am_i_facing_him(MK3OBJ *obj);
+void get_his_action(MK3OBJ *obj);
+void is_he_joy(MK3OBJ *obj);
+void get_my_dfe(MK3OBJ *obj);
+void is_he_right(MK3OBJ *obj);
+void call_for_him(MK3OBJ *obj, void (*fn)(MK3OBJ *));
+uint32_t random32(void);
+void stop_me_player(MK3OBJ *obj);
+void me_in_front(MK3OBJ *obj);
 
 extern const void *bt_duck;                /* 0x001655d4 */
 
@@ -2361,4 +2374,260 @@ long t_joy_lo_kick(MK3THREAD *thread)
     mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_knee_check;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
+}
+
+
+/* ----------------------------------------------------------- t_elbow_check
+ *
+ * armv7 0x0002f8ac, two hundred and ninety-six bytes.
+ *
+ *      state 0
+ *          if (is_he_airborn(obj))      -> not an elbow: pop and leave
+ *          get_x_dist(obj)
+ *          if (obj->field28 > 0x4a)     -> not an elbow: pop and leave
+ *          pop, shuffle the level above down, push t_do_elbow  (0x6ae)
+ *      state 0x6ae   install t_local_reaction_exit
+ *
+ * The twin of t_knee_check, down to the stack surgery that erases the checker,
+ * and the same seventy-four units. It asks its two questions the other way
+ * round -- airborne first, then distance -- which changes nothing, since both
+ * have to pass.
+ */
+long t_elbow_check(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t below, carried;
+
+    if (token != 0) {
+        if (token != 0x6ae)
+            return -3;
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (is_he_airborn(obj))
+        goto not_an_elbow;
+
+    get_x_dist(obj);
+    if ((long)obj->field28 > 0x4a)
+        goto not_an_elbow;
+
+    if ((long)thread->frame <= 0) {
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_local_reaction_exit;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+    } else {
+        thread->frame = thread->frame - 1;
+    }
+
+    below   = mk3_frame(thread, thread->frame + 1)[1];
+    carried = *mk3_frame(thread, thread->frame + 2);
+    *mk3_frame(thread, thread->frame + 1) = carried;
+    mk3_frame(thread, thread->frame)[1] = below;
+    *mk3_frame(thread, thread->frame + 1) = 0x6ae;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_do_elbow;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
+not_an_elbow:
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* ------------------------------------------------------------ toss_check
+ *
+ * armv7 0x0002ff04, two hundred and four bytes.
+ *
+ * **Nine ways to be told no, and one way through.** The answer goes in
+ * field5c, the file's boolean slot, and the caller sets the range it wants in
+ * field38 before calling -- t_joy_lo_punch asks for 0x40.
+ *
+ *      obj->field1c = obj->field00->him          ; the opponent
+ *      q_is_he_a_boss -> yes                     -> no.  bosses are not thrown
+ *      (int16_t)H[0x1a] != 0                     -> no
+ *      ((MK3OBJ *)him)->field30 & 8              -> no
+ *      is_he_airborn                             -> no.  not out of the air
+ *      get_x_dist > obj->field38                 -> no.  out of range
+ *      !am_i_facing_him                          -> no
+ *      his action == 0x304                       -> no
+ *      if he is NOT under joystick control:
+ *          random32() % 100 > 0x32               -> no.  a coin flip
+ *      get_my_dfe ; is_he_right ?
+ *          he is right: keep field30
+ *          he is left : field30 = field34        ; the other edge
+ *      field30 <= 0x6f                           -> no.  too near the wall
+ *      call_for_him(is_stick_away) -> yes        -> no.  he is holding back
+ *      otherwise                                    YES
+ *
+ * Two of those are worth naming. The **coin flip only applies to the AI**:
+ * is_he_joy asks whether the victim is a human, and only when he is not does
+ * the throw have to beat a 50-in-100 roll. A player being thrown by another
+ * player is never refused by chance.
+ *
+ * And **you cannot throw somebody into a corner.** get_my_dfe -- distance from
+ * edge -- fills two numbers, and which one is used depends on which side of
+ * you he is standing. There has to be 111 units of floor on the side he would
+ * travel, or the throw is declined.
+ */
+long toss_check(MK3OBJ *obj)
+{
+    obj->field1c = obj->field00->him;
+
+    q_is_he_a_boss(obj);
+    if (obj->field5c != 0)
+        goto refuse;
+
+    {
+        int32_t v = *(const int16_t *)(const void *)(H + 0x1a);
+
+        obj->field20 = (uint32_t)v;
+        if (v != 0)
+            goto refuse;
+    }
+
+    {
+        uint32_t flags =
+            ((MK3OBJ *)(uintptr_t)obj->field00->him)->field30;
+
+        obj->field1c = flags;
+        if (flags & 8)
+            goto refuse;
+    }
+
+    if (is_he_airborn(obj))
+        goto refuse;
+
+    get_x_dist(obj);
+    if ((long)obj->field28 > (long)obj->field38)
+        goto refuse;
+
+    if (!am_i_facing_him(obj))
+        goto refuse;
+
+    get_his_action(obj);
+    if (obj->field20 == 0x304)
+        goto refuse;
+
+    is_he_joy(obj);
+    if (obj->field5c == 0) {
+        /* Against the machine only, and only half the time. */
+        if (random32() % 100u > 0x32u)
+            goto refuse;
+    }
+
+    get_my_dfe(obj);
+    is_he_right(obj);
+    if (obj->field5c == 0)
+        obj->field30 = obj->field34;
+
+    if ((long)obj->field30 <= 0x6f)
+        goto refuse;
+
+    call_for_him(obj, (void (*)(MK3OBJ *))is_stick_away);
+    if (obj->field5c != 0)
+        goto refuse;
+
+    obj->field5c = 1;
+    return 1;
+
+refuse:
+    obj->field5c = 0;
+    return 0;
+}
+
+
+/* ----------------------------------------------------------- t_joy_hi_punch
+ *
+ * armv7 0x0002f7f0, a hundred and eighty-eight bytes.
+ *
+ *      state 0
+ *          if (proc->field7c != 0 && get_x_dist <= 0x40)
+ *              install t_joy_lo_punch            ; become the OTHER punch
+ *          disable_all_buttons ; me_in_front
+ *          push t_elbow_check                    (0x72a)
+ *      state 0x72a
+ *          stop_me_player
+ *          obj->field40 = 0xe ; get_char_ani     ; SCHIPUNCH
+ *          install t_jhp4
+ *
+ * field7c is the header's four-button gate, and this is what it is for. In the
+ * four-button scheme there is no low punch button at all -- _swtab puts LP, LK
+ * and RUN in a group the four-button mode never queues -- so the game
+ * synthesises one: a high punch thrown within **sixty-four** units becomes a
+ * low punch instead.
+ *
+ * Note that is a different threshold from the elbow's seventy-four, and it is
+ * asked first. So on four buttons, between 64 and 74 units a high punch is an
+ * elbow, and inside 64 it is a low punch that may itself become a throw.
+ */
+long t_joy_hi_punch(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token != 0) {
+        if (token != 0x72a)
+            return -3;
+        stop_me_player(obj);
+        obj->field40 = 0xe;
+        get_char_ani(obj);
+        return mk3_install(thread, (MK3THREADFUNC)t_jhp4);
+    }
+
+    if ((int16_t)obj->field00->field7c != 0) {
+        get_x_dist(obj);
+        if ((long)obj->field28 <= 0x40)
+            return mk3_install(thread, (MK3THREADFUNC)t_joy_lo_punch);
+    }
+
+    disable_all_buttons(obj);
+    me_in_front(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x72a;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_elbow_check;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ----------------------------------------------------------- t_joy_lo_punch
+ *
+ * armv7 0x0002ffd0, a hundred and forty-four bytes.
+ *
+ *      state 0
+ *          stop_me_player ; disable_all_buttons
+ *          obj->field38 = 0x40                   ; the throw's range
+ *          if (toss_check(obj)) install t_joy_toss
+ *          me_in_front
+ *          obj->field40 = 0xf ; get_char_ani     ; SCLOPUNCH
+ *          install t_jmp4
+ *
+ * The throw lives here and nowhere else: sixty-four units is the range this
+ * button asks toss_check for, and everything about whether it lands is that
+ * function's nine refusals. A low punch is a throw that was turned down.
+ */
+long t_joy_lo_punch(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    stop_me_player(obj);
+    disable_all_buttons(obj);
+
+    obj->field38 = 0x40;
+    if (toss_check(obj))
+        return mk3_install(thread, (MK3THREADFUNC)t_joy_toss);
+
+    me_in_front(obj);
+    obj->field40 = 0xf;
+    get_char_ani(obj);
+    return mk3_install(thread, (MK3THREADFUNC)t_jmp4);
 }
