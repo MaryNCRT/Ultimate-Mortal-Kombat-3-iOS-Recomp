@@ -2345,3 +2345,325 @@ long t_cc_block_sweep(MK3THREAD *thread)
     }
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+
+void pose_stumble_frame_1(MK3OBJ *obj);
+long t_susp3(struct MK3THREAD *thread);
+long t_shake_ob_up(struct MK3THREAD *thread);
+long t_rek3(struct MK3THREAD *thread);
+
+
+/* ------------------------------------------- t_suspend_wait_action_jsrp
+ *
+ * armv7 0x00044674, seventy-two bytes.
+ *
+ *      state 0 only
+ *          get_his_action(obj)
+ *          obj->field48 = obj->field20
+ *          install t_susp3
+ *
+ * `get_his_action` leaves the other fighter's action tag in field20, and
+ * this copies it straight into field48 before handing on. So whatever
+ * `t_susp3` does about a suspended fighter, it does it against **the tag the
+ * opponent had at this instant**, frozen here rather than read later.
+ *
+ * That is worth naming because the tag moves: a fighter changes action
+ * several times a second, and a routine that asked again two frames on
+ * would get a different answer.
+ */
+long t_suspend_wait_action_jsrp(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    get_his_action(obj);
+    obj->field48 = obj->field20;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_susp3);
+}
+
+
+/* ------------------------------------------------------- t_slammed_shake_up
+ *
+ * armv7 0x00047af4, ninety-two bytes.
+ *
+ *      state 0 only
+ *          pose_stumble_frame_1(obj)
+ *          obj->field08->field1c = 0xfffe0000      ; -2.0
+ *          obj->field1c = 0x30003
+ *          obj->field20 = 2 ; obj->field24 = 4
+ *          install t_shake_ob_up
+ *
+ * **-2.0 upward, and the number is written as one literal.** The other
+ * object's 0x1c takes -0x20000, which in the 16.16 this engine writes its
+ * positions in is minus two -- a small hop, an eighth of the jump's -10.0.
+ * So being slammed lifts you a little rather than launching you.
+ *
+ * 0x30003 is not a coordinate. It is two halves, 3 and 3, in the slot the
+ * animation rate lives in -- the same packed-pair habit `t_do_flip` uses for
+ * its animation numbers. Which half is which is not established here.
+ *
+ * The 4 in field24 is `adds r3, r3, r3` on the 2 that just went into
+ * field20: the compiler doubled the register rather than loading a second
+ * constant, and the pair is kept as a pair for that reason.
+ */
+long t_slammed_shake_up(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    pose_stumble_frame_1(obj);
+
+    obj->field08->field1c = 0xfffe0000u;    /* -2.0 in 16.16 */
+    obj->field1c = 0x30003;
+    obj->field20 = 2;
+    obj->field24 = 2 + 2;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_shake_ob_up);
+}
+
+
+/* -------------------------------------------------------- t_block_shake_ani
+ *
+ * armv7 0x0004445c, a hundred bytes.
+ *
+ *      state 0
+ *          do_next_a9_frame(obj)
+ *          obj->field1c = obj->field48
+ *          token = 0x1436 ; thread->fieldfc = obj->field1c
+ *          return obj->field1c
+ *      state 0x1436
+ *          install t_block_shake_wake
+ *
+ * **The sleep length comes out of field48, not out of a constant.** One
+ * frame of animation, then park for however many frames the caller left
+ * there -- and the same value is both the sleep counter and the return, the
+ * way every parking state in this directory does it.
+ *
+ * So the shake's rhythm is set by whoever pushed it, and this routine is the
+ * one beat. `t_block_shake_wake` underneath does nothing at all, which makes
+ * the pair a pure timer: play a frame, wait, hand back.
+ */
+long t_block_shake_ani(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        do_next_a9_frame(obj);
+        obj->field1c = obj->field48;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1436;
+        thread->fieldfc = obj->field1c;
+        return (long)obj->field1c;
+    }
+
+    if (token != 0x1436)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_block_shake_wake);
+}
+
+
+/* ----------------------------------------------------------- t_r_tusk_elbow
+ *
+ * armv7 0x00044e90, a hundred bytes.
+ *
+ *      state 0 only
+ *          obj->field1c = 4 ; create_blood_proc(obj)
+ *          obj->field1c = 4 ; create_blood_proc(obj)
+ *          rsnd_func(obj, 3)
+ *          install t_rek3
+ *
+ * **Two of the same blood event, back to back.** field1c is reloaded with 4
+ * between the calls because `create_blood_proc` re-reads it after firing the
+ * event and can leave something else there -- so the second 4 is not a
+ * redundant store, it is the reload that makes the second spray happen.
+ *
+ * `create_blood_proc` refuses anything above 12, so 4 is one of thirteen
+ * kinds and this reaction asks for the same kind twice rather than for a
+ * bigger one. Sound 3 goes with it.
+ *
+ * The compiler keeps the 4 in r8 across both calls, which is why the
+ * prologue saves that register in a function with nothing else to spill.
+ */
+long t_r_tusk_elbow(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 4;
+    create_blood_proc(obj);
+    obj->field1c = 4;
+    create_blood_proc(obj);
+
+    rsnd_func(obj, 3);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_rek3);
+}
+
+
+void tsound_func(MK3OBJ *obj, long which);
+long t_rhat_sleep(struct MK3THREAD *thread);
+
+
+/* ------------------------------------------------------- t_suspend_wait_wake
+ *
+ * armv7 0x0004460c, a hundred and four bytes.
+ *
+ *      state 0 only
+ *          get_his_action(obj)
+ *          obj->field20 == obj->field48 ? install t_susp3
+ *                                       : pop
+ *
+ * The other half of `t_suspend_wait_action_jsrp`, which froze the opponent's
+ * tag in field48. This asks for it again and compares: **the same tag means
+ * he has not moved on**, and only then does the suspension continue into
+ * `t_susp3`. Any change at all and this pops, which ends the wait.
+ *
+ * So the pair is a "hold while he is still doing that" and the equality is
+ * exact -- not a mask, not a range. One tag, tested whole.
+ */
+long t_suspend_wait_wake(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    get_his_action(obj);
+    if (obj->field20 == obj->field48)
+        return mk3_install(thread, (MK3THREADFUNC)t_susp3);
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* ------------------------------------ t_bone_grind_sound and t_machine_sound
+ *
+ * armv7 0x0004791c and 0x00047984, a hundred and four bytes each.
+ *
+ *      state 0        obj->a10 = N            ; 3 grinds, 6 machine
+ *                     -> play
+ *      state TOK      if (--obj->a10 != 0) -> play
+ *                     token = DONETOK ; thread->fieldfc = MK3_THREAD_DONE
+ *                     return MK3_THREAD_DONE
+ *      play:          tsound_func(obj, S)     ; 0x23 grind, 0x22 machine
+ *                     token = TOK ; thread->fieldfc = 0x10 ; return 0x10
+ *
+ * **A sound played N times, sixteen frames apart, and then the thread
+ * deletes itself.** The counter lives in a10 -- the argument slot -- rather
+ * than in a state, and the loop is a branch back into the play block from
+ * the resume, which is why both share one tail.
+ *
+ * The 0x16462 at the end is `MK3_THREAD_DONE`: the header establishes that
+ * a handler returning it is unlinked and freed on the spot, so these do not
+ * pop to a caller. They are their own thread and they end it.
+ *
+ * The two differ in exactly three constants -- the count, the sound and the
+ * pair of tokens -- and in nothing else, so they are written together.
+ */
+long t_bone_grind_sound(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->a10 = 3;
+    } else {
+        if (token != 0x9b7)
+            return -3;
+        obj->a10 = obj->a10 - 1;
+        if (obj->a10 == 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0x9bb;
+            thread->fieldfc = MK3_THREAD_DONE;
+            return MK3_THREAD_DONE;
+        }
+    }
+
+    tsound_func(obj, 0x23);
+    *mk3_frame(thread, thread->frame + 1) = 0x9b7;
+    thread->fieldfc = 0x10;
+    return 0x10;
+}
+
+
+long t_machine_sound(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->a10 = 6;
+    } else {
+        if (token != 0x9ac)
+            return -3;
+        obj->a10 = obj->a10 - 1;
+        if (obj->a10 == 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0x9b0;
+            thread->fieldfc = MK3_THREAD_DONE;
+            return MK3_THREAD_DONE;
+        }
+    }
+
+    tsound_func(obj, 0x22);
+    *mk3_frame(thread, thread->frame + 1) = 0x9ac;
+    thread->fieldfc = 0x10;
+    return 0x10;
+}
+
+
+/* -------------------------------------------------------------- t_rhat_wake
+ *
+ * armv7 0x00044bf0, a hundred and twelve bytes.
+ *
+ *      state 0 only
+ *          obj->field1c = obj->field00->field20
+ *          if (obj->field1c == 1) { obj->field1c = 5 ; create_blood_proc }
+ *          next_anirate(obj)
+ *          --obj->a10 > 0 ? install t_rhat_sleep
+ *                         : install t_local_reaction_exit
+ *
+ * **Blood on one frame of the animation and no other.** The proc's 0x20 is
+ * the animation's own counter -- it runs down from the rate and reloads --
+ * so `== 1` is true on exactly the tick before a frame advances. One spray
+ * per animation frame, and the routine does not have to know the rate.
+ *
+ * The 5 is `adds r3, #4` on the 1 that was just compared, which is the same
+ * register trick `t_slammed_shake_up` uses for its 2 and 4. It is kept as an
+ * addition rather than written as 5 because that is what the original says.
+ *
+ * Unlike the pop-shaped routines above, both exits here are INSTALLS: this
+ * one does not come back, it hands on. A countdown in a10 decides which.
+ */
+long t_rhat_wake(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = obj->field00->field20;
+    if (obj->field1c == 1) {
+        obj->field1c = 1 + 4;
+        create_blood_proc(obj);
+    }
+
+    next_anirate(obj);
+
+    obj->a10 = obj->a10 - 1;
+    if ((long)obj->a10 > 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_rhat_sleep);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
