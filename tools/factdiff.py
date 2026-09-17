@@ -30,6 +30,57 @@ column, because calling it agreement would be the same overclaiming the tools
 were built to avoid. The summary prints that count; a function with many of
 them has been checked less than its verdict suggests.
 
+## THE FIRST RUN OF A CHECKER MEASURES THE CHECKER
+
+Read this before trusting a number out of here, and before improving it.
+
+On `joy.c` the verdict went 17 -> 22 -> 42 -> 58 -> 67 of 73 across five
+rounds, and not one line of decomp changed in between. Every jump was a false
+positive in the readers:
+
+    a local reported as a fact       `below`, `carried`, `sel` are names this
+                                     project invented for a value the binary
+                                     keeps in a register; they are `?` now
+    one side`s unknown made a diff   the binary fetches some handlers through
+                                     a pointer table and will not follow it;
+                                     that is not evidence against ours
+    calls only matched as statements every call inside an `if` was invisible
+    `if` counted as a call           `if (obj->field5c != 0)` matched
+    mk3_push_handler unrecognised    despite the name it installs, so every
+                                     retraction proc read as installing nothing
+    calls needing `obj` first        random32() and MKEvent_Add() invisible
+    names needing a lowercase start  MKEvent_Add, ReallyKillProjectile too
+
+So: a difference this tool reports is a QUESTION, not a verdict. Read the
+disassembly before touching the decomp, every time. The failure that matters
+here is not missing a defect -- it is reporting one that is not there and
+sending somebody to "fix" correct code.
+
+## Known gaps, in the order they are worth closing
+
+1. **`plyrthread` and anything its size.** 95 of its facts come back `?` and
+   the readers give up on its length. A function this big needs the diff done
+   per BLOCK rather than per function; as it stands its verdict means little.
+2. **Loops.** `for (i = 0; i < 5; i++) find_part2(obj);` is one call here and
+   five in the binary. Two of joy.c`s six remaining differences are exactly
+   this and neither is a defect. A count taken from the loop bound would fix
+   both.
+3. **Stores through a global.** `*(uint32_t *)(G_BYTES + 0x378 + p * 4) = 0`
+   is not read at all on the C side, so the turbo bar and everything else
+   reached through `G` or `H` goes unchecked.
+4. **Values that are expressions.** `obj->field1c = obj->field48;` is `?`
+   on both sides. Following one level of copy would recover a good many.
+5. **Flow facts.** After `cbz r6`, r6 is zero on that path -- the binary
+   gets a constant from a branch rather than from a load, and the asm reader
+   does not. Several `?` on the asm side are this one case.
+
+## What it will never do
+
+Prove the English in a banner. The Godot port`s claim that the engine
+interpolates between consecutive frames was false, cost a day, and no
+instruction-level check would have caught it. A sentence about what the
+engine does needs an address beside it and the address needs reading.
+
 Usage:
     python factdiff.py <recompiled.c> <readable.c> [function]
     python factdiff.py --summary <recompiled.c> <readable.c>
