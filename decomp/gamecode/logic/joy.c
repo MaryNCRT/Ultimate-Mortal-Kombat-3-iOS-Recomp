@@ -1794,6 +1794,11 @@ long t_stat_do_roundhouse(struct MK3THREAD *thread);   /* GOT 0x000f37f0 */
 long t_do_knee(struct MK3THREAD *thread);              /* GOT 0x000f38b4 */
 void get_x_dist(MK3OBJ *obj);
 long is_he_airborn(MK3OBJ *obj);
+long t_stat_do_hi_kick(struct MK3THREAD *thread);      /* GOT 0x000f38c4 */
+long t_stat_do_lo_kick(struct MK3THREAD *thread);      /* GOT 0x000f3858 */
+long t_joy_sweep_kick(struct MK3THREAD *thread);
+long is_stick_away(MK3OBJ *obj);
+void disable_all_buttons(MK3OBJ *obj);
 
 extern const void *bt_duck;                /* 0x001655d4 */
 
@@ -2256,4 +2261,104 @@ not_a_knee:
         return 0;
     }
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* ------------------------------------------------ t_joy_hi_kick / t_joy_lo_kick
+ *
+ * armv7 0x0002fe34 and 0x0002fd58.
+ *
+ * Two buttons, and between them four different attacks. Both ask the same two
+ * questions -- is the stick held away, and is he close enough for a knee --
+ * but **they ask them in opposite orders, and that is not a detail.**
+ *
+ *      t_joy_hi_kick                        t_joy_lo_kick
+ *      -------------                        -------------
+ *      disable_all_buttons                  disable_all_buttons
+ *      is_stick_away ?                      push t_knee_check       (0x236)
+ *          -> t_joy_roundhouse              |
+ *      push t_knee_check       (0x21a)      returns 0x236:
+ *      returns 0x21a:                           is_stick_away ?
+ *          push t_stat_do_hi_kick (0x21e)           -> t_joy_sweep_kick
+ *      returns 0x21e:                           push t_stat_do_lo_kick (0x23d)
+ *          t_local_reaction_exit            returns 0x23d:
+ *                                               t_local_reaction_exit
+ *
+ * So on the HIGH kick "away" wins over proximity: hold back next to somebody
+ * and you get a roundhouse, because the knee is never asked about. On the LOW
+ * kick proximity wins over "away": hold back next to somebody and you get a
+ * KNEE, not a sweep, because the knee check runs first and -- when it accepts
+ * -- erases itself and never comes back to be asked about the stick.
+ *
+ * The sweep is therefore a move you can only get from outside seventy-four
+ * units, and the roundhouse is one you can get from anywhere.
+ *
+ * `t_knee_check` returning its token at all IS the refusal. When it accepts it
+ * rewrites the stack beneath itself and this proc is never re-entered.
+ */
+long t_joy_hi_kick(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x21a) {
+        /* The knee check declined. Throw the kick itself. */
+        *mk3_frame(thread, thread->frame + 1) = 0x21e;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_stat_do_hi_kick;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x21e)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token != 0)
+        return -3;
+
+    disable_all_buttons(obj);
+
+    if (is_stick_away(obj))
+        return mk3_install(thread, (MK3THREADFUNC)t_joy_roundhouse);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x21a;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_knee_check;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+long t_joy_lo_kick(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x236) {
+        /* The knee check declined. Only now does the stick matter. */
+        if (is_stick_away(obj))
+            return mk3_install(thread, (MK3THREADFUNC)t_joy_sweep_kick);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x23d;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_stat_do_lo_kick;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x23d)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token != 0)
+        return -3;
+
+    disable_all_buttons(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x236;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_knee_check;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
 }
