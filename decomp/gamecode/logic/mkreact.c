@@ -2667,3 +2667,226 @@ long t_rhat_wake(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+
+void am_i_close_to_edge(MK3OBJ *obj);
+void xfer_otherguy(MK3OBJ *obj);
+void zero_my_p_hit(MK3OBJ *obj);
+void inc_p_block(MK3OBJ *obj);
+long t_block3(struct MK3THREAD *thread);
+long t_blocked_start(struct MK3THREAD *thread);
+long t_ken_masters_xfer(struct MK3THREAD *thread);
+long t_pit_abort(struct MK3THREAD *thread);
+long t_fall_down_pit(struct MK3THREAD *thread);
+long t_fall_down_bell_tower(struct MK3THREAD *thread);
+long t_fall_on_trax(struct MK3THREAD *thread);
+long t_fall_in_lava(struct MK3THREAD *thread);
+
+
+/* ---------------------------------------------------------------- t_block2
+ *
+ * armv7 0x00041b78, a hundred and sixteen bytes.
+ *
+ *      state 0       part->field30 = 0 ; part->field34 = 0
+ *                    push t_blocked_start             (0x1322)
+ *      state 0x1322  install t_block3
+ *
+ * `part->field34` is the DIRECTION MASK -- `mask_joystick` ANDs the stick's
+ * four bits with it -- so clearing it takes every direction away for the
+ * duration of the block. 0x30 goes with it, and this is the only writer of
+ * the pair in the file.
+ *
+ * So a blocked hit costs you the stick before anything else happens, and
+ * gives it back through whatever restores 0x34 later.
+ */
+long t_block2(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field00->field30 = 0;
+        obj->field00->field34 = 0;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1322;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_blocked_start;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x1322)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_block3);
+}
+
+
+/* ------------------------------------------------------- t_blocked_start
+ *
+ * armv7 0x000475a0, a hundred and twenty-four bytes.
+ *
+ *      state 0 only
+ *          obj->field1c = 0x503 ; part->field18 = 0x503
+ *          save 0x30, 0x34, 0x38 ; reaction_start_chores ; restore
+ *          zero_my_p_hit(obj)
+ *          inc_p_block(obj)
+ *          obj->field30 = 0
+ *          install t_rst5
+ *
+ * **`t_reaction_start` with two lines added, and those two lines are the
+ * whole difference between being hit and blocking a hit.**
+ *
+ * Everything up to the restore is the same function, register for register,
+ * including the same save of the three fields the chores would destroy. Then
+ * this one CLEARS the hit counter and BUMPS the block counter. The tag it
+ * writes is the same 0x503 -- so as far as every other routine is concerned
+ * a blocked hit is a reaction like any other, and only the two counters know
+ * the difference.
+ *
+ * That is worth stating because it means the block has no tag of its own to
+ * test for. Anything wanting to know reads p_hit and p_block.
+ */
+long t_blocked_start(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t saved30, saved34, saved38;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0x503;
+    obj->field00->field18 = 0x503;
+
+    saved30 = obj->field30;
+    saved34 = obj->field34;
+    saved38 = obj->field38;
+
+    reaction_start_chores(obj);
+
+    obj->field30 = saved30;
+    obj->field34 = saved34;
+    obj->field38 = saved38;
+
+    zero_my_p_hit(obj);
+    inc_p_block(obj);
+    obj->field30 = 0;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_rst5);
+}
+
+
+/* --------------------------------------------------- t_avoid_corner_trap
+ *
+ * armv7 0x00047b50, a hundred and sixteen bytes.
+ *
+ *      state 0 only
+ *          am_i_close_to_edge(obj)
+ *          if (obj->field5c) {
+ *              obj->field1c = obj->field00->p_hit
+ *              if (obj->field1c >= obj->field20) {
+ *                  obj->field38 = t_ken_masters_xfer
+ *                  xfer_otherguy(obj)
+ *              }
+ *          }
+ *          pop
+ *
+ * **A mercy rule, and it has two conditions.** Near a wall AND having taken
+ * at least `field20` hits, the other fighter is handed to
+ * `t_ken_masters_xfer` -- which is to say the game moves HIM rather than
+ * the man in the corner.
+ *
+ * The threshold is not a constant: 0x20 is whatever the caller left there,
+ * so how many hits count as a trap is decided outside. `p_hit` at 0x44 of
+ * the header is the counter `zero_my_p_hit` clears and `inc_p_hit` bumps,
+ * which is the same one `t_blocked_start` resets on a block -- so blocking
+ * genuinely buys you out of the corner rule.
+ *
+ * The handler goes into field38 and then `xfer_otherguy` acts on it. Storing
+ * a routine in a field for another function to pick up is the same handover
+ * `obj->field34` does for the jump's per-frame callback.
+ */
+long t_avoid_corner_trap(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    am_i_close_to_edge(obj);
+    if (obj->field5c != 0) {
+        obj->field1c = obj->field00->p_hit;
+        if ((long)obj->field1c >= (long)obj->field20) {
+            obj->field38 = (uint32_t)(uintptr_t)t_ken_masters_xfer;
+            xfer_otherguy(obj);
+        }
+    }
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* ------------------------------------------------------- t_background_death
+ *
+ * armv7 0x00041364, a hundred and twenty bytes.
+ *
+ *      state 0 only
+ *          switch (G[0x24] - 1) {
+ *              case 0: install t_fall_down_pit
+ *              case 1: install t_fall_down_bell_tower
+ *              case 2: install t_fall_on_trax
+ *              case 3: install t_fall_in_lava
+ *              default: install t_pit_abort
+ *          }
+ *
+ * **The stage hazards, as one table.** `G[0x24]` is which stage is being
+ * played; subtract one and four of them have a death of their own. Every
+ * other stage gets `t_pit_abort`, which is to say nothing happens.
+ *
+ * The compiler emitted it as a `tbb` -- a byte table of branch offsets
+ * immediately after the instruction, indexed by the register -- so the four
+ * cases really are a switch in the original and not a chain of compares.
+ * The bound is `cmp r3, #3 ; bhi`, unsigned, so a stage number of zero wraps
+ * to a huge value and takes the default rather than falling off the table.
+ *
+ * Four hazards for a game with more stages than that: the Pit, the Bell
+ * Tower, the Subway and the Lava. Which stage number is which is not
+ * established here.
+ *
+ * **CHECKED BY HAND, not by tools/factdiff.py.** The four cases branch into
+ * one shared store, so the asm reader sees a single handler with a value it
+ * cannot resolve and reports all four of these as invented. The four targets
+ * were resolved individually off the `tbb` table at 0x00041388 -- offsets
+ * 0x11, 0x14, 0x18, 0x1b from it, landing on 0x413aa, 0x413b0, 0x413b8 and
+ * 0x413be -- and each pc-relative load there names a real symbol. That is
+ * the evidence; the tool is not able to repeat it yet and its gap list says
+ * so.
+ */
+long t_background_death(MK3THREAD *thread)
+{
+    uint32_t stage;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    stage = *(const uint32_t *)(const void *)(G_BYTES + 0x24) - 1;
+
+    if (stage > 3)
+        return mk3_install(thread, (MK3THREADFUNC)t_pit_abort);
+
+    switch (stage) {
+    case 0:
+        return mk3_install(thread, (MK3THREADFUNC)t_fall_down_pit);
+    case 1:
+        return mk3_install(thread, (MK3THREADFUNC)t_fall_down_bell_tower);
+    case 2:
+        return mk3_install(thread, (MK3THREADFUNC)t_fall_on_trax);
+    default:
+        return mk3_install(thread, (MK3THREADFUNC)t_fall_in_lava);
+    }
+}
