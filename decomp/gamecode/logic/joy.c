@@ -3112,7 +3112,7 @@ long t_joy_duck_kickl(MK3THREAD *thread)
  * eighty-eight bytes each, and the same three states each:
  *
  *      state 0       get_last_button ; part->field30 = obj->field1c
- *                    part->field58 = 2
+ *                    part->field58 = 2 (high) / 3 (low)
  *                    group_sound(obj, 0) ; rsnd_func(obj, 0xe)
  *                    obj->field1c = 3          ; the rate
  *                    obj->field20 = tag        ; 0x101 high, 0x102 low
@@ -3159,9 +3159,35 @@ long t_joy_duck_kickl(MK3THREAD *thread)
  *      LP (1)                  -> cross into the other punch
  *      BL, HK, LK, RUN (2..5)  -> retract
  *
- * Which is the jab string exactly as the game plays: HP,HP,HP walks the high
- * chain, HP,LP crosses into the low one, and a kick in the middle of it drops
- * the whole thing.
+ * and the two punches spell it out in OPPOSITE branch orders, which is what
+ * makes the rule readable once both are written down:
+ *
+ *      t_jhp4 (high)   sel 0 -> t_jhp5            sel 1 -> t_joy_punch_htm1
+ *      t_jhp5 (high)   sel 0 -> t_jhp4            sel 1 -> t_joy_punch_htm2
+ *      t_jmp4 (low)    sel 0 -> t_joy_punch_mth1  sel 1 -> t_jmp5
+ *      t_jmp5 (low)    sel 0 -> t_joy_punch_mth2  sel 1 -> t_jmp4
+ *
+ * **The button you press is the punch you get.** HP always lands in the high
+ * chain and LP always in the low one; "continue" and "cross over" are the same
+ * rule seen from two sides. htm is high-to-mid and mth is mid-to-high, which
+ * is why the low pair's cross carries the mirrored name.
+ *
+ * So HP,HP,HP walks the high chain, HP,LP crosses into the low one, and a kick
+ * in the middle of it drops the whole thing.
+ *
+ * ## Three things the two pairs do NOT share
+ *
+ * part->field58 is 2 for the high pair and **3** for the low one.
+ *
+ * The high pair runs `punch_strike_check` with a10 zeroed; the low pair runs
+ * `strike_check_a0` with a10 at 1 and field48 at 3 beforehand.
+ *
+ * And the low pair disagrees with ITSELF about field48. t_jmp4 writes -1 when
+ * the check CONNECTED; t_jmp5 writes it when the check MISSED -- `cbz` past
+ * the store in one (0x00030b76) and into it in the other (0x000309ee). Since
+ * t_punch_sleep only re-runs its strike check while field48 >= 0, the two
+ * swings of the low punch stop checking under opposite conditions.
+ * Transcribed, not reconciled.
  *
  * G[0x452] is the halfword reaction_start_chores writes a 1 into when a
  * fighter enters a reaction. A punch whose animation finishes while that is
@@ -3199,8 +3225,7 @@ long t_jhp4(MK3THREAD *thread)
 
         obj->field1c = (uint32_t)(int32_t)(int16_t)busy;
         if (busy != 0)
-            return mk3_install(thread,
-                               (MK3THREADFUNC)t_joy_un_hi_punch1);
+            return mk3_install(thread, (MK3THREADFUNC)t_joy_un_hi_punch1);
 
         obj->field48 = 2;
         obj->field1c = 2;
@@ -3221,12 +3246,14 @@ long t_jhp4(MK3THREAD *thread)
     if (obj->field5c == 0)
         return mk3_install(thread, (MK3THREADFUNC)t_joy_un_hi_punch1);
 
+    /* The button code out of the queue entry get_last_button left in 0x1c:
+     * HP is 0 and LP is 1, so the button you press is the punch you get. */
     sel = obj->field1c >> 16;
     obj->field1c = sel;
-    if (sel == 1)
-        return mk3_install(thread, (MK3THREADFUNC)t_joy_punch_htm1);
     if (sel == 0)
         return mk3_install(thread, (MK3THREADFUNC)t_jhp5);
+    if (sel == 1)
+        return mk3_install(thread, (MK3THREADFUNC)t_joy_punch_htm1);
     return mk3_install(thread, (MK3THREADFUNC)t_joy_un_hi_punch1);
 }
 
@@ -3259,8 +3286,7 @@ long t_jhp5(MK3THREAD *thread)
 
         obj->field1c = (uint32_t)(int32_t)(int16_t)busy;
         if (busy != 0)
-            return mk3_install(thread,
-                               (MK3THREADFUNC)t_joy_un_hi_punch2);
+            return mk3_install(thread, (MK3THREADFUNC)t_joy_un_hi_punch2);
 
         obj->field48 = 2;
         obj->field1c = 2;
@@ -3281,12 +3307,14 @@ long t_jhp5(MK3THREAD *thread)
     if (obj->field5c == 0)
         return mk3_install(thread, (MK3THREADFUNC)t_joy_un_hi_punch2);
 
+    /* The button code out of the queue entry get_last_button left in 0x1c:
+     * HP is 0 and LP is 1, so the button you press is the punch you get. */
     sel = obj->field1c >> 16;
     obj->field1c = sel;
-    if (sel == 1)
-        return mk3_install(thread, (MK3THREADFUNC)t_joy_punch_htm2);
     if (sel == 0)
         return mk3_install(thread, (MK3THREADFUNC)t_jhp4);
+    if (sel == 1)
+        return mk3_install(thread, (MK3THREADFUNC)t_joy_punch_htm2);
     return mk3_install(thread, (MK3THREADFUNC)t_joy_un_hi_punch2);
 }
 
@@ -3300,7 +3328,7 @@ long t_jmp4(MK3THREAD *thread)
     if (token == 0) {
         get_last_button(obj);
         obj->field00->field30 = obj->field1c;
-        obj->field00->field58 = 2;
+        obj->field00->field58 = 3;
         obj->field1c = 0;
         group_sound(obj);
         rsnd_func(obj, 0xe);
@@ -3319,14 +3347,16 @@ long t_jmp4(MK3THREAD *thread)
 
         obj->field1c = (uint32_t)(int32_t)(int16_t)busy;
         if (busy != 0)
-            return mk3_install(thread,
-                               (MK3THREADFUNC)t_joy_un_lo_punch1);
+            return mk3_install(thread, (MK3THREADFUNC)t_joy_un_lo_punch1);
 
         obj->a10 = 1;
         obj->field48 = 3;
         obj->field1c = 3;
         strike_check_a0(obj);
-        obj->field48 = (uint32_t)-1;
+        /* `cbz r3, ...` past the store: -1 lands only when the
+         * check CONNECTED. Its twin below does the opposite. */
+        if (obj->field5c != 0)
+            obj->field48 = (uint32_t)-1;
         obj->a10 = 5;
         *mk3_frame(thread, thread->frame + 1) = 0x807;
         thread->frame = thread->frame + 1;
@@ -3342,11 +3372,13 @@ long t_jmp4(MK3THREAD *thread)
     if (obj->field5c == 0)
         return mk3_install(thread, (MK3THREADFUNC)t_joy_un_lo_punch1);
 
+    /* The button code out of the queue entry get_last_button left in 0x1c:
+     * HP is 0 and LP is 1, so the button you press is the punch you get. */
     sel = obj->field1c >> 16;
     obj->field1c = sel;
-    if (sel == 1)
-        return mk3_install(thread, (MK3THREADFUNC)t_joy_punch_mth1);
     if (sel == 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_joy_punch_mth1);
+    if (sel == 1)
         return mk3_install(thread, (MK3THREADFUNC)t_jmp5);
     return mk3_install(thread, (MK3THREADFUNC)t_joy_un_lo_punch1);
 }
@@ -3361,7 +3393,7 @@ long t_jmp5(MK3THREAD *thread)
     if (token == 0) {
         get_last_button(obj);
         obj->field00->field30 = obj->field1c;
-        obj->field00->field58 = 2;
+        obj->field00->field58 = 3;
         obj->field1c = 0;
         group_sound(obj);
         rsnd_func(obj, 0xe);
@@ -3380,13 +3412,17 @@ long t_jmp5(MK3THREAD *thread)
 
         obj->field1c = (uint32_t)(int32_t)(int16_t)busy;
         if (busy != 0)
-            return mk3_install(thread,
-                               (MK3THREADFUNC)t_joy_un_lo_punch2);
+            return mk3_install(thread, (MK3THREADFUNC)t_joy_un_lo_punch2);
 
         obj->a10 = 1;
         obj->field48 = 3;
         obj->field1c = 3;
         strike_check_a0(obj);
+        /* `cbz r3, ...` INTO the store: -1 lands only when the
+         * check MISSED. The opposite of its twin above, and it
+         * is transcribed rather than reconciled. */
+        if (obj->field5c == 0)
+            obj->field48 = (uint32_t)-1;
         obj->a10 = 5;
         *mk3_frame(thread, thread->frame + 1) = 0x837;
         thread->frame = thread->frame + 1;
@@ -3402,11 +3438,13 @@ long t_jmp5(MK3THREAD *thread)
     if (obj->field5c == 0)
         return mk3_install(thread, (MK3THREADFUNC)t_joy_un_lo_punch2);
 
+    /* The button code out of the queue entry get_last_button left in 0x1c:
+     * HP is 0 and LP is 1, so the button you press is the punch you get. */
     sel = obj->field1c >> 16;
     obj->field1c = sel;
-    if (sel == 1)
-        return mk3_install(thread, (MK3THREADFUNC)t_joy_punch_mth2);
     if (sel == 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_joy_punch_mth2);
+    if (sel == 1)
         return mk3_install(thread, (MK3THREADFUNC)t_jmp4);
     return mk3_install(thread, (MK3THREADFUNC)t_joy_un_lo_punch2);
 }
