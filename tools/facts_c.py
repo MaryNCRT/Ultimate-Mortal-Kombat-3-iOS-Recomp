@@ -35,6 +35,26 @@ confidence is worse than no fact. The diff treats `?` on either side as "not
 compared" and says so in its summary, so the pair that cannot be checked is
 visible rather than silently counted as agreement.
 
+## What it does not read yet
+
+Each of these shows up as a phantom difference until it is fixed, so anyone
+adding to this file should check the list before chasing a report:
+
+  * a loop. `for (i = 0; i < 5; i++) find_part2(obj);` reports ONE call where
+    the binary has five unrolled. Reading the bound would fix it.
+  * a store through a global: `*(uint32_t *)(G_BYTES + 0x378 + p * 4) = 0`.
+    Nothing reached through `G` or `H` is checked at all.
+  * a value that is an expression rather than a literal or a name. Following
+    one level of copy -- `obj->field1c = obj->field48;` -- would recover a
+    good many of the `?`.
+
+## The rule that keeps it honest
+
+A name is a fact only when the symbol table has it. Everything else is `?`.
+This file used to report `below` and `carried` -- locals invented here to
+hold what the binary keeps in a register -- as though they were values, and
+every one came out as a difference against a binary that has no such thing.
+
 Usage:
     python facts_c.py <file.c> [function-name]
 """
@@ -111,12 +131,24 @@ RE_HANDLER = re.compile(r"mk3_frame\([^)]*\)\[1\]\s*=\s*"
 RE_HANDLER2 = re.compile(r"mk3_frame\([^)]*\)\[1\]\s*=$")
 RE_BARENAME = re.compile(r"^\s*\(uint32_t\)\(uintptr_t\)"
                          r"([A-Za-z_][A-Za-z_0-9]*)\s*;")
+# *(uint32_t *)((char *)obj->field00 + 0x58) = 1;
+#
+# A field the header had no name for when the function was written. mkstat.c
+# spells several this way and every one of them read as a store the binary
+# makes and we do not, which is the most alarming shape a difference can take
+# and was nothing.
+RE_RAWSTORE = re.compile(r"^\s*\*\(uint32_t \*\)\s*\(\(char \*\)\s*"
+                         r"([a-z_][a-z_0-9]*(?:->[a-z_][a-z_0-9]*)*)\s*\+\s*"
+                         r"(0x[0-9a-fA-F]+)\)\s*=\s*([^;]+);")
 # *mk3_frame(thread, thread->frame + 1) = 0x807;
 RE_TOKEN = re.compile(r"^\s*\*mk3_frame\([^)]*\)\s*=\s*([^;]+);")
 RE_RETURN = re.compile(r"^\s*return\s+([^;]+);")
 RE_IF = re.compile(r"^\s*(?:\}\s*else\s+)?if\s*\((.+)\)")
 
 HEXNUM = re.compile(r"^(?:0x[0-9a-fA-F]+|\d+)$")
+# only literals, the four operators and brackets -- nothing that could
+# name anything, so the eval below cannot reach out of itself
+ARITH = re.compile(r"[\s0-9xa-fA-F+\-*()]+")
 
 # `if (obj->field5c != 0)` matches the call pattern and is not a call. So do
 # the frame accessors, which are how the readable C spells a field rather
@@ -170,6 +202,15 @@ def value(expr, consts=None):
     m = re.fullmatch(r"\(uint32_t\)-(\d+)", e) or re.fullmatch(r"-(\d+)", e)
     if m:
         return hex(((-int(m.group(1))) & 0xffffffff))
+    # `((0xa + 6) - 0xd) + 0x14` is 23. The house style writes these sums out
+    # so the binary's shared-literal habit stays visible -- `adds r3, #6` on a
+    # register that already holds 10 -- and collapsing them in the source
+    # would lose the reading. So the reader does the sum.
+    if ARITH.fullmatch(e):
+        try:
+            return hex(eval(e, {"__builtins__": {}}, {}) & 0xffffffff)
+        except Exception:
+            return "?"
     if re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*", e):
         # A bare name is a fact only when it names something the symbol table
         # knows. `t_jhp5` is a routine and comparable; `below`, `carried`,
@@ -224,6 +265,14 @@ def facts_of(lines, maps):
         m = RE_TOKEN.match(line)
         if m:
             out.append(("token", value(m.group(1))))
+            continue
+        # A raw-offset store starts with `*` too, so it joins the token
+        # recogniser ABOVE the comment filter. Both were being eaten.
+        m = RE_RAWSTORE.match(line)
+        if m:
+            base, off, val = m.group(1), m.group(2), m.group(3)
+            st = "MK3OBJPROC" if "field00" in base else "MK3OBJ"
+            out.append(("store", hex(int(off, 16)), value(val), st))
             continue
         if not s or s.startswith("*") or s.startswith("/*"):
             continue

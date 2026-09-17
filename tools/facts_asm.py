@@ -32,6 +32,31 @@ this one still needs a human.
 Every label resets the table, because a register that was known at the top of
 a block need not be known on the path that jumps into it.
 
+## What it does not read yet
+
+  * a constant that comes from a BRANCH rather than a load. After `cbz r6`
+    the register is zero on the taken path, and this reader does not know it.
+    Several `?` are only this.
+  * a handler fetched through a pointer table: `ldr r3,[pc]; add r3,pc;
+    ldr r2,[r3]` is two hops and this follows one. Those come back `?`, which
+    is correct, but it means the arrow is unchecked.
+  * anything past a label. The table is cleared at every join point because a
+    register known at the top of a block need not be known on the path that
+    jumps in. Correct, and it costs coverage; a real dataflow pass would
+    recover it.
+
+## The mistake this file already made once
+
+The first version tracked only immediate loads, so `adds r3, #2` left a stale
+constant behind and it reported `field48 = 1` where the answer is 3 -- a
+WRONG FACT STATED WITH CONFIDENCE, which is the exact thing the tool exists
+to catch. The rule that came out of it, and that any change here must keep:
+
+    any write to a register this reader does not recognise CLEARS what it
+    thought it knew about that register
+
+`?` is a fact. A wrong number is not.
+
 Usage:
     python facts_asm.py <recompiled.c> [function-name]
 """
