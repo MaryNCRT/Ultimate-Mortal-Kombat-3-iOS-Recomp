@@ -844,7 +844,7 @@ void inc_downcount(MK3OBJ *obj)
  * `field1c` is written twice, first with the whole word and then with the
  * masked one. A spill, not two meanings.
  */
-void check_block_bit(MK3OBJ *obj)
+long check_block_bit(MK3OBJ *obj)
 {
     uint32_t now  = *(const uint32_t *)(const void *)(G_BYTES + 0x1c);
     uint32_t mask = obj->field00->field08 ? 0x2000u : 0x20u;
@@ -852,6 +852,9 @@ void check_block_bit(MK3OBJ *obj)
     obj->field1c = now;
     obj->field1c = now & mask;
     obj->field5c = (obj->field1c != 0);
+    /* The binary leaves the same 0/1 in r0 as well as in field5c, and
+     * t_joyd5 is the caller that reads r0 rather than the field. */
+    return (long)obj->field5c;
 }
 
 
@@ -1807,7 +1810,18 @@ long am_i_facing_him(MK3OBJ *obj);
 void get_his_action(MK3OBJ *obj);
 void is_he_joy(MK3OBJ *obj);
 void get_my_dfe(MK3OBJ *obj);
-void is_he_right(MK3OBJ *obj);
+long is_he_right(MK3OBJ *obj);   /* returns r0 AND stores field5c */
+long am_i_joy(MK3OBJ *obj);      /* likewise */
+void find_last_frame(MK3OBJ *obj); /* 0x00055428, NOT find_ani_last_frame */
+long t_joyd5(struct MK3THREAD *thread);
+long t_player_1_wins(struct MK3THREAD *thread);
+long t_player_2_wins(struct MK3THREAD *thread);
+long t_finish_him(struct MK3THREAD *thread);
+long t_do_jumpup_kick(struct MK3THREAD *thread);
+long t_do_flip_punch(struct MK3THREAD *thread);
+long t_flight_call(struct MK3THREAD *thread);
+long t_angle_jump_land_jsrp(struct MK3THREAD *thread);
+long t_angle_jump_call(struct MK3THREAD *thread);
 void call_for_him(MK3OBJ *obj, void (*fn)(MK3OBJ *));
 uint32_t random32(void);
 void stop_me_player(MK3OBJ *obj);
@@ -3373,4 +3387,613 @@ long t_jmp5(MK3THREAD *thread)
     if (sel == 0)
         return mk3_install(thread, (MK3THREADFUNC)t_jmp4);
     return mk3_install(thread, (MK3THREADFUNC)t_joy_un_lo_punch2);
+}
+
+
+/* ------------------------------------------------------ t_check_winner_status
+ *
+ * armv7 0x0002ecd4, a hundred and seventy-two bytes.
+ *
+ *      state 0 only
+ *          obj->field1c = (int16_t)G[0x45c]
+ *          0    -> pop back to the caller
+ *          1    -> install t_player_1_wins
+ *          2    -> install t_player_2_wins
+ *          3    -> install t_finish_him
+ *          else -> pop back to the caller
+ *
+ * **The round ends from inside whatever you happen to be doing.** This is a
+ * one-frame check with no state of its own, pushed by the polling loops, and
+ * the three non-zero values do not return -- they REPLACE the current handler,
+ * so the fighter's whole action chain is thrown away where it stands.
+ *
+ * G[0x45c] is a signed halfword, and only four values are read. Everything
+ * else -- including a negative -- falls through to the ordinary pop, so an
+ * unrecognised status is treated as "the round is still running" rather than
+ * as an error.
+ *
+ * The pop is the usual one: drop a level if there is one, and install
+ * t_local_reaction_exit if this was the bottom.
+ */
+long t_check_winner_status(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint16_t raw;
+    int32_t  status;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    raw    = *(const uint16_t *)(const void *)(G_BYTES + 0x45c);
+    status = (int16_t)raw;
+    obj->field1c = (uint32_t)status;
+
+    if (raw != 0) {
+        if (status == 2)
+            return mk3_install(thread, (MK3THREADFUNC)t_player_2_wins);
+        if (status == 3)
+            return mk3_install(thread, (MK3THREADFUNC)t_finish_him);
+        if (status == 1)
+            return mk3_install(thread, (MK3THREADFUNC)t_player_1_wins);
+    }
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* ------------------------------------------------------------- t_jumpup_kick
+ *
+ * armv7 0x0002f0d0, a hundred and twenty bytes.
+ *
+ *      state 0       disable_all_buttons ; push t_do_jumpup_kick  (0x1e6)
+ *      state 0x1e6   install t_local_reaction_exit
+ *
+ * A door and nothing else. Every frame of the move lives in t_do_jumpup_kick;
+ * this exists so that the button table has something of the right shape to
+ * name, and so the move ends in the file's one exit rather than in the middle
+ * of the jump code.
+ */
+long t_jumpup_kick(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        disable_all_buttons(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x1e6;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_do_jumpup_kick;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x1e6)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* ---------------------------------------------------------- t_joy_flip_punch
+ *
+ * armv7 0x0002efdc, a hundred and twenty bytes.
+ *
+ *      state 0       disable_all_buttons ; push t_do_flip_punch   (0x1d0)
+ *      state 0x1d0   install t_local_reaction_exit
+ *
+ * The same door, instruction for instruction, with a different token and a
+ * different child. The pair is worth keeping side by side: when two procs
+ * differ only in two constants, the constants are the whole content.
+ */
+long t_joy_flip_punch(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        disable_all_buttons(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x1d0;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_do_flip_punch;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x1d0)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* --------------------------------------------------------- t_walk_flip_check
+ *
+ * armv7 0x0002fb88, two hundred and twelve bytes.
+ *
+ *      state 0
+ *          am_i_facing_him ? yes -> pop back to the caller
+ *          pop, shuffle the level above down, push t_turn_around  (0x114)
+ *      state 0x114   install t_local_reaction_exit
+ *      state 0x116   pop back to the caller
+ *
+ * The third member of the family that includes t_knee_check and
+ * t_elbow_check, and it does the same stack surgery: it erases ITSELF from
+ * the stack before pushing the turn, so when t_turn_around finishes there is
+ * no checker left underneath to return to.
+ *
+ * The analogy that fits is a doorman who checks you at the door and then
+ * leaves: the turn is not a detour you come back from, it replaces the frame
+ * the check was standing in.
+ *
+ * **0x116 is a door nothing here opens.** No path in this function writes it;
+ * something outside returns with it, and it lands straight on the plain pop.
+ * The block loop has the same shape at 0x28e. Where it comes from is not
+ * traced and is not guessed at here.
+ */
+long t_walk_flip_check(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t below, carried;
+
+    if (token == 0x114)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token == 0x116)
+        goto pop;
+
+    if (token != 0)
+        return -3;
+
+    if (am_i_facing_him(obj))
+        goto pop;
+
+    if ((long)thread->frame <= 0) {
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_local_reaction_exit;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+    } else {
+        thread->frame = thread->frame - 1;
+    }
+
+    below   = mk3_frame(thread, thread->frame + 1)[1];
+    carried = *mk3_frame(thread, thread->frame + 2);
+    *mk3_frame(thread, thread->frame + 1) = carried;
+    mk3_frame(thread, thread->frame)[1] = below;
+    *mk3_frame(thread, thread->frame + 1) = 0x114;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_turn_around;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
+pop:
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* ------------------------------------------------------------- t_punch_sleep
+ *
+ * armv7 0x00030eec, two hundred and eight bytes.
+ *
+ *      state 0       token = 0x67d ; thread->fieldfc = 1 ; return 1
+ *      state 0x67d
+ *          obj->field1c = obj->field48
+ *          if (obj->field48 >= 0) punch_strike_check(obj)
+ *          get_last_button(obj)                   ; rewrites field1c
+ *          obj->field20 = part->field30           ; the button that started it
+ *          if (part->field30 != obj->field1c) {
+ *              obj->field5c = am_i_facing_him(obj)
+ *              pop
+ *          }
+ *          if (--obj->a10 > 0) { token = 0x67d ; fieldfc = 1 ; return 1 }
+ *          obj->field5c = 0 ; pop
+ *
+ * **The chain continues on a DIFFERENT button, not on the same one.** This is
+ * the loop the four punch swings push after their strike check, and it is what
+ * decides whether the swing that follows is another swing or a retraction.
+ *
+ * part->field30 holds the button the swing started with -- every swing copies
+ * it there on its first frame. Each pass this loop asks the buttons again. If
+ * the answer still matches, nothing has changed: it burns one of the five live
+ * frames in obj->a10 and sleeps. When those five are gone it sets field5c to 0
+ * and the swing above retracts.
+ *
+ * If the answer does NOT match, you have pressed something else inside the
+ * window, and field5c gets am_i_facing_him instead -- so the chain continues
+ * as long as you are still turned towards him. That is why a jab string in
+ * this game is tapped rather than held: holding is the case that ends it.
+ *
+ * The strike check is re-run every pass, but only while field48 is
+ * non-negative. t_jmp4 sets field48 to -1 right after its own check for
+ * exactly that reason: the low punch tests its hit once and this loop must not
+ * test it again.
+ *
+ * The state token is written from r2, which still holds the frame index read
+ * on entry -- so both sleeps write into the same slot and the loop never grows
+ * the stack.
+ */
+long t_punch_sleep(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token != 0) {
+        if (token != 0x67d)
+            return -3;
+
+        obj->field1c = obj->field48;
+        if ((long)obj->field48 >= 0)
+            punch_strike_check(obj);
+
+        get_last_button(obj);
+        obj->field20 = obj->field00->field30;
+
+        if (obj->field00->field30 != obj->field1c) {
+            obj->field5c = (uint32_t)am_i_facing_him(obj);
+            goto pop;
+        }
+
+        obj->a10 = obj->a10 - 1;
+        if ((long)obj->a10 <= 0) {
+            obj->field5c = 0;
+            goto pop;
+        }
+        /* still inside the window: sleep one more frame */
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = 0x67d;
+    thread->fieldfc = 1;
+    return 1;
+
+pop:
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* ------------------------------------------------------------------- t_joyd4
+ *
+ * armv7 0x0002fad4, a hundred and eighty bytes.
+ *
+ *      state 0       part->field18 = 0x302 ; obj->field1c = 0x302
+ *                    token = 0x162 ; thread->fieldfc = 1 ; return 1
+ *      state 0x162   am_i_facing_him ? yes -> install t_joyd5
+ *                                      no  -> push t_duck_turnaround  (0x167)
+ *      state 0x167   install t_joyd3
+ *
+ * The first half of the crouch's two-frame heartbeat. t_joyd4 stamps the tag
+ * and sleeps; t_joyd5 below wakes up and reads the stick. Neither does both,
+ * and the pair hands control back and forth for as long as you hold down.
+ *
+ * **0x302 is written every single frame you spend crouched.** It is the same
+ * refresh the duck-block loop does with 0x701, and for the same reason: the
+ * tag is what everything else reads to know your stance, so anything that
+ * overwrote it is corrected before the next frame can test a hit against it.
+ *
+ * Turning round while crouched does not stand you up -- t_duck_turnaround
+ * runs and the fighter comes back to t_joyd3, still down.
+ */
+long t_joyd4(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field00->field18 = 0x302;
+        obj->field1c = 0x302;
+        *mk3_frame(thread, thread->frame + 1) = 0x162;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0x167)
+        return mk3_install(thread, (MK3THREADFUNC)t_joyd3);
+
+    if (token != 0x162)
+        return -3;
+
+    if (am_i_facing_him(obj))
+        return mk3_install(thread, (MK3THREADFUNC)t_joyd5);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x167;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_duck_turnaround;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ------------------------------------------------------------------- t_joyd5
+ *
+ * armv7 0x000303f0, two hundred bytes.
+ *
+ *      state 0       inc_downcount(obj)
+ *                    check_block_bit ? held -> install t_joy_duck_block
+ *                                      not  -> push t_check_winner_status
+ *                                                                    (0x16f)
+ *      state 0x16f   joystick_in_a0(obj)
+ *                    obj->field1c & 2 ? install t_joyd4
+ *                                       install t_joy_back_up
+ *
+ * The other half of the heartbeat, and the three questions it asks are asked
+ * in this order for a reason.
+ *
+ * **Block is read before the stick.** So pressing BL while crouched takes you
+ * to the duck block on the same frame, without the stick ever being consulted
+ * -- which is why a duck block engages even though you are still holding down.
+ *
+ * **The round result is read before the stick too**, and through a push rather
+ * than a call, so if the round has ended the crouch is replaced outright and
+ * the stick read at 0x16f never happens.
+ *
+ * Only if both pass does the fighter ask whether down is still held: yes goes
+ * back to t_joyd4 and the loop turns over, no goes to t_joy_back_up. Note this
+ * is the real stick and not a remembered one -- exactly as
+ * t_post_joy_duck_kick does at the end of the ducking attacks.
+ *
+ * inc_downcount runs once per turn of the loop, so it counts frames spent
+ * crouched, not presses.
+ */
+long t_joyd5(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        inc_downcount(obj);
+
+        if (check_block_bit(obj))
+            return mk3_install(thread, (MK3THREADFUNC)t_joy_duck_block);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x16f;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_check_winner_status;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x16f)
+        return -3;
+
+    joystick_in_a0(obj);
+    if (obj->field1c & 2)
+        return mk3_install(thread, (MK3THREADFUNC)t_joyd4);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_joy_back_up);
+}
+
+
+/* ------------------------------------------------------------ t_do_flip
+ *
+ * armv7 0x00030634, three hundred and forty bytes. The angle jump -- the
+ * diagonal one, not the straight-up hop -- from its first frame to its last.
+ *
+ *      state 0
+ *          thread->args[thread->fieldf8++] = obj->field1c   ; park the caller's
+ *          obj->field30 = obj->field40                      ; save the ani
+ *          obj->field40 = 0x39 ; get_char_ani(obj)
+ *          obj->field38 = obj->field40 ; find_last_frame(obj)
+ *          fall through
+ *      state 0x35e
+ *          obj->field1c = 1 ; group_sound(obj)              ; the jump grunt
+ *          obj->field40 = obj->field1c = thread->args[--thread->fieldf8]
+ *          obj->field2c = obj->field08->field28
+ *          if (obj->field2c & 0x10) obj->field40 = obj->field20
+ *          fall through
+ *      state 0x368
+ *          stop_me_player ; disable_all_buttons
+ *          stuff_buttons(obj, bt_angle_jump)
+ *          obj->field1c = part->field18 = 0x308
+ *          part->field3c = (int16_t)(obj->field08->field0c >> 16)
+ *          if (is_he_right(obj)) obj->field48 = -obj->field48
+ *          fall through
+ *      state 0x375
+ *          obj->field1c = obj->field48         ; horizontal speed, signed
+ *          obj->field34 = t_angle_jump_call    ; the per-frame callback
+ *          obj->field20 = 0xfff60000           ; -10.0
+ *          obj->field24 = 0x00008000           ;  +0.5
+ *          obj->field28 = 3
+ *          obj->field48 = 4
+ *          push t_flight_call                  (0x382)
+ *      state 0x382   install t_angle_jump_land_jsrp
+ *
+ * **The jump's physics are three constants in this function's literal pool.**
+ * The header already establishes that the object's coordinates are 16.16 fixed
+ * point -- integer on top, fraction underneath -- and read that way the two
+ * literals are exactly -10.0 and +0.5: the launch velocity and the gravity
+ * added back to it each frame. 0xfff60000 is not a flag or a handle; it is
+ * minus ten, written the way this engine writes numbers.
+ *
+ * That is the whole arc. Ten up, half a unit of gravity, and field48 across --
+ * and field48 is the one that gets negated, so the SIGN is the direction and
+ * the magnitude is the same either way. You cannot jump further forwards than
+ * backwards in this game because there is only one number.
+ *
+ * **The fall-through is the shape.** Four states with no branch between them:
+ * 0 falls into 0x35e falls into 0x368 falls into 0x375, all in one frame. The
+ * tokens exist so that something else can jump INTO the middle of the setup --
+ * a flip that is already airborne enters at 0x368 and skips picking the
+ * animation. Nothing in this file writes 0x35e, 0x368 or 0x375; they are
+ * entered from elsewhere, and where is not traced here.
+ *
+ * The 0x10 bit of obj->field08->field28 swaps the animation for the one parked
+ * in field20 -- the only place the saved-and-restored value is overridden.
+ *
+ * thread->args at 0xa8 with the cursor at 0xf8 is the second stack, the one
+ * the header notes the striker pair uses. Here it holds a single word across
+ * the get_char_ani call, which clobbers field1c.
+ */
+long t_do_flip(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t *args = (uint32_t *)(void *)thread->args;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x382)
+        return mk3_install(thread,
+                           (MK3THREADFUNC)t_angle_jump_land_jsrp);
+
+    if (token != 0 && token != 0x35e && token != 0x368 && token != 0x375)
+        return -3;
+
+    if (token == 0) {
+        args[thread->fieldf8] = obj->field1c;
+        thread->fieldf8 = thread->fieldf8 + 1;
+
+        obj->field30 = obj->field40;
+        obj->field40 = 0x39;
+        get_char_ani(obj);
+        obj->field38 = obj->field40;
+        find_last_frame(obj);
+    }
+
+    if (token == 0 || token == 0x35e) {
+        uint32_t saved;
+
+        obj->field1c = 1;
+        group_sound(obj);
+
+        thread->fieldf8 = thread->fieldf8 - 1;
+        saved = args[thread->fieldf8];
+        obj->field40 = saved;
+        obj->field1c = saved;
+
+        obj->field2c = obj->field08->field28;
+        if (obj->field2c & 0x10)
+            obj->field40 = obj->field20;
+    }
+
+    if (token == 0 || token == 0x35e || token == 0x368) {
+        stop_me_player(obj);
+        disable_all_buttons(obj);
+        stuff_buttons(obj, (uint32_t)(uintptr_t)&bt_angle_jump);
+
+        obj->field1c = 0x308;
+        obj->field00->field18 = 0x308;
+        /* ldrsh [r3, #0xe] -- the HIGH half of field0c, which the header
+         * establishes is the integer part of the 16.16 x coordinate. */
+        obj->field00->field3c =
+            (uint32_t)(int32_t)(int16_t)(obj->field08->field0c >> 16);
+
+        if (is_he_right(obj))
+            obj->field48 = (uint32_t)(-(int32_t)obj->field48);
+    }
+
+    /* 0x375: the flight parameters, and away. */
+    obj->field1c = obj->field48;
+    obj->field34 = (uint32_t)(uintptr_t)t_angle_jump_call;
+    obj->field20 = 0xfff60000u;            /* -10.0 in 16.16 */
+    obj->field24 = 0xfff60000u + 0xa8000u; /*  +0.5 in 16.16 */
+    obj->field28 = 3;
+    obj->field48 = 4;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x382;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight_call;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ------------------------------------------------------- t_angle_jump_call
+ *
+ * armv7 0x00030788, a hundred and fifty-two bytes. The callback t_do_flip
+ * parks in obj->field34, run by t_flight_call once per airborne frame.
+ *
+ *      state 0       am_i_joy ? no -> pop.  the AI does not get this
+ *                               yes -> fall through
+ *      state 0x335
+ *          obj->field1c = obj->field08->field1c
+ *          if ((long)obj->field1c < 0) pop
+ *          obj->field24 = (int16_t)obj->field08->field12
+ *          obj->field1c = |part->field40 - obj->field24|
+ *          if (obj->field1c <= 0x14) {
+ *              disable_all_buttons(obj)
+ *              obj->field34 = 0 ; part->field34 = 0
+ *          }
+ *          pop
+ *      state 0x349   pop
+ *
+ * **This is the window that closes.** Every frame of the jump it measures one
+ * distance, and when that distance falls to twenty or less it takes the
+ * buttons away and then erases ITSELF -- field34, the very slot t_do_flip put
+ * it in, goes to zero, so t_flight_call stops calling it for the rest of the
+ * jump.
+ *
+ * The analogy is a countdown that switches itself off once it has fired: the
+ * check is cheap, it runs every frame, and the instant it is satisfied it
+ * makes sure it can never run again.
+ *
+ * **Only a human gets checked.** am_i_joy gates the whole thing on the very
+ * first frame, and when the answer is no the routine pops without ever
+ * measuring anything. This is the third assist of that shape in the file,
+ * after toss_check's coin flip and t_joy_duck_kickl's four extra frames -- and
+ * like both of those it is hidden inside an ordinary move.
+ *
+ * What the two quantities are is NOT pinned down. field1c of the other object
+ * is only tested for being negative, and the 0x12 halfword against part->0x40
+ * is only ever used as a difference. The twenty is real; what it is twenty of
+ * is not traced here and is not guessed at.
+ *
+ * 0x349 is another door nothing in this function opens, and it does nothing
+ * but pop. Same shape as 0x116 in t_walk_flip_check.
+ */
+long t_angle_jump_call(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token != 0x335 && token != 0x349 && token != 0)
+        return -3;
+
+    if (token == 0 && !am_i_joy(obj))
+        goto pop;
+
+    if (token == 0 || token == 0x335) {
+        MK3OBJ  *other = obj->field08;
+        int32_t  diff;
+
+        obj->field1c = other->field1c;
+        if ((long)obj->field1c < 0)
+            goto pop;
+
+        /* ldrsh [r2, #0x12] -- the HIGH half of field10, the integer part
+         * of the other coordinate of the same 16.16 pair. */
+        obj->field24 = (uint32_t)(int32_t)(int16_t)(other->field10 >> 16);
+
+        diff = (int32_t)obj->field00->field40 - (int32_t)obj->field24;
+        obj->field1c = (uint32_t)diff;
+        if (diff < 0) {
+            diff = -diff;
+            obj->field1c = (uint32_t)diff;
+        }
+
+        if (diff <= 0x14) {
+            disable_all_buttons(obj);
+            obj->field34 = 0;
+            obj->field00->field34 = 0;
+        }
+    }
+
+pop:
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
