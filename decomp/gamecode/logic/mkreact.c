@@ -3317,6 +3317,8 @@ long t_pit_fall_scan(struct MK3THREAD *thread);
 long t_flight_loop(struct MK3THREAD *thread);
 void clear_shadow_bit(MK3OBJ *obj);
 void distance_off_ground(MK3OBJ *obj);
+void call_a0_for_him(MK3OBJ *obj);
+void zero_turbo_bar(MK3OBJ *obj);
 void center_around_me(MK3OBJ *obj);
 void ground_player(MK3OBJ *obj);
 void MKEvent_Add(long type, long subtype, long param, long player);
@@ -10850,6 +10852,89 @@ long t_r_pounce(struct MK3THREAD *thread)
     obj->field38 = 0;
 
     *mk3_frame(thread, thread->frame + 1) = 0x48a;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* -------------------------------------------------------------- t_r_robo_tele
+ *
+ * armv7 0x000488b0, two hundred and seventy-two bytes.
+ *
+ * A three-state chain, shake-and-park shaped but the hit and the launch
+ * setup happen together in state 0. It oddly writes `zero_turbo_bar`'s own
+ * address into
+ * `obj->field1c` (a pointer slot read straight, not a value computed from
+ * it -- the binary really does put a code address into what is everywhere
+ * else in this file a fixed-point rate) before pushing straight to the
+ * launch state.
+ *
+ *      state 0
+ *          obj->field1c = 2 ; group_sound(obj)
+ *          rsnd_func(obj, 0xa)
+ *          obj->field48 = 0x60006 ; shake_a11(obj)
+ *          obj->field1c = (uintptr_t)zero_turbo_bar
+ *          call_a0_for_him(obj)
+ *          obj->field20 = 0x208 ; obj->field00->field48 = 0x208
+ *          obj->field30 = 0 ; obj->field38 = 0 ; obj->field34 = 4
+ *          push t_reaction_start                        (0x6bb)
+ *      state 0x6bb
+ *          obj->field00->field18 = 0x616
+ *          obj->field1c = 1.0 ; obj->field20 = -11.0
+ *          obj->field24 = 0.34375 ; obj->field28 = 5
+ *          obj->field40 += 0x19
+ *          push t_flight                                (0x6c4)
+ *      state 0x6c4
+ *          install t_reaction_land
+ */
+long t_r_robo_tele(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x6c4)
+        return mk3_install(thread, (MK3THREADFUNC)t_reaction_land);
+
+    if (token == 0x6bb) {
+        obj->field00->field18 = 0x616;
+
+        obj->field1c = 0x10000;                  /* 1.0 in 16.16 */
+        obj->field20 = obj->field1c - 0xc0000;   /* -11.0 */
+        obj->field24 = obj->field20 + 0xb6000;   /* 0.34375 */
+        obj->field28 = 5;
+        obj->field40 = obj->field40 + 0x19;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x6c4;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field1c = 2;
+    group_sound(obj);
+
+    rsnd_func(obj, 0xa);
+
+    obj->field48 = 0x60006;
+    shake_a11(obj);
+
+    obj->field1c = (uint32_t)(uintptr_t)zero_turbo_bar;
+    call_a0_for_him(obj);
+
+    obj->field20 = 0x208;
+    obj->field00->field48 = 0x208;
+
+    obj->field30 = 0;
+    obj->field38 = 0;
+    obj->field34 = 4;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x6bb;
     thread->frame = thread->frame + 1;
     mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
     *mk3_frame(thread, thread->frame + 1) = 0;
