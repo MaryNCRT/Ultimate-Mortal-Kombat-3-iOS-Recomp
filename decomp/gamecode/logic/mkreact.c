@@ -9827,3 +9827,71 @@ long t_r_superkang(struct MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------------ t_r_square
+ *
+ * armv7 0x0004294c, two hundred and thirty-two bytes.
+ *
+ * Same shake-and-launch family, one more variant: the hit and the park
+ * happen together in state 0 (sound, shake, THEN clear field30/38 and set
+ * field34) before pushing t_reaction_start; the launch numbers and
+ * t_flight push live in the state after that.
+ *
+ *      state 0
+ *          obj->field1c = 2 ; group_sound(obj)
+ *          rsnd_func(obj, 0xa)
+ *          obj->field48 = 0x80008 ; shake_a11(obj)
+ *          obj->field30 = 0 ; obj->field38 = 0 ; obj->field34 = 1
+ *          push t_reaction_start                        (0xf36)
+ *      state 0xf36
+ *          obj->field1c = 5.0 ; obj->field20 = -5.0
+ *          obj->field24 = 0.34375 ; obj->field28 = 5
+ *          obj->field40 += 0x19
+ *          push t_flight                                (0xf3e)
+ *      state 0xf3e
+ *          install t_land_on_my_back
+ */
+long t_r_square(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0xf3e)
+        return mk3_install(thread, (MK3THREADFUNC)t_land_on_my_back);
+
+    if (token == 0xf36) {
+        obj->field1c = 0x50000;                  /* 5.0 in 16.16 */
+        obj->field20 = obj->field1c - 0xa0000;   /* -5.0 */
+        obj->field24 = obj->field20 + 0x58000;   /* 0.34375 */
+        obj->field28 = 5;
+        obj->field40 = obj->field40 + 0x19;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xf3e;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field1c = 2;
+    group_sound(obj);
+
+    rsnd_func(obj, 0xa);
+
+    obj->field48 = 0x80008;
+    shake_a11(obj);
+
+    obj->field30 = 0;
+    obj->field38 = 0;
+    obj->field34 = 1;
+
+    *mk3_frame(thread, thread->frame + 1) = 0xf36;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
