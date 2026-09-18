@@ -7228,3 +7228,113 @@ long t_r_combo5(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ---------------------------------------------------------------- t_r_combo0
+ *
+ * armv7 0x00045c84, three hundred and forty-four bytes.
+ *
+ *      state 0
+ *          obj->field1c = 4 ; create_blood_proc(obj)
+ *          combo_setup(obj) ; obj->field38 = 0
+ *          obj->field30 = t_combo_airborn_hit ; obj->field34 = 5
+ *          push t_reaction_start                        (0xc27)
+ *      state 0xc27
+ *          if (obj->field00->p_hit > 5) {
+ *              if (obj->field00->field04->field24 == 4) {
+ *                  other = obj->field08 ; other->field30 &= ~4
+ *                  if ((obj->field00->field10 & 1) == 0)
+ *                      install t_separate_us
+ *                  -- else falls into the ordinary swing below
+ *              }
+ *          }
+ *          -- ordinary swing:
+ *          set_no_block(obj)
+ *          rsnd_func(obj, 0xa)
+ *          obj->field40 = 0x1c ; get_char_ani(obj)
+ *          obj->field00->p_hit = obj->field40 ; obj->field40 += 0xc
+ *          do_next_a9_frame(obj)
+ *          token = 0xc3a ; thread->fieldfc = 3 ; return 3
+ *      state 0xc3a
+ *          obj->field40 = obj->field00->p_hit ; obj->field1c = 4
+ *          push t_mframew                               (0xc3d)
+ *      state 0xc3d
+ *          install t_local_reaction_exit
+ *
+ * **`p_hit` (offset 0x44 on `MK3OBJPROC`) is doing double duty here**,
+ * reused as a plain save slot for the animation offset across the sleep --
+ * nothing to do with the hit counter every other reader of `p_hit` in this
+ * file uses it for. The compiler reused the field because it was free, not
+ * because the value means "hits taken" in this context.
+ *
+ * **The `t_separate_us` branch only fires once, and clears its own
+ * trigger.** `other->field30 &= ~4` turns the condition off on the object
+ * that carries it, so a combo that ends past six swings with that bit set
+ * and the low bit of `field10` clear breaks the pair apart exactly once
+ * rather than every frame the state is re-entered.
+ */
+long t_r_combo0(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0xc3a) {
+        obj->field40 = obj->field00->p_hit;
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xc3d;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xc3d)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token == 0xc27) {
+        if ((int32_t)obj->field00->p_hit > 5) {
+            uint8_t *inner = *(uint8_t **)((uint8_t *)obj->field00 + 4);
+            if (*(uint32_t *)(inner + 0x24) == 4) {
+                MK3OBJ *other = obj->field08;
+                other->field30 = other->field30 & ~4u;
+
+                if ((obj->field00->field10 & 1) == 0)
+                    return mk3_install(thread, (MK3THREADFUNC)t_separate_us);
+            }
+        }
+
+        set_no_block(obj);
+        rsnd_func(obj, 0xa);
+
+        obj->field40 = 0x1c;
+        get_char_ani(obj);
+
+        obj->field00->p_hit = obj->field40;
+        obj->field40 = obj->field40 + 0xc;
+
+        do_next_a9_frame(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0xc3a;
+        thread->fieldfc = 3;
+        return 3;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field1c = 4;
+    create_blood_proc(obj);
+
+    combo_setup(obj);
+    obj->field38 = 0;
+    obj->field30 = (uint32_t)(uintptr_t)t_combo_airborn_hit;
+    obj->field34 = 5;
+
+    *mk3_frame(thread, thread->frame + 1) = 0xc27;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
