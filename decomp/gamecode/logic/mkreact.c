@@ -9760,3 +9760,70 @@ long t_r_jax_dash(struct MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* -------------------------------------------------------------- t_r_superkang
+ *
+ * armv7 0x000430c4, two hundred and twenty-four bytes.
+ *
+ * The same shake-and-launch shape as `t_r_jax_dash` and `t_r_kano_roll` --
+ * clear both park fields, push `t_reaction_start`, launch into `t_flight`
+ * with this move's own numbers -- closing into `t_land_on_my_back`.
+ *
+ *      state 0
+ *          obj->field30 = 0 ; obj->field38 = 0 ; obj->field34 = 1
+ *          push t_reaction_start                        (0x4aa)
+ *      state 0x4aa
+ *          rsnd_func(obj, 8)
+ *          obj->field1c = 2 ; group_sound(obj)
+ *          obj->field48 = 0x50005 ; shake_a11(obj)
+ *          obj->field1c = 6.0 ; obj->field20 = -3.0
+ *          obj->field24 = 0.203125 ; obj->field28 = 5
+ *          obj->field40 += 0x19
+ *          push t_flight                                (0x4b7)
+ *      state 0x4b7
+ *          install t_land_on_my_back
+ */
+long t_r_superkang(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x4b7)
+        return mk3_install(thread, (MK3THREADFUNC)t_land_on_my_back);
+
+    if (token == 0x4aa) {
+        rsnd_func(obj, 8);
+
+        obj->field1c = 2;
+        group_sound(obj);
+
+        obj->field48 = 0x50005;
+        shake_a11(obj);
+
+        obj->field1c = 0x60000;                  /* 6.0 in 16.16 */
+        obj->field20 = obj->field1c - 0x90000;   /* -3.0 */
+        obj->field24 = obj->field20 + 0x34000;   /* 0.203125 */
+        obj->field28 = 5;
+        obj->field40 = obj->field40 + 0x19;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x4b7;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field30 = 0;
+    obj->field38 = 0;
+    obj->field34 = 1;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x4aa;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
