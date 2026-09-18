@@ -4876,3 +4876,155 @@ long t_death_slam_pause(MK3THREAD *thread)
     }
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+
+long t_animate_a0_frames(struct MK3THREAD *thread);
+long t_d_beware(struct MK3THREAD *thread);
+long t_d_beware_mframew(struct MK3THREAD *thread);
+
+
+/* ------------------------------------------------------------ t_dizzy_by_boss
+ *
+ * armv7 0x00043f18, a hundred and fifty-two bytes.
+ *
+ *      state 0
+ *          part->field18 = 0x620 ; obj->field1c = 0x620
+ *          obj->field40 = 0x25 ; get_char_ani(obj)
+ *          obj->field1c = 0x25 (reloaded via a literal after the call)
+ *          push t_animate_a0_frames                   (0xd8d)
+ *      state 0xd8d
+ *          install t_local_reaction_exit
+ */
+long t_dizzy_by_boss(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field00->field18 = 0x620;
+        obj->field1c = 0x620;
+
+        obj->field40 = 0x25;
+        get_char_ani(obj);
+
+        obj->field1c = 0x25;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xd8d;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_a0_frames;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xd8d)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* ------------------------------------------------------- t_drone_flipk_getup
+ *
+ * armv7 0x00041410, three hundred and eight bytes -- seven states, one for
+ * each numbered stop between 0xe10 and 0xe17.
+ *
+ *      state 0
+ *          obj->field1c = 3
+ *          push t_d_beware_mframew                    (0xe10)
+ *      state 0xe10
+ *          push t_d_beware                             (0xe12)
+ *      state 0xe12
+ *          thread->fieldfc = 1 ; return 1              ; continues as 0xe13
+ *      state 0xe13
+ *          push t_d_beware                             (0xe14)
+ *      state 0xe14
+ *          thread->fieldfc = 1 ; return 1              ; continues as 0xe15
+ *      state 0xe15
+ *          push t_d_beware                             (0xe16)
+ *      state 0xe16
+ *          thread->fieldfc = 1 ; return 1              ; continues as 0xe17
+ *      state 0xe17
+ *          install t_getup_reaction_exit
+ *
+ * **The wait states are the same eleven bytes twice over, and the register
+ * that makes it work is a coincidence of the dispatch order, not a shared
+ * routine.** In the binary, states 0xe12 and 0xe14 branch into ONE block
+ * that stores whatever the CPU's `ip` register happens to hold and sleeps.
+ * `ip` gets there by falling out of a failed comparison one step earlier in
+ * the dispatch chain -- checking "is this 0xe13" leaves 0xe13 sitting in a
+ * register that state 0xe12 then stores as its own next token, and the same
+ * happens with 0xe15 for state 0xe14. It works because the numbering is
+ * sequential and the compiler's own dispatch order matches it; nothing
+ * about the source needed to know that. The C here writes each state's
+ * real continuation directly rather than reproducing the register reuse,
+ * which is what `landfn.sh` checks: the STORED VALUES match, however they
+ * got into the register that wrote them.
+ *
+ * `t_d_beware` is pushed three times running, once per odd-to-even step,
+ * and `t_d_beware_mframew` once at the very start -- a getup with three
+ * separate glances before the fighter is finally handed to
+ * `t_getup_reaction_exit`.
+ */
+long t_drone_flipk_getup(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0xe13) {
+        *mk3_frame(thread, thread->frame + 1) = 0xe14;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_d_beware;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xe12) {
+        *mk3_frame(thread, thread->frame + 1) = 0xe13;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0xe15) {
+        *mk3_frame(thread, thread->frame + 1) = 0xe16;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_d_beware;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xe16) {
+        *mk3_frame(thread, thread->frame + 1) = 0xe17;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0xe17)
+        return mk3_install(thread, (MK3THREADFUNC)t_getup_reaction_exit);
+
+    if (token == 0xe10) {
+        *mk3_frame(thread, thread->frame + 1) = 0xe12;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_d_beware;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xe14) {
+        *mk3_frame(thread, thread->frame + 1) = 0xe15;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field1c = 3;
+
+    *mk3_frame(thread, thread->frame + 1) = 0xe10;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_d_beware_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
