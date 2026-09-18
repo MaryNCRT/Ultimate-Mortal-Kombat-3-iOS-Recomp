@@ -34,11 +34,39 @@ for whatever it smooths. The arcade logic is a fixed step per drawn frame:
 
 **So every per-frame number in this document is per 1/60 second.**
 
-What is still open is what the DEVICE actually drew at.
-`-[EAGLView startAnimation]` schedules its timer from the `animationInterval`
-ivar, and whoever sets that ivar goes through `objc_msgSend`, which a `bl` scan
-does not see. The design rate is 60; the delivered rate on 2011 hardware is not
-recovered.
+**`animationInterval` is `1.0/60.0`, and it is a literal, not a runtime
+value.** `-[EAGLView initWithCoder:]` (`0x000613f0`) writes it directly into
+the ivar at `0x00061546` once the GL context is up, whichever renderer version
+it got:
+
+```
+mov.w r1, #0x11111111          ; the low word of the double
+ldr   r2, [pc, #0x104]         ; the high word, 0x3f911111
+str   {r1, r2}, [animationInterval]
+```
+
+`0x3f911111_11111111` is `1.0/60.0` to the bit -- read straight out of the
+literal pool, not inferred from the disassembly printer's own resolution
+(which only annotates the pc-relative `add`, not the plain `ldr r2, [pc, #N]`
+one instruction earlier; the two literals have to be read as a pair by hand).
+It is the same call site whichever context creation branch succeeds, so there
+is no ES1-vs-ES2 split here either.
+
+`-[EAGLView startAnimation]` then schedules an `NSTimer` from that ivar. So
+the DESIGN rate and the REQUESTED rate are the same number, set once, as a
+constant: **60 Hz, end to end, with nothing in the binary that ever asks for
+30.** A brute-force search of the whole armv7 slice for the IEEE-754 double
+`1.0/30.0` finds zero occurrences; `1.0/60.0` occurs exactly once, at this
+call site (the `limeFPSScaleFactor` literal above is the same bit pattern
+read a second, unrelated time out of `limeBegin`'s own literal pool).
+
+What is still open is only what a specific piece of 2011 hardware actually
+*delivered* once `NSTimer` and `CPU`/`GPU` load were in the loop -- iOS could
+still miss the requested interval under load, and nothing in the binary
+records what happened on a real device. That is a hardware question, not a
+design one, and it does not change what a native port should target: the
+game asks the system for 60, unconditionally, so a port asking for 60 is
+matching the actual request, not guessing at one.
 
 ---
 
