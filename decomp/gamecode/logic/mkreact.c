@@ -55,6 +55,10 @@ extern char t_slip_sleep[];
 extern char t_slammed_zoom_up[];
 void damage_to_me(MK3OBJ *obj);
 
+long t_death_slam_pause(MK3THREAD *thread);
+void set_nocol(MK3OBJ *obj);
+long t_wait_forever(MK3THREAD *thread);         /* pointer slot 0x000f3724 */
+
 /* A data table, not a resume target. */
 extern char getup_speeds[];
 
@@ -8014,6 +8018,204 @@ long t_r_ermac_slam(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0x211;
     thread->frame = thread->frame + 1;
     mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ----------------------------------------------------------- t_r_ermac_fatal_slam
+ *
+ * armv7 0x000497d8, six hundred and fifty-two bytes.
+ *
+ * The fatal-finish twin of `t_r_ermac_slam`: the same three handoff targets
+ * -- t_slammed_shake_up, t_slammed_zoom_up (not decompiled, extern near the
+ * top of the file), t_slammed_slam_down -- cycled FOUR times instead of
+ * once, with `t_death_slam_pause` (decompiled above, in this same file)
+ * inserted as a fourth link after every `t_slammed_slam_down`, and
+ * `obj->a10 = 8` reset at the start of each of the four cycles. Then a
+ * visual beat (inviso, an fx, no collision) and a hard stop into
+ * `t_wait_forever`, reached through the pointer slot at 0x000f3724 the same
+ * way mkfatal.c's fatalities reach it.
+ *
+ *      state 0                          center_around_me(obj)
+ *          push t_slammed_shake_up                        (0x1ee)
+ *      state 0x1ee     obj->a10 = 8
+ *          push t_slammed_zoom_up                          (0x1f0)
+ *      state 0x1f0
+ *          push t_slammed_slam_down                        (0x1f1)
+ *      state 0x1f1
+ *          push t_death_slam_pause                         (0x1f2)
+ *      state 0x1f2     obj->a10 = 8
+ *          push t_slammed_zoom_up                          (0x1f5)
+ *      state 0x1f5
+ *          push t_slammed_slam_down                        (0x1f6)
+ *      state 0x1f6
+ *          push t_death_slam_pause                         (0x1f7)
+ *      state 0x1f7     obj->a10 = 8
+ *          push t_slammed_zoom_up                          (0x1fa)
+ *      state 0x1fa
+ *          push t_slammed_slam_down                        (0x1fb)
+ *      state 0x1fb
+ *          push t_death_slam_pause                         (0x1fc)
+ *      state 0x1fc     obj->a10 = 8
+ *          push t_slammed_zoom_up                          (0x1ff)
+ *      state 0x1ff
+ *          push t_slammed_slam_down                        (0x200)
+ *      state 0x200
+ *          push t_death_slam_pause                         (0x201)
+ *      state 0x201     set_inviso(obj) ; obj->field1c = 0x18 ; create_fx(obj)
+ *                      set_nocol(obj)
+ *          resume self at token 0x207 after 3 frames
+ *      state 0x207     ground_player(obj)
+ *          install t_wait_forever                (slot 0x000f3724)
+ *
+ * The four-fold repeat was checked by hand each time rather than assumed:
+ * every "which register still holds the value" question -- r1, r2 or r3
+ * surviving untouched from three branches up -- was answered from the raw
+ * disassembly, not from the shape of the previous cycle.
+ */
+long t_r_ermac_fatal_slam(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x1ee) {
+        obj->a10 = 8;
+        *mk3_frame(thread, thread->frame + 1) = 0x1f0;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_slammed_zoom_up;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1f0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x1f1;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_slammed_slam_down;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1f1) {
+        *mk3_frame(thread, thread->frame + 1) = 0x1f2;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_death_slam_pause;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1f2) {
+        obj->a10 = 8;
+        *mk3_frame(thread, thread->frame + 1) = 0x1f5;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_slammed_zoom_up;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1f5) {
+        *mk3_frame(thread, thread->frame + 1) = 0x1f6;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_slammed_slam_down;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1f6) {
+        *mk3_frame(thread, thread->frame + 1) = 0x1f7;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_death_slam_pause;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1f7) {
+        obj->a10 = 8;
+        *mk3_frame(thread, thread->frame + 1) = 0x1fa;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_slammed_zoom_up;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1fa) {
+        *mk3_frame(thread, thread->frame + 1) = 0x1fb;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_slammed_slam_down;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1fb) {
+        *mk3_frame(thread, thread->frame + 1) = 0x1fc;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_death_slam_pause;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1fc) {
+        obj->a10 = 8;
+        *mk3_frame(thread, thread->frame + 1) = 0x1ff;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_slammed_zoom_up;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1ff) {
+        *mk3_frame(thread, thread->frame + 1) = 0x200;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_slammed_slam_down;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x200) {
+        *mk3_frame(thread, thread->frame + 1) = 0x201;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_death_slam_pause;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x201) {
+        set_inviso(obj);
+        obj->field1c = 0x18;
+        create_fx(obj);
+        set_nocol(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x207;
+        thread->fieldfc = 3;
+        return 3;
+    }
+
+    if (token == 0x207) {
+        ground_player(obj);
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+    }
+
+    if (token != 0)
+        return -3;
+
+    center_around_me(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x1ee;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_slammed_shake_up;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
