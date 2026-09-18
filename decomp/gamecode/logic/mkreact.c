@@ -10940,3 +10940,111 @@ long t_r_robo_tele(struct MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* -------------------------------------------------------------- t_r_swat_gun
+ *
+ * armv7 0x00048478, two hundred and seventy-six bytes.
+ *
+ * State 0 clears the park fields and pushes t_reaction_start. State 0x242
+ * does the hit and sets two independent countdowns -- obj->field48 (a
+ * per-tick counter) and obj->a10 (how many times to let it run dry before
+ * playing blood) -- then falls straight into the self-resume tail. State
+ * 0x255 spends one a10 tick per call: while it still has ticks left it
+ * runs the per-frame countdown (next_anirate, obj->field48), and once
+ * field48 itself runs out it installs t_local_reaction_exit; if a10 itself
+ * runs dry first, blood and a sound play and both counters reset before
+ * falling into the same per-frame tick.
+ *
+ *      state 0
+ *          obj->field30 = 0 ; obj->field34 = 0 ; obj->field38 = 0
+ *          push t_reaction_start                        (0x242)
+ *      state 0x242
+ *          at_least_ground_level(obj) ; set_half_damage(obj)
+ *          obj->field48 = 0x5000a ; shake_a11(obj)
+ *          obj->field1c = 3.0 ; away_x_vel(obj)
+ *          death_scream(obj)
+ *          obj->field40 = 0x20 ; find_ani_part2(obj)
+ *          obj->field1c = 3 ; init_anirate(obj)
+ *          obj->field48 = 0x30 ; obj->a10 = 6
+ *          (falls into the shared resume below)
+ *      shared resume (also reached from the tick below)
+ *          resume self at 0x255 after 1 frame
+ *      state 0x255
+ *          obj->a10 -= 1
+ *          if obj->a10 <= 0
+ *              obj->field1c = 5 ; create_blood_proc(obj)
+ *              rsnd_func(obj, 3)
+ *              obj->a10 = 6
+ *          (falls into the shared tick below)
+ *      shared tick (also reached from 0x255 when a10 was still > 0)
+ *          next_anirate(obj)
+ *          obj->field48 -= 1
+ *          if obj->field48 <= 0
+ *              install t_local_reaction_exit
+ *          else
+ *              (back to the shared resume above)
+ */
+long t_r_swat_gun(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x255) {
+        obj->a10 = obj->a10 - 1;
+        if ((int32_t)obj->a10 <= 0) {
+            obj->field1c = 5;
+            create_blood_proc(obj);
+
+            rsnd_func(obj, 3);
+            obj->a10 = 6;
+        }
+
+        next_anirate(obj);
+        obj->field48 = obj->field48 - 1;
+        if ((int32_t)obj->field48 <= 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+        goto swat_gun_resume;
+    }
+
+    if (token == 0x242) {
+        at_least_ground_level(obj);
+        set_half_damage(obj);
+
+        obj->field48 = 0x5000a;
+        shake_a11(obj);
+
+        obj->field1c = 0x30000;                  /* 3.0 in 16.16 */
+        away_x_vel(obj);
+
+        death_scream(obj);
+
+        obj->field40 = 0x20;
+        find_ani_part2(obj);
+
+        obj->field1c = 3;
+        init_anirate(obj);
+
+        obj->field48 = 0x30;
+        obj->a10 = 6;
+
+swat_gun_resume:
+        *mk3_frame(thread, thread->frame + 1) = 0x255;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field30 = 0;
+    obj->field34 = 0;
+    obj->field38 = 0;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x242;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
