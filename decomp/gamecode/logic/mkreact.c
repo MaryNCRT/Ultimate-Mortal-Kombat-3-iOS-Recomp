@@ -8812,3 +8812,52 @@ long t_r_sw_zap(struct MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ---------------------------------------------------------------- t_r_spit
+ *
+ * armv7 0x0004666c, a hundred and sixty-four bytes.
+ *
+ * Same shake-and-park family, one more variant: `obj->field00->field48` gets
+ * an action tag (0x626) alongside the usual `field30` park, and the closing
+ * install goes to `t_stumble_back` -- a different, shorter stumble than the
+ * `t_stumble_back_vel` the zap/punch variants use.
+ *
+ *      state 0
+ *          obj->field00->field48 = 0x626
+ *          obj->field1c = 0x10 ; ochar_sound_c(obj, 0x13)
+ *          obj->field34 = 0 ; obj->field38 = 0
+ *          obj->field30 = t_generic_airborn_hit
+ *          push t_reaction_start                        (0x334)
+ *      state 0x334
+ *          obj->field1c = 2 ; group_sound(obj)
+ *          install t_stumble_back
+ */
+long t_r_spit(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x334) {
+        obj->field1c = 2;
+        group_sound(obj);
+        return mk3_install(thread, (MK3THREADFUNC)t_stumble_back);
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field00->field48 = 0x626;
+    obj->field1c = 0x10;
+    ochar_sound_c(obj, 0x13);
+
+    obj->field34 = 0;
+    obj->field38 = 0;
+    obj->field30 = (uint32_t)(uintptr_t)t_generic_airborn_hit;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x334;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
