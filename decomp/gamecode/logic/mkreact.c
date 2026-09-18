@@ -11048,3 +11048,80 @@ swat_gun_resume:
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* -------------------------------------------------------------------- t_rek3
+ *
+ * armv7 0x00045878, two hundred and fifty-six bytes.
+ *
+ * Shake-and-park (t_generic_airborn_hit / t_reaction_start) with blood up
+ * front, then a chain: state 0xda5 pushes t_animate_a9 with token 0xdab;
+ * state 0xdab pushes a token (0xdac) for a handler read through its own
+ * pointer slot -- that next handler is what actually reacts to 0xdac, not
+ * t_rek3 itself.
+ *
+ *      state 0
+ *          obj->field1c = 4 ; create_blood_proc(obj)
+ *          rsnd_react_voice(obj)
+ *          obj->field48 = 0x40004 ; shake_a11(obj)
+ *          obj->field38 = 0 ; obj->field30 = t_generic_airborn_hit
+ *          obj->field34 = 1
+ *          push t_reaction_start                        (0xda5)
+ *      state 0xda5
+ *          set_no_block(obj)
+ *          obj->field1c = 1.0 ; away_x_vel(obj)
+ *          obj->field40 = 0x4001c
+ *          push t_animate_a9                              (0xdab)
+ *      state 0xdab
+ *          push (slot 0x000add6e)                          (0xdac)
+ */
+long t_rek3(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0xdab) {
+        *mk3_frame(thread, thread->frame + 1) = 0xdac;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_local_reaction_exit;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xda5) {
+        set_no_block(obj);
+
+        obj->field1c = 0x10000;                  /* 1.0 in 16.16 */
+        away_x_vel(obj);
+
+        obj->field40 = 0x4001c;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xdab;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_animate_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field1c = 4;
+    create_blood_proc(obj);
+
+    rsnd_react_voice(obj);
+
+    obj->field48 = 0x40004;
+    shake_a11(obj);
+
+    obj->field38 = 0;
+    obj->field30 = (uint32_t)(uintptr_t)t_generic_airborn_hit;
+    obj->field34 = 1;
+
+    *mk3_frame(thread, thread->frame + 1) = 0xda5;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
