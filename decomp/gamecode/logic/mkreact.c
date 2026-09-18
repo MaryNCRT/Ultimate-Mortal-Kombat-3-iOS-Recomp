@@ -6382,6 +6382,7 @@ long t_r_hi_kick(MK3THREAD *thread)
 
 
 long t_drone_post_duck_hit(struct MK3THREAD *thread);   /* mkdrone.c, not yet written */
+void set_quarter_damage(MK3OBJ *obj);
 void get_my_height(MK3OBJ *obj);
 
 
@@ -6990,6 +6991,237 @@ long t_r_combo3(MK3THREAD *thread)
     obj->field34 = 9;
 
     *mk3_frame(thread, thread->frame + 1) = 0xcb8;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ---------------------------------------------------------------- t_r_combo6
+ *
+ * armv7 0x00046ae4, two hundred and sixty-four bytes.
+ *
+ *      state 0
+ *          set_half_damage(obj)
+ *          obj->field34 = 4 ; obj->field30 = 0
+ *          obj->field38 = t_cc_ken_masters
+ *          push t_reaction_start                        (0x6e6)
+ *      state 0x6e6
+ *          obj->field1c = 1 ; create_blood_proc(obj)
+ *          obj->field48 = 0x60006 ; shake_a11(obj)
+ *          rsnd_func(obj, 0xa)
+ *          obj->field1c = 2 ; group_sound(obj)
+ *          obj->field1c = 0xe ; create_fx(obj)
+ *          obj->field1c = 1.0 ; field20 = 1.0 - 13.0 = -12.0
+ *          field24 = -12.0 + 12.375 = 0.375
+ *          field28 = 5 ; field40 = 5 + 0x19 = 30
+ *          push t_flight                                (0x6fa)
+ *      state 0x6fa
+ *          install t_reaction_land
+ */
+long t_r_combo6(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x6e6) {
+        obj->field1c = 1;
+        create_blood_proc(obj);
+
+        obj->field48 = 0x60006;
+        shake_a11(obj);
+
+        rsnd_func(obj, 0xa);
+
+        obj->field1c = 2;
+        group_sound(obj);
+
+        obj->field1c = 0xe;
+        create_fx(obj);
+
+        obj->field1c = 0x10000;                  /* 1.0 in 16.16 */
+        obj->field20 = obj->field1c - 0xd0000;   /* -12.0 */
+        obj->field24 = obj->field20 + 0xc6000;   /* 0.375 */
+        obj->field28 = 5;
+        obj->field40 = 5 + 0x19;                 /* 30, SCKNOCKDOWN */
+
+        *mk3_frame(thread, thread->frame + 1) = 0x6fa;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x6fa)
+        return mk3_install(thread, (MK3THREADFUNC)t_reaction_land);
+
+    if (token != 0)
+        return -3;
+
+    set_half_damage(obj);
+
+    obj->field34 = 4;
+    obj->field30 = 0;
+    obj->field38 = (uint32_t)(uintptr_t)t_cc_ken_masters;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x6e6;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ------------------------------------------------------------------ t_rup3
+ *
+ * armv7 0x00045ed4, two hundred and sixteen bytes -- the uppercut's real
+ * launch, already partly read from `UPCUT_VY`/`UPCUT_G`'s own citation in
+ * the Godot port; this is the full state machine behind that citation.
+ *
+ *      state 0
+ *          obj->field1c = 0xe ; create_fx(obj)
+ *          obj->field1c = 2.0
+ *          ptr = *(void **)0xf3534           -- an unnamed global pointer
+ *          if (ptr->field08 != 0)
+ *              install t_blast_through_anything
+ *          else if (ptr->field30 (signed byte) == 0)
+ *              obj->field20 = -12.0 ; obj->field24 = field20 + 12.375
+ *              obj->field28 = 5 ; obj->field40 = 30
+ *              push t_flight                            (0x786)
+ *          else
+ *              obj->field20 = -18.0 ; obj->field24 = 0x5800 (0.34375)
+ *              obj->field28 = 5 ; obj->field40 = 30
+ *              push t_flight                            (0x786)
+ *      state 0x786
+ *          install t_reaction_land
+ *
+ * **`UPCUT_VY`/`UPCUT_G` are the THIRD branch, not the only one.** The
+ * ordinary uppercut launch -- -18.0/0.34375, exactly what the Godot port
+ * already carries -- only fires when the unnamed global's signed byte at
+ * `+0x30` is non-zero; a zero there launches at a flatter -12.0/0.375
+ * instead, and a non-zero word at the SAME pointer's `+0x08` skips the
+ * launch entirely and hands straight to `t_blast_through_anything`. What
+ * that pointer is, and what its two fields mean, is not established --
+ * the address (0x000f3534) resolves to `0x0038ed04` in `__DATA`, distinct
+ * from `_G` (`0x0038c1fc`), and carries no symbol of its own. Read as two
+ * raw offsets rather than guessed at.
+ */
+long t_rup3(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x786)
+        return mk3_install(thread, (MK3THREADFUNC)t_reaction_land);
+
+    if (token != 0)
+        return -3;
+
+    obj->field1c = 0xe;
+    create_fx(obj);
+
+    obj->field1c = 0x20000;                      /* 2.0 in 16.16 */
+
+    {
+        unsigned char *ptr = *(unsigned char **)(uintptr_t)0x000f3534;
+        uint32_t field08 = *(uint32_t *)(ptr + 8);
+        int8_t field30 = *(int8_t *)(ptr + 0x30);
+
+        if (field08 != 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_blast_through_anything);
+
+        if (field30 == 0) {
+            obj->field20 = 0xfff40000;           /* -12.0 in 16.16 */
+            obj->field24 = obj->field20 + 0xc6000; /* 0.375 */
+        } else {
+            obj->field20 = 0xffee0000;           /* -18.0 in 16.16 */
+            obj->field24 = 0x5800;               /* 0.34375, UPCUT_G */
+        }
+    }
+
+    obj->field28 = 5;
+    obj->field40 = 5 + 0x19;                     /* 30, SCKNOCKDOWN */
+
+    *mk3_frame(thread, thread->frame + 1) = 0x786;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ---------------------------------------------------------------- t_r_combo5
+ *
+ * armv7 0x00048620, two hundred and four bytes.
+ *
+ *      state 0
+ *          if (obj->field00->field04->field24 == 0xd)
+ *              set_quarter_damage(obj)
+ *          else
+ *              set_half_damage(obj)
+ *          obj->field34 = 4 ; obj->field30 = 0
+ *          obj->field38 = t_cc_ken_masters
+ *          push t_reaction_start                        (0x712)
+ *      state 0x712
+ *          obj->field1c = 1 ; create_blood_proc(obj)
+ *          obj->field48 = 0x60006 ; shake_a11(obj)
+ *          rsnd_func(obj, 0xa)
+ *          obj->field1c = 2 ; group_sound(obj)
+ *          install t_rup3
+ *
+ * **The damage cut depends on a triple dereference, read out as a plain
+ * comparison rather than named.** `obj->field00->field04->field24`
+ * (a struct two hops from the object) equal to `0xd` selects
+ * `set_quarter_damage` over the usual `set_half_damage` every other combo
+ * finisher in this file calls; the field's own meaning is not established.
+ *
+ * **This one installs `t_rup3` directly, no `t_flight` push of its own.**
+ * `t_rup3` (see its own banner above) does the actual launch -- the same
+ * shape `t_r_uppercut`'s own chain reaches it through
+ * (`t_reaction_start -> t_rst5 -> t_cc_ken_masters -> t_avoid_corner_trap
+ * -> t_pit_abort -> t_rup3`), reused here as a finisher's landing.
+ */
+long t_r_combo5(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x712) {
+        obj->field1c = 1;
+        create_blood_proc(obj);
+
+        obj->field48 = 0x60006;
+        shake_a11(obj);
+
+        rsnd_func(obj, 0xa);
+
+        obj->field1c = 2;
+        group_sound(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_rup3);
+    }
+
+    if (token != 0)
+        return -3;
+
+    {
+        /* obj->field00->field04->field24 -- field04 is not a struct field
+         * anywhere else in this file, so read raw rather than invent one. */
+        uint8_t *inner = *(uint8_t **)((uint8_t *)obj->field00 + 4);
+        if (*(uint32_t *)(inner + 0x24) == 0xd)
+            set_quarter_damage(obj);
+        else
+            set_half_damage(obj);
+    }
+
+    obj->field34 = 4;
+    obj->field30 = 0;
+    obj->field38 = (uint32_t)(uintptr_t)t_cc_ken_masters;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x712;
     thread->frame = thread->frame + 1;
     mk3_frame(thread, thread->frame)[1] =
         (uint32_t)(uintptr_t)t_reaction_start;
