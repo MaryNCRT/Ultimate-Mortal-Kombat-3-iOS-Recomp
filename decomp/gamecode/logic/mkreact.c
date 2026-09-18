@@ -266,6 +266,7 @@ long t_r_rocket(struct MK3THREAD *thread);
 long t_r_sw_zap(struct MK3THREAD *thread);
 long t_spear0(struct MK3THREAD *thread);
 long t_stumble_back_vel(struct MK3THREAD *thread);
+long t_sweep3(struct MK3THREAD *thread);
 long t_zap_stumble(struct MK3THREAD *thread);
 
 /* t_r_smoke_spear -- armv7 0x000411c4, 60 bytes.  **Complete.**
@@ -8468,6 +8469,57 @@ long t_stumble_back_vel(struct MK3THREAD *thread)
     thread->frame = thread->frame + 1;
     mk3_frame(thread, thread->frame)[1] =
         (uint32_t)(uintptr_t)t_animate_a0_frames;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* --------------------------------------------------------------- t_r_sweep
+ *
+ * armv7 0x00042e3c, a hundred and fifty-two bytes.
+ *
+ * The same two-state shape as `t_zap_stumble` -- park a walk-routine
+ * override in `field30` and push `t_reaction_start`, then a sound and a
+ * `group_sound` in the second state -- except this one hands off to
+ * `t_sweep3` at the end instead of installing directly.
+ *
+ *      state 0
+ *          obj->field38 = 0 ; obj->field30 = t_generic_airborn_hit
+ *          obj->field34 = 1
+ *          push t_reaction_start                        (0xde2)
+ *      state 0xde2
+ *          rsnd_func(obj, 0xc)
+ *          obj->field1c = 5 ; group_sound(obj)
+ *          push t_sweep3                                  (0)
+ */
+long t_r_sweep(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0xde2) {
+        rsnd_func(obj, 0xc);
+
+        obj->field1c = 5;
+        group_sound(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_sweep3;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field38 = 0;
+    obj->field30 = (uint32_t)(uintptr_t)t_generic_airborn_hit;
+    obj->field34 = 1;
+
+    *mk3_frame(thread, thread->frame + 1) = 0xde2;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
