@@ -49,8 +49,7 @@ long t_joy_getup_abort(MK3THREAD *thread);
 
 long t_slip_sleep(MK3THREAD *thread);
 
-/* Not decompiled: t_r_ermac_slam pushes it directly and never calls it. */
-extern char t_slammed_zoom_up[];
+long t_slammed_zoom_up(MK3THREAD *thread);
 void damage_to_me(MK3OBJ *obj);
 
 long t_death_slam_pause(MK3THREAD *thread);
@@ -8277,4 +8276,67 @@ long t_slip_sleep(MK3THREAD *thread)
 
     thread->frame = thread->frame - 1;
     return 0;
+}
+
+
+/* ----------------------------------------------------------- t_slammed_zoom_up
+ *
+ * armv7 0x00044574, a hundred and fifty-two bytes.
+ *
+ * State 0 sets up the camera-style zoom the slam chain's name promises --
+ * both fighters get a fresh animation rate, the opponent's steeper than
+ * obj's own (-4.0 against -3.0, 16.16) -- and then does something this file
+ * hasn't done before: it borrows `obj->field1c`, one of its own real fields,
+ * as the scratch slot to carry `obj->a10` from the assignment straight into
+ * the self-resume's sleep count, so the number of frames slept is whatever
+ * `a10` happened to be when this state started (`t_slammed_shake_up` and
+ * `t_slammed_slam_down` set it earlier in the same chain).
+ *
+ * State 0x1c3 does the actual animation step and then just pops -- same
+ * "act once, frame comes back down" idiom as `t_slip_sleep` -- unless the
+ * stack is already empty, in which case it installs `t_local_reaction_exit`
+ * through the pointer slot at 0x000f3708 instead.
+ *
+ *      state 0
+ *          other = obj->field08
+ *          obj->field20 = -3.0 ; other->field1c = -4.0 ; other->field20 = -3.0
+ *          obj->field1c = obj->a10
+ *          token := 0x1c3 ; thread->fieldfc = obj->field1c ; return obj->field1c
+ *      state 0x1c3
+ *          obj->field40 = 0x1e ; find_ani_part2(obj) ; do_next_a9_frame(obj)
+ *          if thread->frame <= 0
+ *              install t_local_reaction_exit
+ *          thread->frame -= 1 ; return 0
+ */
+long t_slammed_zoom_up(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    MK3OBJ *other;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x1c3) {
+        obj->field40 = 0x1e;
+        find_ani_part2(obj);
+        do_next_a9_frame(obj);
+
+        if ((int32_t)thread->frame <= 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    other = obj->field08;
+    obj->field20 = 0xfffd0000;               /* -3.0 in 16.16 */
+    other->field1c = 0xfffc0000;             /* -4.0 in 16.16 */
+    other->field20 = obj->field20;           /* -3.0 */
+
+    obj->field1c = obj->a10;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x1c3;
+    thread->fieldfc = obj->field1c;
+    return obj->field1c;
 }
