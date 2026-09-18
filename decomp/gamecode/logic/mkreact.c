@@ -10378,3 +10378,79 @@ long t_r_roundhouse(struct MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------- t_r_lao_spin
+ *
+ * armv7 0x000469f0, two hundred and forty-four bytes.
+ *
+ * State 0 clears both park fields and pushes t_reaction_start. State 0x725
+ * is the hit -- half damage, an action tag, blood, shake, two sounds --
+ * then sets its own launch numbers and pushes t_flight; state 0x738
+ * installs t_reaction_land.
+ *
+ *      state 0
+ *          obj->field30 = 0 ; obj->field38 = 0 ; obj->field34 = 4
+ *          push t_reaction_start                        (0x725)
+ *      state 0x725
+ *          set_half_damage(obj) ; obj->field00->field18 = 0x62b
+ *          obj->field1c = 1 ; create_blood_proc(obj)
+ *          obj->field48 = 0x60006 ; shake_a11(obj)
+ *          rsnd_func(obj, 0xa)
+ *          obj->field1c = 2 ; group_sound(obj)
+ *          obj->field1c = 2.0 ; obj->field20 = -12.0
+ *          obj->field24 = 0.375 ; obj->field28 = 5
+ *          obj->field40 += 0x19
+ *          push t_flight                                (0x738)
+ *      state 0x738
+ *          install t_reaction_land
+ */
+long t_r_lao_spin(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x738)
+        return mk3_install(thread, (MK3THREADFUNC)t_reaction_land);
+
+    if (token == 0x725) {
+        set_half_damage(obj);
+        obj->field00->field18 = 0x62b;
+
+        obj->field1c = 1;
+        create_blood_proc(obj);
+
+        obj->field48 = 0x60006;
+        shake_a11(obj);
+
+        rsnd_func(obj, 0xa);
+
+        obj->field1c = 2;
+        group_sound(obj);
+
+        obj->field1c = 0x20000;                  /* 2.0 in 16.16 */
+        obj->field20 = obj->field1c - 0xe0000;   /* -12.0 */
+        obj->field24 = obj->field20 + 0xc6000;   /* 0.375 */
+        obj->field28 = 5;
+        obj->field40 = obj->field40 + 0x19;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x738;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field30 = 0;
+    obj->field38 = 0;
+    obj->field34 = 4;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x725;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
