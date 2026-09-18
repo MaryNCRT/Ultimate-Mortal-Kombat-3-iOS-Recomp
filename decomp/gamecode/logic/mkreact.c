@@ -3082,3 +3082,217 @@ long t_b_weak_no_masters(MK3THREAD *thread)
     }
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+
+long t_generic_airborn_hit(struct MK3THREAD *thread);
+long t_joy_block_loop(struct MK3THREAD *thread);
+long t_joy_duck_block_loop(struct MK3THREAD *thread);
+long t_flight(struct MK3THREAD *thread);
+long t_d_post_block(struct MK3THREAD *thread);
+
+
+/* ----------------------------------------------------------------- t_cc_punch
+ *
+ * armv7 0x00041bec, a hundred and thirty-six bytes.
+ *
+ *      state 0        proc->field20 = 3
+ *                      token = 0x137c ; return proc->field20 park
+ *      state 0x137c   --obj->field20 > 0 ? sleep again : pop
+ *
+ * The proc's 0x20 is the animation counter -- the same field `t_rhat_wake`
+ * reads for its once-per-frame test -- but here nothing paces it against an
+ * animation at all; this just parks the token, sleeps a fixed number of
+ * turns, and pops. Three frames of nothing but waiting, which is the pause
+ * that makes a combo hit read as a hit rather than a tap.
+ */
+long t_cc_punch(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field08->field20 = 3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x137c;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_local_reaction_exit;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x137c)
+        return -3;
+
+    obj->field20 = obj->field08->field20 - 1;
+    if ((long)obj->field20 > 0) {
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* -------------------------------------------------------------- t_r_last_noogy
+ *
+ * armv7 0x00042db0, a hundred and forty bytes.
+ *
+ *      state 0
+ *          rsnd_func(obj, 8)
+ *          part->field38 = 0
+ *          part->field30 = t_generic_airborn_hit
+ *          part->field34 = 1
+ *          push t_reaction_start                  (0xe35)
+ *      state 0xe35
+ *          pop
+ *
+ * Parks `t_generic_airborn_hit` in field30 -- the WALK ROUTINE slot
+ * `plyrthread` calls indirectly -- rather than in field38 the way the block
+ * handovers do. So this reaction is not queuing a routine for a later step
+ * to pick up; it is substituting what runs on the object's normal update in
+ * place of walking, for as long as field30 holds it.
+ */
+long t_r_last_noogy(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        rsnd_func(obj, 8);
+
+        obj->field08->field38 = 0;
+        obj->field08->field30 = (uint32_t)(uintptr_t)t_generic_airborn_hit;
+        obj->field08->field34 = 1;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xe35;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_reaction_start;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xe35)
+        return -3;
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* ------------------------------------------------------------ t_fall_on_my_back
+ *
+ * armv7 0x00041efc, a hundred and forty-four bytes.
+ *
+ *      state 0
+ *          part->field24 = 0x8000                 ; 0.5
+ *          part->field1c = 0 ; part->field20 = 0
+ *          part->field28 = 5
+ *          part->field40 = 5 + 0x19               ; 30, SCKNOCKDOWN
+ *          push t_flight                          (0x1474)
+ *      state 0x1474
+ *          install t_reaction_land
+ *
+ * The same launch shape `t_do_flip` uses -- a velocity, a gravity, an
+ * animation number -- built here for a fall onto your back rather than a
+ * jump. `part->field40 = 30` is animation 30, which `docs`/other work has
+ * already pinned as SCKNOCKDOWN. So this is what happens after a hit strong
+ * enough to put you flat: a short flight, then `t_reaction_land`, which
+ * this file's own comment on `FALL_TAIL` in the Godot port already reads --
+ * it plays the two extra knockdown frames and holds the last one.
+ *
+ * 0x8000 is 0.5 in 16.16, the same magnitude the jump's gravity uses; only
+ * the velocity in field1c/field20 differs, and both are zero here, which
+ * means this fall's motion is gravity alone with no initial push.
+ */
+long t_fall_on_my_back(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field08->field24 = 0x8000;         /* 0.5 in 16.16 */
+        obj->field08->field1c = 0;
+        obj->field08->field20 = 0;
+        obj->field08->field28 = 5;
+        obj->field08->field40 = 5 + 0x19;        /* 30, SCKNOCKDOWN */
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1474;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x1474)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_reaction_land);
+}
+
+
+/* -------------------------------------------------------------- t_block_exit
+ *
+ * armv7 0x000448dc, a hundred and forty-four bytes.
+ *
+ *      state 0
+ *          obj->field1c = 0
+ *          obj->field00->p_hit = 0 ; obj->field00->field4c = obj->field1c
+ *          back_to_normal(obj)
+ *          am_i_joy(obj)
+ *          if (!obj->field5c)
+ *              install t_d_post_block
+ *          am_i_short(obj)
+ *          if (obj->field5c)
+ *              install t_joy_duck_block_loop
+ *          install t_joy_block_loop
+ *
+ * **Three ways out of a block, in order.** Against the machine, always
+ * `t_d_post_block` -- a player only reaches the other two. A human is then
+ * asked if he is short -- ducking -- and goes back into the duck-block loop
+ * or the standing one accordingly.
+ *
+ * `am_i_short` is asked with `am_i_joy` already known true, so it is not
+ * "am I a small character" but "is the stick held down right now": the
+ * routine is choosing which loop to re-enter based on the CURRENT stance,
+ * not resuming whichever one was interrupted.
+ *
+ * `back_to_normal` runs unconditionally before any of the three branches,
+ * so whatever it undoes is undone regardless of which loop comes next.
+ *
+ * **`p_hit` is cleared here too, and field4c is a mirror of the same 0.**
+ * Blocking ends with the hit counter at zero exactly the way
+ * `t_blocked_start` clears it going in; leaving the block does not carry a
+ * count into whatever comes next.
+ */
+long t_block_exit(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0;
+    obj->field00->p_hit = 0;
+    obj->field00->field4c = obj->field1c;
+
+    back_to_normal(obj);
+
+    am_i_joy(obj);
+    if (obj->field5c == 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_d_post_block);
+
+    am_i_short(obj);
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_joy_duck_block_loop);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_joy_block_loop);
+}
