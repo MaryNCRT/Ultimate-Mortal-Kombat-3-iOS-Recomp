@@ -9349,3 +9349,70 @@ spear0_resume:
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* -------------------------------------------------------------------- t_r_quake
+ *
+ * armv7 0x00043960, two hundred and sixteen bytes.
+ *
+ * Shake-and-park (t_generic_airborn_hit / t_reaction_start), but the state
+ * after t_reaction_start pushes t_animate_a9 itself rather than installing
+ * a stumble, and only after THAT returns does it install
+ * t_local_reaction_exit -- one more link in the chain than the zap variants
+ * take.
+ *
+ *      state 0
+ *          obj->field1c = 0x113 ; obj->field00->field48 = 0x113
+ *          obj->field38 = 0 ; obj->field30 = t_generic_airborn_hit
+ *          obj->field34 = 6
+ *          push t_reaction_start                        (0x1125)
+ *      state 0x1125
+ *          obj->field1c = 2 ; group_sound(obj)
+ *          obj->field1c = 0x28000                          (2.5 in 16.16)
+ *          away_x_vel(obj)
+ *          obj->a10 = 0x14 ; obj->field40 = 0x40020
+ *          push t_animate_a9                              (0x112e)
+ *      state 0x112e
+ *          install t_local_reaction_exit
+ */
+long t_r_quake(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x112e)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token == 0x1125) {
+        obj->field1c = 2;
+        group_sound(obj);
+
+        obj->field1c = 0x28000;                  /* 2.5 in 16.16 */
+        away_x_vel(obj);
+
+        obj->a10 = 0x14;
+        obj->field40 = 0x40020;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x112e;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_animate_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field1c = 0x113;
+    obj->field00->field48 = 0x113;
+
+    obj->field38 = 0;
+    obj->field30 = (uint32_t)(uintptr_t)t_generic_airborn_hit;
+    obj->field34 = 6;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x1125;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
