@@ -4256,3 +4256,236 @@ long t_back_to_the_fight(MK3THREAD *thread)
     thread->fieldfc = 1;
     return 1;
 }
+
+
+long t_flight_call(struct MK3THREAD *thread);
+void find_ani_part2(MK3OBJ *obj);
+void death_scream(MK3OBJ *obj);
+void death_blow_complete(MK3OBJ *obj);
+extern long *RoundParam;                /* pointer slot -> 0x0038ed04 */
+
+
+/* ------------------------------------------------------------------- t_brp1
+ *
+ * armv7 0x000483a0, two hundred and sixteen bytes.
+ *
+ *      state 0
+ *          token = 0x7e0 ; push t_flight_call
+ *      state 0x7e0
+ *          tsound_func(obj, 0xb) ; stop_me_player(obj)
+ *          MKEvent_Add(4, 0x3f, 0, obj->field00->field08)
+ *          rsnd_func(obj, 3) ; death_scream(obj)
+ *          obj->field40 = 0x1e ; find_ani_part2(obj) ; do_next_a9_frame(obj)
+ *          obj->field1c = 0xa ; create_blood_proc(obj)
+ *          death_blow_complete(obj)
+ *          token = 0x7ed ; thread->fieldfc = 0xa ; return 0xa
+ *      state 0x7ed
+ *          install t_local_reaction_exit
+ *
+ * A death that flies before it finishes: `t_flight_call` is let run first,
+ * and only once it pops back does this play the scream, the blood and
+ * `death_blow_complete` -- all of it timed to the SAME animation 30
+ * (SCKNOCKDOWN) every hard fall in this file lands on. Ten frames after that
+ * it ends for good through `t_local_reaction_exit`, which this installs
+ * directly rather than popping to, so there is nothing left above it.
+ */
+long t_brp1(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x7e0;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_flight_call;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x7ed)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token != 0x7e0)
+        return -3;
+
+    tsound_func(obj, 0xb);
+    stop_me_player(obj);
+
+    MKEvent_Add(4, 0x3f, 0, (long)obj->field00->field08);
+
+    rsnd_func(obj, 3);
+    death_scream(obj);
+
+    obj->field40 = 0x1e;             /* 30, SCKNOCKDOWN */
+    find_ani_part2(obj);
+    do_next_a9_frame(obj);
+
+    obj->field1c = 0xa;
+    create_blood_proc(obj);
+
+    death_blow_complete(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x7ed;
+    thread->fieldfc = 0xa;
+    return 0xa;
+}
+
+
+/* --------------------------------------------------------- t_blast_through_anything
+ *
+ * armv7 0x00047cec, five hundred and four bytes -- the largest function in
+ * this file so far.
+ *
+ *      state 0
+ *          MKEvent_Add(4, 0x36, 0, obj->field00->field08)
+ *          obj->field38 = t_ken_masters_xfer ; xfer_otherguy(obj)
+ *          obj->field1c = 0x10000 ; away_x_vel(obj)             ; 1.0
+ *          obj->field24 = 0x5000                                ; 0.3125
+ *          obj->field20 = 0xffe70000                            ; -25.0
+ *          obj->field08->field1c = obj->field20
+ *          obj->field08->field20 = obj->field24
+ *          obj->field40 = 0x1e ; get_char_ani(obj)               ; SCKNOCKDOWN
+ *          obj->field1c = 0xf ; init_anirate(obj)
+ *          token = 0xb6b ; thread->fieldfc = 1 ; return 1
+ *      state 0xb6b
+ *          next_anirate(obj)
+ *          obj->field1c = obj->field08->field1c
+ *          if (obj->field1c < 0) sleep again at 0xb6b
+ *          RoundParam[2] and the other fighter's proc.field40 both lose
+ *              RoundParam[2] worth of value, RoundParam[2] itself cleared:
+ *                  obj->field00->field40 -= RoundParam[2]
+ *                  otherObj->field00->field40 -= RoundParam[2]
+ *                  RoundParam->0x30 (byte) = 0
+ *                  G->field0xac -= RoundParam[2]   ; before clearing it
+ *                  RoundParam[2] = 0
+ *          MKEvent_Add(4, 0x37, 0, obj->field00->field08)
+ *          obj->field1c = 0xd ; obj->field20 = 0xd  ; sentinels, leave alone
+ *          obj->field24 = 0x8000 ; obj->field28 = 5              ; 0.5, count 5
+ *          token = 0xb82 ; push t_flight
+ *      state 0xb82
+ *          install t_getup_reaction_exit
+ *      state 0xb90
+ *          install t_getup_reaction_exit
+ *      state 0
+ *          (also reached from `beq 0` inside the low branch, but the
+ *           low-branch chooses between token 0 and 0xb6b by an explicit
+ *           `cmp #0` first)
+ *      state 0xb8e
+ *          ground_ochar(obj)
+ *          obj->field40 = (int16_t)MK3_FIELD12(obj->field08)
+ *          obj->field38 = t_back_to_the_fight ; xfer_otherguy(obj)
+ *          shake_n_sound(obj)
+ *          obj->field40 = 0x1e ; find_ani_part2(obj)
+ *          obj->field1c = 4
+ *          token = 0xb90 ; thread->fieldfc = 0x20 ; return 0x20
+ *
+ * **A blast that both fighters pay for.** The launch is symmetric -- both
+ * fighters get the same -25.0/0.3125 velocity and gravity written into
+ * field1c/field20, one directly and one through obj->field08 -- and the
+ * RoundParam subtraction removes the SAME stored value from both sides'
+ * proc.field40 before clearing it, which reads as undoing whatever
+ * RoundParam[2] had been contributing to each of them individually.
+ *
+ * The five states are two flights back to back: `t_flight_call` for the
+ * initial launch (0xb6b's own frame-by-frame descent, not pushed -- it
+ * calls `next_anirate` itself each pass), then once RoundParam's value is
+ * cleared, a SECOND flight through `t_flight` at 0.5 gravity for five
+ * ticks (0xb82). Landing installs `t_getup_reaction_exit` twice over --
+ * once directly from 0xb82 and again from 0xb90, the second of which is
+ * reached from 0xb8e's own separate wait rather than from 0xb82's push,
+ * so the two are alternate endings rather than one calling the other.
+ *
+ * `RoundParam[2]` is `RoundParam + 0x08`, and `RoundParam->0x30` a byte
+ * inside the same block -- both already established as a `long*` reached
+ * through a pointer slot; nothing further about what index 2 or byte 0x30
+ * mean is claimed here.
+ */
+long t_blast_through_anything(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0xb82)
+        return mk3_install(thread, (MK3THREADFUNC)t_getup_reaction_exit);
+
+    if (token == 0xb8e) {
+        ground_ochar(obj);
+
+        obj->field40 = (uint32_t)(int32_t)(int16_t)MK3_FIELD12(obj->field08);
+        obj->field38 = (uint32_t)(uintptr_t)t_back_to_the_fight;
+        xfer_otherguy(obj);
+
+        shake_n_sound(obj);
+
+        obj->field40 = 0x1e;         /* 30, SCKNOCKDOWN */
+        find_ani_part2(obj);
+
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xb90;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (token == 0xb90)
+        return mk3_install(thread, (MK3THREADFUNC)t_getup_reaction_exit);
+
+    if (token != 0 && token != 0xb6b)
+        return -3;
+
+    if (token == 0xb6b) {
+        next_anirate(obj);
+
+        obj->field1c = obj->field08->field1c;
+        if ((long)obj->field1c < 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0xb6b;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        obj->field00->field40 = obj->field00->field40 - RoundParam[2];
+        obj->field00->field00->field00->field40 =
+            obj->field00->field00->field00->field40 - RoundParam[2];
+        *(uint8_t *)((char *)RoundParam + 0x30) = 0;
+        *(uint32_t *)(void *)(G_BYTES + 0xac) =
+            *(const uint32_t *)(const void *)(G_BYTES + 0xac) - RoundParam[2];
+        RoundParam[2] = 0;
+
+        MKEvent_Add(4, 0x37, 0, (long)obj->field00->field08);
+
+        obj->field1c = 0xd;               /* sentinel: leave alone */
+        obj->field20 = 0xd;               /* sentinel: leave alone */
+        obj->field24 = 0x8000;            /* 0.5 in 16.16 */
+        obj->field28 = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xb82;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    MKEvent_Add(4, 0x36, 0, (long)obj->field00->field08);
+
+    obj->field38 = (uint32_t)(uintptr_t)t_ken_masters_xfer;
+    xfer_otherguy(obj);
+
+    obj->field1c = 0x10000;           /* 1.0 in 16.16 */
+    away_x_vel(obj);
+
+    obj->field24 = 0x5000;            /* 0.3125 in 16.16 */
+    obj->field20 = 0xffe70000u;       /* -25.0 in 16.16 */
+    obj->field08->field1c = obj->field20;
+    obj->field08->field20 = obj->field24;
+
+    obj->field40 = 0x1e;              /* 30, SCKNOCKDOWN */
+    get_char_ani(obj);
+
+    obj->field1c = 0xf;
+    init_anirate(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0xb6b;
+    thread->fieldfc = 1;
+    return 1;
+}
