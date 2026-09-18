@@ -9895,3 +9895,70 @@ long t_r_square(struct MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* -------------------------------------------------------------- t_r_sk_charge
+ *
+ * armv7 0x00043878, two hundred and thirty-two bytes.
+ *
+ * The zap/jax_zap shake-and-park trio (t_airborn_hit_no_sound /
+ * t_reaction_start), but with one more animation step: state 0x1158 sets
+ * an X velocity and pushes t_animate_a9 before state 0x115d installs
+ * t_local_reaction_exit -- same "one more link" shape as t_r_quake.
+ *
+ *      state 0
+ *          rsnd_func(obj, 0xa)
+ *          obj->field1c = 2 ; group_sound(obj)
+ *          obj->field48 = 0x60006 ; shake_a11(obj)
+ *          obj->field38 = 0 ; obj->field30 = t_airborn_hit_no_sound
+ *          obj->field34 = 6
+ *          push t_reaction_start                        (0x1158)
+ *      state 0x1158
+ *          obj->field1c = 5.0 ; away_x_vel(obj)
+ *          obj->field40 = 0x30020
+ *          push t_animate_a9                              (0x115d)
+ *      state 0x115d
+ *          install t_local_reaction_exit
+ */
+long t_r_sk_charge(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x115d)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token == 0x1158) {
+        obj->field1c = 0x50000;                  /* 5.0 in 16.16 */
+        away_x_vel(obj);
+
+        obj->field40 = 0x30020;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x115d;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_animate_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    rsnd_func(obj, 0xa);
+
+    obj->field1c = 2;
+    group_sound(obj);
+
+    obj->field48 = 0x60006;
+    shake_a11(obj);
+
+    obj->field38 = 0;
+    obj->field30 = (uint32_t)(uintptr_t)t_airborn_hit_no_sound;
+    obj->field34 = 6;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x1158;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
