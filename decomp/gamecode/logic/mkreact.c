@@ -1167,6 +1167,7 @@ long t_r_freeze(struct MK3THREAD *thread);
 long t_rek3(struct MK3THREAD *thread);
 long t_rup3(struct MK3THREAD *thread);
 long am_i_airborn(MK3OBJ *obj);
+void stance_setup(MK3OBJ *obj);
 long create_blood_proc(MK3OBJ *obj);
 void create_fx(MK3OBJ *obj);
 void find_last_frame(MK3OBJ *obj);
@@ -10089,6 +10090,78 @@ long t_r_robo_bomb(struct MK3THREAD *thread)
     obj->field34 = 1;
 
     *mk3_frame(thread, thread->frame + 1) = 0x6cc;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* -------------------------------------------------------- t_r_reptile_dash
+ *
+ * armv7 0x000494e4, two hundred and thirty-two bytes.
+ *
+ * A stance-and-countdown reaction rather than a park/launch: state 0 forks
+ * on `am_i_airborn` -- airborne installs `t_local_reaction_exit` straight
+ * away, grounded just clears the park fields and pushes `t_reaction_start`.
+ * State 0x306, reached once that returns, is where the stance actually
+ * gets set up: `stance_setup` plus a five-tick countdown in `obj->a10`,
+ * then it falls into the same self-resume tail state 0x30d also reaches.
+ * State 0x30d spends one tick of that countdown per call via `next_anirate`
+ * and either resumes itself again or, once the countdown goes negative,
+ * installs `t_local_reaction_exit`.
+ *
+ *      state 0
+ *          if am_i_airborn(obj) != 0
+ *              install t_local_reaction_exit
+ *          obj->field30 = 0 ; obj->field34 = 0 ; obj->field38 = 0
+ *          push t_reaction_start                        (0x306)
+ *      state 0x306
+ *          stance_setup(obj) ; obj->a10 = 0x14
+ *          (falls into the shared resume below)
+ *      shared resume (also reached from 0x30d when a10 is still >= 0)
+ *          resume self at 0x30d after 1 frame
+ *      state 0x30d
+ *          next_anirate(obj) ; obj->a10 -= 1
+ *          if obj->a10 < 0
+ *              install t_local_reaction_exit
+ *          else
+ *              (back to the shared resume above)
+ */
+long t_r_reptile_dash(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x306) {
+        stance_setup(obj);
+        obj->a10 = 0x14;
+        goto reptile_dash_resume;
+    }
+
+    if (token == 0x30d) {
+        next_anirate(obj);
+        obj->a10 = obj->a10 - 1;
+        if ((int32_t)obj->a10 < 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+reptile_dash_resume:
+        *mk3_frame(thread, thread->frame + 1) = 0x30d;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token != 0)
+        return -3;
+
+    if (am_i_airborn(obj) != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    obj->field30 = 0;
+    obj->field34 = 0;
+    obj->field38 = 0;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x306;
     thread->frame = thread->frame + 1;
     mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
     *mk3_frame(thread, thread->frame + 1) = 0;
