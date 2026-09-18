@@ -10778,3 +10778,80 @@ ceiling_resume:
     thread->fieldfc = 1;
     return 1;
 }
+
+
+/* -------------------------------------------------------------------- t_r_pounce
+ *
+ * armv7 0x00043fb0, two hundred and sixty-four bytes.
+ *
+ * A four-state chain that pushes `t_mframew` twice running -- once with
+ * token 0x495, once with 0x497 -- before installing `t_pounce4`. State 0
+ * calls `if_shao_then_pass` the way `t_r_flip_kick` does.
+ *
+ *      state 0
+ *          obj->field34 = 1 ; if_shao_then_pass(obj)
+ *          obj->field30 = 0 ; obj->field38 = 0
+ *          push t_reaction_start                        (0x48a)
+ *      state 0x48a
+ *          obj->field00->field18 = 0x30b
+ *          obj->field1c = 2 ; group_sound(obj)
+ *          obj->field40 = 0x1e ; get_char_ani(obj)
+ *          obj->field1c = 2
+ *          push t_mframew                                (0x495)
+ *      state 0x495
+ *          obj->field1c = 2
+ *          push t_mframew                                (0x497)
+ *      state 0x497
+ *          install t_pounce4
+ */
+long t_r_pounce(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x497)
+        return mk3_install(thread, (MK3THREADFUNC)t_pounce4);
+
+    if (token == 0x495) {
+        obj->field1c = 2;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x497;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x48a) {
+        obj->field00->field18 = 0x30b;
+
+        obj->field1c = 2;
+        group_sound(obj);
+
+        obj->field40 = 0x1e;
+        get_char_ani(obj);
+
+        obj->field1c = 2;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x495;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field34 = 1;
+    if_shao_then_pass(obj);
+
+    obj->field30 = 0;
+    obj->field38 = 0;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x48a;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
