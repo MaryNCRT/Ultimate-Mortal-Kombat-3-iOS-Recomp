@@ -3316,6 +3316,7 @@ long t_block_exit(MK3THREAD *thread)
 long t_pit_fall_scan(struct MK3THREAD *thread);
 long t_flight_loop(struct MK3THREAD *thread);
 void clear_shadow_bit(MK3OBJ *obj);
+void distance_off_ground(MK3OBJ *obj);
 void center_around_me(MK3OBJ *obj);
 void ground_player(MK3OBJ *obj);
 void MKEvent_Add(long type, long subtype, long param, long player);
@@ -10681,4 +10682,99 @@ long t_r_mileena_roll(struct MK3THREAD *thread)
     mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
+}
+
+
+/* ------------------------------------------------------------ t_up_2_ceiling
+ *
+ * armv7 0x00047fe8, two hundred and forty-eight bytes.
+ *
+ * A stick-to-the-ceiling loop: state 0 fires the launch event and gives
+ * both objects the same -16.0 rise rate, then falls into a self-resume
+ * loop (state 0xafc) that repeatedly checks `distance_off_ground` until it
+ * exceeds 0xff -- once it does, the fighter is stopped against the ceiling
+ * and given an 80-frame hold before state 0xb07 fires the landing event and
+ * either pops (frame still has a caller) or installs `t_local_reaction_exit`.
+ *
+ *      state 0
+ *          MKEvent_Add(4, 0x39, 0, obj->field00->field08)
+ *          obj->field1c = 9 ; group_sound(obj)
+ *          obj->field1c = -16.0 ; obj->field08->field1c = -16.0
+ *          obj->field40 = 0x1e ; get_char_ani(obj)
+ *          obj->field1c = 6 ; init_anirate(obj)
+ *          (falls into the shared resume below)
+ *      shared resume (also reached from 0xafc while still climbing)
+ *          resume self at 0xafc after 1 frame
+ *      state 0xafc
+ *          next_anirate(obj) ; distance_off_ground(obj)
+ *          if obj->field1c <= 0xff
+ *              (back to the shared resume above)
+ *          else
+ *              stop_me_player(obj) ; clear_shadow_bit(obj)
+ *              obj->field1c = 0x29 ; create_fx(obj)
+ *              resume self at 0xb07 after 0x50 frames
+ *      state 0xb07
+ *          player_normpal(obj)
+ *          MKEvent_Add(4, 0x3a, 0, obj->field00->field08)
+ *          if thread->frame > 0
+ *              thread->frame -= 1 ; return 0
+ *          else
+ *              install t_local_reaction_exit
+ */
+long t_up_2_ceiling(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0xafc) {
+        next_anirate(obj);
+        distance_off_ground(obj);
+
+        if ((int32_t)obj->field1c <= 0xff)
+            goto ceiling_resume;
+
+        stop_me_player(obj);
+        clear_shadow_bit(obj);
+
+        obj->field1c = 0x29;
+        create_fx(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0xb07;
+        thread->fieldfc = 0x50;
+        return 0x50;
+    }
+
+    if (token == 0xb07) {
+        player_normpal(obj);
+        MKEvent_Add(4, 0x3a, 0, obj->field00->field08);
+
+        if ((int32_t)thread->frame > 0) {
+            thread->frame = thread->frame - 1;
+            return 0;
+        }
+
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (token != 0)
+        return -3;
+
+    MKEvent_Add(4, 0x39, 0, obj->field00->field08);
+
+    obj->field1c = 9;
+    group_sound(obj);
+
+    obj->field1c = 0xfff00000;               /* -16.0 in 16.16 */
+    obj->field08->field1c = obj->field1c;
+
+    obj->field40 = 0x1e;
+    get_char_ani(obj);
+
+    obj->field1c = 6;
+    init_anirate(obj);
+
+ceiling_resume:
+    *mk3_frame(thread, thread->frame + 1) = 0xafc;
+    thread->fieldfc = 1;
+    return 1;
 }
