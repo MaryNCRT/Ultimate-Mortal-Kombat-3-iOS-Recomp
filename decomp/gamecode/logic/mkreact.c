@@ -3784,3 +3784,232 @@ long t_b_combo_hard(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_block_shake_n_exit);
 }
+
+
+/* --------------------------------------------------------- t_b_duck_hit_hard
+ *
+ * armv7 0x000433f8, a hundred and sixty-eight bytes.
+ *
+ *      state 0
+ *          part->field34 = 0
+ *          part->field30 = t_generic_airborn_hit
+ *          part->field38 = t_cc_block_avoid_corner
+ *          push t_blocked_start                       (0x136f)
+ *      state 0x136f
+ *          rsnd_func(obj, 5)
+ *          part->field1c = 0x50000 ; away_x_vel(obj)
+ *          part->field48 = 2 ; obj->p_hit = 3
+ *          install t_block_shake_n_exit
+ *
+ * A duck-block whose walk-routine slot (field30) is set to
+ * `t_generic_airborn_hit` rather than left at 0 the way the standing combo
+ * blocks leave it. That parks a routine for the object's own update to run
+ * instead of walking, the same handover `t_r_last_noogy` uses -- so a hard
+ * hit while ducking substitutes airborne-hit handling underneath the block,
+ * even though the fighter never leaves the ground here.
+ */
+long t_b_duck_hit_hard(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field00->field34 = 0;
+        obj->field00->field30 = (uint32_t)(uintptr_t)t_generic_airborn_hit;
+        obj->field00->field38 =
+            (uint32_t)(uintptr_t)t_cc_block_avoid_corner;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x136f;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_blocked_start;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x136f)
+        return -3;
+
+    rsnd_func(obj, 5);
+
+    obj->field00->field1c = 0x50000;        /* 5.0 in 16.16 */
+    away_x_vel(obj);
+
+    obj->field00->field48 = 2;
+    obj->field00->p_hit = 2 + 1;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_block_shake_n_exit);
+}
+
+
+/* --------------------------------------------------------- t_b_duck_hit_soft
+ *
+ * armv7 0x000434a0, a hundred and sixty-eight bytes.
+ *
+ *      state 0
+ *          part->field34 = 0
+ *          part->field30 = t_generic_airborn_hit
+ *          part->field38 = t_cc_block_avoid_corner
+ *          push t_blocked_start                       (0x135f)
+ *      state 0x135f
+ *          rsnd_func(obj, 6)
+ *          part->field1c = 0x20000 ; away_x_vel(obj)
+ *          part->field48 = 2 ; obj->p_hit = 3
+ *          install t_block_shake_n_exit
+ *
+ * `t_b_duck_hit_hard` with the sound and the push changed -- 6 instead of 5,
+ * 2.0 instead of 5.0 -- and nothing else. Same substitution of
+ * `t_generic_airborn_hit` into the walk slot.
+ */
+long t_b_duck_hit_soft(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field00->field34 = 0;
+        obj->field00->field30 = (uint32_t)(uintptr_t)t_generic_airborn_hit;
+        obj->field00->field38 =
+            (uint32_t)(uintptr_t)t_cc_block_avoid_corner;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x135f;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_blocked_start;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x135f)
+        return -3;
+
+    rsnd_func(obj, 6);
+
+    obj->field00->field1c = 0x20000;        /* 2.0 in 16.16 */
+    away_x_vel(obj);
+
+    obj->field00->field48 = 2;
+    obj->field00->p_hit = 2 + 1;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_block_shake_n_exit);
+}
+
+
+/* -------------------------------------------------------------- t_b_lo_punch
+ *
+ * armv7 0x0004496c, a hundred and eighty-four bytes.
+ *
+ *      state 0
+ *          rsnd_func(obj, 6)
+ *          part->field30 = 0 ; part->field34 = 0
+ *          part->field38 = t_cc_punch
+ *          push t_blocked_start                       (0x1386)
+ *      state 0x1386
+ *          obj->field54 = 0x50000                     ; 5.0
+ *          am_i_short(obj)
+ *          if (obj->field5c == 0)
+ *              obj->field54 += 0x30000                ; 8.0 standing
+ *          obj->field1c = obj->field54 ; away_x_vel(obj)
+ *          obj->field48 = 2 ; obj->p_hit = 3
+ *          install t_block_shake_n_exit
+ *
+ * **The low punch's block pushes harder if you are NOT ducking.** field54
+ * starts at 5.0 and gains 3.0 more -- to 8.0 -- unless `am_i_short` says the
+ * victim is crouched. So blocking a low punch while standing costs more
+ * ground than blocking it while already down, the opposite of what the
+ * duck-hit pair above does for a hit that lands while ducking.
+ *
+ * This time the corner handover in field38 is `t_cc_punch` rather than
+ * `t_cc_block_avoid_corner` -- the pause-and-pop routine, not the corner
+ * check -- so a blocked low punch does not get the avoid-corner treatment
+ * at all.
+ */
+long t_b_lo_punch(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        rsnd_func(obj, 6);
+
+        obj->field00->field30 = 0;
+        obj->field00->field34 = 0;
+        obj->field00->field38 = (uint32_t)(uintptr_t)t_cc_punch;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1386;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_blocked_start;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x1386)
+        return -3;
+
+    obj->field00->field54 = 0x50000;        /* 5.0 in 16.16 */
+    am_i_short(obj);
+    if (obj->field5c == 0)
+        obj->field00->field54 = obj->field00->field54 + 0x30000; /* +3.0 */
+
+    obj->field1c = obj->field00->field54;
+    away_x_vel(obj);
+
+    obj->field00->field48 = 2;
+    obj->field00->p_hit = 2 + 1;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_block_shake_n_exit);
+}
+
+
+/* ----------------------------------------------------------------- t_b_punch
+ *
+ * armv7 0x00043354, a hundred and sixty-four bytes.
+ *
+ *      state 0
+ *          rsnd_func(obj, 6)
+ *          part->field30 = 0 ; part->field34 = 0
+ *          part->field38 = t_cc_block_avoid_corner
+ *          push t_blocked_start                       (0x139c)
+ *      state 0x139c
+ *          part->field1c = 0x20000 ; away_x_vel(obj)
+ *          part->field48 = 2 ; obj->p_hit = 3
+ *          install t_block_shake_n_exit
+ *
+ * The plain high-punch block: a fixed 2.0 push, no stance question, and the
+ * ordinary corner handover. This is the baseline every other block above
+ * varies from -- `t_b_combo` doubles the push to 4.0, `t_b_boss_hit1`
+ * triples it to 6.0, `t_b_lo_punch` conditions it on stance.
+ */
+long t_b_punch(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        rsnd_func(obj, 6);
+
+        obj->field00->field30 = 0;
+        obj->field00->field34 = 0;
+        obj->field00->field38 =
+            (uint32_t)(uintptr_t)t_cc_block_avoid_corner;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x139c;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_blocked_start;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x139c)
+        return -3;
+
+    obj->field00->field1c = 0x20000;        /* 2.0 in 16.16 */
+    away_x_vel(obj);
+
+    obj->field00->field48 = 2;
+    obj->field00->p_hit = 2 + 1;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_block_shake_n_exit);
+}
