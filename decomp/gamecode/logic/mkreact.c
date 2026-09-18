@@ -3319,6 +3319,7 @@ void clear_shadow_bit(MK3OBJ *obj);
 void distance_off_ground(MK3OBJ *obj);
 void call_a0_for_him(MK3OBJ *obj);
 void zero_turbo_bar(MK3OBJ *obj);
+void lights_on_hit(MK3OBJ *obj);
 void center_around_me(MK3OBJ *obj);
 void ground_player(MK3OBJ *obj);
 void MKEvent_Add(long type, long subtype, long param, long player);
@@ -11124,4 +11125,137 @@ long t_rek3(struct MK3THREAD *thread)
     mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
+}
+
+
+/* -------------------------------------------------------------------- t_rst5
+ *
+ * armv7 0x000473d0, four hundred and sixty-four bytes. `t_reaction_start`
+ * installs this, per its own banner, and this is the busiest dispatcher in
+ * the file: it decides between three DIFFERENT reaction chains parked in
+ * obj's own fields, rather than pushing one fixed next step.
+ *
+ * State 0 (and the field34-dispatch it shares with the 0x1038 resume)
+ * checks, in order: `obj->field30` -- a handler another routine parked
+ * there (airborne hit reactions store `t_r_airpunch`-style targets here) --
+ * gated behind `am_i_airborn`; then `obj->field38`, a handler another
+ * routine parked there directly (`t_cc_ken_masters`-style); then
+ * `obj->field34` as a dispatch index into whichever of two data tables
+ * (0x0017b8d0 or 0x0017b884) the opponent's own `field24` selects, neither
+ * traced further -- this is the same kind of `tbb`-style jump table
+ * `factdiff.py`'s known-gaps section already flags for `t_background_death`.
+ * Every dead end lands on `t_local_reaction_exit`.
+ *
+ * The "shift" seen twice -- copying `mk3_frame(thread, frame+2)`'s token
+ * down into `frame+1` and `frame+1`'s handler down into `frame` -- happens
+ * right before an `mk3_install` that immediately re-zeroes the very token
+ * slot the shift just wrote, so the token half of the shift has no lasting
+ * effect; kept faithful to the exact sequence rather than trimmed.
+ *
+ *      state 0
+ *          lights_on_hit(obj)
+ *          if obj->field30 != 0 and am_i_airborn(obj) != 0
+ *              if thread->frame > 0: thread->frame -= 1
+ *              shift ; install obj->field30
+ *          (falls into the field38 check below when field30 == 0, or when
+ *           field30 != 0 but not airborne)
+ *      field38 check (also reached from state 0x1038's restore, below)
+ *          if obj->field38 != 0
+ *              *mk3_arg(thread, thread->fieldf8++) = obj->field34
+ *              push obj->field38                             (0x1038)
+ *          else if obj->field34 == 0
+ *              if thread->frame > 0: thread->frame -= 1 ; return 0
+ *              else: install t_local_reaction_exit
+ *          else
+ *              obj->field20 = 0x0017b8d0
+ *              obj->field38 = obj->field08->field24
+ *              if obj->field38 != 0x18
+ *                  obj->field20 = 0x0017b884           (unconditional)
+ *              if obj->field38 == 0x18 or obj->field38 == 0x19
+ *                  if thread->frame > 0: thread->frame -= 1
+ *                  else: install t_local_reaction_exit (result discarded,
+ *                        immediately overwritten by the shift+lookup below)
+ *                  shift ; obj->field34 = table[obj->field34]
+ *                  install obj->field34
+ *              else
+ *                  if thread->frame > 0: thread->frame -= 1 ; return 0
+ *                  else: install t_local_reaction_exit
+ *      state 0x1038
+ *          obj->field34 = *mk3_arg(thread, --thread->fieldf8)
+ *          (rejoin the field38 check above)
+ */
+long t_rst5(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t *table;
+
+    if (token == 0x1038) {
+        thread->fieldf8 = thread->fieldf8 - 1;
+        obj->field34 = *mk3_arg(thread, thread->fieldf8);
+        goto rst5_field38_check;
+    }
+
+    if (token != 0)
+        return -3;
+
+    lights_on_hit(obj);
+
+    if (obj->field30 != 0 && am_i_airborn(obj) != 0) {
+        if ((int32_t)thread->frame > 0)
+            thread->frame = thread->frame - 1;
+
+        *mk3_frame(thread, thread->frame + 1) = *mk3_frame(thread, thread->frame + 2);
+        mk3_frame(thread, thread->frame)[1] = mk3_frame(thread, thread->frame + 1)[1];
+        return mk3_install(thread, (MK3THREADFUNC)(uintptr_t)obj->field30);
+    }
+
+rst5_field38_check:
+    if (obj->field38 != 0) {
+        *mk3_arg(thread, thread->fieldf8) = obj->field34;
+        thread->fieldf8 = thread->fieldf8 + 1;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1038;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = obj->field38;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (obj->field34 == 0) {
+        if ((int32_t)thread->frame > 0) {
+            thread->frame = thread->frame - 1;
+            return 0;
+        }
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    obj->field20 = 0x0017b8d0;
+    obj->field38 = obj->field08->field24;
+
+    if (obj->field38 != 0x18)
+        obj->field20 = 0x0017b884;
+
+    if (obj->field38 == 0x18 || obj->field38 == 0x19) {
+        if ((int32_t)thread->frame > 0) {
+            thread->frame = thread->frame - 1;
+        } else {
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)t_local_reaction_exit;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+        }
+
+        *mk3_frame(thread, thread->frame + 1) = *mk3_frame(thread, thread->frame + 2);
+        mk3_frame(thread, thread->frame)[1] = mk3_frame(thread, thread->frame + 1)[1];
+
+        table = (uint32_t *)(uintptr_t)obj->field20;
+        obj->field34 = table[obj->field34];
+        return mk3_install(thread, (MK3THREADFUNC)(uintptr_t)obj->field34);
+    }
+
+    if ((int32_t)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
