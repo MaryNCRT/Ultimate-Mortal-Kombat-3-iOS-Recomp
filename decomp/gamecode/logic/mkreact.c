@@ -8766,3 +8766,49 @@ long t_r_stick_sweep(struct MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------- t_r_sw_zap
+ *
+ * armv7 0x000420f4, a hundred and fifty-six bytes.
+ *
+ * Another of the shake-and-park family, same trio as `t_r_tusk_zap`:
+ * park `t_generic_airborn_hit`, push `t_reaction_start`, close with
+ * `mk3_install(t_stumble_back_vel)`. No shake_a11 up front this time --
+ * just a group_sound at rate 2.
+ *
+ *      state 0
+ *          obj->field1c = 2 ; group_sound(obj)
+ *          obj->field38 = 0 ; obj->field30 = t_generic_airborn_hit
+ *          obj->field34 = 1
+ *          push t_reaction_start                        (0x1116)
+ *      state 0x1116
+ *          obj->field1c = 0x40000                          (4.0 in 16.16)
+ *          install t_stumble_back_vel
+ */
+long t_r_sw_zap(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x1116) {
+        obj->field1c = 0x40000;                  /* 4.0 in 16.16 */
+        return mk3_install(thread, (MK3THREADFUNC)t_stumble_back_vel);
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field1c = 2;
+    group_sound(obj);
+
+    obj->field38 = 0;
+    obj->field30 = (uint32_t)(uintptr_t)t_generic_airborn_hit;
+    obj->field34 = 1;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x1116;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
