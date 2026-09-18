@@ -2121,6 +2121,7 @@ long t_combo2(MK3THREAD *thread)
 void delete_slave_notproj(MK3OBJ *obj);
 void player_normpal(MK3OBJ *obj);
 void face_opponent(MK3OBJ *obj);
+void flip_multi(MK3OBJ *obj);
 void stop_me_player(MK3OBJ *obj);
 long t_rst5(struct MK3THREAD *thread);
 
@@ -9480,6 +9481,72 @@ long t_r_tusk_saw(struct MK3THREAD *thread)
     obj->field38 = 0;
 
     *mk3_frame(thread, thread->frame + 1) = 0x41f;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* -------------------------------------------------------------------- t_r_summon
+ *
+ * armv7 0x000487d4, two hundred and twenty bytes.
+ *
+ * A launch-into-t_flight reaction with the flip pair `face_opponent` /
+ * `flip_multi` up front -- the same "turn to face them, then flip the
+ * multi-part object" combination other reactions in this family use before
+ * a knockdown. State 0x5de is where t_flight hands back, installing
+ * `t_reaction_land`.
+ *
+ *      state 0
+ *          obj->field30 = 0 ; obj->field38 = 0 ; obj->field34 = 1
+ *          push t_reaction_start                        (0x5d2)
+ *      state 0x5d2
+ *          obj->field1c = 2 ; group_sound(obj)
+ *          face_opponent(obj) ; flip_multi(obj)
+ *          obj->field1c = -3.0 ; obj->field20 = -9.0
+ *          obj->field24 = 0.34375 ; obj->field28 = 5
+ *          obj->field40 += 0x19
+ *          push t_flight                                (0x5de)
+ *      state 0x5de
+ *          install t_reaction_land
+ */
+long t_r_summon(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x5de)
+        return mk3_install(thread, (MK3THREADFUNC)t_reaction_land);
+
+    if (token == 0x5d2) {
+        obj->field1c = 2;
+        group_sound(obj);
+
+        face_opponent(obj);
+        flip_multi(obj);
+
+        obj->field1c = 0xfffd0000;               /* -3.0 in 16.16 */
+        obj->field20 = obj->field1c - 0x60000;   /* -9.0 */
+        obj->field24 = obj->field20 + 0x96000;   /* 0.34375 */
+        obj->field28 = 5;
+        obj->field40 = obj->field40 + 0x19;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x5de;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field30 = 0;
+    obj->field38 = 0;
+    obj->field34 = 1;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x5d2;
     thread->frame = thread->frame + 1;
     mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
     *mk3_frame(thread, thread->frame + 1) = 0;
