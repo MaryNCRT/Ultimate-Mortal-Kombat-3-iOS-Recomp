@@ -157,7 +157,10 @@ typedef struct MK3OBJPROC {
     uint32_t field58;            /* 0x58  every punch swing writes a 2 here on
                                   *       its first frame, right after copying
                                   *       obj->field1c into field30 */
-    uint8_t  _pad5c[8];
+    uint32_t field5c;            /* 0x5c  t_sweep3 clears it (state 0xdea,
+                                  *       field5c != 0 branch) right after
+                                  *       shake_n_sound -- a single sighting */
+    uint8_t  _pad60[4];
     uint32_t field64;            /* 0x64  the slave's object; delete_slave
                                   *       hands it to KillProc */
     uint32_t slave;              /* 0x68  per f_set_a10_to_slave */
