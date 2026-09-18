@@ -8340,3 +8340,49 @@ long t_slammed_zoom_up(MK3THREAD *thread)
     thread->fieldfc = obj->field1c;
     return obj->field1c;
 }
+
+
+/* --------------------------------------------------------------- t_zap_stumble
+ *
+ * armv7 0x00042448, a hundred and fifty-two bytes.
+ *
+ * State 0 parks `t_generic_airborn_hit` in `field30` -- the walk-routine
+ * slot every airborne-hit reaction in this file sets the same way -- and
+ * pushes `t_reaction_start`. State 0x10fd, reached once that returns, is a
+ * two-line shake and a plain `mk3_install(t_stumble_back_vel)`.
+ *
+ *      state 0
+ *          obj->field38 = 0 ; obj->field30 = t_generic_airborn_hit
+ *          obj->field34 = 6
+ *          push t_reaction_start                       (0x10fd)
+ *      state 0x10fd
+ *          obj->field48 = 0x60006 ; shake_a11(obj)
+ *          obj->field1c = 0x40000                       (4.0 in 16.16)
+ *          install t_stumble_back_vel
+ */
+long t_zap_stumble(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x10fd) {
+        obj->field48 = 0x60006;
+        shake_a11(obj);
+
+        obj->field1c = 0x40000;                  /* 4.0 in 16.16 */
+        return mk3_install(thread, (MK3THREADFUNC)t_stumble_back_vel);
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field38 = 0;
+    obj->field30 = (uint32_t)(uintptr_t)t_generic_airborn_hit;
+    obj->field34 = 6;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x10fd;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
