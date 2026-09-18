@@ -47,6 +47,10 @@ extern char t_d_getup[];
 long t_getup_stay_ducked(MK3THREAD *thread);
 long t_joy_getup_abort(MK3THREAD *thread);
 
+/* Not decompiled: t_r_floor_ice pushes it directly (a plain pc-relative
+ * function address, not a __DATA slot), and never calls it itself. */
+extern char t_slip_sleep[];
+
 /* A data table, not a resume target. */
 extern char getup_speeds[];
 
@@ -7687,4 +7691,194 @@ fan_lift_launch:
     *mk3_frame(thread, thread->frame + 1) = 0x3b3;
     thread->fieldfc = 1;
     return 1;
+}
+
+
+/* ------------------------------------------------------------ t_r_floor_ice
+ *
+ * armv7 0x000495ec, four hundred and ninety-two bytes.
+ *
+ * The floor-ice wobble: once set up, the victim's `a10` and `field48` are two
+ * X positions, and this coroutine slides them back and forth between the two,
+ * flipping `field1c` between +1.0 and -1.0 (16.16) each time the current
+ * target is reached. States 0x2c3 and 0x2b8 are that back-and-forth; state
+ * 0x282 is the one-shot setup that decides which anchor to head for first.
+ *
+ * `t_slip_sleep` is who actually drives the wobble frame to frame -- this
+ * function only PUSHES it, with token 0x2c3 or 0x2b8, and never calls it. It
+ * is not decompiled here (see the extern near the top of the file); the two
+ * cases this function itself handles for those tokens are reached some other
+ * way -- most likely `t_slip_sleep` reinstalling `t_r_floor_ice` under a
+ * condition it alone knows -- which is outside what 0x495ec's own bytes say.
+ *
+ *      state 0x282  (setup)
+ *          am_i_joy(obj)
+ *          if obj->field5c != 0                    -- a stick is held
+ *              goto shared setup block
+ *          get_his_floor_ice(obj)                  -- obj->field1c becomes
+ *                                                      the opponent's own
+ *                                                      floor-ice MK3THREAD*
+ *          if obj->field1c == 0
+ *              install t_local_reaction_exit
+ *          val = mk3_frame((MK3THREAD *)obj->field1c, 9)[0]   -- its frame 9
+ *                                                                 token
+ *          obj->field20 = val
+ *          if val <= 0x20
+ *              install t_local_reaction_exit
+ *          -- else fall into the same shared setup block
+ *
+ *      shared setup block
+ *          obj->field20 = 0x26 ; obj->field00->field48 = 0x26
+ *          set_no_block(obj) ; ground_player(obj)
+ *          obj->field1c = 0x628 ; obj->field00->field18 = 0x628
+ *          obj->field40 = 0x20
+ *          find_ani_part2(obj)
+ *          obj->field54 = 0x50
+ *          am_i_joy(obj) ; if obj->field5c == 0, obj->field54 = 0x38
+ *          obj->field00->field3c = obj->field54
+ *          obj->field1c = 8 ; group_sound(obj)
+ *          obj->field1c = 4 ; init_anirate(obj)
+ *          other = obj->field08
+ *          d_a10 = MK3_FIELD0E_S(other) - obj->a10
+ *          d_f48 = MK3_FIELD0E_S(other) - obj->field48
+ *          obj->field28 = d_f48 ; obj->field24 = d_a10  -- then both abs()'d
+ *          if |d_a10| <= |d_f48|
+ *              goto "near a10"       -- vel = +1.0 ; push 0x2b8
+ *          else
+ *              goto "far from a10"   -- vel = -1.0 ; push 0x2c3
+ *
+ *      state 0x2c3  (heading for a10)
+ *          d = MK3_FIELD0E_S(obj->field08) - obj->a10, abs'd, into field24
+ *          if d <= 5
+ *              goto "near a10"       -- vel = +1.0 ; push 0x2b8
+ *          else
+ *              push 0x2c3 again, unchanged vel                 (keep going)
+ *
+ *      state 0x2b8  (heading for field48)
+ *          d = MK3_FIELD0E_S(obj->field08) - obj->field48, abs'd, into field24
+ *          if d <= 5
+ *              goto "far from a10"   -- vel = -1.0 ; push 0x2c3   (turn back)
+ *          else
+ *              push 0x2b8 again, unchanged vel                  (keep going)
+ *
+ * Every push in this function targets `t_slip_sleep`, never itself -- this
+ * function is only ever the entry and the redirector, not the loop.
+ */
+long t_r_floor_ice(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    MK3OBJ *other;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    int32_t d;
+
+    if (token == 0x282) {
+        am_i_joy(obj);
+        if (obj->field5c != 0)
+            goto floor_ice_setup;
+
+        get_his_floor_ice(obj);
+        if (obj->field1c == 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+        obj->field20 = mk3_frame((MK3THREAD *)(uintptr_t)obj->field1c, 9)[0];
+        if ((int32_t)obj->field20 <= 0x20)
+            return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+floor_ice_setup:
+        obj->field20 = 0x26;
+        obj->field00->field48 = 0x26;
+        set_no_block(obj);
+        ground_player(obj);
+
+        obj->field1c = 0x628;
+        obj->field00->field18 = 0x628;
+        obj->field40 = 0x20;
+        find_ani_part2(obj);
+
+        obj->field54 = 0x50;
+        am_i_joy(obj);
+        if (obj->field5c == 0)
+            obj->field54 = 0x38;
+        obj->field00->field3c = obj->field54;
+
+        obj->field1c = 8;
+        group_sound(obj);
+        obj->field1c = 4;
+        init_anirate(obj);
+
+        other = obj->field08;
+        obj->field28 = MK3_FIELD0E_S(other) - obj->field48;
+        obj->field24 = MK3_FIELD0E_S(other) - obj->a10;
+        if ((int32_t)obj->field24 < 0)
+            obj->field24 = (uint32_t)(-(int32_t)obj->field24);
+        if ((int32_t)obj->field28 < 0)
+            obj->field28 = (uint32_t)(-(int32_t)obj->field28);
+
+        if ((int32_t)obj->field24 <= (int32_t)obj->field28)
+            goto floor_ice_near_a10;
+        goto floor_ice_far_a10;
+    }
+
+    if (token == 0x2c3) {
+        other = obj->field08;
+        d = MK3_FIELD0E_S(other) - (int32_t)obj->a10;
+        obj->field24 = (uint32_t)(d < 0 ? -d : d);
+
+        if ((int32_t)obj->field24 <= 5)
+            goto floor_ice_near_a10;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x2c3;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_slip_sleep;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x2b8) {
+        other = obj->field08;
+        d = MK3_FIELD0E_S(other) - (int32_t)obj->field48;
+        obj->field24 = (uint32_t)(d < 0 ? -d : d);
+
+        if ((int32_t)obj->field24 <= 5)
+            goto floor_ice_far_a10;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x2b8;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_slip_sleep;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field30 = 0;
+    obj->field34 = 0;
+    obj->field38 = 0;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x282;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
+floor_ice_near_a10:
+    obj->field1c = 0x10000;                  /* +1.0 in 16.16 */
+    set_x_vel_player(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x2b8;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_slip_sleep;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
+floor_ice_far_a10:
+    obj->field1c = 0xffff0000;               /* -1.0 in 16.16 */
+    set_x_vel_player(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x2c3;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_slip_sleep;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
 }
