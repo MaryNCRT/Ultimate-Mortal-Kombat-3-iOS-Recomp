@@ -8861,3 +8861,55 @@ long t_r_spit(struct MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* -------------------------------------------------------------- t_r_jax_zap
+ *
+ * armv7 0x00042358, a hundred and sixty-eight bytes.
+ *
+ * Shake-and-park again, same closing trio as `t_r_tusk_zap`
+ * (t_reaction_start / t_stumble_back_vel) but the walk-routine override
+ * parked in `field30` this time is `t_airborn_hit_no_sound`, not
+ * `t_generic_airborn_hit` -- the zap already played its own sound via
+ * `group_sound` up front, so the airborne-hit follow-up does not need to
+ * play another.
+ *
+ *      state 0
+ *          obj->field1c = 2 ; group_sound(obj)
+ *          obj->field48 = 0x60006 ; shake_a11(obj)
+ *          obj->field38 = 0 ; obj->field30 = t_airborn_hit_no_sound
+ *          obj->field34 = 1
+ *          push t_reaction_start                        (0x116b)
+ *      state 0x116b
+ *          obj->field1c = 0x40000                          (4.0 in 16.16)
+ *          install t_stumble_back_vel
+ */
+long t_r_jax_zap(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x116b) {
+        obj->field1c = 0x40000;                  /* 4.0 in 16.16 */
+        return mk3_install(thread, (MK3THREADFUNC)t_stumble_back_vel);
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field1c = 2;
+    group_sound(obj);
+
+    obj->field48 = 0x60006;
+    shake_a11(obj);
+
+    obj->field38 = 0;
+    obj->field30 = (uint32_t)(uintptr_t)t_airborn_hit_no_sound;
+    obj->field34 = 1;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x116b;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
