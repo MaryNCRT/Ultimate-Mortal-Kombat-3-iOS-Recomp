@@ -8967,3 +8967,53 @@ long t_r_flip_kick(struct MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------- t_r_mileena_tele
+ *
+ * armv7 0x000431a4, a hundred and seventy-two bytes.
+ *
+ * Shake-and-park again, closing into `t_stumble_back` this time (the
+ * shorter stumble `t_r_spit` also uses) rather than `t_stumble_back_vel`.
+ *
+ *      state 0
+ *          obj->field1c = 0x218 ; obj->field00->field48 = 0x218
+ *          rsnd_func(obj, 0xa)
+ *          obj->field34 = 0 ; obj->field38 = 0
+ *          obj->field30 = t_generic_airborn_hit
+ *          push t_reaction_start                        (0x2f3)
+ *      state 0x2f3
+ *          rsnd_react_voice(obj)
+ *          obj->field48 = 0x40004 ; shake_a11(obj)
+ *          install t_stumble_back
+ */
+long t_r_mileena_tele(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x2f3) {
+        rsnd_react_voice(obj);
+
+        obj->field48 = 0x40004;
+        shake_a11(obj);
+        return mk3_install(thread, (MK3THREADFUNC)t_stumble_back);
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field1c = 0x218;
+    obj->field00->field48 = 0x218;
+    rsnd_func(obj, 0xa);
+
+    obj->field34 = 0;
+    obj->field38 = 0;
+    obj->field30 = (uint32_t)(uintptr_t)t_generic_airborn_hit;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x2f3;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
