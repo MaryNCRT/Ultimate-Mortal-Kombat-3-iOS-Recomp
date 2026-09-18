@@ -8386,3 +8386,88 @@ long t_zap_stumble(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------ t_stumble_back_vel
+ *
+ * armv7 0x00043df4, two hundred and ninety-two bytes.
+ *
+ * `t_zap_stumble` installs this directly, and it forks on a stick check the
+ * moment it starts: a fighter holding the stick gets pushed toward
+ * `t_animate_a9` (pointer slot 0x000f36d0), anyone else toward
+ * `t_animate_a0_frames` (0x000f36b8) by way of an intermediate state, 0x1211,
+ * that itself pushes `t_d_beware_mframew` (0x000f37ac) next. Both of the
+ * chain's tail states, 0x120a and 0x1214, are a bare `mk3_install
+ * (t_local_reaction_exit)` (0x000f3708) -- the stumble just runs out.
+ *
+ * The four pointer slots here were read straight from `__DATA` rather than
+ * matched against a prior sighting -- `tools/macho.py`'s `section_for_addr`
+ * plus a four-byte little-endian read is enough, and it is faster and less
+ * error-prone than grepping for a comment that may not exist yet.
+ *
+ *      state 0
+ *          away_x_vel(obj)
+ *          if am_i_joy(obj) != 0
+ *              obj->field40 = 0x40020
+ *              push t_animate_a9                          (0x120a)
+ *          else
+ *              obj->field40 = 0x20 ; get_char_ani(obj)
+ *              obj->field1c = 0x40003
+ *              push t_animate_a0_frames                    (0x1211)
+ *      state 0x1211
+ *          obj->field1c = 4
+ *          push t_d_beware_mframew                          (0x1214)
+ *      state 0x120a
+ *          install t_local_reaction_exit
+ *      state 0x1214
+ *          install t_local_reaction_exit
+ */
+long t_stumble_back_vel(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x120a)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token == 0x1211) {
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1214;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_d_beware_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1214)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token != 0)
+        return -3;
+
+    away_x_vel(obj);
+
+    if (am_i_joy(obj) != 0) {
+        obj->field40 = 0x40020;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x120a;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    obj->field40 = 0x20;
+    get_char_ani(obj);
+    obj->field1c = 0x40003;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x1211;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_animate_a0_frames;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
