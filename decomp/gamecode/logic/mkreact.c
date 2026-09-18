@@ -35,11 +35,13 @@ void match_ani_points_ob_ob(uint32_t a, uint32_t b);
 
 /* The reaction threads gup2 suspends into. Three of these are reached through
  * pointer slots in __DATA rather than directly — see the note on gup2. */
-/* Declared as arrays so the NAME is the address, without claiming anything
- * about what is stored there. `extern void *x` would say these are variables
- * holding pointers; they are code and a table. */
-extern char t_check_stay_down[];
+/* Declared as an array so the NAME is the address, without claiming anything
+ * about what is stored there. `extern void *x` would say this is a variable
+ * holding a pointer; it is code, defined for real in joy.c -- this file only
+ * ever takes its address. */
 extern char t_check_winner_status[];
+long t_check_stay_down(struct MK3THREAD *thread);
+long t_mframew(struct MK3THREAD *thread);
 long t_local_reaction_exit(MK3THREAD *thread);
 extern char t_d_getup[];
 long t_getup_stay_ducked(MK3THREAD *thread);
@@ -4018,6 +4020,7 @@ long t_b_punch(MK3THREAD *thread)
 long t_cc_block_upcut(struct MK3THREAD *thread);
 long t_jump_up_land_jsrp(struct MK3THREAD *thread);
 void ground_ochar(MK3OBJ *obj);
+long is_stick_away(MK3OBJ *obj);
 
 
 /* -------------------------------------------------------------------- t_b_uppercut
@@ -4488,4 +4491,231 @@ long t_blast_through_anything(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0xb6b;
     thread->fieldfc = 1;
     return 1;
+}
+
+
+long t_wait_forever(struct MK3THREAD *thread);
+long t_separate_us(struct MK3THREAD *thread);
+
+
+/* -------------------------------------------------------------------- t_ccp3
+ *
+ * armv7 0x000477bc, three hundred and fifty-two bytes.
+ *
+ *      state 0 only
+ *          am_i_joy(obj)
+ *          if (obj->field5c) {
+ *              is_stick_away(obj)
+ *              if (!obj->field5c) obj->field34 = obj->field30
+ *          }
+ *          obj->field1c = obj->field00->field4c
+ *          if (obj->field1c < obj->field34)
+ *              pop one level, plain
+ *          else
+ *              pop-erase three times over, each restoring the level below
+ *              before the next, and land on `t_separate_us`
+ *
+ * **The corner check reads differently for a human and the machine.** A
+ * human's answer comes from `is_stick_away` -- if he is not holding back,
+ * `field34` is overwritten from `field30` before the comparison runs at
+ * all. The AI skips straight to the comparison with whatever `field34`
+ * already holds. Either way the same test decides the outcome:
+ * `p_hit`'s mirror at field4c against field34, the identical shape
+ * `t_avoid_corner_trap` uses for its own hit-count threshold.
+ *
+ * **Below the threshold, it is one ordinary pop.** At or past it, the
+ * routine erases itself from the call stack THREE LEVELS DEEP -- the same
+ * below/carried shuffle `t_knee_check` and `t_elbow_check` use once each,
+ * chained three times in a row -- and only the last of the three lands on
+ * a real destination, `t_separate_us`; the first two erasures land on
+ * `t_local_reaction_exit` only if the stack runs out early, which is the
+ * same safety floor every one-shot pop in this file falls back to.
+ */
+long t_ccp3(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t below, carried;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    am_i_joy(obj);
+    if (obj->field5c != 0) {
+        is_stick_away(obj);
+        if (obj->field5c == 0)
+            obj->field00->field34 = obj->field00->field30;
+    }
+
+    obj->field1c = obj->field00->field4c;
+    if ((long)obj->field1c < (long)obj->field00->field34) {
+        if ((long)thread->frame > 0) {
+            thread->frame = thread->frame - 1;
+            return 0;
+        }
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    /* First erasure. */
+    if ((long)thread->frame <= 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    thread->frame = thread->frame - 1;
+    below   = mk3_frame(thread, thread->frame + 1)[1];
+    carried = *mk3_frame(thread, thread->frame + 2);
+    *mk3_frame(thread, thread->frame + 1) = carried;
+    mk3_frame(thread, thread->frame)[1] = below;
+
+    /* Second erasure. */
+    if ((long)thread->frame <= 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    thread->frame = thread->frame - 1;
+    below   = mk3_frame(thread, thread->frame + 1)[1];
+    carried = *mk3_frame(thread, thread->frame + 2);
+    *mk3_frame(thread, thread->frame + 1) = carried;
+    mk3_frame(thread, thread->frame)[1] = below;
+
+    /* Third erasure, landing on t_separate_us. */
+    if ((long)thread->frame <= 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    thread->frame = thread->frame - 1;
+    below   = mk3_frame(thread, thread->frame + 1)[1];
+    carried = *mk3_frame(thread, thread->frame + 2);
+    *mk3_frame(thread, thread->frame + 1) = carried;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_separate_us);
+}
+
+
+/* -------------------------------------------------------------- t_check_stay_down
+ *
+ * armv7 0x00042004, two hundred and twenty-four bytes.
+ *
+ *      state 0 only
+ *          obj->field2c = obj->field00->field10
+ *          if (obj->field2c & 0x40) {
+ *              pop-erase once, install t_wait_forever
+ *          } else {
+ *              obj->field1c = (int16_t)G[0x45c]
+ *              if (raw == 0 || obj->field1c == 3) goto plain-pop
+ *              obj->field20 = obj->field00->field08 + 1
+ *              if (obj->field20 == obj->field1c) goto plain-pop
+ *              -- otherwise, treat it as the 0x40-bit-set case: pop-erase
+ *                 once, install t_wait_forever
+ *          }
+ *      plain-pop: one ordinary pop
+ *
+ * **The stay-down bit overrides the round status.** If bit 6 of the
+ * header's field10 is already up, this erases itself and installs
+ * `t_wait_forever` without even looking at the round -- that bit alone is
+ * enough to keep a fighter down. Otherwise it reads `G[0x45c]`, the same
+ * status word `t_check_winner_status` reads, and only when the round is
+ * live (nonzero) AND not finished (not 3) AND the strength index plus one
+ * matches does it fall through to a plain pop; every other combination --
+ * including the round having just ended -- routes into the SAME
+ * erase-and-wait as the explicit stay-down bit.
+ */
+long t_check_stay_down(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint16_t raw;
+    uint32_t below, carried;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field2c = obj->field00->field10;
+
+    if ((obj->field2c & 0x40) == 0) {
+        raw = *(const uint16_t *)(const void *)(G_BYTES + 0x45c);
+        obj->field1c = (uint32_t)(int32_t)(int16_t)raw;
+
+        if (raw != 0 && (int32_t)obj->field1c != 3) {
+            obj->field20 = obj->field00->field08 + 1;
+            if (obj->field20 == obj->field1c)
+                goto plain_pop;
+        } else {
+            goto plain_pop;
+        }
+    }
+
+    if ((long)thread->frame <= 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    thread->frame = thread->frame - 1;
+    below   = mk3_frame(thread, thread->frame + 1)[1];
+    carried = *mk3_frame(thread, thread->frame + 2);
+    *mk3_frame(thread, thread->frame + 1) = carried;
+    mk3_frame(thread, thread->frame)[1] = below;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+
+plain_pop:
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* ----------------------------------------------------------------- t_combo1
+ *
+ * armv7 0x00045280, two hundred bytes.
+ *
+ *      state 0
+ *          obj->field1c = 4 ; create_blood_proc(obj)
+ *          obj->field1c = 0x20000 ; away_x_vel(obj)              ; 2.0
+ *          obj->field40 = 0x1c ; get_char_ani(obj)
+ *          obj->field44 = obj->field40 ; obj->field40 += 0xc
+ *          do_next_a9_frame(obj)
+ *          token = 0xc77 ; thread->fieldfc = 3 ; return 3
+ *      state 0xc77
+ *          obj->field40 = obj->field44 ; obj->field1c = 4
+ *          push t_mframew                             (0xc7a)
+ *      state 0xc7a
+ *          install t_local_reaction_exit
+ *
+ * `a10` -- the argument slot, not p_hit; this function works on `obj`
+ * directly rather than through `obj->field00` -- parks `field40`'s value
+ * across `do_next_a9_frame`'s three-tick wait and restores it afterward.
+ * The same slot other functions in this file use for a countdown is used
+ * here to carry a single animation-cursor value instead.
+ */
+long t_combo1(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field1c = 4;
+        create_blood_proc(obj);
+
+        obj->field1c = 0x20000;         /* 2.0 in 16.16 */
+        away_x_vel(obj);
+
+        obj->field40 = 0x1c;
+        get_char_ani(obj);
+
+        obj->a10 = obj->field40;
+        obj->field40 = obj->field40 + 0xc;
+        do_next_a9_frame(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0xc77;
+        thread->fieldfc = 3;
+        return 3;
+    }
+
+    if (token == 0xc77) {
+        obj->field40 = obj->a10;
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xc7a;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0xc7a)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
