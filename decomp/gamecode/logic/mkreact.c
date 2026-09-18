@@ -8717,3 +8717,52 @@ long t_r_tusk_zap(struct MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ---------------------------------------------------------- t_r_stick_sweep
+ *
+ * armv7 0x00047044, a hundred and fifty-two bytes.
+ *
+ * The odd one out among this shake-and-park family: `field30` is cleared
+ * rather than parked with a callback, so there is no walk-routine override
+ * here. State 0 pushes `t_reaction_start`; state 0xdd5 plays the sweep sound
+ * and grounds the fighter, then installs `t_sweep3` directly -- no
+ * intermediate `t_stumble_back_vel` step the way the punch/zap variants take.
+ *
+ *      state 0
+ *          obj->field30 = 0 ; obj->field38 = 0 ; obj->field34 = 1
+ *          push t_reaction_start                        (0xdd5)
+ *      state 0xdd5
+ *          rsnd_func(obj, 0xc)
+ *          obj->field1c = 6 ; group_sound(obj)
+ *          ground_player(obj)
+ *          install t_sweep3
+ */
+long t_r_stick_sweep(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0xdd5) {
+        rsnd_func(obj, 0xc);
+
+        obj->field1c = 6;
+        group_sound(obj);
+
+        ground_player(obj);
+        return mk3_install(thread, (MK3THREADFUNC)t_sweep3);
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field30 = 0;
+    obj->field38 = 0;
+    obj->field34 = 1;
+
+    *mk3_frame(thread, thread->frame + 1) = 0xdd5;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
