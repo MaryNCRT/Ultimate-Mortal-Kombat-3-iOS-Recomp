@@ -9205,3 +9205,68 @@ long t_r_zoom_flipped(struct MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------ t_r_uppercut
+ *
+ * armv7 0x00045348, two hundred bytes.
+ *
+ * State 0 clears `obj->field30` and parks `t_cc_ken_masters` in `obj->own`
+ * `field38` -- the MK3OBJ field named for `highest_mpart_ob`, not the
+ * MK3OBJPROC handover slot the comment on `t_cc_ken_masters` describes --
+ * unless `obj->a10` already holds the sentinel `0xedb00`, in which case the
+ * park is skipped and `field38` stays 0. State 0x748 plays the hit and then
+ * installs `t_pit_abort` or `t_background_death` depending on that same
+ * sentinel check on `obj->a10`, repeated a second time.
+ *
+ *      state 0
+ *          obj->field34 = 4 ; obj->field30 = 0
+ *          obj->field38 = t_cc_ken_masters
+ *          if obj->a10 == 0xedb00
+ *              obj->field38 = 0
+ *          push t_reaction_start                        (0x748)
+ *      state 0x748
+ *          obj->field1c = 1 ; create_blood_proc(obj)
+ *          obj->field48 = 0x60006 ; shake_a11(obj)
+ *          rsnd_func(obj, 0xa)
+ *          if obj->a10 == 0xedb00
+ *              install t_background_death
+ *          else
+ *              install t_pit_abort
+ */
+long t_r_uppercut(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x748) {
+        obj->field1c = 1;
+        create_blood_proc(obj);
+
+        obj->field48 = 0x60006;
+        shake_a11(obj);
+
+        rsnd_func(obj, 0xa);
+
+        if (obj->a10 == 0xedb00)
+            return mk3_install(thread, (MK3THREADFUNC)t_background_death);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_pit_abort);
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field34 = 4;
+    obj->field30 = 0;
+    obj->field38 = (uint32_t)(uintptr_t)t_cc_ken_masters;
+
+    if (obj->a10 == 0xedb00)
+        obj->field38 = 0;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x748;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
