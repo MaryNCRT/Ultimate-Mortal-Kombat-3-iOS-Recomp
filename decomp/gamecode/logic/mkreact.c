@@ -10027,3 +10027,70 @@ long t_r_lo_kick(struct MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ----------------------------------------------------------- t_r_robo_bomb
+ *
+ * armv7 0x000486ec, two hundred and thirty-two bytes.
+ *
+ * Shake-and-launch with the same face_opponent / flip_multi pair
+ * t_r_summon uses, closing into t_reaction_land.
+ *
+ *      state 0
+ *          obj->field30 = 0 ; obj->field38 = 0 ; obj->field34 = 1
+ *          push t_reaction_start                        (0x6cc)
+ *      state 0x6cc
+ *          obj->field1c = 2 ; group_sound(obj)
+ *          obj->field48 = 0x6006 ; shake_a11(obj)
+ *          face_opponent(obj) ; flip_multi(obj)
+ *          obj->field1c = -3.0 ; obj->field20 = -6.0
+ *          obj->field24 = 0.71875 ; obj->field28 = 5
+ *          obj->field40 += 0x19
+ *          push t_flight                                (0x6dc)
+ *      state 0x6dc
+ *          install t_reaction_land
+ */
+long t_r_robo_bomb(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x6dc)
+        return mk3_install(thread, (MK3THREADFUNC)t_reaction_land);
+
+    if (token == 0x6cc) {
+        obj->field1c = 2;
+        group_sound(obj);
+
+        obj->field48 = 0x6006;
+        shake_a11(obj);
+
+        face_opponent(obj);
+        flip_multi(obj);
+
+        obj->field1c = 0xfffd0000;               /* -3.0 in 16.16 */
+        obj->field20 = obj->field1c - 0x90000;   /* -6.0 */
+        obj->field24 = obj->field20 + 0xc6000;   /* 0.71875 */
+        obj->field28 = 5;
+        obj->field40 = obj->field40 + 0x19;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x6dc;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field30 = 0;
+    obj->field38 = 0;
+    obj->field34 = 1;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x6cc;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
