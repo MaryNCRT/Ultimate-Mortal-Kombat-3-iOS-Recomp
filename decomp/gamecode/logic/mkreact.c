@@ -10524,3 +10524,92 @@ long t_r_orb(struct MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ---------------------------------------------------------- t_shake_on_my_back
+ *
+ * armv7 0x00042218, two hundred and forty-eight bytes.
+ *
+ * A one-shot animation loop that borrows the thread's SECOND stack
+ * (`args`/`fieldf8`, `mk3_arg`) to save and restore `obj->field1c` around
+ * it, rather than using an object field the way most of this file's
+ * countdowns do. State 0 pushes the current field1c, sets up an animation
+ * window, and falls into the shared loop body; state 0x158a re-enters it
+ * every time, decrementing `obj->a10` (the loop counter) until it reaches
+ * zero, then restores field1c from the arg stack and either pops (frame
+ * still has a caller) or installs `t_local_reaction_exit` (frame empty).
+ *
+ * The loop body itself pops field1c's saved value off the arg stack, uses
+ * it, and immediately pushes the SAME value back before re-pushing itself
+ * -- net no-op on the stack's depth or contents, just how the compiler
+ * expressed "peek without disturbing" through the push/pop primitives.
+ *
+ *      state 0
+ *          *mk3_arg(thread, thread->fieldf8++) = obj->field1c
+ *          obj->field40 = 0x1e ; find_ani_part2(obj)
+ *          obj->field48 = obj->field40
+ *          (falls into the shared loop body below)
+ *      shared loop body (also entered from 0x158a when a10 is still > 0)
+ *          obj->field40 = obj->field48
+ *          v = *mk3_arg(thread, --thread->fieldf8)
+ *          obj->field1c = v
+ *          *mk3_arg(thread, thread->fieldf8++) = v
+ *          push t_mframew                                (0x158a)
+ *      state 0x158a
+ *          obj->a10 -= 1
+ *          if obj->a10 > 0
+ *              (back to the shared loop body above)
+ *          else
+ *              obj->field1c = *mk3_arg(thread, --thread->fieldf8)
+ *              if thread->frame > 0
+ *                  thread->frame -= 1 ; return 0
+ *              else
+ *                  install t_local_reaction_exit
+ */
+long t_shake_on_my_back(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t v;
+
+    if (token == 0x158a) {
+        obj->a10 = obj->a10 - 1;
+        if ((int32_t)obj->a10 > 0)
+            goto shake_on_my_back_loop;
+
+        thread->fieldf8 = thread->fieldf8 - 1;
+        obj->field1c = *mk3_arg(thread, thread->fieldf8);
+
+        if ((int32_t)thread->frame > 0) {
+            thread->frame = thread->frame - 1;
+            return 0;
+        }
+
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (token != 0)
+        return -3;
+
+    *mk3_arg(thread, thread->fieldf8) = obj->field1c;
+    thread->fieldf8 = thread->fieldf8 + 1;
+
+    obj->field40 = 0x1e;
+    find_ani_part2(obj);
+    obj->field48 = obj->field40;
+
+shake_on_my_back_loop:
+    obj->field40 = obj->field48;
+
+    thread->fieldf8 = thread->fieldf8 - 1;
+    v = *mk3_arg(thread, thread->fieldf8);
+    obj->field1c = v;
+    *mk3_arg(thread, thread->fieldf8) = v;
+    thread->fieldf8 = thread->fieldf8 + 1;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x158a;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
