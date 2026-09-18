@@ -81,6 +81,21 @@ sending somebody to "fix" correct code.
 6. **Flow facts.** After `cbz r6`, r6 is zero on that path -- the binary
    gets a constant from a branch rather than from a load, and the asm reader
    does not. Several `?` on the asm side are this one case.
+7. **Calls to imported functions, and the string literals that quote them.**
+   `facts_asm.py`'s `RE_CALL` only matches `func_XXXXXXXX_name(ctx);` --
+   recomp.py's shape for a call to a function it found in the symbol table
+   with an address. A call to an unresolved import comes out as
+   `stub_printf(ctx);` instead (no address, no `func_` prefix) and this
+   reader never sees it, so a real `printf(...)` in the readable C reports
+   as "the C has a call the binary does not" even when the call is right.
+   `facts_c.py`'s `RE_CALL` has the matching problem from the other side: it
+   is a bare `name` + whitespace + `(` scan with no idea what is a string
+   literal, so a
+   format string that happens to spell the function's own name --
+   `printf("seq_lookup( %d, %d, %d );\n", ...)` inside `seq_lookup` itself --
+   reads as a call to `seq_lookup`. `playback.c`'s `seq_lookup` is the first
+   function in this project to call an imported C library function, which is
+   why neither gap had shown up before it.
 
 ## What it will never do
 
