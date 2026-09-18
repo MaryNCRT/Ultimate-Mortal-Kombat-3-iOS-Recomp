@@ -9552,3 +9552,75 @@ long t_r_summon(struct MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------ t_r_lo_punch
+ *
+ * armv7 0x00045688, two hundred and fifty-two bytes.
+ *
+ * State 0 parks the same pair `t_r_hi_punch` parks -- `t_r_airpunch` in
+ * field30, but here `t_cc_lo_punch` in field38 instead of `t_cc_hi_punch` --
+ * and pushes `t_reaction_start`. State 0xe84 does the actual hit (react
+ * voice, sound, dec_my_p_hit, an action tag, a height-gated animation the
+ * same way the duck-kick reactions gate theirs) and pushes `t_animate_a9`;
+ * state 0xe90 installs `t_local_reaction_exit` once that's done.
+ *
+ *      state 0
+ *          inc_p_block(obj)
+ *          obj->field30 = t_r_airpunch ; obj->field34 = 1
+ *          obj->field38 = t_cc_lo_punch
+ *          push t_reaction_start                        (0xe84)
+ *      state 0xe84
+ *          rsnd_react_voice(obj) ; rsnd_func(obj, 0xc)
+ *          dec_my_p_hit(obj)
+ *          obj->field1c = 0x509 ; obj->field00->field18 = 0x509
+ *          obj->field40 = 0x3001d
+ *          if am_i_short(obj) != 0
+ *              obj->field40 = 0x30007
+ *          push t_animate_a9                              (0xe90)
+ *      state 0xe90
+ *          install t_local_reaction_exit
+ */
+long t_r_lo_punch(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0xe90)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token == 0xe84) {
+        rsnd_react_voice(obj);
+        rsnd_func(obj, 0xc);
+
+        dec_my_p_hit(obj);
+
+        obj->field1c = 0x509;
+        obj->field00->field18 = 0x509;
+        obj->field40 = 0x3001d;
+
+        if (am_i_short(obj) != 0)
+            obj->field40 = 0x30007;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xe90;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_animate_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    inc_p_block(obj);
+
+    obj->field30 = (uint32_t)(uintptr_t)t_r_airpunch;
+    obj->field34 = 1;
+    obj->field38 = (uint32_t)(uintptr_t)t_cc_lo_punch;
+
+    *mk3_frame(thread, thread->frame + 1) = 0xe84;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
