@@ -4013,3 +4013,246 @@ long t_b_punch(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_block_shake_n_exit);
 }
+
+
+long t_cc_block_upcut(struct MK3THREAD *thread);
+long t_jump_up_land_jsrp(struct MK3THREAD *thread);
+void ground_ochar(MK3OBJ *obj);
+
+
+/* -------------------------------------------------------------------- t_b_uppercut
+ *
+ * armv7 0x000437c8, a hundred and seventy-six bytes.
+ *
+ *      state 0
+ *          rsnd_func(obj, 5)
+ *          part->field48 = 0x40004 ; shake_a11(obj)
+ *          part->field30 = 0 ; part->field34 = 0
+ *          part->field38 = t_cc_block_upcut
+ *          push t_blocked_start                       (0x12f6)
+ *      state 0x12f6
+ *          part->field1c = 0x40000 ; away_x_vel(obj)
+ *          part->field48 = 2 ; obj->p_hit = 2 + 2
+ *          install t_block_shake_n_exit
+ *
+ * Blocking an uppercut shakes first, like `t_b_combo_hard`, and hands its
+ * corner check to `t_cc_block_upcut` -- a third variant of the handover
+ * `t_cc_block_avoid_corner` and `t_cc_punch` already cover, specific to
+ * this move. The push is 4.0 and the countdown 4, in between the plain
+ * punch block's 2.0/3 and the boss hit's 6.0.
+ */
+long t_b_uppercut(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        rsnd_func(obj, 5);
+
+        obj->field00->field48 = 0x40004;
+        shake_a11(obj);
+
+        obj->field00->field30 = 0;
+        obj->field00->field34 = 0;
+        obj->field00->field38 = (uint32_t)(uintptr_t)t_cc_block_upcut;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x12f6;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_blocked_start;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x12f6)
+        return -3;
+
+    obj->field00->field1c = 0x40000;        /* 4.0 in 16.16 */
+    away_x_vel(obj);
+
+    obj->field00->field48 = 2;
+    obj->field00->p_hit = 2 + 2;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_block_shake_n_exit);
+}
+
+
+/* --------------------------------------------------------------- t_block_shake
+ *
+ * armv7 0x00044750, two hundred and eight bytes.
+ *
+ *      state 0
+ *          get_char_ani(obj) ; obj->field40 += 4
+ *          token = 0x1440 ; push t_block_shake_ani
+ *      state 0x1440
+ *          token = 0x1441 ; push t_block_shake_ani
+ *      state 0x1441
+ *          obj->field40 -= 8
+ *          if (--obj->a10 != 0)
+ *              token = 0x1440 ; push t_block_shake_ani     ; loop
+ *          else
+ *              stop_me_player(obj) ; pop
+ *      otherwise refuse
+ *
+ * **The animation runs BACKWARDS, two words at a time.** `get_char_ani` and
+ * one advance of 4 set up the clip's tail; every pass after that pulls the
+ * cursor back 8, twice the step it moved forward, so the net motion per
+ * loop is backward. `t_block_shake_ani` -- see its own banner -- plays one
+ * frame and parks for whatever `obj->a10` holds, and THIS routine is what
+ * decrements a10 and decides whether to loop or stop.
+ *
+ * So the shake is: play a frame going backward through the clip, wait,
+ * repeat, for `a10` frames, then a full stop. State 0 and state 0x1440 push
+ * the same child for the same reason -- 0 does the one-time setup first and
+ * 0x1440 is the bare re-entry the loop uses afterward.
+ */
+long t_block_shake(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        get_char_ani(obj);
+        obj->field40 = obj->field40 + 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1440;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_block_shake_ani;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1440) {
+        *mk3_frame(thread, thread->frame + 1) = 0x1441;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_block_shake_ani;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x1441)
+        return -3;
+
+    obj->field40 = obj->field40 - 8;
+    obj->a10 = obj->a10 - 1;
+    if (obj->a10 != 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x1440;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_block_shake_ani;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    stop_me_player(obj);
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* --------------------------------------------------------- t_back_to_the_fight
+ *
+ * armv7 0x00047bc4, two hundred and ninety-six bytes.
+ *
+ *      state 0
+ *          MK3_SET_FIELD12(obj->field08, G[0xac] + 0x32)
+ *          obj->field40 = 0x16 ; get_char_ani(obj)
+ *          obj->field40 += 4 ; do_next_a9_frame(obj)
+ *          face_opponent(obj)
+ *          obj->field08->field20 = 0
+ *          obj->field1c = obj->field08->field1c = 0xfff40000     ; -12.0
+ *          token = 0xbb0 ; thread->fieldfc = 1 ; return 1
+ *      state 0xbb0
+ *          if ((int16_t)MK3_FIELD12(obj->field08) > obj->field00->field40)
+ *              sleep again at 0xbb0
+ *          obj->field1c = 0
+ *          obj->field20 = obj->field08->field1c    ; -12.0, carried over
+ *          obj->field24 = 0x10000 ; obj->field28 = 0xfff
+ *          push t_flight                            (0xbb8)
+ *      state 0xbb8
+ *          ground_ochar(obj)
+ *          MKEvent_Add(4, 0x38, 0, obj->field00->field08)
+ *          install t_local_reaction_exit
+ *          push t_jump_up_land_jsrp
+ *
+ * **The reverse of `t_fall_down_bell_tower`.** That launches upward at
+ * -12.0; this waits for the SAME fighter to come back down -- the height
+ * test compares `MK3_FIELD12` against the floor exactly the way
+ * `t_air_strike` and `t_slammed_slam_down` do -- and once he is down it
+ * grounds him, fires a different event (4/0x38, "back to the fight" rather
+ * than the fall's 4/0x3d), replaces itself with `t_local_reaction_exit`,
+ * and pushes `t_jump_up_land_jsrp` on top of that. So the routine that
+ * finishes the landing outlives this one: when it eventually pops, it
+ * returns into the exit rather than back here.
+ *
+ * `G[0xac] + 0x32` written into the OTHER object's field12 is a countdown
+ * or a timestamp of some kind that this file does not otherwise explain;
+ * it is transcribed as read and not guessed at further.
+ */
+long t_back_to_the_fight(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0xbb0) {
+        if ((int32_t)(int16_t)MK3_FIELD12(obj->field08)
+            > (long)obj->field00->field40) {
+            *mk3_frame(thread, thread->frame + 1) = 0xbb0;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        obj->field1c = 0;
+        obj->field20 = obj->field08->field1c;
+        obj->field24 = 0x10000;         /* 1.0 in 16.16 */
+        obj->field28 = 0xfff;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xbb8;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xbb8) {
+        ground_ochar(obj);
+        MKEvent_Add(4, 0x38, 0, (long)obj->field00->field08);
+
+        mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_jump_up_land_jsrp;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    MK3_SET_FIELD12(obj->field08,
+                    (uint32_t)(*(const uint32_t *)(const void *)(G_BYTES
+                                                                 + 0xac)
+                              + 0x32));
+
+    obj->field40 = 0x16;
+    get_char_ani(obj);
+    obj->field40 = obj->field40 + 4;
+    do_next_a9_frame(obj);
+
+    face_opponent(obj);
+
+    obj->field08->field20 = 0;
+
+    obj->field1c = 0xfff40000u;              /* -12.0 in 16.16 */
+    obj->field08->field1c = obj->field1c;
+
+    *mk3_frame(thread, thread->frame + 1) = 0xbb0;
+    thread->fieldfc = 1;
+    return 1;
+}
