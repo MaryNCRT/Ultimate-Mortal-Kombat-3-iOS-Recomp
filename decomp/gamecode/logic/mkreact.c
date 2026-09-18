@@ -5028,3 +5028,161 @@ long t_drone_flipk_getup(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+long t_up_2_ceiling(struct MK3THREAD *thread);
+long t_wait_forever(struct MK3THREAD *thread);
+long t_pit_fall_scan(struct MK3THREAD *thread);
+long t_shake_ob_up(struct MK3THREAD *thread);
+void set_inviso(MK3OBJ *obj);
+MK3THREAD *NewThread(void *owner_p, MK3THREADFUNC func);
+
+
+/* -------------------------------------------------------------------- t_fall_in_lava
+ *
+ * armv7 0x0004819c, a hundred and fifty-two bytes.
+ *
+ *      state 0
+ *          token = 0xa46 ; push t_up_2_ceiling
+ *      state 0xa46
+ *          obj->field08->field2c = obj->field08->field24 + 0x1bc6
+ *          token = 0xa48 ; thread->fieldfc = 0xb4 ; return 0xb4
+ *      state 0xa48
+ *          death_blow_complete(obj)
+ *          install t_wait_forever
+ *
+ * Sends the fighter up before the lava does anything else --
+ * `t_up_2_ceiling` runs first -- and only once that pops does the wait
+ * begin: 0x1bc6 added to the other object's own field24 and parked in its
+ * field2c, then a hundred and eighty frames of nothing before
+ * `death_blow_complete` and `t_wait_forever` end it for good.
+ */
+long t_fall_in_lava(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0xa46) {
+        obj->field08->field2c = obj->field08->field24 + 0x1bc6;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xa48;
+        thread->fieldfc = 0xb4;
+        return 0xb4;
+    }
+
+    if (token == 0xa48) {
+        death_blow_complete(obj);
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+    }
+
+    if (token != 0)
+        return -3;
+
+    *mk3_frame(thread, thread->frame + 1) = 0xa46;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_up_2_ceiling;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* -------------------------------------------------------------------- t_fall_down_pit
+ *
+ * armv7 0x0004823c, three hundred and thirty-two bytes -- the OTHER stage
+ * hazard `t_background_death`'s table can choose, alongside
+ * `t_fall_in_lava` above.
+ *
+ *      state 0
+ *          MKEvent_Add(4, 0x3b, 0, obj->field00->field08)
+ *          obj->field1c = 9 ; group_sound(obj) ; obj->field1c = 0
+ *          obj->field20 = 0xfff40000                    ; -12.0
+ *          obj->field24 = 0x6000                        ; 0.375
+ *          obj->field28 = 5 ; obj->field40 = 5 + 0x19    ; 30, SCKNOCKDOWN
+ *          obj->field34 = t_pit_fall_scan                ; parked, not run
+ *          push t_flight_call                            (0x9e2)
+ *      state 0x9e2
+ *          obj->field1c = 0x1a ; create_fx(obj)
+ *          NewThread(obj, t_machine_sound)
+ *          NewThread(obj, t_bone_grind_sound)
+ *          obj->field1c = 5 ; obj->field20 = 3 ; obj->field24 = 3
+ *          push t_shake_ob_up                            (0x9ed)
+ *      state 0x9ed
+ *          set_inviso(obj)
+ *          MKEvent_Add(4, 0x3c, 0, obj->field00->field08)
+ *          token = 0x9f0 ; thread->fieldfc = 0x60 ; return 0x60
+ *      state 0x9f0
+ *          death_blow_complete(obj)
+ *          install t_wait_forever
+ *
+ * **Two independent sound threads, spawned and left running.** Neither
+ * `NewThread` call is saved anywhere -- this routine never touches them
+ * again -- so `t_machine_sound` and `t_bone_grind_sound` each finish on
+ * their own schedule (three and six plays, per their own banners) and
+ * delete themselves through `MK3_THREAD_DONE`, independent of whichever
+ * state this function is in by the time they do.
+ *
+ * `field34` is parked with `t_pit_fall_scan` during the fall but nothing
+ * in this function ever installs or calls it -- the same handover shape
+ * used elsewhere in this file for a routine some OTHER caller picks up,
+ * here left for whatever reads the object's own field34 during the flight
+ * that follows.
+ */
+long t_fall_down_pit(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x9e2) {
+        obj->field1c = 0x1a;
+        create_fx(obj);
+
+        NewThread(obj, (MK3THREADFUNC)t_machine_sound);
+        NewThread(obj, (MK3THREADFUNC)t_bone_grind_sound);
+
+        obj->field1c = 5;
+        obj->field20 = 3;
+        obj->field24 = 3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x9ed;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_shake_ob_up;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x9ed) {
+        set_inviso(obj);
+        MKEvent_Add(4, 0x3c, 0, (long)obj->field00->field08);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x9f0;
+        thread->fieldfc = 0x60;
+        return 0x60;
+    }
+
+    if (token == 0x9f0) {
+        death_blow_complete(obj);
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+    }
+
+    if (token != 0)
+        return -3;
+
+    MKEvent_Add(4, 0x3b, 0, (long)obj->field00->field08);
+
+    obj->field1c = 9;
+    group_sound(obj);
+    obj->field1c = 0;
+
+    obj->field20 = 0xfff40000u;      /* -12.0 in 16.16 */
+    obj->field24 = 0x6000;           /* 0.375 in 16.16 */
+    obj->field28 = 5;
+    obj->field40 = 5 + 0x19;         /* 30, SCKNOCKDOWN */
+    obj->field34 = (uint32_t)(uintptr_t)t_pit_fall_scan;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x9e2;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight_call;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
