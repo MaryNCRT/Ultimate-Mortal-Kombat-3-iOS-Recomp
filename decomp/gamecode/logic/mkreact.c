@@ -7338,3 +7338,184 @@ long t_r_combo0(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+void get_my_strength(MK3OBJ *obj);
+void lights_on_slam(MK3OBJ *obj);
+void player_froze_pal(MK3OBJ *obj);
+void pose2_a9_manual(MK3OBJ *obj);
+void me_in_back(MK3OBJ *obj);
+
+
+/* ------------------------------------------------------------------- t_r_freeze
+ *
+ * armv7 0x00045fac, five hundred and twelve bytes -- six states, the most
+ * of any reaction in this batch, and one real fall-through between two of
+ * them (state 0's `field18 == 0x610` case runs straight into state
+ * `0x11bd`'s own body without re-entering through the token dispatch --
+ * modelled here with a `goto` to keep that one true rather than
+ * duplicating or re-shaping it).
+ *
+ *      state 0
+ *          lights_on_slam(obj)
+ *          obj->field20 = 6 ; obj->field00->field48 = 6
+ *          reaction_start_chores(obj)
+ *          dec_my_p_hit(obj)
+ *          obj->field1c = obj->field00->field18
+ *          if (obj->field1c == 0x610) {
+ *              obj->field38 = t_r_freeze
+ *              takeover_him(obj)
+ *              -- falls into state 0x11bd's own body
+ *          } else {
+ *              stop_me_player(obj) ; set_no_block(obj)
+ *              me_in_back(obj) ; get_my_strength(obj)
+ *              if (obj->field1c <= 8) {
+ *                  obj->field1c = 0x17 ; create_fx(obj)
+ *                  -- falls into the ">8" block below
+ *              }
+ *              obj->field1c = 0x610 ; obj->field00->field18 = 0x610
+ *              other = obj->field08
+ *              other->field2c = other->field30 & ~8 ; other->field30 = other->field2c
+ *              player_froze_pal(obj)
+ *              other = obj->field08 ; obj->field1c = other->field24
+ *              if (other->field24 == 0xa) {
+ *                  obj->field1c = other->field2c
+ *                  if ((unsigned)(obj->field1c - 0x811) <= 3) {
+ *                      obj->field40 = 1 ; pose2_a9_manual(obj)
+ *                  }
+ *                  -- falls into the shake-loop push below
+ *              } else {
+ *                  obj->field1c = 4 ; obj->field20 = 3 ; obj->field24 = 2
+ *              }
+ *              push t_shake_ob_up                       (0x11b6)
+ *          }
+ *      state 0x11b6
+ *          obj->field1c = 4 ; obj->field20 = 3 ; obj->field24 = 2
+ *          push t_shake_ob_up                           (0x11b6)      ; loop
+ *      state 0x11bb
+ *          token = 0x11bd ; thread->fieldfc = 0x60 ; return 0x60
+ *      state 0x11bd  (also reached by fall-through, see above)
+ *          player_normpal(obj)
+ *          am_i_airborn(obj)
+ *          if (obj->field5c) {
+ *              obj->field20 = 1.0 ; obj->field24 = 0.5
+ *              obj->field28 = 5 ; obj->field1c = 0 ; obj->field40 = 30
+ *              push t_flight                            (0x11cb)
+ *          } else
+ *              install t_local_reaction_exit
+ *      state 0x11cb
+ *          install t_land_on_my_back
+ *
+ * **`state 0x11b6` re-pushes itself with the same numbers every time --
+ * `t_shake_ob_up` is the shiver loop, not a one-shot.** Whatever ends it
+ * (a timeout inside `t_shake_ob_up` itself, not read here) is what finally
+ * lets the frozen fighter fall through to `state 0x11bd`'s landing check.
+ */
+long t_r_freeze(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    MK3OBJ *other;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x11bb) {
+        *mk3_frame(thread, thread->frame + 1) = 0x11bd;
+        thread->fieldfc = 0x60;
+        return 0x60;
+    }
+
+    if (token == 0x11b6) {
+        obj->field1c = 4;
+        obj->field20 = 3;
+        obj->field24 = 2;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x11b6;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_shake_ob_up;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x11cb)
+        return mk3_install(thread, (MK3THREADFUNC)t_land_on_my_back);
+
+    if (token == 0x11bd) {
+state_11bd:
+        player_normpal(obj);
+
+        am_i_airborn(obj);
+        if (obj->field5c != 0) {
+            obj->field20 = 0x10000;              /* 1.0 in 16.16 */
+            obj->field24 = 0x8000;               /* 0.5 */
+            obj->field28 = 5;
+            obj->field1c = 0;
+            obj->field40 = 5 + 0x19;              /* 30, SCKNOCKDOWN */
+
+            *mk3_frame(thread, thread->frame + 1) = 0x11cb;
+            thread->frame = thread->frame + 1;
+            mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (token != 0)
+        return -3;
+
+    lights_on_slam(obj);
+
+    obj->field20 = 6;
+    obj->field00->field48 = 6;
+
+    reaction_start_chores(obj);
+    dec_my_p_hit(obj);
+
+    obj->field1c = obj->field00->field18;
+
+    if (obj->field1c == 0x610) {
+        obj->field38 = (uint32_t)(uintptr_t)t_r_freeze;
+        takeover_him(obj);
+        goto state_11bd;
+    }
+
+    stop_me_player(obj);
+    set_no_block(obj);
+    me_in_back(obj);
+    get_my_strength(obj);
+
+    if ((int32_t)obj->field1c <= 8) {
+        obj->field1c = 0x17;
+        create_fx(obj);
+    }
+
+    obj->field1c = 0x610;
+    obj->field00->field18 = 0x610;
+
+    other = obj->field08;
+    other->field2c = other->field30 & ~8u;
+    other->field30 = other->field2c;
+
+    player_froze_pal(obj);
+
+    other = obj->field08;
+    obj->field1c = other->field24;
+
+    if (other->field24 == 0xa) {
+        obj->field1c = other->field2c;
+        if ((uint32_t)(obj->field1c - 0x811) <= 3) {
+            obj->field40 = 1;
+            pose2_a9_manual(obj);
+        }
+    } else {
+        obj->field1c = 4;
+        obj->field20 = 3;
+        obj->field24 = 2;
+    }
+
+    *mk3_frame(thread, thread->frame + 1) = 0x11b6;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_shake_ob_up;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
