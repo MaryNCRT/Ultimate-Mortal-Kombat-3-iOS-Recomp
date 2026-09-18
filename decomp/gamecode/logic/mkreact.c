@@ -3321,6 +3321,9 @@ void distance_off_ground(MK3OBJ *obj);
 void call_a0_for_him(MK3OBJ *obj);
 void zero_turbo_bar(MK3OBJ *obj);
 void lights_on_hit(MK3OBJ *obj);
+long is_he_airborn(MK3OBJ *obj);
+void towards_x_vel(MK3OBJ *obj);
+void get_x_dist(MK3OBJ *obj);
 void center_around_me(MK3OBJ *obj);
 void ground_player(MK3OBJ *obj);
 void MKEvent_Add(long type, long subtype, long param, long player);
@@ -11589,4 +11592,179 @@ long t_r_sk_air_charge(struct MK3THREAD *thread)
     mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
+}
+
+
+/* ------------------------------------------------------------------- t_r_scream
+ *
+ * armv7 0x00048d38, four hundred bytes.
+ *
+ * State 0 clears the park fields and pushes t_reaction_start. State 0x531
+ * grounds and poses the fighter, then forks on whether a stick is held --
+ * airborne, it also gives the opponent the same 1.0 field1c -- before
+ * setting an a10 countdown (either 4 or 0x2a) and self-resuming into
+ * state 0x565. That state is the actual scream: unless the opponent is
+ * airborne or already at action 0x615 (both dead ends into
+ * t_local_reaction_exit), it swaps a fixed-point offset onto the
+ * opponent's own field0e/field12 pair, negates obj->field48, and compares
+ * heights -- if obj is still below, it grounds again and adjusts x
+ * velocity depending on distance and a proc flag, then falls into the a10
+ * countdown: each call spends one a10 tick, looping back into the same
+ * state until it reaches zero, at which point it installs
+ * t_local_reaction_exit.
+ *
+ *      state 0
+ *          obj->field34 = 0 ; obj->field30 = 0 ; obj->field38 = 0
+ *          push t_reaction_start                        (0x531)
+ *      state 0x531
+ *          set_no_block(obj)
+ *          obj->field1c = 0x615 ; obj->field00->field18 = 0x615
+ *          dec_my_p_hit(obj)
+ *          obj->field1c = 0 ; obj->field00->field28 = 0
+ *          stop_me_player(obj)
+ *          obj->field40 = 0x20 ; pose_a9_manual(obj)
+ *          am_i_airborn(obj)
+ *          if obj->field5c != 0
+ *              obj->field1c = 1.0 ; obj->field08->field1c = 1.0
+ *          obj->field00->field48 = 4 ; obj->a10 = 0x2a
+ *          resume self at 0x565 after 3 frames
+ *      state 0x565
+ *          is_he_airborn(obj)
+ *          if obj->field5c != 0
+ *              stop_me_player(obj) ; ground_player(obj)
+ *              install t_local_reaction_exit
+ *          get_his_action(obj)
+ *          if obj->field20 == 0x615
+ *              stop_me_player(obj) ; ground_player(obj)
+ *              install t_local_reaction_exit
+ *          other = obj->field08
+ *          MK3_SET_FIELD0E(other, MK3_FIELD0E_S(other) + obj->field48)
+ *          obj->field1c = MK3_FIELD0E_S(other)
+ *          obj->field48 = -obj->field48
+ *          obj->field1c = MK3_FIELD12_S(other)
+ *          obj->field20 = obj->field00->field40
+ *          if obj->field20 > obj->field1c
+ *              obj->field1c = other->field5c(saved) ; other->field1c = same
+ *              ground_player(obj) ; get_x_dist(obj)
+ *              if obj->field28 > 0x50
+ *                  obj->field1c = obj->field00->field28
+ *                  if obj->field1c == 0
+ *                      obj->field1c += 2.0 ; towards_x_vel(obj)
+ *              else
+ *                  obj->field1c = 1 ; obj->field00->field28 = 1
+ *                  stop_me_player(obj)
+ *          (falls into the a10 countdown below)
+ *      a10 countdown (also reached from the field20<=field1c branch above)
+ *          obj->a10 -= 1
+ *          if obj->a10 != 0
+ *              (back to state 0x565's shared merge, resumed at 0x565
+ *               after 3 frames)
+ *          else
+ *              install t_local_reaction_exit
+ */
+long t_r_scream(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    MK3OBJ *other;
+    int32_t stick;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x565) {
+        is_he_airborn(obj);
+        if (obj->field5c != 0)
+            goto scream_dead_end;
+
+        get_his_action(obj);
+        if (obj->field20 == 0x615)
+            goto scream_dead_end;
+
+        other = obj->field08;
+        MK3_SET_FIELD0E(other, MK3_FIELD0E_S(other) + obj->field48);
+        obj->field1c = MK3_FIELD0E_S(other);
+
+        obj->field48 = (uint32_t)(-(int32_t)obj->field48);
+
+        obj->field1c = MK3_FIELD12_S(other);
+        obj->field20 = obj->field00->field40;
+
+        if ((int32_t)obj->field20 > (int32_t)obj->field1c) {
+            stick = obj->field5c;
+            obj->field1c = stick;
+            other->field1c = stick;
+
+            ground_player(obj);
+            get_x_dist(obj);
+
+            if ((int32_t)obj->field28 > 0x50) {
+                obj->field1c = obj->field00->field28;
+                if (obj->field1c == 0) {
+                    obj->field1c = obj->field1c + 0x20000;   /* 2.0 in 16.16 */
+                    towards_x_vel(obj);
+                }
+            } else {
+                obj->field1c = 1;
+                obj->field00->field28 = 1;
+                stop_me_player(obj);
+            }
+        }
+
+        goto scream_countdown;
+    }
+
+    if (token == 0x531) {
+        set_no_block(obj);
+
+        obj->field1c = 0x615;
+        obj->field00->field18 = 0x615;
+
+        dec_my_p_hit(obj);
+
+        obj->field1c = 0;
+        obj->field00->field28 = 0;
+
+        stop_me_player(obj);
+
+        obj->field40 = 0x20;
+        pose_a9_manual(obj);
+
+        am_i_airborn(obj);
+        if (obj->field5c != 0) {
+            obj->field1c = 0x10000;                  /* 1.0 in 16.16 */
+            obj->field08->field1c = 0x10000;
+        }
+
+        obj->field00->field48 = 4;
+        obj->a10 = 4 + 0x26;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x565;
+        thread->fieldfc = 3;
+        return 3;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field34 = 0;
+    obj->field30 = 0;
+    obj->field38 = 0;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x531;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
+scream_dead_end:
+    stop_me_player(obj);
+    ground_player(obj);
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+scream_countdown:
+    obj->a10 = obj->a10 - 1;
+    if (obj->a10 != 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x565;
+        thread->fieldfc = 3;
+        return 3;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
