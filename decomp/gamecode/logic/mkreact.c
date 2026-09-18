@@ -10233,3 +10233,73 @@ long t_r_slide(struct MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------- t_r_kano_swipe
+ *
+ * armv7 0x000479ec, two hundred and thirty-six bytes.
+ *
+ * The t_airborn_hit_no_sound / t_reaction_start shake-and-park chain, with
+ * an extra self-resume in the middle: state 0xf50 poses the fighter and
+ * sets an X velocity, then resumes itself at 0xf56 after 8 frames rather
+ * than pushing a new handler; 0xf56 sets one more animation rate and
+ * installs t_stumble_back_vel.
+ *
+ *      state 0
+ *          obj->field1c = 2 ; group_sound(obj)
+ *          tsound_func(obj, 0xf)
+ *          obj->field1c = 1 ; create_blood_proc(obj)
+ *          obj->field34 = 1 ; obj->field38 = 0
+ *          obj->field30 = t_airborn_hit_no_sound
+ *          push t_reaction_start                        (0xf50)
+ *      state 0xf50
+ *          obj->field40 = 0x20 ; pose_a9_manual(obj)
+ *          obj->field1c = 6.0 ; away_x_vel(obj)
+ *          resume self at 0xf56 after 8 frames
+ *      state 0xf56
+ *          obj->field1c = 4.0
+ *          install t_stumble_back_vel
+ */
+long t_r_kano_swipe(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0xf50) {
+        obj->field40 = 0x20;
+        pose_a9_manual(obj);
+
+        obj->field1c = 0x60000;                  /* 6.0 in 16.16 */
+        away_x_vel(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0xf56;
+        thread->fieldfc = 8;
+        return 8;
+    }
+
+    if (token == 0xf56) {
+        obj->field1c = 0x40000;                  /* 4.0 in 16.16 */
+        return mk3_install(thread, (MK3THREADFUNC)t_stumble_back_vel);
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field1c = 2;
+    group_sound(obj);
+
+    tsound_func(obj, 0xf);
+
+    obj->field1c = 1;
+    create_blood_proc(obj);
+
+    obj->field34 = 1;
+    obj->field38 = 0;
+    obj->field30 = (uint32_t)(uintptr_t)t_airborn_hit_no_sound;
+
+    *mk3_frame(thread, thread->frame + 1) = 0xf50;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
