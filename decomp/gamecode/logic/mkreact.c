@@ -9416,3 +9416,72 @@ long t_r_quake(struct MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------- t_r_tusk_saw
+ *
+ * armv7 0x000455ac, two hundred and twenty bytes.
+ *
+ * State 0 clears all three park fields (no walk-routine override here) and
+ * pushes `t_reaction_start`. State 0x41f is the hit itself -- blood, sound,
+ * a shake and an animation rate -- then pushes `t_animate_a0_frames`
+ * (0x000f36b8); state 0x42e installs `t_local_reaction_exit` once that's
+ * done, the same "one more link" shape `t_r_quake` takes.
+ *
+ *      state 0
+ *          obj->field30 = 0 ; obj->field34 = 0 ; obj->field38 = 0
+ *          push t_reaction_start                        (0x41f)
+ *      state 0x41f
+ *          obj->field1c = 9 ; create_blood_proc(obj)
+ *          obj->field1c = 2 ; group_sound(obj)
+ *          obj->field40 = 0x20 ; find_ani_part2(obj)
+ *          obj->field48 = 0x3000c ; shake_a11(obj)
+ *          obj->field1c = 0x4000d
+ *          push t_animate_a0_frames                      (0x42e)
+ *      state 0x42e
+ *          install t_local_reaction_exit
+ */
+long t_r_tusk_saw(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x42e)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token == 0x41f) {
+        obj->field1c = 9;
+        create_blood_proc(obj);
+
+        obj->field1c = 2;
+        group_sound(obj);
+
+        obj->field40 = 0x20;
+        find_ani_part2(obj);
+
+        obj->field48 = 0x3000c;
+        shake_a11(obj);
+
+        obj->field1c = 0x4000d;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x42e;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_a0_frames;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field30 = 0;
+    obj->field34 = 0;
+    obj->field38 = 0;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x41f;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
