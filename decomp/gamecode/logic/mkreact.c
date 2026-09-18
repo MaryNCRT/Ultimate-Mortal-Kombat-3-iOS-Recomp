@@ -3324,6 +3324,7 @@ void lights_on_hit(MK3OBJ *obj);
 long is_he_airborn(MK3OBJ *obj);
 void towards_x_vel(MK3OBJ *obj);
 void get_x_dist(MK3OBJ *obj);
+void clear_noflip(MK3OBJ *obj);
 void center_around_me(MK3OBJ *obj);
 void ground_player(MK3OBJ *obj);
 void MKEvent_Add(long type, long subtype, long param, long player);
@@ -11767,4 +11768,189 @@ scream_countdown:
         return 3;
     }
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* ----------------------------------------------------------------------- t_r_net
+ *
+ * armv7 0x00048ec8, five hundred and twelve bytes.
+ *
+ * A tug-of-war: state 0x4db sets up a decelerating pull (obj->field48
+ * loses obj->a10, here holding 0.125 rather than its usual argument-slot
+ * role -- every cycle) and pushes `t_net_sleep` at token 0x4f4; state
+ * 0x4f4 checks `obj->field00->field28`, a counter another routine
+ * maintains, either walking it down one tick per cycle (looping back
+ * through the same decelerating pull) or, once it drops to 0x28 or below,
+ * switching to `get_x_dist` and comparing against 0x45 to decide whether
+ * to keep counting down or stop outright. Once the countdown reaches zero
+ * the fighter is stopped and `obj->a10` is repurposed a second time, now
+ * for a genuine 0x20-tick countdown at token 0x50a, ending in a stick
+ * check that either installs `t_local_reaction_exit` or launches into
+ * `t_flight` / `t_reaction_land` (token 0x518).
+ *
+ *      state 0
+ *          obj->field20 = 0xa ; obj->field00->field48 = 0xa
+ *          obj->field34 = 1 ; if_shao_then_pass(obj)
+ *          obj->field30 = 0 ; obj->field38 = 0
+ *          push t_reaction_start                        (0x4db)
+ *      state 0x4db
+ *          dec_my_p_hit(obj)
+ *          obj->field1c = 8 ; group_sound(obj)
+ *          clear_noflip(obj) ; set_no_block(obj)
+ *          obj->field20 = 0x607 ; obj->field00->field18 = 0x607
+ *          obj->field40 = 0x20 ; find_ani_part2(obj)
+ *          obj->field1c = 4 ; init_anirate(obj)
+ *          obj->field48 = 3.0 ; obj->a10 = 0.125
+ *          obj->field1c = 0x50
+ *          (falls into the pull loop below)
+ *      pull loop (also reached from the decrement below)
+ *          obj->field00->field28 = obj->field1c
+ *          obj->field48 -= obj->a10 ; obj->field1c = obj->field48
+ *          away_x_vel(obj)
+ *          push t_net_sleep                              (0x4f4)
+ *      state 0x4f4
+ *          obj->field1c = obj->field00->field28
+ *          if obj->field1c <= 0x28
+ *              get_x_dist(obj)
+ *              if obj->field28 > 0x45
+ *                  (join the decrement below)
+ *              (else falls into the stop-and-countdown below)
+ *          else
+ *              (join the decrement below)
+ *      decrement (also reached from state 0x4f4's <=0x28 branch above)
+ *          obj->field1c = obj->field00->field28 - 1
+ *          obj->field00->field28 = obj->field1c
+ *          if obj->field1c != 0
+ *              (back to the pull loop above)
+ *          (falls into the stop-and-countdown below)
+ *      stop and 0x20-tick countdown
+ *          stop_me_player(obj) ; obj->a10 = 0x20
+ *          push t_net_sleep                              (0x50a)
+ *      state 0x50a
+ *          obj->a10 -= 1
+ *          if obj->a10 != 0
+ *              (back to the same push above)
+ *          else
+ *              am_i_airborn(obj)
+ *              if obj->field5c == 0
+ *                  install t_local_reaction_exit
+ *              obj->field24 = 0x8000 ; obj->field1c = 0 ; obj->field28 = 5
+ *              obj->field20 = 0 ; obj->field40 += 0x19
+ *              push t_flight                                (0x518)
+ *      state 0x518
+ *          install t_reaction_land
+ */
+long t_r_net(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x4f4) {
+        obj->field1c = obj->field00->field28;
+        if ((int32_t)obj->field1c <= 0x28) {
+            get_x_dist(obj);
+            if ((int32_t)obj->field28 > 0x45)
+                goto net_decrement;
+            goto net_stop;
+        }
+        goto net_decrement;
+    }
+
+    if (token == 0x50a) {
+        obj->a10 = obj->a10 - 1;
+        if (obj->a10 != 0)
+            goto net_push_50a;
+
+        am_i_airborn(obj);
+        if (obj->field5c == 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+        obj->field24 = 0x8000;
+        obj->field1c = obj->a10;
+        obj->field28 = 5;
+        obj->field20 = obj->a10;
+        obj->field40 = obj->field40 + 0x19;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x518;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x518)
+        return mk3_install(thread, (MK3THREADFUNC)t_reaction_land);
+
+    if (token == 0x4db) {
+        dec_my_p_hit(obj);
+
+        obj->field1c = 8;
+        group_sound(obj);
+
+        clear_noflip(obj);
+        set_no_block(obj);
+
+        obj->field20 = 0x607;
+        obj->field00->field18 = 0x607;
+
+        obj->field40 = 0x20;
+        find_ani_part2(obj);
+
+        obj->field1c = 4;
+        init_anirate(obj);
+
+        obj->field48 = 0x30000;                  /* 3.0 in 16.16 */
+        obj->a10 = obj->field48 - 0x2e000;       /* 0.125 */
+
+        obj->field1c = 0x50;
+        goto net_pull_loop;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field20 = 0xa;
+    obj->field00->field48 = 0xa;
+    obj->field34 = 1;
+
+    if_shao_then_pass(obj);
+
+    obj->field30 = 0;
+    obj->field38 = 0;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x4db;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
+net_decrement:
+    obj->field1c = obj->field00->field28 - 1;
+    obj->field00->field28 = obj->field1c;
+    if (obj->field1c != 0)
+        goto net_pull_loop;
+
+net_stop:
+    stop_me_player(obj);
+    obj->a10 = 0x20;
+
+net_push_50a:
+    *mk3_frame(thread, thread->frame + 1) = 0x50a;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_net_sleep;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
+net_pull_loop:
+    obj->field00->field28 = obj->field1c;
+
+    obj->field48 = obj->field48 - obj->a10;
+    obj->field1c = obj->field48;
+    away_x_vel(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x4f4;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_net_sleep;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
 }
