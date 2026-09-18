@@ -10303,3 +10303,78 @@ long t_r_kano_swipe(struct MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------ t_r_roundhouse
+ *
+ * armv7 0x00044c60, two hundred and forty-four bytes.
+ *
+ * A hit-and-launch reaction: state 0 plays the hit (blood, sound, shake)
+ * and parks t_cc_ken_masters in field38 -- the same handover slot
+ * t_cc_ken_masters's own banner describes, since here it's obj->field00
+ * being written, not obj's own field38 the way t_r_uppercut wrote it --
+ * before pushing t_reaction_start; the state after that is the launch into
+ * t_flight, closing into t_land_on_my_back.
+ *
+ *      state 0
+ *          obj->field1c = 0 ; create_blood_proc(obj)
+ *          obj->field1c = 2 ; group_sound(obj)
+ *          rsnd_func(obj, 0xa)
+ *          obj->field48 = 0x60006 ; shake_a11(obj)
+ *          obj->field34 = 1 ; obj->field30 = 0
+ *          obj->field00->field38 = t_cc_ken_masters
+ *          push t_reaction_start                        (0xf1c)
+ *      state 0xf1c
+ *          obj->field1c = 6.0 ; obj->field20 = -8.0
+ *          obj->field24 = 0.53125 ; obj->field28 = 5
+ *          obj->field40 += 0x19
+ *          push t_flight                                (0xf23)
+ *      state 0xf23
+ *          install t_land_on_my_back
+ */
+long t_r_roundhouse(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0xf23)
+        return mk3_install(thread, (MK3THREADFUNC)t_land_on_my_back);
+
+    if (token == 0xf1c) {
+        obj->field1c = 0x60000;                  /* 6.0 in 16.16 */
+        obj->field20 = obj->field1c - 0xe0000;   /* -8.0 */
+        obj->field24 = obj->field20 + 0x88000;   /* 0.53125 */
+        obj->field28 = 5;
+        obj->field40 = obj->field40 + 0x19;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xf23;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field1c = 0;
+    create_blood_proc(obj);
+
+    obj->field1c = 2;
+    group_sound(obj);
+
+    rsnd_func(obj, 0xa);
+
+    obj->field48 = 0x60006;
+    shake_a11(obj);
+
+    obj->field34 = 1;
+    obj->field30 = 0;
+    obj->field00->field38 = (uint32_t)(uintptr_t)t_cc_ken_masters;
+
+    *mk3_frame(thread, thread->frame + 1) = 0xf1c;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
