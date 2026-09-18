@@ -9143,3 +9143,65 @@ pounce2_animate:
     thread->fieldfc = 3;
     return 3;
 }
+
+
+/* ---------------------------------------------------------- t_r_zoom_flipped
+ *
+ * armv7 0x000490c8, a hundred and eighty-four bytes.
+ *
+ * A launch into `t_flight`, same as the combo/uppercut family: state 0 sets
+ * the launch numbers and pushes `t_flight` with token 0x443. State 0x443 is
+ * the landing -- it always copies `obj->field00->p_hit` into `obj->field1c`,
+ * and only calls `damage_to_me` (accumulating the hit into
+ * `obj->field00->field54`, `add_combo_damage`'s own field) when `p_hit` is
+ * still 3 or under; past that, `obj->a10` is forced to 8 first so the
+ * landing plays through unarmed either way before installing
+ * `t_land_on_my_back`.
+ *
+ *      state 0
+ *          obj->field1c = -8.0 ; obj->field20 = -6.0
+ *          obj->field24 = 0.40625 ; obj->field28 = 4
+ *          push t_flight                                (0x443)
+ *      state 0x443
+ *          obj->a10 = 0x20
+ *          obj->field1c = obj->field00->p_hit
+ *          if obj->field1c > 3
+ *              obj->a10 = 8
+ *          damage_to_me(obj)
+ *          obj->field20 = obj->a10 + obj->field00->field54
+ *          obj->field00->field54 = obj->field20
+ *          install t_land_on_my_back
+ */
+long t_r_zoom_flipped(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x443) {
+        obj->a10 = 0x20;
+
+        obj->field1c = obj->field00->p_hit;
+        if ((int32_t)obj->field1c > 3)
+            obj->a10 = 8;
+
+        damage_to_me(obj);
+
+        obj->field20 = obj->a10 + obj->field00->field54;
+        obj->field00->field54 = obj->field20;
+        return mk3_install(thread, (MK3THREADFUNC)t_land_on_my_back);
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field1c = 0xfff80000;               /* -8.0 in 16.16 */
+    obj->field20 = obj->field1c + 0x20000;   /* -6.0 */
+    obj->field24 = obj->field20 + 0x68000;   /* 0.40625 */
+    obj->field28 = 4;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x443;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
