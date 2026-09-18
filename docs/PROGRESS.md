@@ -2,7 +2,7 @@
 
 Current state of the project. Written so that someone can pick it up with no prior context.
 
-**Last updated:** 2026-09-10 — see [HANDOFF.md](HANDOFF.md) for the route and
+**Last updated:** 2026-09-18 — see [HANDOFF.md](HANDOFF.md) for the route and
 [ENCARGO.md](ENCARGO.md) for the next task.
 
 > Latest: **the decompiled main menu is on screen and takes input.**
@@ -12,7 +12,7 @@ Current state of the project. Written so that someone can pick it up with no pri
 > for a finger. `UMK3_SHOT=<n>` ticks n frames, writes `umk3-menu.ppm` and
 > quits, which is where the screenshot in the repo root comes from.
 >
-> The fight engine is at **1,561 of 2,172** and ten of its twenty-one files
+> The fight engine is at **1,671 of 2,172** and fifteen of its twenty-one files
 > are closed. Nothing is playable: the menu draws and responds, and the fight
 > itself has no runtime yet.
 >
@@ -85,11 +85,11 @@ four that contradicted a hand-written runtime definition.
 
 The menu is drawn. What is left, in order:
 
-1. **`gamecode/logic`, 1,561 of 2,172.** The fight engine, and by a wide margin
-   the largest block left. Ten of its twenty-one files are closed;
-   `mkdrone.c` (238 left), `mkreact.c` (135) and `mkzap.c` (62) are the bulk of
-   the rest, and six small files totalling 68 functions have never been
-   opened.
+1. **`gamecode/logic`, 1,671 of 2,172.** The fight engine, and by a wide margin
+   the largest block left. Fifteen of its twenty-one files are closed;
+   `mkdrone.c` (238 left), `mkreact.c` (80), `mkboss.c` (75), `mkzap.c` (62)
+   and `mkfriend.c` (45, never opened) are the whole of the rest, plus one
+   function left in `playback.c`.
 
    **For a minimal playable scene the number is much smaller and it has been
    measured, not estimated.** All fifteen logic files were compiled to objects
@@ -152,22 +152,22 @@ one**, and only one of them has ever been measured.
 ## Overall progress
 
 ```
-█████████████████████████████░░░░░░░░░░░  71.93%
+█████████████████████████████░░░░░░░░░░░  73.24%
 ```
 
-**71.93% of the total estimated effort. Nothing is playable yet.**
+**73.24% of the total estimated effort. Nothing is playable yet.**
 
 Weights are our judgement of how much of the total each area represents. The
 three decompilation figures are **measured from the tree** by
 `tools/progress.py` on every run; the other five are estimates a person
 maintains. Two numbers are worth keeping apart:
 
-- **~71%** — share of the *whole project*, counting analysis, tooling and formats.
-- **~70%** — share of the *decompilation itself*: 1,900 finished functions of
-  2,633 (109 `lime/common` + 291 `gamecode` + 1,561 `gamecode/logic`).
+- **~73%** — share of the *whole project*, counting analysis, tooling and formats.
+- **~81%** — share of the *decompilation itself*: 2,071 finished functions of
+  2,572 (109 `lime/common` + 291 `gamecode` + 1,671 `gamecode/logic`).
 
 Both are true. The first says the foundations are in place and the engine core is
-done; the second says the fight engine has barely been touched.
+done; the second says the fight engine is now more than three-quarters written.
 
 | Area | Weight | Done | |
 |---|---:|---:|---|
@@ -176,7 +176,7 @@ done; the second says the fight engine has barely been touched.
 | Asset format specifications | 8% | 100% | `██████████` |
 | `lime/common` — engine core (109 fn) | 12% | **100%** | `██████████` |
 | `gamecode` — game logic (291 fn) | 18% | **100%** | `██████████` |
-| `gamecode/logic` — fight engine (2,172 fn) | 28% | 72.24% (1569) | `███████░░░` |
+| `gamecode/logic` — fight engine (2,172 fn) | 28% | 76.93% (1671) | `████████░░` |
 | Native PC platform layer (161 fn to rewrite) | 17% | 10% | `█░░░░░░░░░` |
 | EA SDK stubs (~1,412 fn) | 5% | 0% | `░░░░░░░░░░` |
 
@@ -217,10 +217,10 @@ any of the port is written.
 | 5 — Native PC platform layer | ⬜ not started |
 | 6 — EA SDK stubs | ⬜ not started (scope reduced, see below) |
 | 7 — Decompile `gamecode` | ✅ 291/291 |
-| 8 — Decompile fight logic | 🔄 1,561/2,172 — ten of twenty-one files closed |
+| 8 — Decompile fight logic | 🔄 1,671/2,172 — fifteen of twenty-one files closed |
 | 9 — Widescreen, gamepad, mods | ⬜ not started |
 
-**Honest framing:** 1,900 of 2,572 functions are done. The percentage is not the
+**Honest framing:** 2,071 of 2,572 functions are done. The percentage is not the
 interesting number — **nothing is playable**, because the fight engine has no
 runtime and a third of it is still unread. What the number does say is that the
 menu you can click on is not a mock-up: it is the retail front end, transcribed
@@ -256,7 +256,7 @@ are where the next person should look.
 
 ## Module status — `gamecode`
 
-**291 of 291.** Plus 1,561 of 2,172 in `gamecode/logic`.
+**291 of 291.** Plus 1,671 of 2,172 in `gamecode/logic`.
 
 | file | done | total | test | checks |
 |---|---:|---:|---|---:|

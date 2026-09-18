@@ -172,7 +172,7 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ## Overall progress
 
 ```
-█████████████████████████████░░░░░░░░░░░  72.12%
+█████████████████████████████░░░░░░░░░░░  73.24%
 ```
 
 | Area | Weight | Done | |
@@ -182,11 +182,11 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 | Asset format specifications | 8% | 100% | `██████████` |
 | `lime/common` — engine core (109 fn) | 12% | **100%** | `██████████` |
 | `gamecode` — game logic (291 fn) | 18% | **100%** | `██████████` |
-| `gamecode/logic` — fight engine (2,172 fn) | 28% | 72.93% (1584) | `███████░░░` |
+| `gamecode/logic` — fight engine (2,172 fn) | 28% | 76.93% (1671) | `████████░░` |
 | Native PC platform layer (161 fn to rewrite) | 17% | 10% | `█░░░░░░░░░` |
 | EA SDK stubs (~1,412 fn) | 5% | 0% | `░░░░░░░░░░` |
 
-**72.12% of the total estimated effort. Nothing is playable yet.**
+**73.24% of the total estimated effort. Nothing is playable yet.**
 
 **The middle three rows are counted, the rest are estimates.** `tools/progress.py`
 reads the tree on every run for `lime/common`, `gamecode` and `gamecode/logic`;
@@ -211,21 +211,23 @@ even though it renders no pixels.
 body; all nine of its files are also verified against the recompiled original.
 
 **Why the number is still not high.** The fight engine is 2,172 functions on
-its own and 588 of them have no body yet, which is where nearly all of the
-remaining work is. Six files still hold most of it:
+its own and 501 of them have no body yet, which is where nearly all of the
+remaining work is. Six files still hold nearly all of it:
 
 | | missing | what it is |
 |---|---:|---|
 | `mkdrone.c` | 238 | the AI opponent |
-| `mkreact.c` | 135 | what being hit does to you |
+| `mkreact.c` | 80 | what being hit does to you |
 | `mkboss.c` | 75 | Motaro and Shao Kahn |
 | `mkzap.c` | 62 | projectiles |
 | `mkfriend.c` | 45 | friendships |
-| `joy.c` | 24 | the input layer |
+| `playback.c` | 1 | special-move sequence decoding, one function left |
 
-Eight of the twenty-one files are finished, including the three largest --
-`moves.c`, `other.c` and `mkfatal.c` -- so the count is further along than the
-shape of the list suggests. Realistically the rest is still months of work.
+Fifteen of the twenty-one files are finished, including the three largest --
+`moves.c`, `other.c` and `mkfatal.c` -- plus `joy.c` (the input layer) and
+`mkbonus.c`, both closed since the count above stood at eight. So the count is
+further along than the shape of the list suggests. Realistically the rest is
+still months of work.
 
 ### `lime/common` is complete — and here is what that does and does not mean
 
