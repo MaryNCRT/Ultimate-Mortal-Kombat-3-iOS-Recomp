@@ -47,9 +47,7 @@ extern char t_d_getup[];
 long t_getup_stay_ducked(MK3THREAD *thread);
 long t_joy_getup_abort(MK3THREAD *thread);
 
-/* Not decompiled: t_r_floor_ice pushes it directly (a plain pc-relative
- * function address, not a __DATA slot), and never calls it itself. */
-extern char t_slip_sleep[];
+long t_slip_sleep(MK3THREAD *thread);
 
 /* Not decompiled: t_r_ermac_slam pushes it directly and never calls it. */
 extern char t_slammed_zoom_up[];
@@ -8217,5 +8215,66 @@ long t_r_ermac_fatal_slam(MK3THREAD *thread)
     mk3_frame(thread, thread->frame)[1] =
         (uint32_t)(uintptr_t)t_slammed_shake_up;
     *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* --------------------------------------------------------------- t_slip_sleep
+ *
+ * armv7 0x000441bc, a hundred and fifty-two bytes.
+ *
+ * The wobble's clock: `t_r_floor_ice` pushes this, and this is what actually
+ * counts frames while a fighter slides. State 0 arms it (token := 0x273,
+ * sleep one frame); every call after that spends one tick of
+ * `obj->field00->field3c` -- a countdown this function only reads and
+ * decrements, never sets -- and, as long as it is still running, does not
+ * re-push or install anything at all. It just pops: `thread->frame -= 1`,
+ * the same "act once, frame comes back down" idiom the one-shot reaction
+ * steps use, except spread across as many calls as the countdown has left in
+ * it rather than a single call.
+ *
+ * Two different ways to run out both land on the same place,
+ * `t_local_reaction_exit`, reached through its pointer slot at 0x000f3708:
+ * the countdown hitting zero, and the stack frame itself being empty (frame
+ * <= 0) when there is nothing left to pop into.
+ *
+ *      state 0
+ *          token := 0x273 ; thread->fieldfc = 1 ; return 1
+ *      state 0x273
+ *          next_anirate(obj)
+ *          obj->field1c = obj->field00->field3c - 1
+ *          if obj->field1c == 0
+ *              install t_local_reaction_exit
+ *          obj->field00->field3c = obj->field1c
+ *          if thread->frame <= 0
+ *              install t_local_reaction_exit
+ *          thread->frame -= 1 ; return 0
+ */
+long t_slip_sleep(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x273;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token != 0x273)
+        return -3;
+
+    next_anirate(obj);
+
+    obj->field1c = obj->field00->field3c - 1;
+    if (obj->field1c == 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    obj->field00->field3c = obj->field1c;
+
+    if ((int32_t)thread->frame <= 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    thread->frame = thread->frame - 1;
     return 0;
 }
