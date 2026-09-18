@@ -3325,6 +3325,8 @@ long is_he_airborn(MK3OBJ *obj);
 void towards_x_vel(MK3OBJ *obj);
 void get_x_dist(MK3OBJ *obj);
 void clear_noflip(MK3OBJ *obj);
+void get_char_ani2(MK3OBJ *obj);
+void q_am_i_a_boss(MK3OBJ *obj);
 void center_around_me(MK3OBJ *obj);
 void ground_player(MK3OBJ *obj);
 void MKEvent_Add(long type, long subtype, long param, long player);
@@ -11953,4 +11955,206 @@ net_pull_loop:
     mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_net_sleep;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
+}
+
+
+/* -------------------------------------------------------------- t_r_tusk_blur
+ *
+ * armv7 0x00047170, six hundred and eight bytes -- the largest function in
+ * this file.
+ *
+ * State 0 pushes `t_reaction_start` (after the usual `if_shao_then_pass`).
+ * State 0x107f sets up the animation, borrowing the thread's SECOND stack
+ * (`mk3_arg`) once to save and restore `obj->field00->field24` around a
+ * write of 6 into it -- the same save/restore-through-the-arg-stack idiom
+ * `t_shake_on_my_back` uses -- then self-resumes into state 0x1095. That
+ * state counts down `obj->field00->field28` and, separately,
+ * `obj->a10` (0x30, decremented once every other call), looping
+ * through the self-resume until both run out. Once they do, `p_hit` and
+ * `field54` get the same save-through-the-arg-stack-then-zero-then-restore
+ * treatment (two pushes this time, popped in reverse) around a call to
+ * `back_to_normal`, and the reaction forks three ways on whether the
+ * fighter is airborne, is a boss, or neither -- ending respectively in
+ * `t_fall_on_my_back`, `t_local_reaction_exit`, or a genuine push into
+ * `t_animate_a0_frames` (token 0x10be), which itself just installs
+ * `t_local_reaction_exit`.
+ *
+ *      state 0
+ *          obj->field34 = 1 ; if_shao_then_pass(obj)
+ *          obj->field30 = 0 ; obj->field38 = 0
+ *          push t_reaction_start                        (0x107f)
+ *      state 0x107f
+ *          stop_me_player(obj) ; set_no_block(obj)
+ *          obj->field1c = 0x617 ; obj->field00->field18 = 0x617
+ *          obj->field1c = obj->field08->field24
+ *          *mk3_arg(thread, thread->fieldf8++) = obj->field1c
+ *          obj->field1c = 6 ; obj->field08->field24 = 6
+ *          obj->field40 = 8 ; get_char_ani2(obj)
+ *          obj->field1c = *mk3_arg(thread, --thread->fieldf8)
+ *          obj->field08->field24 = obj->field1c
+ *          do_next_a9_frame(obj)
+ *          obj->field1c = 4 ; obj->field00->field28 = 4
+ *          obj->a10 = 0x30
+ *          (falls into the self-resume below)
+ *      self-resume (also reached from state 0x1095's own countdown)
+ *          resume self at 0x1095 after 2 frames
+ *      state 0x1095
+ *          do_next_a9_frame(obj)
+ *          obj->field1c = obj->field00->field28 - 1
+ *          if obj->field1c == 0
+ *              rsnd_func(obj, 0xe) ; obj->field1c = 4
+ *              (join the countdown-continue block below)
+ *          (falls into the countdown-continue block below)
+ *      countdown-continue (also reached from the field28==0 branch above)
+ *          obj->field00->field28 = obj->field1c
+ *          obj->a10 -= 1
+ *          if obj->a10 != 0
+ *              (back to the self-resume above)
+ *          obj->field1c = obj->field00->p_hit
+ *          obj->field20 = obj->field00->field54
+ *          *mk3_arg(thread, thread->fieldf8++) = obj->field1c
+ *          *mk3_arg(thread, thread->fieldf8++) = obj->field20
+ *          obj->field1c = obj->a10 ; obj->field00->p_hit = obj->a10
+ *          obj->field1c = obj->a10 ; obj->field00->field54 = obj->a10
+ *          back_to_normal(obj)
+ *          obj->field20 = *mk3_arg(thread, --thread->fieldf8)
+ *          obj->field1c = *mk3_arg(thread, --thread->fieldf8)
+ *          obj->field00->p_hit = obj->field1c
+ *          obj->field00->field54 = obj->field20
+ *          obj->field1c = 0x617 ; obj->field00->field18 = 0x617
+ *          am_i_airborn(obj)
+ *          if obj->field5c != 0
+ *              install t_fall_on_my_back
+ *          ground_player(obj) ; q_am_i_a_boss(obj)
+ *          if obj->field5c != 0
+ *              install t_local_reaction_exit
+ *          obj->field40 = 0x25 ; get_char_ani(obj)
+ *          obj->field1c = 0x5000c
+ *          push t_animate_a0_frames                        (0x10be)
+ *      state 0x10be
+ *          install t_local_reaction_exit
+ */
+long t_r_tusk_blur(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x10be)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token == 0x1095) {
+        do_next_a9_frame(obj);
+
+        obj->field1c = obj->field00->field28 - 1;
+        if (obj->field1c == 0) {
+            rsnd_func(obj, 0xe);
+            obj->field1c = 4;
+        }
+
+        goto tusk_blur_countdown;
+    }
+
+    if (token == 0x107f) {
+        stop_me_player(obj);
+        set_no_block(obj);
+
+        obj->field1c = 0x617;
+        obj->field00->field18 = 0x617;
+
+        obj->field1c = obj->field08->field24;
+        *mk3_arg(thread, thread->fieldf8) = obj->field1c;
+        thread->fieldf8 = thread->fieldf8 + 1;
+
+        obj->field1c = 6;
+        obj->field08->field24 = 6;
+
+        obj->field40 = 8;
+        get_char_ani2(obj);
+
+        thread->fieldf8 = thread->fieldf8 - 1;
+        obj->field1c = *mk3_arg(thread, thread->fieldf8);
+        obj->field08->field24 = obj->field1c;
+
+        do_next_a9_frame(obj);
+
+        obj->field1c = 4;
+        obj->field00->field28 = 4;
+        obj->a10 = 0x30;
+
+        goto tusk_blur_resume;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field34 = 1;
+    if_shao_then_pass(obj);
+
+    obj->field30 = 0;
+    obj->field38 = 0;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x107f;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
+tusk_blur_countdown:
+    obj->field00->field28 = obj->field1c;
+
+    obj->a10 = obj->a10 - 1;
+    if (obj->a10 != 0)
+        goto tusk_blur_resume;
+
+    obj->field1c = obj->field00->p_hit;
+    obj->field20 = obj->field00->field54;
+
+    *mk3_arg(thread, thread->fieldf8) = obj->field1c;
+    thread->fieldf8 = thread->fieldf8 + 1;
+    *mk3_arg(thread, thread->fieldf8) = obj->field20;
+    thread->fieldf8 = thread->fieldf8 + 1;
+
+    obj->field1c = obj->a10;
+    obj->field00->p_hit = obj->a10;
+    obj->field1c = obj->a10;
+    obj->field00->field54 = obj->a10;
+
+    back_to_normal(obj);
+
+    thread->fieldf8 = thread->fieldf8 - 1;
+    obj->field20 = *mk3_arg(thread, thread->fieldf8);
+    thread->fieldf8 = thread->fieldf8 - 1;
+    obj->field1c = *mk3_arg(thread, thread->fieldf8);
+
+    obj->field00->p_hit = obj->field1c;
+    obj->field00->field54 = obj->field20;
+
+    obj->field1c = 0x617;
+    obj->field00->field18 = 0x617;
+
+    am_i_airborn(obj);
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_fall_on_my_back);
+
+    ground_player(obj);
+    q_am_i_a_boss(obj);
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    obj->field40 = 0x25;
+    get_char_ani(obj);
+
+    obj->field1c = 0x5000c;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x10be;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_animate_a0_frames;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
+tusk_blur_resume:
+    *mk3_frame(thread, thread->frame + 1) = 0x1095;
+    thread->fieldfc = 2;
+    return 2;
 }
