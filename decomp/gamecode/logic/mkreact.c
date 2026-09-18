@@ -1159,6 +1159,7 @@ long t_rup3(struct MK3THREAD *thread);
 long am_i_airborn(MK3OBJ *obj);
 long create_blood_proc(MK3OBJ *obj);
 void create_fx(MK3OBJ *obj);
+void find_last_frame(MK3OBJ *obj);
 long do_next_a9_frame(MK3OBJ *obj);
 void find_ani_last_frame(MK3OBJ *obj);
 void get_his_action(MK3OBJ *obj);
@@ -4717,5 +4718,161 @@ long t_combo1(MK3THREAD *thread)
     if (token != 0xc7a)
         return -3;
 
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+long t_land_on_my_back(struct MK3THREAD *thread);
+void set_no_block(MK3OBJ *obj);
+void create_fx(MK3OBJ *obj);
+
+
+/* ---------------------------------------------------------------- t_combo43
+ *
+ * armv7 0x00045ddc, two hundred and forty-eight bytes.
+ *
+ *      state 0
+ *          obj->field30 = 0 ; obj->field34 = 0 ; obj->field38 = 9
+ *          push t_reaction_start                      (0xce8)
+ *      state 0xce8
+ *          set_no_block(obj)
+ *          obj->field1c = 4 ; create_blood_proc(obj)
+ *          obj->field1c = 2 ; group_sound(obj)
+ *          rsnd_func(obj, 0xa)
+ *          obj->field1c = 0xe ; create_fx(obj)
+ *          obj->field48 = 0xa000a ; shake_a11(obj)
+ *          obj->field1c = 0xa0000                       ; 10.0
+ *          obj->field20 = obj->field1c - 0x120000        ; -8.0
+ *          obj->field24 = obj->field20 + 0x88000         ; 0.53125
+ *          obj->field28 = 5 ; obj->field40 = 5 + 0x19    ; 30, SCKNOCKDOWN
+ *          push t_flight                                (0xcfb)
+ *      state 0xcfb
+ *          install t_land_on_my_back
+ *
+ * Sets `field38 = 9` before the reaction even starts -- a plain word, not
+ * a handler, unlike every other reaction that parks a routine there. This
+ * combo finisher then blocks blocking outright (`set_no_block`), sprays
+ * blood and an effect, shakes, and launches on the same 10.0/-8.0 pair
+ * (net -8.0 velocity against a small positive `field24`) that lands on
+ * animation 30 -- the knockdown every hard fall in this file shares --
+ * before handing the landing to `t_land_on_my_back` once the flight ends.
+ */
+long t_combo43(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field00->field30 = 0;
+        obj->field00->field34 = 0;
+        obj->field00->field38 = 9;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xce8;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_reaction_start;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xcfb)
+        return mk3_install(thread, (MK3THREADFUNC)t_land_on_my_back);
+
+    if (token != 0xce8)
+        return -3;
+
+    set_no_block(obj);
+
+    obj->field1c = 4;
+    create_blood_proc(obj);
+
+    obj->field1c = 2;
+    group_sound(obj);
+
+    rsnd_func(obj, 0xa);
+
+    obj->field1c = 0xe;
+    create_fx(obj);
+
+    obj->field48 = 0xa000a;
+    shake_a11(obj);
+
+    obj->field1c = 0xa0000;                     /* 10.0 in 16.16 */
+    obj->field20 = obj->field1c - 0x120000;     /* -8.0 */
+    obj->field24 = obj->field20 + 0x88000;      /* 0.53125 */
+    obj->field28 = 5;
+    obj->field40 = 5 + 0x19;                    /* 30, SCKNOCKDOWN */
+
+    *mk3_frame(thread, thread->frame + 1) = 0xcfb;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* --------------------------------------------------------- t_death_slam_pause
+ *
+ * armv7 0x00049a64, two hundred and four bytes.
+ *
+ *      state 0
+ *          death_scream(obj)
+ *          obj->field40 = 0x1e ; find_ani_part2(obj) ; find_last_frame(obj)
+ *          do_next_a9_frame(obj)
+ *          save obj->field48 on the arg ring
+ *          obj->field48 = 0x80005 ; shake_a11(obj)
+ *          restore obj->field48 from the ring
+ *          tsound_func(obj, 0x81)
+ *          token = 0x1e4 ; thread->fieldfc = 3 ; return 3
+ *      state 0x1e4
+ *          pose_stumble_frame_1(obj) ; pop
+ *
+ * **field48 is borrowed and given back in the same breath.** It is saved
+ * on `thread->args` before `shake_a11` needs a fresh event id there and
+ * restored the instruction after the call returns -- the shortest save
+ * this file makes, one call wide, rather than spanning a push the way
+ * `t_reaction_start` spans its child.
+ */
+long t_death_slam_pause(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t cur, saved;
+
+    if (token == 0) {
+        death_scream(obj);
+
+        obj->field40 = 0x1e;
+        find_ani_part2(obj);
+        find_last_frame(obj);
+        do_next_a9_frame(obj);
+
+        cur = thread->fieldf8;
+        saved = obj->field48;
+        *mk3_arg(thread, cur) = saved;
+        thread->fieldf8 = cur + 1;
+
+        obj->field48 = 0x80005;
+        shake_a11(obj);
+
+        thread->fieldf8 = thread->fieldf8 - 1;
+        obj->field48 = *mk3_arg(thread, thread->fieldf8);
+
+        tsound_func(obj, 0x81);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1e4;
+        thread->fieldfc = 3;
+        return 3;
+    }
+
+    if (token != 0x1e4)
+        return -3;
+
+    pose_stumble_frame_1(obj);
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
