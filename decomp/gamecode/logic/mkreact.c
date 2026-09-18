@@ -9067,3 +9067,79 @@ long t_r_scorp_tele(struct MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------- t_r_pounce2
+ *
+ * armv7 0x000444c0, a hundred and eighty bytes.
+ *
+ * A self-resuming animation loop rather than a shake-and-park: state 0 sets
+ * up the animation window (obj->a10 = the frame past it, obj->field40 =
+ * eight frames before it) and a repeat count in obj->field48, then falls
+ * straight into the shared "advance one frame, sleep three" block that
+ * states 0x47b and 0x47f also enter. 0x47b re-enters that same block every
+ * time; 0x47f is what decrements the repeat count and either loops back
+ * into it (still counting down) or plays the final frame and installs
+ * `t_pounce4` (count exhausted).
+ *
+ *      state 0
+ *          obj->field1c = 2 ; group_sound(obj)
+ *          obj->field48 = 3
+ *          (falls into the shared block below)
+ *      shared block (also entered from 0x47f when still counting down)
+ *          obj->field40 = 0x1e ; find_ani_part2(obj)
+ *          obj->field44 = obj->field40 + 4
+ *          obj->field40 = obj->field40 - 8
+ *          do_next_a9_frame(obj)
+ *          resume self at 0x47b after 3 frames
+ *      state 0x47b
+ *          obj->field40 = obj->a10 ; do_next_a9_frame(obj)
+ *          resume self at 0x47f after 3 frames
+ *      state 0x47f
+ *          obj->field48 -= 1
+ *          if obj->field48 > 0
+ *              (back to the shared block)
+ *          else
+ *              install t_pounce4
+ */
+long t_r_pounce2(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x47b) {
+        obj->field40 = obj->a10;
+        do_next_a9_frame(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x47f;
+        thread->fieldfc = 3;
+        return 3;
+    }
+
+    if (token == 0x47f) {
+        obj->field48 = obj->field48 - 1;
+        if ((int32_t)obj->field48 > 0)
+            goto pounce2_animate;
+
+        return mk3_install(thread, (MK3THREADFUNC)t_pounce4);
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field1c = 2;
+    group_sound(obj);
+    obj->field48 = 3;
+
+pounce2_animate:
+    obj->field40 = 0x1e;
+    find_ani_part2(obj);
+
+    obj->a10 = obj->field40 + 4;
+    obj->field40 = obj->field40 - 8;
+    do_next_a9_frame(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x47b;
+    thread->fieldfc = 3;
+    return 3;
+}
