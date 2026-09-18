@@ -8523,3 +8523,147 @@ long t_r_sweep(struct MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* -------------------------------------------------------------------- t_sweep3
+ *
+ * armv7 0x00043c08, four hundred and ninety-two bytes.
+ *
+ * `t_r_sweep` pushes this. It runs `t_animate_a9` once, then -- depending on
+ * whether the stick was held right after `shake_n_sound` -- either jumps
+ * straight to `t_mframew`, or spends three separate pushes of `t_d_beware`
+ * chained by self-resumes in between (0xdf2 -> 0xdf6 -> 0xdf7 -> 0xdf8 ->
+ * 0xdf9 -> 0xdfa, which loops back to 0xdf8 rather than falling out on its
+ * own). `t_d_beware` is what actually breaks that loop, by writing 0xdfb or
+ * 0xe01 into this level's own resume slot before it pops back down here --
+ * both land on the same next step, `t_check_stay_down`, which is outside
+ * this function's own 492 bytes to trace further.
+ *
+ * `MK3OBJPROC.field5c` is named here for the first time: `t_sweep3` clears
+ * it (state 0xdea's stick-held branch) right after `shake_n_sound`, a single
+ * sighting, distinct from `MK3OBJ.field5c` -- the stick flag `am_i_joy`
+ * itself sets -- which this same state also reads two lines earlier.
+ *
+ *      state 0
+ *          obj->field40 = 0x5001f
+ *          push t_animate_a9                              (0xdea)
+ *      state 0xdea
+ *          shake_n_sound(obj) ; am_i_joy(obj)
+ *          if obj->field5c != 0
+ *              obj->field1c = 4 ; push t_mframew            (0xe01)
+ *          else
+ *              obj->field1c = 4 ; push t_d_beware            (0xdf2)
+ *      state 0xdf2
+ *          obj->field1c = 0 ; obj->field00->field5c = 0
+ *          push t_d_beware                                   (0xdf6)
+ *      state 0xdf6
+ *          resume self at 0xdf7 after 1 frame
+ *      state 0xdf7
+ *          push t_d_beware                                    (0xdf8)
+ *      state 0xdf8
+ *          resume self at 0xdf9 after 1 frame
+ *      state 0xdf9
+ *          push t_d_beware                                    (0xdfa)
+ *      state 0xdfa
+ *          resume self at 0xdf8 after 1 frame
+ *      state 0xdfb, 0xe01
+ *          push t_check_stay_down                              (0xe05)
+ *      state 0xe05
+ *          install t_sweepup_local_reaction_exit
+ */
+long t_sweep3(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0xdf8) {
+        *mk3_frame(thread, thread->frame + 1) = 0xdf9;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0xdfb || token == 0xe01) {
+        *mk3_frame(thread, thread->frame + 1) = 0xe05;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_check_stay_down;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xdf9) {
+        *mk3_frame(thread, thread->frame + 1) = 0xdfa;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_d_beware;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xdfa) {
+        *mk3_frame(thread, thread->frame + 1) = 0xdf8;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0xe05)
+        return mk3_install(thread, (MK3THREADFUNC)t_sweepup_local_reaction_exit);
+
+    if (token == 0xdf2) {
+        obj->field1c = 0;
+        obj->field00->field5c = 0;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xdf6;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_d_beware;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xdf6) {
+        *mk3_frame(thread, thread->frame + 1) = 0xdf7;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token == 0xdf7) {
+        *mk3_frame(thread, thread->frame + 1) = 0xdf8;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_d_beware;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xdea) {
+        shake_n_sound(obj);
+        am_i_joy(obj);
+
+        if (obj->field5c != 0) {
+            obj->field1c = 4;
+
+            *mk3_frame(thread, thread->frame + 1) = 0xe01;
+            thread->frame = thread->frame + 1;
+            mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xdf2;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_d_beware;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field40 = 0x5001f;
+
+    *mk3_frame(thread, thread->frame + 1) = 0xdea;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_animate_a9;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
