@@ -11345,3 +11345,145 @@ long t_r_sk_hammer(struct MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------ t_r_motaro_kick
+ *
+ * armv7 0x00044ef4, four hundred and seventy-six bytes. `t_r_sk_hammer`
+ * parks this function's own address in `field30`, but that's a callback
+ * park, not a call -- this thread is reached the usual way, through its
+ * own push chain.
+ *
+ * A six-state relay, each state pushing the next by name and never
+ * revisiting a token: t_reaction_start -> t_shake_on_my_back ->
+ * t_flight -> t_check_winner_status -> t_check_stay_down -> a
+ * self-resume -> t_animate_a9 -> install t_local_reaction_exit. Two of
+ * the six handoffs (t_shake_on_my_back, t_check_stay_down) are direct
+ * pc-relative addresses; the rest go through pointer slots.
+ *
+ *      state 0
+ *          obj->field1c = 4 ; create_blood_proc(obj)
+ *          obj->field1c = 1 ; create_blood_proc(obj)
+ *          obj->field34 = 1 ; obj->field30 = 0 ; obj->field38 = 0
+ *          push t_reaction_start                        (0xd68)
+ *      state 0xd68
+ *          obj->field1c = 2 ; group_sound(obj)
+ *          rsnd_func(obj, 0xa)
+ *          obj->field48 = 0xa000a ; shake_a11(obj)
+ *          obj->field1c = 8.0 ; obj->field20 = -8.0
+ *          obj->field24 = 0.53125 ; obj->field28 = 5
+ *          obj->field40 += 0x19
+ *          push t_flight                                (0xd75)
+ *      state 0xd75
+ *          shake_n_sound(obj)
+ *          obj->field1c = 3 ; obj->a10 = 1
+ *          push t_shake_on_my_back                       (0xd7a)
+ *      state 0xd7a
+ *          resume self at 0xd7c after 4 frames
+ *      state 0xd7c
+ *          push t_check_stay_down                         (0xd7e)
+ *      state 0xd7e
+ *          push t_check_winner_status                      (0xd7f)
+ *      state 0xd7f
+ *          obj->field40 = 0x40021
+ *          push t_animate_a9                                (0xd81)
+ *      state 0xd81
+ *          install t_local_reaction_exit
+ */
+long t_r_motaro_kick(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0xd81)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token == 0xd7f) {
+        obj->field40 = 0x40021;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xd81;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_animate_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xd7e) {
+        *mk3_frame(thread, thread->frame + 1) = 0xd7f;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_check_winner_status;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xd7c) {
+        *mk3_frame(thread, thread->frame + 1) = 0xd7e;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_check_stay_down;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xd7a) {
+        *mk3_frame(thread, thread->frame + 1) = 0xd7c;
+        thread->fieldfc = 4;
+        return 4;
+    }
+
+    if (token == 0xd75) {
+        shake_n_sound(obj);
+
+        obj->field1c = 3;
+        obj->a10 = 1;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xd7a;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_shake_on_my_back;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xd68) {
+        obj->field1c = 2;
+        group_sound(obj);
+
+        rsnd_func(obj, 0xa);
+
+        obj->field48 = 0xa000a;
+        shake_a11(obj);
+
+        obj->field1c = 0x80000;                  /* 8.0 in 16.16 */
+        obj->field20 = obj->field1c - 0x100000;  /* -8.0 */
+        obj->field24 = obj->field20 + 0x88000;   /* 0.53125 */
+        obj->field28 = 5;
+        obj->field40 = obj->field40 + 0x19;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xd75;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field1c = 4;
+    create_blood_proc(obj);
+
+    obj->field1c = 1;
+    create_blood_proc(obj);
+
+    obj->field34 = 1;
+    obj->field30 = 0;
+    obj->field38 = 0;
+
+    *mk3_frame(thread, thread->frame + 1) = 0xd68;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
