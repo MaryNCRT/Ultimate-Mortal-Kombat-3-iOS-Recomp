@@ -7519,3 +7519,172 @@ state_11bd:
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+void distance_from_ground(MK3OBJ *obj);
+void do_first_a9_frame(MK3OBJ *obj);
+void set_x_vel_player(MK3OBJ *obj);
+void multi_adjust_xy(MK3OBJ *obj);
+
+
+/* ---------------------------------------------------------------- t_r_fan_lift
+ *
+ * armv7 0x00049338, four hundred and twenty-eight bytes -- four states by
+ * the dispatcher's own count, but the real control flow crosses between
+ * them more than once. `state 0x39b` ends by falling into `state 0x3b3`'s
+ * own shared tail rather than sleeping on its own account, and inside
+ * `state 0x3b3` itself the "still counting down" and "just reset" paths
+ * both land on that SAME tail -- one block in the binary, written once
+ * here too, not duplicated into two copies that happen to read alike.
+ *
+ *      state 0
+ *          obj->field30 = 0 ; obj->field34 = 0 ; obj->field38 = 0
+ *          push t_reaction_start                        (0x382)
+ *      state 0x382
+ *          obj->field40 = 0x20 ; do_first_a9_frame(obj)
+ *          obj->field20 = 0x624 ; obj->field00->field18 = 0x624
+ *          set_half_damage(obj)
+ *          obj->field34 = 0 ; distance_from_ground(obj)
+ *          other = obj->field08
+ *          if (obj->field1c <= 0xa8) obj->field34 = -1.0
+ *          other->field1c = obj->field34
+ *          obj->field1c = 4 ; obj->field20 = 3 ; obj->field24 = 8
+ *          push t_shake_ob_up                           (0x39b)
+ *      state 0x39b
+ *          obj->field34 = 0 ; distance_from_ground(obj)
+ *          other = obj->field08
+ *          if (obj->field1c <= 0xf0) obj->field34 = -1.0
+ *          other->field1c = obj->field34
+ *          obj->field1c = 2.0
+ *          is_he_flipped(obj)
+ *          if (!obj->field5c) obj->field1c = -obj->field1c
+ *          -- both paths converge here:
+ *          set_x_vel_player(obj)
+ *          obj->a10 = 3 ; obj->field40 += 1 ; obj->field48 = obj->field40 + 0x3c
+ *          -- falls into the sleep below
+ *      state 0x3b3
+ *          token = 0x3b3 ; thread->fieldfc = 1 ; return 1       ; the sleep
+ *          -- on resume:
+ *          if (--obj->a10 > 0) {
+ *              distance_from_ground(obj)
+ *              if (obj->field1c > 0xf0) {
+ *                  other = obj->field08
+ *                  obj->field1c = 0 ; other->field1c = 0
+ *              }
+ *              if (--obj->field48 > 0)
+ *                  -- back to the sleep above
+ *              else
+ *                  install t_local_reaction_exit
+ *          } else {
+ *              obj->a10 = 3 ; obj->field40 = -obj->field40
+ *              obj->field1c = obj->field40 ; obj->field20 = obj->field40
+ *              multi_adjust_xy(obj)
+ *              -- back to `distance_from_ground` above, a10 freshly reset
+ *          }
+ */
+long t_r_fan_lift(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    MK3OBJ *other;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x382) {
+        obj->field40 = 0x20;
+        do_first_a9_frame(obj);
+
+        obj->field20 = 0x624;
+        obj->field00->field18 = 0x624;
+
+        set_half_damage(obj);
+
+        obj->field34 = 0;
+        distance_from_ground(obj);
+
+        other = obj->field08;
+        if ((int32_t)obj->field1c <= 0xa8)
+            obj->field34 = 0xffff0000;           /* -1.0 in 16.16 */
+        other->field1c = obj->field34;
+
+        obj->field1c = 4;
+        obj->field20 = 3;
+        obj->field24 = 8;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x39b;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_shake_ob_up;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x39b) {
+        obj->field34 = 0;
+        distance_from_ground(obj);
+
+        other = obj->field08;
+        if ((int32_t)obj->field1c <= 0xf0)
+            obj->field34 = 0xffff0000;           /* -1.0 in 16.16 */
+        other->field1c = obj->field34;
+
+        obj->field1c = 0x20000;                  /* 2.0 in 16.16 */
+
+        is_he_flipped(obj);
+        if (obj->field5c == 0)
+            obj->field1c = (uint32_t)(-(int32_t)obj->field1c);
+
+        goto fan_lift_launch;
+    }
+
+    if (token == 0x3b3) {
+        obj->a10 = obj->a10 - 1;
+        if ((int32_t)obj->a10 <= 0) {
+            obj->a10 = 3;
+            obj->field40 = (uint32_t)(-(int32_t)obj->field40);
+            obj->field1c = obj->field40;
+            obj->field20 = obj->field40;
+            multi_adjust_xy(obj);
+        }
+
+        /* Both the "still shaking" and "just reset" paths land on this
+         * same block in the binary -- one shared tail, not two copies. */
+        distance_from_ground(obj);
+        if ((int32_t)obj->field1c > 0xf0) {
+            other = obj->field08;
+            obj->field1c = 0;
+            other->field1c = 0;
+        }
+
+        obj->field48 = obj->field48 - 1;
+        if ((int32_t)obj->field48 > 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0x3b3;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field30 = 0;
+    obj->field34 = 0;
+    obj->field38 = 0;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x382;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
+fan_lift_launch:
+    set_x_vel_player(obj);
+
+    obj->a10 = 3;
+    obj->field40 = obj->field40 + 1;
+    obj->field48 = obj->field40 + 0x3c;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x3b3;
+    thread->fieldfc = 1;
+    return 1;
+}
