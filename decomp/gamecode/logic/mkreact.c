@@ -3296,3 +3296,230 @@ long t_block_exit(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_joy_block_loop);
 }
+
+
+long t_pit_fall_scan(struct MK3THREAD *thread);
+long t_flight_loop(struct MK3THREAD *thread);
+void clear_shadow_bit(MK3OBJ *obj);
+void center_around_me(MK3OBJ *obj);
+void ground_player(MK3OBJ *obj);
+void MKEvent_Add(long type, long subtype, long param, long player);
+
+
+/* -------------------------------------------------------------------- t_b_sweep
+ *
+ * armv7 0x00042660, a hundred and forty-eight bytes.
+ *
+ *      state 0
+ *          rsnd_func(obj, 6)
+ *          part->field30 = 0 ; part->field34 = 0
+ *          part->field38 = t_cc_block_sweep
+ *          push t_blocked_start                   (0x13d4)
+ *      state 0x13d4
+ *          part->field48 = 2 ; part->field44 = 2
+ *          pop
+ *
+ * A block, like `t_b_weak_silent`, and it hands off to `t_cc_block_sweep`
+ * through field38 the same way -- which is the routine that writes 3.0 into
+ * both velocity slots and calls `repell_one_of_us`, so blocking a sweep
+ * still pushes you back rather than standing you in place.
+ *
+ * The two 2s after the reaction starts are p_hit's neighbours -- 0x44 is
+ * p_hit itself and 0x48 the field beside it -- both written from the same
+ * register, which is the compiler reusing a value rather than two separate
+ * constants happening to match.
+ */
+long t_b_sweep(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        rsnd_func(obj, 6);
+
+        obj->field00->field30 = 0;
+        obj->field00->field34 = 0;
+        obj->field00->field38 = (uint32_t)(uintptr_t)t_cc_block_sweep;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x13d4;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_blocked_start;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x13d4)
+        return -3;
+
+    obj->field00->field48 = 2;
+    obj->field00->p_hit = 2;
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* ------------------------------------------------------------------- t_pounce4
+ *
+ * armv7 0x000446bc, a hundred and forty-eight bytes.
+ *
+ *      state 0
+ *          get_his_action(obj)
+ *          obj->field20 == 0x20f ? go to the wait branch
+ *                                : install t_getup_reaction_exit
+ *      wait branch
+ *          token = 0x4a0 ; push t_suspend_wait_action_jsrp
+ *      state 0x4a0
+ *          install t_getup_reaction_exit
+ *
+ * **A one-shot poll, not a loop.** This asks the opponent's action exactly
+ * once. If he is already in 0x20f it defers to
+ * `t_suspend_wait_action_jsrp` -- which itself freezes the tag and hands to
+ * `t_susp3` -- for one extra step; any other action goes straight to
+ * `t_getup_reaction_exit`. So the pounce only waits when it catches him in
+ * that specific state, and only for the single step the suspend routine
+ * takes.
+ */
+long t_pounce4(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        get_his_action(obj);
+        if (obj->field20 != 0x20f)
+            return mk3_install(thread, (MK3THREADFUNC)t_getup_reaction_exit);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x4a0;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_suspend_wait_action_jsrp;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x4a0)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_getup_reaction_exit);
+}
+
+
+/* ------------------------------------------------------------ t_slammed_slam_down
+ *
+ * armv7 0x000470dc, a hundred and forty-eight bytes.
+ *
+ *      state 0
+ *          part->field20 = 0x80000 ; part->field20's sibling on the other
+ *              object = 0x80000                    ; 8.0
+ *          token = 0x1cf ; thread->fieldfc = 1 ; return 1
+ *      state 0x1cf
+ *          obj->field1c = (int16_t)MK3_FIELD12(other)
+ *          obj->field20 = other->field00->field40
+ *          if (obj->field20 > obj->field1c) sleep again
+ *          stop_me_player(obj) ; ground_player(obj)
+ *          pop
+ *
+ * **The floor test, written out a second time.** `field20 > field1c` is the
+ * same "am I still above the floor" comparison `t_air_strike` makes against
+ * `MK3_FIELD12`, one frame at a time, and it ends the same way: a full stop
+ * and a snap to the ground. Gravity itself is 8.0 here rather than the
+ * jump's 0.5 -- a much harder fall, which fits a slam.
+ */
+long t_slammed_slam_down(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field00->field20 = 0x80000;        /* 8.0 in 16.16 */
+        obj->field08->field20 = 0x80000;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1cf;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token != 0x1cf)
+        return -3;
+
+    obj->field1c = (uint32_t)(int32_t)(int16_t)MK3_FIELD12(obj->field08);
+    obj->field20 = obj->field08->field00->field40;
+    if ((long)obj->field20 > (long)obj->field1c) {
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    stop_me_player(obj);
+    ground_player(obj);
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* ------------------------------------------------------- t_fall_down_bell_tower
+ *
+ * armv7 0x0004858c, a hundred and thirty-two bytes.
+ *
+ *      state 0 only
+ *          MKEvent_Add(4, 0x3d, 0, obj->field00->field08)
+ *          obj->field1c = 9 ; group_sound(obj)
+ *          clear_shadow_bit(obj) ; center_around_me(obj)
+ *          obj->field48 = 0x6000a ; shake_a11(obj)
+ *          obj->field1c = 0 ; obj->field20 = 0xfff40000  ; -12.0
+ *          obj->field24 = 0xfff40000 + 0xc6000            ; -0.406
+ *          obj->field28 = 5 ; obj->field40 = 5 + 0x19  ; 30, SCKNOCKDOWN
+ *          obj->field34 = t_pit_fall_scan
+ *          install t_pit_fall_scan
+ *
+ * **The stage's own death, chosen by `t_background_death`'s table.** The
+ * event, 4/0x3d, carries the strength index at proc->0x08 as its player
+ * argument and 0 (the token, still zero here) as its param; presumably the
+ * fall's own trigger for whatever the front end does with a background
+ * death, and nothing here says more about it.
+ *
+ * **The fall is UPWARD first, not down.** -12.0 in 16.16 is a negative
+ * velocity, the same sign the jump's -10.0 has, so the bell-tower death
+ * launches him before gravity takes over -- and the gravity it adds each
+ * frame, -0.406, is also negative: this pair keeps accelerating him
+ * upward rather than pulling him back down, unlike every other flight in
+ * this file. `shake_a11` runs with `field48` carrying an event id the way
+ * the shake pair's own field28 does with `him` or the object's 0x08, so
+ * 0x6000a names whatever camera or screen event a bell-tower fall
+ * triggers.
+ */
+long t_fall_down_bell_tower(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    MKEvent_Add(4, 0x3d, 0, (long)obj->field00->field08);
+
+    obj->field1c = 9;
+    group_sound(obj);
+
+    clear_shadow_bit(obj);
+    center_around_me(obj);
+
+    obj->field48 = 0x6000a;
+    shake_a11(obj);
+
+    obj->field1c = 0;
+    obj->field20 = 0xfff40000u;      /* -12.0 in 16.16 */
+    obj->field24 = 0xfff40000u + 0xc6000u;
+    obj->field28 = 5;
+    obj->field40 = 5 + 0x19;         /* 30, SCKNOCKDOWN */
+    obj->field34 = (uint32_t)(uintptr_t)t_pit_fall_scan;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_pit_fall_scan);
+}

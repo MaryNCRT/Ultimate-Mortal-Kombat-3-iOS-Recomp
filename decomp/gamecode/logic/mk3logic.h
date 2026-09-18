@@ -147,7 +147,8 @@ typedef struct MK3OBJPROC {
     uint16_t field40;
     uint8_t  _pad42[2];
     uint32_t p_hit;              /* 0x44  per zero_my_p_hit */
-    uint8_t  _pad48[4];
+    uint32_t field48;            /* 0x48  t_b_sweep writes it beside p_hit
+                                  *       from the same register */
     uint32_t field4c;            /* 0x4c  t_block_exit writes p_hit back
                                   *       into it on the way out */
     uint32_t field50;            /* 0x50  reaction_start_chores clears it
