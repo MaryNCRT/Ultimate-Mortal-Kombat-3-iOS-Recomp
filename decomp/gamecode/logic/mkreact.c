@@ -8913,3 +8913,57 @@ long t_r_jax_zap(struct MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ----------------------------------------------------------- t_r_flip_kick
+ *
+ * armv7 0x00046760, a hundred and sixty-eight bytes.
+ *
+ * A launch-style reaction, not another shake-and-park: state 0 plays a
+ * sound, parks `t_generic_airborn_hit`, and calls `if_shao_then_pass`
+ * (Shao Kahn ignores the field30 park the way he ignores several other
+ * reaction setups in this file) before pushing straight to state 0xe27,
+ * which halves the damage and installs `t_onback3` -- no `t_reaction_start`
+ * step in between the way the shake-and-park family takes.
+ *
+ *      state 0
+ *          rsnd_func(obj, 8)
+ *          obj->field30 = t_generic_airborn_hit ; obj->field34 = 8
+ *          if_shao_then_pass(obj)
+ *          obj->field38 = 0
+ *          push t_reaction_start                        (0xe27)
+ *      state 0xe27
+ *          set_half_damage(obj)
+ *          obj->field1c = 0x507 ; obj->field00->field18 = 0x507
+ *          install t_onback3
+ */
+long t_r_flip_kick(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0xe27) {
+        set_half_damage(obj);
+
+        obj->field1c = 0x507;
+        obj->field00->field18 = 0x507;
+        return mk3_install(thread, (MK3THREADFUNC)t_onback3);
+    }
+
+    if (token != 0)
+        return -3;
+
+    rsnd_func(obj, 8);
+
+    obj->field30 = (uint32_t)(uintptr_t)t_generic_airborn_hit;
+    obj->field34 = 8;
+    if_shao_then_pass(obj);
+
+    obj->field38 = 0;
+
+    *mk3_frame(thread, thread->frame + 1) = 0xe27;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
