@@ -263,6 +263,7 @@ long t_r_kano_swipe(struct MK3THREAD *thread);
 long t_r_last_noogy(struct MK3THREAD *thread);
 long t_r_lia_zap(struct MK3THREAD *thread);
 long t_r_rocket(struct MK3THREAD *thread);
+long t_r_motaro_kick(struct MK3THREAD *thread);
 long t_r_sw_zap(struct MK3THREAD *thread);
 long t_spear0(struct MK3THREAD *thread);
 long t_stumble_back_vel(struct MK3THREAD *thread);
@@ -11258,4 +11259,89 @@ rst5_field38_check:
         return 0;
     }
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* ------------------------------------------------------------- t_r_sk_hammer
+ *
+ * armv7 0x000463bc, two hundred and eighty-four bytes.
+ *
+ * State 0 parks `t_r_motaro_kick`'s own address in `field30` (not called,
+ * just parked the way `t_generic_airborn_hit` is elsewhere) and pushes
+ * `t_reaction_start`. State 0xd20 is the actual hit -- two separate
+ * `create_blood_proc` calls with different `field1c` values -- then pushes
+ * `t_animate_a9`; state 0xd32 stops the fighter and installs
+ * `t_dizzy_by_boss`.
+ *
+ *      state 0
+ *          obj->field34 = 1 ; obj->field38 = 0
+ *          obj->field30 = t_r_motaro_kick
+ *          push t_reaction_start                        (0xd20)
+ *      state 0xd20
+ *          obj->field1c = 2 ; his_ochar_sound(obj)
+ *          obj->field1c = 9 ; group_sound(obj)
+ *          obj->field48 = 0xa000a ; shake_a11(obj)
+ *          obj->field1c = 4 ; create_blood_proc(obj)
+ *          obj->field1c = 1 ; create_blood_proc(obj)
+ *          obj->field1c = 3.0 ; away_x_vel(obj)
+ *          obj->field40 = 0x40020
+ *          push t_animate_a9                              (0xd32)
+ *      state 0xd32
+ *          stop_me_player(obj)
+ *          obj->field1c = 0x620 ; obj->field00->field18 = 0x620
+ *          install t_dizzy_by_boss
+ */
+long t_r_sk_hammer(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0xd32) {
+        stop_me_player(obj);
+
+        obj->field1c = 0x620;
+        obj->field00->field18 = 0x620;
+        return mk3_install(thread, (MK3THREADFUNC)t_dizzy_by_boss);
+    }
+
+    if (token == 0xd20) {
+        obj->field1c = 2;
+        his_ochar_sound(obj);
+
+        obj->field1c = 9;
+        group_sound(obj);
+
+        obj->field48 = 0xa000a;
+        shake_a11(obj);
+
+        obj->field1c = 4;
+        create_blood_proc(obj);
+
+        obj->field1c = 1;
+        create_blood_proc(obj);
+
+        obj->field1c = 0x30000;                  /* 3.0 in 16.16 */
+        away_x_vel(obj);
+
+        obj->field40 = 0x40020;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xd32;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_animate_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field34 = 1;
+    obj->field38 = 0;
+    obj->field30 = (uint32_t)(uintptr_t)t_r_motaro_kick;
+
+    *mk3_frame(thread, thread->frame + 1) = 0xd20;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
 }
