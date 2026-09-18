@@ -6139,3 +6139,611 @@ long t_r_airpunch(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+long t_animate_a9(struct MK3THREAD *thread);
+void dec_my_p_hit(MK3OBJ *obj);
+
+
+/* ------------------------------------------------------------- t_r_hi_punch
+ *
+ * armv7 0x00045784, two hundred and forty-four bytes.
+ *
+ *      state 0
+ *          inc_p_block(obj)
+ *          obj->field30 = t_r_airpunch ; obj->field34 = 1
+ *          obj->field38 = t_cc_hi_punch
+ *          push t_reaction_start                        (0xe66)
+ *      state 0xe66
+ *          rsnd_react_voice(obj)
+ *          rsnd_func(obj, 7)
+ *          dec_my_p_hit(obj)
+ *          obj->field1c = 3 ; create_blood_proc(obj)
+ *          obj->field00->field18 = 0x509 ; obj->field1c = 0x509
+ *          obj->field40 = 0x3001c
+ *          push t_animate_a9                            (0xe72)
+ *      state 0xe72
+ *          install t_local_reaction_exit
+ *
+ * **`field30` names the reaction itself, not a generic hit-response
+ * routine.** Every other reaction in this batch names a shared responder --
+ * `t_r_combo1` names `t_combo_airborn_hit`, `t_r_boomerang` names
+ * `t_airborn_hit_no_sound` -- this one names `t_r_airpunch`. Whatever reads
+ * `field30` back treats a hi-punch landing as if it could re-enter its own
+ * reaction, which `t_r_airpunch` being a launch-into-`t_flight` reaction in
+ * its own right (see its own banner above) makes plausible rather than odd.
+ *
+ * **`field40 = 0x3001c` is transcribed whole, not split.** The low
+ * halfword, 0x1c, is animation 28 -- SCHIHIT, the ordinary hit clip -- and
+ * matches `REACT_ANI`'s own reading of this reaction in the Godot port. The
+ * high halfword's own meaning is not read; whatever it is, it is a single
+ * 32-bit literal load in the binary (`ldr r3, [pc, #0x30]`), not two
+ * separate stores, so it is one fact here too.
+ *
+ * `dec_my_p_hit` is the mirror of `inc_p_block`: `t_blocked_start` bumps a
+ * block counter, this decrements the hit one -- a landed punch working the
+ * opposite side of the same pair of counters `t_avoid_corner_trap`'s mercy
+ * rule already reads.
+ */
+long t_r_hi_punch(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0xe66) {
+        rsnd_react_voice(obj);
+        rsnd_func(obj, 7);
+        dec_my_p_hit(obj);
+
+        obj->field1c = 3;
+        create_blood_proc(obj);
+
+        obj->field00->field18 = 0x509;
+        obj->field1c = 0x509;
+
+        obj->field40 = 0x3001c;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xe72;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_animate_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xe72)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token != 0)
+        return -3;
+
+    inc_p_block(obj);
+
+    obj->field30 = (uint32_t)(uintptr_t)t_r_airpunch;
+    obj->field34 = 1;
+    obj->field38 = (uint32_t)(uintptr_t)t_cc_hi_punch;
+
+    *mk3_frame(thread, thread->frame + 1) = 0xe66;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* -------------------------------------------------------------- t_r_hi_kick
+ *
+ * armv7 0x00045410, four hundred and twelve bytes -- six states, and the
+ * one reaction in this batch confirmed to set its own rate for the ordinary
+ * hit clip (see the walk-rate note in the Godot port, `REACT_RATE`).
+ *
+ *      state 0
+ *          obj->field1c = 2 ; create_blood_proc(obj)
+ *          obj->field1c = 2 ; group_sound(obj)
+ *          rsnd_func(obj, 0xa)
+ *          obj->field38 = 0 ; obj->field30 = t_generic_airborn_hit
+ *          obj->field34 = 1
+ *          push t_reaction_start                        (0x5f8)
+ *      state 0x5f8
+ *          obj->field1c = 4.5 ; away_x_vel(obj)
+ *          obj->field40 = 0x1c ; get_char_ani(obj)
+ *          do_next_a9_frame(obj)
+ *          token = 0x600 ; thread->fieldfc = 2 ; return 2
+ *      state 0x600
+ *          do_next_a9_frame(obj)
+ *          token = 0x602 ; thread->fieldfc = 6 ; return 6
+ *      state 0x602
+ *          obj->a10 = 0xa
+ *          -- falls into state 0x609's own sleep, primed, skipping its
+ *             first pass through the distance check
+ *      state 0x609
+ *          other = obj->field08
+ *          obj->field1c = abs(other->field18)
+ *          obj->field20 = obj->field1c >> 6
+ *          obj->field1c = obj->field1c - obj->field20
+ *          away_x_vel(obj)
+ *          if (--obj->a10 > 0)
+ *              token = 0x609 ; thread->fieldfc = 1 ; return 1     ; loop
+ *      (falls through when a10 reaches 0)
+ *          stop_me_player(obj)
+ *          obj->field40 = 0x1c ; get_char_ani(obj) ; obj->field40 += 4
+ *          obj->field1c = 4
+ *          push t_mframew                               (0x61b)
+ *      state 0x61b
+ *          install t_local_reaction_exit
+ *
+ * **The same closing-distance loop `t_ken_masters_xfer`'s AI branch runs**,
+ * register for register -- `other->field18` scaled and subtracted from
+ * itself, `away_x_vel` every pass, a counter primed to 10 either by falling
+ * out of `state 0x600`'s own six-frame sleep or by `state 0x602` seating it
+ * directly. Two different ways into the same wait, the way this file's
+ * launch reactions share one landing.
+ *
+ * **`field1c = 4` before `t_mframew` is the rate this reaction plays SCHIHIT
+ * at, read straight out of the pool as its own literal** -- not inherited,
+ * the way `t_r_hi_punch` above and every other non-knockdown reaction in
+ * this file leaves it. `t_mframew` (other.c, already decompiled) takes
+ * `field1c` back out as the sleep length itself, so this is a real,
+ * verified rate rather than a guess: a high kick landing plays its
+ * recipient's ordinary hit clip at 4, whatever they were doing when it
+ * connected.
+ */
+long t_r_hi_kick(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x600) {
+        do_next_a9_frame(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x602;
+        thread->fieldfc = 6;
+        return 6;
+    }
+
+    if (token == 0x609 || token == 0x602) {
+        MK3OBJ *other;
+
+        if (token == 0x602) {
+            obj->a10 = 0xa;
+        } else {
+            other = obj->field08;
+            obj->field1c = other->field18;
+            if ((int32_t)obj->field1c < 0)
+                obj->field1c = (uint32_t)(-(int32_t)obj->field1c);
+
+            obj->field20 = (uint32_t)((int32_t)obj->field1c >> 6);
+            obj->field1c = obj->field1c - obj->field20;
+
+            away_x_vel(obj);
+
+            obj->a10 = obj->a10 - 1;
+            if ((int32_t)obj->a10 > 0) {
+                *mk3_frame(thread, thread->frame + 1) = 0x609;
+                thread->fieldfc = 1;
+                return 1;
+            }
+        }
+
+        stop_me_player(obj);
+
+        obj->field40 = 0x1c;
+        get_char_ani(obj);
+        obj->field40 = obj->field40 + 4;
+
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x61b;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x61b)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token == 0x5f8) {
+        obj->field1c = 0x48000;                  /* 4.5 in 16.16 */
+        away_x_vel(obj);
+
+        obj->field40 = 0x1c;
+        get_char_ani(obj);
+
+        do_next_a9_frame(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x600;
+        thread->fieldfc = 2;
+        return 2;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field1c = 2;
+    create_blood_proc(obj);
+
+    obj->field1c = 2;
+    group_sound(obj);
+
+    rsnd_func(obj, 0xa);
+
+    obj->field38 = 0;
+    obj->field30 = (uint32_t)(uintptr_t)t_generic_airborn_hit;
+    obj->field34 = 1;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x5f8;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+long t_drone_post_duck_hit(struct MK3THREAD *thread);   /* mkdrone.c, not yet written */
+void get_my_height(MK3OBJ *obj);
+
+
+/* --------------------------------------------------------- t_r_duck_kickh
+ *
+ * armv7 0x00048ae8, two hundred and ninety-six bytes.
+ *
+ *      state 0
+ *          obj->field30 = t_generic_airborn_hit ; obj->field34 = 1
+ *          obj->field38 = t_cc_ken_masters
+ *          push t_reaction_start                        (0x673)
+ *      state 0x673
+ *          rsnd_func(obj, 7) ; rsnd_react_voice(obj)
+ *          obj->field1c = 4.5 ; away_x_vel(obj)
+ *          obj->field40 = 0x3001d
+ *          get_my_height(obj)
+ *          if (obj->field20 <= 0x80) obj->field40 = 0x30007
+ *          push t_animate_a9                            (0x682)
+ *      state 0x682
+ *          stop_me_player(obj)
+ *          am_i_joy(obj)
+ *          if (!obj->field5c) install t_drone_post_duck_hit
+ *          else                install t_local_reaction_exit
+ *
+ * **Human and machine get different endings, same as `t_onback3`.**
+ * `am_i_joy` here reads back through the same `field5c` every other
+ * am-I-human check in this file uses; a human is simply handed to
+ * `t_local_reaction_exit`, while the AI gets routed into `mkdrone.c`'s own
+ * follow-up (not yet decompiled, forward-declared here).
+ *
+ * **The animation the victim plays depends on their own height, not on a
+ * fixed clip.** `get_my_height` fills `field20`, and only then does the
+ * choice between `0x3001d` and `0x30007` get made -- a crouching victim
+ * (height at or under 0x80) plays a different clip than a standing one.
+ * Both literals share `t_r_hi_punch`'s `0x3000x` shape; the high halfword's
+ * meaning is carried over from there, unread.
+ */
+long t_r_duck_kickh(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x682) {
+        stop_me_player(obj);
+
+        am_i_joy(obj);
+        if (obj->field5c == 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_drone_post_duck_hit);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (token == 0x673) {
+        rsnd_func(obj, 7);
+        rsnd_react_voice(obj);
+
+        obj->field1c = 0x48000;                  /* 4.5 in 16.16 */
+        away_x_vel(obj);
+
+        obj->field40 = 0x3001d;
+        get_my_height(obj);
+        if ((int32_t)obj->field20 <= 0x80)
+            obj->field40 = 0x30007;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x682;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_animate_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field30 = (uint32_t)(uintptr_t)t_generic_airborn_hit;
+    obj->field34 = 1;
+    obj->field38 = (uint32_t)(uintptr_t)t_cc_ken_masters;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x673;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* --------------------------------------------------------- t_r_duck_kickl
+ *
+ * armv7 0x000489c0, two hundred and ninety-six bytes -- `t_r_duck_kickh`
+ * register for register, three fields different.
+ *
+ *      state 0
+ *          obj->field30 = t_r_airborn_duck_kick ; obj->field34 = 1
+ *          obj->field38 = t_cc_ken_masters
+ *          push t_reaction_start                        (0x692)
+ *      state 0x692
+ *          rsnd_func(obj, 7) ; rsnd_react_voice(obj)
+ *          obj->field1c = 3.0 ; away_x_vel(obj)
+ *          obj->field40 = 0x3001d
+ *          get_my_height(obj)
+ *          if (obj->field20 <= 0x80) obj->field40 = 0x30007
+ *          push t_animate_a9                            (0x69f)
+ *      state 0x69f
+ *          stop_me_player(obj)
+ *          am_i_joy(obj)
+ *          if (!obj->field5c) install t_drone_post_duck_hit
+ *          else                install t_local_reaction_exit
+ *
+ * **The two duck-kick reactions land on the same victim clips.** Both the
+ * `0x3001d`/`0x30007` pair and the height gate that picks between them are
+ * identical to `t_r_duck_kickh` -- a low kick and a high kick to a
+ * crouching fighter knock him into the same two poses. What differs is the
+ * push-back (3.0 here against 4.5 there) and which reaction the victim's
+ * own `field30` is left pointing at for whatever reads it back:
+ * `t_r_airborn_duck_kick` here, `t_generic_airborn_hit` there.
+ */
+long t_r_duck_kickl(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x69f) {
+        stop_me_player(obj);
+
+        am_i_joy(obj);
+        if (obj->field5c == 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_drone_post_duck_hit);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (token == 0x692) {
+        rsnd_func(obj, 7);
+        rsnd_react_voice(obj);
+
+        obj->field1c = 0x30000;                  /* 3.0 in 16.16 */
+        away_x_vel(obj);
+
+        obj->field40 = 0x3001d;
+        get_my_height(obj);
+        if ((int32_t)obj->field20 <= 0x80)
+            obj->field40 = 0x30007;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x69f;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_animate_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field30 = (uint32_t)(uintptr_t)t_r_airborn_duck_kick;
+    obj->field34 = 1;
+    obj->field38 = (uint32_t)(uintptr_t)t_cc_ken_masters;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x692;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+long t_r_duck_airpunch(struct MK3THREAD *thread);
+
+
+/* --------------------------------------------------------- t_r_duck_punch
+ *
+ * armv7 0x00048c10, two hundred and ninety-six bytes -- the third of the
+ * three duck reactions, same shape as `t_r_duck_kickh`/`t_r_duck_kickl`.
+ *
+ *      state 0
+ *          obj->field30 = t_r_duck_airpunch ; obj->field34 = 1
+ *          obj->field38 = t_cc_ken_masters
+ *          push t_reaction_start                        (0x643)
+ *      state 0x643
+ *          rsnd_func(obj, 7) ; rsnd_react_voice(obj)
+ *          obj->field1c = 4.0 ; away_x_vel(obj)
+ *          obj->field40 = 0x3001d
+ *          get_my_height(obj)
+ *          if (obj->field20 <= 0x80) obj->field40 = 0x30007
+ *          push t_animate_a9                            (0x651)
+ *      state 0x651
+ *          stop_me_player(obj)
+ *          am_i_joy(obj)
+ *          if (!obj->field5c) install t_drone_post_duck_hit
+ *          else                install t_local_reaction_exit
+ *
+ * The third of three -- all three duck reactions play the same victim
+ * pair (`0x3001d`/`0x30007`, height-gated), route the AI through the same
+ * `t_drone_post_duck_hit`, and differ only in their own push-back speed
+ * (4.5, 3.0, 4.0) and which of their own kind `field30` names back:
+ * `t_generic_airborn_hit`, `t_r_airborn_duck_kick`, `t_r_duck_airpunch`.
+ */
+long t_r_duck_punch(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x651) {
+        stop_me_player(obj);
+
+        am_i_joy(obj);
+        if (obj->field5c == 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_drone_post_duck_hit);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (token == 0x643) {
+        rsnd_func(obj, 7);
+        rsnd_react_voice(obj);
+
+        obj->field1c = 0x40000;                  /* 4.0 in 16.16 */
+        away_x_vel(obj);
+
+        obj->field40 = 0x3001d;
+        get_my_height(obj);
+        if ((int32_t)obj->field20 <= 0x80)
+            obj->field40 = 0x30007;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x651;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_animate_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field30 = (uint32_t)(uintptr_t)t_r_duck_airpunch;
+    obj->field34 = 1;
+    obj->field38 = (uint32_t)(uintptr_t)t_cc_ken_masters;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x643;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ----------------------------------------------------------- t_r_duck_airpunch
+ *
+ * armv7 0x00042f18, two hundred and four bytes -- the same three-state
+ * launch shape `t_r_ind_charge`/`t_r_jade_prop`/`t_r_airpunch` already use,
+ * with `t_avoid_corner_trap` as the opening move like `t_r_airpunch`.
+ *
+ *      state 0
+ *          rsnd_func(obj, 8) ; rsnd_react_voice(obj)
+ *          obj->field20 = 3
+ *          push t_avoid_corner_trap                     (0x660)
+ *      state 0x660
+ *          obj->field1c = 3.5 ; field20 = 3.5 - 9.5 = -6.0
+ *          field24 = -6.0 + 6.5 = 0.5
+ *          field28 = 5 ; field40 = 5 + 0x19 = 30
+ *          push t_flight                                (0x667)
+ *      state 0x667
+ *          install t_land_on_my_back
+ */
+long t_r_duck_airpunch(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x660) {
+        obj->field1c = 0x38000;                  /* 3.5 in 16.16 */
+        obj->field20 = obj->field1c - 0x98000;   /* -6.0 */
+        obj->field24 = obj->field20 + 0x68000;   /* 0.5 */
+        obj->field28 = 5;
+        obj->field40 = 5 + 0x19;                 /* 30, SCKNOCKDOWN */
+
+        *mk3_frame(thread, thread->frame + 1) = 0x667;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x667)
+        return mk3_install(thread, (MK3THREADFUNC)t_land_on_my_back);
+
+    if (token != 0)
+        return -3;
+
+    rsnd_func(obj, 8);
+    rsnd_react_voice(obj);
+
+    obj->field20 = 3;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x660;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_avoid_corner_trap;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ------------------------------------------------------------- t_r_flip_punch
+ *
+ * armv7 0x00043a38, two hundred and twenty-eight bytes.
+ *
+ *      state 0
+ *          rsnd_react_voice(obj)
+ *          obj->field48 = 0x40004 ; shake_a11(obj)
+ *          obj->field38 = 0
+ *          obj->field30 = t_generic_airborn_hit ; obj->field34 = 1
+ *          push t_reaction_start                        (0xdc3)
+ *      state 0xdc3
+ *          rsnd_func(obj, 8)
+ *          obj->field1c = 1.0 ; away_x_vel(obj)
+ *          obj->field40 = 0x4001c
+ *          push t_animate_a9                            (0xdc9)
+ *      state 0xdc9
+ *          install t_local_reaction_exit
+ */
+long t_r_flip_punch(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0xdc3) {
+        rsnd_func(obj, 8);
+
+        obj->field1c = 0x10000;                  /* 1.0 in 16.16 */
+        away_x_vel(obj);
+
+        obj->field40 = 0x4001c;
+
+        *mk3_frame(thread, thread->frame + 1) = 0xdc9;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_animate_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xdc9)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token != 0)
+        return -3;
+
+    rsnd_react_voice(obj);
+
+    obj->field48 = 0x40004;
+    shake_a11(obj);
+
+    obj->field38 = 0;
+    obj->field30 = (uint32_t)(uintptr_t)t_generic_airborn_hit;
+    obj->field34 = 1;
+
+    *mk3_frame(thread, thread->frame + 1) = 0xdc3;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
