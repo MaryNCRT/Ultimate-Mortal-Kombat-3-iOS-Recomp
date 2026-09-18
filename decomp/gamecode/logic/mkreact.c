@@ -9017,3 +9017,53 @@ long t_r_mileena_tele(struct MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------- t_r_scorp_tele
+ *
+ * armv7 0x00046ea0, a hundred and seventy-two bytes.
+ *
+ * Shake-and-park, same trio as `t_r_mileena_tele` (t_generic_airborn_hit /
+ * t_reaction_start / t_stumble_back), with `set_half_damage` up front
+ * instead of an action-tag write.
+ *
+ *      state 0
+ *          rsnd_func(obj, 0xa) ; set_half_damage(obj)
+ *          obj->field34 = 0 ; obj->field38 = 0
+ *          obj->field30 = t_generic_airborn_hit
+ *          push t_reaction_start                        (0x31e)
+ *      state 0x31e
+ *          obj->field48 = 0x30003 ; shake_a11(obj)
+ *          obj->field1c = 2 ; group_sound(obj)
+ *          install t_stumble_back
+ */
+long t_r_scorp_tele(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x31e) {
+        obj->field48 = 0x30003;
+        shake_a11(obj);
+
+        obj->field1c = 2;
+        group_sound(obj);
+        return mk3_install(thread, (MK3THREADFUNC)t_stumble_back);
+    }
+
+    if (token != 0)
+        return -3;
+
+    rsnd_func(obj, 0xa);
+    set_half_damage(obj);
+
+    obj->field34 = 0;
+    obj->field38 = 0;
+    obj->field30 = (uint32_t)(uintptr_t)t_generic_airborn_hit;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x31e;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
