@@ -2890,3 +2890,195 @@ long t_background_death(MK3THREAD *thread)
         return mk3_install(thread, (MK3THREADFUNC)t_fall_in_lava);
     }
 }
+
+
+long t_cc_ken_masters(struct MK3THREAD *thread);
+
+
+/* ------------------------------------------------------- t_r_null_speared
+ *
+ * armv7 0x00041144, a hundred and thirty-two bytes.
+ *
+ *      state 0
+ *          part->field30 = 0 ; part->field34 = 0 ; part->field38 = 0
+ *          push t_reaction_start                  (0x3f4)
+ *      state 0x3f4
+ *          obj->field1c = 0x40000                 ; 4.0
+ *          pop
+ *
+ * A reaction with a number left over for whoever pops back to. 0x40000 is
+ * 4.0 in the engine's 16.16, the same shape as the sweep's 3.0 and the
+ * flip's 4.0 -- so this is a speed handed up rather than a state of its own.
+ * The name says a speared reaction with nothing to react TO; the number is
+ * what a caller further up does with that.
+ */
+long t_r_null_speared(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field00->field30 = 0;
+        obj->field00->field34 = 0;
+        obj->field00->field38 = 0;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x3f4;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_reaction_start;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x3f4)
+        return -3;
+
+    obj->field1c = 0x40000;         /* 4.0 in 16.16 */
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* -------------------------------------------------------------- t_r_zoom
+ *
+ * armv7 0x0004123c, a hundred and twenty-eight bytes.
+ *
+ *      state 0
+ *          part->field30 = 0 ; part->field34 = 1 ; part->field38 = 0
+ *          push t_reaction_start                  (0x43a)
+ *      state 0x43a
+ *          pop
+ *
+ * The same shape as `t_r_null_speared` with one bit changed: field34 is set
+ * to 1 rather than cleared, and there is no number left behind on the way
+ * out. Field34 is the direction mask `mask_joystick` reads, so this reaction
+ * leaves exactly ONE direction bit standing rather than none.
+ */
+long t_r_zoom(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field00->field30 = 0;
+        obj->field00->field34 = 1;
+        obj->field00->field38 = 0;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x43a;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_reaction_start;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x43a)
+        return -3;
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* --------------------------------------------------------- t_b_weak_silent
+ *
+ * armv7 0x00041d40, a hundred and thirty-two bytes.
+ *
+ *      state 0
+ *          part->field30 = 0 ; part->field34 = 0
+ *          part->field38 = t_cc_ken_masters
+ *          push t_blocked_start                   (0x13bd)
+ *      state 0x13bd
+ *          pop
+ *
+ * A BLOCK, not a hit -- it pushes `t_blocked_start`, the routine that clears
+ * p_hit and bumps p_block, where the two above push `t_reaction_start`. And
+ * it parks `t_cc_ken_masters` in field38, the same handover slot
+ * `t_avoid_corner_trap` uses for its own transfer, so whatever reads field38
+ * next hands this block off to that routine specifically.
+ *
+ * "Silent" and "no masters" together suggest this is a blocked hit from an
+ * opponent the corner rule does not apply to; nothing in this function
+ * itself says why, and that is left unguessed.
+ */
+long t_b_weak_silent(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field00->field30 = 0;
+        obj->field00->field34 = 0;
+        obj->field00->field38 = (uint32_t)(uintptr_t)t_cc_ken_masters;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x13bd;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_blocked_start;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x13bd)
+        return -3;
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* ---------------------------------------------------- t_b_weak_no_masters
+ *
+ * armv7 0x000426f4, a hundred and thirty-two bytes.
+ *
+ *      state 0
+ *          rsnd_func(obj, 6)
+ *          part->field30 = 0 ; part->field34 = 0 ; part->field38 = 0
+ *          push t_blocked_start                   (0x13ca)
+ *      state 0x13ca
+ *          pop
+ *
+ * The plain block: a sound, the three fields cleared with no handover parked
+ * in field38, and `t_blocked_start`. Same family as `t_b_weak_silent`, minus
+ * whatever "silent" was withholding -- here the sound plays and nothing is
+ * queued in field38 for a later routine to pick up.
+ */
+long t_b_weak_no_masters(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        rsnd_func(obj, 6);
+
+        obj->field00->field30 = 0;
+        obj->field00->field34 = 0;
+        obj->field00->field38 = 0;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x13ca;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_blocked_start;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0x13ca)
+        return -3;
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
