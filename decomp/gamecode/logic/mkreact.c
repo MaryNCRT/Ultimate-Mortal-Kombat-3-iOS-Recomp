@@ -51,6 +51,10 @@ long t_joy_getup_abort(MK3THREAD *thread);
  * function address, not a __DATA slot), and never calls it itself. */
 extern char t_slip_sleep[];
 
+/* Not decompiled: t_r_ermac_slam pushes it directly and never calls it. */
+extern char t_slammed_zoom_up[];
+void damage_to_me(MK3OBJ *obj);
+
 /* A data table, not a resume target. */
 extern char getup_speeds[];
 
@@ -7879,6 +7883,137 @@ floor_ice_far_a10:
     *mk3_frame(thread, thread->frame + 1) = 0x2c3;
     thread->frame = thread->frame + 1;
     mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_slip_sleep;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ----------------------------------------------------------- t_r_ermac_slam
+ *
+ * armv7 0x00049180, four hundred and forty bytes.
+ *
+ * A six-state chain, each state pushing the next by name and self-terminating
+ * after the last: t_reaction_start -> t_slammed_shake_up -> t_slammed_zoom_up
+ * (not decompiled; declared extern near the top of the file) -> t_slammed_slam_down
+ * -> a self-resume at token 0x226 after an eight-frame sleep -> t_flight (with
+ * the launch numbers for the slam) -> stop_me_player + t_land_on_my_back. Every
+ * step just names the next handler; none of the five thread functions this one
+ * chains into are re-entered by number the way floor_ice's wobble is.
+ *
+ *      state 0
+ *          obj->field30/34/38 = 0
+ *          push t_reaction_start                     (0x211)
+ *      state 0x211
+ *          push t_slammed_shake_up                    (0x213)
+ *      state 0x213
+ *          obj->a10 = 8
+ *          push t_slammed_zoom_up                     (0x215)
+ *      state 0x215
+ *          push t_slammed_slam_down                   (0x217)
+ *      state 0x217
+ *          obj->a10 = 9 ; damage_to_me(obj)
+ *          obj->field40 = 0x1e ; find_ani_part2(obj)
+ *          obj->field40 += 4 ; do_next_a9_frame(obj)
+ *          obj->field48 = 0x0008000c
+ *          shake_a11(obj) ; dec_my_p_hit(obj) ; rsnd_func(obj, 0xd)
+ *          obj->field1c = 2 ; group_sound(obj)
+ *          resume self at token 0x226 after 8 frames (no handler change)
+ *      state 0x226
+ *          obj->field1c = 0xfffc8000                  (-3.5 in 16.16)
+ *          obj->field20 = obj->field1c - 0x48000       (-8.0)
+ *          obj->field24 = obj->field20 + 0x86000        (0.375)
+ *          obj->field28 = 4 ; obj->field40 += 0x3f
+ *          push t_flight                              (0x22e)
+ *      state 0x22e
+ *          stop_me_player(obj)
+ *          install t_land_on_my_back
+ */
+long t_r_ermac_slam(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x215) {
+        *mk3_frame(thread, thread->frame + 1) = 0x217;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_slammed_slam_down;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x226) {
+        obj->field1c = 0xfffc8000;               /* -3.5 in 16.16 */
+        obj->field34 = 0;
+        obj->field20 = obj->field1c - 0x48000;   /* -8.0 */
+        obj->field24 = obj->field20 + 0x86000;   /* 0.375 */
+        obj->field28 = 4;
+        obj->field40 = obj->field40 + 0x3f;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x22e;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x22e) {
+        stop_me_player(obj);
+        return mk3_install(thread, (MK3THREADFUNC)t_land_on_my_back);
+    }
+
+    if (token == 0x217) {
+        obj->a10 = 9;
+        damage_to_me(obj);
+
+        obj->field40 = 0x1e;
+        find_ani_part2(obj);
+        obj->field40 = obj->field40 + 4;
+        do_next_a9_frame(obj);
+
+        obj->field48 = 0x0008000c;
+        shake_a11(obj);
+        dec_my_p_hit(obj);
+        rsnd_func(obj, 0xd);
+
+        obj->field1c = 2;
+        group_sound(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x226;
+        thread->fieldfc = 8;
+        return 8;
+    }
+
+    if (token == 0x211) {
+        *mk3_frame(thread, thread->frame + 1) = 0x213;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_slammed_shake_up;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x213) {
+        obj->a10 = 8;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x215;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_slammed_zoom_up;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field30 = 0;
+    obj->field34 = 0;
+    obj->field38 = 0;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x211;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
