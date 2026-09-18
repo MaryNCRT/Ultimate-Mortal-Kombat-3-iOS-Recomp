@@ -9270,3 +9270,82 @@ long t_r_uppercut(struct MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* ------------------------------------------------------------------ t_spear0
+ *
+ * armv7 0x000464d8, two hundred and sixteen bytes.
+ *
+ * State 0 sets the opponent's own p_hit-style action tag on both objects
+ * (obj->field1c and obj->field00->field48, the same pairing `t_b_sweep`
+ * writes together) and clears field30/34/38, then pushes `t_reaction_start`.
+ * State 0x404 plays the hit sound and blood, then falls into a shared
+ * self-resume tail. State 0x40c reads the OPPONENT'S opponent's action tag
+ * -- `obj->field00->field00->field00->field18`, one hop further than
+ * `get_his_action` goes, since that function stops at storing it and this
+ * reads it inline instead -- and if it isn't 0x11a, replays the sound/blood
+ * step once more before installing `t_local_reaction_exit`; if it IS 0x11a,
+ * it rejoins the same shared tail state 0x404 uses instead.
+ *
+ *      state 0
+ *          his_ochar_sound(obj)
+ *          obj->field1c = 0x1d ; obj->field00->field48 = 0x1d
+ *          obj->field30 = 0 ; obj->field34 = 0 ; obj->field38 = 0
+ *          push t_reaction_start                        (0x404)
+ *      state 0x404
+ *          obj->field1c = 2 ; group_sound(obj)
+ *          obj->field1c = 0xc ; create_blood_proc(obj)
+ *          (falls into the shared tail below)
+ *      shared tail (also reached from 0x40c when the tag is 0x11a)
+ *          resume self at 0x40c after 2 frames
+ *      state 0x40c
+ *          obj->field1c = obj->field00->field00->field00->field18
+ *          if obj->field1c == 0x11a
+ *              (join the shared tail above)
+ *          else
+ *              install t_local_reaction_exit
+ */
+long t_spear0(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x40c) {
+        obj->field1c = obj->field00->field00->field00->field18;
+        if (obj->field1c == 0x11a)
+            goto spear0_resume;
+
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (token == 0x404) {
+        obj->field1c = 2;
+        group_sound(obj);
+
+        obj->field1c = 0xc;
+        create_blood_proc(obj);
+
+spear0_resume:
+        *mk3_frame(thread, thread->frame + 1) = 0x40c;
+        thread->fieldfc = 2;
+        return 2;
+    }
+
+    if (token != 0)
+        return -3;
+
+    his_ochar_sound(obj);
+
+    obj->field1c = 0x1d;
+    obj->field00->field48 = 0x1d;
+
+    obj->field30 = 0;
+    obj->field34 = 0;
+    obj->field38 = 0;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x404;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_reaction_start;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
