@@ -6201,6 +6201,135 @@ long t_angle_zap_jsrp(MK3THREAD *thread)
 }
 
 
+/* ------------------------------------------------------------------ t_angle_zap_proc
+ *
+ * armv7 0x00076158, 368 bytes.  **Complete.**
+ *
+ * Five states chained through the same `t_angle_zap_jsrp` push, one after
+ * another, before the actual throw. The free poses animation 0x3f
+ * (`field48 = 0x12`) and descends into `t_angle_zap_jsrp` from `0xdcd`;
+ * `0xdcd` re-descends into it again from `0xdce` (`field48 = 0x13`);
+ * `0xdce` re-descends a THIRD time from `0xdd0` (`multi_adjust_xy`,
+ * `field1c`/`field20 = 9`); `0xdd0` finally sets up the velocity
+ * (`field1c = GrObj->field1c = 0x80000`, `field20 = 4`, `set_proj_vel`,
+ * `field34 = t_angle_zap_call`) and descends into
+ * `tl_projectile_flight_call` from `0xddc`. `0xddc` is the floor:
+ * `t_angle_zap_hit` installed outright, no pop.
+ *
+ *      slot = frame[frame+1].w0
+ *                                          ; 0:    free, then 0xdcd
+ *                                          ; 0xdcd: pose again, then 0xdce
+ *                                          ; 0xdce: pose again, then 0xdd0
+ *                                          ; 0xdd0: adjust, then 0xdd4
+ *                                          ; 0xdd4: launch, then 0xddc
+ *                                          ; 0xddc: install t_angle_zap_hit
+ *      if (slot == 0xdce) {
+ *          obj->field48 = 0x13
+ *          token 0xdd0 ; frame++ ; install t_angle_zap_jsrp ; return 0
+ *      }
+ *      if (slot < 0xdce) {
+ *          if (slot == 0) {
+ *              obj->field40 = 0x3f ; get_char_ani(obj) ; obj->field48 = 0x12
+ *              token 0xdcd ; frame++ ; install t_angle_zap_jsrp ; return 0
+ *          }
+ *          if (slot != 0xdcd) return -3
+ *          token 0xdce ; frame++ ; install t_angle_zap_jsrp ; return 0
+ *      }
+ *      if (slot == 0xdd4) {
+ *          obj->field48 = 0x14
+ *          obj->field1c = GrObj->field1c = 0x80000
+ *          obj->field20 = 4 ; set_proj_vel(obj)
+ *          obj->field34 = t_angle_zap_call
+ *          token 0xddc ; frame++ ; install tl_projectile_flight_call ; return 0
+ *      }
+ *      if (slot == 0xddc) install t_angle_zap_hit ; return 0
+ *      if (slot != 0xdd0) return -3
+ *      obj->field1c = obj->field20 = 9 ; multi_adjust_xy(obj)
+ *      token 0xdd4 ; frame++ ; install t_angle_zap_jsrp ; return 0
+ */
+long t_angle_zap_jsrp(struct MK3THREAD *thread);
+long t_angle_zap_call(struct MK3THREAD *thread);
+long t_angle_zap_hit(struct MK3THREAD *thread);
+
+long t_angle_zap_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0xdce) {
+        obj->field48 = 0x13;
+
+        *mk3_frame(thread, frame + 1) = 0xdd0;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_angle_zap_jsrp;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot < 0xdce) {
+        if (slot == 0) {
+            obj->field40 = 0x3f;
+            get_char_ani(obj);
+            obj->field48 = 0x12;
+
+            *mk3_frame(thread, frame + 1) = 0xdcd;
+            thread->frame = thread->frame + 1;   /* push a level */
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)t_angle_zap_jsrp;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+
+        if (slot != 0xdcd)
+            return -3;
+
+        *mk3_frame(thread, frame + 1) = 0xdce;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_angle_zap_jsrp;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0xdd4) {
+        obj->field48 = 0x14;
+
+        obj->field1c = 0x80000;
+        obj->field08->field1c = 0x80000;
+        obj->field20 = 4;
+        set_proj_vel(obj);
+
+        obj->field34 = (uint32_t)(uintptr_t)t_angle_zap_call;
+
+        *mk3_frame(thread, frame + 1) = 0xddc;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)tl_projectile_flight_call;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0xddc)
+        return mk3_install(thread, (MK3THREADFUNC)t_angle_zap_hit);
+
+    if (slot != 0xdd0)
+        return -3;
+
+    obj->field1c = 9;
+    obj->field20 = 9;
+    multi_adjust_xy(obj);
+
+    *mk3_frame(thread, frame + 1) = 0xdd4;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_angle_zap_jsrp;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
 /* t_lk_zap_proc -- armv7 0x00077814, 176 bytes.  **Complete.**
  *
  *      token == 0:       find_part2(obj)
