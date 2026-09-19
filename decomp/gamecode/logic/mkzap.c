@@ -2590,6 +2590,86 @@ long t_bomb_gravity2(MK3THREAD *thread)
 }
 
 
+/* ------------------------------------------------------------------------ t_rbomb4
+ *
+ * armv7 0x00077d7c, 312 bytes.  **Complete.**
+ *
+ * A bomb-thread launcher that hands off to the SAME gravity pair
+ * (`t_bomb_gravity` / `t_bomb_gravity2`) three other functions in this file
+ * already drive, and reuses its own steady-state windup twice before it does:
+ * the free throw sets up the GrObj (`field08->field1c = 0`), the landing
+ * height in the PROC (`field00->field40 = G+0xac - 0x15`, the same
+ * `floor - constant` shape `t_flight` writes for `mkprop.c` to read), and
+ * pushes `t_bomb_gravity` under token `0xd08`. `0xd08` and `0xd0b` each just
+ * repack `field1c` with a different large negative literal and push
+ * `t_bomb_gravity2` again; `0xd0d` installs `t_bgrav9` on the current level
+ * and the hand-off is done.
+ *
+ * `thread->pid = 0x20` and `obj->field54 = 0x20` come from the same register
+ * write, not because the two fields share a meaning -- the compiler is just
+ * reusing the value it already has in `r3`.
+ */
+long t_bgrav9(struct MK3THREAD *thread);
+
+long t_rbomb4(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0xd08) {
+        obj->field1c = 0xfffb0000;
+
+        *mk3_frame(thread, frame + 1) = 0xd0b;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_bomb_gravity2;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0xd0b) {
+        obj->field1c = 0xfffd0000;
+
+        *mk3_frame(thread, frame + 1) = 0xd0d;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_bomb_gravity2;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0xd0d)
+        return mk3_install(thread, (MK3THREADFUNC)t_bgrav9);
+
+    if (slot != 0)
+        return -3;
+
+    obj->field54  = 0x20;
+    thread->pid   = 0x20;
+
+    set_proj_vel(obj);
+
+    obj->field00->field40 = *(uint32_t *)(G_BYTES + 0xac) - 0x15;
+
+    obj->field1c = 3;
+    init_anirate(obj);
+
+    obj->field40 = 4;
+    get_char_ani2(obj);
+
+    obj->field20          = 0;
+    obj->field08->field1c = 0;
+
+    *mk3_frame(thread, frame + 1) = 0xd08;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_bomb_gravity;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
 /* t_lk_prezap_hit -- armv7 0x00077a40, 96 bytes.  **Complete.**
  *
  *      if (frame[frame+1].w0 != 0) return -3
