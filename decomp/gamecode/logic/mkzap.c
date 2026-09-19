@@ -2567,7 +2567,108 @@ long t_mot_zap_call(MK3THREAD *thread)
  * `t_bomb_gravity` is the steady state and this is the one frame where the
  * bounce happens.
  */
-long t_bomb_gravity(MK3THREAD *thread);
+/* ------------------------------------------------------------------- t_bomb_gravity
+ *
+ * armv7 0x0007641c, 280 bytes.  **Complete.**
+ *
+ * The bomb's steady-state fall, `t_rbomb4`'s and `t_bomb_gravity2`'s own
+ * install target. The free just arms token `0xca3` and sleeps one frame --
+ * all the real setup already happened in the launcher. `0xca3` adds gravity
+ * (`0x8000`) to the part's `field1c` every tick, write-through to `obj`'s own
+ * copy the same way every other "one register, two fields" site in this file
+ * does, and keeps re-arming itself while the velocity is still negative
+ * (rising) or the part hasn't reached the landing height yet
+ * (`field00->field40`, the same floor `t_rbomb4` and `t_flight` seed).
+ *
+ * Landing toggles a parity bit through `field00->field28` (`field1c` ends up
+ * 8 or 9 depending on which way it flips, a different bounce cue each time)
+ * and plays it. With bounces left (`field48 >= 0`) it just pops a level, or
+ * installs `t_local_reaction_exit` at the bottom -- `t_bomb_gravity2` is
+ * already sitting one level up, so popping is what runs it. With none left,
+ * it does the pop (or the bottom-of-stack install) itself, then goes on to
+ * overwrite whatever handler that left behind with `t_bgrav9` -- a genuine
+ * dead store in the binary (three consecutive writes to the same handler
+ * slot, and two to the token slot above it, transcribed as found).
+ */
+long t_bgrav9(struct MK3THREAD *thread);
+
+long t_bomb_gravity(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0)
+        goto wait;
+
+    if (slot != 0xca3)
+        return -3;
+
+    next_anirate(obj);
+
+    obj->field48 = obj->field48 - 1;
+
+    obj->field1c          = obj->field08->field1c + 0x8000;
+    obj->field08->field1c = obj->field1c;
+
+    if ((int32_t)obj->field1c < 0)
+        goto wait;
+
+    obj->field30 = (uint32_t)(int32_t)MK3_FIELD12_S(obj->field08);
+
+    {
+        int32_t landing = (int32_t)obj->field00->field40;
+        obj->field34 = (uint32_t)landing;
+        if (landing > (int32_t)obj->field30)
+            goto wait;
+    }
+
+    obj->field1c = 8;
+
+    obj->field24 = obj->field00->field28 ^ 1;
+    if (obj->field24 != 0)
+        obj->field1c = 9;
+
+    obj->field00->field28 = obj->field24;
+    ochar_sound(obj);
+
+    if ((int32_t)obj->field48 >= 0) {
+        if ((long)thread->frame <= 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+        thread->frame = thread->frame - 1;   /* back up a level */
+        return 0;
+    }
+
+    /* every bounce spent: pop (or install at the bottom), then overwrite
+     * whatever that left behind with t_bgrav9 -- dead stores included */
+    if ((long)thread->frame <= 0) {
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_local_reaction_exit;   /* dead */
+        *mk3_frame(thread, thread->frame + 1) = 0;          /* dead */
+    } else {
+        thread->frame = thread->frame - 1;   /* back up a level */
+    }
+
+    {
+        uint32_t r1            = thread->frame;
+        uint32_t r3            = r1 + 1;
+        uint32_t self_handler  = mk3_frame(thread, r3)[1];
+        uint32_t leftover      = *mk3_frame(thread, r3 + 1);
+
+        *mk3_frame(thread, r3) = leftover;                    /* dead */
+        mk3_frame(thread, r1)[1] = self_handler;                /* dead */
+        mk3_frame(thread, r1)[1] = (uint32_t)(uintptr_t)t_bgrav9;
+        *mk3_frame(thread, r1 + 1) = 0;
+    }
+    return 0;
+
+wait:
+    *mk3_frame(thread, frame + 1) = 0xca3;
+    thread->fieldfc = 1;
+    return 1;
+}
+
 
 long t_bomb_gravity2(MK3THREAD *thread)
 {
