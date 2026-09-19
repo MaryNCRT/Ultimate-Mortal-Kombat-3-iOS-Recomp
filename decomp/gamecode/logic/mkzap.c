@@ -6072,6 +6072,105 @@ long t_spit_proc(MK3THREAD *thread)
 }
 
 
+/* ---------------------------------------------------------------------- tl_do_spit
+ *
+ * armv7 0x0007ad24, 276 bytes.  **Complete.**
+ *
+ * `t_spit_proc`'s driver. The free packs `0x00030006` (rate 3, animation
+ * 6) and descends into `t_animate2_a9` from `0x4b6`. `0x4b6` launches --
+ * `field38 = t_spit_proc` into `create_proj_proc`, `field1c =
+ * obj->field00->field18 = 0x604` -- then a bare thirty-one-tick wait for
+ * `0x4bd`, no push. `0x4bd` pushes `t_mframew` from `0x4bf`, and `0x4bf`
+ * is the floor: pop a level, or `t_local_reaction_exit` at the bottom, the
+ * same idiom the whole file closes on.
+ *
+ *      slot = frame[frame+1].w0
+ *                                          ; 0:    free, then 0x4b6
+ *                                          ; 0x4b6: launch, then 0x4bd (wait)
+ *                                          ; 0x4bd: wait, then 0x4bf
+ *                                          ; 0x4bf: pop, or exit at the bottom
+ *      if (slot == 0x4b6) {
+ *          obj->field38 = t_spit_proc ; create_proj_proc(obj)
+ *          obj->field1c = obj->field00->field18 = 0x604
+ *          token 0x4bd ; fieldfc = 0x1f ; return 0x1f
+ *      }
+ *      if (slot < 0x4b6) {
+ *          if (slot != 0) return -3
+ *          obj->field20 = 0x23 ; obj->a10 = 0 ; zap_init_special_act(obj)
+ *          obj->field1c = 8 ; ochar_sound(obj)
+ *          obj->field40 = 0x00030006
+ *          token 0x4b6 ; frame++ ; install t_animate2_a9 ; return 0
+ *      }
+ *      if (slot == 0x4bd) {
+ *          obj->field1c = 4
+ *          token 0x4bf ; frame++ ; install t_mframew ; return 0
+ *      }
+ *      if (slot != 0x4bf) return -3
+ *      pop a level, or t_local_reaction_exit at the bottom
+ */
+long t_spit_proc(struct MK3THREAD *thread);
+
+long tl_do_spit(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0x4b6) {
+        obj->field38 = (uint32_t)(uintptr_t)t_spit_proc;
+        create_proj_proc(obj);
+
+        obj->field1c = 0x604;
+        obj->field00->field18 = 0x604;
+
+        *mk3_frame(thread, frame + 1) = 0x4bd;
+        thread->fieldfc = 0x1f;
+        return 0x1f;
+    }
+
+    if (slot < 0x4b6) {
+        if (slot != 0)
+            return -3;
+
+        obj->field20 = 0x23;
+        obj->a10     = 0;
+        zap_init_special_act(obj);
+
+        obj->field1c = 8;
+        ochar_sound(obj);
+
+        obj->field40 = 0x00030006;
+
+        *mk3_frame(thread, frame + 1) = 0x4b6;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate2_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0x4bd) {
+        obj->field1c = 4;
+
+        *mk3_frame(thread, frame + 1) = 0x4bf;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0x4bf)
+        return -3;
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
 /* tl_lk_zap_lo -- armv7 0x0007a574, 204 bytes.  **Complete.**
  *
  *      token == 0:        am_i_airborn(obj)
