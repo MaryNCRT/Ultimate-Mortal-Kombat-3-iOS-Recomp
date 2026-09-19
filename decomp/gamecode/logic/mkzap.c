@@ -4627,6 +4627,90 @@ pop_or_exit:
 }
 
 
+/* ------------------------------------------------------------------------ t_sz_zap_hit
+ *
+ * armv7 0x0007c000, 256 bytes.  **Complete.** `t_ice_collision_check`'s
+ * own launch target.
+ *
+ * The free saves the GrObj's `0x12` halfword on the argument stack around
+ * `match_me_with_him`/`flip_multi`/`multi_adjust_xy` (a `-0x90` nudge,
+ * `field20` zeroed), restores it, poses animation `0x24` through
+ * `borrow_char_ani`, and descends into `t_mframew` from `0x829`. `0x829`
+ * is the floor: `tl_delete_proj_and_die`, no pop.
+ *
+ *      slot = frame[frame+1].w0
+ *      if (slot != 0) {
+ *          if (slot != 0x829) return -3
+ *          install tl_delete_proj_and_die ; return 0
+ *      }
+ *      obj->field1c = 0x40003 ; hob_ochar_sound(obj)
+ *      stop_a8(GrObj)
+ *      args[fieldf8] = (int16)GrObj->0x12 ; fieldf8++
+ *      match_me_with_him(obj) ; flip_multi(obj)
+ *      obj->field20 = 0 ; obj->field1c = -0x90 ; multi_adjust_xy(obj)
+ *      fieldf8-- ; GrObj->0x12 = obj->field38 = args[fieldf8]
+ *      obj->field1c = 4 ; obj->field40 = 0x24 ; borrow_char_ani(obj)
+ *      obj->field54 = 3 ; find_part_a14(obj)
+ *      obj->field1c = 4
+ *      token 0x829 ; frame++ ; install t_mframew ; return 0
+ */
+void borrow_char_ani(MK3OBJ *obj);
+void find_part_a14(MK3OBJ *obj);
+void match_me_with_him(MK3OBJ *obj);
+void flip_multi(MK3OBJ *obj);
+void multi_adjust_xy(MK3OBJ *obj);
+
+long t_sz_zap_hit(MK3THREAD *thread)
+{
+    MK3OBJ   *obj  = (MK3OBJ *)thread->proc;
+    uint32_t *args = (uint32_t *)(void *)thread->args;
+    uint32_t  frame = thread->frame;
+    uint32_t  slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot != 0) {
+        if (slot != 0x829)
+            return -3;
+        return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+    }
+
+    obj->field1c = 0x40003;
+    hob_ochar_sound(obj);
+
+    stop_a8(obj->field08);
+
+    args[thread->fieldf8] = (uint32_t)(int32_t)MK3_FIELD12_S(obj->field08);
+    obj->field38 = args[thread->fieldf8];
+    thread->fieldf8 = thread->fieldf8 + 1;
+
+    match_me_with_him(obj);
+    flip_multi(obj);
+
+    obj->field20 = 0;
+    obj->field1c = (uint32_t)~0x8f;      /* -0x90 */
+    multi_adjust_xy(obj);
+
+    thread->fieldf8 = thread->fieldf8 - 1;
+    obj->field38 = args[thread->fieldf8];
+    MK3_SET_FIELD12(obj->field08, (uint16_t)obj->field38);
+
+    obj->field1c = 4;
+    obj->field40 = 0x24;
+    borrow_char_ani(obj);
+
+    obj->field54 = 3;
+    find_part_a14(obj);
+
+    obj->field1c = 4;
+
+    *mk3_frame(thread, frame + 1) = 0x829;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
 /* t_boom_return_check -- armv7 0x00075778, 160 bytes.  **Complete.**
  *
  *      if (frame[frame+1].w0 != 0) return -3
@@ -6815,6 +6899,86 @@ long t_scorp_waiting_sleep(MK3THREAD *thread)
     }
 
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* ------------------------------------------------------------------------------ tl_ssp2
+ *
+ * armv7 0x0007ae38, 240 bytes.  **Complete.** Scorpion/Smoke's spear
+ * launcher, the driver `tl_do_smoke_spear`/`tl_do_scorpion_spear` hand off
+ * to.
+ *
+ * The free saves `field38` on the argument stack, packs `0x00010009`
+ * (rate 1, animation 9) and asks `get_his_action`: unless the answer is
+ * `0x503` or `0x507` (already reacting, one way or another), it swaps in
+ * `0x00020009` (rate 2) instead -- a slower throw against an opponent who
+ * isn't already stumbling. Descends into `t_animate2_a9` from `0x27e`.
+ * `0x27e` restores `field38`, launches through `create_proj_proc`,
+ * hangs the new slave off `proc->field88` (`t_double_shaker`'s own
+ * partner slot), tags the action to `0x604`, and installs
+ * `t_scorp_waiting_sleep` outright.
+ *
+ *      slot = frame[frame+1].w0
+ *      if (slot == 0x27e) {
+ *          fieldf8-- ; obj->field38 = args[fieldf8]
+ *          slave = create_proj_proc(obj) ; proc->field88 = slave
+ *          obj->field1c = obj->field00->field18 = 0x604
+ *          install t_scorp_waiting_sleep ; return 0
+ *      }
+ *      if (slot != 0) return -3
+ *      args[fieldf8] = obj->field38 ; fieldf8++
+ *      obj->a10 = 0 ; obj->field20 = 0x1d ; zap_init_special_act(obj)
+ *      obj->field40 = 0x00010009 ; get_his_action(obj)
+ *      if (obj->field20 != 0x503 && obj->field20 != 0x507)
+ *          obj->field40 = 0x00020009
+ *      token 0x27e ; frame++ ; install t_animate2_a9 ; return 0
+ */
+long t_scorp_waiting_sleep(struct MK3THREAD *thread);
+
+long tl_ssp2(MK3THREAD *thread)
+{
+    MK3OBJ   *obj  = (MK3OBJ *)thread->proc;
+    uint32_t *args = (uint32_t *)(void *)thread->args;
+    uint32_t  frame = thread->frame;
+    uint32_t  slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0x27e) {
+        MK3OBJ *slave;
+
+        thread->fieldf8 = thread->fieldf8 - 1;
+        obj->field38 = args[thread->fieldf8];
+
+        slave = create_proj_proc(obj);
+        obj->field00->field88 = slave;
+
+        obj->field1c = 0x604;
+        obj->field00->field18 = 0x604;
+
+        return mk3_install(thread, (MK3THREADFUNC)t_scorp_waiting_sleep);
+    }
+
+    if (slot != 0)
+        return -3;
+
+    args[thread->fieldf8] = obj->field38;
+    thread->fieldf8 = thread->fieldf8 + 1;
+
+    obj->a10    = 0;
+    obj->field20 = 0x1d;
+    zap_init_special_act(obj);
+
+    obj->field40 = 0x00010009;
+    get_his_action(obj);
+
+    if (obj->field20 != 0x503 && obj->field20 != 0x507)
+        obj->field40 = 0x00020009;
+
+    *mk3_frame(thread, frame + 1) = 0x27e;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_animate2_a9;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
 }
 
 
