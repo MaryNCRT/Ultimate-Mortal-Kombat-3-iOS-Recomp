@@ -4642,6 +4642,119 @@ long tl_do_kano_zap(MK3THREAD *thread)
 }
 
 
+/* ----------------------------------------------------------- tl_do_lia_forward_zap
+ *
+ * armv7 0x0007a85c, 288 bytes.  **Complete.**
+ *
+ * The free packs `0x00030024` into `field40` (rate 3, animation 0x24) and
+ * asks `get_his_action`; a `0x507` answer (a reaction) swaps in
+ * `0x00010024` and tags `field48 = 1` before the same descent into
+ * `t_animate_a9` from `0x7e1`. `0x7e1` launches through `create_proj_proc`
+ * with `field38 = t_lia_forward_proc`, and when a slave actually exists its
+ * `field48` gets a flat `0x80000` or, when this object's OWN `field48` was
+ * tagged from the reaction check, `0xa0000` instead -- the two speeds a
+ * caught-mid-reaction throw and an ordinary one get. It closes on a bare
+ * wait (`field1c = obj->field00->field18 = 0x604`, twenty ticks, no push)
+ * before `0x800` installs `t_backwards_ani`.
+ *
+ *      slot = frame[frame+1].w0
+ *                                          ; 0:    free, then 0x7e1
+ *                                          ; 0x7e1: launch, then 0x800 (wait)
+ *                                          ; 0x800: install t_backwards_ani
+ *      if (slot == 0x7e1) {
+ *          obj->field40 = 0x24 ; find_ani_part2(obj)
+ *          obj->field38 = t_lia_forward_proc
+ *          slave = create_proj_proc(obj)
+ *          if (slave != NULL) {
+ *              obj->field20 = 0x80000
+ *              if (obj->field48 != 0) obj->field20 = 0xa0000
+ *              slave->field48 = obj->field20
+ *          }
+ *          obj->field1c = obj->field00->field18 = 0x604
+ *          token 0x800 ; fieldfc = 0x20 ; return 0x20
+ *      }
+ *      if (slot == 0x800) {
+ *          obj->field40 = 0x24 ; obj->field1c = 4
+ *          install t_backwards_ani ; return 0
+ *      }
+ *      if (slot != 0) return -3
+ *      obj->field20 = 0x1b ; obj->a10 = 0 ; zap_init_special_act(obj)
+ *      obj->field1c = 2 ; ochar_sound(obj)
+ *      obj->field48 = 0 ; obj->field40 = 0x00030024
+ *      get_his_action(obj)
+ *      if (obj->field20 == 0x507) {
+ *          obj->field48 = 1 ; obj->field40 = 0x00010024
+ *      }
+ *      token 0x7e1 ; frame++ ; install t_animate_a9 ; return 0
+ */
+void find_ani_part2(MK3OBJ *obj);
+void get_his_action(MK3OBJ *obj);
+long t_lia_forward_proc(struct MK3THREAD *thread);      /* not yet decompiled */
+long t_backwards_ani(struct MK3THREAD *thread);         /* pointer slot 0x000f37c4 */
+
+long tl_do_lia_forward_zap(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0x7e1) {
+        MK3OBJ *slave;
+
+        obj->field40 = 0x24;
+        find_ani_part2(obj);
+
+        obj->field38 = (uint32_t)(uintptr_t)t_lia_forward_proc;
+        slave = create_proj_proc(obj);
+
+        if (slave != NULL) {
+            obj->field20 = 0x80000;
+            if (obj->field48 != 0)
+                obj->field20 = 0xa0000;
+            slave->field48 = obj->field20;
+        }
+
+        obj->field1c = 0x604;
+        obj->field00->field18 = 0x604;
+
+        *mk3_frame(thread, frame + 1) = 0x800;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (slot == 0x800) {
+        obj->field40 = 0x24;
+        obj->field1c = 4;
+        return mk3_install(thread, (MK3THREADFUNC)t_backwards_ani);
+    }
+
+    if (slot != 0)
+        return -3;
+
+    obj->field20 = 0x1b;
+    obj->a10     = 0;
+    zap_init_special_act(obj);
+
+    obj->field1c = 2;
+    ochar_sound(obj);
+
+    obj->field48 = 0;
+    obj->field40 = 0x00030024;
+    get_his_action(obj);
+    if (obj->field20 == 0x507) {
+        obj->field48 = 1;
+        obj->field40 = 0x00010024;
+    }
+
+    *mk3_frame(thread, frame + 1) = 0x7e1;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_animate_a9;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
 /* t_rocket_explode -- armv7 0x00077ccc, 176 bytes.  **Complete.**
  *
  *      if (frame[frame+1].w0 != 0) return -3
