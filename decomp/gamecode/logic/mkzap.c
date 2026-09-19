@@ -29,10 +29,31 @@ long t_new_spear_proc(struct MK3THREAD *thread);
 long t_robo_bomb_full(struct MK3THREAD *thread);
 long t_robo_bomb_mid(struct MK3THREAD *thread);
 long t_roc3(struct MK3THREAD *thread);
+long t_scorp_rope_pull(struct MK3THREAD *thread);
 long t_stz1(struct MK3THREAD *thread);
+long t_lao_hat_proc(struct MK3THREAD *thread);
 long tl_bomb3(struct MK3THREAD *thread);
 long tl_jzap3(struct MK3THREAD *thread);
 long tl_ssp2(struct MK3THREAD *thread);
+
+long t_r_null_speared(struct MK3THREAD *thread);         /* mkreact.c */
+long t_rhat_sleep(struct MK3THREAD *thread);              /* mkreact.c */
+long t_tugged_in_by_spear(struct MK3THREAD *thread);      /* not yet decompiled */
+long t_scorp_waiting_sleep(struct MK3THREAD *thread);
+
+void *GetProcFunc(MK3OBJ *obj);
+void fastxfer_thread(MK3OBJ *obj, MK3THREAD *thread);
+void ReallyKillHisProjectile(MK3OBJ *obj);
+void takeover_him(MK3OBJ *obj);
+long next_anirate(MK3OBJ *obj);
+void pose_him_a0(MK3OBJ *obj);
+void stop_him(MK3OBJ *obj);
+void ground_him(MK3OBJ *obj);
+void randu(MK3OBJ *obj);
+void xfer_otherguy(MK3OBJ *obj);
+void player_swpal(MK3OBJ *obj, uint32_t frozen);
+
+extern MK3THREAD *mytc;                                   /* pointer slot -> 0x0038ef3c */
 
 /* t_new_smoke_spear_proc -- armv7 0x00074d3c, 64 bytes.  **Complete.**
  *
@@ -5516,4 +5537,712 @@ long t_ermac_zap_proc(MK3THREAD *thread)
     create_fx(obj);
 
     return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+}
+
+/* ---------------------------------------------------------------- t_stz1
+ *
+ * armv7 0x0007a2c0, four hundred eighty-four bytes.  **Complete.**
+ *
+ * Sub-Zero's zap one, the standing ice wave.  Two entrance poses ride the
+ * shared `t_st_zap_jsrp` animator: the free state marks `a10`, and the
+ * 0xad6 charge holds the 0xc pose over a 0xadd breath that counts `field48`
+ * down (re-parking itself with `fieldfc = 8` each tick) until the count dries
+ * and `i_am_a_sitting_duck` wears the 0xae9 fire.  The fire rates an
+ * "action + 4" pose in the 0x40 slot (`get_char_ani`, then every 0xaef
+ * visit racks the field down again -- `field40 -= 8`, bump) while the 0xaf2
+ * walker unwinds one frame record at a time, down to `t_local_reaction_exit`
+ * when the stack reaches bottom.  Slot 0xae2 is the alternate firing pose;
+ * 0xae4/0xae5 are the count's own one-beat bump before the same sitting-duck
+ * park.
+ *
+ *      slot = frame[frame+1].w0
+ *                                            ; 0:     free, then 0xad6
+ *                                            ; 0xad6: charge; count -> 0xada
+ *                                            ; 0xada: pose 0xc, then 0xadd
+ *                                            ; 0xadd: count; dry -> sit
+ *                                            ; 0xae2: pose 0xc, then 0xae4
+ *                                            ; 0xae4: bump, then 0xae5
+ *                                            ; 0xae5: sit, then 0xae9
+ *                                            ; 0xae9: fire, then 0xaef
+ *                                            ; 0xaef: wind up, then 0xaf2
+ *                                            ; 0xaf2: unwind, exit at bottom
+ *      if (slot == 0xae2) {
+ *          obj->a10 = 0xc
+ *          token 0xae4 ; frame++ ; install t_st_zap_jsrp ; return 0
+ *      }
+ *      if (slot < 0xae2) {
+ *          if (slot == 0xad6)  count (re-park 0xada, or sit)
+ *          if (slot < 0xad6) {
+ *              if (slot != 0) return -3
+ *              obj->a10 = 0 ; zap_init_special_act(obj) ; obj->a10 = 0
+ *              token 0xad6 ; frame++ ; install t_st_zap_jsrp ; return 0
+ *          }
+ *          if (slot == 0xada) {
+ *              obj->a10 = 0xc
+ *              token 0xadd ; frame++ ; install t_st_zap_jsrp ; return 0
+ *          }
+ *          if (slot == 0xadd)  count (re-park 0xae2, or sit)
+ *          return -3
+ *      }
+ *      if (slot == 0xae9) {
+ *          obj->field40 = 0x24 ; get_char_ani(obj) ; obj->field40 += 4
+ *          do_next_a9_frame(obj)
+ *          token 0xaef ; fieldfc = 4 ; return 4
+ *      }
+ *      if (slot > 0xae9) {
+ *          if (slot == 0xaef) {
+ *              obj->field40 -= 8 ; do_next_a9_frame(obj)
+ *              token 0xaf2 ; fieldfc = 4 ; return 4
+ *          }
+ *          if (slot == 0xaf2) {
+ *              if (frame > 0) { frame -= 1 ; return 0 }
+ *              frame[frame].w1 = t_local_reaction_exit
+ *              frame[frame+1].w0 = 0 ; return 0
+ *          }
+ *          return -3
+ *      }
+ *      if (slot == 0xae4)  token 0xae5 ; fieldfc = 8 ; return 8
+ *      if (slot == 0xae5)  sit
+ *      return -3
+ *
+ *      count:  obj->field48 -= 1
+ *              if (obj->field48 == 0)  sit
+ *              token (0xada or 0xadd) ; fieldfc = 8 ; return 8
+ *      sit:    i_am_a_sitting_duck(obj)
+ *              token 0xae9 ; fieldfc = 8 ; return 8
+ */
+long t_stz1(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t slot;
+
+    slot = *mk3_frame(thread, thread->frame + 1);
+    if (slot == 0xae2) {
+        obj->a10 = 0xc;
+        *mk3_frame(thread, thread->frame + 1) = 0xae4;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_st_zap_jsrp;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+    if (slot < 0xae2) {
+        if (slot == 0xad6) {
+            obj->field48 -= 1;
+            if (obj->field48 != 0) {
+                *mk3_frame(thread, thread->frame + 1) = 0xada;
+                thread->fieldfc = 8;
+                return 8;
+            }
+            goto sit;
+        }
+        if (slot < 0xad6) {
+            if (slot == 0) {
+                obj->a10 = 0;
+                zap_init_special_act(obj);
+                obj->a10 = 0;
+                *mk3_frame(thread, thread->frame + 1) = 0xad6;
+                thread->frame = thread->frame + 1;
+                mk3_frame(thread, thread->frame)[1] =
+                    (uint32_t)(uintptr_t)t_st_zap_jsrp;
+                *mk3_frame(thread, thread->frame + 1) = 0;
+                return 0;
+            }
+            return -3;
+        }
+        if (slot == 0xada) {
+            obj->a10 = 0xc;
+            *mk3_frame(thread, thread->frame + 1) = 0xadd;
+            thread->frame = thread->frame + 1;
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)t_st_zap_jsrp;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+        if (slot == 0xadd) {
+            obj->field48 -= 1;
+            if (obj->field48 != 0) {
+                /* armv7 0x7a332: `str.w r2, [r0, r3, lsl #3]` re-parks
+                 * whatever r2 still held from the dispatch's own
+                 * `movw r2, #0xae2` at 0x7a2cc -- nothing between there
+                 * and here writes r2, so the token really is 0xae2, the
+                 * alternate firing chain's own entry, not this branch's
+                 * own 0xadd looping on itself. */
+                *mk3_frame(thread, thread->frame + 1) = 0xae2;
+                thread->fieldfc = 8;
+                return 8;
+            }
+            goto sit;
+        }
+        return -3;
+    }
+    if (slot == 0xae9) {
+        obj->field40 = 0x24;
+        get_char_ani(obj);
+        obj->field40 += 4;
+        do_next_a9_frame(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0xaef;
+        thread->fieldfc = 4;
+        return 4;
+    }
+    if (slot > 0xae9) {
+        if (slot == 0xaef) {
+            obj->field40 -= 8;
+            do_next_a9_frame(obj);
+            *mk3_frame(thread, thread->frame + 1) = 0xaf2;
+            thread->fieldfc = 4;
+            return 4;
+        }
+        if (slot == 0xaf2) {
+            if (thread->frame > 0) {
+                thread->frame = thread->frame - 1;
+                return 0;
+            }
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)t_local_reaction_exit;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+        return -3;
+    }
+    if (slot == 0xae4) {
+        *mk3_frame(thread, thread->frame + 1) = 0xae5;
+        thread->fieldfc = 8;
+        return 8;
+    }
+    if (slot == 0xae5)
+        goto sit;
+    return -3;
+
+sit:
+    i_am_a_sitting_duck(obj);
+    *mk3_frame(thread, thread->frame + 1) = 0xae9;
+    thread->fieldfc = 8;
+    return 8;
+}
+
+/* ---------------------------------------------------------- t_new_spear_proc
+ *
+ * armv7 0x0007c830, four hundred eighty-four bytes.  **Complete.**
+ *
+ * Scorpion's spear, the fresh state of the tusk.  The free serves the
+ * speared tripod: `field20 += 0x18` and `multi_adjust_xy` place it, 9/3
+ * poses it (`find_ani2_part_a14`) and the new animation's first word is
+ * stamped onto the GrObj's field2c, then the 0xfff / 0xa0000 throw and a
+ * 0x14 first-life set into the 0x22c patrol (`tl_projectile_flight_call`).
+ * At 0x22c an unarmed `field18` calls turn: an opponent on the rank
+ * `proc->field08` reads (the Plyr row) whose proc answers
+ * `t_scorp_waiting_sleep` takes the full rope pull -- Steam Scorpion's own
+ * retractor parked into field38, `fastxfer_thread` into the mytc thread the
+ * same rank reads, `ReallyKillHisProjectile`, the victim GrObj's 0x18 folded
+ * back -- then the 0x256 breath, which matches the opponent's 0x0e halfword
+ * every visit.  Still cold, the `t_r_null_speared` hand-off is the
+ * no-reaction blank; anything with a live `field18` (or a non-sleeping foe)
+ * is the 0x240 ride -- three ticks of `player_normpal`, then 0x242 counts
+ * `field48` with the `player_swpal(obj, 2)` re-tint under a zeroed GrObj 0x18
+ * until the count dries and the stack closes on `tl_delete_proj_and_die`.
+ *
+ *      slot = frame[frame+1].w0
+ *                                            ; 0:     free, then 0x22c
+ *                                            ; 0x22c: rope / null-spear / hit
+ *                                            ; 0x240: normpal, then 0x242
+ *                                            ; 0x242: count field48 -> die
+ *                                            ; 0x256: match the 0x0e halfword
+ *      if (slot == 0x240) {
+ *          player_normpal(obj)
+ *          token 0x242 ; fieldfc = 3 ; return 3
+ *      }
+ *      if (slot < 0x240) {
+ *          if (slot == 0x22c) {
+ *              n = proc->field08
+ *              if (obj->field18 == 0) {
+ *                  if (GetProcFunc(Plyr + n * PLYR_STRIDE) == t_scorp_waiting_sleep) {
+ *                      obj->field38 = t_scorp_rope_pull
+ *                      fastxfer_thread(obj, mytc + n * 268)
+ *                      ReallyKillHisProjectile(obj)
+ *                      obj->field08->field18 = obj->field18
+ *                      token 0x256 ; fieldfc = 1 ; return 1
+ *                  }
+ *                  if (obj->field18 != 0)  hit
+ *                  args[fieldf8] = obj->a10 ; fieldf8++
+ *                  obj->field38 = t_r_null_speared ; takeover_him(obj)
+ *                  fieldf8-- ; obj->a10 = args[fieldf8]
+ *              }
+ *              hit:  obj->field48 = 3 ; obj->field08->field18 = 0
+ *              player_swpal(obj, 2)
+ *              token 0x240 ; fieldfc = 3 ; return 3
+ *          }
+ *          if (slot == 0) {
+ *              obj->field20 += 0x18 ; multi_adjust_xy(obj)
+ *              obj->field40 = 9 ; obj->field54 = 3 ; find_ani2_part_a14(obj)
+ *              obj->field08->field2c = *(uint32_t *)obj->field40
+ *              obj->field20 = 0xfff ; obj->field1c = 0xa0000 ; set_proj_vel(obj)
+ *              obj->field34 = 0 ; obj->field48 = 0x14
+ *              token 0x22c ; frame++ ; install tl_projectile_flight_call ; return 0
+ *          }
+ *          return -3
+ *      }
+ *      if (slot == 0x242) {
+ *          obj->field48 -= 1
+ *          if (obj->field48 != 0) {
+ *              obj->field08->field18 = 0 ; player_swpal(obj, 2)
+ *              token 0x240 ; fieldfc = 3 ; return 3
+ *          }
+ *          install tl_delete_proj_and_die ; return 0
+ *      }
+ *      if (slot != 0x256) return -3
+ *      HW(field08 + 0x0e) = HW(him + 0x0e)
+ *      token 0x256 ; fieldfc = 1 ; return 1
+ */
+long t_new_spear_proc(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t *args = (uint32_t *)(void *)thread->args;
+    uint32_t slot;
+    uint32_t n;
+
+    slot = *mk3_frame(thread, thread->frame + 1);
+    if (slot == 0x240) {
+        player_normpal(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x242;
+        thread->fieldfc = 3;
+        return 3;
+    }
+    if (slot < 0x240) {
+        if (slot == 0x22c) {
+            if (obj->field18 != 0)
+                goto hit;
+            n = obj->field00->field08;
+            if ((uintptr_t)GetProcFunc(
+                    (MK3OBJ *)(void *)((char *)Plyr + (uintptr_t)n * PLYR_STRIDE)) ==
+                (uintptr_t)t_scorp_waiting_sleep) {
+                obj->field38 = (uint32_t)(uintptr_t)t_scorp_rope_pull;
+                fastxfer_thread(obj,
+                    (MK3THREAD *)(void *)((char *)mytc + (uintptr_t)n * 268));
+                ReallyKillHisProjectile(obj);
+                obj->field08->field18 = obj->field18;
+                *mk3_frame(thread, thread->frame + 1) = 0x256;
+                thread->fieldfc = 1;
+                return 1;
+            }
+            if (obj->field18 != 0)
+                goto hit;
+            args[thread->fieldf8] = obj->a10;
+            thread->fieldf8 = thread->fieldf8 + 1;
+            obj->field38 = (uint32_t)(uintptr_t)t_r_null_speared;
+            takeover_him(obj);
+            thread->fieldf8 = thread->fieldf8 - 1;
+            obj->a10 = args[thread->fieldf8];
+        }
+        else if (slot == 0) {
+            obj->field20 += 0x18;
+            multi_adjust_xy(obj);
+            obj->field40 = 9;
+            obj->field54 = 3;
+            find_ani2_part_a14(obj);
+            obj->field08->field2c = *(uint32_t *)(uintptr_t)obj->field40;
+            obj->field20 = 0xfff;
+            obj->field1c = 0xa0000;
+            set_proj_vel(obj);
+            obj->field34 = 0;
+            obj->field48 = 0x14;
+            *mk3_frame(thread, thread->frame + 1) = 0x22c;
+            thread->frame = thread->frame + 1;
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)tl_projectile_flight_call;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+        else {
+            return -3;
+        }
+
+hit:
+        obj->field48 = 3;
+tail:
+        obj->field08->field18 = 0;
+        player_swpal(obj, 2);
+        *mk3_frame(thread, thread->frame + 1) = 0x240;
+        thread->fieldfc = 3;
+        return 3;
+    }
+    if (slot == 0x242) {
+        obj->field48 -= 1;
+        if (obj->field48 != 0)
+            goto tail;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)tl_delete_proj_and_die;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+    if (slot != 0x256)
+        return -3;
+    *(uint16_t *)((char *)obj->field08 + 0x0e) =
+        *(uint16_t *)((char *)(uintptr_t)obj->field00->him + 0x0e);
+    *mk3_frame(thread, thread->frame + 1) = 0x256;
+    thread->fieldfc = 1;
+    return 1;
+}
+
+/* ----------------------------------------------------------- t_scorp_rope_pull
+ *
+ * armv7 0x0007c5fc, five hundred sixty-four bytes.  **Complete.**
+ *
+ * The retractor: what `t_new_spear_proc` parks into field38 when the tusk
+ * bites.  The free slaps both the spear and its victim into the 0x11a /
+ * 0x623 actions, pushes `field40` around the same 9/3 pose the free above
+ * uses (`find_ani2_part_a14`), stamps the new animation's second word onto
+ * the imported GrObj's field2c, poses himself and stops and floors the
+ * victim (`pose_him_a0`, `stop_him`, `ground_him`), and winds the
+ * `t_double_shaker` ride off a 6-beat `field40` count.  0x390 decrements it
+ * (re-parking the shaker with a `~1` spin off `field20` each breath) and on
+ * the dry walk sets `field40 = 9`, animates, and parks the 0x399 tug.  At
+ * 0x399 the tug gives the opponent `t_tugged_in_by_spear` through
+ * `xfer_otherguy` while parking the 0x39e beat: `randu`, an `ochar_sound`,
+ * `init_anirate`, and the 0x3a9 watch.  The watch `next_anirate`s while the
+ * opponent stands in the speared action -- `him->field18` still nonzero --
+ * and the instant it clears, sends him back: the imported proc is killed and
+ * `field88` zeroed, the object floated on `G + 0x420` (`update_tsl`), and
+ * `t_local_reaction_exit` lets the victim fall back out.
+ *
+ *      slot = frame[frame+1].w0
+ *                                            ; 0:     free, then 0x38e
+ *                                            ; 0x38e: shake, then 0x390
+ *                                            ; 0x390: count; dry -> 0x399
+ *                                            ; 0x399: tug, then 0x39e
+ *                                            ; 0x39e: randu, then 0x3a9
+ *                                            ; 0x3a9: watch; exit when clear
+ *      if (slot == 0x390) {
+ *          obj->field40 -= 1
+ *          if (obj->field40 != 0)  repark (the ~1 spin, 0x38e)
+ *          obj->field40 += 9 ; get_char_ani2(obj) ; find_part2(obj)
+ *          do_next_a9_frame(obj)
+ *          token 0x399 ; fieldfc = 4 ; return 4
+ *      }
+ *      if (slot < 0x390) {
+ *          if (slot == 0x38e) {
+ *              obj->field20 = 2
+ *              token 0x390 ; frame++ ; install t_double_shaker ; return 0
+ *          }
+ *          if (slot == 0) {
+ *              free...
+ *          }
+ *          return -3
+ *      }
+ *      if (slot == 0x39e) {
+ *          obj->field1c = 2 ; randu(obj) ; obj->field1c -= 1
+ *          ochar_sound(obj) ; obj->field1c = 3 ; init_anirate(obj)
+ *          token 0x3a9 ; fieldfc = 1 ; return 1
+ *      }
+ *      if (slot == 0x3a9) {
+ *          next_anirate(obj)
+ *          r6 = him->field18
+ *          if (r6 != 0) { token 0x3a9 ; fieldfc = 1 ; return 1 }
+ *          KillProc(field00->field88) ; field00->field88 = 0
+ *          obj->field1c = G + 0x420 ; update_tsl(obj)
+ *          frame[frame].w1 = t_local_reaction_exit ; frame[frame+1].w0 = 0
+ *          return 0
+ *      }
+ *      if (slot != 0x399) return -3
+ *      obj->field38 = t_tugged_in_by_spear ; xfer_otherguy(obj)
+ *      token 0x39e ; fieldfc = 3 ; return 3
+ *
+ *      free:   obj->field20 = 0x11a ; proc->field18 = 0x11a
+ *              args[fieldf8] = obj->field40 ; fieldf8++
+ *              obj->field40 = 9 ; obj->field54 = 3 ; find_ani2_part_a14(obj)
+ *              field00->field88->field08->field2c = *(field40 + 8)
+ *              fieldf8-- ; obj->field40 = args[fieldf8]
+ *              obj->field1c = 0x1e ; pose_him_a0(obj)
+ *              args[fieldf8] = obj->a10 ; fieldf8++
+ *              stop_him(obj) ; ground_him(obj)
+ *              fieldf8-- ; obj->a10 = args[fieldf8]
+ *              obj->field20 = 0x623
+ *              proc->field00->field00->field18 = 0x623
+ *              obj->field40 = 6
+ *              repark
+ *      repark: obj->field20 = ~1
+ *              token 0x38e ; frame++ ; install t_double_shaker ; return 0
+ */
+long t_scorp_rope_pull(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t *args = (uint32_t *)(void *)thread->args;
+    uint32_t slot;
+
+    slot = *mk3_frame(thread, thread->frame + 1);
+    if (slot == 0x390) {
+        obj->field40 -= 1;
+        if (obj->field40 != 0)
+            goto repark;
+        obj->field40 += 9;
+        get_char_ani2(obj);
+        find_part2(obj);
+        do_next_a9_frame(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x399;
+        thread->fieldfc = 4;
+        return 4;
+    }
+    if (slot < 0x390) {
+        if (slot == 0x38e) {
+            obj->field20 = 2;
+            *mk3_frame(thread, thread->frame + 1) = 0x390;
+            thread->frame = thread->frame + 1;
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)t_double_shaker;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+        if (slot == 0) {
+            obj->field20 = 0x11a;
+            obj->field00->field18 = 0x11a;
+            args[thread->fieldf8] = obj->field40;
+            thread->fieldf8 = thread->fieldf8 + 1;
+            obj->field40 = 9;
+            obj->field54 = 3;
+            find_ani2_part_a14(obj);
+            obj->field00->field88->field08->field2c =
+                *(uint32_t *)((char *)(uintptr_t)obj->field40 + 8);
+            thread->fieldf8 = thread->fieldf8 - 1;
+            obj->field40 = args[thread->fieldf8];
+            obj->field1c = 0x1e;
+            pose_him_a0(obj);
+            args[thread->fieldf8] = obj->a10;
+            thread->fieldf8 = thread->fieldf8 + 1;
+            stop_him(obj);
+            ground_him(obj);
+            thread->fieldf8 = thread->fieldf8 - 1;
+            obj->a10 = args[thread->fieldf8];
+            obj->field20 = 0x623;
+            obj->field00->field00->field00->field18 = 0x623;
+            obj->field40 = 6;
+            goto repark;
+        }
+        return -3;
+    }
+    if (slot == 0x39e) {
+        obj->field1c = 2;
+        randu(obj);
+        obj->field1c -= 1;
+        ochar_sound(obj);
+        obj->field1c = 3;
+        init_anirate(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x3a9;
+        thread->fieldfc = 1;
+        return 1;
+    }
+    if (slot == 0x3a9) {
+        next_anirate(obj);
+        if (((MK3OBJ *)(uintptr_t)obj->field00->him)->field18 != 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0x3a9;
+            thread->fieldfc = 1;
+            return 1;
+        }
+        KillProc(obj->field00->field88);
+        obj->field00->field88 = 0;
+        obj->field1c = (uint32_t)(uintptr_t)((char *)G + 0x420);
+        update_tsl(obj);
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_local_reaction_exit;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+    if (slot != 0x399)
+        return -3;
+    obj->field38 = (uint32_t)(uintptr_t)t_tugged_in_by_spear;
+    xfer_otherguy(obj);
+    *mk3_frame(thread, thread->frame + 1) = 0x39e;
+    thread->fieldfc = 3;
+    return 3;
+
+repark:
+    obj->field20 = (uint32_t)~1u;
+    *mk3_frame(thread, thread->frame + 1) = 0x38e;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_double_shaker;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+/* ------------------------------------------------------------- t_lao_hat_proc
+ *
+ * armv7 0x00078a64, five hundred twelve bytes.  **Complete.**
+ *
+ * Kung Lao's spinning hat (the throw that comes back).  The free poses the
+ * four-frame 0x24 animation (field54 = 4), saves `field40` across
+ * `do_next_a9_frame` into `a10` so the seed animation survives the step,
+ * plants a half-billion fixed-point velocity on the GrObj (`field08->field1c`,
+ * then `0xfffe0000 + 0xa0000` = 0x80000 with `field20 = 4` through
+ * `set_proj_vel`), clears the action to the idle walk (`field1c = 1`,
+ * `proc->field2c = 1`), tags `field48 = 0x11` and `field34 = t_lao_zap_call`,
+ * and flies on `tl_projectile_flight_call` from 0xd53.  0xd53 sails while
+ * `field18` still stands, or else dies into the 0xd72 latch; the 0xd72 check
+ * dallies only for a sleeping readied stinger (`GetProcFunc(proc->field00) ==
+ * t_rhat_sleep` -- park the latch, otherwise fling): the fling re-poses five
+ * frames at 0x24, spins the multi off a `~0x9f / 0x98` gnudge and the GrObj
+ * direction, calls `set_proj_vel` afresh, and re-enters the flight watch.
+ * The latch snapahooks the GrObj's 0x12 halfword on a `match_me_with_him` /
+ * `flip_multi` pair, gnudges 0x67, and parks the 0xd72 dalliance.  0xd99
+ * rides `next_anirate` while `proj_onscreen_test` still shows the hat, then
+ * `tl_delete_proj_and_die` offscreen.
+ *
+ *      slot = frame[frame+1].w0
+ *                                            ; 0:     free, then 0xd53
+ *                                            ; 0xd53: fling, or the 0xd72 latch
+ *                                            ; 0xd72: latch, or fling
+ *                                            ; 0xd99: on-screen watch
+ *      if (slot == 0xd53) {
+ *          if (obj->field18 == 0) {
+ *              obj->field1c = 2 ; ochar_sound(obj) ; stop_a8(obj->field08)
+ *              latch
+ *          }
+ *          fling
+ *      }
+ *      if (slot == 0xd72) {
+ *          if (GetProcFunc(proc->field00) == t_rhat_sleep)  latch
+ *          obj->field20 = 5 ; obj->field1c = 0xb0000 ; set_proj_vel(obj)
+ *          fling
+ *      }
+ *      if (slot == 0xd99) {
+ *          if (proj_onscreen_test(obj)) {
+ *              next_anirate(obj)
+ *              token 0xd99 ; fieldfc = 1 ; return 1
+ *          }
+ *          install tl_delete_proj_and_die ; return 0
+ *      }
+ *      if (slot == 0) {
+ *          obj->field40 = 0x24 ; obj->field54 = 4 ; find_ani_part_a14(obj)
+ *          obj->a10 = obj->field40 ; do_next_a9_frame(obj)
+ *          obj->field40 = obj->a10
+ *          obj->field08->field1c = 0xfffe0000
+ *          obj->field20 = 4 ; obj->field1c = 0x00080000 ; set_proj_vel(obj)
+ *          obj->field1c = 1 ; proc->field2c = 1
+ *          obj->field48 = 0x11 ; obj->field34 = t_lao_zap_call
+ *          token 0xd53 ; frame++ ; install tl_projectile_flight_call ; return 0
+ *      }
+ *      return -3
+ *
+ *      fling:  obj->field1c = 3 ; ochar_sound(obj)
+ *              obj->field40 = 0x24 ; obj->field54 = 5 ; find_ani_part_a14(obj)
+ *              obj->field1c = 4 ; init_anirate(obj)
+ *              w = 0xfffb0000                 ; pool 0x78c58
+ *              obj->field20 = w ; obj->field08->field1c = w
+ *              flip_multi(obj)
+ *              obj->field1c = ~0x9f
+ *              obj->field20 = ~0x9f + 0x98    ; 0xfffffff8
+ *              multi_adjust_xy(obj)
+ *              s = obj->field08->field18
+ *              obj->field08->field18 = -s ; obj->field1c = -s
+ *              next_anirate(obj)
+ *              token 0xd99 ; fieldfc = 1 ; return 1
+ *      latch:  rhs = (int16)HW(field08 + 0x12)
+ *              obj->field20 = rhs ; args[fieldf8] = rhs ; fieldf8++
+ *              match_me_with_him(obj) ; flip_multi(obj) ; fieldf8--
+ *              HW(field08 + 0x12) = (uint16)args[fieldf8]
+ *              obj->field1c = ~0x67 ; obj->field20 = 0
+ *              multi_adjust_xy(obj)
+ *              next_anirate(obj)
+ *              token 0xd72 ; fieldfc = 1 ; return 1
+ */
+long t_lao_hat_proc(struct MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t *args = (uint32_t *)(void *)thread->args;
+    uint32_t slot;
+    uint32_t wing;
+
+    slot = *mk3_frame(thread, thread->frame + 1);
+    if (slot == 0xd53) {
+        if (obj->field18 == 0) {
+            obj->field1c = 2;
+            ochar_sound(obj);
+            stop_a8(obj->field08);
+            goto latch;
+        }
+        goto fling;
+    }
+    if (slot == 0xd72) {
+        if ((uintptr_t)GetProcFunc(obj->field00->field00) ==
+                (uintptr_t)t_rhat_sleep)
+            goto latch;
+        obj->field20 = 5;
+        obj->field1c = 0xb0000;
+        set_proj_vel(obj);
+        goto fling;
+    }
+    if (slot == 0xd99) {
+        if (proj_onscreen_test(obj) != 0)
+            goto watch;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)tl_delete_proj_and_die;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+    if (slot == 0) {
+        obj->field40 = 0x24;
+        obj->field54 = 4;
+        find_ani_part_a14(obj);
+        obj->a10 = obj->field40;
+        do_next_a9_frame(obj);
+        obj->field40 = obj->a10;
+        wing = 0xfffe0000;          /* pool 0x78c4c */
+        obj->field08->field1c = wing;
+        obj->field20 = 4;
+        obj->field1c = (uint32_t)(wing + 0xa0000u);   /* add.w -> 0x00080000 */
+        set_proj_vel(obj);
+        obj->field1c = 1;
+        obj->field00->field2c = 1;
+        obj->field48 = 0x11;
+        obj->field34 = (uint32_t)(uintptr_t)t_lao_zap_call;
+        *mk3_frame(thread, thread->frame + 1) = 0xd53;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)tl_projectile_flight_call;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+    return -3;
+
+fling:
+    obj->field1c = 3;
+    ochar_sound(obj);
+    obj->field40 = 0x24;
+    obj->field54 = 5;
+    find_ani_part_a14(obj);
+    obj->field1c = 4;
+    init_anirate(obj);
+    wing = 0xfffb0000;            /* pool 0x78c58 */
+    obj->field20 = wing;
+    obj->field08->field1c = wing;
+    flip_multi(obj);
+    obj->field1c = (uint32_t)~0x9f;
+    obj->field20 = (uint32_t)(~0x9f + 0x98);       /* 0xfffffff8 */
+    multi_adjust_xy(obj);
+    wing = obj->field08->field18;
+    obj->field08->field18 = (uint32_t)(-(int32_t)wing);
+    obj->field1c = (uint32_t)(-(int32_t)wing);
+
+watch:
+    next_anirate(obj);
+    *mk3_frame(thread, thread->frame + 1) = 0xd99;
+    thread->fieldfc = 1;
+    return 1;
+
+latch:
+    obj->field20 = (uint32_t)(int16_t)
+        *(uint16_t *)((char *)obj->field08 + 0x12);
+    args[thread->fieldf8] = obj->field20;
+    thread->fieldf8 = thread->fieldf8 + 1;
+    match_me_with_him(obj);
+    flip_multi(obj);
+    thread->fieldf8 = thread->fieldf8 - 1;
+    *(uint16_t *)((char *)obj->field08 + 0x12) =
+        (uint16_t)args[thread->fieldf8];
+    obj->field1c = (uint32_t)~0x67;
+    obj->field20 = 0;
+    multi_adjust_xy(obj);
+    next_anirate(obj);
+    *mk3_frame(thread, thread->frame + 1) = 0xd72;
+    thread->fieldfc = 1;
+    return 1;
 }
