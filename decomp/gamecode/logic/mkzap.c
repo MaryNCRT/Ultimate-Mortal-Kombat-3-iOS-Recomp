@@ -5454,6 +5454,102 @@ long spit_prezap_hit(MK3THREAD *thread)
 }
 
 
+/* ------------------------------------------------------------------- t_spit_proc
+ *
+ * armv7 0x0007bbcc, 304 bytes.  **Complete.**
+ *
+ * The spit's driver: two aim passes on `t_spit_prezap` before it actually
+ * throws. The free poses animation 6 (`field54 = 3`, `find_ani2_part_a14`),
+ * loads a first box (`field20 = 0x001c005e`, `field24 = 0x000c0034`,
+ * transcribed as the raw packed words the binary loads) and descends into
+ * `t_spit_prezap` from `0x488`. `0x488` re-loads a second, wider box
+ * (`field20 = 0x001c0096`, same `field24`) and checks again from `0x48c`.
+ * `0x48c` is where it actually launches -- a flat `0x80000` velocity,
+ * `field48 = 0x12`, `field34 = 0` -- on `tl_projectile_flight_call` from
+ * `0x493`, whose re-entry installs `spit_prezap_hit`.
+ *
+ *      slot = frame[frame+1].w0
+ *                                          ; 0:     free, then 0x488
+ *                                          ; 0x488:  aim pass 2, then 0x48c
+ *                                          ; 0x48c:  launch, then 0x493
+ *                                          ; 0x493:  install spit_prezap_hit
+ *      if (slot == 0x488) {
+ *          obj->field20 = 0x001c0096 ; obj->field24 = 0x000c0034
+ *          token 0x48c ; frame++ ; install t_spit_prezap ; return 0
+ *      }
+ *      if (slot < 0x488) {
+ *          if (slot != 0) return -3
+ *          obj->field40 = 6 ; obj->field54 = 3 ; find_ani2_part_a14(obj)
+ *          obj->field20 = 0x001c005e ; obj->field24 = 0x000c0034
+ *          token 0x488 ; frame++ ; install t_spit_prezap ; return 0
+ *      }
+ *      if (slot == 0x493) install spit_prezap_hit ; return 0
+ *      if (slot != 0x48c) return -3
+ *      obj->field20 = 3 ; obj->field1c = 0x80000 ; set_proj_vel(obj)
+ *      obj->field48 = 0x12 ; obj->field34 = 0
+ *      token 0x493 ; frame++ ; install tl_projectile_flight_call ; return 0
+ */
+long t_spit_prezap(struct MK3THREAD *thread);
+
+long t_spit_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0x488) {
+        obj->field20 = 0x001c0096;
+        obj->field24 = 0x000c0034;
+
+        *mk3_frame(thread, frame + 1) = 0x48c;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_spit_prezap;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot < 0x488) {
+        if (slot != 0)
+            return -3;
+
+        obj->field40 = 6;
+        obj->field54 = 3;
+        find_ani2_part_a14(obj);
+
+        obj->field20 = 0x001c005e;
+        obj->field24 = 0x000c0034;
+
+        *mk3_frame(thread, frame + 1) = 0x488;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_spit_prezap;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0x493)
+        return mk3_install(thread, (MK3THREADFUNC)spit_prezap_hit);
+
+    if (slot != 0x48c)
+        return -3;
+
+    obj->field20 = 3;
+    obj->field1c = 0x80000;
+    set_proj_vel(obj);
+
+    obj->field48 = 0x12;
+    obj->field34 = 0;
+
+    *mk3_frame(thread, frame + 1) = 0x493;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)tl_projectile_flight_call;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
 /* tl_lk_zap_lo -- armv7 0x0007a574, 204 bytes.  **Complete.**
  *
  *      token == 0:        am_i_airborn(obj)
