@@ -4369,6 +4369,131 @@ watch_back:
 }
 
 
+/* ------------------------------------------------------------------------ t_bgrav9
+ *
+ * armv7 0x0007905c, 320 bytes.  **Complete.**
+ *
+ * A ground-pound shockwave that refuses to touch a boss. The free stops
+ * the GrObj and counts `field48` down from `0x40` at `0xcc8` -- a bare
+ * self-loop, `next_anirate` every tick -- until it dries, then reads
+ * `G[0x450]`: zero means check for a boss right away, non-zero means wait
+ * essentially forever (`0x16462`, the same "never answer" idiom
+ * `t_master_summon_proc`/`t_friendship_speech` use) before checking. A
+ * boss dies the shockwave outright with no effect; anyone else gets
+ * `create_fx`, a sound, `set_inviso`, and a five-tick `strike_check_a0`
+ * loop at `0xce3` that also dies on a hit or once it dries.
+ *
+ *      slot = frame[frame+1].w0
+ *                                          ; 0:     free, then 0xcc8 (loop)
+ *                                          ; 0xcc8:  countdown loop, then boss check
+ *                                          ; 0xcd0:  wait-forever's boss check
+ *                                          ; 0xce3:  strike-check loop
+ *      if (slot == 0xcd0) goto boss_check
+ *      if (slot < 0xcc8) {
+ *          if (slot != 0) return -3
+ *          stop_a8(GrObj) ; obj->field48 = 0x40
+ *          token 0xcc8 ; fieldfc = 1 ; return 1
+ *      }
+ *      if (slot == 0xcc8) {
+ *          next_anirate(obj) ; obj->field48 -= 1
+ *          if (obj->field48 != 0) { token 0xcc8 ; fieldfc = 1 ; return 1 }
+ *          obj->field1c = (int16)G[0x450]
+ *          if (G[0x450] == 0) goto boss_check
+ *          token 0xcd0 ; fieldfc = 0x16462 ; return 0x16462
+ *      }
+ *      if (slot != 0xce3) return -3
+ *      obj->field1c = 0x15 ; strike_check_a0(obj)
+ *      if (obj->field5c != 0) install tl_delete_proj_and_die ; return 0
+ *      obj->field48 -= 1
+ *      if (obj->field48 == 0) install tl_delete_proj_and_die ; return 0
+ *      goto repark_ce3
+ *
+ *      boss_check: q_is_he_a_boss(obj)
+ *                  if (obj->field5c != 0) install tl_delete_proj_and_die ; return 0
+ *                  obj->field1c = 0xa ; create_fx(obj)
+ *                  obj->field1c = 0xa ; ochar_sound(obj)
+ *                  set_inviso(obj)
+ *                  obj->field1c = GrObj->field24 = 8
+ *                  obj->field48 = 5
+ *      repark_ce3: token 0xce3 ; fieldfc = 1 ; return 1
+ */
+void q_is_he_a_boss(MK3OBJ *obj);
+void set_inviso(MK3OBJ *obj);
+
+long t_bgrav9(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0xcd0)
+        goto boss_check;
+
+    if (slot < 0xcc8) {
+        if (slot != 0)
+            return -3;
+
+        stop_a8(obj->field08);
+        obj->field48 = 0x40;
+
+        *mk3_frame(thread, frame + 1) = 0xcc8;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (slot == 0xcc8) {
+        next_anirate(obj);
+        obj->field48 -= 1;
+        if (obj->field48 != 0) {
+            *mk3_frame(thread, frame + 1) = 0xcc8;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        obj->field1c = (uint32_t)(int32_t)(int16_t)
+            *(const uint16_t *)((const char *)G + 0x450);
+        if (*(const uint16_t *)((const char *)G + 0x450) == 0)
+            goto boss_check;
+
+        *mk3_frame(thread, frame + 1) = 0xcd0;
+        thread->fieldfc = 0x16462;
+        return 0x16462;
+    }
+
+    if (slot != 0xce3)
+        return -3;
+
+    obj->field1c = 0x15;
+    strike_check_a0(obj);
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+
+    obj->field48 -= 1;
+    if (obj->field48 == 0)
+        return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+    goto repark_ce3;
+
+boss_check:
+    q_is_he_a_boss(obj);
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+
+    obj->field1c = 0xa;
+    create_fx(obj);
+    obj->field1c = 0xa;
+    ochar_sound(obj);
+    set_inviso(obj);
+    obj->field1c = 8;
+    obj->field08->field24 = 8;
+    obj->field48 = 5;
+
+repark_ce3:
+    *mk3_frame(thread, frame + 1) = 0xce3;
+    thread->fieldfc = 1;
+    return 1;
+}
+
+
 /* t_boom_return_check -- armv7 0x00075778, 160 bytes.  **Complete.**
  *
  *      if (frame[frame+1].w0 != 0) return -3
