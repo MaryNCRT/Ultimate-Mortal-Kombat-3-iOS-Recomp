@@ -7568,6 +7568,132 @@ long tl_do_lia_forward_zap(MK3THREAD *thread)
 }
 
 
+/* --------------------------------------------------------------------- t_lia_forward_proc
+ *
+ * armv7 0x0007c1e4, 436 bytes.  **Complete.**
+ *
+ * `tl_do_lia_forward_zap`'s own `field38` callback. The free lines up
+ * (`multi_adjust_xy` at `field1c=8`/`field20=0x20`) and picks a fall
+ * shape -- `0x30001`, or `0x10001` when `field48` isn't the standard
+ * `0x80000` throw -- before pushing `t_animate_a0_frames` under `0x7a4`,
+ * the same pointer-slot borrow every generic "run this and come back" site
+ * in this file uses.
+ *
+ * `0x7a4` is the strike attempt: `local_strike_check_box` against a box
+ * packed from raw literals (`field20=0x6004b`, `field24=0x130028`). A miss
+ * re-arms the throw (`init_anirate`, `set_proj_vel` off the SAME `field48`
+ * it's about to overwrite with `0x15`) and descends into
+ * `tl_projectile_flight` under `0x7b2` for a genuine retry; a hit falls
+ * straight through into `0x7b2`'s OWN code without ever re-arming the
+ * throw -- one physical strike-resolution block reached two ways.
+ *
+ * `0x7b2` (hit or fallthrough) is the impact: lines the part up on the
+ * opponent (`lineup_a0_onto_a1`), `flip_multi`, repositions
+ * (`multi_adjust_xy` at `field1c=-0x80`), knocks the GrObj's own Y
+ * (`MK3_SET_FIELD12`) to `G+0xac - 0xe0` -- the same landing-floor read
+ * every other site uses, just for a knockback instead of a fall --
+ * `shake_a11`, `stop_a8`, and poses animation `0x3f` before nudging
+ * `field40` on by `0xc` (a second, later frame in the same sequence) and
+ * pushing `t_mframew` under `0x7cb`, which just installs
+ * `tl_delete_proj_and_die`.
+ */
+void local_strike_check_box(MK3OBJ *obj);
+void lineup_a0_onto_a1(MK3OBJ *obj);
+void shake_a11(MK3OBJ *obj);
+void stop_a8(MK3OBJ *part);
+long t_animate_a0_frames(MK3THREAD *thread);     /* pointer slot 0x000f36b8 */
+long tl_projectile_flight(MK3THREAD *thread);
+
+long t_lia_forward_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0x7a4) {
+        obj->field1c = 0x15;
+        obj->field20 = 0x6004b;
+        obj->field24 = 0x130028;
+        local_strike_check_box(obj);
+
+        if (obj->field5c == 0) {
+            obj->field1c = 4;
+            init_anirate(obj);
+
+            obj->field1c = obj->field48;
+            set_proj_vel(obj);
+
+            obj->field48 = 0x15;
+
+            *mk3_frame(thread, frame + 1) = 0x7b2;
+            thread->frame = thread->frame + 1;   /* push a level */
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)tl_projectile_flight;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+    } else if (slot != 0x7b2) {
+        if (slot == 0x7cb)
+            return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+
+        if (slot != 0)
+            return -3;
+
+        obj->field1c = 8;
+        obj->field20 = 8 + 0x18;
+        multi_adjust_xy(obj);
+
+        obj->field1c = 0x30001;
+        if (obj->field48 != 0x80000)
+            obj->field1c = 0x10001;
+
+        *mk3_frame(thread, frame + 1) = 0x7a4;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_a0_frames;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    obj->field1c = 3;
+    ochar_sound(obj);
+
+    obj->field20 = obj->field00->him;
+    obj->field1c = (uint32_t)(uintptr_t)obj->field08;
+    lineup_a0_onto_a1(obj);
+
+    flip_multi(obj);
+
+    obj->field20 = 0;
+    obj->field1c = (uint32_t)~0x7f;
+    multi_adjust_xy(obj);
+
+    {
+        int32_t knockback = *(int32_t *)(G_BYTES + 0xac) - 0xe0;
+        obj->field1c = (uint32_t)knockback;
+        MK3_SET_FIELD12(obj->field08, (uint32_t)knockback);
+    }
+
+    obj->field48 = 0x40008;
+    shake_a11(obj);
+
+    stop_a8(obj->field08);
+
+    obj->field40 = 0x3f;
+    find_ani_part2(obj);
+
+    obj->field40 = obj->field40 + 0xc;
+    obj->field1c = 2;
+
+    *mk3_frame(thread, frame + 1) = 0x7cb;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
 /* -------------------------------------------------------------------- point_rocket
  *
  * armv7 0x000782e0, 284 bytes.  **Complete.**
