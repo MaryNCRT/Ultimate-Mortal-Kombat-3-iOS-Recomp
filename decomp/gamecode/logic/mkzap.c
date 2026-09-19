@@ -4244,6 +4244,131 @@ long t_boomerang_call(MK3THREAD *thread)
 }
 
 
+/* ---------------------------------------------------------------- t_boomerang_proc
+ *
+ * armv7 0x000780e8, 324 bytes.  **Complete.**
+ *
+ * A genuine two-phase self-loop, the boomerang's out-and-back flight.
+ * `0x559` (outbound) and `0x56a` (inbound) are each `proj_onscreen_test`
+ * followed by either `tl_delete_proj_and_die` (off-screen) or
+ * `next_anirate` and reparking the SAME token for one more tick
+ * on-screen -- the shape `t_sky_ice_proc` uses with one loop token, run
+ * here with two. `0x54e` is the outbound watch's own entry and the turn:
+ * while `field18` (the "time to come back" flag) is still zero it just
+ * falls into the outbound loop's on-screen tail; once it isn't,
+ * `init_anirate`, a reversed velocity (`field20 = GrObj->field1c =
+ * 0xfffd0000`, `field18` negated) and a jump straight into the INBOUND
+ * loop's on-screen tail -- no `proj_onscreen_test` on that first reversed
+ * tick.
+ *
+ *      slot = frame[frame+1].w0
+ *                                          ; 0:     free, then 0x54e
+ *                                          ; 0x54e:  outbound watch / turn
+ *                                          ; 0x559:  outbound self-loop
+ *                                          ; 0x56a:  inbound self-loop
+ *      if (slot == 0x54e) {
+ *          if (obj->field18 != 0) {
+ *              obj->field1c = 2 ; init_anirate(obj)
+ *              obj->field20 = GrObj->field1c = 0xfffd0000
+ *              obj->field1c = GrObj->field18 = -GrObj->field18
+ *              goto watch_back
+ *          }
+ *          goto watch_out
+ *      }
+ *      if (slot < 0x54e) {
+ *          if (slot != 0) return -3
+ *          proc->field2c = 2 ; obj->field1c = 2
+ *          obj->field40 = 4 ; get_char_ani2(obj)
+ *          obj->field1c = 0x90000 ; obj->field20 = 2 ; set_proj_vel(obj)
+ *          obj->field48 = 0x14 ; obj->field34 = t_boomerang_call
+ *          token 0x54e ; frame++ ; install tl_projectile_flight_call ; return 0
+ *      }
+ *      if (slot == 0x559) {
+ *          proj_onscreen_test(obj)
+ *          if (obj->field5c == 0) install tl_delete_proj_and_die ; return 0
+ *          watch_out: next_anirate(obj)
+ *          token 0x559 ; fieldfc = 1 ; return 1
+ *      }
+ *      if (slot != 0x56a) return -3
+ *      proj_onscreen_test(obj)
+ *      if (obj->field5c == 0) install tl_delete_proj_and_die ; return 0
+ *      watch_back: next_anirate(obj)
+ *      token 0x56a ; fieldfc = 1 ; return 1
+ */
+long t_boomerang_call(struct MK3THREAD *thread);
+
+long t_boomerang_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0x54e) {
+        if (obj->field18 != 0) {
+            obj->field1c = 2;
+            init_anirate(obj);
+
+            obj->field20 = 0xfffd0000;
+            obj->field08->field1c = 0xfffd0000;
+
+            obj->field1c = (uint32_t)(-(int32_t)obj->field08->field18);
+            obj->field08->field18 = obj->field1c;
+            goto watch_back;
+        }
+        goto watch_out;
+    }
+
+    if (slot < 0x54e) {
+        if (slot != 0)
+            return -3;
+
+        obj->field00->field2c = 2;
+        obj->field1c = 2;
+        obj->field40 = 4;
+        get_char_ani2(obj);
+
+        obj->field1c = 0x90000;
+        obj->field20 = 2;
+        set_proj_vel(obj);
+
+        obj->field48 = 0x14;
+        obj->field34 = (uint32_t)(uintptr_t)t_boomerang_call;
+
+        *mk3_frame(thread, frame + 1) = 0x54e;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)tl_projectile_flight_call;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0x559) {
+        proj_onscreen_test(obj);
+        if (obj->field5c == 0)
+            return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+
+watch_out:
+        next_anirate(obj);
+        *mk3_frame(thread, frame + 1) = 0x559;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (slot != 0x56a)
+        return -3;
+
+    proj_onscreen_test(obj);
+    if (obj->field5c == 0)
+        return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+
+watch_back:
+    next_anirate(obj);
+    *mk3_frame(thread, frame + 1) = 0x56a;
+    thread->fieldfc = 1;
+    return 1;
+}
+
+
 /* t_boom_return_check -- armv7 0x00075778, 160 bytes.  **Complete.**
  *
  *      if (frame[frame+1].w0 != 0) return -3
