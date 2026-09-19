@@ -4494,6 +4494,139 @@ repark_ce3:
 }
 
 
+/* ------------------------------------------------------------------ t_saw_strike_check
+ *
+ * armv7 0x0007c398, 364 bytes.  **Complete.** The last of this batch.
+ *
+ * A buzzsaw that refuses a boss, checks a flag bit before it can even
+ * try to strike, then chases through a reaction gate before it flies.
+ * The free asks `q_is_he_a_boss` first and pops (or exits at the bottom)
+ * if so -- the same `pop_or_exit` tail a strike MISS reuses later, one
+ * physical site for two different reasons to give up. Otherwise it reads
+ * `*(obj->field00->field28 + 0x10)`: bit 2 set dies outright, no name for
+ * what the bit or the pointer are. Clear, and `strike_check_a0` runs; a
+ * hit pops a level (when it can) and marks `obj->thread->pid = 0x207`
+ * before falling into the SAME reaction-wait `0x719` uses -- so landing a
+ * hit re-checks the opponent's reaction exactly like the periodic watch
+ * does, through one shared block, not two copies of it. Not reacting sets
+ * a flat `0x100000` velocity and falls straight into `0x722`'s on-screen
+ * watch without calling `proj_onscreen_test` that first tick, the same
+ * "skip the check on the transition tick" shape `t_boomerang_proc` uses
+ * for its own turn.
+ *
+ *      slot = frame[frame+1].w0
+ *      if (slot == 0x719) {
+ *          next_anirate(obj) ; q_is_he_reacting(obj)
+ *          goto reacting_check
+ *      }
+ *      if (slot == 0x722) {
+ *          next_anirate(obj) ; proj_onscreen_test(obj)
+ *          goto onscreen_watch
+ *      }
+ *      if (slot != 0) return -3
+ *      q_is_he_a_boss(obj)
+ *      if (obj->field5c != 0) goto pop_or_exit
+ *      obj->field1c = p = proc->field28
+ *      obj->field2c = v = *(uint32_t *)(p + 0x10)
+ *      if (v & 4) install tl_delete_proj_and_die ; return 0
+ *      obj->field1c = 0x13 ; strike_check_a0(obj)
+ *      if (obj->field5c == 0) goto pop_or_exit
+ *      if (frame <= 0) install t_local_reaction_exit ; return 0
+ *      frame -= 1
+ *      obj->thread->pid = 0x207
+ *      obj->field1c = 5 ; ochar_sound(obj)
+ *      stop_a8(GrObj)
+ *      reacting_check:
+ *          if (obj->field5c != 0) { token 0x719 ; fieldfc = 1 ; return 1 }
+ *          obj->field1c = 0x100000 ; set_proj_vel(obj)
+ *      onscreen_watch:
+ *          if (obj->field5c == 0) install tl_delete_proj_and_die ; return 0
+ *          token 0x722 ; fieldfc = 1 ; return 1
+ *      pop_or_exit:
+ *          if (frame > 0) { frame -= 1 ; return 0 }
+ *          install t_local_reaction_exit ; return 0
+ */
+void q_is_he_reacting(MK3OBJ *obj);
+
+long t_saw_strike_check(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0x719) {
+        next_anirate(obj);
+        q_is_he_reacting(obj);
+        goto reacting_check;
+    }
+
+    if (slot == 0x722) {
+        next_anirate(obj);
+        proj_onscreen_test(obj);
+        goto onscreen_watch;
+    }
+
+    if (slot != 0)
+        return -3;
+
+    q_is_he_a_boss(obj);
+    if (obj->field5c != 0)
+        goto pop_or_exit;
+
+    {
+        uint32_t p = obj->field00->field28;
+        uint32_t v;
+
+        obj->field1c = p;
+        v = *(const uint32_t *)((uintptr_t)p + 0x10);
+        obj->field2c = v;
+
+        if ((v & 4) != 0)
+            return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+    }
+
+    obj->field1c = 0x13;
+    strike_check_a0(obj);
+
+    if (obj->field5c == 0)
+        goto pop_or_exit;
+
+    if ((long)thread->frame <= 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    thread->frame = thread->frame - 1;
+
+    obj->thread->pid = 0x207;
+    obj->field1c = 5;
+    ochar_sound(obj);
+    stop_a8(obj->field08);
+
+reacting_check:
+    if (obj->field5c != 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x719;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    obj->field1c = 0x100000;
+    set_proj_vel(obj);
+
+onscreen_watch:
+    if (obj->field5c == 0)
+        return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x722;
+    thread->fieldfc = 1;
+    return 1;
+
+pop_or_exit:
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
 /* t_boom_return_check -- armv7 0x00075778, 160 bytes.  **Complete.**
  *
  *      if (frame[frame+1].w0 != 0) return -3
