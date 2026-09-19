@@ -8303,6 +8303,109 @@ long t_swat_bomb_proc(MK3THREAD *thread)
 }
 
 
+/* ------------------------------------------------------------------------ tl_bomb33
+ *
+ * armv7 0x0007b844, 332 bytes.  **Complete.**
+ *
+ * A four-stage bomb hand-off, each stage descending into an unrelated
+ * general-purpose thread borrowed by pointer slot instead of by name --
+ * `t_animate_a0_frames`, `t_backwards_ani2` and `t_mframew`, the same three
+ * `other.c` primitives the rest of this file reaches the same way -- so the
+ * only stage with any bomb-specific work is the launch itself.
+ *
+ * The free poses nothing and just descends into `t_animate_a0_frames` under
+ * `0x8f2` with `field1c = 0x30003` already packed. `0x8f2` is the launch:
+ * `field38 = t_swat_bomb_proc` (the same "next hit callback" convention
+ * every zap/bomb launcher in this file uses), `create_proj_proc` spawns the
+ * slave, and -- only when a slave actually comes back -- `find_ani2_part2`
+ * seeds `field30`/the slave's own `field40` and `adjust_xy_a5` lines it up
+ * (`field1c = field20 = 0x20`). `field40` is saved across all of that in a
+ * callee-saved register and restored either way before `i_am_a_sitting_duck`,
+ * so the create-proj detour never leaks into the animation state. It descends
+ * into `t_backwards_ani2` under `0x921`.
+ *
+ * `0x921` does no work of its own: it just re-arms `0x922` and sleeps sixteen
+ * frames (`fieldfc = 0x10`) -- the only stage in the chain that is a a plain
+ * wait rather than a descent. `0x922` finishes it: `field1c = 3`,
+ * `field40 = 0`, `t_mframew` installed on the current level, no push.
+ */
+long t_animate_a0_frames(MK3THREAD *thread);     /* pointer slot 0x000f36b8 */
+void group_sound(MK3OBJ *obj);
+
+long tl_bomb33(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0x8f2) {
+        MK3OBJ *slave;
+
+        obj->field1c = 0;
+        group_sound(obj);
+
+        obj->field1c = 1;
+        ochar_sound(obj);
+
+        obj->field38 = (uint32_t)(uintptr_t)t_swat_bomb_proc;
+
+        uint32_t saved_field40 = obj->field40;
+        slave = create_proj_proc(obj);
+
+        if (slave != NULL) {
+            obj->field40 = 0;
+            find_ani2_part2(obj);
+
+            obj->field30    = (uint32_t)(uintptr_t)slave->field08;
+            slave->field40  = obj->field40;
+
+            obj->field1c = 0x20;
+            obj->field20 = 0x20;
+            adjust_xy_a5(obj);
+        }
+
+        obj->field40 = saved_field40;
+        i_am_a_sitting_duck(obj);
+
+        obj->field1c = 4;
+
+        *mk3_frame(thread, frame + 1) = 0x921;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_backwards_ani2;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0x921) {
+        *mk3_frame(thread, frame + 1) = 0x922;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (slot == 0x922) {
+        obj->field1c = 3;
+        obj->field40 = 0;
+        return mk3_install(thread, (MK3THREADFUNC)t_mframew);
+    }
+
+    if (slot != 0)
+        return -3;
+
+    obj->field40 = 0;
+    get_char_ani2(obj);
+
+    obj->field1c = 0x30003;
+
+    *mk3_frame(thread, frame + 1) = 0x8f2;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_animate_a0_frames;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
 /* tl_do_sg_zap -- armv7 0x0007a640, 196 bytes.  **Complete.**
  *
  *      token == 0:        obj->field20 = 0x17
