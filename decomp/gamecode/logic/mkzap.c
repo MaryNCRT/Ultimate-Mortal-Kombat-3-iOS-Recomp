@@ -3825,6 +3825,115 @@ long t_ice_collision_check(MK3THREAD *thread)
 }
 
 
+/* ------------------------------------------------------------------ tl_do_jax_zap2
+ *
+ * armv7 0x00079818, 296 bytes.  **Complete.**
+ *
+ * The free runs `zap_init_special_act` and descends into `tl_jax_zap_jsrp`
+ * from `0x1277`. `0x1277` steps a frame and waits six ticks (no push) for
+ * `0x127a`, the launch: `field38 = t_jax_zap_proc` into `create_proj_proc`,
+ * and when a slave actually exists its own proc's `field34` is tagged `1`.
+ * `away_x_vel` and a step follow before another bare wait, thirty-two
+ * ticks, for `0x1289` -- which stops the thrower (`stop_me_player`) and
+ * installs `t_mframew`.
+ *
+ *      slot = frame[frame+1].w0
+ *                                          ; 0:     free, then 0x1277
+ *                                          ; 0x1277: wait, then 0x127a
+ *                                          ; 0x127a: launch, then 0x1289 (wait)
+ *                                          ; 0x1289: install t_mframew
+ *      if (slot == 0x1277) {
+ *          do_next_a9_frame(obj)
+ *          token 0x127a ; fieldfc = 6 ; return 6
+ *      }
+ *      if (slot < 0x1277) {
+ *          if (slot != 0) return -3
+ *          obj->field20 = 4 ; obj->a10 = 0 ; zap_init_special_act(obj)
+ *          token 0x1277 ; frame++ ; install tl_jax_zap_jsrp ; return 0
+ *      }
+ *      if (slot == 0x127a) {
+ *          obj->field1c = 0 ; ochar_sound(obj)
+ *          obj->field38 = t_jax_zap_proc ; slave = create_proj_proc(obj)
+ *          obj->field20 = 1
+ *          if (slave != NULL) slave->field00->field34 = 1
+ *          obj->field1c = 0x40000 ; away_x_vel(obj) ; do_next_a9_frame(obj)
+ *          token 0x1289 ; fieldfc = 0x20 ; return 0x20
+ *      }
+ *      if (slot != 0x1289) return -3
+ *      obj->field1c = G + 0x410 ; update_tsl(obj)
+ *      stop_me_player(obj) ; obj->field1c = 7
+ *      install t_mframew ; return 0
+ */
+void stop_me_player(MK3OBJ *obj);
+void away_x_vel(MK3OBJ *obj);
+long tl_jax_zap_jsrp(struct MK3THREAD *thread);         /* not yet decompiled */
+long t_jax_zap_proc(struct MK3THREAD *thread);          /* not yet decompiled */
+
+long tl_do_jax_zap2(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0x1277) {
+        do_next_a9_frame(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x127a;
+        thread->fieldfc = 6;
+        return 6;
+    }
+
+    if (slot < 0x1277) {
+        if (slot != 0)
+            return -3;
+
+        obj->field20 = 4;
+        obj->a10     = 0;
+        zap_init_special_act(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x1277;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)tl_jax_zap_jsrp;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0x127a) {
+        MK3OBJ *slave;
+
+        obj->field1c = 0;
+        ochar_sound(obj);
+
+        obj->field38 = (uint32_t)(uintptr_t)t_jax_zap_proc;
+        slave = create_proj_proc(obj);
+
+        obj->field20 = 1;
+        if (slave != NULL)
+            slave->field00->field34 = 1;
+
+        obj->field1c = 0x40000;
+        away_x_vel(obj);
+        do_next_a9_frame(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x1289;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (slot != 0x1289)
+        return -3;
+
+    obj->field1c = (uint32_t)(uintptr_t)((char *)G + 0x410);
+    update_tsl(obj);
+
+    stop_me_player(obj);
+    obj->field1c = 7;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_mframew);
+}
+
+
 /* t_boomerang_call -- armv7 0x00074fa8, 136 bytes.  **Complete.**
  *
  *      if (frame[frame+1].w0 != 0) return -3
