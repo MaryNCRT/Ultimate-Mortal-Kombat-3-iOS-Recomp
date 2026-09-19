@@ -2168,6 +2168,109 @@ void make_lineup_explode(MK3OBJ *obj)
 }
 
 
+/* -------------------------------------------------------------------- t_skull_proc
+ *
+ * armv7 0x00076b0c, 240 bytes.  **Complete.**
+ *
+ * The free poses animation 0x3f, calls `tell_world_stk`, and refuses to
+ * strike a Motaro (character 0x18, inlined the same way
+ * `proj_strike_check` does it) or an opponent already in action 0x402 --
+ * both skip straight to the flight setup. Otherwise `local_strike_check_box`
+ * runs against a box packed as raw words (`field20 = 0x150057`,
+ * `field24 = 0x160052`, transcribed as loaded, not decoded further); a
+ * hit tags `field48 = 0x230042` and explodes immediately, no flight at
+ * all. A miss (or Motaro, or the action check) falls into the ordinary
+ * `0x80000`/`4` throw and flies on `tl_projectile_flight` from `0xaa0`,
+ * whose re-entry tags `field48 = 0x230092` and explodes.
+ *
+ *      slot = frame[frame+1].w0
+ *      if (slot == 0) {
+ *          obj->field40 = 0x3f ; get_char_ani(obj)
+ *          obj->field1c = 0x11 ; tell_world_stk(obj)
+ *          if (him->field24 != 0x18) {
+ *              get_his_action(obj)
+ *              if (obj->field20 != 0x402) {
+ *                  obj->field1c = 0x11
+ *                  obj->field20 = 0x150057 ; obj->field24 = 0x160052
+ *                  local_strike_check_box(obj)
+ *                  if (obj->field5c != 0) {
+ *                      obj->field48 = 0x230042
+ *                      goto explode
+ *                  }
+ *              }
+ *          }
+ *          obj->field1c = 0x80000 ; obj->field20 = 4 ; set_proj_vel(obj)
+ *          obj->field48 = 0x11
+ *          token 0xaa0 ; frame++ ; install tl_projectile_flight ; return 0
+ *      }
+ *      if (slot != 0xaa0) return -3
+ *      obj->field48 = 0x230092
+ *      explode:  make_lineup_explode(obj)
+ *                obj->field1c = 0x20006 ; hob_ochar_sound(obj)
+ *                install tl_delete_proj_and_die ; return 0
+ */
+void tell_world_stk(MK3OBJ *obj);
+void get_his_action(MK3OBJ *obj);
+void hob_ochar_sound(MK3OBJ *obj);
+long tl_projectile_flight(struct MK3THREAD *thread);
+
+long t_skull_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0) {
+        obj->field40 = 0x3f;
+        get_char_ani(obj);
+
+        obj->field1c = 0x11;
+        tell_world_stk(obj);
+
+        if (((MK3OBJ *)(uintptr_t)obj->field00->him)->field24 != 0x18) {
+            get_his_action(obj);
+            if (obj->field20 != 0x402) {
+                obj->field1c = 0x11;
+                obj->field20 = 0x150057;
+                obj->field24 = 0x160052;
+                local_strike_check_box(obj);
+
+                if (obj->field5c != 0) {
+                    obj->field48 = 0x230042;
+                    goto explode;
+                }
+            }
+        }
+
+        obj->field1c = 0x80000;
+        obj->field20 = 4;
+        set_proj_vel(obj);
+
+        obj->field48 = 0x11;
+
+        *mk3_frame(thread, frame + 1) = 0xaa0;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)tl_projectile_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0xaa0)
+        return -3;
+
+    obj->field48 = 0x230092;
+
+explode:
+    make_lineup_explode(obj);
+
+    obj->field1c = 0x20006;
+    hob_ochar_sound(obj);
+
+    return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+}
+
+
 /* t_robo_bomb_mid -- armv7 0x000753dc, 72 bytes.  **Complete.**
  *
  *      if (frame[frame+1].w0 != 0) return -3
