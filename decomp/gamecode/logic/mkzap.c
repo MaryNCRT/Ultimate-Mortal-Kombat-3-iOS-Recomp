@@ -4016,6 +4016,103 @@ long tl_ind_zap_proc(MK3THREAD *thread)
 }
 
 
+/* ----------------------------------------------------------------- tl_do_ind_zap
+ *
+ * armv7 0x00079a9c, 288 bytes.  **Complete.**
+ *
+ * `tl_ind_zap_proc`'s driver, in the same `tl_do_X` -> `t_X_proc` shape as
+ * `tl_do_lao_zap`/`t_lao_hat_proc`. The free poses the packed `0x00030024`
+ * (rate 3, animation 0x24) and asks `q_his_react_flag_set`; when it answers
+ * yes the pose is swapped for `0x00010024` (rate 1, same animation) before
+ * the same descent into `t_animate_a9` from `0x1189`. `0x1189` re-enters and
+ * launches: `proc->field64` is saved, zeroed (forcing `create_proj_proc` to
+ * spawn fresh rather than restart whatever slave that slot names), restored
+ * right after the call, and the thrower parks as a sitting duck. `0x1196` is
+ * the floor, installing `tl_do_proj_sitting_duck` rather than closing the
+ * thread outright -- this driver, unlike most in this file, ends by handing
+ * off to another wait rather than dying.
+ *
+ *      slot = frame[frame+1].w0
+ *                                          ; 0:     free, then 0x1189
+ *                                          ; 0x1189: launch, then 0x1196
+ *                                          ; 0x1196: install the sitting duck
+ *      if (slot == 0x1189) {
+ *          saved = proc->field64 ; proc->field64 = 0
+ *          obj->field38 = tl_ind_zap_proc ; create_proj_proc(obj)
+ *          proc->field64 = saved
+ *          i_am_a_sitting_duck(obj)
+ *          obj->field1c = 3
+ *          token 0x1196 ; frame++ ; install t_mframew ; return 0
+ *      }
+ *      if (slot == 0x1196) {
+ *          obj->field20 = 1
+ *          install tl_do_proj_sitting_duck ; return 0
+ *      }
+ *      if (slot != 0) return -3
+ *      obj->field20 = 5 ; obj->a10 = 0 ; zap_init_special_act(obj)
+ *      obj->field1c = 0 ; ochar_sound(obj)
+ *      obj->field40 = 0x00030024
+ *      q_his_react_flag_set(obj)
+ *      if (obj->field5c != 0) obj->field40 = 0x00010024
+ *      token 0x1189 ; frame++ ; install t_animate_a9 ; return 0
+ */
+long tl_do_proj_sitting_duck(MK3THREAD *thread);
+
+long tl_do_ind_zap(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0x1189) {
+        uint32_t saved64 = obj->field00->field64;
+
+        obj->field00->field64 = 0;
+        obj->field38 = (uint32_t)(uintptr_t)tl_ind_zap_proc;
+        create_proj_proc(obj);
+        obj->field00->field64 = saved64;
+
+        i_am_a_sitting_duck(obj);
+
+        obj->field1c = 3;
+
+        *mk3_frame(thread, frame + 1) = 0x1196;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0x1196) {
+        obj->field20 = 1;
+        return mk3_install(thread, (MK3THREADFUNC)tl_do_proj_sitting_duck);
+    }
+
+    if (slot != 0)
+        return -3;
+
+    obj->field20 = 5;
+    obj->a10     = 0;
+    zap_init_special_act(obj);
+
+    obj->field1c = 0;
+    ochar_sound(obj);
+
+    obj->field40 = 0x00030024;
+    q_his_react_flag_set(obj);
+    if (obj->field5c != 0)
+        obj->field40 = 0x00010024;
+
+    *mk3_frame(thread, frame + 1) = 0x1189;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_animate_a9;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
 /* --------------------------------------------------------- tl_tusk_ground_zap
  *
  * armv7 0x0007a09c, 276 bytes.  **Complete.**
@@ -4113,6 +4210,123 @@ long tl_tusk_ground_zap(MK3THREAD *thread)
     thread->frame = thread->frame + 1;   /* push a level */
     mk3_frame(thread, thread->frame)[1] =
         (uint32_t)(uintptr_t)t_animate_a9;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ------------------------------------------------------------- t_kano_zap_proc
+ *
+ * armv7 0x0007667c, 312 bytes.  **Complete.**
+ *
+ * A melee check that only becomes a projectile when it misses. The free sets
+ * up a box on `local_strike_check_box` (`field1c = 0x15`, `field20 =
+ * 0x00030060`, `field24 = 0x00220044`, transcribed as the raw packed words
+ * the binary loads, not decoded further) and tests it immediately, no yield
+ * in between. A connect there re-tags `field1c = 0x38`/`field20 = 0x20` and
+ * falls straight into the shared close/impact tail; a miss instead poses
+ * animation `0x3f`, throws at a flat `0x80000`/`1` velocity, tags
+ * `field48 = 0x15` (the same reload the free branch put in `field1c`), and
+ * flies on `tl_projectile_flight` from `0x1301`. `0x1301` is the re-entry
+ * after that flight -- `stop_a8`, `field1c = 0xd`, `field20 = 0` -- which
+ * joins the SAME tail the immediate connect uses: `multi_adjust_xy`, a
+ * packed `hob_ochar_sound` argument (`0x20003`), animation `0x3f` again at
+ * three frames, and a `t_mframew` wait from `0x1312`. `0x1312` is the floor,
+ * closing on `tl_delete_proj_and_die`.
+ *
+ *      slot = frame[frame+1].w0
+ *                                          ; 0:     free; hit -> tail, miss -> 0x1301
+ *                                          ; 0x1301: flight re-entry, then tail -> 0x1312
+ *                                          ; 0x1312: die
+ *      if (slot == 0x1301) {
+ *          stop_a8(obj->field08)
+ *          obj->field1c = 0xd ; obj->field20 = 0
+ *          goto tail
+ *      }
+ *      if (slot == 0x1312) install tl_delete_proj_and_die ; return 0
+ *      if (slot != 0) return -3
+ *      obj->field1c = 0x15
+ *      obj->field20 = 0x00030060 ; obj->field24 = 0x00220044
+ *      local_strike_check_box(obj)
+ *      if (obj->field5c != 0) {
+ *          obj->field1c = 0x38 ; obj->field20 = 0x20
+ *          goto tail
+ *      }
+ *      obj->field40 = 0x3f ; find_ani_part2(obj)
+ *      obj->field1c = 0x80000 ; obj->field20 = 1 ; set_proj_vel(obj)
+ *      obj->field48 = 0x15
+ *      token 0x1301 ; frame++ ; install tl_projectile_flight ; return 0
+ *
+ *      tail:  multi_adjust_xy(obj)
+ *             obj->field1c = 0x20003 ; hob_ochar_sound(obj)
+ *             obj->field40 = 0x3f ; obj->field54 = 3 ; find_ani_part_a14(obj)
+ *             obj->field1c = 4
+ *             token 0x1312 ; frame++ ; install t_mframew ; return 0
+ */
+void find_ani_part2(MK3OBJ *obj);
+
+long t_kano_zap_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0x1301) {
+        stop_a8(obj->field08);
+        obj->field1c = 0xd;
+        obj->field20 = 0;
+        goto tail;
+    }
+
+    if (slot == 0x1312)
+        return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+
+    if (slot != 0)
+        return -3;
+
+    obj->field1c = 0x15;
+    obj->field20 = 0x00030060;
+    obj->field24 = 0x00220044;
+    local_strike_check_box(obj);
+
+    if (obj->field5c != 0) {
+        obj->field1c = 0x38;
+        obj->field20 = 0x20;
+        goto tail;
+    }
+
+    obj->field40 = 0x3f;
+    find_ani_part2(obj);
+
+    obj->field1c = 0x80000;
+    obj->field20 = 1;
+    set_proj_vel(obj);
+
+    obj->field48 = 0x15;
+
+    *mk3_frame(thread, frame + 1) = 0x1301;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)tl_projectile_flight;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
+tail:
+    multi_adjust_xy(obj);
+
+    obj->field1c = 0x20003;
+    hob_ochar_sound(obj);
+
+    obj->field40 = 0x3f;
+    obj->field54 = 3;
+    find_ani_part_a14(obj);
+
+    obj->field1c = 4;
+
+    *mk3_frame(thread, frame + 1) = 0x1312;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_mframew;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
