@@ -42,14 +42,24 @@
  *
  * ## What is not settled
  *
- * `G + 0x456` is a halfword counted down here and nowhere else that has been
- * read. While it is non-zero the velocity arbitration is skipped entirely --
- * every path that tests it takes the other branch -- so it is a "leave them
- * alone for N frames" timer. What sets it is unknown.
+ * **`G + 0x456`'s writers turned up once the rest of gamecode/logic was
+ * read -- `sans_repell`/`sans_repell_3` (other.c, 0x00054d64/0x00054d78),
+ * called from mkfatal.c, mkslam.c, mkprop.c, mkanimal.c and mkstat.c.**
+ * Each writes a fixed hold (0x40, 3, 0x12, 2, 0x1e, 0x20, 4, 0x30, 0x38, or
+ * 0x60 depending on the call site) into this same halfword, always paired
+ * with the same value into the calling object's own field38 -- a per-move
+ * "leave the repel arbitration alone for N frames" while a fatality, a
+ * slam or a thrown prop is happening, not something ordinary movement
+ * ever touches. Confirms the shape guessed here (a counted-down hold) and
+ * settles what sets it; a port that has none of those specific moves
+ * wired up yet has no reason to reach this branch either.
  *
  * `Pp[n] + 0x40` is compared against each fighter's y. It gates which of the
- * two vertical tests applies, so it is a height threshold per fighter, but no
- * writer has been read.
+ * two vertical tests applies, so it is a height threshold per fighter, but
+ * still no writer has been read after a second, targeted search this
+ * session (every direct reference to `_Pp`'s address, 0x0038dc9c, across
+ * gamecode/logic) -- most likely sitting in one of the still-undecompiled
+ * mkdrone.c/mkboss.c/mkzap.c functions rather than anywhere already read.
  */
 
 #include "mk3logic.h"
