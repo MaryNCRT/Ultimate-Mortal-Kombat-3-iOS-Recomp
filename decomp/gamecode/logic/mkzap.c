@@ -6184,6 +6184,100 @@ long t_lk_zap_entry(MK3THREAD *thread)
 }
 
 
+/* ------------------------------------------------------------------------ t_lkzap5
+ *
+ * armv7 0x0007919c, 352 bytes.  **Complete.**
+ *
+ * `t_lk_zap_entry`'s own install target, driving the zap once it's actually
+ * out. The free checks `am_i_airborn`; airborne poses animation 1
+ * (`get_char_ani2`), `field54 = 3`/`find_part_a14`, `field1c = 2`, plants
+ * token `0xa7d` for after it pops, and pushes `t_mframew`. Grounded instead
+ * runs `i_am_a_sitting_duck` and checks `am_i_short`: short re-arms itself
+ * under `0xa6f` and waits 24 ticks; not short re-arms the SAME handler
+ * (`0xa66`, itself) and waits 16.
+ *
+ * `0xa66` (the self re-arm) poses animation `0x24` (`field54 = 3`,
+ * `find_ani_part_a14`), `field1c = 4`, and installs `t_mframew` directly on
+ * the current level -- no push, since nothing needs to run after it pops.
+ * `0xa6f` (the short re-arm) does the same with animation `0` instead of
+ * `0x24`. `0xa7d` -- reached only after the airborne push pops back --
+ * installs `t_drop_down_land` directly, the same pointer-slot borrow from
+ * `mkslam.c` every other "let a fall resolve itself" site in this file uses.
+ */
+long am_i_airborn(MK3OBJ *obj);
+long am_i_short(MK3OBJ *obj);
+void find_part_a14(MK3OBJ *obj);
+void find_ani_part_a14(MK3OBJ *obj);
+long t_drop_down_land(struct MK3THREAD *thread);        /* pointer slot 0x000f33d4 */
+
+long t_lkzap5(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0xa66) {
+        obj->field40 = 0x24;
+        obj->field54 = 0x24 - 0x21;
+        find_ani_part_a14(obj);
+
+        obj->field1c = 4;
+
+        return mk3_install(thread, (MK3THREADFUNC)t_mframew);
+    }
+
+    if (slot == 0xa6f) {
+        obj->field40 = 0;
+        get_char_ani2(obj);
+
+        obj->field54 = 3;
+        find_part_a14(obj);
+
+        obj->field1c = 4;
+
+        return mk3_install(thread, (MK3THREADFUNC)t_mframew);
+    }
+
+    if (slot == 0xa7d)
+        return mk3_install(thread, (MK3THREADFUNC)t_drop_down_land);
+
+    if (slot != 0)
+        return -3;
+
+    am_i_airborn(obj);
+
+    if (obj->field5c != 0) {
+        obj->field40 = 1;
+        get_char_ani2(obj);
+
+        obj->field54 = 3;
+        find_part_a14(obj);
+
+        obj->field1c = 2;
+
+        *mk3_frame(thread, frame + 1) = 0xa7d;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    i_am_a_sitting_duck(obj);
+    am_i_short(obj);
+
+    if (obj->field5c != 0) {
+        *mk3_frame(thread, frame + 1) = 0xa6f;
+        thread->fieldfc = 0x18;
+        return 0x18;
+    }
+
+    *mk3_frame(thread, frame + 1) = 0xa66;
+    thread->fieldfc = 0x10;
+    return 0x10;
+}
+
+
 /* t_sk_zap_proc -- armv7 0x00076cd8, 160 bytes.  **Complete.**
  *
  *      token == 0:       obj->field20 = 3
