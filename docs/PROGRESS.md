@@ -2533,6 +2533,48 @@ It now clears every instruction destination register and follows a literal acros
 decompiled before that commit which leaned on a `(near)` label deserves a second
 look.
 
+## `mkreact.c` complete: 207/207, and its last 6 failures closed out
+
+`mkreact.c` (`gamecode/logic`) reached 207/207 functions defined. Six of them
+still failed `tools/landfn.sh` at that point; all six are now resolved, four
+by fixing the verifier and one by fixing a real bug in the C:
+
+- **`t_net_sleep`, `t_rhat_sleep`, `t_susp3`, `t_r_bike_kicked`** -- these were
+  never wrong. `tools/facts_c.py` only emitted a `("handler", name)` fact for
+  `return mk3_install(...)` / `return mk3_push_handler(...)`, never the implicit
+  `token = 0` fact both helpers always produce (see `mk3logic.h`:
+  `*mk3_frame(thread, thread->frame + 1) = 0;`). `facts_asm.py` reads that same
+  store straight off the binary's instructions, so any function that used the
+  helper form instead of spelling the token-zero store out longhand read as
+  "binario tiene token 0x0 x1 y el C no". Fixed by emitting the implicit token
+  fact right after the handler fact in `facts_c.py`'s `facts_of()`.
+- **`t_background_death`** -- stays failing, on purpose. Its own banner already
+  documents it as checked by hand: a `tbb` jump table compiles its four
+  `mk3_install` targets into one shared store, so the asm reader can only see
+  one ambiguous handler where the C has four. Known gaps entry 5 in
+  `tools/factdiff.py`. Not chased further.
+- **`gup2`** -- a real bug, same class as `t_r_scream`'s duplicated shared
+  tail. The binary has exactly one static call to `next_anirate`, at
+  `0x44314`, reached either by falling through from the joystick setup block
+  or by a direct branch from token `0x14fc`. The C called it twice, once per
+  path, so it read as one `next_anirate` call more than the binary has. Fixed
+  by sharing a `call_next_anirate:` label between both paths instead of
+  duplicating the call.
+
+A full sweep of all 207 functions in the file (factdiff, not just landfn's
+compile check) confirms nothing else regressed: 206/207 clean, the sole
+holdout being the already-documented `t_background_death`.
+
+`playback.c` was re-verified at the same time, per an explicit ask to make
+sure it was really done and not just remembered as done: still 4/4
+(`Playback_Update`, `Playback_Begin`, `Playback_Init`, `seq_lookup`), all
+compile, and 3 of the 4 verify clean. `seq_lookup` fails `landfn.sh` for a
+reason already written into its own banner and into `factdiff.py`'s Known
+gaps entry 7: it's this project's first call to an imported library function
+(`printf`) whose format string happens to spell the function's own name
+(`"seq_lookup( %d, %d, %d );\n"`), and the asm-side call reader only matches
+resolved-address calls, not stub imports. Nothing left to do in this file.
+
 ## Toolchain
 
 **MinGW-w64 gcc 16.1.0** (UCRT) and **clang 22.1.8**. gcc is used because clang targets `windows-msvc` and there is no MSVC on the machine.
