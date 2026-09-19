@@ -4440,6 +4440,113 @@ tail:
 }
 
 
+/* ------------------------------------------------------------- tl_do_kano_zap
+ *
+ * armv7 0x000795a4, 288 bytes.  **Complete.**
+ *
+ * `t_kano_zap_proc`'s driver, four states rather than the usual two or
+ * three. The free poses animation 0x24 through `pose_a9_manual` and
+ * self-resumes at `0x1320` after three ticks -- no push, a bare wait like
+ * `tl_do_tusk_floor`'s `0x769`. `0x1320` is `setup_proj_obj` and descends
+ * into `t_double_mframew` from `0x1324`; `0x1324` is the launch itself,
+ * `field38 = t_kano_zap_proc` into `create_proj_proc`, then a plain
+ * `t_mframew` wait from `0x1329`. `0x1329` closes it: `field1c = G + 0x440`
+ * into `update_tsl`, then `tl_do_proj_sitting_duck` rather than a straight
+ * die, the same ending `tl_do_ind_zap` uses.
+ *
+ *      slot = frame[frame+1].w0
+ *                                          ; 0:     free, then 0x1320 (wait)
+ *                                          ; 0x1320: setup, then 0x1324
+ *                                          ; 0x1324: launch, then 0x1329
+ *                                          ; 0x1329: install the sitting duck
+ *      if (slot == 0x1320) {
+ *          setup_proj_obj(obj) ; obj->field1c = 3
+ *          token 0x1324 ; frame++ ; install t_double_mframew ; return 0
+ *      }
+ *      if (slot < 0x1320) {
+ *          if (slot != 0) return -3
+ *          obj->a10 = 0 ; obj->field20 = 1 ; zap_init_special_act(obj)
+ *          obj->field1c = 1 ; ochar_sound(obj)
+ *          obj->field40 = 0x24 ; pose_a9_manual(obj)
+ *          token 0x1320 ; fieldfc = 3 ; return 3
+ *      }
+ *      if (slot == 0x1324) {
+ *          obj->field38 = t_kano_zap_proc ; create_proj_proc(obj)
+ *          obj->field1c = 4
+ *          token 0x1329 ; frame++ ; install t_mframew ; return 0
+ *      }
+ *      if (slot != 0x1329) return -3
+ *      obj->field1c = G + 0x440 ; update_tsl(obj)
+ *      obj->field20 = 0x18
+ *      install tl_do_proj_sitting_duck ; return 0
+ */
+void setup_proj_obj(MK3OBJ *obj);
+void pose_a9_manual(MK3OBJ *obj);
+long t_double_mframew(struct MK3THREAD *thread);       /* pointer slot 0x000f36a8 */
+
+long tl_do_kano_zap(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0x1320) {
+        setup_proj_obj(obj);
+        obj->field1c = 3;
+
+        *mk3_frame(thread, frame + 1) = 0x1324;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_double_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot < 0x1320) {
+        if (slot != 0)
+            return -3;
+
+        obj->a10    = 0;
+        obj->field20 = 1;
+        zap_init_special_act(obj);
+
+        obj->field1c = 1;
+        ochar_sound(obj);
+
+        obj->field40 = 0x24;
+        pose_a9_manual(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x1320;
+        thread->fieldfc = 3;
+        return 3;
+    }
+
+    if (slot == 0x1324) {
+        obj->field38 = (uint32_t)(uintptr_t)t_kano_zap_proc;
+        create_proj_proc(obj);
+
+        obj->field1c = 4;
+
+        *mk3_frame(thread, frame + 1) = 0x1329;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0x1329)
+        return -3;
+
+    obj->field1c = (uint32_t)(uintptr_t)((char *)G + 0x440);
+    update_tsl(obj);
+
+    obj->field20 = 0x18;
+
+    return mk3_install(thread, (MK3THREADFUNC)tl_do_proj_sitting_duck);
+}
+
+
 /* t_rocket_explode -- armv7 0x00077ccc, 176 bytes.  **Complete.**
  *
  *      if (frame[frame+1].w0 != 0) return -3
