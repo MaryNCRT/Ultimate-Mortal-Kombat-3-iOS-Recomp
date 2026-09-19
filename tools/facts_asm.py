@@ -84,6 +84,11 @@ RE_STIDX = re.compile(r"^\s*MEM_ST32\(\(ctx->r\[(\d+)\] \+ "
                       r"\(ctx->r\[(\d+)\] << 3\)\), ctx->r\[(\d+)\]\);")
 # func_0003f00d_name(ctx);
 RE_CALL = re.compile(r"^\s*func_[0-9a-fA-F]+_([A-Za-z_][A-Za-z_0-9]*)\(ctx\);")
+# An imported routine with no hand-written shim: recomp.py emits
+# "stub_auto_<name>(ctx);" (see armrecomp/recomp.py's STUBS handling). The
+# decompiled C calls it by its real name, so this is captured separately
+# and the prefix is stripped before comparison.
+RE_CALL_STUB = re.compile(r"^\s*stub_auto_([A-Za-z_][A-Za-z_0-9]*)\(ctx\);")
 # if (ctx->zf) goto L_00030e0c;
 RE_BR = re.compile(r"^\s*if \((.+?)\) goto (L_[0-9a-fA-F]+);")
 RE_GOTO = re.compile(r"^\s*goto (L_[0-9a-fA-F]+);")
@@ -294,7 +299,7 @@ def facts(lines):
                         addr))
             continue
 
-        m = RE_CALL.match(line)
+        m = RE_CALL.match(line) or RE_CALL_STUB.match(line)
         if m:
             out.append(("call", m.group(1), addr))
             # A call clobbers the scratch registers; forget them rather than

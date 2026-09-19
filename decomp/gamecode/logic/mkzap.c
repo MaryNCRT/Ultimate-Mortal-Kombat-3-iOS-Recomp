@@ -5897,6 +5897,66 @@ long tl_do_lia_forward_zap(MK3THREAD *thread)
 }
 
 
+/* -------------------------------------------------------------------- point_rocket
+ *
+ * armv7 0x000782e0, 284 bytes.  **Complete.**
+ *
+ * Points a homing rocket's sprite at its own velocity. The GrObj's
+ * `field18`/`field1c` (X/Y velocity) set the facing bit
+ * (`field28 & 0x10`, the same flip `flip_multi` uses) from the sign of X,
+ * then `atan2(|X|, -Y)` gives an angle in `[0, PI]` -- always
+ * non-negative because the first argument is an absolute value -- scaled
+ * to a bucket `0..8` (`angle * 8 / PI`, rounded). Each bucket writes a
+ * different offset into `_robo_ani_data` (0x0015b1d0, reached through the
+ * pointer slot at 0x000f33c0 -- see `docs/ANIMATION-STREAMS.md`, the same
+ * table the ninja-robot animations share) into `obj->field40`; buckets 0
+ * and 1 share one offset, and 7 and 8 share another, which is what a
+ * mirrored pair of near-horizontal angles collapsing onto the same sprite
+ * looks like.
+ *
+ *      grobj = obj->field08
+ *      if (grobj->field18 < 0) grobj->field28 |= 0x10
+ *      else                    grobj->field28 &= ~0x10
+ *      angle  = atan2(|grobj->field18|, -grobj->field1c)
+ *      bucket = (int)(angle * 8.0 / PI + 0.5)
+ *      if ((uint)bucket > 8) return
+ *      obj->field40 = robo_ani_data + { 0x1500, 0x1500, 0x1514, 0x1528,
+ *                                        0x153c, 0x1578, 0x1564, 0x1550,
+ *                                        0x1550 }[bucket]
+ */
+extern uint32_t *robo_ani_data;    /* pointer slot 0x000f33c0 -> 0x0015b1d0 */
+double atan2(double y, double x);
+
+void point_rocket(MK3OBJ *obj)
+{
+    MK3OBJ  *grobj = obj->field08;
+    int32_t  vx    = (int32_t)grobj->field18;
+    int32_t  abs_vx;
+    double   angle;
+    float    bucket_f;
+    int32_t  bucket;
+    static const uint32_t offsets[9] = {
+        0x1500, 0x1500, 0x1514, 0x1528, 0x153c, 0x1578, 0x1564, 0x1550, 0x1550
+    };
+
+    if (vx < 0)
+        grobj->field28 |= 0x10u;
+    else
+        grobj->field28 &= ~0x10u;
+
+    abs_vx = (vx < 0) ? -vx : vx;
+
+    angle = atan2((double)abs_vx, (double)-(int32_t)grobj->field1c);
+    bucket_f = (float)((angle * 8.0) / 3.141592653589793);
+    bucket = (int32_t)((double)bucket_f + 0.5);
+
+    if ((uint32_t)bucket > 8)
+        return;
+
+    obj->field40 = (uint32_t)((uintptr_t)robo_ani_data + offsets[bucket]);
+}
+
+
 /* t_rocket_explode -- armv7 0x00077ccc, 176 bytes.  **Complete.**
  *
  *      if (frame[frame+1].w0 != 0) return -3
