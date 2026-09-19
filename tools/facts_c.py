@@ -284,6 +284,13 @@ def facts_of(lines, maps):
         m = RE_INSTALL.search(line) or RE_PLYRINST.search(line)
         if m:
             out.append(("handler", m.group(1)))
+            # mk3_install / mk3_push_handler both end by zeroing the NEXT
+            # frame's token (see mk3logic.h) -- a real store the binary
+            # makes that this call hides inside itself. Emitting it here
+            # keeps a function that only ever calls the helper (never
+            # spelling the token store out by hand) from reading as
+            # "the binary has a token 0x0 the C does not".
+            out.append(("token", "0x0"))
             continue
 
         m = RE_HANDLER.search(line)
