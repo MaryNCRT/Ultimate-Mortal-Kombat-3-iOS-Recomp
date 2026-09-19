@@ -528,10 +528,20 @@ long t_robo_bomb_full(MK3THREAD *thread)
 
 /* t_robo_open_chest_fast -- armv7 0x00075844, 108 bytes.  **Complete.**
  *
+ * **Was missing a whole branch.** The disassembly installs one of TWO
+ * handlers depending on `obj->field5c`, checked AFTER `q_his_react_flag_set`
+ * runs -- and it is `mk3_install` (replaces the current level) both times,
+ * not `mk3_push_handler` (which would push a new one). The version here
+ * called `mk3_push_handler(t_robo_open_chest)` unconditionally, which is
+ * only the `field5c == 0` half and the wrong installer besides.
+ *
  *      if (frame[frame+1].w0 != 0) return -3
  *      obj->field1c = 0x2
  *      q_his_react_flag_set(obj)
- *      frame[frame].handler = t_robo_open_chest
+ *      if (obj->field5c != 0)
+ *          frame[frame].handler = t_roc3
+ *      else
+ *          frame[frame].handler = t_robo_open_chest
  *      frame[frame+1].w0 = 0
  */
 
@@ -545,7 +555,10 @@ long t_robo_open_chest_fast(MK3THREAD *thread)
     obj->field1c = 0x2;
     q_his_react_flag_set(obj);
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_robo_open_chest);
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_roc3);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_robo_open_chest);
 }
 
 /* t_robo_close_chest -- armv7 0x00077eb4, 76 bytes.  **Complete.**
