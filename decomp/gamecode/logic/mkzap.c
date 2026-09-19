@@ -3736,6 +3736,122 @@ long t_motaro_zap_proc(MK3THREAD *thread)
 }
 
 
+/* -------------------------------------------------------------- tl_do_motaro_zap
+ *
+ * armv7 0x0007945c, 308 bytes.  **Complete.**
+ *
+ * `t_motaro_zap_proc`'s driver. The free runs `zap_init_special` (not
+ * `zap_init_special_act`), poses animation 6 and waits four ticks from
+ * `0x692` with no push -- a bare self-resume, same idiom as
+ * `tl_do_tusk_floor`'s `0x769`. `0x693` is the launch: `obj->field40` is
+ * saved on the argument stack, `find_part2` walks it, the launch sound
+ * plays, `field38 = t_motaro_zap_proc` goes into `create_proj_proc`, and
+ * the new slave's OWN `field40` is set from what this object's was BEFORE
+ * the saved value is restored -- so the slave inherits the pose the
+ * thrower had at the moment of the throw, not whatever `find_part2` left
+ * behind. `detach_proj` follows, then a plain `t_mframew` wait for `0x6a0`,
+ * whose re-entry just installs `t_local_reaction_exit`.
+ *
+ *      slot = frame[frame+1].w0
+ *                                          ; 0:     free, then 0x692 (wait)
+ *                                          ; 0x692:  wait, then 0x693
+ *                                          ; 0x693:  launch, then 0x6a0
+ *                                          ; 0x6a0:  install t_local_reaction_exit
+ *      if (slot == 0x692) { token 0x693 ; fieldfc = 4 ; return 4 }
+ *      if (slot < 0x692) {
+ *          if (slot != 0) return -3
+ *          obj->a10 = 0 ; zap_init_special(obj)
+ *          obj->field40 = 6 ; get_char_ani(obj)
+ *          obj->field1c = 4
+ *          token 0x692 ; frame++ ; install t_mframew ; return 0
+ *      }
+ *      if (slot == 0x693) {
+ *          args[fieldf8] = obj->field40 ; fieldf8++
+ *          find_part2(obj)
+ *          obj->field1c = 5 ; ochar_sound(obj)
+ *          obj->field38 = t_motaro_zap_proc ; create_proj_proc(obj)
+ *          proc->field64->field40 = obj->field40
+ *          fieldf8-- ; obj->field40 = args[fieldf8]
+ *          detach_proj(obj) ; obj->field1c = 5
+ *          token 0x6a0 ; frame++ ; install t_mframew ; return 0
+ *      }
+ *      if (slot != 0x6a0) return -3
+ *      install t_local_reaction_exit ; return 0
+ */
+void zap_init_special(MK3OBJ *obj);
+void get_char_ani(MK3OBJ *obj);
+void find_part2(MK3OBJ *obj);
+void detach_proj(MK3OBJ *obj);
+
+long tl_do_motaro_zap(MK3THREAD *thread)
+{
+    MK3OBJ   *obj  = (MK3OBJ *)thread->proc;
+    uint32_t *args = (uint32_t *)(void *)thread->args;
+    uint32_t  frame = thread->frame;
+    uint32_t  slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0x692) {
+        *mk3_frame(thread, frame + 1) = 0x693;
+        thread->fieldfc = 4;
+        return 4;
+    }
+
+    if (slot < 0x692) {
+        if (slot != 0)
+            return -3;
+
+        obj->a10 = 0;
+        zap_init_special(obj);
+
+        obj->field40 = 6;
+        get_char_ani(obj);
+
+        obj->field1c = 4;
+
+        *mk3_frame(thread, frame + 1) = 0x692;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0x693) {
+        args[thread->fieldf8] = obj->field40;
+        thread->fieldf8 = thread->fieldf8 + 1;
+
+        find_part2(obj);
+
+        obj->field1c = 5;
+        ochar_sound(obj);
+
+        obj->field38 = (uint32_t)(uintptr_t)t_motaro_zap_proc;
+        create_proj_proc(obj);
+
+        ((MK3OBJ *)(uintptr_t)obj->field00->field64)->field40 = obj->field40;
+
+        thread->fieldf8 = thread->fieldf8 - 1;
+        obj->field40 = args[thread->fieldf8];
+
+        detach_proj(obj);
+
+        obj->field1c = 5;
+
+        *mk3_frame(thread, frame + 1) = 0x6a0;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0x6a0)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
 /* t_lk_zap_air -- armv7 0x0007b5b8, 156 bytes.  **Complete.**
  *
  *      token == 0:        obj->a10 = 0
