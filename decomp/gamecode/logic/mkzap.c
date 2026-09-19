@@ -5560,6 +5560,131 @@ long tl_tusk_ground_zap(MK3THREAD *thread)
 }
 
 
+/* ------------------------------------------------------------------- tl_do_tusk_zap
+ *
+ * armv7 0x0007b45c, 348 bytes.  **Complete.**
+ *
+ * The ground and air forms fork at the very first check, before a single
+ * field is touched -- the same shape `tl_do_mileena_zap` uses: grounded,
+ * this tail-installs `tl_tusk_ground_zap` outright; airborne, it runs its
+ * own pose (`zap_air_init_special`, `field20 = obj->field00->field18 =
+ * 0x16`) and descends into `t_mframew` from `0xbef`. `0xbef` is the
+ * launch -- `field38 = t_photon_proc` into `create_proj_proc`, nudging by
+ * `field20 = 0x10` only when a slave actually exists -- then a knockback
+ * (`away_x_vel` at `0x60000`) and a bare six-tick wait for `0xc09`. `0xc09`
+ * knocks back again (`0x40000`) and pushes a plain `t_mframew` wait from
+ * `0xc0d`, whose own re-entry installs `t_drop_down_land`.
+ *
+ *      slot = frame[frame+1].w0
+ *                                          ; 0:    free; grounded -> tl_tusk_ground_zap
+ *                                          ;       airborne, then 0xbef
+ *                                          ; 0xbef: launch, then 0xc09 (wait)
+ *                                          ; 0xc09: wait, then 0xc0d
+ *                                          ; 0xc0d: install t_drop_down_land
+ *      if (slot == 0xbef) {
+ *          slave = create_proj_proc(obj) after obj->field38 = t_photon_proc
+ *          if (slave != NULL) {
+ *              obj->field1c = 0 ; obj->field30 = slave->field08
+ *              obj->field20 = 0x10 ; adjust_xy_a5(obj)
+ *          }
+ *          obj->field1c = 0x60000 ; away_x_vel(obj)
+ *          token 0xc09 ; fieldfc = 6 ; return 6
+ *      }
+ *      if (slot < 0xbef) {
+ *          if (slot != 0) return -3
+ *          if (!am_i_airborn(obj)) install tl_tusk_ground_zap ; return 0
+ *          obj->a10 = 0 ; zap_air_init_special(obj)
+ *          obj->field20 = obj->field00->field18 = 0x16
+ *          obj->field1c = 1 ; ochar_sound(obj)
+ *          obj->field40 = 0 ; get_char_ani2(obj) ; obj->field1c = 2
+ *          token 0xbef ; frame++ ; install t_mframew ; return 0
+ *      }
+ *      if (slot == 0xc09) {
+ *          obj->field1c = 0x40000 ; away_x_vel(obj) ; obj->field1c = 4
+ *          token 0xc0d ; frame++ ; install t_mframew ; return 0
+ *      }
+ *      if (slot != 0xc0d) return -3
+ *      install t_drop_down_land ; return 0
+ */
+long tl_tusk_ground_zap(MK3THREAD *thread);
+long t_photon_proc(struct MK3THREAD *thread);
+long t_drop_down_land(struct MK3THREAD *thread);        /* pointer slot 0x000f33d4 */
+
+long tl_do_tusk_zap(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0xbef) {
+        MK3OBJ *slave;
+
+        obj->field38 = (uint32_t)(uintptr_t)t_photon_proc;
+        slave = create_proj_proc(obj);
+
+        if (slave != NULL) {
+            obj->field1c = 0;
+            obj->field30 = (uint32_t)(uintptr_t)slave->field08;
+            obj->field20 = 0x10;
+            adjust_xy_a5(obj);
+        }
+
+        obj->field1c = 0x60000;
+        away_x_vel(obj);
+
+        *mk3_frame(thread, frame + 1) = 0xc09;
+        thread->fieldfc = 6;
+        return 6;
+    }
+
+    if (slot < 0xbef) {
+        if (slot != 0)
+            return -3;
+
+        if (am_i_airborn(obj) == 0)
+            return mk3_install(thread, (MK3THREADFUNC)tl_tusk_ground_zap);
+
+        obj->a10 = 0;
+        zap_air_init_special(obj);
+
+        obj->field20 = 0x16;
+        obj->field00->field18 = 0x16;
+        obj->field1c = 1;
+        ochar_sound(obj);
+
+        obj->field40 = 0;
+        get_char_ani2(obj);
+        obj->field1c = 2;
+
+        *mk3_frame(thread, frame + 1) = 0xbef;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0xc09) {
+        obj->field1c = 0x40000;
+        away_x_vel(obj);
+
+        obj->field1c = 4;
+
+        *mk3_frame(thread, frame + 1) = 0xc0d;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0xc0d)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_drop_down_land);
+}
+
+
 /* ------------------------------------------------------------- t_kano_zap_proc
  *
  * armv7 0x0007667c, 312 bytes.  **Complete.**
