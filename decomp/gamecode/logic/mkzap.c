@@ -1692,6 +1692,18 @@ void make_dragon_explode(MK3OBJ *obj)
  * calls mkdrone.c's. Whether they are per-file duplicates or one pair the STABS
  * attributes three ways is not settled here; what matters for a port is that one
  * shared `q_yes` reproduces all three, because the body is `field5c = 1`.
+ *
+ * **CHECKED BY HAND, not by tools/factdiff.py: it reports one extra `q_no`
+ * call, and there isn't one.** The two `q_no(obj); return;` above are both
+ * real -- "not Jade" and "loop exhausted, no flash found" are genuinely
+ * separate paths through this function -- but the compiler reached them
+ * with a single shared `bl q_no` at 0x75ede, branched to from both places
+ * (`beq` skips it on the Jade path, the loop's own exhaustion falls through
+ * to it via `b 0x75ede`), disassembled and confirmed directly rather than
+ * assumed. `facts_asm.py` counts `bl` INSTRUCTIONS, so one physical call
+ * reached by two logical paths reads as the binary having fewer `q_no`
+ * calls than a readable C that keeps the two returns separate -- the same
+ * gap `t_background_death` (mkreact.c) already names for a `tbb` table.
  */
 void q_yes(MK3OBJ *obj);
 void q_no(MK3OBJ *obj);
