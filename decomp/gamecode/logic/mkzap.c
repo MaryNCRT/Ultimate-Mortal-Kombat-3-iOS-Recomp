@@ -2271,6 +2271,131 @@ explode:
 }
 
 
+/* -------------------------------------------------------------------- tl_sonya_zap_proc
+ *
+ * armv7 0x000767b4, 304 bytes.  **Complete.**
+ *
+ * Sonya's zap flight/hit callback, resumed from two tokens. `0x12b7` is the
+ * hit re-entry: `stop_a8` on the GrObj, `field1c = 0xd`/`field20 = 0` (a
+ * bare stop, no strike-box packing here -- the strike already happened
+ * upstream), then straight into the shared explode tail. `0x12ce` is the
+ * explode-tail's own re-entry, which just installs `tl_delete_proj_and_die`
+ * and is done. The free branch throws normally: strike test via
+ * `proj_strike_check`, and on a real miss (`field5c == 0`) sets
+ * `field40 = 0x3f`/`get_char_ani`, packs `0x80000`/`3`/`3` and
+ * `set_proj_vel`, tags `field48 = 0x12`, and flies on
+ * `tl_projectile_flight` from `0x12b7`. A hit (`field5c != 0`) skips the
+ * flight setup entirely and falls straight into explode with
+ * `field1c = ~0xf` (`-0x10`) instead of the miss path's throw.
+ *
+ * The explode tail (`multi_adjust_xy`, `create_fx` at `field1c = 0`,
+ * `hob_ochar_sound` at `0x10002`, `find_ani_part2` at `field40 = 0x3f`,
+ * `field1c = 4`) is reached both from the immediate hit and from
+ * `tl_projectile_flight`'s own hit callback -- one physical call site,
+ * merged with `goto explode`.
+ *
+ *      slot = frame[frame+1].w0
+ *      if (slot == 0x12b7) {
+ *          stop_a8(obj->field08)
+ *          obj->field1c = 0xd ; obj->field20 = 0
+ *          goto explode
+ *      }
+ *      if (slot == 0x12ce) return install(tl_delete_proj_and_die)
+ *      if (slot != 0) return -3
+ *
+ *      obj->field1c = 0x13 ; proj_strike_check(obj)
+ *      if (obj->field5c != 0) {
+ *          obj->field20 = 0 ; obj->field1c = ~0xf
+ *          goto explode
+ *      }
+ *
+ *      obj->field40 = 0x3f ; get_char_ani(obj)
+ *      obj->field1c = 0x80000 ; obj->field24 = 3 ; obj->field20 = 3
+ *      set_proj_vel(obj)
+ *      obj->field48 = 0x12
+ *      token 0x12b7 ; frame++ ; install tl_projectile_flight ; return 0
+ *
+ *      explode:  multi_adjust_xy(obj)
+ *                obj->field1c = 0 ; create_fx(obj)
+ *                obj->field1c = 0x10002 ; hob_ochar_sound(obj)
+ *                obj->field40 = 0x3f ; find_ani_part2(obj)
+ *                obj->field1c = 4
+ *                token 0x12ce ; frame++ ; install t_mframew ; return 0
+ */
+void stop_a8(MK3OBJ *part);
+void proj_strike_check(MK3OBJ *obj);
+void multi_adjust_xy(MK3OBJ *obj);
+void find_ani_part2(MK3OBJ *obj);
+long t_mframew(struct MK3THREAD *thread);
+
+long tl_sonya_zap_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0x12b7) {
+        stop_a8((MK3OBJ *)(uintptr_t)obj->field08);
+        obj->field1c = 0xd;
+        obj->field20 = 0;
+        goto explode;
+    }
+
+    if (slot == 0x12ce)
+        return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+
+    if (slot != 0)
+        return -3;
+
+    obj->field1c = 0x13;
+    proj_strike_check(obj);
+
+    if (obj->field5c != 0) {
+        obj->field20 = 0;
+        obj->field1c = (uint32_t)~0xf;
+        goto explode;
+    }
+
+    obj->field40 = 0x3f;
+    get_char_ani(obj);
+
+    obj->field1c = 0x80000;
+    obj->field24 = 3;
+    obj->field20 = 3;
+    set_proj_vel(obj);
+
+    obj->field48 = 0x12;
+
+    *mk3_frame(thread, frame + 1) = 0x12b7;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)tl_projectile_flight;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
+explode:
+    multi_adjust_xy(obj);
+
+    obj->field1c = 0;
+    create_fx(obj);
+
+    obj->field1c = 0x10002;
+    hob_ochar_sound(obj);
+
+    obj->field40 = 0x3f;
+    find_ani_part2(obj);
+
+    obj->field1c = 4;
+
+    *mk3_frame(thread, frame + 1) = 0x12ce;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
 /* t_robo_bomb_mid -- armv7 0x000753dc, 72 bytes.  **Complete.**
  *
  *      if (frame[frame+1].w0 != 0) return -3
