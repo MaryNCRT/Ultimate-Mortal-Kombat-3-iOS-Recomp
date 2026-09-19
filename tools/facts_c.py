@@ -146,6 +146,14 @@ RE_TERNARY = re.compile(r"^\(.*\)\s*\?\s*([^:?]+?)\s*:\s*([^:?]+?)$")
 # only bare statements missed every call the file makes inside an `if`,
 # which came out as dozens of phantom differences.
 RE_CALL = re.compile(r"\b([A-Za-z_][A-Za-z_0-9]*)\s*\(")
+# This binary has no hardware integer divide: every `/` on a signed value
+# the compiler could not turn into a shift compiles to a runtime call
+# (`___divsi3`, `___udivsi3` for unsigned, `___modsi3`/`___umodsi3` for `%`).
+# The house convention (see mkprop.c) is to write the division plainly and
+# mark it with a trailing comment naming the call, rather than spell out a
+# call that does not exist in the source -- so that comment is what is
+# matched here, not the `/` itself.
+RE_DIVMOD_CALL = re.compile(r"/\*\s*_+((?:u?div|u?mod)si3)\s*\*/")
 # mk3_install(thread, (MK3THREADFUNC)t_jhp5)  and the plyr_install spelling
 RE_INSTALL = re.compile(r"mk3_(?:install|push_handler)\s*\(\s*thread\s*,\s*"
                         r"\(MK3THREADFUNC\)\s*([A-Za-z_][A-Za-z_0-9]*)")
@@ -343,6 +351,9 @@ def facts_of(lines, maps):
             nm = cm.group(1)
             if nm not in NOT_A_CALL:
                 out.append(("call", nm))
+
+        for dm in RE_DIVMOD_CALL.finditer(line):
+            out.append(("call", dm.group(1)))
 
         m = RE_STORE.match(line)
         if not m and RE_STORE_OPEN.match(line):
