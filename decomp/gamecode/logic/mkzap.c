@@ -751,6 +751,114 @@ long tl_mileena_air_zap(MK3THREAD *thread)
 }
 
 
+/* ------------------------------------------------------------------- tl_do_mileena_zap
+ *
+ * armv7 0x0007ca14, 284 bytes.  **Complete.**
+ *
+ * The free tests `am_i_airborn` before anything else and, when it answers
+ * yes, tail-installs `tl_mileena_air_zap` on the spot -- the ground and
+ * air throws share this one entry point, and the fork happens before a
+ * single field is touched. Grounded, it poses through `pose2_a9_manual`
+ * and waits seven ticks (no push) for `0x1fb`, which pushes a plain
+ * `t_mframew` wait from `0x1fe`. `0x1fe` is the launch, `field38 =
+ * t_sai_proc` into `create_proj_proc`, tagging the announced action to
+ * `0x604` (the same pair-write `i_am_a_sitting_duck` and
+ * `tl_do_proj_sitting_duck` use) before a thirty-seven-tick bare wait for
+ * `0x208`, the ordinary pop-or-exit-at-the-bottom floor.
+ *
+ *      slot = frame[frame+1].w0
+ *                                          ; 0:    free; airborne -> tl_mileena_air_zap
+ *                                          ;       grounded, then 0x1fb (wait)
+ *                                          ; 0x1fb: wait, then 0x1fe
+ *                                          ; 0x1fe: launch, then 0x208 (wait)
+ *                                          ; 0x208: pop, or exit at the bottom
+ *      if (slot == 0x1fb) {
+ *          obj->field1c = 3
+ *          token 0x1fe ; frame++ ; install t_mframew ; return 0
+ *      }
+ *      if (slot < 0x1fb) {
+ *          if (slot != 0) return -3
+ *          obj->field1c = 8 ; ochar_sound(obj)
+ *          if (am_i_airborn(obj)) install tl_mileena_air_zap ; return 0
+ *          obj->a10 = 0 ; obj->field20 = 0x24 ; zap_init_special_act(obj)
+ *          obj->field40 = 0x14 ; pose2_a9_manual(obj)
+ *          token 0x1fb ; fieldfc = 7 ; return 7
+ *      }
+ *      if (slot == 0x1fe) {
+ *          obj->field38 = t_sai_proc ; create_proj_proc(obj)
+ *          obj->field1c = obj->field00->field18 = 0x604
+ *          token 0x208 ; fieldfc = 0x25 ; return 0x25
+ *      }
+ *      if (slot != 0x208) return -3
+ *      pop a level, or t_local_reaction_exit at the bottom
+ */
+void pose2_a9_manual(MK3OBJ *obj);
+long am_i_airborn(MK3OBJ *obj);
+long t_sai_proc(struct MK3THREAD *thread);
+long t_local_reaction_exit(struct MK3THREAD *thread);   /* pointer slot 0x000f3708 */
+
+long tl_do_mileena_zap(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0x1fb) {
+        obj->field1c = 3;
+
+        *mk3_frame(thread, frame + 1) = 0x1fe;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot < 0x1fb) {
+        if (slot != 0)
+            return -3;
+
+        obj->field1c = 8;
+        ochar_sound(obj);
+
+        if (am_i_airborn(obj) != 0)
+            return mk3_install(thread, (MK3THREADFUNC)tl_mileena_air_zap);
+
+        obj->a10    = 0;
+        obj->field20 = 0x24;
+        zap_init_special_act(obj);
+
+        obj->field40 = 0x14;
+        pose2_a9_manual(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x1fb;
+        thread->fieldfc = 7;
+        return 7;
+    }
+
+    if (slot == 0x1fe) {
+        obj->field38 = (uint32_t)(uintptr_t)t_sai_proc;
+        create_proj_proc(obj);
+
+        obj->field1c = 0x604;
+        obj->field00->field18 = 0x604;
+
+        *mk3_frame(thread, frame + 1) = 0x208;
+        thread->fieldfc = 0x25;
+        return 0x25;
+    }
+
+    if (slot != 0x208)
+        return -3;
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
 
 
 
