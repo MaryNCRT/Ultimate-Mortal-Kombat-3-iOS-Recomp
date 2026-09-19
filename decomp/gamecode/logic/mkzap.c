@@ -5505,6 +5505,81 @@ long t_lk_zap_air(MK3THREAD *thread)
 }
 
 
+/* ------------------------------------------------------------------ t_lk_zap_entry
+ *
+ * armv7 0x000759dc, 268 bytes.  **Complete.**
+ *
+ * The grounded (and, via `t_lk_zap_air`, airborne) hand-off winds through
+ * `t_lk_prezap` three times in a row, each pass repacking `field20`/`field24`
+ * with a different literal pair before pushing `t_lk_prezap` again under the
+ * next resume token in the chain (`0` -> push under `0xa4f`; `0xa4f` -> push
+ * under `0xa52`; `0xa52` -> push under `0xa55`). `field24`'s free-branch
+ * value (`0x130071`) and the `0xa52` pass's value are the same word read
+ * twice from the same literal-pool slot, not a coincidence worth reading
+ * into.
+ *
+ * The final resume (`0xa55`) is the actual launch: `field38` is set to
+ * `t_lk_zap_proc` -- the projectile's own hit callback, the same
+ * `obj->field38 = <callback>` convention every other zap launcher in this
+ * file uses -- `create_proj_proc` spawns it, and `t_lkzap5` is installed on
+ * the CURRENT level (no push) to drive it from here on.
+ */
+MK3OBJ *create_proj_proc(MK3OBJ *obj);
+long t_lk_zap_proc(struct MK3THREAD *thread);
+long t_lkzap5(struct MK3THREAD *thread);         /* not yet decompiled */
+
+long t_lk_zap_entry(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0xa4f) {
+        obj->field20 = 0x1000a4;
+        obj->field24 = 0x13005f;
+
+        *mk3_frame(thread, frame + 1) = 0xa52;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_lk_prezap;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0xa52) {
+        obj->field20 = 0x1000d0;
+        obj->field24 = 0x130071;
+
+        *mk3_frame(thread, frame + 1) = 0xa55;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_lk_prezap;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0xa55) {
+        obj->field38 = (uint32_t)(uintptr_t)t_lk_zap_proc;
+        create_proj_proc(obj);
+        return mk3_install(thread, (MK3THREADFUNC)t_lkzap5);
+    }
+
+    if (slot != 0)
+        return -3;
+
+    obj->field1c = 0x11;
+    obj->field20 = 0xe0080;
+    obj->field24 = 0x130071;
+
+    *mk3_frame(thread, frame + 1) = 0xa4f;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_lk_prezap;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
 /* t_sk_zap_proc -- armv7 0x00076cd8, 160 bytes.  **Complete.**
  *
  *      token == 0:       obj->field20 = 3
