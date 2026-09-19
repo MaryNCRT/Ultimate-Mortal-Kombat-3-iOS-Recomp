@@ -393,6 +393,127 @@ long tl_do_robo_net(MK3THREAD *thread)
 }
 
 
+/* -------------------------------------------------------------------------- t_net_proc
+ *
+ * armv7 0x000788f4, 368 bytes.  **Complete.**
+ *
+ * `tl_do_robo_net`'s own `field38` callback, the net that flies out and
+ * traps the opponent. The free throws (`field08->field1c = 0x8000`,
+ * `field1c = 0x60000`) and pushes `tl_projectile_flight` under `0xebf`,
+ * the same launcher shape every other zap in this file uses.
+ *
+ * `0xebf` is the catch: `stop_a8`, `init_anirate`, and the GrObj's own
+ * `field0c`/`field10` high halves copied straight from the opponent's --
+ * `MK3_SET_FIELD0E`/`MK3_SET_FIELD12(obj->field08, MK3_FIELD0E/12(him))`,
+ * pinning the net's part to where the opponent already is -- then
+ * `multi_adjust_xy` and a re-arm under `0xedc`.
+ *
+ * `0xedc` is a poll: `next_anirate`, then check whether the opponent's own
+ * installed proc is still `t_net_sleep` (`GetProcFunc(obj->field00->field00)`
+ * -- the identity check every sleeping-latch site in this file uses). While
+ * it still is, jump straight back into `0xebf`'s own catch code and wait
+ * again -- the opponent hasn't started fighting the net yet. Once it isn't,
+ * announce it (`ochar_sound`), reset the animation state and push
+ * `t_mframew` under `0xeed`, which just installs `tl_delete_proj_and_die`:
+ * the net is done once the opponent breaks free of the sleep it induces.
+ *
+ * `obj->field1c = obj->field00->him` right before the halfword copy is a
+ * dead store -- overwritten by `-0x20` a few lines later without ever being
+ * read, the same kind of leftover this file has flagged before.
+ */
+long t_net_sleep(struct MK3THREAD *thread);
+void stop_a8(MK3OBJ *part);
+void init_anirate(MK3OBJ *obj);
+void multi_adjust_xy(MK3OBJ *obj);
+void find_ani2_part2(MK3OBJ *obj);
+void find_part2(MK3OBJ *obj);
+void set_proj_vel(MK3OBJ *obj);
+long tl_projectile_flight(MK3THREAD *thread);
+long t_mframew(struct MK3THREAD *thread);
+
+long t_net_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+    MK3OBJ  *him;
+
+    if (slot == 0xeed)
+        return mk3_install(thread, (MK3THREADFUNC)t_mframew);
+
+    if (slot == 0xedc) {
+        next_anirate(obj);
+
+        if ((uintptr_t)GetProcFunc(obj->field00->field00) ==
+                (uintptr_t)t_net_sleep)
+            goto catch_net;
+
+        obj->field1c = 0x15;
+        ochar_sound(obj);
+
+        obj->field40 = 1;
+        find_ani2_part2(obj);
+
+        find_part2(obj);
+
+        obj->field1c = 2;
+
+        *mk3_frame(thread, frame + 1) = 0xeed;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0xebf) {
+    catch_net:
+        stop_a8(obj->field08);
+
+        obj->field40 = 1;
+        find_ani2_part2(obj);
+
+        obj->field1c = 4;
+        init_anirate(obj);
+
+        him = (MK3OBJ *)(void *)(uintptr_t)obj->field00->him;
+
+        obj->field1c = obj->field00->him;      /* dead: rewritten below */
+
+        MK3_SET_FIELD0E(obj->field08, MK3_FIELD0E(him));
+        MK3_SET_FIELD12(obj->field08, MK3_FIELD12(him));
+
+        obj->field1c = (uint32_t)~0x1f;
+        obj->field20 = (uint32_t)~0x1f + 0x62;
+        multi_adjust_xy(obj);
+
+        *mk3_frame(thread, frame + 1) = 0xedc;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (slot != 0)
+        return -3;
+
+    obj->field40 = 1;
+    get_char_ani2(obj);
+
+    obj->field08->field1c = 0x8000;
+    obj->field1c           = 0x8000 + 0x58000;
+    obj->field20            = 2;
+    set_proj_vel(obj);
+
+    obj->field48 = 0x11;
+
+    *mk3_frame(thread, frame + 1) = 0xebf;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)tl_projectile_flight;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
 /* tl_do_bomb_mid -- armv7 0x000752cc, 64 bytes.  **Complete.**
  *
  *      if (frame[frame+1].w0 != 0) return -3
