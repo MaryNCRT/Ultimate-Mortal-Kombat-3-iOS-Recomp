@@ -3420,6 +3420,84 @@ long t_orb_proc(MK3THREAD *thread)
 }
 
 
+/* ------------------------------------------------------------------------- tl_orb3
+ *
+ * armv7 0x00075c78, 244 bytes.  **Complete.**
+ *
+ * `tl_do_reptile_orb`'s own descent target. The free poses `field40 = 0x30005`
+ * and pushes `t_animate2_a9` (the same pointer-slot borrow every generic
+ * "play this animation and come back" site in this file uses) under `0x505`,
+ * self-resuming here.
+ *
+ * `0x505` is the actual launch: `field38 = t_orb_proc` (the usual hit
+ * callback), `create_proj_proc` spawns it, and when a slave comes back its
+ * `a10` is seeded from this object's own `field48`. `detach_proj`
+ * follows regardless, then an eight-tick wait under `0x50f`.
+ *
+ * `0x50f` poses nothing new -- just `field1c = 4` and a push of `t_mframew`
+ * under `0x512`, whose own re-entry is the ordinary tail every multi-level
+ * descent in this file ends on: pop a level, or install
+ * `t_local_reaction_exit` at the bottom.
+ */
+long t_animate2_a9(struct MK3THREAD *thread);            /* pointer slot 0x000f36c0 */
+long t_orb_proc(MK3THREAD *thread);
+
+long tl_orb3(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0x505) {
+        MK3OBJ *slave;
+
+        obj->field38 = (uint32_t)(uintptr_t)t_orb_proc;
+        slave = create_proj_proc(obj);
+
+        if (slave != NULL)
+            slave->a10 = obj->field48;
+
+        detach_proj(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x50f;
+        thread->fieldfc = 8;
+        return 8;
+    }
+
+    if (slot == 0x50f) {
+        obj->field1c = 4;
+
+        *mk3_frame(thread, frame + 1) = 0x512;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0x512) {
+        if ((long)thread->frame > 0) {
+            thread->frame = thread->frame - 1;   /* back up a level */
+            return 0;
+        }
+
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (slot != 0)
+        return -3;
+
+    obj->field40 = 0x30005;
+
+    *mk3_frame(thread, frame + 1) = 0x505;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_animate2_a9;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
 /* t_lao_zap_call -- armv7 0x00075464, 108 bytes.  **Complete.**
  *
  *      if (frame[frame+1].w0 != 0) return -3
