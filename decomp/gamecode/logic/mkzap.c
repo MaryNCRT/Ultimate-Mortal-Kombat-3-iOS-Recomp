@@ -2235,6 +2235,102 @@ long t_orb_calla(MK3THREAD *thread)
 }
 
 
+/* -------------------------------------------------------------- t_orb_proc
+ *
+ * armv7 0x0007ba10, 248 bytes.  **Complete.**
+ *
+ * The orb's own launch/flight/land, three states over `tl_projectile_flight_call`
+ * and `t_mframew`. The free poses animation 5 (`field54 = 3`,
+ * `find_ani2_part_a14`), throws with whatever `a10` already held going in
+ * (`field1c = a10` before `set_proj_vel`), tags `field48 = 0x11`, resets
+ * `a10 = 3` (the same three-frame reload `t_orb_calla` counts down) and
+ * `field34 = t_orb_calla`, then flies from token `0x4df`. `0x4df` stops the
+ * GrObj (`stop_a8`), re-poses the same animation 5 at four frames this time
+ * and lands on `0x4e9` through `t_mframew`; `0x4e9` is the floor, closing on
+ * `tl_delete_proj_and_die`.
+ *
+ *      slot = frame[frame+1].w0
+ *                                          ; 0:     free, then 0x4df
+ *                                          ; 0x4df: land pose, then 0x4e9
+ *                                          ; 0x4e9: die
+ *      if (slot == 0x4df) {
+ *          stop_a8(obj->field08)
+ *          obj->field1c = 5 ; ochar_sound(obj)
+ *          obj->field40 = 5 ; obj->field54 = 4 ; find_ani2_part_a14(obj)
+ *          obj->field1c = 3
+ *          token 0x4e9 ; frame++ ; install t_mframew ; return 0
+ *      }
+ *      if (slot == 0x4e9) install tl_delete_proj_and_die ; return 0
+ *      if (slot != 0) return -3
+ *      obj->field54 = 3 ; obj->field40 = 5 ; find_ani2_part_a14(obj)
+ *      obj->field20 = 3 ; obj->field1c = obj->a10 ; set_proj_vel(obj)
+ *      obj->field48 = 0x11 ; obj->a10 = 3 ; obj->field34 = t_orb_calla
+ *      token 0x4df ; frame++ ; install tl_projectile_flight_call ; return 0
+ *
+ * `obj->field1c = obj->a10` in the free state reads whatever the caller left
+ * in `a10` before installing this proc -- unlike every other projectile
+ * launch in this file, which sets its own velocity component fresh, the orb
+ * takes it from a value already sitting there. Transcribed as read; nothing
+ * downstream of this routine says what put it there.
+ */
+void find_ani2_part_a14(MK3OBJ *obj);
+void stop_a8(MK3OBJ *part);
+long t_mframew(struct MK3THREAD *thread);
+long t_orb_calla(MK3THREAD *thread);
+
+long t_orb_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0x4df) {
+        stop_a8(obj->field08);
+
+        obj->field1c = 5;
+        ochar_sound(obj);
+
+        obj->field40 = 5;
+        obj->field54 = 4;
+        find_ani2_part_a14(obj);
+
+        obj->field1c = 3;
+
+        *mk3_frame(thread, frame + 1) = 0x4e9;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0x4e9)
+        return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+
+    if (slot != 0)
+        return -3;
+
+    obj->field54 = 3;
+    obj->field40 = 5;
+    find_ani2_part_a14(obj);
+
+    obj->field20 = 3;
+    obj->field1c = obj->a10;
+    set_proj_vel(obj);
+
+    obj->field48 = 0x11;
+    obj->a10     = 3;
+    obj->field34 = (uint32_t)(uintptr_t)t_orb_calla;
+
+    *mk3_frame(thread, frame + 1) = 0x4df;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)tl_projectile_flight_call;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
 /* t_lao_zap_call -- armv7 0x00075464, 108 bytes.  **Complete.**
  *
  *      if (frame[frame+1].w0 != 0) return -3
@@ -3745,6 +3841,178 @@ long tl_do_sw_zap(MK3THREAD *thread)
     obj->field20 = 0x18;                     /* the sitting-duck duration */
 
     return mk3_install(thread, (MK3THREADFUNC)tl_do_proj_sitting_duck);
+}
+
+
+/* --------------------------------------------------------------- tl_do_lao_zap
+ *
+ * armv7 0x00079e5c, 244 bytes.  **Complete.**
+ *
+ * `tl_do_sw_zap`'s three-state twin -- same `field20`/`a10`/`zap_init_special_act`
+ * open and the same `0x00030024` packed rate/animation into `field40` (rate 3,
+ * animation 0x24, the spinning-hat clip `t_lao_hat_proc`'s own free branch
+ * poses), but with a sound (`ochar_sound`) added before the descent and a
+ * second resume state after it, `0xdaf`, that `t_mframew` waits through before
+ * the projectile is actually let go.
+ *
+ *      token == 0:      obj->field20 = 0xc ; obj->a10 = 0
+ *                       zap_init_special_act(obj)
+ *                       obj->field1c = 1 ; ochar_sound(obj)
+ *                       obj->field40 = 0x00030024
+ *                       token := 0xdaa, descend into t_animate_a9
+ *
+ *      token == 0xdaa:  obj->field38 = t_lao_hat_proc
+ *                       create_proj_proc(obj)
+ *                       obj->field1c = 3
+ *                       token := 0xdaf, descend into t_mframew
+ *
+ *      token == 0xdaf:  obj->field1c = 5
+ *                       frame[frame].handler = t_mframew    ; tail, no push
+ *
+ *      otherwise:       return -3
+ *
+ * The 0xdaf state reaches its store through a plain branch with no `cbz`
+ * refusal in front of it -- `mk3_install`, not `mk3_push_handler`, the same
+ * tell `tools/instck.py` looks for: a dispatcher already holding a matched
+ * non-zero token cannot re-test the slot for zero.
+ */
+long tl_do_lao_zap(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0xdaa) {
+        obj->field38 = (uint32_t)(uintptr_t)t_lao_hat_proc;
+        create_proj_proc(obj);
+
+        obj->field1c = 3;
+
+        *mk3_frame(thread, frame + 1) = 0xdaf;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xdaf) {
+        obj->field1c = 5;
+        return mk3_install(thread, (MK3THREADFUNC)t_mframew);
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field20 = 0xc;
+    obj->a10     = 0;
+    zap_init_special_act(obj);
+
+    obj->field1c = 1;
+    ochar_sound(obj);
+
+    obj->field40 = 0x00030024;
+
+    *mk3_frame(thread, frame + 1) = 0xdaa;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_animate_a9;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* ------------------------------------------------------------ tl_ind_zap_proc
+ *
+ * armv7 0x00076d78, 256 bytes.  **Complete.**
+ *
+ * A three-state projectile: free throws animation 0x24 at three frames
+ * (`find_ani_part_a14`, `do_next_a9_frame`), plays the launch sound, sets a
+ * fixed 0xa0000/4 velocity through `set_proj_vel`, tags `field48 = 0x12`, and
+ * flies from `0x116b` on `tl_projectile_flight`. `0x116b` re-enters on impact
+ * or timeout: `field1c = 0x30004` is the argument `hob_ochar_sound` takes (an
+ * unrelated packed value, not a rate -- overwritten moments later), the GrObj
+ * stops (`stop_a8`), the same animation 0x24 re-poses at four frames, and the
+ * rate that survives into `t_mframew` is a plain 4. `0x1176` is the floor,
+ * closing on `tl_delete_proj_and_die`.
+ *
+ *      slot = frame[frame+1].w0
+ *                                          ; 0:     free, then 0x116b
+ *                                          ; 0x116b: land pose, then 0x1176
+ *                                          ; 0x1176: die
+ *      if (slot == 0x116b) {
+ *          obj->field1c = 0x30004 ; hob_ochar_sound(obj)
+ *          stop_a8(obj->field08)
+ *          obj->field54 = 4 ; obj->field40 = 0x24 ; find_ani_part_a14(obj)
+ *          obj->field1c = 4
+ *          token 0x1176 ; frame++ ; install t_mframew ; return 0
+ *      }
+ *      if (slot == 0x1176) install tl_delete_proj_and_die ; return 0
+ *      if (slot != 0) return -3
+ *      obj->field40 = 0x24 ; obj->field54 = 3 ; find_ani_part_a14(obj)
+ *      do_next_a9_frame(obj)
+ *      obj->field1c = 1 ; ochar_sound(obj)
+ *      obj->field1c = 0xa0000 ; obj->field20 = 4 ; set_proj_vel(obj)
+ *      obj->field48 = 0x12
+ *      token 0x116b ; frame++ ; install tl_projectile_flight ; return 0
+ */
+void hob_ochar_sound(MK3OBJ *obj);
+void find_ani_part_a14(MK3OBJ *obj);
+long tl_projectile_flight(struct MK3THREAD *thread);
+long do_next_a9_frame(MK3OBJ *obj);
+
+long tl_ind_zap_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0x116b) {
+        obj->field1c = 0x30004;
+        hob_ochar_sound(obj);
+
+        stop_a8(obj->field08);
+
+        obj->field54 = 4;
+        obj->field40 = 0x24;
+        find_ani_part_a14(obj);
+
+        obj->field1c = 4;
+
+        *mk3_frame(thread, frame + 1) = 0x1176;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0x1176)
+        return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+
+    if (slot != 0)
+        return -3;
+
+    obj->field40 = 0x24;
+    obj->field54 = 3;
+    find_ani_part_a14(obj);
+    do_next_a9_frame(obj);
+
+    obj->field1c = 1;
+    ochar_sound(obj);
+
+    obj->field1c = 0xa0000;
+    obj->field20 = 4;
+    set_proj_vel(obj);
+
+    obj->field48 = 0x12;
+
+    *mk3_frame(thread, frame + 1) = 0x116b;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)tl_projectile_flight;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
 }
 
 
