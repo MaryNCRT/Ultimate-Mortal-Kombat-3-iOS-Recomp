@@ -7617,6 +7617,14 @@ long t_do_backup(MK3THREAD *thread)
  * G is indexed by word from its base, so the bit tested lives in the first two
  * words of the whole structure. Everything else in this file reaches G at
  * three-digit offsets.
+ *
+ * **0x14 and 0x5c each have exactly one physical store in the binary,** not
+ * one per branch that sets them. `0x701` and the human `G[i] & 2` case both
+ * jump into the SAME `str r3,[r4,#0x14]` at 0x583b8, which falls into the
+ * same `str r3,[r4,#0x5c]` at 0x583bc that `0x700` and the final pass-through
+ * also reach directly. Written here as `low_block:`/`set_true:` labels so the
+ * call-site count matches; the four inline returns this had before were
+ * behaviourally identical but landfn's fact count catches the duplication.
  */
 void check_block_bit(MK3OBJ *obj);
 
@@ -7638,17 +7646,13 @@ void is_he_blocking(MK3OBJ *obj)
         uint32_t act = ((MK3OBJ *)(uintptr_t)obj->field1c)->field00->field18;
 
         obj->field20 = act;
-        if (act == 0x700) {
-            obj->field5c = 1;
-            return;
-        }
+        if (act == 0x700)
+            goto set_true;
         if (act != 0x701) {
             obj->field5c = 0;
             return;
         }
-        obj->field14 = 1;                       /* the low block */
-        obj->field5c = 1;
-        return;
+        goto low_block;
     }
 
     is_he_airborn(obj);                         /* a person */
@@ -7675,17 +7679,19 @@ void is_he_blocking(MK3OBJ *obj)
     i = proc->field00->field00->field08;
     obj->field1c = ((const uint32_t *)G_BYTES)[i];
 
-    if ((obj->field1c & 2) != 0) {
-        obj->field14 = 1;                       /* the low block again */
-        obj->field5c = 1;
-        return;
-    }
+    if ((obj->field1c & 2) != 0)
+        goto low_block;
 
     if ((obj->field30 & 2) != 0) {
         obj->field5c = 0;
         return;
     }
 
+    goto set_true;
+
+low_block:
+    obj->field14 = 1;                           /* the low block */
+set_true:
     obj->field5c = 1;
 }
 
