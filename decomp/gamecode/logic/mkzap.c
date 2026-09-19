@@ -3224,6 +3224,97 @@ long t_master_summon_proc(MK3THREAD *thread)
 }
 
 
+/* ------------------------------------------------------------------ tl_do_summon
+ *
+ * armv7 0x0007a1b0, 272 bytes.  **Complete.**
+ *
+ * `t_master_summon_proc`'s driver: the free packs `0x00030019` (rate 3,
+ * animation 0x19) and descends into `t_animate2_a9` from `0xb87`. `0xb87`
+ * is the actual summon -- the sound, then `NewThread(obj,
+ * t_master_summon_proc)`, spawning it as an independent thread rather than
+ * pushing a level onto this one -- and waits on `t_mframew` from `0xb90`.
+ * `0xb90` is a bare wait, no push, sixteen ticks for `0xb91`, whose own
+ * re-entry just installs `t_mframew` again.
+ *
+ *      slot = frame[frame+1].w0
+ *                                          ; 0:    free, then 0xb87
+ *                                          ; 0xb87: summon, then 0xb90
+ *                                          ; 0xb90: wait, then 0xb91
+ *                                          ; 0xb91: install t_mframew
+ *      if (slot == 0xb87) {
+ *          obj->field1c = 1 ; ochar_sound(obj)
+ *          NewThread(obj, t_master_summon_proc)
+ *          obj->field1c = 3
+ *          token 0xb90 ; frame++ ; install t_mframew ; return 0
+ *      }
+ *      if (slot < 0xb87) {
+ *          if (slot != 0) return -3
+ *          obj->field20 = 0xf ; obj->a10 = 0 ; zap_init_special_act(obj)
+ *          obj->field40 = 0x00030019
+ *          token 0xb87 ; frame++ ; install t_animate2_a9 ; return 0
+ *      }
+ *      if (slot == 0xb90) { token 0xb91 ; fieldfc = 0x10 ; return 0x10 }
+ *      if (slot != 0xb91) return -3
+ *      obj->field1c = 2 ; install t_mframew ; return 0
+ */
+MK3THREAD *NewThread(void *owner, MK3THREADFUNC func);
+long t_master_summon_proc(struct MK3THREAD *thread);
+long t_animate2_a9(struct MK3THREAD *thread);            /* pointer slot 0x000f36c0 */
+
+long tl_do_summon(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0xb87) {
+        obj->field1c = 1;
+        ochar_sound(obj);
+
+        NewThread(obj, (MK3THREADFUNC)t_master_summon_proc);
+
+        obj->field1c = 3;
+
+        *mk3_frame(thread, frame + 1) = 0xb90;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot < 0xb87) {
+        if (slot != 0)
+            return -3;
+
+        obj->field20 = 0xf;
+        obj->a10     = 0;
+        zap_init_special_act(obj);
+
+        obj->field40 = 0x00030019;
+
+        *mk3_frame(thread, frame + 1) = 0xb87;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate2_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0xb90) {
+        *mk3_frame(thread, frame + 1) = 0xb91;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (slot != 0xb91)
+        return -3;
+
+    obj->field1c = 2;
+    return mk3_install(thread, (MK3THREADFUNC)t_mframew);
+}
+
+
 /* t_sz_post_zap -- armv7 0x0007b990, 128 bytes.  **Complete.**
  *
  *      token == 0:        token := 0x87d, park 0x10
