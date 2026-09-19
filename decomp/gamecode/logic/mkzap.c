@@ -554,6 +554,113 @@ long tl_do_robo_bomb(MK3THREAD *thread)
     return mk3_push_handler(thread, (MK3THREADFUNC)tl_bomb3);
 }
 
+
+/* ------------------------------------------------------------------------- tl_bomb3
+ *
+ * armv7 0x00079f50, 332 bytes.  **Complete.**
+ *
+ * `tl_do_bomb_mid`/`tl_do_robo_bomb`'s own descent target, and both callers
+ * hand it `field48` pre-loaded with which "after the bomb" handler to run
+ * (`t_robo_bomb_mid` or `t_robo_bomb_full`) -- read back out below as the
+ * projectile's `field38` hit callback.
+ *
+ * The free (`field20 = 0xd`, `a10 = 0`, `zap_init_special_act`) pushes
+ * `t_robo_open_chest` under `0xc3c`: the chest has to open before the bomb
+ * comes out.
+ *
+ * `0xc3c` is a two-part traffic check. First `CountThreads(0x20)`: more than
+ * one robot-class thread already running means launching now would stack
+ * bombs, so it just re-poses as a sitting duck and waits 32 ticks under
+ * `0xc86`. At most one, and it checks a second population --
+ * `CountThreads(field00->field08 + 0x700)`, the strength-indexed pid this
+ * fighter's own attack thread runs under -- and if that's still busy too, it
+ * takes the exact same wait. Only when both are clear does it actually
+ * launch: `field38 = field48` (the caller's chosen after-bomb handler,
+ * finally read), `create_proj_proc`, `field40` saved/restored across the
+ * call the same way every other spawn site in this file already does,
+ * `field30 = slave->field08`, `adjust_xy_a5`, then a sitting-duck wait of
+ * 22 ticks under `0xc81`.
+ *
+ * `0xc81` and `0xc86` both just install `t_robo_close_chest` -- the
+ * traffic-check wait and the post-launch wait converge on the same close,
+ * whether or not a bomb actually came out.
+ */
+long t_robo_open_chest(struct MK3THREAD *thread);
+long t_robo_close_chest(struct MK3THREAD *thread);
+long CountThreads(uint32_t pid);
+
+long tl_bomb3(MK3THREAD *thread)
+{
+    MK3OBJ   *obj   = (MK3OBJ *)thread->proc;
+    uint32_t *args  = (uint32_t *)(void *)thread->args;
+    uint32_t  frame = thread->frame;
+    uint32_t  slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0xc3c) {
+        obj->field28 = (uint32_t)CountThreads(0x20);
+
+        if ((int32_t)obj->field28 > 1)
+            goto busy;
+
+        if (CountThreads(obj->field00->field08 + 0x700) > 0)
+            goto busy;
+
+        {
+        MK3OBJ *slave;
+
+        obj->field38 = obj->field48;
+        slave = create_proj_proc(obj);
+
+        args[thread->fieldf8] = obj->field40;
+        thread->fieldf8 = thread->fieldf8 + 1;
+
+        obj->field40 = 4;
+        get_char_ani2(obj);
+
+        slave->field40 = obj->field40;
+        obj->field30   = (uint32_t)(uintptr_t)slave->field08;
+
+        obj->field1c = 0;
+        obj->field20 = 0x28;
+        adjust_xy_a5(obj);
+
+        thread->fieldf8 = thread->fieldf8 - 1;
+        obj->field40 = args[thread->fieldf8];
+
+        i_am_a_sitting_duck(obj);
+
+        *mk3_frame(thread, frame + 1) = 0xc81;
+        thread->fieldfc = 0x16;
+        return 0x16;
+        }
+
+busy:
+        i_am_a_sitting_duck(obj);
+
+        *mk3_frame(thread, frame + 1) = 0xc86;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (slot == 0xc81 || slot == 0xc86)
+        return mk3_install(thread, (MK3THREADFUNC)t_robo_close_chest);
+
+    if (slot != 0)
+        return -3;
+
+    obj->field20 = 0xd;
+    obj->a10     = 0;
+    zap_init_special_act(obj);
+
+    *mk3_frame(thread, frame + 1) = 0xc3c;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_robo_open_chest;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
 /* tl_do_sky_ice_front -- armv7 0x000755b4, 60 bytes.  **Complete.**
  *
  *      if (frame[frame+1].w0 != 0) return -3
