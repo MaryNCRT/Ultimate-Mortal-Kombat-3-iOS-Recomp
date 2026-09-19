@@ -8014,6 +8014,134 @@ long tl_fan_proc(MK3THREAD *thread);
 long t_drop_down_land(MK3THREAD *thread);        /* pointer slot 0x000f33d4 */
 void detach_proj(MK3OBJ *obj);
 
+
+/* ------------------------------------------------------------------ tl_do_kitana_zap
+ *
+ * armv7 0x0007a97c, 384 bytes.  **Complete.**
+ *
+ * The free plays the sound and updates the tracker (`field1c = G + 0x414`)
+ * before testing `am_i_airborn` -- unlike `tl_do_mileena_zap`/
+ * `tl_do_tusk_zap`, which fork on the FIRST instruction, this one always
+ * does the shared setup first and only then hands off to `tl_kit_zap_air`
+ * when airborne. Grounded, it packs `0x00030024` and descends into
+ * `t_animate_a9` from `0x656`. `0x656` launches `tl_fan_proc` (not yet
+ * decompiled) through `create_proj_proc` and waits on `t_mframew` from
+ * `0x665`; `0x665` tags the action to `0x604` and self-parks `0x668` --
+ * `0x604 + 0x64`, computed rather than loaded as its own literal, the only
+ * site in this session's batch that derives one token from another. `0x668`
+ * pushes a plain `t_mframew` wait from `0x66a`, the ordinary
+ * pop-or-exit-at-the-bottom floor.
+ *
+ *      slot = frame[frame+1].w0
+ *                                          ; 0:     free; airborne -> tl_kit_zap_air
+ *                                          ;        grounded, then 0x656
+ *                                          ; 0x656:  launch, then 0x665 (wait)
+ *                                          ; 0x665:  tag action, then 0x668 (wait)
+ *                                          ; 0x668:  wait, then 0x66a
+ *                                          ; 0x66a:  pop, or exit at the bottom
+ *      if (slot == 0x665) {
+ *          obj->field1c = obj->field00->field18 = 0x604
+ *          token 0x668 ; fieldfc = 0x20 ; return 0x20
+ *      }
+ *      if (slot < 0x665) {
+ *          if (slot == 0) {
+ *              obj->field1c = 0 ; ochar_sound(obj)
+ *              obj->field1c = G + 0x414 ; update_tsl(obj)
+ *              if (am_i_airborn(obj)) install tl_kit_zap_air ; return 0
+ *              obj->a10 = 0 ; obj->field20 = 0x1e ; zap_init_special_act(obj)
+ *              obj->field40 = 0x00030024
+ *              token 0x656 ; frame++ ; install t_animate_a9 ; return 0
+ *          }
+ *          if (slot != 0x656) return -3
+ *          obj->field38 = tl_fan_proc ; create_proj_proc(obj) ; obj->field1c = 3
+ *          token 0x665 ; frame++ ; install t_mframew ; return 0
+ *      }
+ *      if (slot == 0x668) {
+ *          obj->field1c = 3
+ *          token 0x66a ; frame++ ; install t_mframew ; return 0
+ *      }
+ *      if (slot != 0x66a) return -3
+ *      pop a level, or t_local_reaction_exit at the bottom
+ */
+long tl_kit_zap_air(struct MK3THREAD *thread);
+
+long tl_do_kitana_zap(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0x665) {
+        obj->field1c = 0x604;
+        obj->field00->field18 = 0x604;
+
+        *mk3_frame(thread, frame + 1) = 0x668;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (slot < 0x665) {
+        if (slot == 0) {
+            obj->field1c = 0;
+            ochar_sound(obj);
+
+            obj->field1c = (uint32_t)(uintptr_t)((char *)G + 0x414);
+            update_tsl(obj);
+
+            if (am_i_airborn(obj) != 0)
+                return mk3_install(thread, (MK3THREADFUNC)tl_kit_zap_air);
+
+            obj->a10    = 0;
+            obj->field20 = 0x1e;
+            zap_init_special_act(obj);
+
+            obj->field40 = 0x00030024;
+
+            *mk3_frame(thread, frame + 1) = 0x656;
+            thread->frame = thread->frame + 1;   /* push a level */
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)t_animate_a9;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+
+        if (slot != 0x656)
+            return -3;
+
+        obj->field38 = (uint32_t)(uintptr_t)tl_fan_proc;
+        create_proj_proc(obj);
+        obj->field1c = 3;
+
+        *mk3_frame(thread, frame + 1) = 0x665;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0x668) {
+        obj->field1c = 3;
+
+        *mk3_frame(thread, frame + 1) = 0x66a;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0x66a)
+        return -3;
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
 long tl_kit_zap_air(MK3THREAD *thread)
 {
     MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
