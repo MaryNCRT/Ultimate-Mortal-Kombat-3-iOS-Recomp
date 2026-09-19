@@ -961,6 +961,28 @@ void uhq_entry(MK3OBJ *obj)
     q[0] = (uint16_t)obj->field38;
 }
 
+/*
+ * **`G + 0x390` has no reader anywhere in this binary, checked exhaustively
+ * across all 7,521 symbols, not just gamecode/logic.** `get_my_hitq` is the
+ * only function in the whole game that computes this address: a Thumb
+ * disassembly scan walked every symbol looking for the same three-level
+ * GOT-indirect pattern this function's own body uses -- `ldr rX,[pc,#n];
+ * add rX,pc` to the `_G` slot (0x000f357c), one `ldr rX,[rX]` through it to
+ * `_G`'s base (0x0038c1fc), then an `add`/`sub` of #0x390 or #0x39c (the
+ * second fighter's entry) off that -- and it found exactly one match: this
+ * function itself. Nothing anywhere else in the LIME engine, EA_SDK,
+ * front end or gamecode reads it.
+ *
+ * So this is write-only bookkeeping in the retail game as shipped. A record
+ * of the last six hits lands here every time a reaction starts, and as far
+ * as this binary is concerned nothing ever looks at it again -- not a
+ * combo counter, not an announcer, not an AI heuristic. Whatever it was
+ * for, the feature reading it either shipped in a version this binary
+ * isn't, or was cut before this one. A port has nothing to reproduce here:
+ * there is no observable behavior difference between keeping this queue and
+ * not keeping it.
+ */
+
 
 /* --------------------------------------------------------------------
  * What the readers could prove. See tools/pushfn.py, which executes
