@@ -54,12 +54,38 @@
  * settles what sets it; a port that has none of those specific moves
  * wired up yet has no reason to reach this branch either.
  *
- * `Pp[n] + 0x40` is compared against each fighter's y. It gates which of the
- * two vertical tests applies, so it is a height threshold per fighter, but
- * still no writer has been read after a second, targeted search this
- * session (every direct reference to `_Pp`'s address, 0x0038dc9c, across
- * gamecode/logic) -- most likely sitting in one of the still-undecompiled
- * mkdrone.c/mkboss.c/mkzap.c functions rather than anywhere already read.
+ * **`Pp[n] + 0x40` has no writer anywhere in this binary, and that has now
+ * been checked exhaustively rather than assumed.** Every one of the
+ * binary's 4,342 functions was disassembled and walked for the exact
+ * two-level GOT-indirect pattern this file's own read of it uses --
+ * `ldr rX,[pc,#n]; add rX,pc` to a __DATA slot, `ldr rX,[rX]` through it to
+ * `_Pp`'s base (0x0038dc9c), then a `str`/`strh` at +0x40 (or +0x40 +
+ * PP_STRIDE, the other fighter's entry) off that -- and the method was
+ * verified first against the READ this file already has at 0xa5242,
+ * which it found correctly. Zero writes came back.
+ *
+ * So the height threshold this gates is written by nothing in the game's
+ * own ARM code, in either the decompiled files or the ones still pending
+ * (mkdrone.c/mkboss.c/mkzap.c/mkfriend.c). Left as static-zeroed memory,
+ * `y1 < 0` (a signed halfword) is false for any ordinary y this coordinate
+ * system produces, so this branch is not reachable in practice: the
+ * fighters never take the pure pass-through ("setup") path this
+ * comparison guards, only the overlap test and the leash matter for
+ * ordinary play. A port implementing the overlap test faithfully (as
+ * `_repell` in the Godot project now does) needs nothing further here.
+ *
+ * One loose thread from the same disassembly pass, worth a second look
+ * rather than silently accepted: the SECOND overlap branch's own
+ * `Pp + PP_STRIDE + 0x40` read, as transcribed in this file's C above,
+ * disassembles as a load through `_G`'s own pointer slot (0x0038c1fc) and
+ * ONE dereference of `G` itself, not through `_Pp`'s slot at all -- the
+ * two are different globals with different addresses, confirmed by
+ * reading each slot's contents directly. Either `G[0]` holds a runtime
+ * copy of the same address `Pp + PP_STRIDE` would give (plausible, and
+ * exactly the kind of convenience alias this codebase uses elsewhere), or
+ * the C above mislabels this one comparison. Not resolved here because it
+ * needs a genuine runtime value (what `G[0]` holds when this executes),
+ * which static reading cannot settle -- recorded so it is not lost.
  */
 
 #include "mk3logic.h"
