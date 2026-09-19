@@ -85,11 +85,11 @@ four that contradicted a hand-written runtime definition.
 
 The menu is drawn. What is left, in order:
 
-1. **`gamecode/logic`, 1,671 of 2,172.** The fight engine, and by a wide margin
-   the largest block left. Fifteen of its twenty-one files are closed;
-   `mkdrone.c` (238 left), `mkreact.c` (80), `mkboss.c` (75), `mkzap.c` (62)
-   and `mkfriend.c` (45, never opened) are the whole of the rest, plus one
-   function left in `playback.c`.
+1. **`gamecode/logic`, 1,752 of 2,172.** The fight engine, and by a wide margin
+   the largest block left. Seventeen of its twenty-one files are closed
+   (`mkreact.c` and `playback.c` since joined that list); `mkdrone.c` (238
+   left), `mkboss.c` (75), `mkzap.c` (62) and `mkfriend.c` (45, never opened)
+   are the whole of the rest.
 
    **For a minimal playable scene the number is much smaller and it has been
    measured, not estimated.** All fifteen logic files were compiled to objects

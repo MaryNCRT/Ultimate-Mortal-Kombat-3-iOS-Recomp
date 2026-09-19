@@ -1,5 +1,12 @@
 # Encargo remoto — terminar mkreact.c (y qué NO tocar)
 
+**CERRADO — mkreact.c llegó a 207/207 el 2026-09-18 y las 6 fallas que
+quedaban contra `landfn.sh` también se resolvieron ese día** (4 eran un bug
+del verificador en `tools/facts_c.py`, una — `t_background_death` — es una
+excepción documentada por tabla `tbb`, y `gup2` tenía un bug real ya
+corregido). `playback.c` también está 4/4. Ver `docs/PROGRESS.md`. Todo lo
+de abajo es el encargo tal como se escribió, dejado como registro histórico.
+
 Para pasarle a otra persona/instancia de Claude que trabaje en paralelo sin
 pisarse con lo que ya está en marcha aquí. Escrito el 2026-09-17.
 
