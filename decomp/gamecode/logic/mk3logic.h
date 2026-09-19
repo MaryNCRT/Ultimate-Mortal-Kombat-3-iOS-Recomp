@@ -167,8 +167,10 @@ typedef struct MK3OBJPROC {
     uint8_t  _pad6c[0x0c];
     struct MK3OBJ *field78;      /* 0x78  the object t_rocket_explode hands to
                                   *       KillProc on both of its paths. Not
-                                  *       the slave -- that is 0x64 -- and
-                                  *       nothing in the tree writes it yet. */
+                                  *       the slave -- that is 0x64. Written
+                                  *       by t_rocket2_proc's free launch:
+                                  *       NewThreadProc(obj, t_target), a
+                                  *       homing target thread. */
     uint16_t field7c;            /* 0x7c  the four-button gate, signed */
     uint8_t  _pad7e[6];
     uint32_t field84;            /* 0x84  where tell_world_stk publishes the
