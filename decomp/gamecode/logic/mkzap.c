@@ -6395,6 +6395,190 @@ void benedict_arnold_projectile(MK3OBJ *obj);
 long t_rocket_explode_fx(MK3THREAD *thread);
 long t_rocket2_proc(MK3THREAD *thread);
 
+
+/* ---------------------------------------------------------------------- t_rocket_hunt
+ *
+ * armv7 0x000783fc, 468 bytes.  **Complete.**
+ *
+ * The homing missile's own guidance, and the densest arithmetic in this
+ * file: two `get_rough_hypotenuse` calls and four `___divsi3` runtime
+ * divides (this binary has no hardware integer divide) to turn a
+ * distance vector into a fixed-`5`-magnitude velocity, blended `15/16`
+ * against whatever the rocket was already doing (`vx - vx/16 + nx`) so
+ * the turn is smoothed rather than snapped. Close enough (rough distance
+ * `<= 9`) always explodes, whichever of the three paths that reach
+ * `explode` got there. `slot == 0` additionally does a pop-and-reinstall
+ * of itself one level down before running the SAME tracking math --
+ * transcribed with the exact dead intermediate stores the binary does,
+ * the same "shared tail reached two ways" shape this session's other
+ * functions kept finding, just with the tail's own effect harder to see
+ * at a glance because both paths feed it the same `t_rocket_hunt`
+ * self-reference either way.
+ *
+ *      slot = frame[frame+1].w0
+ *      if (slot != 0) {
+ *          if (slot != 0x1076) return -3
+ *          point_rocket(obj) ; next_anirate(obj)
+ *          if (G[0x450] != 0) goto explode
+ *          obj->field1c = proc->field34 - 1
+ *          if (obj->field1c == 0) goto explode
+ *          proc->field34 = obj->field1c
+ *          goto vector_track
+ *      }
+ *      if (frame > 0) frame -= 1
+ *      else { install t_local_reaction_exit }
+ *      entries[frame].w0, .w1 <- the dead intermediate move, transcribed
+ *
+ *      vector_track:
+ *          dx = MK3_FIELD0E(him) - MK3_FIELD0E(GrObj)
+ *          dy = MK3_FIELD12(him) + 0x40 - MK3_FIELD12(GrObj)
+ *          get_rough_hypotenuse_of(obj, dx, dy)
+ *          if (obj->field54 <= 9) goto explode
+ *          hyp = get_rough_hypotenuse(obj, dx<<18, dy<<18) >> 16
+ *          nx = (dx<<18) / hyp ; ny = (dy<<18) / hyp        ; ___divsi3 x2
+ *          vx = GrObj->field18 - GrObj->field18/16 + nx
+ *          vy = GrObj->field1c - GrObj->field1c/16 + ny
+ *          hyp = get_rough_hypotenuse_of(obj, vx, vy) >> 16
+ *          nx = vx / hyp ; ny = vy / hyp                    ; ___divsi3 x2
+ *          GrObj->field18 = nx * 5 ; GrObj->field1c = ny * 5
+ *          token 0x1076 ; fieldfc = 1 ; return 1
+ *
+ *      explode: install t_rocket_explode ; return 0
+ */
+void point_rocket(MK3OBJ *obj);
+long get_rough_hypotenuse(MK3OBJ *obj);
+long get_rough_hypotenuse_of(MK3OBJ *obj, int32_t dx, int32_t dy);
+long t_rocket_explode(struct MK3THREAD *thread);
+
+long t_rocket_hunt(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot != 0) {
+        if (slot != 0x1076)
+            return -3;
+
+        point_rocket(obj);
+        next_anirate(obj);
+
+        if (*(const int16_t *)((const char *)G + 0x450) != 0)
+            goto explode;
+
+        obj->field1c = obj->field00->field34 - 1;
+        if (obj->field1c == 0)
+            goto explode;
+        obj->field00->field34 = obj->field1c;
+        goto vector_track;
+    }
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+    } else {
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_local_reaction_exit;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+    }
+    {
+        /* The binary re-derives its own handler from the level it just
+         * left (or, at the bottom, from whatever sits one level above --
+         * dead there, since 0x604 t_local_reaction_exit was just written
+         * above and this overwrites it right back with itself). Kept
+         * because the store is in the instruction stream either way. */
+        uint32_t r  = thread->frame;
+        uint32_t r0 = mk3_frame(thread, r + 1)[1];
+        uint32_t r2 = *mk3_frame(thread, r + 2);
+        *mk3_frame(thread, r + 1) = r2;
+        mk3_frame(thread, r)[1] = r0;
+    }
+
+vector_track:
+    {
+        int32_t dx, dy;
+
+        obj->field38 = obj->field00->him;
+
+        obj->field24 = (uint32_t)(int32_t)MK3_FIELD0E_S(obj->field08);
+        obj->field2c = (uint32_t)(int32_t)MK3_FIELD12_S(obj->field08);
+
+        dx = MK3_FIELD0E_S((MK3OBJ *)(uintptr_t)obj->field00->him) -
+             (int32_t)obj->field24;
+        obj->field20 = (uint32_t)dx;
+        obj->field38 = (uint32_t)dx;
+
+        dy = (MK3_FIELD12_S((MK3OBJ *)(uintptr_t)obj->field00->him) + 0x40) -
+             (int32_t)obj->field2c;
+        obj->field28 = (uint32_t)dy;
+        obj->field54 = (uint32_t)dy;
+
+        get_rough_hypotenuse_of(obj, dx, dy);
+
+        if (obj->field54 <= 9)
+            goto explode;
+
+        {
+            int32_t sdx = dx << 18;
+            int32_t sdy = dy << 18;
+            int32_t hyp, vx, vy, vx16, vy16, nx, ny;
+
+            obj->field20 = (uint32_t)sdx;
+            obj->field38 = (uint32_t)sdx;
+            obj->field28 = (uint32_t)sdy;
+            obj->field54 = (uint32_t)sdy;
+
+            get_rough_hypotenuse(obj);
+
+            hyp = (int32_t)((uint32_t)(int32_t)obj->field54 >> 16);
+            obj->field54 = (uint32_t)hyp;
+
+            nx = sdx / hyp;                       /* ___divsi3 */
+            obj->field20 = (uint32_t)nx;
+            ny = (int32_t)obj->field28 / hyp;     /* ___divsi3 */
+            obj->field28 = (uint32_t)ny;
+
+            vx = (int32_t)obj->field08->field18;
+            vy = (int32_t)obj->field08->field1c;
+            obj->field30 = (uint32_t)vx;
+
+            vx16 = vx >> 4;
+            vy16 = vy >> 4;
+            vx = (vx - vx16) + nx;
+            vy = (vy - vy16) + ny;
+
+            obj->field24 = (uint32_t)vy16;
+            obj->field38 = (uint32_t)vy;
+            obj->field28 = (uint32_t)vy;
+            obj->field1c = (uint32_t)vx16;
+            obj->field30 = (uint32_t)vx;
+            obj->field20 = (uint32_t)vx;
+
+            get_rough_hypotenuse_of(obj, vx, vy);
+
+            hyp = (int32_t)((uint32_t)(int32_t)obj->field54 >> 16);
+            obj->field54 = (uint32_t)hyp;
+
+            nx = vx / hyp;                         /* ___divsi3 */
+            obj->field20 = (uint32_t)nx;
+            ny = vy / hyp;                          /* ___divsi3 */
+
+            obj->field54 = 5;
+            obj->field20 = (uint32_t)(nx * 5);
+            obj->field28 = (uint32_t)(ny * 5);
+
+            obj->field08->field18 = obj->field20;
+            obj->field08->field1c = obj->field28;
+        }
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1076;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+explode:
+    return mk3_install(thread, (MK3THREADFUNC)t_rocket_explode);
+}
+
+
 long t_rocket_explode(MK3THREAD *thread)
 {
     MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
