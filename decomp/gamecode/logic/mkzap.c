@@ -4570,6 +4570,117 @@ long t_ice_collision_check(MK3THREAD *thread)
 }
 
 
+/* --------------------------------------------------------------- t_osz_forward_entry
+ *
+ * armv7 0x00075ae8, 400 bytes.  **Complete.**
+ *
+ * `tl_do_sz_zap`'s own descent target, and a chain that runs
+ * `t_ice_collision_check` up to four times over, repacking `field20`/
+ * `field24` with a different literal pair each pass: free (`0x868` next),
+ * `0x868` (`0x86b` next), `0x86b` (`0x86e` next), and `0x86e`, which loops
+ * BACK to `0x86b` -- the free's and `0x868`'s literal pairs are identical
+ * (`0x2d0060`/`0x100028`), so the first two passes are the same box read
+ * twice under two different physical push sites.
+ *
+ * `0x871` is not reached from inside this chain at all -- nothing here ever
+ * plants it, so it can only be an external entry, some other caller pushing
+ * straight into the tracking loop rather than starting from the free.
+ *
+ * `0x874` is the actual launch, and unlike every other launcher in this
+ * file it does not go through `field38` alone: `field00->field64->field40`
+ * (the slave's own animation cursor) is set directly to
+ * `&sz_ani_data[0x1234]`, the same "reach into the slave from outside" shape
+ * `tl_do_sz_zap` itself already uses at a different offset into the same
+ * table. `field38 = t_sz_zap_proc` still gets set the ordinary way for the
+ * hit callback, `create_proj_proc` spawns it, and this branch installs
+ * `t_sz_post_zap` directly -- no push, since the chain is over.
+ *
+ * All four track-and-wait pushes end on one physical "install and clear the
+ * token" tail; only the launch (`0x874`) skips it, since it never pushes a
+ * level to begin with.
+ */
+long t_ice_collision_check(struct MK3THREAD *thread);
+long t_sz_post_zap(struct MK3THREAD *thread);
+long t_sz_zap_proc(MK3THREAD *thread);
+extern uint8_t sz_ani_data[];             /* 0x00162914, slot 0x000f33d8 */
+
+long t_osz_forward_entry(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+    uint32_t next_handler;
+
+    if (slot == 0x86b) {
+        obj->field20 = 0x2d0088;
+        obj->field24 = 0x100050;
+
+        *mk3_frame(thread, frame + 1) = 0x86e;
+        thread->frame = thread->frame + 1;   /* push a level */
+        next_handler = (uint32_t)(uintptr_t)t_ice_collision_check;
+        goto install_shared;
+    }
+
+    if (slot == 0x868) {
+        obj->field20 = 0x2d0060;
+        obj->field24 = 0x100028;
+
+        *mk3_frame(thread, frame + 1) = 0x86b;
+        thread->frame = thread->frame + 1;   /* push a level */
+        next_handler = (uint32_t)(uintptr_t)t_ice_collision_check;
+        goto install_shared;
+    }
+
+    if (slot == 0x871) {
+        obj->field20 = 0x2d00b5;
+        obj->field24 = 0x100066;
+
+        *mk3_frame(thread, frame + 1) = 0x874;
+        thread->frame = thread->frame + 1;   /* push a level */
+        next_handler = (uint32_t)(uintptr_t)t_ice_collision_check;
+        goto install_shared;
+    }
+
+    if (slot == 0x874) {
+        ((MK3OBJ *)(void *)(uintptr_t)obj->field00->field64)->field40 =
+            (uint32_t)(uintptr_t)&sz_ani_data[0x1234];
+
+        obj->field38 = (uint32_t)(uintptr_t)t_sz_zap_proc;
+        create_proj_proc(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_sz_post_zap);
+    }
+
+    if (slot == 0x86e) {
+        obj->field20 = 0x2d00a4;
+        obj->field24 = 0x10006c;
+
+        *mk3_frame(thread, frame + 1) = 0x86b;
+        thread->frame = thread->frame + 1;   /* push a level */
+        next_handler = (uint32_t)(uintptr_t)t_ice_collision_check;
+        goto install_shared;
+    }
+
+    if (slot != 0)
+        return -3;
+
+    obj->field20 = 0x2d0060;
+    obj->field24 = 0x100028;
+
+    *mk3_frame(thread, frame + 1) = 0x868;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_ice_collision_check;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
+install_shared:
+    mk3_frame(thread, thread->frame)[1] = next_handler;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
 /* --------------------------------------------------------------------- t_sky_ice_proc
  *
  * armv7 0x000776b0, 356 bytes.  **Complete.**
