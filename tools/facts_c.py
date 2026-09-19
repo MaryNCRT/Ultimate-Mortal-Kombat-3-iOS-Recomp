@@ -47,6 +47,23 @@ adding to this file should check the list before chasing a report:
   * a value that is an expression rather than a literal or a name. Following
     one level of copy -- `obj->field1c = obj->field48;` -- would recover a
     good many of the `?`.
+  * a store statement split across more than one physical line. `RE_STORE`
+    is anchored on one line including its own `;`, so `obj->field5c =` with
+    the right-hand side starting on the NEXT line matched nothing at all --
+    not even a `?` -- and the store vanished from the C's own fact list
+    with no trace. `facts_of` now joins forward until it sees a `;` before
+    giving up on a line that looks like a store's left side. Found in
+    `proj_onscreen_test`/`proj_onscreen_test_unsafe` (mkzap.c).
+  * `X = (cond) ? A : B;`. Once the line-join above stopped losing it
+    entirely, this still read as one `value()` on the whole expression --
+    `?`, always, one unit of slack. That undercounts a real two-way branch:
+    `proj_onscreen_test` compiles to two actual `str`s (0 and 1, on two
+    paths) and needed two units to clear. But `is_he_motaro`, same C shape
+    one file over, compiles to ONE conditional-move with no branch at all --
+    a single unresolved store on the binary side. Nothing in the C syntax
+    says which the compiler chose, so a ternary-valued store now emits `?`
+    TWICE (`RE_TERNARY`), giving up to two units of slack either way rather
+    than asserting 0 and 1 as if the branch were guaranteed.
 
 ## The rule that keeps it honest
 
@@ -114,6 +131,16 @@ RE_FUNCDEF = re.compile(r"^(?:long|void|int32_t|uint32_t)\s+\**"
 # obj->field1c = 3;   /  obj->field00->field58 = 3;   /  thread->fieldfc = 1;
 RE_STORE = re.compile(r"^\s*([a-z_][a-z_0-9]*)"
                       r"((?:->[a-z_][a-z_0-9]*)+)\s*=\s*([^;]+);")
+# The same left-hand side, with no `;` yet on this line -- the right-hand
+# side (or all of it) is still to come. Used only to decide whether to join
+# forward; RE_STORE itself runs on the joined text.
+RE_STORE_OPEN = re.compile(r"^\s*([a-z_][a-z_0-9]*)"
+                           r"((?:->[a-z_][a-z_0-9]*)+)\s*=\s*[^;]*$")
+# `(cond) ? A : B` at the top level of a store's value -- the two literal
+# stores an if/else compiles to, written as one C expression. Only A and B
+# matter here; `cond` is never evaluated, same as everywhere else in this
+# file.
+RE_TERNARY = re.compile(r"^\(.*\)\s*\?\s*([^:?]+?)\s*:\s*([^:?]+?)$")
 # A call taking the object, WHEREVER it appears -- `group_sound(obj);` on
 # its own, and `if (am_i_facing_him(obj))` inside a condition. Matching
 # only bare statements missed every call the file makes inside an `if`,
@@ -318,6 +345,16 @@ def facts_of(lines, maps):
                 out.append(("call", nm))
 
         m = RE_STORE.match(line)
+        if not m and RE_STORE_OPEN.match(line):
+            # The right-hand side runs on to the next line(s) -- join
+            # forward until a `;` shows up, rather than lose the store
+            # entirely the way it did before this joined.
+            joined = line
+            j = i + 1
+            while ";" not in joined and j < len(lines):
+                joined += " " + lines[j].strip()
+                j += 1
+            m = RE_STORE.match(joined)
         if m:
             root, chain, val = m.group(1), m.group(2), m.group(3)
             members = [p for p in chain.split("->") if p]
@@ -337,7 +374,19 @@ def facts_of(lines, maps):
                         st, off = alt, maps[alt][last]
                         break
             if off is not None:
-                out.append(("store", hex(off), value(val), st))
+                if RE_TERNARY.match(val.strip()):
+                    # `(cond) ? A : B` -- an if/else compiles to two literal
+                    # stores (confirmed by hand for this exact shape in
+                    # proj_onscreen_test/_unsafe, mkzap.c) or to one
+                    # conditional-move the disassembly reads as a single
+                    # unresolved store (is_he_motaro, same file, same C
+                    # shape) -- and nothing in the C alone says which. Two
+                    # `?` gives the binary side slack for either one real
+                    # store or two, rather than guessing.
+                    out.append(("store", hex(off), "?", st))
+                    out.append(("store", hex(off), "?", st))
+                else:
+                    out.append(("store", hex(off), value(val), st))
             continue
 
         m = RE_RETURN.match(line)
