@@ -3933,6 +3933,153 @@ long t_ice_collision_check(MK3THREAD *thread)
 }
 
 
+/* --------------------------------------------------------------------- t_sky_ice_proc
+ *
+ * armv7 0x000776b0, 356 bytes.  **Complete.**
+ *
+ * A falling icicle. The free lines up under the opponent
+ * (`field0e = MK3_FIELD0E(him) + field48`) and drops the GrObj's own
+ * `0x12` to `G[0x464] - 0x1b0` -- the top of the screen, offset by the
+ * icicle's own height -- then waits eight ticks (no push) for `0x11df`.
+ * `0x11df` starts the actual fall: a `0x100` nudge on the GrObj's own
+ * `0x12`, a flat `0xb0000` fall rate into both the object and its GrObj,
+ * and a target floor (`a10 = G[0xac] - 0xc0`) before a one-tick wait for
+ * `0x11ee`. `0x11ee` is the loop: `proj_strike_check` every tick, and
+ * while it keeps missing and the GrObj's `0x12` is still above the floor,
+ * it re-parks itself and waits one more tick -- the same token, so this
+ * is a genuine loop rather than a chain of distinct states. A hit or
+ * reaching the floor both fall into the same close: `field1c = 3` and a
+ * pushed `t_mframew` wait from `0x1208`, whose own re-entry installs
+ * `tl_delete_proj_and_die`.
+ *
+ *      slot = frame[frame+1].w0
+ *                                          ; 0:     free, then 0x11df (wait)
+ *                                          ; 0x11df: start fall, then 0x11ee
+ *                                          ; 0x11ee: strike-check loop, self or 0x1208
+ *                                          ; 0x1208: install tl_delete_proj_and_die
+ *      if (slot == 0x11df) {
+ *          obj->field1c = 1 ; ochar_sound(obj)
+ *          GrObj->0x12 += 0x100
+ *          obj->field1c = GrObj->field1c = 0xb0000
+ *          obj->a10 = G[0xac] - 0xc0
+ *          repark: token 0x11ee ; fieldfc = 1 ; return 1
+ *      }
+ *      if (slot < 0x11df) {
+ *          if (slot != 0) return -3
+ *          find_part2(obj)
+ *          obj->field1c = MK3_FIELD0E(him) + obj->field48
+ *          GrObj->0x0e = obj->field1c
+ *          do_next_a9_frame(obj)
+ *          obj->field1c = G[0x464] - 0x1b0
+ *          GrObj->0x12 = obj->field1c
+ *          token 0x11df ; fieldfc = 8 ; return 8
+ *      }
+ *      if (slot == 0x11ee) {
+ *          obj->field1c = 0x12 ; proj_strike_check(obj)
+ *          if (obj->field5c != 0) {
+ *              obj->field1c = 0x20003 ; hob_ochar_sound(obj)
+ *              obj->field1c = GrObj->field1c = 0x40000
+ *              goto land
+ *          }
+ *          obj->field1c = (int16)GrObj->0x12
+ *          if (obj->field1c < obj->a10) goto repark
+ *          stop_a8(GrObj) ; GrObj->0x12 = (uint16)obj->a10
+ *          land: obj->field1c = 3
+ *          token 0x1208 ; frame++ ; install t_mframew ; return 0
+ *      }
+ *      if (slot != 0x1208) return -3
+ *      install tl_delete_proj_and_die ; return 0
+ */
+void proj_strike_check(MK3OBJ *obj);
+void stop_a8(MK3OBJ *part);
+void find_part2(MK3OBJ *obj);
+
+long t_sky_ice_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0x11df) {
+        obj->field1c = 1;
+        ochar_sound(obj);
+
+        MK3_SET_FIELD12(obj->field08,
+            (uint16_t)(MK3_FIELD12_S(obj->field08) + 0x100));
+
+        obj->field1c = 0xb0000;
+        obj->field08->field1c = 0xb0000;
+
+        obj->a10 = (uint32_t)(*(int32_t *)((char *)G + 0xac) - 0xc0);
+
+repark:
+        *mk3_frame(thread, frame + 1) = 0x11ee;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (slot < 0x11df) {
+        if (slot != 0)
+            return -3;
+
+        find_part2(obj);
+
+        obj->field1c = (uint32_t)(int32_t)
+            MK3_FIELD0E_S((MK3OBJ *)(uintptr_t)obj->field00->him) +
+            obj->field48;
+        MK3_SET_FIELD0E(obj->field08, obj->field1c);
+
+        do_next_a9_frame(obj);
+
+        obj->field1c = (uint32_t)(*(int32_t *)((char *)G + 0x464) - 0x1b0);
+        MK3_SET_FIELD12(obj->field08, obj->field1c);
+
+        *mk3_frame(thread, frame + 1) = 0x11df;
+        thread->fieldfc = 8;
+        return 8;
+    }
+
+    if (slot == 0x11ee) {
+        int32_t y;
+
+        obj->field1c = 0x12;
+        proj_strike_check(obj);
+
+        if (obj->field5c != 0) {
+            obj->field1c = 0x20003;
+            hob_ochar_sound(obj);
+
+            obj->field08->field1c = 0x40000;
+            obj->field1c = 0x40000;
+            goto land;
+        }
+
+        y = MK3_FIELD12_S(obj->field08);
+        obj->field1c = (uint32_t)y;
+        if (y < (int32_t)obj->a10)
+            goto repark;
+
+        stop_a8(obj->field08);
+        MK3_SET_FIELD12(obj->field08, (uint16_t)obj->a10);
+
+land:
+        obj->field1c = 3;
+
+        *mk3_frame(thread, frame + 1) = 0x1208;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0x1208)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+}
+
+
 /* ------------------------------------------------------------------ tl_do_jax_zap2
  *
  * armv7 0x00079818, 296 bytes.  **Complete.**
