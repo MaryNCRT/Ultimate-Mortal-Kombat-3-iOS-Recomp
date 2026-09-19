@@ -200,8 +200,7 @@ long gup2(MK3THREAD *thread)
 
     /* ------------------------------------------ resumed mid-animation */
     case 0x14fcu:
-        next_anirate(obj);
-        goto after_anirate;
+        goto call_next_anirate;
     }
 
 joystick_path:
@@ -215,9 +214,16 @@ joystick_path:
     get_char_ani(obj);
     obj->field1c = 4;
     init_anirate(obj);
+
+/* Binary has ONE static call to next_anirate, at 0x44314 -- reached either
+ * by falling through here (fresh animation setup) or by a direct branch
+ * from token 0x14fc above (resumed mid-animation). Spelling the call out
+ * twice, once per path, made the C report one more next_anirate call than
+ * the binary has -- same class of bug as t_r_scream's duplicated shared
+ * tail. */
+call_next_anirate:
     next_anirate(obj);
 
-after_anirate:
     /* 0x40 holds the animation cursor; the shared struct types it as a
      * word, so the dereference is spelled out. */
     next = *(const uint32_t *)(uintptr_t)obj->field40;
