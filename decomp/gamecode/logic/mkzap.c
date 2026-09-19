@@ -10024,6 +10024,99 @@ repark:
     return 0;
 }
 
+
+/* ------------------------------------------------------------- t_tugged_in_by_spear
+ *
+ * armv7 0x0007c504, 248 bytes.  **Complete.**
+ *
+ * The victim's own thread while Scorpion/Sub-Zero's spear reels them in.
+ * The free launch (`0`) throws (`field1c = 0x80000`), calls `towards_x_vel`
+ * and `set_no_block`, arms resume token `0x44f`, sleeps one frame
+ * (`fieldfc = 1`) and returns 1.
+ *
+ * `0x44f` is the pull-in poll: `get_x_dist` refreshes `field28`, and while
+ * it is still greater than `0x40` the token just re-arms itself and sleeps
+ * again -- no re-throw. Once close enough it tags BOTH objects' action to
+ * `0x623` (`field1c` on self, and `field00->field18` on the puller, i.e.
+ * `get_his_action`'s field on the other side), calls `stop_me_player`,
+ * poses animation `0x25` via `pose_a9_manual`, sets `field1c = 8` and calls
+ * `init_anirate`, arms a `0x40`-frame countdown in `field48`, then falls
+ * into the `0x45f` tail below.
+ *
+ * `0x45f` counts that same `field48` down by one each call
+ * (`next_anirate`/`is_he_airborn` first, and `is_he_airborn` answers in
+ * `field5c` the same way it does everywhere else): a nonzero `field5c`
+ * (airborne) jumps straight to the exit without waiting out the rest of
+ * the countdown; otherwise `field48` decrements, and while it is still
+ * nonzero the token re-arms and sleeps. When either the countdown or the
+ * airborne check ends it, `t_local_reaction_exit` is installed and the
+ * resume token is cleared -- the ordinary way this style of function hands
+ * control back to the local-reaction machinery.
+ */
+void towards_x_vel(MK3OBJ *obj);
+void get_x_dist(MK3OBJ *obj);
+long is_he_airborn(MK3OBJ *obj);
+
+long t_tugged_in_by_spear(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0x44f)
+        goto poll;
+    if (slot == 0x45f)
+        goto countdown;
+    if (slot != 0)
+        return -3;
+
+    obj->field1c = 0x80000;
+    towards_x_vel(obj);
+    set_no_block(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x44f;
+    thread->fieldfc = 1;
+    return 1;
+
+poll:
+    get_x_dist(obj);
+    if (obj->field28 > 0x40) {
+        *mk3_frame(thread, thread->frame + 1) = 0x44f;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    obj->field1c = 0x623;
+    obj->field00->field18 = 0x623;
+    stop_me_player(obj);
+
+    obj->field40 = 0x25;
+    pose_a9_manual(obj);
+
+    obj->field1c = 8;
+    init_anirate(obj);
+
+    obj->field48 = 0x40;
+
+countdown:
+    next_anirate(obj);
+    is_he_airborn(obj);
+
+    if (obj->field5c == 0) {
+        obj->field48 = obj->field48 - 1;
+        if (obj->field48 != 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0x45f;
+            thread->fieldfc = 1;
+            return 1;
+        }
+    }
+
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_local_reaction_exit;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
 /* ------------------------------------------------------------- t_lao_hat_proc
  *
  * armv7 0x00078a64, five hundred twelve bytes.  **Complete.**
