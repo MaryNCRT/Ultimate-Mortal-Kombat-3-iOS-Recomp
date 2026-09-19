@@ -5548,30 +5548,33 @@ long t_wait_for_his_dog(struct MK3THREAD *thread);
  *      state 0xff5
  *          install t_local_reaction_exit
  *
- * **A human gets thrown; the machine gets walked over.** `obj->field5c` is
- * the same "am I joystick-controlled" flag `t_onback3` reads: a human is
+ * **This was mislabeled human-vs-AI. It is airborne-vs-grounded.**
+ * `obj->field5c` is not a controller flag: it is exactly what `am_i_airborn`
+ * (via `aborn4`) writes as its answer, and nothing else touches `field5c`
+ * between that call and the branch that reads it. An airborne attacker gets
  * launched on a real arc (3.5/-6.0/0.5, the same launch shape as every other
  * knockdown here, and 0.5 is exactly `FALL_G`) straight into
- * `t_land_on_my_back`. The AI branch never leaves the ground: it calls
- * `away_x_vel` once, then spends ten frames calling `move_slave_too` while
- * `a10` counts down -- a slave object being kept in step, one tick at a
- * time, rather than a fighter in flight.
+ * `t_land_on_my_back`. A grounded one never leaves the ground: `away_x_vel`
+ * once, then ten frames of `move_slave_too` while `a10` counts down -- a
+ * slave object kept in step, one tick at a time, rather than a fighter in
+ * flight. So the mercy rule ejects an airborne attacker with a knockdown and
+ * a grounded one with a shove, which needs no controller distinction at all.
  *
- * **`am_i_airborn`'s answer is thrown away.** The call happens with
- * `obj->field1c` saved and restored around it -- the same one-call-wide
- * borrow `t_death_slam_pause` makes of `field48` -- and nothing reads `r0`
- * afterward. Whatever `am_i_airborn` needs `field1c` for internally, this
- * routine's own 7.0 survives the call unchanged; only the SIDE EFFECT of
- * making the call is wanted here, not its return value.
+ * **Only the RETURN VALUE is thrown away, not the answer.** `obj->field1c`
+ * is saved and restored around the call -- the same one-call-wide borrow
+ * `t_death_slam_pause` makes of `field48` -- so this routine's own 7.0
+ * survives unread by anything; nothing captures `am_i_airborn`'s `r0`
+ * either. But its SIDE EFFECT on `field5c` is exactly what the very next
+ * line branches on, which is the whole point of calling it.
  *
  * **State 0xfe7 is a closing loop, not a single check.** `other->field18`
  * halved and made positive is compared against 0x1000 (0.0625) every pass:
  * still far, `away_x_vel` again and sleep; close enough, one more
  * `move_slave_too`, `a10 = 0x50` and a push into `t_wait_for_his_dog`. So
- * the AI path is two waits back to back -- ten frames walked in step, then
- * however many it takes to close that gap -- before it ever reaches the same
- * `t_local_reaction_exit` the human path's flight eventually lands at
- * through `t_land_on_my_back`.
+ * the grounded path is two waits back to back -- ten frames walked in step,
+ * then however many it takes to close that gap -- before it ever reaches
+ * the same `t_local_reaction_exit` the airborne path's flight eventually
+ * lands at through `t_land_on_my_back`.
  */
 long t_ken_masters_xfer(MK3THREAD *thread)
 {
