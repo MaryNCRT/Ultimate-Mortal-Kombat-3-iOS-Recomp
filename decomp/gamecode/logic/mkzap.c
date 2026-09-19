@@ -7220,6 +7220,134 @@ long t_rocket_explode(MK3THREAD *thread)
 }
 
 
+/* ---------------------------------------------------------------- t_rocket2_proc
+ *
+ * armv7 0x000785d0, 388 bytes.  **Complete.** The writer for `field78`
+ * that the struct comment at its declaration was still waiting on:
+ * `field00->field78 = NewThreadProc(obj, t_target)`, a homing target
+ * `t_rocket_explode` kills on both of its own exits.
+ *
+ * The free launch throws (`0x60000`, `set_proj_vel`), zeroes the phase index
+ * (`field00->field2c`) and its counter (`field00->field28`) by hand instead of
+ * through `rocket_routines[0]` (entry 0 is `t_rr_nothing`'s all-zero-amount
+ * phase, so seeding the counter from it would be seeding it with itself), then
+ * spawns the target thread with `obj->field40` passed across the call on
+ * `thread->args[]` the same way every other spawn site in this file does --
+ * pushed before `NewThreadProc`, popped back into `field40` right after.
+ *
+ * `0x1011` is `t_rr_up`'s own token from the caller's side: `point_rocket`,
+ * `next_anirate`, then decrement `field00->field28` (the current phase's
+ * remaining count). While it is still running, `0x101f` just parks a
+ * one-frame sleep and comes straight back to `0x1011` -- the per-frame tick.
+ * When it hits zero, the phase index advances and the NEXT entry's duration
+ * (`rocket_routines[(index+1)*3 + 2]`) seeds the counter for the phase to
+ * come; a non-zero duration pushes a level running that phase's own handler
+ * under `0x101f` (so the tick above resumes once it pops), and a zero
+ * duration -- the table's `{0,0,0}` terminator -- installs `t_rocket_explode`
+ * on the spot instead.
+ */
+long t_target(struct MK3THREAD *thread);
+void point_rocket(MK3OBJ *obj);
+
+long t_rocket2_proc(MK3THREAD *thread)
+{
+    MK3OBJ   *obj   = (MK3OBJ *)thread->proc;
+    uint32_t *args  = (uint32_t *)(void *)thread->args;
+    uint32_t  frame = thread->frame;
+    uint32_t  slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0x1011) {
+        MK3OBJPROC *proc;
+        uint32_t    idx, dur;
+
+        point_rocket(obj);
+        next_anirate(obj);
+
+        proc = obj->field00;
+        obj->field1c = proc->field28 - 1;
+        proc->field28 = obj->field1c;
+
+        if (obj->field1c != 0) {
+            obj->field1c = proc->field2c;
+
+            *mk3_frame(thread, frame + 1) = 0x101f;
+            thread->frame = thread->frame + 1;   /* push a level */
+            mk3_frame(thread, thread->frame)[1] =
+                rocket_routines[obj->field1c * 3];
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+
+        idx = proc->field2c + 1;
+        obj->field1c = idx;
+        proc->field2c = idx;
+
+        dur = rocket_routines[idx * 3 + 2];
+        obj->field1c = dur;
+
+        if (dur != 0) {
+            proc->field28 = dur;
+            *mk3_frame(thread, frame + 1) = 0x101f;
+            thread->frame = thread->frame + 1;   /* push a level */
+            mk3_frame(thread, thread->frame)[1] =
+                rocket_routines[idx * 3];
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+
+        return mk3_install(thread, (MK3THREADFUNC)t_rocket_explode);
+    }
+
+    if (slot == 0x101f) {
+        *mk3_frame(thread, frame + 1) = 0x1011;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (slot != 0)
+        return -3;
+
+    obj->field1c = 4;
+    ochar_sound(obj);
+
+    obj->field00->field34 = 0x80;
+    obj->field20           = 0x80 - 0x7d;         /* one literal */
+
+    obj->field1c = 0x60000;
+    set_proj_vel(obj);
+
+    obj->field48 = 0x12;
+    obj->field1c = 0x12;
+    obj->a10     = 0;
+    obj->field40 = 0;
+    tell_world_stk(obj);
+
+    obj->field1c          = 0;
+    obj->field00->field30 = 0;
+
+    obj->field00->field2c = obj->field1c;
+
+    obj->field1c           = 0;                  /* dead: never read again */
+    obj->field00->field28  = rocket_routines[2];
+
+    args[thread->fieldf8] = obj->field40;
+    thread->fieldf8 = thread->fieldf8 + 1;
+
+    obj->field40 = 5;
+    get_char_ani2(obj);
+
+    obj->field00->field78 =
+        (MK3OBJ *)NewThreadProc(obj, (MK3THREADFUNC)t_target);
+
+    thread->fieldf8 = thread->fieldf8 - 1;
+    obj->field40 = args[thread->fieldf8];
+
+    *mk3_frame(thread, frame + 1) = 0x1011;
+    thread->fieldfc = 1;
+    return 1;
+}
+
+
 /* t_scorp_waiting_sleep -- armv7 0x00074e38, 172 bytes.  **Complete.**
  *
  *      token == 0:        token := 0x293, park 0x30
