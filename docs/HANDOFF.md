@@ -7,7 +7,11 @@ Read this, then [METHODOLOGY.md](METHODOLOGY.md). Everything else is reference.
 
 ## Where the project actually stands
 
-**71.37% of the total estimated effort. Nothing is playable.** The arithmetic is
+**This section goes stale fast — before trusting a number in it, re-run
+`python tools/progress.py` and `python tools/sync_figures.py`, which is what
+last updated it, on 2026-09-18.**
+
+**74.29% of the total estimated effort. Nothing is playable.** The arithmetic is
 in the [README](../README.md#overall-progress) and the weights are a judgement
 call; the completion figures are measured by `tools/progress.py` on every run.
 
@@ -17,14 +21,16 @@ call; the completion figures are measured by `tools/progress.py` on every run.
 | `lime/common` | **109 of 109** written, **all nine files verified** |
 | Native executable | **exists**, draws all 18 arenas with a skinned animated fighter |
 | `gamecode` | **291 of 291** — finished, and it BOOTS: `tests/test_menu_boot.c` runs the loader and sixty ticks of the main menu |
-| `gamecode/logic` (fight engine) | 3 of 2,172 — essentially untouched |
+| `gamecode/logic` (fight engine) | 1,752 of 2,172 — 80.66%, seventeen of twenty-one files closed |
 | Platform layer | window, GL context and asset loading on Windows and Linux; no audio, no input mapping |
 
 The shape of the project has changed: **two of the three code modules are
 finished.** `lime/common` is 109 of 109 and `gamecode` is 291 of 291 — every
 front-end screen, every menu, the HUD, the tower, the loaders and the whole
-network lobby. The fight engine is now the only mountain left, and it is a
-large one: 2,172 functions against the 400 written so far.
+network lobby. The fight engine is now the only mountain left, and most of it
+is behind: 1,752 of 2,172 functions written, 420 left across four files
+(`mkdrone.c`, `mkboss.c`, `mkzap.c`, `mkfriend.c` — see PROGRESS.md's "what is
+next" for the breakdown).
 
 **If you are picking this up mid-stream, the front is `gamecode/logic`.** The
 method does not change — smallest-function-first through
