@@ -6330,6 +6330,149 @@ long t_angle_zap_proc(MK3THREAD *thread)
 }
 
 
+/* ------------------------------------------------------------------ tl_do_lia_anglez
+ *
+ * armv7 0x0007b2b8, 420 bytes.  **Complete.**
+ *
+ * `t_angle_zap_proc`'s driver, and the one that saves/restores BOTH
+ * `proc->slave` and `proc->field64` around `create_proj_proc` -- forcing
+ * a fresh spawn on both fronts, then giving the caller back its original
+ * slave and object once the new one exists, the union of what
+ * `tl_do_ind_zap` and `tl_do_tusk_floor` each do to only one of the pair.
+ * The free saves the acting action into `proc->field38` before
+ * `zap_air_init_special` overwrites it -- read back three states later to
+ * choose the close. `0xe59` deletes the slave and waits; `0xe5c` reads
+ * that saved action back: `0x203` installs `t_do_body_propell`, anything
+ * else installs `t_land_on_yer_feet`.
+ *
+ *      slot = frame[frame+1].w0
+ *                                          ; 0:     free, then 0xe46
+ *                                          ; 0xe46:  launch, then 0xe59 (wait)
+ *                                          ; 0xe59:  delete slave, then 0xe5c
+ *                                          ; 0xe5c:  install by the saved action
+ *      if (slot == 0xe46) {
+ *          saved_slave = proc->slave ; saved64 = proc->field64
+ *          obj->field48 = saved_slave ; proc->field64 = 0 ; proc->slave = 0
+ *          obj->field38 = t_angle_zap_proc ; create_proj_proc(obj)
+ *          proc->slave = obj->field48 ; proc->field64 = saved64
+ *          obj->field1c = G + 0x404 ; update_tsl(obj)
+ *          i_am_a_sitting_duck(obj) ; obj->field1c = 5
+ *          token 0xe59 ; frame++ ; install t_mframew ; return 0
+ *      }
+ *      if (slot < 0xe46) {
+ *          if (slot != 0) return -3
+ *          proc->field38 = proc->field18
+ *          obj->a10 = 0 ; zap_air_init_special(obj)
+ *          obj->field20 = proc->field18 = 0xb ; obj->field1c = 2
+ *          ochar_sound(obj)
+ *          obj->field40 = 7 ; get_char_ani2(obj) ; obj->field1c = 2
+ *          token 0xe46 ; frame++ ; install t_mframew ; return 0
+ *      }
+ *      if (slot == 0xe59) {
+ *          delete_slave(obj) ; obj->field1c = 2
+ *          token 0xe5c ; frame++ ; install t_mframew ; return 0
+ *      }
+ *      if (slot != 0xe5c) return -3
+ *      obj->field1c = GrObj->field1c = 0x10000
+ *      obj->field1c = proc->field38
+ *      if (proc->field38 == 0x203) {
+ *          obj->field1c = 0xb ; install t_do_body_propell ; return 0
+ *      }
+ *      install t_land_on_yer_feet ; return 0
+ */
+long t_angle_zap_proc(struct MK3THREAD *thread);
+long t_do_body_propell(struct MK3THREAD *thread);       /* pointer slot 0x000f31a0 */
+long t_land_on_yer_feet(struct MK3THREAD *thread);      /* pointer slot 0x000f3778 */
+
+long tl_do_lia_anglez(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0xe46) {
+        MK3OBJPROC *proc         = obj->field00;
+        uint32_t    saved_slave  = proc->slave;
+        uint32_t    saved64      = proc->field64;
+
+        obj->field48   = saved_slave;
+        proc->field64  = 0;
+        obj->field00->slave = 0;
+
+        obj->field38 = (uint32_t)(uintptr_t)t_angle_zap_proc;
+        create_proj_proc(obj);
+
+        obj->field00->slave   = obj->field48;
+        obj->field00->field64 = saved64;
+
+        obj->field1c = (uint32_t)(uintptr_t)((char *)G + 0x404);
+        update_tsl(obj);
+
+        i_am_a_sitting_duck(obj);
+        obj->field1c = 5;
+
+        *mk3_frame(thread, frame + 1) = 0xe59;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot < 0xe46) {
+        if (slot != 0)
+            return -3;
+
+        obj->field00->field38 = obj->field00->field18;
+
+        obj->a10 = 0;
+        zap_air_init_special(obj);
+
+        obj->field20 = 0xb;
+        obj->field00->field18 = 0xb;
+        obj->field1c = 2;
+        ochar_sound(obj);
+
+        obj->field40 = 7;
+        get_char_ani2(obj);
+        obj->field1c = 2;
+
+        *mk3_frame(thread, frame + 1) = 0xe46;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0xe59) {
+        delete_slave(obj);
+        obj->field1c = 2;
+
+        *mk3_frame(thread, frame + 1) = 0xe5c;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0xe5c)
+        return -3;
+
+    obj->field1c = 0x10000;
+    obj->field08->field1c = 0x10000;
+
+    obj->field1c = obj->field00->field38;
+
+    if (obj->field00->field38 == 0x203) {
+        obj->field1c = 0xb;
+        return mk3_install(thread, (MK3THREADFUNC)t_do_body_propell);
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_land_on_yer_feet);
+}
+
+
 /* t_lk_zap_proc -- armv7 0x00077814, 176 bytes.  **Complete.**
  *
  *      token == 0:       find_part2(obj)
