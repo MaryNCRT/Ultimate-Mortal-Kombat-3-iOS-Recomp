@@ -258,7 +258,11 @@ typedef struct MK3OBJ {
                                   *       get_his_a11_ani leaves the opponent */
     uint32_t    field48;         /* 0x48  shake_a11 passes it as an event, and
                                   *       get_his_a11_ani fetches through it */
-    uint8_t     _pad4c[8];
+    /* 0x4c  t_lk_prezap saves it on the argument stack alongside 0x20 and
+     * 0x24 before stepping a frame, and restores it after -- a plain spill
+     * slot, like the rest of this stretch. */
+    uint32_t    field4c;         /* 0x4c */
+    uint8_t     _pad50[4];
     uint32_t    field54;         /* 0x54  where a computed word is parked */
     uint8_t     _pad58[4];
     /* 0x5c  This file's BOOLEAN RETURN SLOT. am_i_joy isolates a bit into it,

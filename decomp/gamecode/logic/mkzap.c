@@ -2283,6 +2283,104 @@ long t_bomb_gravity2(MK3THREAD *thread)
 void delete_slave(MK3OBJ *obj);
 long t_lkzap5(MK3THREAD *thread);
 
+
+/* --------------------------------------------------------------------- t_lk_prezap
+ *
+ * armv7 0x000770bc, 340 bytes.  **Complete.**
+ *
+ * A one-tick lookahead like `t_spit_prezap`, but with three fields saved
+ * instead of two (`field4c`, `field20`, `field24`) and a slave-part check
+ * instead of a plain box test. The free saves the three, steps one frame,
+ * and self-resumes at `0x9ef` two ticks later. `0x9ef` restores them in
+ * reverse (`field24`, `field20`, `field4c`) and, only when
+ * `proc->slave` names one, borrows it into `field08` for
+ * `local_strike_check_box` -- the same "point 0x08 at the slave for one
+ * call" idiom `t_lk_prezap_hit` documents just below. A connect pops a
+ * level when it can and installs `t_lk_prezap_hit` either way; a miss
+ * either pops a level and returns, or falls into `t_local_reaction_exit`
+ * at the bottom -- the ordinary idiom, just reached without an intervening
+ * install on the pop side.
+ *
+ *      slot = frame[frame+1].w0
+ *      if (slot != 0) {
+ *          if (slot != 0x9ef) return -3
+ *          fieldf8-- ; obj->field24 = args[fieldf8]
+ *          fieldf8-- ; obj->field20 = args[fieldf8]
+ *          fieldf8-- ; obj->field4c = args[fieldf8]
+ *          if (proc->slave != 0) {
+ *              saved = obj->field08 ; obj->field08 = proc->slave
+ *              obj->field1c = 0x11 ; local_strike_check_box(obj)
+ *              obj->field08 = saved
+ *              if (obj->field5c != 0) {
+ *                  if (frame > 0) frame -= 1
+ *                  install t_lk_prezap_hit ; return 0
+ *              }
+ *          }
+ *          if (frame > 0) { frame -= 1 ; return 0 }
+ *          install t_local_reaction_exit ; return 0
+ *      }
+ *      args[fieldf8] = obj->field4c ; fieldf8++
+ *      args[fieldf8] = obj->field20 ; fieldf8++
+ *      args[fieldf8] = obj->field24 ; fieldf8++
+ *      do_next_a9_frame(obj)
+ *      token 0x9ef ; fieldfc = 4 ; return 4
+ */
+long t_lk_prezap_hit(struct MK3THREAD *thread);
+
+long t_lk_prezap(MK3THREAD *thread)
+{
+    MK3OBJ   *obj  = (MK3OBJ *)thread->proc;
+    uint32_t *args = (uint32_t *)(void *)thread->args;
+    uint32_t  frame = thread->frame;
+    uint32_t  slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot != 0) {
+        if (slot != 0x9ef)
+            return -3;
+
+        thread->fieldf8 = thread->fieldf8 - 1;
+        obj->field24 = args[thread->fieldf8];
+        thread->fieldf8 = thread->fieldf8 - 1;
+        obj->field20 = args[thread->fieldf8];
+        thread->fieldf8 = thread->fieldf8 - 1;
+        obj->field4c = args[thread->fieldf8];
+
+        if (obj->field00->slave != 0) {
+            MK3OBJ *saved08 = obj->field08;
+
+            obj->field08 = (MK3OBJ *)(uintptr_t)obj->field00->slave;
+            obj->field1c = 0x11;
+            local_strike_check_box(obj);
+            obj->field08 = saved08;
+
+            if (obj->field5c != 0) {
+                if ((long)thread->frame > 0)
+                    thread->frame = thread->frame - 1;
+                return mk3_install(thread, (MK3THREADFUNC)t_lk_prezap_hit);
+            }
+        }
+
+        if ((long)thread->frame > 0) {
+            thread->frame = thread->frame - 1;
+            return 0;
+        }
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    args[thread->fieldf8] = obj->field4c;
+    thread->fieldf8 = thread->fieldf8 + 1;
+    args[thread->fieldf8] = obj->field20;
+    thread->fieldf8 = thread->fieldf8 + 1;
+    args[thread->fieldf8] = obj->field24;
+    thread->fieldf8 = thread->fieldf8 + 1;
+    do_next_a9_frame(obj);
+
+    *mk3_frame(thread, frame + 1) = 0x9ef;
+    thread->fieldfc = 4;
+    return 4;
+}
+
+
 long t_lk_prezap_hit(MK3THREAD *thread)
 {
     MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
