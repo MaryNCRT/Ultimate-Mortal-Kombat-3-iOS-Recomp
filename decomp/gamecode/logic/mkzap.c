@@ -4734,6 +4734,139 @@ long t_sk_zap_proc(MK3THREAD *thread)
 }
 
 
+/* ------------------------------------------------------------------- tl_do_sk_zap
+ *
+ * armv7 0x00079310, 332 bytes.  **Complete.**
+ *
+ * The free packs `0x00030024` into `field40` and descends into
+ * `t_animate_a9` from `0x6c8`. `0x6c8` is the launch, and the odd one in
+ * this session's batch: it spawns a bare `NewThreadProc(obj,
+ * t_wait_forever)` first and parks the result in `proc->field64` itself,
+ * before `create_proj_proc` -- so the projectile's OWN slave slot is
+ * pre-seeded with a thread that never does anything (`t_wait_forever`)
+ * rather than being left at zero for `create_proj_proc` to fill fresh.
+ * `proc->slave` is then read off THAT thread's own part. `field38 =
+ * t_sk_zap_proc`, `adjust_xy_a5` by `field1c = -0x14`/`field20 = -6`, and
+ * `detach_proj` follow before a bare thirty-two-tick wait for `0x6eb`.
+ * `0x6eb` restores `field40` from `field48` and pushes a plain `t_mframew`
+ * wait from `0x6ee`, the ordinary pop-or-exit-at-the-bottom floor.
+ *
+ *      slot = frame[frame+1].w0
+ *                                          ; 0:    free, then 0x6c8
+ *                                          ; 0x6c8: launch, then 0x6eb (wait)
+ *                                          ; 0x6eb: wait, then 0x6ee
+ *                                          ; 0x6ee: pop, or exit at the bottom
+ *      if (slot == 0x6c8) {
+ *          obj->field48 = obj->field40
+ *          obj->field1c = 1 ; ochar_sound(obj)
+ *          obj->field40 = 0x17 ; get_char_ani(obj)
+ *          proc->field64 = NewThreadProc(obj, t_wait_forever)
+ *          proc->slave = proc->field64->field08
+ *          obj->field38 = t_sk_zap_proc ; create_proj_proc(obj)
+ *          obj->field30 = proc->slave
+ *          obj->field1c = -0x14 ; obj->field20 = -6 ; adjust_xy_a5(obj)
+ *          detach_proj(obj)
+ *          token 0x6eb ; fieldfc = 0x20 ; return 0x20
+ *      }
+ *      if (slot < 0x6c8) {
+ *          if (slot != 0) return -3
+ *          obj->a10 = 0 ; zap_init_special(obj)
+ *          obj->field40 = 0x00030024
+ *          token 0x6c8 ; frame++ ; install t_animate_a9 ; return 0
+ *      }
+ *      if (slot == 0x6eb) {
+ *          obj->field40 = obj->field48 ; obj->field1c = 4
+ *          token 0x6ee ; frame++ ; install t_mframew ; return 0
+ *      }
+ *      if (slot != 0x6ee) return -3
+ *      pop a level, or t_local_reaction_exit at the bottom
+ */
+void *NewThreadProc(void *owner, MK3THREADFUNC func);
+long t_wait_forever(struct MK3THREAD *thread);          /* pointer slot 0x000f3724 */
+long t_sk_zap_proc(struct MK3THREAD *thread);
+void adjust_xy_a5(MK3OBJ *obj);
+void detach_proj(MK3OBJ *obj);
+long t_animate_a9(struct MK3THREAD *thread);            /* pointer slot 0x000f36d0 */
+
+long tl_do_sk_zap(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0x6c8) {
+        void *newthread_proc;
+
+        obj->field48 = obj->field40;
+
+        obj->field1c = 1;
+        ochar_sound(obj);
+
+        obj->field40 = 0x17;
+        get_char_ani(obj);
+
+        newthread_proc = NewThreadProc(obj, (MK3THREADFUNC)t_wait_forever);
+        obj->field00->field64 = (uint32_t)(uintptr_t)newthread_proc;
+
+        obj->field00->slave = (uint32_t)(uintptr_t)
+            ((MK3OBJ *)(uintptr_t)obj->field00->field64)->field08;
+
+        obj->field38 = (uint32_t)(uintptr_t)t_sk_zap_proc;
+        create_proj_proc(obj);
+
+        obj->field30 = obj->field00->slave;
+
+        obj->field1c = (uint32_t)~0x13;          /* -0x14 */
+        obj->field20 = (uint32_t)(~0x13 + 0xe);  /* -6 */
+        adjust_xy_a5(obj);
+
+        detach_proj(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x6eb;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (slot < 0x6c8) {
+        if (slot != 0)
+            return -3;
+
+        obj->a10 = 0;
+        zap_init_special(obj);
+
+        obj->field40 = 0x00030024;
+
+        *mk3_frame(thread, frame + 1) = 0x6c8;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0x6eb) {
+        obj->field40 = obj->field48;
+        obj->field1c = 4;
+
+        *mk3_frame(thread, frame + 1) = 0x6ee;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0x6ee)
+        return -3;
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
 /* tl_do_sw_zap -- armv7 0x00079db8, 164 bytes.  **Complete.**
  *
  *      token == 0:        obj->field20 = 7
