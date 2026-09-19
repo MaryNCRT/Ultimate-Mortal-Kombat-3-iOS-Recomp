@@ -4497,6 +4497,90 @@ long tl_do_jax_zap2(MK3THREAD *thread)
 }
 
 
+/* --------------------------------------------------------------------- tl_jax_zap_jsrp
+ *
+ * armv7 0x000772f8, 272 bytes.  **Complete.**
+ *
+ * `tl_do_jax_zap2`'s own descent target, and a four-stage chain of its
+ * own: the free poses animation 0x24 and waits six ticks under `0x125b`
+ * (no push); `0x125b` steps a frame and waits four more under `0x1260`;
+ * `0x1260` is the actual launch -- `field38 = t_jax_zap_proc` into
+ * `create_proj_proc`, `slave->field00->field34` cleared when a slave
+ * exists, `away_x_vel` -- and pushes `t_mframew` under `0x126c`.
+ *
+ * `0x126c` is the ordinary tail every multi-level descent in this file
+ * ends on: `stop_me_player`, then pop a level, or install
+ * `t_local_reaction_exit` at the bottom.
+ */
+long t_jax_zap_proc(struct MK3THREAD *thread);
+void do_first_a9_frame(MK3OBJ *obj);
+
+long tl_jax_zap_jsrp(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0x125b) {
+        obj->field1c = 0;
+        ochar_sound(obj);
+
+        do_next_a9_frame(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x1260;
+        thread->fieldfc = 4;
+        return 4;
+    }
+
+    if (slot < 0x125b) {
+        if (slot != 0)
+            return -3;
+
+        obj->field40 = 0x24;
+        do_first_a9_frame(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x125b;
+        thread->fieldfc = 6;
+        return 6;
+    }
+
+    if (slot == 0x1260) {
+        MK3OBJ *slave;
+
+        obj->field38 = (uint32_t)(uintptr_t)t_jax_zap_proc;
+        slave = create_proj_proc(obj);
+
+        obj->field20 = 0;
+        if (slave != NULL)
+            slave->field00->field34 = 0;
+
+        obj->field1c = 0x40000;
+        away_x_vel(obj);
+
+        obj->field1c = 4;
+
+        *mk3_frame(thread, frame + 1) = 0x126c;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0x126c)
+        return -3;
+
+    stop_me_player(obj);
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;   /* back up a level */
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
 /* t_boomerang_call -- armv7 0x00074fa8, 136 bytes.  **Complete.**
  *
  *      if (frame[frame+1].w0 != 0) return -3
