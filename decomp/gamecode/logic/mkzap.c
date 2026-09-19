@@ -505,6 +505,118 @@ long t_sai_proc(MK3THREAD *thread)
 }
 
 
+/* -------------------------------------------------------------- tl_mileena_air_zap
+ *
+ * armv7 0x0007b730, 276 bytes.  **Complete.**
+ *
+ * Five states. The free runs `zap_air_init_special` (`field20 =
+ * obj->field00->field18 = 0x25`), poses animation `0x14` through
+ * `find_ani2_part2`, steps one frame, and waits five ticks from `0x1de`
+ * with no push. `0x1de` pushes a plain `t_mframew` wait from `0x1e1`, and
+ * `0x1e1` is the launch: `field38 = t_air_sai_proc` into
+ * `create_proj_proc`, then another bare five-tick wait for `0x1e7`.
+ * `0x1e7` pushes `t_mframew` again from `0x1e9`, whose own re-entry
+ * installs `t_drop_down_land`.
+ *
+ *      slot = frame[frame+1].w0
+ *                                          ; 0:     free, then 0x1de (wait)
+ *                                          ; 0x1de: wait, then 0x1e1
+ *                                          ; 0x1e1: launch, then 0x1e7 (wait)
+ *                                          ; 0x1e7: wait, then 0x1e9
+ *                                          ; 0x1e9: install t_drop_down_land
+ *      if (slot == 0x1e1) {
+ *          obj->field38 = t_air_sai_proc ; create_proj_proc(obj)
+ *          token 0x1e7 ; fieldfc = 5 ; return 5
+ *      }
+ *      if (slot < 0x1e1) {
+ *          if (slot == 0) {
+ *              obj->a10 = 0
+ *              obj->field20 = obj->field00->field18 = 0x25
+ *              zap_air_init_special(obj)
+ *              obj->field40 = 0x14 ; find_ani2_part2(obj)
+ *              do_next_a9_frame(obj)
+ *              token 0x1de ; fieldfc = 5 ; return 5
+ *          }
+ *          if (slot != 0x1de) return -3
+ *          obj->field1c = 3
+ *          token 0x1e1 ; frame++ ; install t_mframew ; return 0
+ *      }
+ *      if (slot == 0x1e7) {
+ *          obj->field1c = 3
+ *          token 0x1e9 ; frame++ ; install t_mframew ; return 0
+ *      }
+ *      if (slot != 0x1e9) return -3
+ *      install t_drop_down_land ; return 0
+ */
+void zap_air_init_special(MK3OBJ *obj);
+void find_ani2_part2(MK3OBJ *obj);
+long do_next_a9_frame(MK3OBJ *obj);
+long t_mframew(struct MK3THREAD *thread);
+long t_drop_down_land(struct MK3THREAD *thread);        /* pointer slot 0x000f33d4 */
+MK3OBJ *create_proj_proc(MK3OBJ *obj);
+
+long tl_mileena_air_zap(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0x1e1) {
+        obj->field38 = (uint32_t)(uintptr_t)t_air_sai_proc;
+        create_proj_proc(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x1e7;
+        thread->fieldfc = 5;
+        return 5;
+    }
+
+    if (slot < 0x1e1) {
+        if (slot == 0) {
+            obj->a10 = 0;
+            obj->field20 = 0x25;
+            obj->field00->field18 = 0x25;
+            zap_air_init_special(obj);
+
+            obj->field40 = 0x14;
+            find_ani2_part2(obj);
+            do_next_a9_frame(obj);
+
+            *mk3_frame(thread, frame + 1) = 0x1de;
+            thread->fieldfc = 5;
+            return 5;
+        }
+
+        if (slot != 0x1de)
+            return -3;
+
+        obj->field1c = 3;
+
+        *mk3_frame(thread, frame + 1) = 0x1e1;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0x1e7) {
+        obj->field1c = 3;
+
+        *mk3_frame(thread, frame + 1) = 0x1e9;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0x1e9)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_drop_down_land);
+}
+
+
 
 
 
