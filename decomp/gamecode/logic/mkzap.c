@@ -3129,6 +3129,101 @@ long t_summon_spawn(MK3THREAD *thread)
 }
 
 
+/* -------------------------------------------------------- t_master_summon_proc
+ *
+ * armv7 0x00077934, 268 bytes.  **Complete.**
+ *
+ * Three `t_summon_spawn` calls back to back, states 0xb7a/0xb7b/0xb7c each
+ * pushing the next, then a self-resume with no push at all -- `0xb7c` parks
+ * `0xb7d` and waits `0x16462` ticks, the same "wait ninety-one thousand and
+ * never answer" ending `t_friendship_speech` and `t_fx_babality` use, since
+ * `0xb7d` matches none of this routine's own checks and the next call
+ * answers -3. The free sets up the shared offset all three spawns add:
+ * `field48` from the GrObj's signed `0x0e` halfword, `a10 = -0x60` and
+ * `field34 = 0x11f`, both flipped to their positive twins when `is_he_right`
+ * says no, then folded once into `field48` before the first spawn.
+ *
+ *      slot = frame[frame+1].w0
+ *                                          ; 0:     free, then 0xb7a
+ *                                          ; 0xb7a:  spawn 2, then 0xb7b
+ *                                          ; 0xb7b:  spawn 3, then 0xb7c
+ *                                          ; 0xb7c:  wait forever (0xb7d)
+ *      if (slot == 0xb7a) {
+ *          token 0xb7b ; frame++ ; install t_summon_spawn ; return 0
+ *      }
+ *      if (slot < 0xb7a) {
+ *          if (slot != 0) return -3
+ *          obj->field48 = (int16)MK3_FIELD0E(obj->field08)
+ *          obj->a10 = -0x60 ; obj->field34 = 0x11f
+ *          is_he_right(obj)
+ *          if (obj->field5c == 0) { obj->a10 = -obj->a10 ; obj->field34 = -obj->field34 }
+ *          obj->field48 = obj->field34 + obj->field48
+ *          token 0xb7a ; frame++ ; install t_summon_spawn ; return 0
+ *      }
+ *      if (slot == 0xb7b) {
+ *          token 0xb7c ; frame++ ; install t_summon_spawn ; return 0
+ *      }
+ *      if (slot != 0xb7c) return -3
+ *      token 0xb7d ; fieldfc = 0x16462 ; return 0x16462
+ */
+long t_summon_spawn(struct MK3THREAD *thread);
+
+long t_master_summon_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0xb7a) {
+        *mk3_frame(thread, frame + 1) = 0xb7b;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_summon_spawn;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot < 0xb7a) {
+        if (slot != 0)
+            return -3;
+
+        obj->field48 = (uint32_t)(int32_t)MK3_FIELD0E_S(obj->field08);
+        obj->a10     = (uint32_t)~0x5f;      /* -0x60 */
+        obj->field34 = 0x11f;
+        is_he_right(obj);
+
+        if (obj->field5c == 0) {
+            obj->a10     = (uint32_t)(-(int32_t)obj->a10);
+            obj->field34 = (uint32_t)(-(int32_t)obj->field34);
+        }
+        obj->field48 = obj->field34 + obj->field48;
+
+        *mk3_frame(thread, frame + 1) = 0xb7a;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_summon_spawn;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0xb7b) {
+        *mk3_frame(thread, frame + 1) = 0xb7c;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_summon_spawn;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0xb7c)
+        return -3;
+
+    *mk3_frame(thread, frame + 1) = 0xb7d;
+    thread->fieldfc = 0x16462;
+    return 0x16462;
+}
+
+
 /* t_sz_post_zap -- armv7 0x0007b990, 128 bytes.  **Complete.**
  *
  *      token == 0:        token := 0x87d, park 0x10
