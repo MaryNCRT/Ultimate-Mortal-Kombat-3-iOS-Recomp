@@ -3497,3 +3497,27 @@ void q_is_he_a_boss(MK3OBJ *obj)
 {
     bossck(obj, (MK3OBJ *)(uintptr_t)obj->field00->him);
 }
+
+/* ----------------------------------------------------------- q_is_he_reacting
+ *
+ * armv7 0x0006c7fc, thirty-six bytes.  **Complete.**
+ *
+ * The single dry reaction probe: `get_his_action` drags the opponent's
+ * action into `obj->field20`, and the queue answers whether it is the 0x503
+ * reaction -- a `q_yes(obj)`/`q_no(obj)` straight from `field20`.
+ *
+ *      get_his_action(obj)
+ *      if (obj->field20 == 0x503) q_yes(obj)
+ *      else q_no(obj)
+ */
+void q_no(MK3OBJ *obj);   /* moves.c, 0x00067524 */
+void q_yes(MK3OBJ *obj);  /* moves.c, 0x0006752c */
+
+void q_is_he_reacting(MK3OBJ *obj)
+{
+    get_his_action(obj);
+    if (obj->field20 == 0x503)
+        q_yes(obj);
+    else
+        q_no(obj);
+}
