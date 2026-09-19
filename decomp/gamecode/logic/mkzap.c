@@ -3769,6 +3769,109 @@ long t_doice3(MK3THREAD *thread)
 }
 
 
+/* ------------------------------------------------------------------------- t_doice5
+ *
+ * armv7 0x00079940, 348 bytes.  **Complete.**
+ *
+ * `t_doice3`'s own descent target, and a chain of borrowed generic threads
+ * rather than the ordinary `field38` launch: the free arms a throw
+ * (`field20=6`, `a10=0`, `zap_init_special_act`, `field1c=0`, `ochar_sound`,
+ * `field40=0x30000`) and pushes `t_animate2_a9` under `0x11ad`, the same
+ * pointer-slot borrow every generic "play this and come back" site in this
+ * file uses.
+ *
+ * `0x11ad` just poses `field1c=2` and pushes `t_mframew` under `0x11b0`,
+ * whose own re-entry is the real content: `delete_slave` and
+ * `NewThread(obj, t_sky_ice_proc)` -- a genuinely separate falling icicle,
+ * spawned as its OWN thread rather than descended into, its return value
+ * discarded -- then `field1c=3` and a push of `t_mframew` under `0x11b9`.
+ *
+ * `0x11b9` runs `delete_slave` again, clears `field40`, sets `field1c=3`,
+ * and pushes `t_backwards_ani2` under `0x11be`, which is the ordinary tail
+ * every multi-level descent in this file ends on: pop a level, or install
+ * `t_local_reaction_exit` at the bottom.
+ */
+void delete_slave(MK3OBJ *obj);
+MK3THREAD *NewThread(void *owner, MK3THREADFUNC func);
+long t_sky_ice_proc(struct MK3THREAD *thread);
+long t_animate2_a9(struct MK3THREAD *thread);            /* pointer slot 0x000f36c0 */
+long t_backwards_ani2(struct MK3THREAD *thread);         /* pointer slot 0x000f3704 */
+
+long t_doice5(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0x11b0) {
+        delete_slave(obj);
+        NewThread(obj, (MK3THREADFUNC)t_sky_ice_proc);
+
+        obj->field1c = 3;
+
+        *mk3_frame(thread, frame + 1) = 0x11b9;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0x11b9) {
+        delete_slave(obj);
+
+        obj->field40 = 0;
+        obj->field1c = 3;
+
+        *mk3_frame(thread, frame + 1) = 0x11be;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_backwards_ani2;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0x11be) {
+        if ((long)thread->frame > 0) {
+            thread->frame = thread->frame - 1;   /* back up a level */
+            return 0;
+        }
+
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (slot == 0x11ad) {
+        obj->field1c = 2;
+
+        *mk3_frame(thread, frame + 1) = 0x11b0;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0)
+        return -3;
+
+    obj->field20 = 6;
+    obj->a10     = 0;
+    zap_init_special_act(obj);
+
+    obj->field1c = 0;
+    ochar_sound(obj);
+
+    obj->field40 = 0x30000;
+
+    *mk3_frame(thread, frame + 1) = 0x11ad;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_animate2_a9;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
 /* t_sg_trail_spawn -- armv7 0x00076a54, 112 bytes.  **Complete.**
  *
  *      if (frame[frame+1].w0 != 0) return -3
