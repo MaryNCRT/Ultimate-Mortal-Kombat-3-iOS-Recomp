@@ -4399,6 +4399,125 @@ long t_summon_spawn(MK3THREAD *thread)
 }
 
 
+/* --------------------------------------------------------------------- t_summon_proc
+ *
+ * armv7 0x00078ed8, 388 bytes.  **Complete.**
+ *
+ * `t_summon_spawn`'s own `NewThread` target -- a genuinely separate thread,
+ * not a descent, so `field48`'s value has to cross into it on the
+ * arg-stack the same way every other spawn site in this file does: pushed
+ * before `get_char_ani2`, restored right after (into `field08`'s own
+ * `field0c`/`field10` high halves, `MK3_SET_FIELD0E`/`12`, the second one
+ * from `G+0xac - 0x10` rather than the restored value).
+ *
+ * `0xb26` is the launch: `NewThreadProc(obj, t_summon_flame_animator)` --
+ * a SECOND independent thread, this one whose return value nobody even
+ * looks at -- poses animation `0x1a`, calls `find_part2` twice, tags the
+ * opponent's action `0xf` (`field00->field18`), packs `field08->field1c`
+ * with `0xfff80000`, and clears the phase flag `field00->field28` before
+ * falling straight into `0xb4c`'s own watch loop.
+ *
+ * `0xb4c` reads that phase flag: zero means check whether it's time to
+ * strike (`q_is_he_a_boss` first -- a boss always skips the box test and
+ * falls through as a miss -- then `strike_check_a0`, which on a hit sets
+ * the flag to `1`), and either way joins the SAME watch code a nonzero flag
+ * runs directly: `next_anirate`, `lowest_mpart_ob`, and a floor test
+ * (`field20 <= -0xc8`) that self-arms another tick while the summon is
+ * still above ground and installs `tl_delete_proj_and_die` once it isn't.
+ */
+long t_summon_flame_animator(struct MK3THREAD *thread);
+void q_is_he_a_boss(MK3OBJ *obj);
+long strike_check_a0(MK3OBJ *obj);
+void lowest_mpart_ob(MK3OBJ *out, MK3OBJ *src);
+
+long t_summon_proc(MK3THREAD *thread)
+{
+    MK3OBJ   *obj   = (MK3OBJ *)thread->proc;
+    uint32_t *args  = (uint32_t *)(void *)thread->args;
+    uint32_t  frame = thread->frame;
+    uint32_t  slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0xb26) {
+        NewThreadProc(obj, (MK3THREADFUNC)t_summon_flame_animator);
+
+        obj->field40 = 0x1a;
+        get_char_ani2(obj);
+
+        find_part2(obj);
+        find_part2(obj);
+
+        obj->field00->field18 = 0xf;
+        obj->field08->field1c = 0xfff80000;
+
+        obj->field1c = 4;
+        init_anirate(obj);
+
+        obj->field1c = 0;
+        obj->field00->field28 = 0;
+
+        *mk3_frame(thread, frame + 1) = 0xb4c;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (slot == 0xb4c) {
+        obj->field1c = obj->field00->field28;
+
+        if (obj->field00->field28 == 0) {
+            q_is_he_a_boss(obj);
+            if (obj->field5c == 0) {
+                obj->field1c = 0x12;
+                strike_check_a0(obj);
+
+                if (obj->field5c != 0) {
+                    obj->field1c = 1;
+                    obj->field00->field28 = 1;
+                }
+            }
+        }
+
+        next_anirate(obj);
+        lowest_mpart_ob(obj, obj->field08);
+
+        obj->field1c = (uint32_t)~0xc7;
+
+        if ((int32_t)obj->field20 <= (int32_t)~0xc7) {
+            *mk3_frame(thread, frame + 1) = 0xb4c;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+    }
+
+    if (slot != 0)
+        return -3;
+
+    args[thread->fieldf8] = obj->field48;
+    thread->fieldf8 = thread->fieldf8 + 1;
+
+    obj->field40 = 0x1a;
+    get_char_ani2(obj);
+
+    obj->field48 = obj->field40;
+
+    thread->fieldf8 = thread->fieldf8 - 1;
+    obj->field48 = args[thread->fieldf8];
+
+    MK3_SET_FIELD0E(obj->field08, obj->field48);
+    MK3_SET_FIELD12(obj->field08, *(uint32_t *)(G_BYTES + 0xac) - 0x10);
+
+    obj->field1c = 4;
+
+    *mk3_frame(thread, frame + 1) = 0xb26;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
 /* -------------------------------------------------------- t_master_summon_proc
  *
  * armv7 0x00077934, 268 bytes.  **Complete.**
