@@ -6227,12 +6227,23 @@ void dec_my_p_hit(MK3OBJ *obj);
  * reaction, which `t_r_airpunch` being a launch-into-`t_flight` reaction in
  * its own right (see its own banner above) makes plausible rather than odd.
  *
- * **`field40 = 0x3001c` is transcribed whole, not split.** The low
+ * **`field40 = 0x3001c` is transcribed whole, not split, and the high
+ * halfword's meaning is settled: it is the animation rate.** The low
  * halfword, 0x1c, is animation 28 -- SCHIHIT, the ordinary hit clip -- and
- * matches `REACT_ANI`'s own reading of this reaction in the Godot port. The
- * high halfword's own meaning is not read; whatever it is, it is a single
- * 32-bit literal load in the binary (`ldr r3, [pc, #0x30]`), not two
- * separate stores, so it is one fact here too.
+ * matches `REACT_ANI`'s own reading of this reaction in the Godot port.
+ * `t_animate_a9` (0x000556ac) is what unpacks the pair -- an arithmetic
+ * shift of the high half into `field1c`, which is what `t_mframew` reads as
+ * the rate -- so 3 is the rate here, the same idiom `t_r_hi_kick` uses
+ * through a bare `field1c = 4` instead. Every other reaction that looked
+ * like it "inherits" (`t_r_lo_punch`, `t_r_duck_punch`, `t_r_duck_kickh/l`,
+ * `t_r_flip_punch`, `t_r_lo_kick`, and `t_r_elbow_knee`/`t_r_tusk_elbow`
+ * through `t_rek3`) sets the same pair through the same function and reads
+ * 3 or 4 the same way -- only `t_r_scorpion_spear` (its own `field1c` is a
+ * sound index for `his_ochar_sound`, not a rate, and nothing downstream of
+ * it sets one either) genuinely has none. It is a single 32-bit literal
+ * load in the binary (`ldr r3, [pc, #0x30]`), not two separate stores, so
+ * it is one fact here too -- transcribed whole for that reason, not because
+ * the halves were unreadable.
  *
  * `dec_my_p_hit` is the mirror of `inc_p_block`: `t_blocked_start` bumps a
  * block counter, this decrements the hit one -- a landed punch working the
