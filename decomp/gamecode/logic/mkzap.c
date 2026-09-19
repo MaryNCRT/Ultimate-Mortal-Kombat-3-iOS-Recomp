@@ -4113,6 +4113,114 @@ long tl_do_ind_zap(MK3THREAD *thread)
 }
 
 
+/* --------------------------------------------------------- tl_do_tusk_floor
+ *
+ * armv7 0x0007b190, 276 bytes.  **Complete.**
+ *
+ * Four states, one of them a bare wait with no push. The free tags
+ * `field20 = 0x1c`, runs `init_special_act` (not `zap_init_special_act` --
+ * a different routine of the same shape), poses at rate 4/animation 3
+ * (`field40 = 0x00040003`) and descends into `t_animate2_a9` from `0x769`.
+ * `0x769` does not push anything: it just re-parks `0x76b` and waits eight
+ * ticks. `0x76b` is the launch -- `proc->slave`, `proc->field64` and
+ * `obj->field40` are all saved, `slave` and `field64` zeroed (forcing
+ * `create_proj_proc` to spawn fresh), `field38 = t_blade_proc`, and once
+ * the new slave exists its own proc's `field28` is hooked back to this
+ * object's proc before all three saved values are restored. `0x790`, a
+ * plain wait rather than a push, follows for twenty-four ticks, and its
+ * own re-entry just installs `t_mframew`.
+ *
+ *      slot = frame[frame+1].w0
+ *                                          ; 0:    free, then 0x769
+ *                                          ; 0x769: wait, then 0x76b
+ *                                          ; 0x76b: launch, then 0x790 (wait)
+ *                                          ; 0x790: install t_mframew
+ *      if (slot == 0x769) { token 0x76b ; fieldfc = 8 ; return 8 }
+ *      if (slot < 0x769) {
+ *          if (slot != 0) return -3
+ *          obj->field20 = 0x1c ; init_special_act(obj)
+ *          obj->field1c = 6 ; ochar_sound(obj)
+ *          obj->field40 = 0x00040003
+ *          token 0x769 ; frame++ ; install t_animate2_a9 ; return 0
+ *      }
+ *      if (slot == 0x76b) {
+ *          saved = proc->slave, proc->field64, obj->field40
+ *          proc->slave = 0 ; proc->field64 = 0
+ *          obj->field38 = t_blade_proc
+ *          slave = create_proj_proc(obj)
+ *          slave->field00->field28 = obj->field00
+ *          proc->slave, proc->field64, obj->field40 = saved
+ *          token 0x790 ; fieldfc = 0x18 ; return 0x18
+ *      }
+ *      if (slot != 0x790) return -3
+ *      obj->field1c = 3 ; install t_mframew ; return 0
+ */
+long t_animate2_a9(struct MK3THREAD *thread);            /* pointer slot 0x000f36c0 */
+long t_blade_proc(struct MK3THREAD *thread);
+
+long tl_do_tusk_floor(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0x769) {
+        *mk3_frame(thread, frame + 1) = 0x76b;
+        thread->fieldfc = 8;
+        return 8;
+    }
+
+    if (slot < 0x769) {
+        if (slot != 0)
+            return -3;
+
+        obj->field20 = 0x1c;
+        init_special_act(obj);
+
+        obj->field1c = 6;
+        ochar_sound(obj);
+
+        obj->field40 = 0x00040003;
+
+        *mk3_frame(thread, frame + 1) = 0x769;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate2_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0x76b) {
+        MK3OBJPROC *proc         = obj->field00;
+        uint32_t    saved_slave  = proc->slave;
+        uint32_t    saved64      = proc->field64;
+        uint32_t    saved40      = obj->field40;
+        MK3OBJ     *slave;
+
+        proc->slave           = 0;
+        obj->field00->field64 = 0;
+        obj->field38 = (uint32_t)(uintptr_t)t_blade_proc;
+        slave = create_proj_proc(obj);
+
+        slave->field00->field28 = (uint32_t)(uintptr_t)obj->field00;
+
+        obj->field00->slave   = saved_slave;
+        obj->field00->field64 = saved64;
+        obj->field40          = saved40;
+
+        *mk3_frame(thread, frame + 1) = 0x790;
+        thread->fieldfc = 0x18;
+        return 0x18;
+    }
+
+    if (slot != 0x790)
+        return -3;
+
+    obj->field1c = 3;
+    return mk3_install(thread, (MK3THREADFUNC)t_mframew);
+}
+
+
 /* --------------------------------------------------------- tl_tusk_ground_zap
  *
  * armv7 0x0007a09c, 276 bytes.  **Complete.**
