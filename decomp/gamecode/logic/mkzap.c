@@ -3731,6 +3731,100 @@ long t_sz_post_zap(MK3THREAD *thread)
 }
 
 
+/* ------------------------------------------------------------ t_ice_collision_check
+ *
+ * armv7 0x0007bea8, 344 bytes.  **Complete.**
+ *
+ * Not a two-tick lookahead like `t_lk_prezap`/`t_spit_prezap` despite the
+ * shape -- the save/restore around `do_next_a9_frame_pxob` happens WITHIN
+ * the same call, protecting `field20`/`field24` from whatever that routine
+ * does to them, not carrying them across a wait. The strike check runs
+ * immediately after the restore, in the very first invocation. A miss
+ * parks `0x83c` and waits three ticks purely to give the caller somewhere
+ * to unwind to -- `0x83c`'s own re-entry does nothing but pop a level (or
+ * install `t_local_reaction_exit` at the bottom); the actual check already
+ * happened. A hit pops a level when it can and, either way, plays a sound
+ * (`field1c = 0x40003`), launches `t_sz_zap_hit` through `create_proj_proc`,
+ * and installs `t_sz_post_zap`.
+ *
+ *      slot = frame[frame+1].w0
+ *      if (slot != 0) {
+ *          if (slot != 0x83c) return -3
+ *          pop a level, or t_local_reaction_exit at the bottom
+ *      }
+ *      args[fieldf8] = obj->field20 ; fieldf8++
+ *      args[fieldf8] = obj->field24 ; fieldf8++
+ *      do_next_a9_frame_pxob(obj, obj, proc->slave)
+ *      fieldf8-- ; obj->field24 = args[fieldf8]
+ *      fieldf8-- ; obj->field20 = args[fieldf8]
+ *      obj->field1c = 0x13 ; local_strike_check_box(obj)
+ *      if (obj->field5c != 0) {
+ *          if (frame > 0) frame -= 1
+ *          obj->field1c = 0x40003 ; hob_ochar_sound(obj)
+ *          obj->field38 = t_sz_zap_hit ; create_proj_proc(obj)
+ *          install t_sz_post_zap ; return 0
+ *      }
+ *      token 0x83c ; fieldfc = 3 ; return 3
+ */
+long do_next_a9_frame_pxob(MK3OBJ *obj, MK3OBJ *a, MK3OBJ *b);
+void local_strike_check_box(MK3OBJ *obj);
+void hob_ochar_sound(MK3OBJ *obj);
+MK3OBJ *create_proj_proc(MK3OBJ *obj);
+long t_sz_zap_hit(struct MK3THREAD *thread);            /* not yet decompiled */
+long t_sz_post_zap(struct MK3THREAD *thread);
+
+long t_ice_collision_check(MK3THREAD *thread)
+{
+    MK3OBJ   *obj  = (MK3OBJ *)thread->proc;
+    uint32_t *args = (uint32_t *)(void *)thread->args;
+    uint32_t  frame = thread->frame;
+    uint32_t  slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot != 0) {
+        if (slot != 0x83c)
+            return -3;
+
+        if ((long)frame > 0) {
+            thread->frame = frame - 1;
+            return 0;
+        }
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    args[thread->fieldf8] = obj->field20;
+    thread->fieldf8 = thread->fieldf8 + 1;
+    args[thread->fieldf8] = obj->field24;
+    thread->fieldf8 = thread->fieldf8 + 1;
+
+    do_next_a9_frame_pxob(obj, obj, (MK3OBJ *)(uintptr_t)obj->field00->slave);
+
+    thread->fieldf8 = thread->fieldf8 - 1;
+    obj->field24 = args[thread->fieldf8];
+    thread->fieldf8 = thread->fieldf8 - 1;
+    obj->field20 = args[thread->fieldf8];
+
+    obj->field1c = 0x13;
+    local_strike_check_box(obj);
+
+    if (obj->field5c != 0) {
+        if ((long)frame > 0)
+            thread->frame = frame - 1;
+
+        obj->field1c = 0x40003;
+        hob_ochar_sound(obj);
+
+        obj->field38 = (uint32_t)(uintptr_t)t_sz_zap_hit;
+        create_proj_proc(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_sz_post_zap);
+    }
+
+    *mk3_frame(thread, frame + 1) = 0x83c;
+    thread->fieldfc = 3;
+    return 3;
+}
+
+
 /* t_boomerang_call -- armv7 0x00074fa8, 136 bytes.  **Complete.**
  *
  *      if (frame[frame+1].w0 != 0) return -3
