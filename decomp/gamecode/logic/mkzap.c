@@ -4016,6 +4016,108 @@ long tl_ind_zap_proc(MK3THREAD *thread)
 }
 
 
+/* --------------------------------------------------------- tl_tusk_ground_zap
+ *
+ * armv7 0x0007a09c, 276 bytes.  **Complete.**
+ *
+ * The free tags `field20 = 0xe`, zeroes `a10`, runs `zap_init_special_act`,
+ * packs `field40 = 0x00030024` (rate 3, animation 0x24, the same pair
+ * `tl_do_lao_zap`/`tl_do_sw_zap` use) and descends into `t_animate_a9` from
+ * `0xbb9`. `0xbb9` is the launch: `field38 = t_photon_proc` then
+ * `create_proj_proc`, and if that actually returned a slave (not NULL) its
+ * GrObj is saved into `field30` and `adjust_xy_a5` nudges it by `0x3f`
+ * (`field1c = 0x10`, `field20 = 0x10 + 0x2f`) before the launch sound and
+ * `i_am_a_sitting_duck` park the thrower. `0xbd7` is the floor:
+ * `delete_slave` on the way out, then `t_mframew` closes it.
+ *
+ *      slot = frame[frame+1].w0
+ *                                          ; 0:    free, then 0xbb9
+ *                                          ; 0xbb9: launch, then 0xbd7
+ *                                          ; 0xbd7: delete_slave, then die
+ *      if (slot == 0xbb9) {
+ *          obj->field38 = t_photon_proc
+ *          slave = create_proj_proc(obj)
+ *          if (slave != NULL) {
+ *              obj->field1c = 0x10 ; obj->field30 = slave->field08
+ *              obj->field20 = 0x3f ; adjust_xy_a5(obj)
+ *          }
+ *          obj->field1c = 1 ; ochar_sound(obj)
+ *          i_am_a_sitting_duck(obj)
+ *          obj->field1c = 4
+ *          token 0xbd7 ; frame++ ; install t_mframew ; return 0
+ *      }
+ *      if (slot == 0xbd7) {
+ *          delete_slave(obj) ; obj->field1c = 5
+ *          install t_mframew ; return 0
+ *      }
+ *      if (slot != 0) return -3
+ *      obj->field20 = 0xe ; obj->a10 = 0 ; zap_init_special_act(obj)
+ *      obj->field40 = 0x00030024
+ *      token 0xbb9 ; frame++ ; install t_animate_a9 ; return 0
+ */
+void delete_slave(MK3OBJ *obj);
+void adjust_xy_a5(MK3OBJ *obj);
+void i_am_a_sitting_duck(MK3OBJ *obj);
+long t_photon_proc(struct MK3THREAD *thread);
+MK3OBJ *create_proj_proc(MK3OBJ *obj);
+
+long tl_tusk_ground_zap(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0xbb9) {
+        MK3OBJ *slave;
+
+        obj->field38 = (uint32_t)(uintptr_t)t_photon_proc;
+        slave = create_proj_proc(obj);
+        if (slave != NULL) {
+            obj->field1c = 0x10;
+            obj->field30 = (uint32_t)(uintptr_t)slave->field08;
+            obj->field20 = 0x10 + 0x2f;
+            adjust_xy_a5(obj);
+        }
+
+        obj->field1c = 1;
+        ochar_sound(obj);
+
+        i_am_a_sitting_duck(obj);
+
+        obj->field1c = 4;
+
+        *mk3_frame(thread, frame + 1) = 0xbd7;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0xbd7) {
+        delete_slave(obj);
+        obj->field1c = 5;
+        return mk3_install(thread, (MK3THREADFUNC)t_mframew);
+    }
+
+    if (slot != 0)
+        return -3;
+
+    obj->field20 = 0xe;
+    obj->a10     = 0;
+    zap_init_special_act(obj);
+
+    obj->field40 = 0x00030024;
+
+    *mk3_frame(thread, frame + 1) = 0xbb9;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_animate_a9;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
 /* t_rocket_explode -- armv7 0x00077ccc, 176 bytes.  **Complete.**
  *
  *      if (frame[frame+1].w0 != 0) return -3
@@ -4870,6 +4972,78 @@ long tl_lk_zap_hi(MK3THREAD *thread)
         return -3;
 
     return mk3_install(thread, (MK3THREADFUNC)t_lk_zap_entry);
+}
+
+
+/* ----------------------------------------------------------------- t_spit_prezap
+ *
+ * armv7 0x00077210, 232 bytes.  **Complete.**
+ *
+ * A one-tick lookahead: the free saves `field20`/`field24` on the argument
+ * stack, steps one animation frame, and comes back two ticks later at
+ * `0x477` with a self-resume rather than a pushed level. `0x477` restores
+ * the pair, runs `local_strike_check_box` at action `0x12`, and forks on
+ * whether it connected: a hit tail-installs `spit_prezap_hit`; a miss backs
+ * up a level, or falls into `t_local_reaction_exit` at the bottom -- the
+ * same "pop or exit" idiom the whole file uses to close a check that found
+ * nothing.
+ *
+ *      slot = frame[frame+1].w0
+ *      if (slot != 0) {
+ *          if (slot != 0x477) return -3
+ *          fieldf8-- ; obj->field24 = args[fieldf8]
+ *          fieldf8-- ; obj->field20 = args[fieldf8]
+ *          obj->field1c = 0x12 ; local_strike_check_box(obj)
+ *          if (obj->field5c != 0)
+ *              install spit_prezap_hit ; return 0
+ *          pop a level, or t_local_reaction_exit at the bottom
+ *      }
+ *      args[fieldf8] = obj->field20 ; fieldf8++
+ *      args[fieldf8] = obj->field24 ; fieldf8++
+ *      do_next_a9_frame(obj)
+ *      token 0x477 ; fieldfc = 2 ; return 2
+ */
+void local_strike_check_box(MK3OBJ *obj);
+long spit_prezap_hit(struct MK3THREAD *thread);
+
+long t_spit_prezap(MK3THREAD *thread)
+{
+    MK3OBJ   *obj  = (MK3OBJ *)thread->proc;
+    uint32_t *args = (uint32_t *)(void *)thread->args;
+    uint32_t  slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot != 0) {
+        if (slot != 0x477)
+            return -3;
+
+        thread->fieldf8 = thread->fieldf8 - 1;
+        obj->field24 = args[thread->fieldf8];
+        thread->fieldf8 = thread->fieldf8 - 1;
+        obj->field20 = args[thread->fieldf8];
+
+        obj->field1c = 0x12;
+        local_strike_check_box(obj);
+
+        if (obj->field5c != 0)
+            return mk3_install(thread, (MK3THREADFUNC)spit_prezap_hit);
+
+        if ((long)thread->frame > 0) {
+            thread->frame = thread->frame - 1;
+            return 0;
+        }
+
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    args[thread->fieldf8] = obj->field20;
+    thread->fieldf8 = thread->fieldf8 + 1;
+    args[thread->fieldf8] = obj->field24;
+    thread->fieldf8 = thread->fieldf8 + 1;
+    do_next_a9_frame(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x477;
+    thread->fieldfc = 2;
+    return 2;
 }
 
 
