@@ -259,6 +259,140 @@ long t_robo_open_chest(MK3THREAD *thread)
     return mk3_push_handler(thread, (MK3THREADFUNC)t_roc3);
 }
 
+
+/* -------------------------------------------------------------- tl_do_robo_net
+ *
+ * armv7 0x00079c6c, 332 bytes.  **Complete.**
+ *
+ * The free runs `zap_init_special_act` and descends into
+ * `t_robo_open_chest` from `0xef9`. `0xef9` is the launch: `field1c = G +
+ * 0x408` into `update_tsl`, the sound, `field40` saved on the argument
+ * stack, `field38 = t_net_proc` into `create_proj_proc`, and then the new
+ * slave's OWN `field40` is set from what `get_char_ani2` resolves this
+ * object's `field40 = 1` into -- the same "propagate the pose onto the
+ * slave" shape `tl_do_motaro_zap` uses, just through `get_char_ani2`
+ * instead of a bare copy. `adjust_xy_a5` nudges by `0x30`
+ * (`field1c = -0x18`) before the saved `field40` is restored and an
+ * eleven-tick bare wait leads to `0xf24`. `0xf24` parks the thrower as a
+ * sitting duck and waits twenty-six more for `0xf26`, whose own re-entry
+ * installs `t_backwards_ani`.
+ *
+ *      slot = frame[frame+1].w0
+ *                                          ; 0:    free, then 0xef9
+ *                                          ; 0xef9: launch, then 0xf24 (wait)
+ *                                          ; 0xf24: wait, then 0xf26 (wait)
+ *                                          ; 0xf26: install t_backwards_ani
+ *      if (slot == 0xef9) {
+ *          obj->field1c = G + 0x408 ; update_tsl(obj)
+ *          obj->field1c = 5 ; ochar_sound(obj)
+ *          args[fieldf8] = obj->field40 ; fieldf8++
+ *          obj->field38 = t_net_proc ; slave = create_proj_proc(obj)
+ *          obj->field40 = 1 ; get_char_ani2(obj)
+ *          obj->field30 = slave->field08 ; slave->field40 = obj->field40
+ *          obj->field1c = -0x18 ; obj->field20 = 0x30 ; adjust_xy_a5(obj)
+ *          fieldf8-- ; obj->field40 = args[fieldf8]
+ *          token 0xf24 ; fieldfc = 0xb ; return 0xb
+ *      }
+ *      if (slot < 0xef9) {
+ *          if (slot != 0) return -3
+ *          obj->a10 = 0 ; obj->field20 = 0xa ; zap_init_special_act(obj)
+ *          token 0xef9 ; frame++ ; install t_robo_open_chest ; return 0
+ *      }
+ *      if (slot == 0xf24) {
+ *          i_am_a_sitting_duck(obj)
+ *          token 0xf26 ; fieldfc = 0x1a ; return 0x1a
+ *      }
+ *      if (slot != 0xf26) return -3
+ *      obj->field40 = 0 ; get_char_ani2(obj) ; obj->field1c = 4
+ *      install t_backwards_ani ; return 0
+ */
+extern GAMESTATE *G;                       /* pointer slot 0x000f357c */
+void ochar_sound(MK3OBJ *obj);
+void zap_init_special_act(MK3OBJ *obj);
+void update_tsl(MK3OBJ *obj);
+void get_char_ani2(MK3OBJ *obj);
+void adjust_xy_a5(MK3OBJ *obj);
+void i_am_a_sitting_duck(MK3OBJ *obj);
+MK3OBJ *create_proj_proc(MK3OBJ *obj);
+long t_net_proc(struct MK3THREAD *thread);              /* not yet decompiled */
+long t_backwards_ani(struct MK3THREAD *thread);         /* pointer slot 0x000f37c4 */
+long t_robo_open_chest(struct MK3THREAD *thread);
+
+long tl_do_robo_net(MK3THREAD *thread)
+{
+    MK3OBJ   *obj  = (MK3OBJ *)thread->proc;
+    uint32_t *args = (uint32_t *)(void *)thread->args;
+    uint32_t  frame = thread->frame;
+    uint32_t  slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0xef9) {
+        MK3OBJ *slave;
+
+        obj->field1c = (uint32_t)(uintptr_t)((char *)G + 0x408);
+        update_tsl(obj);
+
+        obj->field1c = 5;
+        ochar_sound(obj);
+
+        args[thread->fieldf8] = obj->field40;
+        thread->fieldf8 = thread->fieldf8 + 1;
+
+        obj->field38 = (uint32_t)(uintptr_t)t_net_proc;
+        slave = create_proj_proc(obj);
+
+        obj->field40 = 1;
+        get_char_ani2(obj);
+
+        obj->field30 = (uint32_t)(uintptr_t)slave->field08;
+        slave->field40 = obj->field40;
+
+        obj->field1c = (uint32_t)~0x17;          /* -0x18 */
+        obj->field20 = (uint32_t)(~0x17 + 0x48); /* 0x30 */
+        adjust_xy_a5(obj);
+
+        thread->fieldf8 = thread->fieldf8 - 1;
+        obj->field40 = args[thread->fieldf8];
+
+        *mk3_frame(thread, frame + 1) = 0xf24;
+        thread->fieldfc = 0xb;
+        return 0xb;
+    }
+
+    if (slot < 0xef9) {
+        if (slot != 0)
+            return -3;
+
+        obj->a10    = 0;
+        obj->field20 = 0xa;
+        zap_init_special_act(obj);
+
+        *mk3_frame(thread, frame + 1) = 0xef9;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_robo_open_chest;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0xf24) {
+        i_am_a_sitting_duck(obj);
+
+        *mk3_frame(thread, frame + 1) = 0xf26;
+        thread->fieldfc = 0x1a;
+        return 0x1a;
+    }
+
+    if (slot != 0xf26)
+        return -3;
+
+    obj->field40 = 0;
+    get_char_ani2(obj);
+    obj->field1c = 4;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_backwards_ani);
+}
+
+
 /* tl_do_bomb_mid -- armv7 0x000752cc, 64 bytes.  **Complete.**
  *
  *      if (frame[frame+1].w0 != 0) return -3
