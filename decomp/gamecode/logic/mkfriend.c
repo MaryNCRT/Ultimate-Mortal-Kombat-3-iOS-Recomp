@@ -820,3 +820,52 @@ long t_f_sektor(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_friendship_complete);
 }
+
+
+/* --------------------------------------------------------------------- t_lao_dog_sounds
+ *
+ * armv7 0x000a65b0, 124 bytes.  **Complete.**
+ *
+ * The free just arms `0x446` and sleeps 8 ticks. `0x446` seeds `a10 = 5`
+ * and falls into the SAME "play, re-arm" body `0x44b`'s own "still
+ * counting" path reaches -- one physical block taken two ways: play
+ * sound `0x8a` (`tsound_func`) and wait 16 ticks under `0x44b` again.
+ * `0x44b` counts `a10` down each visit; once it hits zero it stops
+ * making noise and parks `0x44f` under the `0x16462` termination
+ * sentinel instead.
+ */
+void tsound_func(MK3OBJ *obj, uint32_t arg);
+
+long t_lao_dog_sounds(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0x446) {
+        obj->a10 = 5;
+        goto bark;
+    }
+
+    if (slot == 0x44b) {
+        obj->a10 = obj->a10 - 1;
+        if (obj->a10 == 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0x44f;
+            thread->fieldfc = 0x16462;
+            return 0x16462;
+        }
+
+    bark:
+        tsound_func(obj, 0x8a);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x44b;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (slot != 0)
+        return -3;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x446;
+    thread->fieldfc = 8;
+    return 8;
+}
