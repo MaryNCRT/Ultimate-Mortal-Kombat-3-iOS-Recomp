@@ -5452,6 +5452,131 @@ long tl_jax_zap_jsrp(MK3THREAD *thread)
 }
 
 
+/* --------------------------------------------------------------------- t_jax_zap_proc
+ *
+ * armv7 0x0007753c, 372 bytes.  **Complete.**
+ *
+ * `tl_do_jax_zap2`'s own `field38` callback. The free poses animation
+ * `0x3f`, steps a frame, tags `field1c=0x13`, `tell_world_stk`s, and tries
+ * `strike_check_a0`; a hit falls straight into `0x1233`'s own impact code,
+ * a miss re-arms itself (token `0x1229`, self) and waits three ticks for
+ * another attempt.
+ *
+ * `0x1229` is the launch: `field00->field38 = 3` (the same "counting 3,
+ * 2, 1 between effects" slot `t_jax_proj_calla` reads, per the header's
+ * own note on it), throws (`0x80000`/`4`, `set_proj_vel`), tags
+ * `field48=0x12` and `field34 = t_jax_proj_calla` (the per-frame
+ * callback `t_jax_proj_calla` itself is installed under), plants token
+ * `0x1233` for after it pops, and pushes `tl_projectile_flight_call`.
+ *
+ * `0x1233` is a fork on the GrObj's own `field18`: still zero shakes
+ * (`field48 = 0x50005`, `shake_a11`) and jumps back into the "already
+ * turned" branch below; already turned plays `hob_ochar_sound`,
+ * `stop_a8`s the part, lines it up on the opponent (`match_me_with_him`,
+ * `multi_adjust_xy` at `field1c=-0xb3`), and checks `field00->field34` --
+ * zero (`t_jax_proj_calla` never ran, or cleared it) falls straight into
+ * the finish; nonzero repositions once more (`multi_adjust_xy` at
+ * `field1c=-0x25`) and falls into the SAME finish, one physical block
+ * taken two ways.
+ *
+ * The finish poses animation `0x3f` again, `field54=2`, and pushes
+ * `t_mframew` under `0x1253`, which just installs `tl_delete_proj_and_die`.
+ */
+void hob_ochar_sound(MK3OBJ *obj);
+void match_me_with_him(MK3OBJ *obj);
+void shake_a11(MK3OBJ *obj);
+long t_jax_proj_calla(MK3THREAD *thread);
+long tl_projectile_flight_call(struct MK3THREAD *thread);
+
+long t_jax_zap_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0x1229) {
+        obj->field00->field38 = 3;
+
+        obj->field1c = 0x80000;
+        obj->field20 = 4;
+        set_proj_vel(obj);
+
+        obj->field48 = 0x12;
+        obj->field34 = (uint32_t)(uintptr_t)t_jax_proj_calla;
+
+        *mk3_frame(thread, frame + 1) = 0x1233;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)tl_projectile_flight_call;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0x1253)
+        return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+
+    if (slot == 0x1233) {
+    impact:
+        if (obj->field18 == 0) {
+            obj->field48 = 0x50005;
+            shake_a11(obj);
+            goto turned;
+        }
+
+    turned:
+        obj->field1c = 0x10002;
+        hob_ochar_sound(obj);
+
+        stop_a8(obj->field08);
+
+        match_me_with_him(obj);
+
+        obj->field20 = 0;
+        obj->field1c = (uint32_t)~0xb2;
+        multi_adjust_xy(obj);
+
+        obj->field1c = obj->field00->field34;
+        if (obj->field1c != 0) {
+            obj->field1c = (uint32_t)~0x19;
+            obj->field20 = (uint32_t)~0x19 - 0xb;
+            multi_adjust_xy(obj);
+        }
+
+        obj->field40 = 0x3f;
+        obj->field54 = 0x3f - 0x3d;
+        find_ani_part_a14(obj);
+
+        obj->field1c = 4;
+
+        *mk3_frame(thread, frame + 1) = 0x1253;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0)
+        return -3;
+
+    obj->field40 = 0x3f;
+    get_char_ani(obj);
+
+    do_next_a9_frame(obj);
+
+    obj->field1c = 0x13;
+    tell_world_stk(obj);
+
+    strike_check_a0(obj);
+    if (obj->field5c != 0)
+        goto impact;
+
+    *mk3_frame(thread, frame + 1) = 0x1229;
+    thread->fieldfc = 3;
+    return 3;
+}
+
+
 /* t_boomerang_call -- armv7 0x00074fa8, 136 bytes.  **Complete.**
  *
  *      if (frame[frame+1].w0 != 0) return -3
@@ -10756,6 +10881,153 @@ long tl_do_floor_ice(MK3THREAD *thread)
     obj->field20 = 0x20;                         /* the sitting-duck duration */
 
     return mk3_install(thread, (MK3THREADFUNC)tl_do_proj_sitting_duck);
+}
+
+
+/* -------------------------------------------------------------------- t_floor_ice_proc
+ *
+ * armv7 0x0007bcfc, 428 bytes.  **Complete.**
+ *
+ * `tl_do_floor_ice`'s own `field38` callback: a puddle of ice that skates
+ * along the floor. The free zeroes `field1c`/`field00->field18`, poses
+ * animation `0x10`, and pushes `t_mframew` under `0x120`, whose own
+ * re-entry just sets `field48 = 0x50` (a countdown) and re-arms itself
+ * (token `0x124`, self) for one tick.
+ *
+ * `0x124` checks `q_is_he_a_boss` first; a boss skips straight to the
+ * countdown check below. Otherwise it reads a signed halfword,
+ * `G+0x45c`, into `field1c` -- a stage-specific slide speed, since
+ * nothing here that is fixed to this move reads a variable G slot
+ * otherwise -- and if it is zero, falls into the strike attempt; if it is
+ * not, poses animation `0x10` again and pushes `t_mframew` under `0x161`.
+ *
+ * `0x161` is the exit watch: `get_his_action`, and while the opponent's
+ * action stays `0x628` it just waits three ticks under itself; anything
+ * else re-poses and re-arms `0x161` again -- the SAME physical block
+ * `0x124`'s own "slide speed nonzero" branch reaches, one push site taken
+ * two ways.
+ *
+ * The strike attempt (`field1c=0x18`, `proj_strike_check`) either counts
+ * `field48` down and re-arms `0x124` while it is still positive (falling
+ * to the pose-and-wait block once it isn't, same as a boss), or on a hit
+ * reads a bounds object -- `GrObj` itself when `thread->pid == 0x707`,
+ * `GrObj + GROBJ_STRIDE` (the SECOND fighter's GrObj) otherwise, the same
+ * `pid == strength + 0x700 + 7` identity `tl_do_floor_ice` stamped on the
+ * slave -- through `leftmost_mpart_ob`/`rightmost_mpart_ob`, and writes
+ * the pair straight into the opponent's own `a10`/`field48`: a floor
+ * effect that clamps where the OTHER fighter can stand, not itself.
+ */
+extern char *GrObj;                       /* slot 0x000f320c -> 0x0038c698 */
+void q_is_he_a_boss(MK3OBJ *obj);
+void get_his_action(MK3OBJ *obj);
+void leftmost_mpart_ob(MK3OBJ *out, MK3OBJ *src);
+void rightmost_mpart_ob(MK3OBJ *out, MK3OBJ *src);
+
+long t_floor_ice_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0x120) {
+        obj->field48 = 0x50;
+
+d_tail:
+        *mk3_frame(thread, frame + 1) = 0x124;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (slot == 0x124) {
+        q_is_he_a_boss(obj);
+        if (obj->field5c != 0)
+            goto countdown;
+
+        {
+            int16_t speed = *(int16_t *)(G_BYTES + 0x45c);
+            obj->field1c = (uint32_t)(int32_t)speed;
+            if (speed == 0)
+                goto strike_attempt;
+        }
+
+ab_shared:
+        obj->field40 = 0x10;
+        obj->field54 = 4;
+        find_ani2_part_a14(obj);
+
+        obj->field1c = 4;
+
+        *mk3_frame(thread, frame + 1) = 0x161;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0x156) {
+        get_his_action(obj);
+        if (obj->field20 != 0x628)
+            goto ab_shared;
+
+b_tail:
+        *mk3_frame(thread, frame + 1) = 0x156;
+        thread->fieldfc = 3;
+        return 3;
+    }
+
+    if (slot == 0x161)
+        return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+
+    if (slot != 0)
+        return -3;
+
+    obj->field1c          = 0;
+    obj->field00->field18 = 0;
+    obj->field54           = 3;
+    obj->field40            = 0x10;
+    find_ani2_part_a14(obj);
+
+    obj->field1c = 3;
+
+    *mk3_frame(thread, frame + 1) = 0x120;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
+strike_attempt:
+    obj->field1c = 0x18;
+    proj_strike_check(obj);
+
+    if (obj->field5c == 0)
+        goto countdown;
+
+    {
+        MK3OBJ *src;
+        MK3OBJ *him;
+
+        if (thread->pid == 0x707)
+            src = (MK3OBJ *)(void *)GrObj;
+        else
+            src = (MK3OBJ *)(void *)(GrObj + GROBJ_STRIDE);
+
+        leftmost_mpart_ob(obj, src);
+        rightmost_mpart_ob(obj, src);
+
+        him = (MK3OBJ *)(void *)(uintptr_t)obj->field00->field00;
+        him->a10     = obj->field24;
+        him->field48 = obj->field28;
+    }
+    goto b_tail;
+
+countdown:
+    obj->field48 = obj->field48 - 1;
+    if (obj->field48 != 0)
+        goto d_tail;
+
+    goto ab_shared;
 }
 
 
