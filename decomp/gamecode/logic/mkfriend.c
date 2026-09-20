@@ -970,3 +970,44 @@ long t_f_sonya(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_popup
+ *
+ * armv7 0x000a5900, 144 bytes.  **Complete.**
+ *
+ * `t_pop_up_my_toy`'s own `NewThreadProc` target -- the popup object's
+ * own thread, separate from the fighter's. The free poses `field1c=4`
+ * and pushes `t_mframew` under `0xbe`; `0xbe` waits 48 ticks under
+ * `0xbf`; `0xbf` calls `death_blow_complete` and installs
+ * `t_wait_forever`.
+ */
+long t_popup(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0xbe) {
+        *mk3_frame(thread, thread->frame + 1) = 0xbf;
+        thread->fieldfc = 0x30;
+        return 0x30;
+    }
+
+    if (slot == 0xbf) {
+        death_blow_complete(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+    }
+
+    if (slot != 0)
+        return -3;
+
+    obj->field1c = 4;
+
+    *mk3_frame(thread, thread->frame + 1) = 0xbe;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
