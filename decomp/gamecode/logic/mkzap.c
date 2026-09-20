@@ -5501,6 +5501,123 @@ watch_back:
 }
 
 
+/* -------------------------------------------------------------------------- tl_jzap3
+ *
+ * armv7 0x0007aafc, 348 bytes.  **Complete.**
+ *
+ * The free reads the GrObj's own `field28` bit `0x10` (the flip flag
+ * `flip_multi`'s trio toggles) and nudges the GrObj's `field0e` by `0xa`
+ * either way -- `+0xa` when the bit is set, `-0xa` when it isn't, a
+ * facing-relative offset applied before either branch's own setup runs.
+ * When the bit was set it also parks `field1c` into `field00->field3c`
+ * (the mode `t_boomerang_call` reads), zeroes `a10`, sets `field20=0x20`
+ * and runs `zap_init_special_act`; either way it then plays three sounds
+ * (`0`, `3`, `4`), poses animation `2`, steps a frame, and waits six
+ * ticks under `0x5ad`.
+ *
+ * `0x5ad` just poses `field1c=4` and pushes `t_mframew` under `0x5af`,
+ * whose own re-entry is the launch: `field38 = t_boomerang_proc` (the
+ * usual hit callback), `create_proj_proc` spawns it, and when a slave
+ * comes back its `field00->field3c` is copied straight from this
+ * object's own -- the mode set above survives into the boomerang's own
+ * proc. `field1c` and `field00->field18` both get tagged `0x604` (the
+ * announce-and-keep-a-copy convention this file uses everywhere), and it
+ * waits 32 ticks under `0x5ca`.
+ *
+ * `0x5ca` poses nothing new and pushes `t_mframew` under `0x5cc`, which
+ * is the ordinary tail every multi-level descent in this file ends on:
+ * pop a level, or install `t_local_reaction_exit` at the bottom.
+ */
+long t_boomerang_proc(struct MK3THREAD *thread);
+
+long tl_jzap3(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0x5af) {
+        MK3OBJ *slave;
+
+        obj->field38 = (uint32_t)(uintptr_t)t_boomerang_proc;
+        slave = create_proj_proc(obj);
+
+        if (slave != NULL)
+            slave->field00->field3c = obj->field00->field3c;
+
+        obj->field1c          = 0x604;
+        obj->field00->field18 = 0x604;
+
+        *mk3_frame(thread, frame + 1) = 0x5ca;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (slot == 0x5ca) {
+        obj->field1c = 3;
+
+        *mk3_frame(thread, frame + 1) = 0x5cc;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0x5cc) {
+        if ((long)thread->frame > 0) {
+            thread->frame = thread->frame - 1;   /* back up a level */
+            return 0;
+        }
+
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (slot == 0x5ad) {
+        obj->field1c = 4;
+
+        *mk3_frame(thread, frame + 1) = 0x5af;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0)
+        return -3;
+
+    if (obj->field08->field28 & 0x10) {
+        MK3_SET_FIELD0E(obj->field08, MK3_FIELD0E(obj->field08) + 0xa);
+
+        obj->field00->field3c = obj->field1c;
+        obj->a10               = 0;
+        obj->field20            = 0x20;
+        zap_init_special_act(obj);
+    } else {
+        MK3_SET_FIELD0E(obj->field08, MK3_FIELD0E(obj->field08) - 0xa);
+    }
+
+    obj->field1c = 0;
+    ochar_sound(obj);
+
+    obj->field1c = 3;
+    ochar_sound(obj);
+
+    obj->field1c = 4;
+    ochar_sound(obj);
+
+    obj->field40 = 2;
+    get_char_ani2(obj);
+
+    do_next_a9_frame(obj);
+
+    *mk3_frame(thread, frame + 1) = 0x5ad;
+    thread->fieldfc = 6;
+    return 6;
+}
+
+
 /* ------------------------------------------------------------------------ t_bgrav9
  *
  * armv7 0x0007905c, 320 bytes.  **Complete.**
