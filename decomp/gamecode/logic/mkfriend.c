@@ -75,3 +75,38 @@ long t_friendship_complete(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
 }
+
+
+/* --------------------------------------------------------------------- t_hat_proc
+ *
+ * armv7 0x000a662c, 108 bytes.  **Complete.**
+ *
+ * State 0 only. Tags the GrObj's own `field2c` (`0x1b39`), repositions
+ * (`multi_adjust_xy` at `field1c=0x60`/`field20=0x10`), throws
+ * (`field08->field1c = field1c = 0xfffc0000 + 0xe0000 = 0xa0000`,
+ * `set_proj_vel`), and installs `t_wait_forever` -- a thrown hat left to
+ * fly off and never come back, the same parking convention
+ * `t_friendship_complete` uses to end the whole move.
+ */
+void multi_adjust_xy(MK3OBJ *obj);
+void set_proj_vel(MK3OBJ *obj);
+
+long t_hat_proc(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field08->field2c = 0x1b39;
+
+    obj->field1c = 0x60;
+    obj->field20 = 0x60 - 0x50;
+    multi_adjust_xy(obj);
+
+    obj->field08->field1c = 0xfffc0000;
+    obj->field1c           = 0xfffc0000 + 0xe0000;
+    set_proj_vel(obj);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+}
