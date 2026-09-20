@@ -176,6 +176,82 @@ long t_friend_ender(MK3THREAD *thread)
 }
 
 
+/* --------------------------------------------------------------------- t_f_kano
+ *
+ * armv7 0x000a5418, 124 bytes.  **Complete.**
+ *
+ * Kano's own friendship: no stack frame at all (leaf-shaped, like every
+ * other `t_f_*` character entry in this file), so `thread` stays in `r0`
+ * throughout rather than being saved. The free points `field40` at the
+ * animation stream `a_kano_friend` and pushes `t_mframew_5` under `0x1e0`;
+ * `0x1e0` installs `t_friendship_complete` directly.
+ */
+extern uint8_t a_kano_friend[];             /* 0x001778e8 */
+long t_mframew_5(struct MK3THREAD *thread);
+
+long t_f_kano(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0) {
+        obj->field40 = (uint32_t)(uintptr_t)a_kano_friend;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1e0;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew_5;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0x1e0)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_friendship_complete);
+}
+
+
+/* --------------------------------------------------------------------- t_f_scorpion
+ *
+ * armv7 0x000a539c, 124 bytes.  **Complete.**
+ *
+ * Scorpion's own friendship. The free just pushes `t_jax_n_box_start`
+ * under token `0xf1` -- no `field40` setup here, unlike Kano; whatever
+ * animation stream this move plays is `t_jax_n_box_start`'s own job to
+ * set. `0xf1` tags `field30 = 0x9a0`, points `field40` at
+ * `a_skull_in_da_box`, and installs `t_pop_up_my_toy` -- the shared
+ * "spawn a toy and hijack the opponent's reaction" routine this
+ * friendship reuses rather than duplicates.
+ */
+extern uint8_t a_skull_in_da_box[];         /* 0x00177834 */
+long t_jax_n_box_start(struct MK3THREAD *thread);   /* not yet decompiled */
+long t_pop_up_my_toy(MK3THREAD *thread);
+
+long t_f_scorpion(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0xf1;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_jax_n_box_start;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0xf1)
+        return -3;
+
+    obj->field30 = 0x9a0;
+    obj->field40 = (uint32_t)(uintptr_t)a_skull_in_da_box;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_pop_up_my_toy);
+}
+
+
 /* --------------------------------------------------------------------- t_swat_friend_proc
  *
  * armv7 0x000a57b4, 84 bytes.  **Complete.**
