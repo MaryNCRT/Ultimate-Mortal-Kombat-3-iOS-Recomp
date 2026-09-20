@@ -920,3 +920,53 @@ long t_f_indian(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_f_sonya
+ *
+ * armv7 0x000a5c1c, 152 bytes.  **Complete.**
+ *
+ * The free seeds `a10 = 1` and spawns `t_sonya_flower_proc` in a genuine
+ * loop counting `a10` down -- one iteration as written, since it starts
+ * at 1, but a real loop and not an unrolled call -- then waits 48 ticks
+ * under `0x21c`. `0x21c` finishes the same way `t_friendship_complete`
+ * does (`death_blow_complete`, `player_normpal`) but pushes
+ * `t_victory_animation` instead of installing `t_wait_forever` directly;
+ * nothing here handles a resume under the token that push plants
+ * (`0x220`), so `t_victory_animation` is expected to end the thread on
+ * its own rather than ever pop back.
+ */
+long t_victory_animation(struct MK3THREAD *thread);
+long t_sonya_flower_proc(struct MK3THREAD *thread);   /* not yet decompiled */
+
+long t_f_sonya(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0) {
+        obj->a10 = 1;
+
+        do {
+            NewThread(obj, (MK3THREADFUNC)t_sonya_flower_proc);
+            obj->a10 = obj->a10 - 1;
+        } while ((int32_t)obj->a10 > 0);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x21c;
+        thread->fieldfc = 0x30;
+        return 0x30;
+    }
+
+    if (slot != 0x21c)
+        return -3;
+
+    death_blow_complete(obj);
+    player_normpal(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x220;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_victory_animation;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
