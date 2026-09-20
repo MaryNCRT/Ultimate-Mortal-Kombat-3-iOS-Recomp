@@ -2702,6 +2702,137 @@ long tl_projectile_flight_call(MK3THREAD *thread)
 }
 
 
+/* --------------------------------------------------------------------------- tl_pflt3
+ *
+ * armv7 0x00076010, 328 bytes.  **Complete.**
+ *
+ * `tl_projectile_flight_call`'s own install target -- a self-looping strike
+ * watch that reinstalls itself (its own address, taken by name) on a miss
+ * rather than re-arming a token, the same shape `t_rocket_explode` uses for
+ * `field78` but here turned into the routine's own resting state.
+ *
+ * The free just arms token `0x1368` and sleeps one tick. `0x1368` steps a
+ * frame and checks `field00->field28` -- the function pointer
+ * `tl_projectile_flight_call` parked there from its own `field34` -- and if
+ * it is set, plants token `0x136e` (this routine's own strike-check state)
+ * for when the pushed level pops, and PUSHES that pointer directly as the
+ * next level's handler. A second reading of `field28`, which the header
+ * already flags as a spill slot shared with the shake-target reading.
+ *
+ * `0x136e` (direct, or `field00->field28 == 0`'s fallthrough) is the actual
+ * watch: `proj_onscreen_test` first -- offscreen installs
+ * `tl_delete_proj_and_die` outright -- then a Motaro/action-0x402 check
+ * (`him->field24`, then `get_his_action`) that runs `strike_check_a0_test`
+ * instead of the ordinary path when either is true; a hit there launches
+ * (`benedict_arnold_projectile`, `field20 = field00->field1c`, `field1c =
+ * |field08->field18|`, `set_proj_vel`) and reinstalls itself, and a miss
+ * there falls into the SAME ordinary strike attempt (`tell_world_stk`,
+ * `proj_strike_check`) neither-special-case reaches directly -- one
+ * physical block taken two ways. A hit there pops a level, or installs
+ * `t_local_reaction_exit` at the bottom; a miss reinstalls `tl_pflt3`
+ * itself, same as the launch path, so the watch simply runs again next
+ * tick either way.
+ */
+void proj_strike_check(MK3OBJ *obj);
+void benedict_arnold_projectile(MK3OBJ *obj);
+long strike_check_a0_test(MK3OBJ *obj);
+void get_his_action(MK3OBJ *obj);
+long proj_onscreen_test(MK3OBJ *obj);
+long tl_delete_proj_and_die(struct MK3THREAD *thread);
+
+long tl_pflt3(MK3THREAD *thread)
+{
+    MK3OBJ   *obj            = (MK3OBJ *)thread->proc;
+    uint32_t  frame          = thread->frame;
+    uint32_t  slot           = *mk3_frame(thread, frame + 1);
+    uint32_t  install_target;
+
+    if (slot == 0x1368) {
+        next_anirate(obj);
+
+        obj->field34 = obj->field00->field28;
+        if (obj->field34 != 0) {
+            *mk3_frame(thread, frame + 1) = 0x136e;
+            thread->frame = thread->frame + 1;   /* push a level */
+            mk3_frame(thread, thread->frame)[1] = obj->field34;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+        goto check_target;
+    }
+
+    if (slot == 0x136e) {
+check_target:
+        if (proj_onscreen_test(obj) == 0) {
+            install_target = (uint32_t)(uintptr_t)tl_delete_proj_and_die;
+            goto install_p1;
+        }
+
+        obj->field20 =
+            ((MK3OBJ *)(void *)(uintptr_t)obj->field00->him)->field24;
+        if (obj->field20 == 0x18)
+            goto motaro_or_402;
+
+        get_his_action(obj);
+        if (obj->field20 == 0x402)
+            goto motaro_or_402;
+
+        goto strike_attempt;
+    }
+
+    if (slot != 0)
+        return -3;
+
+    *mk3_frame(thread, frame + 1) = 0x1368;
+    thread->fieldfc = 1;
+    return 1;
+
+strike_attempt:
+    obj->field1c = obj->field48;
+    tell_world_stk(obj);
+
+    proj_strike_check(obj);
+    if (obj->field5c != 0) {
+        if ((long)thread->frame > 0) {
+            thread->frame = thread->frame - 1;   /* back up a level */
+            return 0;
+        }
+
+        install_target = (uint32_t)(uintptr_t)t_local_reaction_exit;
+        goto install_p2;
+    }
+
+    install_target = (uint32_t)(uintptr_t)tl_pflt3;
+
+install_p1:
+    mk3_frame(thread, thread->frame)[1] = install_target;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
+motaro_or_402:
+    obj->field1c = obj->field48;
+    strike_check_a0_test(obj);
+
+    if (obj->field5c == 0)
+        goto strike_attempt;
+
+    benedict_arnold_projectile(obj);
+
+    obj->field20 = obj->field00->field1c;
+    obj->field1c = obj->field08->field18;
+    if ((int32_t)obj->field1c < 0)
+        obj->field1c = (uint32_t)(-(int32_t)obj->field1c);
+    set_proj_vel(obj);
+
+    install_target = (uint32_t)(uintptr_t)tl_pflt3;
+
+install_p2:
+    mk3_frame(thread, thread->frame)[1] = install_target;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
 /* ======================================== t_bomb_call and t_mot_zap_call
  *
  * armv7 0x00075178 and 0x00075120, 88 bytes each.  **Complete.**
