@@ -112,6 +112,70 @@ long t_hat_proc(MK3THREAD *thread)
 }
 
 
+/* --------------------------------------------------------------------- t_end_friend_proc
+ *
+ * armv7 0x000a5808, 80 bytes.  **Complete.**
+ *
+ * The free arms token `0x240` and sleeps `0x80` (128) ticks. `0x240` calls
+ * `death_blow_complete` and parks token `0x242` under `0x16462` -- the
+ * "park and never wake again" sentinel `mk3.c` documents at length: it is
+ * checked against the RETURN VALUE, not read as a duration, so a handler
+ * that returns it is finished for good regardless of what it wrote to
+ * `fieldfc`.
+ */
+long t_end_friend_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x240;
+        thread->fieldfc = 0x80;
+        return 0x80;
+    }
+
+    if (slot != 0x240)
+        return -3;
+
+    death_blow_complete(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x242;
+    thread->fieldfc = 0x16462;
+    return 0x16462;
+}
+
+
+/* --------------------------------------------------------------------- t_friend_ender
+ *
+ * armv7 0x000a58b0, 80 bytes.  **Complete.**
+ *
+ * `t_end_friend_proc`'s own twin, byte for byte the same shape with
+ * different tokens: arms `0x130` and sleeps 128 ticks, then
+ * `death_blow_complete` and parks `0x132` under the same `0x16462`
+ * termination sentinel.
+ */
+long t_friend_ender(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x130;
+        thread->fieldfc = 0x80;
+        return 0x80;
+    }
+
+    if (slot != 0x130)
+        return -3;
+
+    death_blow_complete(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x132;
+    thread->fieldfc = 0x16462;
+    return 0x16462;
+}
+
+
 /* --------------------------------------------------------------------- t_pop_up_my_toy
  *
  * armv7 0x000a7174, 124 bytes.  **Complete.**
