@@ -110,3 +110,45 @@ long t_hat_proc(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
 }
+
+
+/* --------------------------------------------------------------------- t_pop_up_my_toy
+ *
+ * armv7 0x000a7174, 124 bytes.  **Complete.**
+ *
+ * State 0 only. Spawns a `t_popup` thread (`NewThreadProc`, return value
+ * used), hands the new object's part `field2c` this object's own
+ * `field30`, plays sound `0x92` through `tsound_func`, shakes
+ * (`field48=0x60006`), sets `field38 = t_r_scared_of_monkey` -- a
+ * reaction handler, not a hit callback -- and `takeover_him`s the
+ * opponent with it before installing `t_wait_forever`. The toy pops up
+ * and the opponent's own reaction gets hijacked to react to it.
+ */
+long t_popup(struct MK3THREAD *thread);
+void *NewThreadProc(void *owner, MK3THREADFUNC func);
+void tsound_func(MK3OBJ *obj, uint32_t arg);
+void shake_a11(MK3OBJ *obj);
+void takeover_him(MK3OBJ *obj);
+long t_r_scared_of_monkey(struct MK3THREAD *thread);
+
+long t_pop_up_my_toy(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    MK3OBJ *toy;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    toy = (MK3OBJ *)NewThreadProc(obj, (MK3THREADFUNC)t_popup);
+    toy->field08->field2c = obj->field30;
+
+    tsound_func(obj, 0x92);
+
+    obj->field48 = 0x60006;
+    shake_a11(obj);
+
+    obj->field38 = (uint32_t)(uintptr_t)t_r_scared_of_monkey;
+    takeover_him(obj);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+}
