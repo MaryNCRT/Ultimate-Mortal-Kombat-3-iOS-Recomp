@@ -176,6 +176,65 @@ long t_friend_ender(MK3THREAD *thread)
 }
 
 
+/* --------------------------------------------------------------------- t_swat_friend_proc
+ *
+ * armv7 0x000a57b4, 84 bytes.  **Complete.**
+ *
+ * The same `t_end_friend_proc` shape: arms `0x34f` and sleeps `0xa0`
+ * (160) ticks, then `death_blow_complete` and parks `0x351` under the
+ * `0x16462` termination sentinel.
+ */
+long t_swat_friend_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x34f;
+        thread->fieldfc = 0xa0;
+        return 0xa0;
+    }
+
+    if (slot != 0x34f)
+        return -3;
+
+    death_blow_complete(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x351;
+    thread->fieldfc = 0x16462;
+    return 0x16462;
+}
+
+
+/* --------------------------------------------------------------------- t_f_null_friendship
+ *
+ * armv7 0x000a5858, 88 bytes.  **Complete.**
+ *
+ * The character with no real friendship animation: arms `0x155` and
+ * sleeps `0x80` (128) ticks, then `death_blow_complete` and installs
+ * `t_friendship_complete` directly -- no wait state of its own, since
+ * there was never anything to animate.
+ */
+long t_f_null_friendship(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x155;
+        thread->fieldfc = 0x80;
+        return 0x80;
+    }
+
+    if (slot != 0x155)
+        return -3;
+
+    death_blow_complete(obj);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_friendship_complete);
+}
+
+
 /* --------------------------------------------------------------------- t_pop_up_my_toy
  *
  * armv7 0x000a7174, 124 bytes.  **Complete.**
