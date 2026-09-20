@@ -869,3 +869,54 @@ long t_lao_dog_sounds(MK3THREAD *thread)
     thread->fieldfc = 8;
     return 8;
 }
+
+
+/* --------------------------------------------------------------------- t_f_indian
+ *
+ * armv7 0x000a5f14, 180 bytes.  **Complete.**
+ *
+ * The free points `field40` at `a_ind_friend`, poses (`field20=0xc`,
+ * `field1c=4`), plays `other_ochar_sound` (the part-voiced sound this
+ * file's own helper wraps), and pushes `t_mframew_5` under `0x280`.
+ * `0x280` just re-arms `0x281` and sleeps 32 ticks -- no field setup of
+ * its own. `0x281` spawns a SEPARATE `t_arcade` thread (`NewThread`,
+ * return value discarded) and installs `t_wait_forever`: the friendship
+ * hands off to `t_arcade` entirely and parks.
+ */
+void other_ochar_sound(MK3OBJ *obj);
+long t_arcade(struct MK3THREAD *thread);   /* not yet decompiled */
+extern uint8_t a_ind_friend[];              /* 0x00177a44 */
+
+long t_f_indian(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0x280) {
+        *mk3_frame(thread, thread->frame + 1) = 0x281;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (slot == 0x281) {
+        NewThread(obj, (MK3THREADFUNC)t_arcade);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+    }
+
+    if (slot != 0)
+        return -3;
+
+    obj->field40 = (uint32_t)(uintptr_t)a_ind_friend;
+
+    obj->field20 = 0xc;
+    obj->field1c = 0xc - 8;
+    other_ochar_sound(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x280;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_mframew_5;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
