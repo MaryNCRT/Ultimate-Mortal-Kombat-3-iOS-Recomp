@@ -7097,6 +7097,130 @@ long tl_do_sw_zap(MK3THREAD *thread)
 }
 
 
+/* ---------------------------------------------------------------- t_swat_proj_proc
+ *
+ * armv7 0x00076e78, 408 bytes.  **Complete.**
+ *
+ * `tl_do_sw_zap`'s own `field38` callback. The free poses animation
+ * `0x24` (`find_ani_part2`), steps a frame, tags `field1c=0x13`, and
+ * tries `proj_strike_check`; a hit goes straight to the impact
+ * (`0xe8a`), a miss waits three ticks under `0xe76`, which is the same
+ * strike attempt with `field1c=0x14` instead of `0x13` and no re-pose --
+ * a second try at the same box.
+ *
+ * `0xe8a` is the impact: `stop_a8`, `field20=0`, `field1c=-0xfa`,
+ * `field54=3`, `field40 = -0xfa + 0x11e = 0x24` (the same animation,
+ * reached by arithmetic rather than the literal), `find_ani_part_a14`,
+ * `field1c=3`, and a push of `t_mframew` under `0xe97`, which just
+ * installs `tl_delete_proj_and_die`.
+ *
+ * `0xe7d` is a second launch this routine can also reach directly (from
+ * outside, since nothing here plants it): the same `field1c=0x14` strike
+ * attempt, a hit falling into the SAME `0xe8a` impact every other hit in
+ * this routine reaches, and a miss instead pushing `tl_projectile_flight`
+ * under `0xe84` -- a genuine flight phase, not just another strike retry.
+ * `0xe84` throws (`0xa0000`/`4`, `set_proj_vel`) and re-arms `0xe7d`
+ * itself under a fresh push of `tl_projectile_flight`, so the miss path
+ * keeps flying and re-trying the strike box each time it comes back.
+ */
+long tl_projectile_flight(MK3THREAD *thread);
+
+long t_swat_proj_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0xe7d) {
+        do_next_a9_frame(obj);
+
+        obj->field1c = 0x14;
+        proj_strike_check(obj);
+
+        if (obj->field5c != 0)
+            goto impact;
+
+        *mk3_frame(thread, frame + 1) = 0xe84;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)tl_projectile_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0xe8a)
+        goto impact;
+
+    if (slot == 0xe97)
+        return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+
+    if (slot == 0xe84) {
+        obj->field1c = 0xa0000;
+        obj->field20 = 4;
+        set_proj_vel(obj);
+
+        obj->field48 = 0x12;
+
+        *mk3_frame(thread, frame + 1) = 0xe7d;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)tl_projectile_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0xe76) {
+        do_next_a9_frame(obj);
+
+        obj->field1c = 0x14;
+        proj_strike_check(obj);
+
+        if (obj->field5c != 0)
+            goto impact;
+
+        *mk3_frame(thread, frame + 1) = 0xe76;
+        thread->fieldfc = 3;
+        return 3;
+    }
+
+    if (slot != 0)
+        return -3;
+
+    obj->field40 = 0x24;
+    find_ani_part2(obj);
+
+    do_next_a9_frame(obj);
+
+    obj->field1c = 0x13;
+    proj_strike_check(obj);
+
+    if (obj->field5c != 0)
+        goto impact;
+
+    *mk3_frame(thread, frame + 1) = 0xe76;
+    thread->fieldfc = 3;
+    return 3;
+
+impact:
+    stop_a8(obj->field08);
+
+    obj->field20 = 0;
+    obj->field1c = (uint32_t)~0xf9;
+    obj->field54 = 3;
+    obj->field40 = (uint32_t)~0xf9 + 0x11e;
+    find_ani_part_a14(obj);
+
+    obj->field1c = 3;
+
+    *mk3_frame(thread, frame + 1) = 0xe97;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
 /* --------------------------------------------------------------- tl_do_lao_zap
  *
  * armv7 0x00079e5c, 244 bytes.  **Complete.**
