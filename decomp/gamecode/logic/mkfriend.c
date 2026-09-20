@@ -176,6 +176,102 @@ long t_friend_ender(MK3THREAD *thread)
 }
 
 
+/* --------------------------------------------------------------------- t_mframew_3, _4, _5
+ *
+ * armv7 0x000a5584/0xa5614/0xa56a0, 144/140/144 bytes.  **Complete.**
+ *
+ * Three copies of the same shape, differing only in the animation-rate
+ * constant they pose (3, 4, 5) and their own dispatch tokens. The free
+ * poses `field1c = N` and pushes `t_mframew` under a token; that token's
+ * own re-entry is the ordinary tail this whole file's dispatchers share
+ * with `mkzap.c`'s: pop a level, or install `t_local_reaction_exit` at
+ * the bottom.
+ */
+long t_local_reaction_exit(struct MK3THREAD *thread);
+long t_mframew(struct MK3THREAD *thread);
+
+long t_mframew_3(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0) {
+        obj->field1c = 3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x7ca;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0x7ca)
+        return -3;
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;   /* back up a level */
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+long t_mframew_4(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0) {
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x7d0;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0x7d0)
+        return -3;
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;   /* back up a level */
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+long t_mframew_5(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0) {
+        obj->field1c = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x7d7;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0x7d7)
+        return -3;
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;   /* back up a level */
+        return 0;
+    }
+
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
 /* --------------------------------------------------------------------- t_f_kano
  *
  * armv7 0x000a5418, 124 bytes.  **Complete.**
@@ -187,7 +283,6 @@ long t_friend_ender(MK3THREAD *thread)
  * `0x1e0` installs `t_friendship_complete` directly.
  */
 extern uint8_t a_kano_friend[];             /* 0x001778e8 */
-long t_mframew_5(struct MK3THREAD *thread);
 
 long t_f_kano(MK3THREAD *thread)
 {
