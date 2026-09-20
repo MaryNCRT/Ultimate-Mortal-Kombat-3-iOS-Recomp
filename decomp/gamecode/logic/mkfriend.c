@@ -642,3 +642,38 @@ long t_f_cyrax(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_friendship_complete);
 }
+
+
+/* --------------------------------------------------------------------- t_f_sz
+ *
+ * armv7 0x000a5e78, 132 bytes.  **Complete.**
+ *
+ * The free poses `field1c=0`, points `field40` at `a_sz_friend`, plays
+ * `ochar_sound`, and pushes `t_mframew_5` under `0x2d3`, whose re-entry
+ * installs `t_friendship_complete` directly.
+ */
+extern uint8_t a_sz_friend[];                /* 0x00177a7c */
+
+long t_f_sz(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0) {
+        obj->field1c = 0;
+        obj->field40 = (uint32_t)(uintptr_t)a_sz_friend;
+        ochar_sound(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x2d3;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew_5;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0x2d3)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_friendship_complete);
+}
