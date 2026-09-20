@@ -677,3 +677,58 @@ long t_f_sz(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_friendship_complete);
 }
+
+
+/* --------------------------------------------------------------------- t_football_proc
+ *
+ * armv7 0x000a68f8, 132 bytes.  **Complete.**
+ *
+ * The free reads the GrObj's own flip bit (`field08->field28 & 0x10`,
+ * saved whole into `field2c`) and throws `0xa0000`, or `0xfff60000` when
+ * flipped, into `field08->field18`; either way `field1c`/`field08->field1c`
+ * both then get the same `0xfff60000`, `field40` points at `a_football`,
+ * and `find_part2`/`init_anirate` (`field1c=2`) run before a one-tick
+ * wait under `0x3b5`. `0x3b5` is a bare `next_anirate` self-loop -- no
+ * further field setup, just keep animating while the kick plays out.
+ */
+extern uint8_t a_football[];                /* 0x00177ba4 */
+void find_part2(MK3OBJ *obj);
+void init_anirate(MK3OBJ *obj);
+long next_anirate(MK3OBJ *obj);
+
+long t_football_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0) {
+        obj->field1c = 0xa0000;
+
+        obj->field2c = obj->field08->field28;
+        if (obj->field2c & 0x10)
+            obj->field1c = 0xfff60000;
+
+        obj->field08->field18 = obj->field1c;
+
+        obj->field1c           = 0xfff60000;
+        obj->field08->field1c  = 0xfff60000;
+        obj->field40            = (uint32_t)(uintptr_t)a_football;
+        find_part2(obj);
+
+        obj->field1c = 2;
+        init_anirate(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x3b5;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (slot != 0x3b5)
+        return -3;
+
+    next_anirate(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x3b5;
+    thread->fieldfc = 1;
+    return 1;
+}
