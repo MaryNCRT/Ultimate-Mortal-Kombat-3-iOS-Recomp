@@ -732,3 +732,91 @@ long t_football_proc(MK3THREAD *thread)
     thread->fieldfc = 1;
     return 1;
 }
+
+
+/* --------------------------------------------------------------------- t_f_jax
+ *
+ * armv7 0x000a6734, 152 bytes.  **Complete.**
+ *
+ * The free spawns a separate `t_end_friend_proc` thread, points
+ * `field40` at `a_jax_friend`, steps a frame, and waits 32 ticks under
+ * `0x23a`. `0x23a` pushes `t_mframew_3` under `0x23b`, whose re-entry
+ * installs `t_friendship_complete` directly.
+ */
+extern uint8_t a_jax_friend[];               /* 0x00177a0c */
+long t_mframew_3(struct MK3THREAD *thread);
+
+long t_f_jax(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0) {
+        NewThread(obj, (MK3THREADFUNC)t_end_friend_proc);
+        obj->field40 = (uint32_t)(uintptr_t)a_jax_friend;
+
+        do_next_a9_frame(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x23a;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (slot == 0x23a) {
+        *mk3_frame(thread, thread->frame + 1) = 0x23b;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew_3;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0x23b)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_friendship_complete);
+}
+
+
+/* --------------------------------------------------------------------- t_f_sektor
+ *
+ * armv7 0x000a6698, 156 bytes.  **Complete.**
+ *
+ * The same shape as `t_f_jax`: the free spawns a separate `t_dinger_proc`
+ * thread, points `field40` at `a_robo1_friend`, steps a frame, and waits
+ * 80 ticks under `0x410`. `0x410` pushes `t_mframew_5` under `0x411`,
+ * whose re-entry installs `t_friendship_complete` directly.
+ */
+extern uint8_t a_robo1_friend[];             /* 0x00177c88 */
+long t_dinger_proc(struct MK3THREAD *thread);   /* not yet decompiled */
+
+long t_f_sektor(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0) {
+        NewThread(obj, (MK3THREADFUNC)t_dinger_proc);
+        obj->field40 = (uint32_t)(uintptr_t)a_robo1_friend;
+
+        do_next_a9_frame(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x410;
+        thread->fieldfc = 0x50;
+        return 0x50;
+    }
+
+    if (slot == 0x410) {
+        *mk3_frame(thread, thread->frame + 1) = 0x411;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew_5;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0x411)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_friendship_complete);
+}
