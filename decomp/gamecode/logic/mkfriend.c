@@ -437,3 +437,113 @@ long t_do_friendship(MK3THREAD *thread)
         return mk3_install(thread, handler);
     }
 }
+
+
+/* --------------------------------------------------------------------- t_f_reptile
+ *
+ * armv7 0x000a70ec, 136 bytes.  **Complete.**
+ *
+ * The free clears invisibility and pushes `t_jax_n_box_start` under
+ * `0xfa` -- Reptile's friendship reuses Jax's crank-box thread outright,
+ * the same way `t_f_scorpion` does. `0xfa` tags `field30=0x1433`, points
+ * `field40` at `a_snake_in_da_box`, and installs `t_pop_up_my_toy`.
+ */
+void clear_inviso(MK3OBJ *obj);
+extern uint8_t a_snake_in_da_box[];         /* 0x001778a4 */
+
+long t_f_reptile(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0) {
+        clear_inviso(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0xfa;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_jax_n_box_start;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0xfa)
+        return -3;
+
+    obj->field30 = 0x1433;
+    obj->field40 = (uint32_t)(uintptr_t)a_snake_in_da_box;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_pop_up_my_toy);
+}
+
+
+/* --------------------------------------------------------------------- t_f_kabal
+ *
+ * armv7 0x000a5b04, 140 bytes.  **Complete.**
+ *
+ * The free spawns a SEPARATE `t_end_friend_proc` thread (`NewThread`,
+ * return value discarded -- unlike `t_pop_up_my_toy`'s own spawn, this
+ * one isn't kept), points `field40` at `a_tusk_friend`, and pushes
+ * `t_mframew_5` under `0x4f2`, whose own re-entry installs
+ * `t_friendship_complete` directly.
+ */
+MK3THREAD *NewThread(void *owner, MK3THREADFUNC func);
+extern uint8_t a_tusk_friend[];             /* 0x00177d2c */
+
+long t_f_kabal(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0) {
+        NewThread(obj, (MK3THREADFUNC)t_end_friend_proc);
+        obj->field40 = (uint32_t)(uintptr_t)a_tusk_friend;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x4f2;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew_5;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0x4f2)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_friendship_complete);
+}
+
+
+/* --------------------------------------------------------------------- t_f_cyrax
+ *
+ * armv7 0x000a5b90, 140 bytes.  **Complete.**
+ *
+ * `t_f_kabal`'s own twin, the same shape with different constants:
+ * spawns a separate `t_end_friend_proc` thread, points `field40` at
+ * `a_robo2_friend`, and pushes `t_mframew_5` under `0x427`, whose
+ * re-entry also installs `t_friendship_complete` directly.
+ */
+extern uint8_t a_robo2_friend[];            /* 0x00177ca0 */
+
+long t_f_cyrax(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0) {
+        NewThread(obj, (MK3THREADFUNC)t_end_friend_proc);
+        obj->field40 = (uint32_t)(uintptr_t)a_robo2_friend;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x427;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew_5;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0x427)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_friendship_complete);
+}
