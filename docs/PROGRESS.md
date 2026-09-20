@@ -152,10 +152,10 @@ one**, and only one of them has ever been measured.
 ## Overall progress
 
 ```
-██████████████████████████████░░░░░░░░░░  75.12%
+██████████████████████████████░░░░░░░░░░  75.14%
 ```
 
-**75.12% of the total estimated effort. Nothing is playable yet.**
+**75.14% of the total estimated effort. Nothing is playable yet.**
 
 Weights are our judgement of how much of the total each area represents. The
 three decompilation figures are **measured from the tree** by
@@ -176,7 +176,7 @@ done; the second says the fight engine is now more than three-quarters written.
 | Asset format specifications | 8% | 100% | `██████████` |
 | `lime/common` — engine core (109 fn) | 12% | **100%** | `██████████` |
 | `gamecode` — game logic (291 fn) | 18% | **100%** | `██████████` |
-| `gamecode/logic` — fight engine (2,172 fn) | 28% | 83.66% (1817) | `████████░░` |
+| `gamecode/logic` — fight engine (2,172 fn) | 28% | 83.70% (1818) | `████████░░` |
 | Native PC platform layer (161 fn to rewrite) | 17% | 10% | `█░░░░░░░░░` |
 | EA SDK stubs (~1,412 fn) | 5% | 0% | `░░░░░░░░░░` |
 
