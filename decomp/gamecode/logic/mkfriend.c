@@ -48,3 +48,30 @@ void other_ochar_sound(MK3OBJ *obj)
     ochar_sound(obj);
     obj->field08->field24 = saved;
 }
+
+
+/* --------------------------------------------------------------------- t_friendship_complete
+ *
+ * armv7 0x000a5990, 76 bytes.  **Complete.**
+ *
+ * State 0 only: `death_blow_complete` and `player_normpal` -- the same
+ * pair a fatality's own close-out calls -- then installs `t_wait_forever`
+ * on the current level. The friendship ends the same way a fatality does:
+ * clean up, restore the palette, and park.
+ */
+void death_blow_complete(MK3OBJ *obj);
+void player_normpal(MK3OBJ *obj);
+long t_wait_forever(struct MK3THREAD *thread);
+
+long t_friendship_complete(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    death_blow_complete(obj);
+    player_normpal(obj);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+}
