@@ -391,3 +391,49 @@ long t_pop_up_my_toy(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
 }
+
+
+/* --------------------------------------------------------------------- t_do_friendship
+ *
+ * armv7 0x000a5730, 132 bytes.  **Complete.**
+ *
+ * The dispatcher every `t_f_*` character entry in this file is reached
+ * from: the free pushes `t_friendship_start_pause` under `0x805`; `0x805`
+ * calls `init_special`, reads the fighter's own character id
+ * (`field08->field24`), looks it up in `ochar_friendships` -- a
+ * four-byte-stride table of function pointers, one per character -- and
+ * installs whatever it finds. `obj->field1c` gets the same handler value
+ * too, alongside the install; nothing downstream reads `field1c` for it,
+ * so it looks like the field this file's other routines pack a table
+ * pointer into (`field40`) done here with the wrong offset, or a leftover
+ * from an earlier draft of the lookup. Transcribed as found.
+ */
+void init_special(MK3OBJ *obj);
+long t_friendship_start_pause(struct MK3THREAD *thread);
+extern MK3THREADFUNC ochar_friendships[];   /* 0x00177f24 */
+
+long t_do_friendship(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x805;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_friendship_start_pause;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0x805)
+        return -3;
+
+    init_special(obj);
+
+    {
+        MK3THREADFUNC handler = ochar_friendships[obj->field08->field24];
+        obj->field1c = (uint32_t)(uintptr_t)handler;
+        return mk3_install(thread, handler);
+    }
+}
