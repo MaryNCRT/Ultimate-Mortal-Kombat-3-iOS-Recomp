@@ -7474,6 +7474,127 @@ long tl_do_tusk_floor(MK3THREAD *thread)
 }
 
 
+/* --------------------------------------------------------------------- t_blade_proc
+ *
+ * armv7 0x00077f7c, 364 bytes.  **Complete.**
+ *
+ * `tl_do_tusk_floor`'s own `field38` callback -- Tusk's spinning blade.
+ * The free tags the GrObj's own thread (`obj->thread->pid = 0x206`, not the
+ * blade's proc), reads the stage floor into both `field20` and the GrObj's
+ * `field0e`... no, `field12` (`G+0xac`), flips the multi, and averages a
+ * pair of `G` words (`G[0x468]` and `G[0x470]`, a signed divide-by-two with
+ * the standard round-toward-zero adjustment) into the GrObj's `field0e`.
+ * It repositions (`multi_adjust_xy` at `field1c=-0xc8`), poses, throws
+ * (`0x80000`/`2`, `set_proj_vel`), and arms a sixteen-tick countdown in
+ * `a10` before waiting one tick under `0x74f`.
+ *
+ * `0x74f` counts `a10` down every tick (`next_anirate` first): while it is
+ * still positive it just re-arms itself; once it reaches zero it waits
+ * once more under `0x757` and pushes `t_saw_strike_check` -- the same
+ * strike routine `t_sz_zap_hit` reached earlier in this file, here doing
+ * duty for a spinning blade instead of an ice collision.
+ *
+ * `0x757` pushes `t_saw_strike_check` again under `0x758`; `0x758` is the
+ * exit watch: `proj_onscreen_test` -- answered through `field5c`, not the
+ * return value -- installs `tl_delete_proj_and_die` the instant the blade
+ * leaves the screen, or just `next_anirate`s and falls straight into
+ * `0x750`'s own "counter finished" tail to re-arm `0x757` while it is
+ * still in view.
+ */
+long t_saw_strike_check(struct MK3THREAD *thread);
+long proj_onscreen_test(MK3OBJ *obj);
+long tl_delete_proj_and_die(struct MK3THREAD *thread);
+
+long t_blade_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0x750) {
+        next_anirate(obj);
+
+        obj->a10 = obj->a10 - 1;
+        if ((int32_t)obj->a10 <= 0) {
+            *mk3_frame(thread, frame + 1) = 0x757;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        *mk3_frame(thread, frame + 1) = 0x74f;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (slot == 0x757) {
+        *mk3_frame(thread, frame + 1) = 0x758;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_saw_strike_check;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0x758) {
+        proj_onscreen_test(obj);
+        if (obj->field5c == 0)
+            return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+
+        next_anirate(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x757;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (slot == 0x74f) {
+        *mk3_frame(thread, frame + 1) = 0x750;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_saw_strike_check;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0)
+        return -3;
+
+    obj->thread->pid = 0x206;
+
+    obj->field20           = *(uint32_t *)(G_BYTES + 0xac);
+    MK3_SET_FIELD12(obj->field08, obj->field20);
+
+    flip_multi(obj);
+
+    {
+        uint32_t sum = *(uint32_t *)(G_BYTES + 0x468)
+                       + *(uint32_t *)(G_BYTES + 0x470);
+        uint32_t mid = (uint32_t)(((int32_t)sum + (int32_t)(sum >> 31)) >> 1);
+        MK3_SET_FIELD0E(obj->field08, mid);
+    }
+
+    obj->field20 = 0;
+    obj->field1c = (uint32_t)~0xc7;
+    multi_adjust_xy(obj);
+
+    obj->field40 = 2;
+    get_char_ani2(obj);
+
+    obj->field1c = 0x80000;
+    obj->field20 = 2;
+    set_proj_vel(obj);
+
+    obj->field1c = 5;
+    ochar_sound(obj);
+
+    obj->a10 = 0x10;
+
+    *mk3_frame(thread, frame + 1) = 0x74f;
+    thread->fieldfc = 1;
+    return 1;
+}
+
+
 /* --------------------------------------------------------- tl_tusk_ground_zap
  *
  * armv7 0x0007a09c, 276 bytes.  **Complete.**
