@@ -252,6 +252,46 @@ long t_f_scorpion(MK3THREAD *thread)
 }
 
 
+/* --------------------------------------------------------------------- t_jax_n_box_start
+ *
+ * armv7 0x000a6d6c, 112 bytes.  **Complete.**
+ *
+ * `t_f_scorpion`'s own push target -- Jax's crank-box friendship. The
+ * free calls `center_around_me`, points `field40` at the animation
+ * stream `a_crank_box`, steps a frame, and waits 16 ticks under `0xea`.
+ * `0xea` just poses `field1c=6` and installs `t_mframew` on the current
+ * level.
+ */
+void center_around_me(MK3OBJ *obj);
+long do_next_a9_frame(MK3OBJ *obj);
+long t_mframew(struct MK3THREAD *thread);
+extern uint8_t a_crank_box[];               /* 0x00177864 */
+
+long t_jax_n_box_start(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0) {
+        center_around_me(obj);
+        obj->field40 = (uint32_t)(uintptr_t)a_crank_box;
+
+        do_next_a9_frame(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0xea;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (slot != 0xea)
+        return -3;
+
+    obj->field1c = 6;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_mframew);
+}
+
+
 /* --------------------------------------------------------------------- t_swat_friend_proc
  *
  * armv7 0x000a57b4, 84 bytes.  **Complete.**
