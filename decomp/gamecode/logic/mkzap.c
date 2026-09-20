@@ -10648,6 +10648,152 @@ long tl_do_kitana_zap(MK3THREAD *thread)
 }
 
 
+/* ----------------------------------------------------------------------- tl_fan_proc
+ *
+ * armv7 0x00078c64, 448 bytes.  **Complete.**
+ *
+ * `tl_do_kitana_zap`'s own `field38` callback. The free poses animation
+ * `0x24`, throws (`field20=1`, `field1c=0x80000`, `set_proj_vel`), zeroes
+ * `field34`, tags `field48=0x13`, and pushes `tl_projectile_flight_call`
+ * under `0x5e2`.
+ *
+ * `0x5e2` is a fork on the GrObj's own `field18`: still zero (never turned)
+ * plays a return sound, `stop_a8`s the part, and lines the part up on the
+ * opponent right away (`aim`); already turned instead flips the throw
+ * (`aim`'s own setup: `field1c=3`/`ochar_sound`, `field1c=1`/`init_anirate`,
+ * `field20`/`field08->field1c=0xfffb0000`, `field08->field18` negated in
+ * place) and falls into `watch` -- a re-throw with no strike this tick.
+ *
+ * `0x600` checks the opponent's installed proc against `t_rhat_wake` and
+ * `t_rhat_sleep` -- the readied-stinger identity check every latch site in
+ * this file uses. A match skips straight to `aim` (a real strike this
+ * tick); neither match re-throws (`field20=5`, `field1c=0xb0000`,
+ * `set_proj_vel`) and falls into the SAME flip-and-`watch` code `0x5e2`'s
+ * "already turned" branch uses -- one physical block reached two ways.
+ *
+ * `aim` lines the part up on the opponent (`match_me_with_him`/
+ * `flip_multi`, `field20` saved across the pair on `thread->args[]` the
+ * same way every other such pair in this file does), repositions
+ * (`multi_adjust_xy` at `field1c=0`), steps two frames, and waits one tick
+ * under `0x600` again -- reached only from `0x5e2`'s "never turned" branch
+ * and `0x600`'s own sleeping-stinger match, never from the flip-and-rethrow
+ * path.
+ *
+ * `0x61b` is the exit watch: `proj_onscreen_test` -- answered directly in
+ * its return value, not through `field5c` -- keeps it alive with
+ * `next_anirate` and a re-arm while the fan is still on screen, and
+ * installs `tl_delete_proj_and_die` the instant it isn't.
+ */
+long t_rhat_wake(struct MK3THREAD *thread);       /* pointer slot 0x000f33cc */
+long t_rhat_sleep(struct MK3THREAD *thread);      /* pointer slot 0x000f33c4 */
+long tl_projectile_flight_call(struct MK3THREAD *thread);
+
+long tl_fan_proc(MK3THREAD *thread)
+{
+    MK3OBJ   *obj   = (MK3OBJ *)thread->proc;
+    uint32_t *args  = (uint32_t *)(void *)thread->args;
+    uint32_t  frame = thread->frame;
+    uint32_t  slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0x600) {
+        void *installed = GetProcFunc(obj->field00->field00);
+
+        if ((uintptr_t)installed == (uintptr_t)t_rhat_wake ||
+            (uintptr_t)installed == (uintptr_t)t_rhat_sleep)
+            goto aim;
+
+        obj->field20 = 5;
+        obj->field1c = 0xb0000;
+        set_proj_vel(obj);
+
+        goto strike;
+    }
+
+    if (slot == 0x5e2) {
+        if (obj->field18 == 0) {
+            obj->field1c = 1;
+            ochar_sound(obj);
+
+            stop_a8(obj->field08);
+            goto aim;
+        }
+
+        goto strike;
+    }
+
+    if (slot == 0x61b) {
+        if (proj_onscreen_test(obj) == 0)
+            return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
+
+        goto watch;
+    }
+
+    if (slot != 0)
+        return -3;
+
+    obj->field40 = 0x24;
+    obj->field54 = 4;
+    find_ani_part_a14(obj);
+
+    obj->field20 = 1;
+    obj->field1c = 0x80000;
+    set_proj_vel(obj);
+
+    obj->field34 = 0;
+    obj->field48 = 0x13;
+
+    *mk3_frame(thread, frame + 1) = 0x5e2;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)tl_projectile_flight_call;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
+strike:
+    obj->field1c = 3;
+    ochar_sound(obj);
+
+    obj->field1c = 1;
+    init_anirate(obj);
+
+    obj->field20           = 0xfffb0000;
+    obj->field08->field1c  = 0xfffb0000;
+
+    obj->field08->field18 = (uint32_t)(-(long)obj->field08->field18);
+    obj->field1c          = obj->field08->field18;
+
+watch:
+    next_anirate(obj);
+
+    *mk3_frame(thread, frame + 1) = 0x61b;
+    thread->fieldfc = 1;
+    return 1;
+
+aim:
+    obj->field20 = MK3_FIELD12_S(obj->field08);
+
+    args[thread->fieldf8] = obj->field20;
+    thread->fieldf8 = thread->fieldf8 + 1;
+
+    match_me_with_him(obj);
+    flip_multi(obj);
+
+    thread->fieldf8 = thread->fieldf8 - 1;
+    MK3_SET_FIELD12(obj->field08, (uint16_t)args[thread->fieldf8]);
+
+    obj->field1c = (uint32_t)~0x2f;
+    obj->field20 = (uint32_t)~0x2f + 0x30;
+    multi_adjust_xy(obj);
+
+    do_next_a9_frame(obj);
+    do_next_a9_frame(obj);
+
+    *mk3_frame(thread, frame + 1) = 0x600;
+    thread->fieldfc = 1;
+    return 1;
+}
+
+
 long tl_kit_zap_air(MK3THREAD *thread)
 {
     MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
