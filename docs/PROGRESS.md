@@ -81,6 +81,32 @@ four that contradicted a hand-written runtime definition.
   one declarator per line, so `extern long *A, *B;` still slips past it; that is
   how `FE_CurrentTask` was missed.
 
+### "Verified" is weaker than it looks -- open, 2026-09-24
+
+Closing `mkboss.c` exposed three gaps in `landfn.sh`/`factdiff.py`:
+
+1. **Return values are never compared.** 38 functions returned -2 where the
+   binary's `mvn r0, #2` means -3; all verified. Fixed; check returns by eye.
+2. **Handlers fetched through a pointer slot read as `?`**, and a `?` is slack.
+   Hand-resolved slots that were wrong still verified. `tools/handlercheck.py`
+   now resolves every slot through the image and compares names both ways.
+3. **Slack is shared across buckets.** An unresolved store in one bucket
+   absorbs a wrong *handler* in another. `mkreact.c`'s `t_b_weak_silent` is
+   the proof: its `0x13bd` state installs `t_weak3`, the C pops a level or
+   installs `t_local_reaction_exit` instead, and `factdiff.py` says OK.
+
+`handlercheck.py` is clean on `mkboss.c`, `mkzap.c` and `mkfriend.c`. Over the
+other closed files it reports about 55 hits: 28 in `mkreact.c` (eleven of them
+"the C installs a routine the binary never loads", the strongest signal), 10 in
+the landed part of `mkdrone.c`, 6 in `moves.c`, 4 in `mkbonus.c`, a few
+elsewhere. Some are false positives (a routine named only in a table, a
+literal that travels further than `ldr`+`mov`); `t_b_weak_silent` is not.
+
+**Before `mkdrone.c`:** triage those hits, and give `factdiff.py` per-bucket
+slack so an unknown store cannot excuse a wrong handler. Until then a file's
+"closed" means "every function has a body that passed the oracle", not
+"every function is right".
+
 ### What is next
 
 The menu is drawn. What is left, in order:
