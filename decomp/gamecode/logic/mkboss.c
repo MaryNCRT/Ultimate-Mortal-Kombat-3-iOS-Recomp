@@ -2663,3 +2663,64 @@ long t_mc_dizzy(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;   /* leftover: bossrandper's own return, == field5c == 0 here */
 }
+
+
+/* --------------------------------------------------------------------- t_motaro_hard_comboed
+ *
+ * armv7 0x000a9504, 204 bytes.  **Complete.**
+ *
+ * State 0: `field20 = 2`, push (plants resume token `0x807` at the
+ * level above, descends into `mkreact.c`'s `t_avoid_corner_trap`).
+ *
+ * `0x807` (corner-trap came back): `shake_a11`, `rsnd_func(obj, 0xa)`,
+ * `away_x_vel`, pose, pushes `other.c`'s `t_animate_a9`, resume token
+ * `0x810`.
+ *
+ * `0x810` (animate came back): installs `t_motaro_stumble` on the
+ * current level -- also reachable directly, sharing that single
+ * physical install with the push above.
+ *
+ * Any other token: refused with -2.
+ */
+void rsnd_func(MK3OBJ *unused, uint32_t which);
+void away_x_vel(MK3OBJ *obj);
+long t_avoid_corner_trap(struct MK3THREAD *thread);
+long t_motaro_stumble(struct MK3THREAD *thread);   /* not yet decompiled */
+
+long t_motaro_hard_comboed(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x810)
+        return mk3_install(thread, (MK3THREADFUNC)t_motaro_stumble);
+
+    if (token == 0x807) {
+        obj->field48 = 0x60006;
+        shake_a11(obj);
+        rsnd_func(obj, 0xa);
+        obj->field1c = 0x40000;
+        away_x_vel(obj);
+        obj->field40 = 0x30020;
+
+        *mk3_frame(thread, frame + 1) = 0x810;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -2;
+
+    obj->field20 = 2;
+
+    *mk3_frame(thread, frame + 1) = 0x807;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_avoid_corner_trap;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
