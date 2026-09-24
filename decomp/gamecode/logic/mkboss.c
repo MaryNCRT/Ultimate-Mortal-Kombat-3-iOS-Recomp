@@ -3325,3 +3325,53 @@ long t_sk_punch(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_sk_kick
+ *
+ * armv7 0x000aadc8, 208 bytes.  **Complete.**
+ *
+ * The striker shape again (`t_sk_punch`, `t_sk_hammer`): pose with
+ * `field40 = 0x11`, `field48 = 1`, `field1c = a10 = 2`, push
+ * `other.c`'s `t_striker` (resume `0x306`); a hit re-arms `0x309` and
+ * sleeps 14, a miss installs `t_boss_close_miss`; `0x309` installs
+ * `t_boss_post_hit`. Any other token: -2.
+ */
+long t_sk_kick(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x306) {
+        if (obj->field5c != 0) {
+            *mk3_frame(thread, frame + 1) = 0x309;
+            thread->fieldfc = 0xe;
+            return 0xe;
+        }
+
+        return mk3_install(thread, (MK3THREADFUNC)t_boss_close_miss);
+    }
+
+    if (token == 0x309)
+        return mk3_install(thread, (MK3THREADFUNC)t_boss_post_hit);
+
+    if (token != 0)
+        return -2;
+
+    init_special(obj);
+    obj->field1c = 0;
+    group_sound(obj);
+    obj->field40 = 0x11;
+    obj->field20 = 0;
+    obj->field48 = 1;
+    obj->field1c = 2;
+    obj->a10     = 2;
+
+    *mk3_frame(thread, frame + 1) = 0x306;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level -- a real call */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_striker;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
