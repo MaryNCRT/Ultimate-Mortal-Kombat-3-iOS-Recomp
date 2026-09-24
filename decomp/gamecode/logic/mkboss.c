@@ -3049,3 +3049,59 @@ long t_motaro_hit0(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_sk_hammer
+ *
+ * armv7 0x000aae98, 208 bytes.  **Complete.**
+ *
+ * State 0: sound and pose, `field48 = a10 = 2`, `field1c = 1`, pushes
+ * `other.c`'s `t_striker` -- a real call, so this level's own resume
+ * token is `0x2f2`.
+ *
+ * `0x2f2` (striker came back): `field5c` decides -- a hit re-arms this
+ * same handler for `0x2f5` and sleeps 14; a miss installs
+ * `t_boss_close_miss` on the current level (no push).
+ *
+ * `0x2f5`: installs `t_boss_post_hit` on the current level.
+ *
+ * Any other token: refused with -2.
+ */
+long t_sk_hammer(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x2f2) {
+        if (obj->field5c != 0) {
+            *mk3_frame(thread, frame + 1) = 0x2f5;
+            thread->fieldfc = 0xe;
+            return 0xe;
+        }
+
+        return mk3_install(thread, (MK3THREADFUNC)t_boss_close_miss);
+    }
+
+    if (token == 0x2f5)
+        return mk3_install(thread, (MK3THREADFUNC)t_boss_post_hit);
+
+    if (token != 0)
+        return -2;
+
+    init_special(obj);
+    obj->field1c = 0;
+    group_sound(obj);
+    obj->field20 = 0;
+    obj->field40 = 0x1a;
+    obj->field48 = 2;
+    obj->a10     = 2;
+    obj->field1c = 1;
+
+    *mk3_frame(thread, frame + 1) = 0x2f2;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level -- a real call */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_striker;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
