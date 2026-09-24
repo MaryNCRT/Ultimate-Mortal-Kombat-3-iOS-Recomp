@@ -2618,3 +2618,48 @@ long t_sk_airborn_check(MK3THREAD *thread)
 
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_mc_dizzy
+ *
+ * armv7 0x000abb44, 176 bytes.  **Complete.**
+ *
+ * State 0: `field1c = 0x1f4`, `bossrandper`; a hit installs
+ * `t_return_to_beware`. A miss sets `a10 = 0x80` and pushes (resume
+ * token `0x6a5`) `mkdrone.c`'s `t_d_stance_pause` -- `r0` is never
+ * reloaded on the way out, but `bossrandper`'s own return equals
+ * `field5c`, which is `0` here, so the fall-through return is still a
+ * plain `0`.
+ *
+ * `0x6a5`: installs `t_local_reaction_exit` on the current level.
+ *
+ * Any other token: refused with -2.
+ */
+long t_mc_dizzy(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x6a5)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token != 0)
+        return -2;
+
+    obj->field1c = 0x1f4;
+    bossrandper(obj);
+    if (obj->field5c != 0) {
+        MK3THREADFUNC handler = (MK3THREADFUNC)t_return_to_beware;
+        return mk3_install(thread, handler);
+    }
+
+    obj->a10 = 0x80;
+
+    *mk3_frame(thread, frame + 1) = 0x6a5;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_d_stance_pause;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;   /* leftover: bossrandper's own return, == field5c == 0 here */
+}
