@@ -2892,3 +2892,51 @@ long t_sk_hit1(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_mc_flipkp
+ *
+ * armv7 0x000a9ee4, 220 bytes.  **Complete.**
+ *
+ * State 0 only: `q_is_this_a_joke`; a hit installs `t_return_to_beware`.
+ * A miss checks `is_towards_me` -- not towards installs
+ * `t_mc_flipk_away` directly. Towards checks distance -- far installs
+ * `t_mc_flipk_away` too, close sets `field64`/`slave` (the object's
+ * OWN copy of the count-and-table pair, not `field00`'s) and pushes
+ * `t_random_do`, resume token `0x711` -- three of the four paths
+ * converge on the same physical install site.
+ *
+ * Any other token: refused with -2.
+ */
+extern MK3THREADFUNC funcs_mc_flipkp[];   /* 0x0017b924 */
+
+long t_mc_flipkp(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot != 0)
+        return -2;
+
+    q_is_this_a_joke(obj);
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_return_to_beware);
+
+    is_towards_me(obj);
+    if (obj->field5c == 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_mc_flipk_away);
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0x70)
+        return mk3_install(thread, (MK3THREADFUNC)t_mc_flipk_away);
+
+    obj->slave   = (uint32_t)(uintptr_t)funcs_mc_flipkp;
+    obj->field64 = 2;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x711;   /* resume token, level above */
+    thread->frame = thread->frame + 1;                /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_random_do;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}

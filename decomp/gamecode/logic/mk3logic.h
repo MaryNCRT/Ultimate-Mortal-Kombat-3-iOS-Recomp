@@ -277,10 +277,16 @@ typedef struct MK3OBJ {
      * `bt_jump` and `bt_angle_jump`. Which moves a fighter can do is this one
      * pointer, and taking input away is `bt_null`. */
     uint32_t    field60;         /* 0x60 */
-    /* 0x64..0x6b  Nothing known. The struct is 0x6c bytes -- `Plyr`'s stride is
-     * 108 and `no_ai_hack` reads `Plyr[1]` as `[r1, #0x6c]` -- so these eight
-     * bytes exist and are unread by anything decompiled so far. */
-    uint8_t     _pad64[8];
+    /* 0x64/0x68  `t_mc_flipkp` writes these directly on the OBJECT rather
+     * than through `field00`, the same "count and table pointer" reuse
+     * `field00->field64`/`field00->slave` gets everywhere else in this
+     * file -- the object apparently carries its own copy of the pair at
+     * the identical offset. The struct is 0x6c bytes -- `Plyr`'s stride
+     * is 108 and `no_ai_hack` reads `Plyr[1]` as `[r1, #0x6c]` -- so
+     * these eight bytes exist and nothing else has been seen reading
+     * them yet. */
+    uint32_t    field64;         /* 0x64 */
+    uint32_t    slave;           /* 0x68 */
 } MK3OBJ;
 
 /* ------------------------------------------------------------------------
