@@ -3002,3 +3002,50 @@ long t_motaro_flip_kicked(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_motaro_hit0
+ *
+ * armv7 0x000a98e4, 224 bytes.  **Complete.**
+ *
+ * State 0: `am_i_airborn`. Airborne installs `t_motaro_hit_flight` on
+ * the current level directly. Grounded: `rsnd_func(obj, 8)`,
+ * `rsnd_ochar_sound`, `away_x_vel`, pose, push (resume token `0x801`)
+ * into `other.c`'s `t_animate_a9`.
+ *
+ * `0x801` (animate came back): installs `t_local_reaction_exit` on
+ * the current level -- also reachable directly, sharing that single
+ * physical install with the push above.
+ *
+ * Any other token: refused with -2.
+ */
+long t_motaro_hit0(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x801)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token != 0)
+        return -2;
+
+    am_i_airborn(obj);
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_motaro_hit_flight);
+
+    rsnd_func(obj, 8);
+    obj->field1c = 0x30002;
+    rsnd_ochar_sound(obj);
+    obj->field1c = 0x20000;
+    away_x_vel(obj);
+    obj->field40 = 0x3001c;
+
+    *mk3_frame(thread, frame + 1) = 0x801;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_animate_a9;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
