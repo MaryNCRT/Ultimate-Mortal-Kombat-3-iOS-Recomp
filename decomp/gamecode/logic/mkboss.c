@@ -3438,3 +3438,62 @@ long t_motaro_upcutted(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_skc_dizzy
+ *
+ * armv7 0x000abe00, 292 bytes.  **Complete.**
+ *
+ * State 0: `field1c = 0x1f4`, `bossrandper`; a hit installs
+ * `t_return_to_beware`. A miss rolls `bossrandper_org` at `0x190`; a
+ * hit installs `t_sk_laugh`. A second miss sets `a10 = 0xc0`, parks
+ * `q_is_he_dizzy_boss`'s address in `field48` (the wait's own test)
+ * and pushes `mkdrone.c`'s `t_stance_wait_no`, resume `0x5f6`.
+ *
+ * `0x5f6`: `a10 = 0x40`, push (resume `0x5f8`) into `t_d_beware`.
+ *
+ * `0x5f8`: installs `t_local_reaction_exit`. Any other token: -2.
+ */
+long t_skc_dizzy(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x5f6) {
+        obj->a10 = 0x40;
+
+        *mk3_frame(thread, frame + 1) = 0x5f8;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_d_beware;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x5f8)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token != 0)
+        return -2;
+
+    obj->field1c = 0x1f4;
+    bossrandper(obj);
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_return_to_beware);
+
+    obj->field1c = 0x190;
+    bossrandper_org(obj);
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_sk_laugh);
+
+    obj->a10     = 0xc0;
+    obj->field48 = (uint32_t)(uintptr_t)q_is_he_dizzy_boss;
+
+    *mk3_frame(thread, frame + 1) = 0x5f6;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_stance_wait_no;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
