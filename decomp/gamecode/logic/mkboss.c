@@ -1979,3 +1979,166 @@ long t_b_block(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_sk_charge
+ *
+ * armv7 0x000ab210, 456 bytes.  **Complete.**
+ *
+ * State 0: the usual special-move setup (`init_special`, sounds, pose,
+ * `init_anirate`, a fireball via `create_fx`, `towards_x_vel`),
+ * `field48 = 0x14`, `a10 = 6`, then falls straight into the `0x339`
+ * re-arm tail below.
+ *
+ * `0x339`: `next_anirate`, count `a10` down. At `a10 == 0`: `a10 = 1`,
+ * `field1c = 3`, `strike_check_a0`; a miss rejoins the `field48`
+ * countdown below; a hit stops the player, poses on the last frame,
+ * re-arms `0x349` and sleeps 32. Otherwise count `field48` down; still
+ * positive re-arms `0x339` and sleeps 1 (the whole state's own loop).
+ *
+ * `field48 == 0`: `am_i_facing_him`; not facing stops the player,
+ * re-arms `0x36b` and sleeps 8 -- the same tail `0x364` falls into
+ * when ITS `field48` countdown reaches 0. Facing sets `field48 = 8`
+ * and falls into the `0x364` setup: splits `field08->field18` (its
+ * absolute value) three ways into `field20/24/1c`, `towards_x_vel`,
+ * re-arms `0x364`, sleeps 1.
+ *
+ * `0x364`: counts `field48` down; still positive repeats the setup
+ * above; at 0 shares the "not facing" tail.
+ *
+ * `0x349` or `0x36b`: pose, `find_ani_part2`, `field1c = 3`, pushes
+ * (resume token `0x371`) `other.c`'s `t_mframew`.
+ *
+ * `0x371`: installs `t_local_reaction_exit` on the current level (no
+ * push) -- the one state this function can also be dispatched into
+ * directly, sharing that single physical install with the push above.
+ *
+ * Any other token: refused with -2.
+ */
+void init_anirate(MK3OBJ *obj);
+void create_fx(MK3OBJ *obj);
+void towards_x_vel(MK3OBJ *obj);
+long strike_check_a0(MK3OBJ *obj);
+void stop_me_player(MK3OBJ *obj);
+void find_last_frame(MK3OBJ *obj);
+
+long t_sk_charge(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    int32_t  r3;
+
+    if (token == 0x349 || token == 0x36b)
+        goto push_371;
+
+    if (token > 0x349) {
+        if (token == 0x371)
+            return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+        if (token == 0x364)
+            goto state_364;
+        return -2;
+    }
+
+    if (token == 0) {
+        init_special(obj);
+        obj->field1c = token;   /* 0, leftover */
+        group_sound(obj);
+        obj->field1c = token;   /* 0, leftover, again */
+        ochar_sound(obj);
+        obj->field40 = 0x19;
+        get_char_ani(obj);
+        obj->field1c = 3;
+        init_anirate(obj);
+        obj->field1c = 1;
+        create_fx(obj);
+        obj->field1c = 0x80000;
+        towards_x_vel(obj);
+        obj->field48 = 0x14;
+        obj->a10     = 0x14 - 0xe;
+        goto rearm_339;
+    }
+
+    if (token != 0x339)
+        return -2;
+
+    next_anirate(obj);
+    obj->a10 = obj->a10 - 1;
+    if ((int32_t)obj->a10 == 0) {
+        obj->a10 = 1;
+        obj->field1c = 3;
+        strike_check_a0(obj);
+        if (obj->field5c == 0)
+            goto decrement_field48;
+
+        stop_me_player(obj);
+        obj->field40 = 0x19;
+        get_char_ani(obj);
+        find_last_frame(obj);
+        do_next_a9_frame(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x349;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+decrement_field48:
+    obj->field48 = obj->field48 - 1;
+    if ((int32_t)obj->field48 != 0) {
+rearm_339:
+        *mk3_frame(thread, frame + 1) = 0x339;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    am_i_facing_him(obj);
+    if (obj->field5c == 0) {
+stop_and_rearm_36b:
+        stop_me_player(obj);
+        *mk3_frame(thread, frame + 1) = 0x36b;
+        thread->fieldfc = 8;
+        return 8;
+    }
+
+    obj->field48 = 8;
+
+setup_364:
+    r3 = (int32_t)obj->field08->field18;
+    obj->field1c = (uint32_t)r3;
+    if (r3 < 0)
+        obj->field1c = (uint32_t)(-r3);
+
+    {
+        int32_t v   = (int32_t)obj->field1c;
+        int32_t a   = v >> 2;
+        int32_t rem = v - a;
+        int32_t b   = rem >> 3;
+
+        obj->field20 = (uint32_t)a;
+        obj->field24 = (uint32_t)b;
+        obj->field1c = (uint32_t)(rem - b);
+    }
+    towards_x_vel(obj);
+
+    *mk3_frame(thread, frame + 1) = 0x364;
+    thread->fieldfc = 1;
+    return 1;
+
+state_364:
+    obj->field48 = obj->field48 - 1;
+    if ((int32_t)obj->field48 != 0)
+        goto setup_364;
+    goto stop_and_rearm_36b;
+
+push_371:
+    obj->field40 = 0x19;
+    find_ani_part2(obj);
+    obj->field1c = 3;
+
+    *mk3_frame(thread, frame + 1) = 0x371;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
