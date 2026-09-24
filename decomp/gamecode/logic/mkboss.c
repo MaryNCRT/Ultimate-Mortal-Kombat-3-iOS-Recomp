@@ -4099,3 +4099,92 @@ install:
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_motaro_tele
+ *
+ * armv7 0x000ab498, 344 bytes.  **Complete.**
+ *
+ * Motaro's teleport. State 0: `init_special`, `tsound_func(obj,
+ * 0x27)`, `set_nocol`, pose, push (resume `0x1fb`) into `t_mframew`.
+ *
+ * `0x1fb`: `set_inviso`, then `q_is_he_cornered`. Either way he is
+ * moved onto the opponent (`match_me_with_him`) and offset `-0x70` in
+ * x (`multi_adjust_xy` with `field1c = -0x70`, `field20 = 0`); a
+ * cornered opponent also gets `flip_multi` first, so Motaro lands on
+ * the open side. Then wait 3 under `0x212`.
+ *
+ * `0x212`: `ground_player`, `clear_inviso`, push (resume `0x216`) into
+ * `t_mframew`. `0x216`: `clear_nocol`, install
+ * `t_local_reaction_exit`. Any other token: refused with -3.
+ */
+void tsound_func(MK3OBJ *obj, uint32_t which);
+void set_inviso(MK3OBJ *obj);
+void clear_inviso(MK3OBJ *obj);
+void match_me_with_him(MK3OBJ *obj);
+void multi_adjust_xy(MK3OBJ *obj);
+void ground_player(MK3OBJ *obj);
+void flip_multi(MK3OBJ *obj);
+
+long t_motaro_tele(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x216) {
+        clear_nocol(obj);
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (token == 0x212) {
+        ground_player(obj);
+        clear_inviso(obj);
+        obj->field1c = 3;
+
+        *mk3_frame(thread, frame + 1) = 0x216;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1fb) {
+        set_inviso(obj);
+        q_is_he_cornered(obj);
+        if (obj->field5c != 0) {
+            match_me_with_him(obj);
+            flip_multi(obj);
+            obj->field20 = 0;
+            obj->field1c = (uint32_t)-0x70;
+            multi_adjust_xy(obj);
+        } else {
+            match_me_with_him(obj);
+            obj->field20 = obj->field5c;   /* 0 */
+            obj->field1c = (uint32_t)-0x70;
+            multi_adjust_xy(obj);
+        }
+
+        *mk3_frame(thread, frame + 1) = 0x212;
+        thread->fieldfc = 3;
+        return 3;
+    }
+
+    if (token != 0)
+        return -3;
+
+    init_special(obj);
+    tsound_func(obj, 0x27);
+    set_nocol(obj);
+    obj->field40 = 5;
+    get_char_ani(obj);
+    obj->field1c = 3;
+
+    *mk3_frame(thread, frame + 1) = 0x1fb;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
