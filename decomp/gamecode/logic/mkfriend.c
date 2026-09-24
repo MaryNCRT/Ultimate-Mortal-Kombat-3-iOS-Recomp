@@ -1884,3 +1884,148 @@ long t_f_sindel(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_friendship_complete);
 }
+
+
+/* --------------------------------------------------------------------- t_f_swat
+ *
+ * armv7 0x000a697c, 268 bytes.  **Complete.**
+ *
+ * Stryker's crossing guard. The free spawns a separate
+ * `t_swat_friend_proc` thread, copies the part's flip word into
+ * `field2c` (flipping the multi when bit `0x10` is set), and spawns
+ * three `t_swat_crossing_people` threads in a real loop counting
+ * `field48` down from 3 -- the count each pedestrian reads back as its
+ * own index, since `NewThread` copies the spawner's object state. Then
+ * `field40` at `a_swat_friend` through `t_mframew_5` under `0x372`,
+ * sound 8 and 64 ticks under `0x375`, another `t_mframew_5` stretch
+ * under `0x376`, and `t_friendship_complete`.
+ */
+extern uint8_t a_swat_friend[];              /* 0x00177af4 */
+void flip_multi(MK3OBJ *obj);
+
+long t_f_swat(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0x372) {
+        obj->field1c = 8;
+        ochar_sound(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x375;
+        thread->fieldfc = 0x40;
+        return 0x40;
+    }
+
+    if (slot < 0x372) {
+        if (slot != 0)
+            return -3;
+
+        NewThread(obj, (MK3THREADFUNC)t_swat_friend_proc);
+
+        obj->field2c = obj->field08->field28;
+        if (obj->field2c & 0x10)
+            flip_multi(obj);
+
+        obj->field48 = 3;
+        do {
+            NewThread(obj, (MK3THREADFUNC)t_swat_crossing_people);
+            obj->field48 = obj->field48 - 1;
+        } while (obj->field48 != 0);
+
+        obj->field40 = (uint32_t)(uintptr_t)a_swat_friend;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x372;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew_5;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0x375) {
+        *mk3_frame(thread, thread->frame + 1) = 0x376;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew_5;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0x376)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_friendship_complete);
+}
+
+
+/* --------------------------------------------------------------------- t_f_liu
+ *
+ * armv7 0x000a59dc, 296 bytes.  **Complete.**
+ *
+ * Liu Kang's dragon on the wall: spawns a separate `t_wall_dragon_proc`
+ * thread, points `field40` at `a_kang_friend`, then alternates
+ * `t_mframew_5` stretches and holds -- run (`0x5a4`), hold 32 (`0x5a5`),
+ * run (`0x5a6`), hold 10 (`0x5a7`), run (`0x5a8`), hold 48 (`0x5a9`) --
+ * and ends on `t_friendship_complete`.
+ */
+extern uint8_t a_kang_friend[];              /* 0x00177e2c */
+
+long t_f_liu(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+    uint32_t next;
+
+    if (slot == 0x5a6) {
+        *mk3_frame(thread, thread->frame + 1) = 0x5a7;
+        thread->fieldfc = 0xa;
+        return 0xa;
+    }
+
+    if (slot == 0x5a8) {
+        *mk3_frame(thread, thread->frame + 1) = 0x5a9;
+        thread->fieldfc = 0x30;
+        return 0x30;
+    }
+
+    if (slot == 0x5a7) {
+        next = 0x5a8;
+        goto run;
+    }
+
+    if (slot == 0x5a9)
+        return mk3_install(thread, (MK3THREADFUNC)t_friendship_complete);
+
+    if (slot == 0x5a4) {
+        *mk3_frame(thread, thread->frame + 1) = 0x5a5;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (slot == 0x5a5) {
+        next = 0x5a6;
+        goto run;
+    }
+
+    if (slot != 0)
+        return -3;
+
+    NewThread(obj, (MK3THREADFUNC)t_wall_dragon_proc);
+    obj->field40 = (uint32_t)(uintptr_t)a_kang_friend;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x5a4;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_mframew_5;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
+run:
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_mframew_5;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
