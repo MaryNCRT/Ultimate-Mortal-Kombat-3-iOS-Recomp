@@ -1179,3 +1179,162 @@ long t_cute_lil_doggy(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_arcade
+ *
+ * armv7 0x000a6b94, 244 bytes.  **Complete.**
+ *
+ * `t_f_indian`'s own `NewThread` target -- Nightwolf's arcade cabinet.
+ * The free sets the part's frame (`0x1b36`), places it (`multi_adjust_xy`
+ * at `-0x70`/`-0x100`), seeds a fall (`field20 = 0x20000`, `a10 = 0x20000
+ * - 0x1a000 = 0x6000`, the velocity/gravity pair `t_flight` reads) and
+ * pushes `t_flight` under `0x26a`: the cabinet drops in from above.
+ *
+ * `0x26a` is the landing: `shake_n_sound`, then a coin flip on
+ * `mk_random`'s bit 8 (`mk_random` answers in `field1c`, and the binary
+ * reads the same value straight out of `r0`) posts HUD event 3/7 or 3/8
+ * through `MKEvent_Add` -- which of the two "ARCADE" messages shows -- and
+ * waits 64 ticks under `0x272`, which calls `death_blow_complete` and
+ * parks on `t_wait_forever`.
+ */
+void shake_n_sound(MK3OBJ *obj);
+void mk_random(MK3OBJ *obj);
+void MKEvent_Add(long type, long subtype, long param, long player);
+long t_flight(struct MK3THREAD *thread);    /* pointer slot 0x000f33f4 */
+
+long t_arcade(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0x26a) {
+        shake_n_sound(obj);
+
+        mk_random(obj);
+        if (obj->field1c & 0x100)
+            MKEvent_Add(3, 7, 0, 0);
+        else
+            MKEvent_Add(3, 8, 0, 0);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x272;
+        thread->fieldfc = 0x40;
+        return 0x40;
+    }
+
+    if (slot == 0x272) {
+        death_blow_complete(obj);
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+    }
+
+    if (slot != 0)
+        return -3;
+
+    obj->field08->field2c = 0x1b36;
+
+    obj->field1c = (uint32_t)~0x6f;
+    obj->field20 = (uint32_t)~0x6f - 0x90;
+    multi_adjust_xy(obj);
+
+    obj->field20 = 0x20000;
+    obj->a10     = 0x20000 - 0x1a000;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x26a;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_flight;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* --------------------------------------------------------------------- t_f_jade
+ *
+ * armv7 0x000a6ec8, 300 bytes.  **Complete.**
+ *
+ * The free stops the scrolling (`kill_and_stop_scrolling`), poses
+ * animation `0xd`, and pushes `t_animate_a0_frames` at rate/frames
+ * `0x40003` under `0x13a`; `0x13a` waits 16 ticks under `0x13b`.
+ *
+ * `0x13b` spawns a separate `t_friend_ender` thread and parks the
+ * current animation cursor two ways -- `field48` as is, `a10` four bytes
+ * back (one frame earlier in the stream) -- then falls into `0x14f`'s
+ * own body: restore the cursor from `field48`, step a frame, and push
+ * `t_gravity_ani_ysize` with a flat throw (`field1c=0`, `field20 =
+ * 0xfff60000`, `field24 = 0xfff60000 + 0xa9000`, `field28 = 0xfff`)
+ * under `0x149`. `0x149` lands: sound `0xc`, cursor back to `a10`, step,
+ * and three ticks later under `0x14f` it bounces again -- a loop that
+ * only `t_friend_ender` ends.
+ */
+void kill_and_stop_scrolling(MK3OBJ *obj);
+void get_char_ani2(MK3OBJ *obj);
+long t_animate_a0_frames(struct MK3THREAD *thread);   /* pointer slot 0x000f36b8 */
+long t_gravity_ani_ysize(struct MK3THREAD *thread);   /* pointer slot 0x000f3720 */
+
+long t_f_jade(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0x13b) {
+        NewThread(obj, (MK3THREADFUNC)t_friend_ender);
+        obj->field48 = obj->field40;
+        obj->a10     = obj->field40 - 4;
+        goto bounce;
+    }
+
+    if (slot < 0x13b) {
+        if (slot == 0) {
+            kill_and_stop_scrolling(obj);
+
+            obj->field40 = 0xd;
+            get_char_ani2(obj);
+
+            obj->field1c = 0x40003;
+
+            *mk3_frame(thread, thread->frame + 1) = 0x13a;
+            thread->frame = thread->frame + 1;   /* push a level */
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)t_animate_a0_frames;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+
+        if (slot != 0x13a)
+            return -3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x13b;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (slot == 0x149) {
+        tsound_func(obj, 0xc);
+
+        obj->field40 = obj->a10;
+        do_next_a9_frame(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x14f;
+        thread->fieldfc = 3;
+        return 3;
+    }
+
+    if (slot != 0x14f)
+        return -3;
+
+bounce:
+    obj->field40 = obj->field48;
+    do_next_a9_frame(obj);
+
+    obj->field1c = 0;
+    obj->field20 = 0xfff60000;
+    obj->field24 = 0xfff60000 + 0xa9000;
+    obj->field28 = 0xfff;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x149;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_gravity_ani_ysize;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
