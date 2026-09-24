@@ -211,22 +211,19 @@ even though it renders no pixels.
 body; all nine of its files are also verified against the recompiled original.
 
 **Why the number is still not high.** The fight engine is 2,172 functions on
-its own and 420 of them have no body yet, which is where nearly all of the
-remaining work is. Four files hold all of it:
+its own and 295 of them have no body yet, which is where nearly all of the
+remaining work is. Two files hold all of it:
 
 | | missing | what it is |
 |---|---:|---|
-| `mkdrone.c` | 238 | the AI opponent |
-| `mkboss.c` | 75 | Motaro and Shao Kahn |
-| `mkzap.c` | 62 | projectiles |
-| `mkfriend.c` | 45 | friendships |
+| `mkdrone.c` | 237 | the AI opponent |
+| `mkboss.c` | 58 | Motaro and Shao Kahn |
 
-Seventeen of the twenty-one files are finished, including the three largest --
+Nineteen of the twenty-one files are finished, including the three largest --
 `moves.c`, `other.c` and `mkfatal.c` -- plus `joy.c` (the input layer),
-`mkbonus.c`, `mkreact.c` and `playback.c`, all closed since the count above
-stood at eight. So the count is further along than the shape of the list
-suggests. Realistically the rest is
-still months of work.
+`mkbonus.c`, `mkreact.c`, `playback.c`, `mkzap.c` and `mkfriend.c`, all closed
+since the count above stood at eight. So the count is further along than the
+shape of the list suggests. Realistically the rest is still months of work.
 
 ### `lime/common` is complete — and here is what that does and does not mean
 

@@ -38,7 +38,7 @@ long tl_ssp2(struct MK3THREAD *thread);
 
 long t_r_null_speared(struct MK3THREAD *thread);         /* mkreact.c */
 long t_rhat_sleep(struct MK3THREAD *thread);              /* mkreact.c */
-long t_tugged_in_by_spear(struct MK3THREAD *thread);      /* not yet decompiled */
+long t_tugged_in_by_spear(struct MK3THREAD *thread);
 long t_scorp_waiting_sleep(struct MK3THREAD *thread);
 
 void *GetProcFunc(MK3OBJ *obj);
@@ -314,7 +314,7 @@ void get_char_ani2(MK3OBJ *obj);
 void adjust_xy_a5(MK3OBJ *obj);
 void i_am_a_sitting_duck(MK3OBJ *obj);
 MK3OBJ *create_proj_proc(MK3OBJ *obj);
-long t_net_proc(struct MK3THREAD *thread);              /* not yet decompiled */
+long t_net_proc(struct MK3THREAD *thread);
 long t_backwards_ani(struct MK3THREAD *thread);         /* pointer slot 0x000f37c4 */
 long t_robo_open_chest(struct MK3THREAD *thread);
 
@@ -4946,7 +4946,7 @@ long do_next_a9_frame_pxob(MK3OBJ *obj, MK3OBJ *a, MK3OBJ *b);
 void local_strike_check_box(MK3OBJ *obj);
 void hob_ochar_sound(MK3OBJ *obj);
 MK3OBJ *create_proj_proc(MK3OBJ *obj);
-long t_sz_zap_hit(struct MK3THREAD *thread);            /* not yet decompiled */
+long t_sz_zap_hit(struct MK3THREAD *thread);
 long t_sz_post_zap(struct MK3THREAD *thread);
 
 long t_ice_collision_check(MK3THREAD *thread)
@@ -5300,8 +5300,8 @@ land:
  */
 void stop_me_player(MK3OBJ *obj);
 void away_x_vel(MK3OBJ *obj);
-long tl_jax_zap_jsrp(struct MK3THREAD *thread);         /* not yet decompiled */
-long t_jax_zap_proc(struct MK3THREAD *thread);          /* not yet decompiled */
+long tl_jax_zap_jsrp(struct MK3THREAD *thread);
+long t_jax_zap_proc(struct MK3THREAD *thread);
 
 long tl_do_jax_zap2(MK3THREAD *thread)
 {
@@ -6803,7 +6803,7 @@ long t_lk_zap_air(MK3THREAD *thread)
  */
 MK3OBJ *create_proj_proc(MK3OBJ *obj);
 long t_lk_zap_proc(struct MK3THREAD *thread);
-long t_lkzap5(struct MK3THREAD *thread);         /* not yet decompiled */
+long t_lkzap5(struct MK3THREAD *thread);
 
 long t_lk_zap_entry(MK3THREAD *thread)
 {
@@ -8342,7 +8342,7 @@ long tl_do_kano_zap(MK3THREAD *thread)
  */
 void find_ani_part2(MK3OBJ *obj);
 void get_his_action(MK3OBJ *obj);
-long t_lia_forward_proc(struct MK3THREAD *thread);      /* not yet decompiled */
+long t_lia_forward_proc(struct MK3THREAD *thread);
 long t_backwards_ani(struct MK3THREAD *thread);         /* pointer slot 0x000f37c4 */
 
 long tl_do_lia_forward_zap(MK3THREAD *thread)

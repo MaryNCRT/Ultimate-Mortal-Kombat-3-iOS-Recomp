@@ -170,22 +170,20 @@ tienen cuerpo; los nueve ficheros están además verificados contra el
 original recompilado.
 
 **Por qué el número sigue sin ser alto.** El motor de combate son 2.172
-funciones él solo, y 420 siguen sin cuerpo: ahí está casi todo el trabajo que
-queda. Cuatro ficheros concentran todo:
+funciones él solo, y 295 siguen sin cuerpo: ahí está casi todo el trabajo que
+queda. Dos ficheros concentran todo:
 
 | | faltan | qué es |
 |---|---:|---|
-| `mkdrone.c` | 238 | el oponente controlado por la máquina |
-| `mkboss.c` | 75 | Motaro y Shao Kahn |
-| `mkzap.c` | 62 | los proyectiles |
-| `mkfriend.c` | 45 | las friendships |
+| `mkdrone.c` | 237 | el oponente controlado por la máquina |
+| `mkboss.c` | 58 | Motaro y Shao Kahn |
 
-Diecisiete de los veintiún ficheros están terminados, incluidos los tres más
+Diecinueve de los veintiún ficheros están terminados, incluidos los tres más
 grandes — `moves.c`, `other.c` y `mkfatal.c` —, más `joy.c` (la capa de
-entrada), `mkbonus.c`, `mkreact.c` y `playback.c`, cerrados todos desde que la
-cuenta de arriba estaba en ocho. Así que la cuenta va más avanzada de lo que
-sugiere la forma de la lista. Realistamente lo que queda siguen siendo meses
-de trabajo.
+entrada), `mkbonus.c`, `mkreact.c`, `playback.c`, `mkzap.c` y `mkfriend.c`,
+cerrados todos desde que la cuenta de arriba estaba en ocho. Así que la cuenta
+va más avanzada de lo que sugiere la forma de la lista. Realistamente lo que
+queda siguen siendo meses de trabajo.
 
 ### `lime/common` está completo — y esto es lo que significa y lo que no
 

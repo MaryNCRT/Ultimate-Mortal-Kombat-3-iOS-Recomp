@@ -320,7 +320,7 @@ long t_f_kano(MK3THREAD *thread)
  * friendship reuses rather than duplicates.
  */
 extern uint8_t a_skull_in_da_box[];         /* 0x00177834 */
-long t_jax_n_box_start(struct MK3THREAD *thread);   /* not yet decompiled */
+long t_jax_n_box_start(struct MK3THREAD *thread);
 long t_pop_up_my_toy(MK3THREAD *thread);
 
 long t_f_scorpion(MK3THREAD *thread)
@@ -788,7 +788,7 @@ long t_f_jax(MK3THREAD *thread)
  * whose re-entry installs `t_friendship_complete` directly.
  */
 extern uint8_t a_robo1_friend[];             /* 0x00177c88 */
-long t_dinger_proc(struct MK3THREAD *thread);   /* not yet decompiled */
+long t_dinger_proc(struct MK3THREAD *thread);
 
 long t_f_sektor(MK3THREAD *thread)
 {
@@ -884,7 +884,7 @@ long t_lao_dog_sounds(MK3THREAD *thread)
  * hands off to `t_arcade` entirely and parks.
  */
 void other_ochar_sound(MK3OBJ *obj);
-long t_arcade(struct MK3THREAD *thread);   /* not yet decompiled */
+long t_arcade(struct MK3THREAD *thread);
 extern uint8_t a_ind_friend[];              /* 0x00177a44 */
 
 long t_f_indian(MK3THREAD *thread)
@@ -937,7 +937,7 @@ long t_f_indian(MK3THREAD *thread)
  * its own rather than ever pop back.
  */
 long t_victory_animation(struct MK3THREAD *thread);
-long t_sonya_flower_proc(struct MK3THREAD *thread);   /* not yet decompiled */
+long t_sonya_flower_proc(struct MK3THREAD *thread);
 
 long t_f_sonya(MK3THREAD *thread)
 {
