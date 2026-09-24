@@ -1188,8 +1188,11 @@ long t_cute_lil_doggy(MK3THREAD *thread)
  * `t_f_indian`'s own `NewThread` target -- Nightwolf's arcade cabinet.
  * The free sets the part's frame (`0x1b36`), places it (`multi_adjust_xy`
  * at `-0x70`/`-0x100`), seeds a fall (`field20 = 0x20000`, `a10 = 0x20000
- * - 0x1a000 = 0x6000`, the velocity/gravity pair `t_flight` reads) and
- * pushes `t_flight` under `0x26a`: the cabinet drops in from above.
+ * - 0x1a000 = 0x6000`, the velocity/gravity pair it reads) and pushes
+ * `mkfatal.c`'s `t_gravity_ani_ysize` under `0x26a`: the cabinet drops
+ * in from above. (**Corrected**: this and `t_f_jade` were first landed
+ * with their two pointer slots crossed -- 0x000f33f4 is
+ * `t_gravity_ani_ysize`, 0x000f3720 is `t_flight`.)
  *
  * `0x26a` is the landing: `shake_n_sound`, then a coin flip on
  * `mk_random`'s bit 8 (`mk_random` answers in `field1c`, and the binary
@@ -1201,7 +1204,7 @@ long t_cute_lil_doggy(MK3THREAD *thread)
 void shake_n_sound(MK3OBJ *obj);
 void mk_random(MK3OBJ *obj);
 void MKEvent_Add(long type, long subtype, long param, long player);
-long t_flight(struct MK3THREAD *thread);    /* pointer slot 0x000f33f4 */
+long t_gravity_ani_ysize(struct MK3THREAD *thread);   /* pointer slot 0x000f33f4 */
 
 long t_arcade(MK3THREAD *thread)
 {
@@ -1242,7 +1245,7 @@ long t_arcade(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0x26a;
     thread->frame = thread->frame + 1;   /* push a level */
     mk3_frame(thread, thread->frame)[1] =
-        (uint32_t)(uintptr_t)t_flight;
+        (uint32_t)(uintptr_t)t_gravity_ani_ysize;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
@@ -1260,7 +1263,7 @@ long t_arcade(MK3THREAD *thread)
  * current animation cursor two ways -- `field48` as is, `a10` four bytes
  * back (one frame earlier in the stream) -- then falls into `0x14f`'s
  * own body: restore the cursor from `field48`, step a frame, and push
- * `t_gravity_ani_ysize` with a flat throw (`field1c=0`, `field20 =
+ * `other.c`'s `t_flight` with a flat throw (`field1c=0`, `field20 =
  * 0xfff60000`, `field24 = 0xfff60000 + 0xa9000`, `field28 = 0xfff`)
  * under `0x149`. `0x149` lands: sound `0xc`, cursor back to `a10`, step,
  * and three ticks later under `0x14f` it bounces again -- a loop that
@@ -1269,7 +1272,7 @@ long t_arcade(MK3THREAD *thread)
 void kill_and_stop_scrolling(MK3OBJ *obj);
 void get_char_ani2(MK3OBJ *obj);
 long t_animate_a0_frames(struct MK3THREAD *thread);   /* pointer slot 0x000f36b8 */
-long t_gravity_ani_ysize(struct MK3THREAD *thread);   /* pointer slot 0x000f3720 */
+long t_flight(struct MK3THREAD *thread);   /* pointer slot 0x000f3720 */
 
 long t_f_jade(MK3THREAD *thread)
 {
@@ -1334,7 +1337,7 @@ bounce:
     *mk3_frame(thread, thread->frame + 1) = 0x149;
     thread->frame = thread->frame + 1;   /* push a level */
     mk3_frame(thread, thread->frame)[1] =
-        (uint32_t)(uintptr_t)t_gravity_ani_ysize;
+        (uint32_t)(uintptr_t)t_flight;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
