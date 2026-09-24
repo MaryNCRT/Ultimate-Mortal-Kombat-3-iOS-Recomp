@@ -2196,3 +2196,93 @@ push:
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_f_shang
+ *
+ * armv7 0x000a622c, 328 bytes.  **Complete.**
+ *
+ * Shang Tsung turns into a bouncing ball. The free spawns a separate
+ * `t_end_friend_proc`, turns off the fighter-pushing for good
+ * (`sans_repell_for_good`), and plays effect `0x1e`; `0x539` sets the
+ * part's frame (`0x1b31`) and drops it to `G+0xac - 0x20`, holding 64
+ * ticks. Then `t_bounce` twice in place (`0x54a`, `0x54c`), a nudge
+ * towards the opponent (`towards_x_vel` at `0x30000`) and `a10 = 5`
+ * more bounces (`0x54d`), each one re-armed from `0x555` while the
+ * count holds -- the same push both states share. When it runs out the
+ * ball stops (`stop_me_player`) and parks on `t_wait_forever`.
+ */
+void sans_repell_for_good(MK3OBJ *obj);
+void create_fx(MK3OBJ *obj);
+void towards_x_vel(MK3OBJ *obj);
+void stop_me_player(MK3OBJ *obj);
+
+long t_f_shang(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+    uint32_t next;
+
+    if (slot == 0x54a) {
+        next = 0x54c;
+        goto bounce;
+    }
+
+    if (slot < 0x54a) {
+        if (slot == 0) {
+            NewThread(obj, (MK3THREADFUNC)t_end_friend_proc);
+            sans_repell_for_good(obj);
+
+            obj->field1c = 0x1e;
+            create_fx(obj);
+
+            *mk3_frame(thread, thread->frame + 1) = 0x539;
+            thread->fieldfc = 8;
+            return 8;
+        }
+
+        if (slot != 0x539)
+            return -3;
+
+        obj->field08->field2c = 0x1b31;
+        MK3_SET_FIELD12(obj->field08, *(uint32_t *)(G_BYTES + 0xac) - 0x20);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x54a;
+        thread->fieldfc = 0x40;
+        return 0x40;
+    }
+
+    if (slot == 0x54d) {
+        obj->field1c = 0x30000;
+        towards_x_vel(obj);
+
+        obj->a10 = 5;
+        goto again;
+    }
+
+    if (slot == 0x555) {
+        obj->a10 = obj->a10 - 1;
+        if ((int32_t)obj->a10 < 0) {
+            stop_me_player(obj);
+            return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+        }
+        goto again;
+    }
+
+    if (slot != 0x54c)
+        return -3;
+
+    next = 0x54d;
+    goto bounce;
+
+again:
+    next = 0x555;
+
+bounce:
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_bounce;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
