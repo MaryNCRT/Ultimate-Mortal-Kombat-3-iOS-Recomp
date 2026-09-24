@@ -822,3 +822,163 @@ long sk_counter_randper(MK3OBJ *obj)
     get_mhe_word(obj);
     return bossrandper(obj);
 }
+
+
+/* --------------------------------------------------------------------- q_heading_down
+ *
+ * armv7 0x000a89e8, 28 bytes.  **Complete.**
+ *
+ * `obj->field00->him`'s own `field1c` (a signed velocity), read into
+ * `field1c` and tested: negative (rising) answers yes, everything else
+ * (falling or still) answers no.
+ */
+void q_heading_down(MK3OBJ *obj)
+{
+    obj->field1c = ((MK3OBJ *)(uintptr_t)obj->field00->him)->field1c;
+    if ((int32_t)obj->field1c < 0)
+        q_yes(obj);
+    else
+        q_no(obj);
+}
+
+
+/* --------------------------------------------------------------------- t_b_return_to_beware_4get
+ *
+ * armv7 0x000a858c, 64 bytes.  **Complete.**
+ *
+ * State 0 only. `field1c` and `field00->field5c` both get the same
+ * copy of the incoming token, then the current level installs
+ * `t_return_to_beware` and clears its own token -- the same "forget
+ * this state and hand off" shape as a plain `mk3_install`, transcribed
+ * with the extra `field00->field5c` write it actually does.
+ */
+long t_return_to_beware(struct MK3THREAD *thread);   /* pointer slot 0x000f3428 */
+
+long t_b_return_to_beware_4get(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot != 0)
+        return -3;
+
+    obj->field1c          = slot;
+    obj->field00->field5c = slot;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_return_to_beware);
+}
+
+
+/* --------------------------------------------------------------------- motaro_randper
+ *
+ * armv7 0x000ab804, 36 bytes.  **Complete.**
+ *
+ * A joke round routes to `motaro_joke_randper`; otherwise `field1c =
+ * 500` through `bossrandper`.
+ */
+long q_is_this_a_joke(MK3OBJ *obj);
+void motaro_joke_randper(MK3OBJ *obj);
+
+long motaro_randper(MK3OBJ *obj)
+{
+    q_is_this_a_joke(obj);
+    if (obj->field5c != 0) {
+        motaro_joke_randper(obj);
+        return (long)obj->field5c;
+    }
+
+    obj->field1c = 0x1f4;
+    return bossrandper(obj);
+}
+
+
+/* --------------------------------------------------------------------- q_is_he_dizzy_boss
+ *
+ * armv7 0x000aa02c, 36 bytes.  **Complete.**
+ *
+ * `get_his_action`'s own answer against `0x620`, the dizzy action.
+ */
+void get_his_action(MK3OBJ *obj);
+
+void q_is_he_dizzy_boss(MK3OBJ *obj)
+{
+    get_his_action(obj);
+    if (obj->field20 == 0x620)
+        q_yes(obj);
+    else
+        q_no(obj);
+}
+
+
+/* --------------------------------------------------------------------- q_ok_motaro_sweep
+ *
+ * armv7 0x000a8e88, 36 bytes.  **Complete.**
+ *
+ * Yes when the opponent is out of Motaro's sweep range (further than
+ * `0xd0`, or closer than `0x80` -- too close to sweep) and not airborne
+ * in between.
+ */
+void get_x_dist(MK3OBJ *obj);
+long is_he_airborn(MK3OBJ *obj);
+
+void q_ok_motaro_sweep(MK3OBJ *obj)
+{
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0xd0)
+        goto no;
+    if ((int32_t)obj->field28 <= 0x7f)
+        goto no;
+
+    is_he_airborn(obj);
+
+no:
+    q_no(obj);
+}
+
+
+/* --------------------------------------------------------------------- sk_randper
+ *
+ * armv7 0x000abcf0, 48 bytes.  **Complete.**
+ *
+ * A joke round routes to `sk_counter_joke`; otherwise the ladder-order
+ * entry of `mhe_sk_randpers` through `bossrandper`.
+ */
+void sk_counter_joke(MK3OBJ *obj);
+extern int16_t mhe_sk_randpers[];            /* 0x0017b3ca */
+
+long sk_randper(MK3OBJ *obj)
+{
+    q_is_this_a_joke(obj);
+    if (obj->field5c != 0) {
+        sk_counter_joke(obj);
+        return (long)obj->field5c;
+    }
+
+    obj->field1c = (uint32_t)(uintptr_t)mhe_sk_randpers;
+    get_mhe_word(obj);
+    return bossrandper(obj);
+}
+
+
+/* --------------------------------------------------------------------- q_is_he_car
+ *
+ * armv7 0x000a8d64, 40 bytes.  **Complete.**
+ *
+ * Yes only when cornered AND reacting -- `q_is_he_cornered`'s no
+ * short-circuits straight to `q_no`, matching Kabal's own "CAR" combo
+ * window: pinned in the corner while he's still recovering.
+ */
+void q_is_he_cornered(MK3OBJ *obj);
+void q_is_he_reacting(MK3OBJ *obj);
+
+void q_is_he_car(MK3OBJ *obj)
+{
+    q_is_he_cornered(obj);
+    if (obj->field5c != 0)
+        q_is_he_reacting(obj);
+
+    if (obj->field5c == 0)
+        q_no(obj);
+    else
+        q_yes(obj);
+}
