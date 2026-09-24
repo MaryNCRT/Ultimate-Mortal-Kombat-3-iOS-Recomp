@@ -1473,3 +1473,147 @@ rearm:
     thread->fieldfc = 1;
     return 1;
 }
+
+
+/* --------------------------------------------------------------------- t_friendship_start_pause
+ *
+ * armv7 0x000a71f0, 184 bytes.  **Complete.**
+ *
+ * `t_do_friendship`'s own push target, the pause before the move: the
+ * free sets `field20 = 4` and pushes `t_init_death_blow` -- the same
+ * setup a fatality starts with -- under `0x63`. `0x63` waits 48 ticks
+ * under `0x64`, `0x64` one more under `0x67`, and `0x67` tags
+ * `field28 = 0x42`, sends it on with `send_code_a3`, and pops a level
+ * (back to `t_do_friendship`, which then dispatches the character), or
+ * installs `t_local_reaction_exit` at the bottom.
+ */
+void send_code_a3(MK3OBJ *obj);
+long t_init_death_blow(struct MK3THREAD *thread);   /* pointer slot 0x000f3194 */
+
+long t_friendship_start_pause(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0x64) {
+        *mk3_frame(thread, thread->frame + 1) = 0x67;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (slot < 0x64) {
+        if (slot == 0) {
+            obj->field20 = 4;
+
+            *mk3_frame(thread, thread->frame + 1) = 0x63;
+            thread->frame = thread->frame + 1;   /* push a level */
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)t_init_death_blow;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+
+        if (slot != 0x63)
+            return -3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x64;
+        thread->fieldfc = 0x30;
+        return 0x30;
+    }
+
+    if (slot != 0x67)
+        return -3;
+
+    obj->field28 = 0x42;
+    send_code_a3(obj);
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;   /* back up a level */
+        return 0;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+
+/* --------------------------------------------------------------------- t_swat_crossing_people
+ *
+ * armv7 0x000a6a88, 268 bytes.  **Complete.**
+ *
+ * One pedestrian of Stryker's crossing-guard friendship; `field48` is
+ * which one (1-based, set by the spawner). The free marks the part
+ * (`field08->field48 = 1`), waits a random 32..63 ticks, then
+ * `field48 * 32` more -- so the people come out staggered in order.
+ *
+ * `0x317` dresses the part as `swat_people[field48 - 1]` (a table of
+ * part `field24` values), starts it walking right at `0x80000` from the
+ * left camera edge minus `0x50`, poses animation `0x46`, and arms a
+ * 160-tick walk in `a10`. `0x343` animates one tick per call until the
+ * walk runs out, then parks under the `0x16462` termination sentinel.
+ */
+void get_char_ani(MK3OBJ *obj);
+extern uint32_t swat_people[];              /* 0x00177b68 */
+
+long t_swat_crossing_people(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0x311) {
+        obj->field1c = obj->field48 << 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x317;
+        thread->fieldfc = obj->field1c;
+        return (long)obj->field1c;
+    }
+
+    if (slot < 0x311) {
+        if (slot != 0)
+            return -3;
+
+        obj->field08->field48 = 1;
+
+        obj->field1c = 0x20;
+        obj->field20 = 0x20;
+        randu_minimum(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x311;
+        thread->fieldfc = obj->field1c;
+        return (long)obj->field1c;
+    }
+
+    if (slot == 0x317) {
+        obj->field08->field24 = swat_people[obj->field48 - 1];
+
+        obj->field38          = 0x80000;
+        obj->field08->field18 = 0x80000;
+
+        obj->field1c = *(uint32_t *)(G_BYTES + 0x468) - 0x50;
+        MK3_SET_FIELD0E(obj->field08, obj->field1c);
+
+        obj->field40 = 0x46;
+        get_char_ani(obj);
+
+        obj->field1c = 3;
+        init_anirate(obj);
+
+        obj->a10 = 0xa0;
+        goto walk;
+    }
+
+    if (slot != 0x343)
+        return -3;
+
+    next_anirate(obj);
+
+    obj->a10 = obj->a10 - 1;
+    if (obj->a10 == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x348;
+        thread->fieldfc = 0x16462;
+        return 0x16462;
+    }
+
+walk:
+    *mk3_frame(thread, thread->frame + 1) = 0x343;
+    thread->fieldfc = 1;
+    return 1;
+}
