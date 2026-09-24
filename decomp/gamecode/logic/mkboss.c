@@ -3497,3 +3497,67 @@ long t_skc_dizzy(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_boss1
+ *
+ * armv7 0x000ac5e0, 260 bytes.  **Complete.**
+ *
+ * Motaro's top-level choice. State 0 only.
+ *
+ * `q_ok_motaro_sweep`; if a sweep would land, roll `bossrandper` at
+ * `0x12c` and a hit installs `t_motaro_sweep`. Otherwise (or on a
+ * miss) measure: within `0x9f` installs `t_boss_close`. Farther rolls
+ * `bossrandper` at `0xc8`: a hit hands the object's own
+ * `field64`/`slave` pair a two-entry move table and pushes
+ * `t_random_do` (resume `0x147`); a miss looks the far attack up in
+ * `mhe_motaro_far_attax` by ladder order and installs WHATEVER THE
+ * TABLE HOLDS -- the one handler in this file that is data, not code.
+ *
+ * Any other token: refused with -2.
+ */
+long t_motaro_sweep(struct MK3THREAD *thread);   /* not yet decompiled */
+long t_boss_close(struct MK3THREAD *thread);     /* not yet decompiled */
+extern MK3THREADFUNC funcs_boss1[];              /* 0x0017b9d4 */
+extern uint32_t mhe_motaro_far_attax[];          /* 0x0017b3b4 */
+
+long t_boss1(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot != 0)
+        return -2;
+
+    q_ok_motaro_sweep(obj);
+    if (obj->field5c != 0) {
+        obj->field1c = 0x12c;
+        bossrandper(obj);
+        if (obj->field5c != 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_motaro_sweep);
+    }
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 <= 0x9f)
+        return mk3_install(thread, (MK3THREADFUNC)t_boss_close);
+
+    obj->field1c = 0xc8;
+    bossrandper(obj);
+    if (obj->field5c != 0) {
+        obj->slave   = (uint32_t)(uintptr_t)funcs_boss1;
+        obj->field64 = 2;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x147;   /* resume token, level above */
+        thread->frame = thread->frame + 1;                /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_random_do;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    obj->field1c = (uint32_t)(uintptr_t)mhe_motaro_far_attax;
+    get_mhe_long(obj);
+    mk3_frame(thread, thread->frame)[1] = obj->field1c;   /* a handler out of a table */
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
