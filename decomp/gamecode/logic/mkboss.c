@@ -4198,3 +4198,105 @@ long t_motaro_tele(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_boss_ease_back
+ *
+ * armv7 0x000aaa44, 364 bytes.  **Complete.**
+ *
+ * Backing off. State 0: `get_walk_info_b` answers a walk animation in
+ * `field24`, a speed in `field20` and an animation rate in `field1c`.
+ * The rate is pushed on the thread's argument stack (`mk3_arg`, cursor
+ * `fieldf8`) while `field1c` is borrowed for `set_x_vel_player` and the
+ * pose is set, then popped back for `init_anirate` -- the only use of
+ * that stack in this file. `a10 = 0x60`, then the loop head:
+ *
+ *     `am_i_facing_him`: facing waits one tick under `0x460`; not
+ *     facing installs `mkdrone.c`'s `t_d_turnaround`.
+ *
+ * `0x460`: `get_x_dist`; beyond `0x100` installs `t_ease5`, otherwise
+ * push (resume `0x465`) `joy.c`'s `t_check_winner_status`.
+ *
+ * `0x465`: `next_anirate`, push (resume `0x467`) `t_d_beware`.
+ *
+ * `0x467`: `get_x_dist` (its answer unused), count `a10` down; not yet
+ * zero goes round the loop head again, zero installs
+ * `t_sk_stance_pause`.
+ *
+ * Any other token: refused with -3.
+ */
+void get_walk_info_b(MK3OBJ *obj);
+void set_x_vel_player(MK3OBJ *obj);
+
+long t_boss_ease_back(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3THREADFUNC handler;
+
+    if (token == 0x460) {
+        get_x_dist(obj);
+        if ((int32_t)obj->field28 > 0x100)
+            return mk3_install(thread, (MK3THREADFUNC)t_ease5);
+
+        *mk3_frame(thread, frame + 1) = 0x465;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_check_winner_status;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x465) {
+        next_anirate(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x467;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_d_beware;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x467) {
+        get_x_dist(obj);
+        obj->a10 = obj->a10 - 1;
+        if (obj->a10 != 0)
+            goto loop_head;
+
+        handler = (MK3THREADFUNC)t_sk_stance_pause;
+        goto install;
+    }
+
+    if (token != 0)
+        return -3;
+
+    get_walk_info_b(obj);
+    *mk3_arg(thread, thread->fieldf8) = obj->field1c;   /* save the rate */
+    thread->fieldf8 = thread->fieldf8 + 1;
+    obj->field40 = obj->field24;
+    obj->field1c = obj->field20;
+    set_x_vel_player(obj);
+    get_char_ani(obj);
+    thread->fieldf8 = thread->fieldf8 - 1;
+    obj->field1c = *mk3_arg(thread, thread->fieldf8);   /* and restore it */
+    init_anirate(obj);
+    obj->a10 = 0x60;
+
+loop_head:
+    am_i_facing_him(obj);
+    if (obj->field5c != 0) {
+        *mk3_frame(thread, frame + 1) = 0x460;
+        thread->fieldfc = 1;
+        return 1;
+    }
+    handler = (MK3THREADFUNC)t_d_turnaround;
+
+    /* One store, two paths: the turnaround comes through pointer slot
+     * 0x000f3420, the stance pause is a direct address. */
+install:
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)handler;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
