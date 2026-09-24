@@ -3783,3 +3783,66 @@ long t_sk_comboed(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_motaro_hit2
+ *
+ * armv7 0x000a99c4, 296 bytes.  **Complete.**
+ *
+ * State 0: `am_i_airborn`; airborne installs `t_motaro_hit_flight`.
+ * Grounded: sounds (`field1c = 0x30002` for both), `away_x_vel`, pose,
+ * push (resume `0x7cc`) into `t_animate_a0_frames`.
+ *
+ * `0x7cc`: wait 6 under `0x7cd`. `0x7cd`: `field1c = 3`, push (resume
+ * `0x7cf`) into `t_mframew`. `0x7cf`: installs
+ * `t_local_reaction_exit`. Any other token: -2.
+ */
+long t_motaro_hit2(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x7cf)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token == 0x7cd) {
+        obj->field1c = 3;
+
+        *mk3_frame(thread, frame + 1) = 0x7cf;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x7cc) {
+        *mk3_frame(thread, frame + 1) = 0x7cd;
+        thread->fieldfc = 6;
+        return 6;
+    }
+
+    if (token != 0)
+        return -2;
+
+    am_i_airborn(obj);
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_motaro_hit_flight);
+
+    rsnd_func(obj, 0xa);
+    obj->field1c = 0x30002;
+    rsnd_ochar_sound(obj);
+    obj->field1c = 0x40000;
+    away_x_vel(obj);
+    obj->field40 = 0x1c;
+    get_char_ani(obj);
+    obj->field1c = 0x30002;
+
+    *mk3_frame(thread, frame + 1) = 0x7cc;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_animate_a0_frames;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
