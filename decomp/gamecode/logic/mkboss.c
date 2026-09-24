@@ -1857,3 +1857,62 @@ long t_motaro_punch(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_motaro_hop
+ *
+ * armv7 0x000aa130, 224 bytes.  **Complete.**
+ *
+ * State 0: sound, `get_x_dist` (whose result lands in `field28`, not
+ * `field1c` -- the compare right after it is against `field1c`, which
+ * is still `2` from the store just above, so the "far" side is dead
+ * in practice; transcribed literally, since the oracle checks the
+ * binary and not what looks intended). The near side (always taken)
+ * pushes `other.c`'s `t_animate_a0_frames`, resume token `0x48a`.
+ *
+ * `0x48a` (animate came back), and the unreachable far side both
+ * converge on the same velocity pair and both install `t_mhop7` on
+ * the current level (no push) -- but they load it with the two
+ * halves swapped (`field20` first vs. `field1c` first), so they are
+ * kept as two physically separate stores rather than merged.
+ *
+ * Any other token: refused with -2.
+ */
+long t_mhop7(struct MK3THREAD *thread);   /* not yet decompiled */
+
+long t_motaro_hop(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token != 0) {
+        if (token != 0x48a)
+            return -2;
+
+        obj->field20 = 0xfffd0000;
+        obj->field1c = obj->field20 - 0x70000;
+        return mk3_install(thread, (MK3THREADFUNC)t_mhop7);
+    }
+
+    obj->field1c = 2;
+    ochar_sound(obj);
+    get_x_dist(obj);
+    obj->field40 = 0x1a;
+
+    if ((int32_t)obj->field1c > 0xdf) {
+        obj->field1c = 0xfff60000;
+        obj->field20 = obj->field1c + 0x30000;
+        return mk3_install(thread, (MK3THREADFUNC)t_mhop7);
+    }
+
+    get_char_ani(obj);
+    obj->field1c = 0x20003;
+
+    *mk3_frame(thread, frame + 1) = 0x48a;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_animate_a0_frames;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
