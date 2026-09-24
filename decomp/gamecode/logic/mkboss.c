@@ -4536,3 +4536,186 @@ stalk:
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_motaro_grab_punch_now
+ *
+ * armv7 0x000aa4f0, 736 bytes.  **Complete.**
+ *
+ * Motaro grabs the opponent and pounds him. Ten states, in order:
+ *
+ *   0      sound, `me_in_front`, `wfe_him`, `stop_him`, pose
+ *          (`field40 = 0x30004`), `t_animate_a9` under `0x518`.
+ *   0x518  `sans_repell_3`, `pose_him_a9` (`field40 = 0x20`); the drag
+ *          speed `field38` is 0, or `0x30000` if the opponent is
+ *          cornered; `away_x_vel` at that speed, `a10 = 6`, then:
+ *   0x528  (one tick a pass) keep him in hand -- `match_him_with_me_f`,
+ *          offset `-0x50`/`0x10`, `adjust_him_xy`, `sans_repell_3` --
+ *          for six passes. Then stop, pose, `field38 = 0x60`, set
+ *          `G`'s halfword at `0x456` to `0x60` as well, and push this
+ *          file's `t_grab_ani` under `0x543` (offset `0x20`/`-0x10`).
+ *   0x543  `t_grab_ani` again, offset `0x23`/`-0x30`, under `0x546`.
+ *   0x546  `t_grab_ani` again, offset 0/0, under `0x549`.
+ *   0x549  `field1c/20/24 = 4/3/2`, push `other.c`'s `t_shake_him_up`
+ *          under `0x54e`.
+ *   0x54e  `field38 = t_drop_down_land_jump`'s address (read from pointer
+ *          slot 0x000f3424 as data -- the takeover's landing routine),
+ *          `takeover_him`, one tick under `0x552`.
+ *   0x552  `away_x_vel_him`, pose, `field54 = 3`, `find_ani_part_a14`,
+ *          `me_in_front`, `t_mframew` under `0x55b`.
+ *   0x55b  `strike_check_a0` (`field1c = 0`), `t_mframew` under `0x560`.
+ *   0x560  installs `t_local_reaction_exit`.
+ *
+ * Any other token: refused with -3.
+ */
+void wfe_him(MK3OBJ *obj);
+void stop_him(MK3OBJ *obj);
+void sans_repell_3(MK3OBJ *obj);
+void pose_him_a9(MK3OBJ *obj);
+void match_him_with_me_f(MK3OBJ *obj);
+void away_x_vel_him(MK3OBJ *obj);
+void find_ani_part_a14(MK3OBJ *obj);
+void takeover_him(MK3OBJ *obj);
+long t_shake_him_up(struct MK3THREAD *thread);   /* pointer slot 0x000f36a4, other.c */
+
+long t_motaro_grab_punch_now(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    switch (token) {
+    case 0:
+        obj->field1c = 2;
+        ochar_sound(obj);
+        me_in_front(obj);
+        wfe_him(obj);
+        stop_him(obj);
+        obj->field40 = 0x30004;
+
+        *mk3_frame(thread, frame + 1) = 0x518;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+
+    case 0x518:
+        sans_repell_3(obj);
+        obj->field40 = 0x20;
+        pose_him_a9(obj);
+        obj->field38 = 0;
+        q_is_he_cornered(obj);
+        if (obj->field5c != 0)
+            obj->field38 = 0x30000;
+        obj->field1c = obj->field38;
+        away_x_vel(obj);
+        obj->a10 = 6;
+        goto hold;
+
+    case 0x528:
+        match_him_with_me_f(obj);
+        obj->field1c = (uint32_t)~0x4f;
+        obj->field20 = (uint32_t)~0x4f + 0x60;
+        adjust_him_xy(obj);
+        sans_repell_3(obj);
+        obj->a10 = obj->a10 - 1;
+        if (obj->a10 != 0)
+            goto hold;
+
+        stop_me_player(obj);
+        obj->field40 = 4;
+        find_ani_part2(obj);
+        obj->field38 = 0x60;
+        *(uint16_t *)(G_BYTES + 0x456) = 0x60;
+        obj->field1c = 0x20;
+        obj->field20 = 0x20 - 0x30;
+
+        *mk3_frame(thread, frame + 1) = 0x543;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_grab_ani;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+
+    case 0x543:
+        obj->field1c = 0x23;
+        obj->field20 = 0x23 - 0x53;
+
+        *mk3_frame(thread, frame + 1) = 0x546;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_grab_ani;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+
+    case 0x546:
+        obj->field1c = 0;
+        obj->field20 = 0;
+
+        *mk3_frame(thread, frame + 1) = 0x549;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_grab_ani;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+
+    case 0x549:
+        obj->field1c = 4;
+        obj->field20 = 3;
+        obj->field24 = 2;
+
+        *mk3_frame(thread, frame + 1) = 0x54e;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_shake_him_up;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+
+    case 0x54e:
+        obj->field38 = (uint32_t)(uintptr_t)t_drop_down_land_jump;
+        takeover_him(obj);
+        *mk3_frame(thread, frame + 1) = 0x552;
+        thread->fieldfc = 1;
+        return 1;
+
+    case 0x552:
+        obj->field1c = 0x20000;
+        away_x_vel_him(obj);
+        obj->field40 = 4;
+        obj->field54 = 3;
+        find_ani_part_a14(obj);
+        me_in_front(obj);
+        obj->field1c = 2;
+
+        *mk3_frame(thread, frame + 1) = 0x55b;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+
+    case 0x55b:
+        obj->field1c = 0;
+        strike_check_a0(obj);
+        obj->field1c = 5;
+
+        *mk3_frame(thread, frame + 1) = 0x560;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+
+    case 0x560:
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    default:
+        return -3;
+    }
+
+hold:
+    *mk3_frame(thread, frame + 1) = 0x528;
+    thread->fieldfc = 1;
+    return 1;
+}
