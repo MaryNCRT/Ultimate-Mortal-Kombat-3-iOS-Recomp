@@ -1916,3 +1916,66 @@ long t_motaro_hop(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_b_block
+ *
+ * armv7 0x000a9cfc, 224 bytes.  **Complete.**
+ *
+ * State 0: `face_opponent`, push (plants resume token `0x759` at the
+ * level above, descends into `mkstat.c`'s `t_do_block_hi`).
+ *
+ * `0x759` (block-high came back): `a10 = 0x40`, push again -- resume
+ * token `0x75b`, descends into `mkdrone.c`'s `t_d_wait_nonattack`.
+ *
+ * `0x75b` (wait-nonattack came back): `get_x_dist`; far installs
+ * `t_local_reaction_exit` on the current level, close installs
+ * `t_motaro_grab_punch` instead -- one physical install site, two
+ * literal handlers, reached from both branches.
+ *
+ * Any other token: refused with -2.
+ */
+void face_opponent(MK3OBJ *obj);
+long t_do_block_hi(struct MK3THREAD *thread);
+long t_d_wait_nonattack(struct MK3THREAD *thread);   /* not yet decompiled, mkdrone.c */
+
+long t_b_block(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3THREADFUNC handler;
+
+    if (token == 0x759) {
+        obj->a10 = 0x40;
+
+        *mk3_frame(thread, frame + 1) = 0x75b;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_d_wait_nonattack;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x75b) {
+        get_x_dist(obj);
+        if ((int32_t)obj->field28 > 0x7f)
+            handler = (MK3THREADFUNC)t_local_reaction_exit;
+        else
+            handler = (MK3THREADFUNC)t_motaro_grab_punch;
+
+        return mk3_install(thread, handler);
+    }
+
+    if (token != 0)
+        return -2;
+
+    face_opponent(obj);
+
+    *mk3_frame(thread, frame + 1) = 0x759;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_do_block_hi;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
