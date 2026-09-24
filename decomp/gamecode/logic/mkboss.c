@@ -3105,3 +3105,54 @@ long t_sk_hammer(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_mc_fk_sd
+ *
+ * armv7 0x000abbf4, 208 bytes.  **Complete.**
+ *
+ * State 0: `field1c = 0x1f4`, `bossrandper`; a miss installs
+ * `t_return_to_beware`. A hit checks distance -- far installs
+ * `t_return_to_beware` too, close sets `a10 = 0x40` and `field48` to
+ * `is_he_airborn`'s own address (a raw function pointer parked in a
+ * counter field, the same "borrow a scratch field for something else
+ * entirely" this file does everywhere), then pushes `mkdrone.c`'s
+ * `t_stance_wait_no`, resume token `0x698`.
+ *
+ * `0x698`: installs `t_motaro_grab_punch_now` on the current level.
+ *
+ * Any other token: refused with -2.
+ */
+long t_stance_wait_no(struct MK3THREAD *thread);   /* not yet decompiled, mkdrone.c */
+
+long t_mc_fk_sd(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x698)
+        return mk3_install(thread, (MK3THREADFUNC)t_motaro_grab_punch_now);
+
+    if (token != 0)
+        return -2;
+
+    obj->field1c = 0x1f4;
+    bossrandper(obj);
+    if (obj->field5c == 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_return_to_beware);
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0x90)
+        return mk3_install(thread, (MK3THREADFUNC)t_return_to_beware);
+
+    obj->a10     = 0x40;
+    obj->field48 = (uint32_t)(uintptr_t)is_he_airborn;
+
+    *mk3_frame(thread, frame + 1) = 0x698;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_stance_wait_no;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
