@@ -2505,3 +2505,49 @@ long t_sk_collapse(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_skc_zap
+ *
+ * armv7 0x000abf7c, 132 bytes.  **Complete.**
+ *
+ * State 0 only: `field1c = 0x320`, `bossrandper`; a miss installs
+ * `t_return_to_beware`. A hit rolls `sk_counter_randper`; a miss there
+ * installs `t_sk_block_zap`. A hit checks distance -- close installs
+ * `t_sk_charge`, far installs `t_sk_zap` -- one physical install
+ * site, four converging paths.
+ *
+ * Any other token: refused with -2.
+ */
+long t_sk_block_zap(struct MK3THREAD *thread);   /* not yet decompiled */
+
+long t_skc_zap(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+    MK3THREADFUNC handler;
+
+    if (slot != 0)
+        return -2;
+
+    obj->field1c = 0x320;
+    bossrandper(obj);
+    if (obj->field5c == 0) {
+        handler = (MK3THREADFUNC)t_return_to_beware;
+        return mk3_install(thread, handler);
+    }
+
+    sk_counter_randper(obj);
+    if (obj->field5c == 0) {
+        handler = (MK3THREADFUNC)t_sk_block_zap;
+        return mk3_install(thread, handler);
+    }
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0x6f)
+        handler = (MK3THREADFUNC)t_sk_zap;
+    else
+        handler = (MK3THREADFUNC)t_sk_charge;
+
+    return mk3_install(thread, handler);
+}
