@@ -1889,7 +1889,7 @@ long t_motaro_punch(MK3THREAD *thread)
  *
  * Any other token: refused with -2.
  */
-long t_mhop7(struct MK3THREAD *thread);   /* not yet decompiled */
+long t_mhop7(struct MK3THREAD *thread);
 
 long t_motaro_hop(MK3THREAD *thread)
 {
@@ -3632,4 +3632,83 @@ long t_motaro_sweep(MK3THREAD *thread)
         (uint32_t)(uintptr_t)t_striker;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
+}
+
+
+/* --------------------------------------------------------------------- t_mot_sweep_hit
+ *
+ * armv7 0x000ac000, 308 bytes.  **Complete.**
+ *
+ * What Motaro does after a sweep connects. State 0 waits 8 ticks
+ * under `0x428`; `0x428` runs `t_mframew` (resume `0x42a`); `0x42a`
+ * waits 10 under `0x42b`; `0x42b` runs `t_mframew` again (resume
+ * `0x42d`).
+ *
+ * `0x42d` decides the follow-up: `mkdrone.c`'s `d_front_me_a5` leaves
+ * a distance in `field30`. Nearer than `0x120` installs
+ * `t_motaro_hip_jump`; farther rolls `bossrandper` at `0x1f4`, a hit
+ * installing `t_motaro_hip_jump` too and a miss setting up a hop
+ * (`field1c = -10.0`, `field20 = -11.0` in 16.16, `field40 = 0x1a`)
+ * and installing `t_mhop7`.
+ *
+ * Any other token: refused with -2.
+ */
+void d_front_me_a5(MK3OBJ *obj);   /* not yet decompiled, mkdrone.c */
+
+long t_mot_sweep_hit(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x42d) {
+        d_front_me_a5(obj);
+        if ((int32_t)obj->field30 < 0x120)
+            return mk3_install(thread, (MK3THREADFUNC)t_motaro_hip_jump);
+
+        obj->field1c = 0x1f4;
+        bossrandper(obj);
+        if (obj->field5c != 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_motaro_hip_jump);
+
+        obj->field1c = 0xfff60000;
+        obj->field20 = obj->field1c - 0x10000;
+        obj->field40 = 0x1a;
+        return mk3_install(thread, (MK3THREADFUNC)t_mhop7);
+    }
+
+    if (token == 0x42b) {
+        obj->field1c = 4;
+
+        *mk3_frame(thread, frame + 1) = 0x42d;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x42a) {
+        *mk3_frame(thread, frame + 1) = 0x42b;
+        thread->fieldfc = 0xa;
+        return 0xa;
+    }
+
+    if (token == 0x428) {
+        obj->field1c = 4;
+
+        *mk3_frame(thread, frame + 1) = 0x42a;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -2;
+
+    *mk3_frame(thread, frame + 1) = 0x428;
+    thread->fieldfc = 8;
+    return 8;
 }
