@@ -85,11 +85,10 @@ four that contradicted a hand-written runtime definition.
 
 The menu is drawn. What is left, in order:
 
-1. **`gamecode/logic`, 1,877 of 2,172.** The fight engine, and by a wide margin
-   the largest block left. Nineteen of its twenty-one files are closed
-   (`mkreact.c`, `playback.c`, `mkzap.c` and `mkfriend.c` since joined that
-   list); `mkdrone.c` (237 left) and `mkboss.c` (58) are the whole of the
-   rest.
+1. **`gamecode/logic`, 1,935 of 2,172.** The fight engine, and by a wide margin
+   the largest block left. Twenty of its twenty-one files are closed
+   (`mkreact.c`, `playback.c`, `mkzap.c`, `mkfriend.c` and `mkboss.c` since
+   joined that list); `mkdrone.c` (237 left) is the whole of the rest.
 
    **For a minimal playable scene the number is much smaller and it has been
    measured, not estimated.** All fifteen logic files were compiled to objects
@@ -152,10 +151,10 @@ one**, and only one of them has ever been measured.
 ## Overall progress
 
 ```
-███████████████████████████████░░░░░░░░░  76.63%
+███████████████████████████████░░░░░░░░░  76.64%
 ```
 
-**76.63% of the total estimated effort. Nothing is playable yet.**
+**76.64% of the total estimated effort. Nothing is playable yet.**
 
 Weights are our judgement of how much of the total each area represents. The
 three decompilation figures are **measured from the tree** by
@@ -176,7 +175,7 @@ done; the second says the fight engine is now more than three-quarters written.
 | Asset format specifications | 8% | 100% | `██████████` |
 | `lime/common` — engine core (109 fn) | 12% | **100%** | `██████████` |
 | `gamecode` — game logic (291 fn) | 18% | **100%** | `██████████` |
-| `gamecode/logic` — fight engine (2,172 fn) | 28% | 89.04% (1934) | `█████████░` |
+| `gamecode/logic` — fight engine (2,172 fn) | 28% | 89.09% (1935) | `█████████░` |
 | Native PC platform layer (161 fn to rewrite) | 17% | 10% | `█░░░░░░░░░` |
 | EA SDK stubs (~1,412 fn) | 5% | 0% | `░░░░░░░░░░` |
 

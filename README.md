@@ -172,7 +172,7 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ## Overall progress
 
 ```
-███████████████████████████████░░░░░░░░░  76.63%
+███████████████████████████████░░░░░░░░░  76.64%
 ```
 
 | Area | Weight | Done | |
@@ -182,11 +182,11 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 | Asset format specifications | 8% | 100% | `██████████` |
 | `lime/common` — engine core (109 fn) | 12% | **100%** | `██████████` |
 | `gamecode` — game logic (291 fn) | 18% | **100%** | `██████████` |
-| `gamecode/logic` — fight engine (2,172 fn) | 28% | 89.04% (1934) | `█████████░` |
+| `gamecode/logic` — fight engine (2,172 fn) | 28% | 89.09% (1935) | `█████████░` |
 | Native PC platform layer (161 fn to rewrite) | 17% | 10% | `█░░░░░░░░░` |
 | EA SDK stubs (~1,412 fn) | 5% | 0% | `░░░░░░░░░░` |
 
-**76.63% of the total estimated effort. Nothing is playable yet.**
+**76.64% of the total estimated effort. Nothing is playable yet.**
 
 **The middle three rows are counted, the rest are estimates.** `tools/progress.py`
 reads the tree on every run for `lime/common`, `gamecode` and `gamecode/logic`;
@@ -211,19 +211,25 @@ even though it renders no pixels.
 body; all nine of its files are also verified against the recompiled original.
 
 **Why the number is still not high.** The fight engine is 2,172 functions on
-its own and 295 of them have no body yet, which is where nearly all of the
-remaining work is. Two files hold all of it:
+its own and 237 of them have no body yet, which is where nearly all of the
+remaining work is. One file holds all of it:
 
 | | missing | what it is |
 |---|---:|---|
 | `mkdrone.c` | 237 | the AI opponent |
-| `mkboss.c` | 58 | Motaro and Shao Kahn |
 
-Nineteen of the twenty-one files are finished, including the three largest --
+Twenty of the twenty-one files are finished, including the three largest --
 `moves.c`, `other.c` and `mkfatal.c` -- plus `joy.c` (the input layer),
-`mkbonus.c`, `mkreact.c`, `playback.c`, `mkzap.c` and `mkfriend.c`, all closed
-since the count above stood at eight. So the count is further along than the
-shape of the list suggests. Realistically the rest is still months of work.
+`mkbonus.c`, `mkreact.c`, `playback.c`, `mkzap.c`, `mkfriend.c` and `mkboss.c`
+(Motaro and Shao Kahn), all closed since the count above stood at eight. So
+the count is further along than the shape of the list suggests. Realistically
+the rest is still months of work.
+
+One caveat on "verified". The oracle compares stores, handlers, state tokens
+and calls; it does not compare return values, and it cannot see a handler the
+binary fetches through a pointer slot. Both gaps let real mistakes through
+while closing `mkboss.c`, so `tools/handlercheck.py` now checks handler names
+against the image, and return values are checked by eye.
 
 ### `lime/common` is complete — and here is what that does and does not mean
 
