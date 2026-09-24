@@ -2142,3 +2142,181 @@ push_371:
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_sk_air_charge
+ *
+ * armv7 0x000ab008, 520 bytes.  **Complete.**
+ *
+ * State 0: special-move setup (`init_special`, sounds, `set_nocol`,
+ * pose, a frame step), re-arms `0x383` and sleeps 3.
+ *
+ * `0x383`: a frame step, re-arms `0x385` and sleeps 3.
+ *
+ * `0x385`: `init_anirate`, a fireball via `create_fx` -- this one also
+ * pokes `field20` and, oddly, `field08->field1c` (the OPPONENT's own
+ * scratch field, not this object's) with the same constant --
+ * `towards_x_vel`, `a10 = 4`, `field48 = 0x10`, re-arms `0x397` and
+ * sleeps 1.
+ *
+ * `0x397`: `next_anirate`, counts `a10` down. At 0: `a10 = 1`,
+ * `field1c = 5`, `strike_check_a0`; a miss rejoins the `field48`
+ * countdown below; a hit clears `nocol`, stops the player, poses on
+ * the last frame, re-arms `0x3a9` and sleeps 24. Otherwise counts
+ * `field48` down; still positive loops back into `0x385`'s own
+ * re-arm-and-sleep tail (same physical store, reached two ways).
+ *
+ * `field48 == 0`: `clear_nocol`, `am_i_facing_him`; not facing stops
+ * the player and re-arms `0x3cd` -- the same tail `0x3c6` falls into
+ * when ITS `field48` countdown reaches 0. Facing sets `field48 = 8`
+ * and falls into the `0x3c6` setup: splits `field08->field18` (its
+ * absolute value) three ways into `field20/24/1c`, `towards_x_vel`,
+ * re-arms `0x3c6`, sleeps 1.
+ *
+ * `0x3c6`: counts `field48` down; still positive repeats the setup
+ * above; at 0 shares the "not facing" tail.
+ *
+ * `0x3cd` or `0x3a9`: pose, `find_ani_part2`, a frame step, installs
+ * `mkslam.c`'s `t_drop_down_land_jump` on the current level (no push)
+ * -- one physical install, two tokens reaching it.
+ *
+ * Any other token: refused with -2.
+ */
+void set_nocol(MK3OBJ *obj);
+void clear_nocol(MK3OBJ *obj);
+long t_drop_down_land_jump(struct MK3THREAD *thread);
+
+long t_sk_air_charge(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    int32_t  r3;
+
+    if (token == 0x3cd || token == 0x3a9) {
+        obj->field40 = 0x14;
+        find_ani_part2(obj);
+        do_next_a9_frame(obj);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_drop_down_land_jump);
+    }
+
+    if (token > 0x397) {
+        if (token == 0x3c6)
+            goto state_3c6;
+        return -2;
+    }
+
+    if (token == 0x397)
+        goto state_397;
+
+    if (token == 0x383) {
+        do_next_a9_frame(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x385;
+        thread->fieldfc = 3;
+        return 3;
+    }
+
+    if (token == 0x385) {
+        obj->field1c = 4;
+        init_anirate(obj);
+        obj->field1c = 1;
+        create_fx(obj);
+        obj->field20        = 0xfffc0000;
+        obj->field08->field1c = 0xfffc0000;
+        obj->field1c = 0xa0000;
+        towards_x_vel(obj);
+        obj->a10    = 4;
+        obj->field48 = 0x10;
+
+rearm_397:
+        *mk3_frame(thread, frame + 1) = 0x397;
+        thread->fieldfc = 1;
+        return 1;
+    }
+
+    if (token != 0)
+        return -2;
+
+    init_special(obj);
+    obj->field1c = token;   /* 0, leftover */
+    group_sound(obj);
+    obj->field1c = token;   /* 0, leftover, again */
+    ochar_sound(obj);
+    set_nocol(obj);
+    obj->field40 = 0x14;
+    get_char_ani(obj);
+    do_next_a9_frame(obj);
+
+    *mk3_frame(thread, frame + 1) = 0x383;
+    thread->fieldfc = 3;
+    return 3;
+
+state_397:
+    next_anirate(obj);
+    obj->a10 = obj->a10 - 1;
+    if ((int32_t)obj->a10 == 0) {
+        obj->a10 = 1;
+        obj->field1c = 5;
+        strike_check_a0(obj);
+        if (obj->field5c == 0)
+            goto decrement_field48_385;
+
+        clear_nocol(obj);
+        stop_me_player(obj);
+        obj->field40 = 0x14;
+        get_char_ani(obj);
+        find_last_frame(obj);
+        do_next_a9_frame(obj);
+
+        *mk3_frame(thread, frame + 1) = 0x3a9;
+        thread->fieldfc = 0x18;
+        return 0x18;
+    }
+
+decrement_field48_385:
+    obj->field48 = obj->field48 - 1;
+    if ((int32_t)obj->field48 != 0)
+        goto rearm_397;
+
+    clear_nocol(obj);
+    am_i_facing_him(obj);
+    if (obj->field5c == 0) {
+stop_and_rearm_3cd:
+        stop_me_player(obj);
+        *mk3_frame(thread, frame + 1) = 0x3cd;
+        thread->fieldfc = 8;
+        return 8;
+    }
+
+    obj->field48 = 8;
+
+setup_3c6:
+    r3 = (int32_t)obj->field08->field18;
+    obj->field1c = (uint32_t)r3;
+    if (r3 < 0)
+        obj->field1c = (uint32_t)(-r3);
+
+    {
+        int32_t v   = (int32_t)obj->field1c;
+        int32_t a   = v >> 2;
+        int32_t rem = v - a;
+        int32_t b   = rem >> 3;
+
+        obj->field20 = (uint32_t)a;
+        obj->field24 = (uint32_t)b;
+        obj->field1c = (uint32_t)(rem - b);
+    }
+    towards_x_vel(obj);
+
+    *mk3_frame(thread, frame + 1) = 0x3c6;
+    thread->fieldfc = 1;
+    return 1;
+
+state_3c6:
+    obj->field48 = obj->field48 - 1;
+    if ((int32_t)obj->field48 != 0)
+        goto setup_3c6;
+    goto stop_and_rearm_3cd;
+}
