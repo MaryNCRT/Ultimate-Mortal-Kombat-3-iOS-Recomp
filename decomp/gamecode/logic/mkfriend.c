@@ -1011,3 +1011,51 @@ long t_popup(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_f_sheeva
+ *
+ * armv7 0x000a5cb4, 216 bytes.  **Complete.**
+ *
+ * The free spawns a separate `t_end_friend_proc` thread, points
+ * `field40` at `a_sg_friend`, and pushes `t_mframew_5` under `0x515`.
+ * `0x515` poses (`field1c=6`), plays `ochar_sound`, and pushes
+ * `t_mframew_5` AGAIN under `0x518` -- a second, plain pose-and-wait
+ * step rather than a loop, the same handler reused twice with different
+ * tokens. `0x518` installs `t_friendship_complete` directly.
+ */
+extern uint8_t a_sg_friend[];                /* 0x00177dd8 */
+
+long t_f_sheeva(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0x515) {
+        obj->field1c = 6;
+        ochar_sound(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x518;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew_5;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0x518)
+        return mk3_install(thread, (MK3THREADFUNC)t_friendship_complete);
+
+    if (slot != 0)
+        return -3;
+
+    NewThread(obj, (MK3THREADFUNC)t_end_friend_proc);
+    obj->field40 = (uint32_t)(uintptr_t)a_sg_friend;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x515;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_mframew_5;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
