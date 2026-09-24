@@ -2835,3 +2835,60 @@ long t_motaro_stumble(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_sk_hit1
+ *
+ * armv7 0x000a9388, 220 bytes.  **Complete.**
+ *
+ * State 0: `rsnd_func(obj, 8)`, `field48 = 0x40004`, `shake_a11`,
+ * `field1c = 6`, `group_sound`, push (resume token `0x868`) into this
+ * file's own `t_sk_airborn_check`.
+ *
+ * `0x868` (airborn check came back): `field1c = 0x40000`, `away_x_vel`,
+ * pose, pushes `other.c`'s `t_animate_a9`, resume token `0x86d`.
+ *
+ * `0x86d` (animate came back): installs `t_local_reaction_exit` on
+ * the current level -- also reachable directly, sharing that single
+ * physical install with the push above.
+ *
+ * Any other token: refused with -2.
+ */
+long t_sk_hit1(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x868) {
+        obj->field1c = 0x40000;
+        away_x_vel(obj);
+        obj->field40 = 0x4001c;
+
+        *mk3_frame(thread, frame + 1) = 0x86d;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x86d)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token != 0)
+        return -2;
+
+    rsnd_func(obj, 8);
+    obj->field48 = 0x40004;
+    shake_a11(obj);
+    obj->field1c = 6;
+    group_sound(obj);
+
+    *mk3_frame(thread, frame + 1) = 0x868;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_sk_airborn_check;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
