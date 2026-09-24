@@ -329,9 +329,15 @@ long t_mc_sg_pounce(MK3THREAD *thread)
  *      if (frame[frame+1].w0 != 0) return -3
  *      obj->field1c = 0x2bc
  *      bossrandper(obj)
- *      frame[frame].handler = t_sk_kick
+ *      frame[frame].handler = hit ? t_sk_kick : t_return_to_beware
  *      frame[frame+1].w0 = 0
+ *
+ * **Corrected.** This was first written as an unconditional install of
+ * `t_sk_kick`; the binary branches on the roll, and a miss installs
+ * `t_return_to_beware` (pointer slot 0x000f3428).
  */
+
+long t_return_to_beware(struct MK3THREAD *thread);   /* pointer slot 0x000f3428 */
 
 long t_skc_sg_pounce_sd(MK3THREAD *thread)
 {
@@ -342,8 +348,10 @@ long t_skc_sg_pounce_sd(MK3THREAD *thread)
 
     obj->field1c = 0x2bc;
     bossrandper(obj);
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_sk_kick);
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_sk_kick);
+    return mk3_install(thread, (MK3THREADFUNC)t_return_to_beware);
 }
 
 
@@ -1188,14 +1196,16 @@ no:
  *
  * armv7 0x000a8d8c, 84 bytes.  **Complete.**
  *
- * State 0 only. Close (`field28 <= 0x80`) installs `t_motaro_slided`
- * (pointer slot `0x000f3418`); further away installs `t_d_block`
- * (`0x000f3428`, the same slot `t_b_return_to_beware_4get` reads) --
+ * State 0 only. Close (`field28 <= 0x80`) installs `t_d_block`
+ * (pointer slot `0x000f3418`); further away installs
+ * `t_return_to_beware` (`0x000f3428`) -- **corrected**: the two slots
+ * were first read the wrong way round, as `t_motaro_slided` and
+ * `t_d_block`, which the oracle cannot see through a pointer slot --
  * one physical install site, two literal pointers, reached from both
  * branches.
  */
-long t_motaro_slided(struct MK3THREAD *thread);       /* pointer slot 0x000f3418 */
-long t_d_block(struct MK3THREAD *thread);             /* pointer slot 0x000f3428 */
+long t_motaro_slided(struct MK3THREAD *thread);
+long t_d_block(struct MK3THREAD *thread);             /* pointer slot 0x000f3418 */
 
 long t_mc_flipk_away(MK3THREAD *thread)
 {
@@ -1208,9 +1218,9 @@ long t_mc_flipk_away(MK3THREAD *thread)
 
     get_x_dist(obj);
     if ((int32_t)obj->field28 > 0x80)
-        handler = (MK3THREADFUNC)t_d_block;
+        handler = (MK3THREADFUNC)t_return_to_beware;
     else
-        handler = (MK3THREADFUNC)t_motaro_slided;
+        handler = (MK3THREADFUNC)t_d_block;
 
     return mk3_install(thread, handler);
 }
@@ -1283,7 +1293,7 @@ long t_mc_hover(MK3THREAD *thread)
  * armv7 0x000ab8e8, 92 bytes.  **Complete.**
  *
  * State 0 only. Rolls `motaro_randper` (unused), then close (`field28
- * <= 0x70`) installs `t_motaro_slided`, far installs
+ * <= 0x70`) installs `t_d_block` (slot 0x000f3418), far installs
  * `t_b_return_to_beware_4get`.
  */
 long t_mc_propell_ls(MK3THREAD *thread)
@@ -1301,7 +1311,7 @@ long t_mc_propell_ls(MK3THREAD *thread)
     if ((int32_t)obj->field28 > 0x70)
         handler = (MK3THREADFUNC)t_b_return_to_beware_4get;
     else
-        handler = (MK3THREADFUNC)t_motaro_slided;
+        handler = (MK3THREADFUNC)t_d_block;
 
     return mk3_install(thread, handler);
 }
@@ -1312,7 +1322,7 @@ long t_mc_propell_ls(MK3THREAD *thread)
  * armv7 0x000a8e34, 84 bytes.  **Complete.**
  *
  * State 0 only, Shao Kahn's twin: close (`field28 <= 0x90`) installs
- * `t_motaro_slided`, far installs `t_b_return_to_beware_4get`.
+ * `t_d_block` (slot 0x000f3418), far installs `t_b_return_to_beware_4get`.
  */
 long t_skc_propell(MK3THREAD *thread)
 {
@@ -1327,7 +1337,7 @@ long t_skc_propell(MK3THREAD *thread)
     if ((int32_t)obj->field28 > 0x90)
         handler = (MK3THREADFUNC)t_b_return_to_beware_4get;
     else
-        handler = (MK3THREADFUNC)t_motaro_slided;
+        handler = (MK3THREADFUNC)t_d_block;
 
     return mk3_install(thread, handler);
 }
@@ -1340,7 +1350,7 @@ long t_skc_propell(MK3THREAD *thread)
  * State 0 only. `sk_randper` answers in `field5c`; a hit installs
  * `t_return_to_beware` directly (the same pointer slot
  * `t_b_return_to_beware_4get` reaches by name). A miss falls to
- * distance: close (`field28 <= 0x70`) installs `t_motaro_slided`, far
+ * distance: close (`field28 <= 0x70`) installs `t_d_block`, far
  * installs `t_b_return_to_beware_4get` -- one physical install site,
  * three literal targets, reached from all three branches.
  */
@@ -1365,7 +1375,7 @@ long t_skc_stationary(MK3THREAD *thread)
     if ((int32_t)obj->field28 > 0x70)
         handler = (MK3THREADFUNC)t_b_return_to_beware_4get;
     else
-        handler = (MK3THREADFUNC)t_motaro_slided;
+        handler = (MK3THREADFUNC)t_d_block;
 
     return mk3_install(thread, handler);
 }
@@ -2785,7 +2795,7 @@ long t_boss_stalk(MK3THREAD *thread)
  *
  * `0x816` (animate came back): `back_to_normal`, `field1c = field20 =
  * 0x10`, `randu_minimum` (its answer read back from `field1c` into
- * `a10`), pushes `mkdrone.c`'s `t_d_beware`, resume token `0x81e`.
+ * `a10`), pushes `mkdrone.c`'s `t_d_stance_pause`, resume token `0x81e`.
  *
  * `0x81e` (beware came back): installs `t_local_reaction_exit` on the
  * current level -- also reachable directly, sharing that single
@@ -2812,7 +2822,7 @@ long t_motaro_stumble(MK3THREAD *thread)
         *mk3_frame(thread, frame + 1) = 0x81e;   /* resume token, level above */
         thread->frame = thread->frame + 1;        /* push a level */
         mk3_frame(thread, thread->frame)[1] =
-            (uint32_t)(uintptr_t)t_d_beware;
+            (uint32_t)(uintptr_t)t_d_stance_pause;
         *mk3_frame(thread, thread->frame + 1) = 0;
         return 0;
     }
@@ -2900,7 +2910,7 @@ long t_sk_hit1(MK3THREAD *thread)
  * State 0 only: `q_is_this_a_joke`; a hit installs `t_return_to_beware`.
  * A miss checks `is_towards_me` -- not towards installs
  * `t_mc_flipk_away` directly. Towards checks distance -- far installs
- * `t_mc_flipk_away` too, close sets `field64`/`slave` (the object's
+ * `t_b_return_to_beware_4get`, close sets `field64`/`slave` (the object's
  * OWN copy of the count-and-table pair, not `field00`'s) and pushes
  * `t_random_do`, resume token `0x711` -- three of the four paths
  * converge on the same physical install site.
@@ -2927,7 +2937,7 @@ long t_mc_flipkp(MK3THREAD *thread)
 
     get_x_dist(obj);
     if ((int32_t)obj->field28 > 0x70)
-        return mk3_install(thread, (MK3THREADFUNC)t_mc_flipk_away);
+        return mk3_install(thread, (MK3THREADFUNC)t_b_return_to_beware_4get);
 
     obj->slave   = (uint32_t)(uintptr_t)funcs_mc_flipkp;
     obj->field64 = 2;
@@ -2951,7 +2961,7 @@ long t_mc_flipkp(MK3THREAD *thread)
  *
  * `0x78c` (animate came back): `field1c = field20 = 0x10`,
  * `randu_minimum` (its answer read back from `field1c` into `a10`),
- * pushes `mkdrone.c`'s `t_d_beware`, resume token `0x792`.
+ * pushes `mkdrone.c`'s `t_d_stance_pause`, resume token `0x792`.
  *
  * `0x792` (beware came back): installs `t_local_reaction_exit` on the
  * current level -- also reachable directly, sharing that single
@@ -2974,7 +2984,7 @@ long t_motaro_flip_kicked(MK3THREAD *thread)
         *mk3_frame(thread, frame + 1) = 0x792;   /* resume token, level above */
         thread->frame = thread->frame + 1;        /* push a level */
         mk3_frame(thread, thread->frame)[1] =
-            (uint32_t)(uintptr_t)t_d_beware;
+            (uint32_t)(uintptr_t)t_d_stance_pause;
         *mk3_frame(thread, thread->frame + 1) = 0;
         return 0;
     }
@@ -3387,7 +3397,7 @@ long t_sk_kick(MK3THREAD *thread)
  * `other.c`'s `t_animate_a9`.
  *
  * `0x7b1`: `field1c = field20 = 0x10`, `randu_minimum` into `a10`,
- * push (resume `0x7b7`) into `mkdrone.c`'s `t_d_beware`.
+ * push (resume `0x7b7`) into `mkdrone.c`'s `t_d_stance_pause`.
  *
  * `0x7b7`: installs `t_local_reaction_exit`. Any other token: -3.
  */
@@ -3406,7 +3416,7 @@ long t_motaro_upcutted(MK3THREAD *thread)
         *mk3_frame(thread, frame + 1) = 0x7b7;   /* resume token, level above */
         thread->frame = thread->frame + 1;        /* push a level */
         mk3_frame(thread, thread->frame)[1] =
-            (uint32_t)(uintptr_t)t_d_beware;
+            (uint32_t)(uintptr_t)t_d_stance_pause;
         *mk3_frame(thread, thread->frame + 1) = 0;
         return 0;
     }
@@ -3449,7 +3459,7 @@ long t_motaro_upcutted(MK3THREAD *thread)
  * `q_is_he_dizzy_boss`'s address in `field48` (the wait's own test)
  * and pushes `mkdrone.c`'s `t_stance_wait_no`, resume `0x5f6`.
  *
- * `0x5f6`: `a10 = 0x40`, push (resume `0x5f8`) into `t_d_beware`.
+ * `0x5f6`: `a10 = 0x40`, push (resume `0x5f8`) into `t_d_stance_pause`.
  *
  * `0x5f8`: installs `t_local_reaction_exit`. Any other token: -3.
  */
@@ -3465,7 +3475,7 @@ long t_skc_dizzy(MK3THREAD *thread)
         *mk3_frame(thread, frame + 1) = 0x5f8;   /* resume token, level above */
         thread->frame = thread->frame + 1;        /* push a level */
         mk3_frame(thread, thread->frame)[1] =
-            (uint32_t)(uintptr_t)t_d_beware;
+            (uint32_t)(uintptr_t)t_d_stance_pause;
         *mk3_frame(thread, thread->frame + 1) = 0;
         return 0;
     }
@@ -3947,7 +3957,7 @@ long t_motaro_comboed(MK3THREAD *thread)
  * `field1c = 3`, push (resume `0x400`) into `t_mframew`.
  *
  * `0x400`: `randu_minimum` from `0x10` into `a10`, push (resume
- * `0x406`) into `mkdrone.c`'s `t_d_beware`. `0x406`: installs
+ * `0x406`) into `mkdrone.c`'s `t_d_stance_pause`. `0x406`: installs
  * `t_local_reaction_exit`. Any other token: refused with -3.
  */
 void randu(MK3OBJ *obj);
@@ -3971,7 +3981,7 @@ long t_sk_taunt(MK3THREAD *thread)
         *mk3_frame(thread, frame + 1) = 0x406;   /* resume token, level above */
         thread->frame = thread->frame + 1;        /* push a level */
         mk3_frame(thread, thread->frame)[1] =
-            (uint32_t)(uintptr_t)t_d_beware;
+            (uint32_t)(uintptr_t)t_d_stance_pause;
         *mk3_frame(thread, thread->frame + 1) = 0;
         return 0;
     }
