@@ -1532,3 +1532,133 @@ long t_boss_close_miss(MK3THREAD *thread)
     thread->fieldfc = 8;
     return 8;
 }
+
+
+/* --------------------------------------------------------------------- t_motaro_hip_jump
+ *
+ * armv7 0x000a8890, 152 bytes.  **Complete.**
+ *
+ * State 0 arms `0x4c1` and pushes `joy.c`'s own `t_check_winner_status`
+ * (pointer slot `0x000f37a8`), keeping the caller's own frame index
+ * (`ip`) for the pop; `0x4c3` -- reached either from `0x4c1` popping
+ * back (frame<=0 special-cased directly here, no shared "pop or exit"
+ * helper) or from direct dispatch -- pushes `t_motaro_hip_jsrp`.
+ */
+long t_check_winner_status(struct MK3THREAD *thread);   /* pointer slot 0x000f37a8, joy.c */
+long t_motaro_hip_jsrp(struct MK3THREAD *thread);         /* not yet decompiled */
+
+long t_motaro_hip_jump(MK3THREAD *thread)
+{
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0x4c1) {
+        *mk3_frame(thread, frame + 1) = 0x4c3;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_check_winner_status;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0x4c3) {
+        mk3_frame(thread, frame)[1] = (uint32_t)(uintptr_t)t_local_reaction_exit;
+        *mk3_frame(thread, frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0)
+        return -3;
+
+    *mk3_frame(thread, frame + 1) = 0x4c1;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_motaro_hip_jsrp;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* --------------------------------------------------------------------- t_grab_ani
+ *
+ * armv7 0x000aa7f4, 116 bytes.  **Complete.**
+ *
+ * State 0: `adjust_him_xy`, step a frame, pose `field1c=6`, wait 6
+ * ticks under `0x503`. `0x503` is the ordinary "pop a level, or
+ * install `t_local_reaction_exit` at the bottom" tail.
+ */
+void adjust_him_xy(MK3OBJ *obj);
+long do_next_a9_frame(MK3OBJ *obj);
+
+long t_grab_ani(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t slot  = *mk3_frame(thread, frame + 1);
+
+    if (slot == 0x503) {
+        if ((long)thread->frame > 0) {
+            thread->frame = thread->frame - 1;   /* back up a level */
+            return 0;
+        }
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (slot != 0)
+        return -3;
+
+    adjust_him_xy(obj);
+    do_next_a9_frame(obj);
+
+    obj->field1c = 6;
+
+    *mk3_frame(thread, frame + 1) = 0x503;
+    thread->fieldfc = 6;
+    return 6;
+}
+
+
+/* --------------------------------------------------------------------- t_boss_counter_angle
+ *
+ * armv7 0x000ab778, 124 bytes.  **Complete.**
+ *
+ * State 0: `is_towards_me`; not towards installs `t_boss_wait_land`
+ * directly. Towards rolls `motaro_easy_randper`; a hit also installs
+ * `t_boss_wait_land`. A miss falls to distance -- far (`field28 >
+ * 0x80`) also installs `t_boss_wait_land`, close installs
+ * `t_motaro_punch` -- one physical install site, four literal
+ * pointers (three of them the same), reached from all four branches.
+ */
+long t_boss_wait_land(struct MK3THREAD *thread);   /* not yet decompiled */
+void motaro_easy_randper(MK3OBJ *obj);
+long is_towards_me(MK3OBJ *obj);   /* not yet decompiled, mkdrone.c */
+
+long t_boss_counter_angle(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+    MK3THREADFUNC handler;
+
+    if (slot != 0)
+        return -3;
+
+    is_towards_me(obj);
+    if (obj->field5c == 0) {
+        handler = (MK3THREADFUNC)t_boss_wait_land;
+        return mk3_install(thread, handler);
+    }
+
+    motaro_easy_randper(obj);
+    if (obj->field5c != 0) {
+        handler = (MK3THREADFUNC)t_boss_wait_land;
+        return mk3_install(thread, handler);
+    }
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0x80)
+        handler = (MK3THREADFUNC)t_boss_wait_land;
+    else
+        handler = (MK3THREADFUNC)t_motaro_punch;
+
+    return mk3_install(thread, handler);
+}
