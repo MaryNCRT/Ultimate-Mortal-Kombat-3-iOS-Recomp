@@ -1320,3 +1320,103 @@ long t_skc_propell(MK3THREAD *thread)
 
     return mk3_install(thread, handler);
 }
+
+
+/* --------------------------------------------------------------------- t_skc_stationary
+ *
+ * armv7 0x000abd88, 104 bytes.  **Complete.**
+ *
+ * State 0 only. `sk_randper` answers in `field5c`; a hit installs
+ * `t_return_to_beware` directly (the same pointer slot
+ * `t_b_return_to_beware_4get` reaches by name). A miss falls to
+ * distance: close (`field28 <= 0x70`) installs `t_motaro_slided`, far
+ * installs `t_b_return_to_beware_4get` -- one physical install site,
+ * three literal targets, reached from all three branches.
+ */
+long t_return_to_beware(struct MK3THREAD *thread);   /* pointer slot 0x000f3428 */
+
+long t_skc_stationary(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+    MK3THREADFUNC handler;
+
+    if (slot != 0)
+        return -3;
+
+    sk_randper(obj);
+    if (obj->field5c != 0) {
+        handler = (MK3THREADFUNC)t_return_to_beware;
+        return mk3_install(thread, handler);
+    }
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0x70)
+        handler = (MK3THREADFUNC)t_b_return_to_beware_4get;
+    else
+        handler = (MK3THREADFUNC)t_motaro_slided;
+
+    return mk3_install(thread, handler);
+}
+
+
+/* --------------------------------------------------------------------- t_mc_stationary
+ *
+ * armv7 0x000ab828, 104 bytes.  **Complete.**
+ *
+ * The same shape as `t_skc_stationary` for Motaro: `motaro_randper`
+ * hits install `t_return_to_beware` directly; a miss falls to distance
+ * -- close (`field28 <= 0x8a`) installs `t_b_block`, far installs
+ * `t_b_return_to_beware_4get`.
+ */
+long t_b_block(struct MK3THREAD *thread);   /* not yet decompiled */
+
+long t_mc_stationary(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+    MK3THREADFUNC handler;
+
+    if (slot != 0)
+        return -3;
+
+    motaro_randper(obj);
+    if (obj->field5c != 0) {
+        handler = (MK3THREADFUNC)t_return_to_beware;
+        return mk3_install(thread, handler);
+    }
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0x8a)
+        handler = (MK3THREADFUNC)t_b_return_to_beware_4get;
+    else
+        handler = (MK3THREADFUNC)t_b_block;
+
+    return mk3_install(thread, handler);
+}
+
+
+/* --------------------------------------------------------------------- MotaroPunchDamage
+ *
+ * armv7 0x000a8560, 44 bytes.  **Complete.**
+ *
+ * Motaro's punch damage by difficulty (`*Difficulty`, a global int at
+ * `0x0014e20c` reached through pointer slot `0x000f3624`), each level
+ * added to its own value rather than a plain table: `0 + 0xa`,
+ * `1 + 0x13`, `2 + 0x17`, a flat `0x20` for exactly `3`, `0x28` for
+ * anything else.
+ */
+extern int32_t *Difficulty;                  /* 0x0014e20c */
+
+int32_t MotaroPunchDamage(void)
+{
+    int32_t d = *Difficulty;
+
+    switch (d) {
+    case 0:  return d + 0xa;
+    case 1:  return d + 0x13;
+    case 2:  return d + 0x17;
+    case 3:  return 0x20;
+    default: return 0x28;
+    }
+}
