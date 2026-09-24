@@ -1735,3 +1735,152 @@ long t_wall_dragon_proc(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
 }
+
+
+/* --------------------------------------------------------------------- t_fr_mileena
+ *
+ * armv7 0x000a6ff4, 248 bytes.  **Complete.**
+ *
+ * Poses animation `0x1a` at rate 5 under `0x73`, holds 96 ticks, then
+ * plays sound 1, shakes (`0x70008`), runs the rest at rate 4 under
+ * `0x79`, plays sound `0x66`, holds 32 ticks, and ends on
+ * `t_friendship_complete`.
+ */
+long t_fr_mileena(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0x74) {
+        tsound_func(obj, 1);
+
+        obj->field48 = 0x70008;
+        shake_a11(obj);
+
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x79;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot < 0x74) {
+        if (slot == 0) {
+            obj->field40 = 0x1a;
+            get_char_ani2(obj);
+
+            obj->field1c = 5;
+
+            *mk3_frame(thread, thread->frame + 1) = 0x73;
+            thread->frame = thread->frame + 1;   /* push a level */
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)t_mframew;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+
+        if (slot != 0x73)
+            return -3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x74;
+        thread->fieldfc = 0x60;
+        return 0x60;
+    }
+
+    if (slot == 0x79) {
+        tsound_func(obj, 0x66);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x7b;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (slot != 0x7b)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_friendship_complete);
+}
+
+
+/* --------------------------------------------------------------------- t_f_sindel
+ *
+ * armv7 0x000a67cc, 300 bytes.  **Complete.**
+ *
+ * Points `field40` at `a_lia_friend` and runs `t_mframew_5` under
+ * `0x3bc`. `0x3bc` is the kick: sound 5 through `rsnd_func`, a shake
+ * (`0x30003`), and the slave's GrObj restarted on `t_football_proc` --
+ * then the fighter lets go of it, clearing both `field00->slave` and
+ * `field00->field64` (the second through `field20`, zeroed first, the
+ * register reuse `create_proj_proc`'s slave bookkeeping also shows). A
+ * step, 16 ticks, another `t_mframew_5` stretch under `0x3ca`, sound 9,
+ * 64 ticks under `0x3cd`, and `t_friendship_complete`.
+ */
+void rsnd_func(MK3OBJ *unused, uint32_t which);
+void StartGrObjAt(char *grobj, MK3THREADFUNC func);
+extern uint8_t a_lia_friend[];               /* 0x00177bdc */
+
+long t_f_sindel(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0x3c8) {
+        *mk3_frame(thread, thread->frame + 1) = 0x3ca;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew_5;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot < 0x3c8) {
+        if (slot == 0) {
+            obj->field40 = (uint32_t)(uintptr_t)a_lia_friend;
+
+            *mk3_frame(thread, thread->frame + 1) = 0x3bc;
+            thread->frame = thread->frame + 1;   /* push a level */
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)t_mframew_5;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+
+        if (slot != 0x3bc)
+            return -3;
+
+        rsnd_func(obj, 5);
+
+        obj->field48 = 0x30003;
+        shake_a11(obj);
+
+        StartGrObjAt((char *)(uintptr_t)obj->field00->slave,
+                     (MK3THREADFUNC)t_football_proc);
+
+        obj->field20          = 0;
+        obj->field00->slave   = 0;
+        obj->field00->field64 = obj->field20;
+
+        do_next_a9_frame(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x3c8;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (slot == 0x3ca) {
+        obj->field1c = 9;
+        ochar_sound(obj);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x3cd;
+        thread->fieldfc = 0x40;
+        return 0x40;
+    }
+
+    if (slot != 0x3cd)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_friendship_complete);
+}
