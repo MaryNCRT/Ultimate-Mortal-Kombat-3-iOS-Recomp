@@ -172,7 +172,7 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ## Overall progress
 
 ```
-██████████████████████████████░░░░░░░░░░  76.13%
+██████████████████████████████░░░░░░░░░░  76.14%
 ```
 
 | Area | Weight | Done | |
@@ -182,11 +182,11 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 | Asset format specifications | 8% | 100% | `██████████` |
 | `lime/common` — engine core (109 fn) | 12% | **100%** | `██████████` |
 | `gamecode` — game logic (291 fn) | 18% | **100%** | `██████████` |
-| `gamecode/logic` — fight engine (2,172 fn) | 28% | 87.25% (1895) | `█████████░` |
+| `gamecode/logic` — fight engine (2,172 fn) | 28% | 87.29% (1896) | `█████████░` |
 | Native PC platform layer (161 fn to rewrite) | 17% | 10% | `█░░░░░░░░░` |
 | EA SDK stubs (~1,412 fn) | 5% | 0% | `░░░░░░░░░░` |
 
-**76.13% of the total estimated effort. Nothing is playable yet.**
+**76.14% of the total estimated effort. Nothing is playable yet.**
 
 **The middle three rows are counted, the rest are estimates.** `tools/progress.py`
 reads the tree on every run for `lime/common`, `gamecode` and `gamecode/logic`;
