@@ -3269,3 +3269,59 @@ long t_sk_block_zap(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_sk_punch
+ *
+ * armv7 0x000aacf8, 208 bytes.  **Complete.**
+ *
+ * State 0: sound and pose, `field40 = 0xe`, `field1c = 3`, `field48 =
+ * 0`, `field20 = 0`, `a10 = 1`, pushes `other.c`'s `t_striker` -- a
+ * real call, so this level's own resume token is `0x31a`.
+ *
+ * `0x31a` (striker came back): `field5c` decides -- a hit re-arms this
+ * same handler for `0x31d` and sleeps 14; a miss installs
+ * `t_boss_close_miss` on the current level (no push).
+ *
+ * `0x31d`: installs `t_boss_post_hit` on the current level.
+ *
+ * Any other token: refused with -2.
+ */
+long t_sk_punch(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x31a) {
+        if (obj->field5c != 0) {
+            *mk3_frame(thread, frame + 1) = 0x31d;
+            thread->fieldfc = 0xe;
+            return 0xe;
+        }
+
+        return mk3_install(thread, (MK3THREADFUNC)t_boss_close_miss);
+    }
+
+    if (token == 0x31d)
+        return mk3_install(thread, (MK3THREADFUNC)t_boss_post_hit);
+
+    if (token != 0)
+        return -2;
+
+    init_special(obj);
+    obj->field1c = 0;
+    group_sound(obj);
+    obj->field40 = 0xe;
+    obj->field48 = 0;
+    obj->field1c = 3;
+    obj->field20 = 0;
+    obj->a10     = 1;
+
+    *mk3_frame(thread, frame + 1) = 0x31a;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level -- a real call */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_striker;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
