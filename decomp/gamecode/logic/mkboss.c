@@ -203,22 +203,28 @@ void shake_a11(MK3OBJ *obj);
 
 /* t_motaro_grab_punch -- armv7 0x000a8eac, 104 bytes.  **Complete.**
  *
- *      if (frame[frame+1].w0 != 0) return -3
- *      is_he_airborn(obj)
- *      frame[frame].handler = t_motaro_grab_punch_now
- *      frame[frame+1].w0 = 0
+ * **Corrected.** The comment above this had claimed a plain
+ * `mk3_push_handler` shape, but the binary does something else: a
+ * token check (refusing anything but 0, with -2, not the usual -3),
+ * then `is_he_airborn`, and only THEN a choice -- airborne installs
+ * `t_motaro_punch` on the current level, grounded installs
+ * `t_motaro_grab_punch_now` instead. No push either way.
  */
+long t_motaro_punch(struct MK3THREAD *thread);
 
 long t_motaro_grab_punch(MK3THREAD *thread)
 {
-    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
 
-    if (*mk3_frame(thread, thread->frame + 1) != 0)
-        return -3;
+    if (slot != 0)
+        return -2;
 
     is_he_airborn(obj);
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_motaro_punch);
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_motaro_grab_punch_now);
+    return mk3_install(thread, (MK3THREADFUNC)t_motaro_grab_punch_now);
 }
 
 /* t_sk_knocked_down -- armv7 0x000a8fd4, 68 bytes.  **Complete.**
@@ -273,24 +279,29 @@ long t_sk_hit3(MK3THREAD *thread)
 
 /* t_sk_stupid_stance -- armv7 0x000a9fc0, 108 bytes.  **Complete.**
  *
- *      if (frame[frame+1].w0 != 0) return -3
- *      obj->a10 = 0xc0
- *      q_is_this_a_joke(obj)
- *      frame[frame].handler = t_motaro_stupid_stance
- *      frame[frame+1].w0 = 0
+ * **Corrected.** The comment above this had claimed a plain
+ * `mk3_push_handler` into `t_motaro_stupid_stance`, but the binary
+ * branches on `q_is_this_a_joke`'s own answer: a hit installs `t_ss1`
+ * on the current level, a miss installs `t_motaro_stupid_stance`
+ * instead. Token refused with -2, not the usual -3, and no push
+ * either way.
  */
+long t_ss1(struct MK3THREAD *thread);
 
 long t_sk_stupid_stance(MK3THREAD *thread)
 {
-    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
 
-    if (*mk3_frame(thread, thread->frame + 1) != 0)
-        return -3;
+    if (slot != 0)
+        return -2;
 
     obj->a10 = 0xc0;
     q_is_this_a_joke(obj);
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_ss1);
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_motaro_stupid_stance);
+    return mk3_install(thread, (MK3THREADFUNC)t_motaro_stupid_stance);
 }
 
 /* t_mc_sg_pounce -- armv7 0x000ab944, 68 bytes.  **Complete.**
@@ -2723,4 +2734,44 @@ long t_motaro_hard_comboed(MK3THREAD *thread)
         (uint32_t)(uintptr_t)t_avoid_corner_trap;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
+}
+
+
+/* --------------------------------------------------------------------- t_boss_stalk
+ *
+ * armv7 0x000ab5fc, 192 bytes.  **Complete.**
+ *
+ * State 0 only: `q_is_he_car`; not cornered installs `t_boss1`
+ * directly. Cornered rolls `bossrandper_org` at odds `0x12c`; a hit
+ * installs `t_sk_laugh`. A miss rolls again at `0x320`; a hit installs
+ * `t_boss_ease_back`, a second miss installs `t_boss1` -- one physical
+ * install site, four converging paths.
+ *
+ * Any other token: refused with -2.
+ */
+long t_boss_ease_back(struct MK3THREAD *thread);   /* not yet decompiled */
+
+long t_boss_stalk(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot != 0)
+        return -2;
+
+    q_is_he_car(obj);
+    if (obj->field5c == 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_boss1);
+
+    obj->field1c = 0x12c;
+    bossrandper_org(obj);
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_sk_laugh);
+
+    obj->field1c = 0x320;
+    bossrandper_org(obj);
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_boss_ease_back);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_boss1);
 }
