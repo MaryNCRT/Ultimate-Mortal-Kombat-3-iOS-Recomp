@@ -1420,3 +1420,115 @@ int32_t MotaroPunchDamage(void)
     default: return 0x28;
     }
 }
+
+
+/* --------------------------------------------------------------------- t_sk_zap
+ *
+ * armv7 0x000a9018, 132 bytes.  **Complete.**
+ *
+ * State 0 only. `field1c=0`, `group_sound`, then `field1c=0x1d` and a
+ * push of `mkzap.c`'s own `t_do_zap` under `0x2e1`; `0x2e1` just
+ * installs `t_local_reaction_exit` on the current level.
+ */
+long t_do_zap(struct MK3THREAD *thread);   /* mkzap.c */
+
+long t_sk_zap(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0x2e1)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (slot != 0)
+        return -3;
+
+    obj->field1c = 0;
+    group_sound(obj);
+
+    obj->field1c = 0x1d;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x2e1;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_do_zap;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* --------------------------------------------------------------------- t_ease5
+ *
+ * armv7 0x000a9810, 136 bytes.  **Complete.**
+ *
+ * `t_sk_stance_pause`'s own push target. State 0 rolls a random
+ * 0x10..0x1f duration (`randu_minimum`, both bounds `0x10`), parks it
+ * in `a10`, and pushes `mkdrone.c`'s own `t_d_stance_pause` under
+ * `0x473`; `0x473` installs `t_local_reaction_exit` on the current
+ * level.
+ */
+long t_d_stance_pause(struct MK3THREAD *thread);   /* not yet decompiled, mkdrone.c */
+
+long t_ease5(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0x473)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (slot != 0)
+        return -3;
+
+    obj->field1c = 0x10;
+    obj->field20 = 0x10;
+    randu_minimum(obj);
+
+    obj->a10 = obj->field1c;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x473;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_d_stance_pause;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* --------------------------------------------------------------------- t_boss_close_miss
+ *
+ * armv7 0x000a895c, 140 bytes.  **Complete.**
+ *
+ * `t_boss_post_hit`'s own push target. The free arms `0x588` and
+ * sleeps 8 ticks; `0x588` (`field1c=3`) pushes `t_mframew` under
+ * `0x58a`; `0x58a` installs `t_local_reaction_exit` on the current
+ * level.
+ */
+long t_mframew(struct MK3THREAD *thread);
+
+long t_boss_close_miss(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0x58a)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (slot == 0x588) {
+        obj->field1c = 3;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x58a;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0)
+        return -3;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x588;
+    thread->fieldfc = 8;
+    return 8;
+}
