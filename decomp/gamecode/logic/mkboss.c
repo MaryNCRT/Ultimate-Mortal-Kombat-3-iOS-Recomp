@@ -1795,3 +1795,65 @@ long t_motaro_hip_jsrp(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_motaro_punch
+ *
+ * armv7 0x000aa050, 224 bytes.  **Complete.**
+ *
+ * State 0: sound and pose, then loads a triple from `_boss_attack_info`
+ * (range, count, animation) into `field40/field48/field1c`, sets
+ * `a10 = 3`, and pushes `other.c`'s `t_striker` -- a real call, so
+ * this level's own resume token is `0x57e`.
+ *
+ * `0x57e` (striker came back): `field5c` decides -- a hit re-arms this
+ * same handler for `0x584` and sleeps 8 ticks; a miss installs
+ * `t_boss_close_miss` on the current level (no push).
+ *
+ * `0x584`: installs `t_boss_post_hit` on the current level.
+ *
+ * Any other token: refused with -2.
+ */
+extern int16_t boss_attack_info[];   /* 0x0017b3c4 */
+long t_striker(struct MK3THREAD *thread);   /* not yet decompiled, other.c */
+
+long t_motaro_punch(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x57e) {
+        if (obj->field5c != 0) {
+            *mk3_frame(thread, frame + 1) = 0x584;
+            thread->fieldfc = 8;
+            return 8;
+        }
+
+        return mk3_install(thread, (MK3THREADFUNC)t_boss_close_miss);
+    }
+
+    if (token == 0x584)
+        return mk3_install(thread, (MK3THREADFUNC)t_boss_post_hit);
+
+    if (token != 0)
+        return -2;
+
+    obj->field1c = 2;
+    ochar_sound(obj);
+
+    obj->field1c = token;   /* 0, the leftover token */
+    obj->field20 = token;
+    obj->field38 = (uint32_t)(uintptr_t)boss_attack_info;
+    obj->field40 = boss_attack_info[0];
+    obj->field48 = boss_attack_info[1];
+    obj->field1c = boss_attack_info[2];
+    obj->a10     = 3;
+
+    *mk3_frame(thread, frame + 1) = 0x57e;
+    thread->frame = thread->frame + 1;   /* push a level -- a real call */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_striker;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
