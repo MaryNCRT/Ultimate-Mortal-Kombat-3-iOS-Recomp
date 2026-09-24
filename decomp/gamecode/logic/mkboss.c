@@ -1111,7 +1111,7 @@ long t_sk_stupid(MK3THREAD *thread)
  * its own dispatcher rather than descending into it.
  */
 void randu_minimum(MK3OBJ *obj);
-long t_ss1(struct MK3THREAD *thread);   /* not yet decompiled */
+long t_ss1(struct MK3THREAD *thread);
 
 long t_motaro_stupid_stance(MK3THREAD *thread)
 {
@@ -1212,8 +1212,8 @@ long t_mc_flipk_away(MK3THREAD *thread)
  * State 0 only, Shao Kahn's twin of `t_mc_flipk_away`: close (`field28
  * <= 0x6f`) installs `t_sk_air_charge`, further installs `t_sk_charge`.
  */
-long t_sk_air_charge(struct MK3THREAD *thread);   /* not yet decompiled */
-long t_sk_charge(struct MK3THREAD *thread);       /* not yet decompiled */
+long t_sk_air_charge(struct MK3THREAD *thread);
+long t_sk_charge(struct MK3THREAD *thread);
 
 long t_skc_lk_zap_lo(MK3THREAD *thread)
 {
@@ -1243,8 +1243,8 @@ long t_skc_lk_zap_lo(MK3THREAD *thread)
  * (`field28 > 0x6f`) or `t_motaro_punch` when close, no push either
  * way.
  */
-long t_motaro_hop(struct MK3THREAD *thread);      /* not yet decompiled */
-long t_motaro_punch(struct MK3THREAD *thread);    /* not yet decompiled */
+long t_motaro_hop(struct MK3THREAD *thread);
+long t_motaro_punch(struct MK3THREAD *thread);
 
 long t_mc_hover(MK3THREAD *thread)
 {
@@ -1369,7 +1369,7 @@ long t_skc_stationary(MK3THREAD *thread)
  * -- close (`field28 <= 0x8a`) installs `t_b_block`, far installs
  * `t_b_return_to_beware_4get`.
  */
-long t_b_block(struct MK3THREAD *thread);   /* not yet decompiled */
+long t_b_block(struct MK3THREAD *thread);
 
 long t_mc_stationary(MK3THREAD *thread)
 {
@@ -1545,7 +1545,7 @@ long t_boss_close_miss(MK3THREAD *thread)
  * helper) or from direct dispatch -- pushes `t_motaro_hip_jsrp`.
  */
 long t_check_winner_status(struct MK3THREAD *thread);   /* pointer slot 0x000f37a8, joy.c */
-long t_motaro_hip_jsrp(struct MK3THREAD *thread);         /* not yet decompiled */
+long t_motaro_hip_jsrp(struct MK3THREAD *thread);
 
 long t_motaro_hip_jump(MK3THREAD *thread)
 {
@@ -2319,4 +2319,58 @@ state_3c6:
     if ((int32_t)obj->field48 != 0)
         goto setup_3c6;
     goto stop_and_rearm_3cd;
+}
+
+
+/* --------------------------------------------------------------------- t_mhop7
+ *
+ * armv7 0x000aa434, 188 bytes.  **Complete.**
+ *
+ * State 0: sets up `field24/28`, pushes `other.c`'s `t_flight`,
+ * resume token `0x497`.
+ *
+ * `0x497` (flight came back): sound, pose, pushes `other.c`'s
+ * `t_mframew`, resume token `0x49d`.
+ *
+ * `0x49d` (mframew came back): installs `t_local_reaction_exit` on
+ * the current level -- also reachable directly, sharing that single
+ * physical install with the push above.
+ *
+ * Any other token: refused with -2.
+ */
+long t_mhop7(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x497) {
+        shake_n_sound(obj);
+        obj->field40 = 0x1a;
+        find_ani_part2(obj);
+        obj->field1c = 3;
+
+        *mk3_frame(thread, frame + 1) = 0x49d;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x49d)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token != 0)
+        return -2;
+
+    obj->field24 = 0x8000;
+    obj->field28 = 4;
+
+    *mk3_frame(thread, frame + 1) = 0x497;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_flight;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
 }
