@@ -3712,3 +3712,74 @@ long t_mot_sweep_hit(MK3THREAD *thread)
     thread->fieldfc = 8;
     return 8;
 }
+
+
+/* --------------------------------------------------------------------- t_sk_comboed
+ *
+ * armv7 0x000a909c, 284 bytes.  **Complete.**
+ *
+ * Shao Kahn caught in a combo. State 0: `rsnd_func(obj, 0xa)`, push
+ * (resume `0x889`) into `t_sk_airborn_check`.
+ *
+ * `0x889`: sound, `away_x_vel`, pose, push (resume `0x893`) into
+ * `other.c`'s `t_animate_a0_frames`.
+ *
+ * `0x893`: wait 6 under `0x894`. `0x894`: `field1c = 3`, push (resume
+ * `0x896`) into `t_mframew`. `0x896`: installs
+ * `t_local_reaction_exit`. Any other token: -2.
+ */
+long t_sk_comboed(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x896)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token == 0x894) {
+        obj->field1c = 3;
+
+        *mk3_frame(thread, frame + 1) = 0x896;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x893) {
+        *mk3_frame(thread, frame + 1) = 0x894;
+        thread->fieldfc = 6;
+        return 6;
+    }
+
+    if (token == 0x889) {
+        obj->field1c = 6;
+        group_sound(obj);
+        obj->field1c = 0x30000;
+        away_x_vel(obj);
+        obj->field40 = 0x1c;
+        get_char_ani(obj);
+        obj->field1c = 0x30002;
+
+        *mk3_frame(thread, frame + 1) = 0x893;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_a0_frames;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -2;
+
+    rsnd_func(obj, 0xa);
+
+    *mk3_frame(thread, frame + 1) = 0x889;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_sk_airborn_check;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
