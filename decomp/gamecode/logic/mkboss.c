@@ -205,7 +205,7 @@ void shake_a11(MK3OBJ *obj);
  *
  * **Corrected.** The comment above this had claimed a plain
  * `mk3_push_handler` shape, but the binary does something else: a
- * token check (refusing anything but 0, with -2, not the usual -3),
+ * token check (refusing anything but 0 with the usual -3),
  * then `is_he_airborn`, and only THEN a choice -- airborne installs
  * `t_motaro_punch` on the current level, grounded installs
  * `t_motaro_grab_punch_now` instead. No push either way.
@@ -218,7 +218,7 @@ long t_motaro_grab_punch(MK3THREAD *thread)
     uint32_t slot = *mk3_frame(thread, thread->frame + 1);
 
     if (slot != 0)
-        return -2;
+        return -3;
 
     is_he_airborn(obj);
     if (obj->field5c != 0)
@@ -283,8 +283,8 @@ long t_sk_hit3(MK3THREAD *thread)
  * `mk3_push_handler` into `t_motaro_stupid_stance`, but the binary
  * branches on `q_is_this_a_joke`'s own answer: a hit installs `t_ss1`
  * on the current level, a miss installs `t_motaro_stupid_stance`
- * instead. Token refused with -2, not the usual -3, and no push
- * either way.
+ * instead. Anything but token 0 is refused with -3, and there is no
+ * push either way.
  */
 long t_ss1(struct MK3THREAD *thread);
 
@@ -294,7 +294,7 @@ long t_sk_stupid_stance(MK3THREAD *thread)
     uint32_t slot = *mk3_frame(thread, thread->frame + 1);
 
     if (slot != 0)
-        return -2;
+        return -3;
 
     obj->a10 = 0xc0;
     q_is_this_a_joke(obj);
@@ -1754,8 +1754,7 @@ push_check_winner:
  * `0x4b7` (flight came back): sound, pose, installs `other.c`'s
  * `t_mframew` on the current level (no push).
  *
- * Any other token: refused with -2 -- this one, unlike most of the
- * file, is not the usual `mk3_push_handler`-style -3.
+ * Any other token: refused with -3.
  */
 void ochar_sound(MK3OBJ *obj);
 void shake_n_sound(MK3OBJ *obj);
@@ -1791,7 +1790,7 @@ long t_motaro_hip_jsrp(MK3THREAD *thread)
     }
 
     if (token != 0)
-        return -2;
+        return -3;
 
     obj->field1c = token;   /* 0, the leftover token */
     ochar_sound(obj);
@@ -1823,7 +1822,7 @@ long t_motaro_hip_jsrp(MK3THREAD *thread)
  *
  * `0x584`: installs `t_boss_post_hit` on the current level.
  *
- * Any other token: refused with -2.
+ * Any other token: refused with -3.
  */
 extern int16_t boss_attack_info[];   /* 0x0017b3c4 */
 long t_striker(struct MK3THREAD *thread);   /* not yet decompiled, other.c */
@@ -1848,7 +1847,7 @@ long t_motaro_punch(MK3THREAD *thread)
         return mk3_install(thread, (MK3THREADFUNC)t_boss_post_hit);
 
     if (token != 0)
-        return -2;
+        return -3;
 
     obj->field1c = 2;
     ochar_sound(obj);
@@ -1887,7 +1886,7 @@ long t_motaro_punch(MK3THREAD *thread)
  * halves swapped (`field20` first vs. `field1c` first), so they are
  * kept as two physically separate stores rather than merged.
  *
- * Any other token: refused with -2.
+ * Any other token: refused with -3.
  */
 long t_mhop7(struct MK3THREAD *thread);
 
@@ -1899,7 +1898,7 @@ long t_motaro_hop(MK3THREAD *thread)
 
     if (token != 0) {
         if (token != 0x48a)
-            return -2;
+            return -3;
 
         obj->field20 = 0xfffd0000;
         obj->field1c = obj->field20 - 0x70000;
@@ -1944,7 +1943,7 @@ long t_motaro_hop(MK3THREAD *thread)
  * `t_motaro_grab_punch` instead -- one physical install site, two
  * literal handlers, reached from both branches.
  *
- * Any other token: refused with -2.
+ * Any other token: refused with -3.
  */
 void face_opponent(MK3OBJ *obj);
 long t_do_block_hi(struct MK3THREAD *thread);
@@ -1979,7 +1978,7 @@ long t_b_block(MK3THREAD *thread)
     }
 
     if (token != 0)
-        return -2;
+        return -3;
 
     face_opponent(obj);
 
@@ -2024,7 +2023,7 @@ long t_b_block(MK3THREAD *thread)
  * push) -- the one state this function can also be dispatched into
  * directly, sharing that single physical install with the push above.
  *
- * Any other token: refused with -2.
+ * Any other token: refused with -3.
  */
 void init_anirate(MK3OBJ *obj);
 void create_fx(MK3OBJ *obj);
@@ -2048,7 +2047,7 @@ long t_sk_charge(MK3THREAD *thread)
             return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
         if (token == 0x364)
             goto state_364;
-        return -2;
+        return -3;
     }
 
     if (token == 0) {
@@ -2071,7 +2070,7 @@ long t_sk_charge(MK3THREAD *thread)
     }
 
     if (token != 0x339)
-        return -2;
+        return -3;
 
     next_anirate(obj);
     obj->a10 = obj->a10 - 1;
@@ -2191,7 +2190,7 @@ push_371:
  * `mkslam.c`'s `t_drop_down_land_jump` on the current level (no push)
  * -- one physical install, two tokens reaching it.
  *
- * Any other token: refused with -2.
+ * Any other token: refused with -3.
  */
 void set_nocol(MK3OBJ *obj);
 void clear_nocol(MK3OBJ *obj);
@@ -2215,7 +2214,7 @@ long t_sk_air_charge(MK3THREAD *thread)
     if (token > 0x397) {
         if (token == 0x3c6)
             goto state_3c6;
-        return -2;
+        return -3;
     }
 
     if (token == 0x397)
@@ -2248,7 +2247,7 @@ rearm_397:
     }
 
     if (token != 0)
-        return -2;
+        return -3;
 
     init_special(obj);
     obj->field1c = token;   /* 0, leftover */
@@ -2347,7 +2346,7 @@ state_3c6:
  * the current level -- also reachable directly, sharing that single
  * physical install with the push above.
  *
- * Any other token: refused with -2.
+ * Any other token: refused with -3.
  */
 long t_mhop7(MK3THREAD *thread)
 {
@@ -2373,7 +2372,7 @@ long t_mhop7(MK3THREAD *thread)
         return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 
     if (token != 0)
-        return -2;
+        return -3;
 
     obj->field24 = 0x8000;
     obj->field28 = 4;
@@ -2396,7 +2395,7 @@ long t_mhop7(MK3THREAD *thread)
  * (this file's own), close installs `mkdrone.c`'s `t_d_block` -- one
  * physical install site, three literal handlers, reached three ways.
  *
- * Any other token: refused with -2.
+ * Any other token: refused with -3.
  */
 long sk_randper(MK3OBJ *obj);
 
@@ -2407,7 +2406,7 @@ long t_skc_swat_gun(MK3THREAD *thread)
     MK3THREADFUNC handler;
 
     if (slot != 0)
-        return -2;
+        return -3;
 
     sk_randper(obj);
     if (obj->field5c != 0) {
@@ -2435,7 +2434,7 @@ long t_skc_swat_gun(MK3THREAD *thread)
  * installs `t_return_to_beware` too, close installs `t_motaro_punch`
  * instead -- one physical install site, four converging paths.
  *
- * Any other token: refused with -2.
+ * Any other token: refused with -3.
  */
 long t_mc_angle_jump(MK3THREAD *thread)
 {
@@ -2444,7 +2443,7 @@ long t_mc_angle_jump(MK3THREAD *thread)
     MK3THREADFUNC handler;
 
     if (slot != 0)
-        return -2;
+        return -3;
 
     is_towards_me(obj);
     if (obj->field5c == 0) {
@@ -2481,7 +2480,7 @@ long t_mc_angle_jump(MK3THREAD *thread)
  * `0x834` (mframew came back): installs `other.c`'s `t_wait_forever`
  * on the current level.
  *
- * Any other token: refused with -2.
+ * Any other token: refused with -3.
  */
 long t_sk_collapse(MK3THREAD *thread)
 {
@@ -2505,7 +2504,7 @@ long t_sk_collapse(MK3THREAD *thread)
         return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
 
     if (token != 0)
-        return -2;
+        return -3;
 
     obj->field40 = 0x3001e;
 
@@ -2528,7 +2527,7 @@ long t_sk_collapse(MK3THREAD *thread)
  * `t_sk_charge`, far installs `t_sk_zap` -- one physical install
  * site, four converging paths.
  *
- * Any other token: refused with -2.
+ * Any other token: refused with -3.
  */
 long t_sk_block_zap(struct MK3THREAD *thread);   /* not yet decompiled */
 
@@ -2539,7 +2538,7 @@ long t_skc_zap(MK3THREAD *thread)
     MK3THREADFUNC handler;
 
     if (slot != 0)
-        return -2;
+        return -3;
 
     obj->field1c = 0x320;
     bossrandper(obj);
@@ -2595,7 +2594,7 @@ long t_sk_airborn_check(MK3THREAD *thread)
     uint32_t old_handler;
 
     if (token != 0)
-        return -2;
+        return -3;
 
     am_i_airborn(obj);
     airborn = obj->field5c;
@@ -2644,7 +2643,7 @@ long t_sk_airborn_check(MK3THREAD *thread)
  *
  * `0x6a5`: installs `t_local_reaction_exit` on the current level.
  *
- * Any other token: refused with -2.
+ * Any other token: refused with -3.
  */
 long t_mc_dizzy(MK3THREAD *thread)
 {
@@ -2656,7 +2655,7 @@ long t_mc_dizzy(MK3THREAD *thread)
         return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 
     if (token != 0)
-        return -2;
+        return -3;
 
     obj->field1c = 0x1f4;
     bossrandper(obj);
@@ -2691,7 +2690,7 @@ long t_mc_dizzy(MK3THREAD *thread)
  * current level -- also reachable directly, sharing that single
  * physical install with the push above.
  *
- * Any other token: refused with -2.
+ * Any other token: refused with -3.
  */
 void rsnd_func(MK3OBJ *unused, uint32_t which);
 void away_x_vel(MK3OBJ *obj);
@@ -2724,7 +2723,7 @@ long t_motaro_hard_comboed(MK3THREAD *thread)
     }
 
     if (token != 0)
-        return -2;
+        return -3;
 
     obj->field20 = 2;
 
@@ -2747,7 +2746,7 @@ long t_motaro_hard_comboed(MK3THREAD *thread)
  * `t_boss_ease_back`, a second miss installs `t_boss1` -- one physical
  * install site, four converging paths.
  *
- * Any other token: refused with -2.
+ * Any other token: refused with -3.
  */
 long t_boss_ease_back(struct MK3THREAD *thread);   /* not yet decompiled */
 
@@ -2757,7 +2756,7 @@ long t_boss_stalk(MK3THREAD *thread)
     uint32_t slot = *mk3_frame(thread, thread->frame + 1);
 
     if (slot != 0)
-        return -2;
+        return -3;
 
     q_is_he_car(obj);
     if (obj->field5c == 0)
@@ -2792,7 +2791,7 @@ long t_boss_stalk(MK3THREAD *thread)
  * current level -- also reachable directly, sharing that single
  * physical install with the push above.
  *
- * Any other token: refused with -2.
+ * Any other token: refused with -3.
  */
 void back_to_normal(MK3OBJ *obj);
 long t_d_beware(struct MK3THREAD *thread);   /* not yet decompiled, mkdrone.c */
@@ -2822,7 +2821,7 @@ long t_motaro_stumble(MK3THREAD *thread)
         return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 
     if (token != 0)
-        return -2;
+        return -3;
 
     obj->field1c = 0x40000;
     away_x_vel(obj);
@@ -2852,7 +2851,7 @@ long t_motaro_stumble(MK3THREAD *thread)
  * the current level -- also reachable directly, sharing that single
  * physical install with the push above.
  *
- * Any other token: refused with -2.
+ * Any other token: refused with -3.
  */
 long t_sk_hit1(MK3THREAD *thread)
 {
@@ -2877,7 +2876,7 @@ long t_sk_hit1(MK3THREAD *thread)
         return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 
     if (token != 0)
-        return -2;
+        return -3;
 
     rsnd_func(obj, 8);
     obj->field48 = 0x40004;
@@ -2906,7 +2905,7 @@ long t_sk_hit1(MK3THREAD *thread)
  * `t_random_do`, resume token `0x711` -- three of the four paths
  * converge on the same physical install site.
  *
- * Any other token: refused with -2.
+ * Any other token: refused with -3.
  */
 extern MK3THREADFUNC funcs_mc_flipkp[];   /* 0x0017b924 */
 
@@ -2916,7 +2915,7 @@ long t_mc_flipkp(MK3THREAD *thread)
     uint32_t slot = *mk3_frame(thread, thread->frame + 1);
 
     if (slot != 0)
-        return -2;
+        return -3;
 
     q_is_this_a_joke(obj);
     if (obj->field5c != 0)
@@ -2958,7 +2957,7 @@ long t_mc_flipkp(MK3THREAD *thread)
  * current level -- also reachable directly, sharing that single
  * physical install with the push above.
  *
- * Any other token: refused with -2.
+ * Any other token: refused with -3.
  */
 long t_motaro_flip_kicked(MK3THREAD *thread)
 {
@@ -2984,7 +2983,7 @@ long t_motaro_flip_kicked(MK3THREAD *thread)
         return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 
     if (token != 0)
-        return -2;
+        return -3;
 
     rsnd_func(obj, 0xa);
     obj->field1c = 0x30002;
@@ -3017,7 +3016,7 @@ long t_motaro_flip_kicked(MK3THREAD *thread)
  * the current level -- also reachable directly, sharing that single
  * physical install with the push above.
  *
- * Any other token: refused with -2.
+ * Any other token: refused with -3.
  */
 long t_motaro_hit0(MK3THREAD *thread)
 {
@@ -3029,7 +3028,7 @@ long t_motaro_hit0(MK3THREAD *thread)
         return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 
     if (token != 0)
-        return -2;
+        return -3;
 
     am_i_airborn(obj);
     if (obj->field5c != 0)
@@ -3065,7 +3064,7 @@ long t_motaro_hit0(MK3THREAD *thread)
  *
  * `0x2f5`: installs `t_boss_post_hit` on the current level.
  *
- * Any other token: refused with -2.
+ * Any other token: refused with -3.
  */
 long t_sk_hammer(MK3THREAD *thread)
 {
@@ -3087,7 +3086,7 @@ long t_sk_hammer(MK3THREAD *thread)
         return mk3_install(thread, (MK3THREADFUNC)t_boss_post_hit);
 
     if (token != 0)
-        return -2;
+        return -3;
 
     init_special(obj);
     obj->field1c = 0;
@@ -3121,7 +3120,7 @@ long t_sk_hammer(MK3THREAD *thread)
  *
  * `0x698`: installs `t_motaro_grab_punch_now` on the current level.
  *
- * Any other token: refused with -2.
+ * Any other token: refused with -3.
  */
 long t_stance_wait_no(struct MK3THREAD *thread);   /* not yet decompiled, mkdrone.c */
 
@@ -3135,7 +3134,7 @@ long t_mc_fk_sd(MK3THREAD *thread)
         return mk3_install(thread, (MK3THREADFUNC)t_motaro_grab_punch_now);
 
     if (token != 0)
-        return -2;
+        return -3;
 
     obj->field1c = 0x1f4;
     bossrandper(obj);
@@ -3172,7 +3171,7 @@ long t_mc_fk_sd(MK3THREAD *thread)
  * installs `t_motaro_kick` -- one physical install site, two
  * converging paths.
  *
- * Any other token: refused with -2.
+ * Any other token: refused with -3.
  */
 long t_stance_wait_yes(struct MK3THREAD *thread);   /* not yet decompiled, mkdrone.c */
 long t_motaro_kick(struct MK3THREAD *thread);       /* not yet decompiled */
@@ -3192,7 +3191,7 @@ long t_c_zoom_sd(MK3THREAD *thread)
     }
 
     if (token != 0)
-        return -2;
+        return -3;
 
     obj->field1c = 0x2bc;
     bossrandper(obj);
@@ -3226,7 +3225,7 @@ long t_c_zoom_sd(MK3THREAD *thread)
  *
  * `0x5a9`: installs `t_local_reaction_exit` on the current level.
  *
- * Any other token: refused with -2.
+ * Any other token: refused with -3.
  */
 long t_wait_proj_spawn(struct MK3THREAD *thread);   /* not yet decompiled, mkdrone.c */
 long t_wait_proj_pass(struct MK3THREAD *thread);    /* not yet decompiled, mkdrone.c */
@@ -3258,7 +3257,7 @@ long t_sk_block_zap(MK3THREAD *thread)
     }
 
     if (token != 0)
-        return -2;
+        return -3;
 
     face_opponent((MK3OBJ *)thread->proc);
 
@@ -3285,7 +3284,7 @@ long t_sk_block_zap(MK3THREAD *thread)
  *
  * `0x31d`: installs `t_boss_post_hit` on the current level.
  *
- * Any other token: refused with -2.
+ * Any other token: refused with -3.
  */
 long t_sk_punch(MK3THREAD *thread)
 {
@@ -3307,7 +3306,7 @@ long t_sk_punch(MK3THREAD *thread)
         return mk3_install(thread, (MK3THREADFUNC)t_boss_post_hit);
 
     if (token != 0)
-        return -2;
+        return -3;
 
     init_special(obj);
     obj->field1c = 0;
@@ -3335,7 +3334,7 @@ long t_sk_punch(MK3THREAD *thread)
  * `field40 = 0x11`, `field48 = 1`, `field1c = a10 = 2`, push
  * `other.c`'s `t_striker` (resume `0x306`); a hit re-arms `0x309` and
  * sleeps 14, a miss installs `t_boss_close_miss`; `0x309` installs
- * `t_boss_post_hit`. Any other token: -2.
+ * `t_boss_post_hit`. Any other token: -3.
  */
 long t_sk_kick(MK3THREAD *thread)
 {
@@ -3357,7 +3356,7 @@ long t_sk_kick(MK3THREAD *thread)
         return mk3_install(thread, (MK3THREADFUNC)t_boss_post_hit);
 
     if (token != 0)
-        return -2;
+        return -3;
 
     init_special(obj);
     obj->field1c = 0;
@@ -3390,7 +3389,7 @@ long t_sk_kick(MK3THREAD *thread)
  * `0x7b1`: `field1c = field20 = 0x10`, `randu_minimum` into `a10`,
  * push (resume `0x7b7`) into `mkdrone.c`'s `t_d_beware`.
  *
- * `0x7b7`: installs `t_local_reaction_exit`. Any other token: -2.
+ * `0x7b7`: installs `t_local_reaction_exit`. Any other token: -3.
  */
 long t_motaro_upcutted(MK3THREAD *thread)
 {
@@ -3416,7 +3415,7 @@ long t_motaro_upcutted(MK3THREAD *thread)
         return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 
     if (token != 0)
-        return -2;
+        return -3;
 
     am_i_airborn(obj);
     if (obj->field5c != 0)
@@ -3452,7 +3451,7 @@ long t_motaro_upcutted(MK3THREAD *thread)
  *
  * `0x5f6`: `a10 = 0x40`, push (resume `0x5f8`) into `t_d_beware`.
  *
- * `0x5f8`: installs `t_local_reaction_exit`. Any other token: -2.
+ * `0x5f8`: installs `t_local_reaction_exit`. Any other token: -3.
  */
 long t_skc_dizzy(MK3THREAD *thread)
 {
@@ -3475,7 +3474,7 @@ long t_skc_dizzy(MK3THREAD *thread)
         return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 
     if (token != 0)
-        return -2;
+        return -3;
 
     obj->field1c = 0x1f4;
     bossrandper(obj);
@@ -3514,7 +3513,7 @@ long t_skc_dizzy(MK3THREAD *thread)
  * `mhe_motaro_far_attax` by ladder order and installs WHATEVER THE
  * TABLE HOLDS -- the one handler in this file that is data, not code.
  *
- * Any other token: refused with -2.
+ * Any other token: refused with -3.
  */
 long t_motaro_sweep(struct MK3THREAD *thread);   /* not yet decompiled */
 long t_boss_close(struct MK3THREAD *thread);     /* not yet decompiled */
@@ -3527,7 +3526,7 @@ long t_boss1(MK3THREAD *thread)
     uint32_t slot = *mk3_frame(thread, thread->frame + 1);
 
     if (slot != 0)
-        return -2;
+        return -3;
 
     q_ok_motaro_sweep(obj);
     if (obj->field5c != 0) {
@@ -3577,7 +3576,7 @@ long t_boss1(MK3THREAD *thread)
  * `0x41f`: `field1c = 4` again and a second `t_mframew`, resume
  * `0x421` -- the recovery is two animation runs, not one.
  *
- * `0x421`: installs `t_local_reaction_exit`. Any other token: -2.
+ * `0x421`: installs `t_local_reaction_exit`. Any other token: -3.
  */
 long t_mot_sweep_hit(struct MK3THREAD *thread);   /* not yet decompiled */
 
@@ -3616,7 +3615,7 @@ long t_motaro_sweep(MK3THREAD *thread)
         return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 
     if (token != 0)
-        return -2;
+        return -3;
 
     obj->field1c = 2;
     ochar_sound(obj);
@@ -3651,7 +3650,7 @@ long t_motaro_sweep(MK3THREAD *thread)
  * (`field1c = -10.0`, `field20 = -11.0` in 16.16, `field40 = 0x1a`)
  * and installing `t_mhop7`.
  *
- * Any other token: refused with -2.
+ * Any other token: refused with -3.
  */
 void d_front_me_a5(MK3OBJ *obj);   /* not yet decompiled, mkdrone.c */
 
@@ -3706,7 +3705,7 @@ long t_mot_sweep_hit(MK3THREAD *thread)
     }
 
     if (token != 0)
-        return -2;
+        return -3;
 
     *mk3_frame(thread, frame + 1) = 0x428;
     thread->fieldfc = 8;
@@ -3726,7 +3725,7 @@ long t_mot_sweep_hit(MK3THREAD *thread)
  *
  * `0x893`: wait 6 under `0x894`. `0x894`: `field1c = 3`, push (resume
  * `0x896`) into `t_mframew`. `0x896`: installs
- * `t_local_reaction_exit`. Any other token: -2.
+ * `t_local_reaction_exit`. Any other token: -3.
  */
 long t_sk_comboed(MK3THREAD *thread)
 {
@@ -3772,7 +3771,7 @@ long t_sk_comboed(MK3THREAD *thread)
     }
 
     if (token != 0)
-        return -2;
+        return -3;
 
     rsnd_func(obj, 0xa);
 
@@ -3795,7 +3794,7 @@ long t_sk_comboed(MK3THREAD *thread)
  *
  * `0x7cc`: wait 6 under `0x7cd`. `0x7cd`: `field1c = 3`, push (resume
  * `0x7cf`) into `t_mframew`. `0x7cf`: installs
- * `t_local_reaction_exit`. Any other token: -2.
+ * `t_local_reaction_exit`. Any other token: -3.
  */
 long t_motaro_hit2(MK3THREAD *thread)
 {
@@ -3824,7 +3823,7 @@ long t_motaro_hit2(MK3THREAD *thread)
     }
 
     if (token != 0)
-        return -2;
+        return -3;
 
     am_i_airborn(obj);
     if (obj->field5c != 0)
@@ -3840,6 +3839,91 @@ long t_motaro_hit2(MK3THREAD *thread)
     obj->field1c = 0x30002;
 
     *mk3_frame(thread, frame + 1) = 0x7cc;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_animate_a0_frames;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* --------------------------------------------------------------------- t_motaro_comboed
+ *
+ * armv7 0x000a91b8, 372 bytes.  **Complete.**
+ *
+ * State 0: `am_i_airborn`; airborne installs `t_motaro_hit_flight`.
+ * Grounded: `rsnd_func(obj, 0xa)`, `away_x_vel`, pose, push (resume
+ * `0x7df`) into `t_animate_a0_frames`.
+ *
+ * `0x7df`: wait 6 under `0x7e0`. `0x7e0`: `field1c = 3`, push (resume
+ * `0x7e2`) into `t_mframew`.
+ *
+ * `0x7e2` reads how many hits the combo landed (`field00->p_hit`,
+ * copied into `field1c`). Two or fewer installs
+ * `t_local_reaction_exit`. More hands the object's own
+ * `field64`/`slave` pair a two-entry table and pushes `t_random_do`
+ * under resume token `0x7ee` -- a token this function has no case
+ * for, so if `t_random_do` ever pops back here the answer is -3.
+ * Whether it can is `mkdrone.c`'s business.
+ *
+ * Any other token: refused with -3.
+ */
+extern MK3THREADFUNC funcs_motaro_comboed[];   /* 0x0017b91c */
+
+long t_motaro_comboed(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x7e2) {
+        obj->field1c = obj->field00->p_hit;
+        if ((int32_t)obj->field1c <= 2)
+            return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+        obj->slave   = (uint32_t)(uintptr_t)funcs_motaro_comboed;
+        obj->field64 = 2;
+
+        *mk3_frame(thread, frame + 1) = 0x7ee;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_random_do;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x7e0) {
+        obj->field1c = 3;
+
+        *mk3_frame(thread, frame + 1) = 0x7e2;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x7df) {
+        *mk3_frame(thread, frame + 1) = 0x7e0;
+        thread->fieldfc = 6;
+        return 6;
+    }
+
+    if (token != 0)
+        return -3;
+
+    am_i_airborn(obj);
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_motaro_hit_flight);
+
+    rsnd_func(obj, 0xa);
+    obj->field1c = 0x10000;
+    away_x_vel(obj);
+    obj->field40 = 0x1c;
+    get_char_ani(obj);
+    obj->field1c = 0x30002;
+
+    *mk3_frame(thread, frame + 1) = 0x7df;   /* resume token, level above */
     thread->frame = thread->frame + 1;        /* push a level */
     mk3_frame(thread, thread->frame)[1] =
         (uint32_t)(uintptr_t)t_animate_a0_frames;
