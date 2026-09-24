@@ -2029,3 +2029,170 @@ run:
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_f_lao
+ *
+ * armv7 0x000a644c, 356 bytes.  **Complete.**
+ *
+ * Kung Lao's friendship, the busiest spawner in the file: the free
+ * starts three separate threads -- `t_end_friend_proc`,
+ * `t_cute_lil_doggy` and `t_lao_dog_sounds` -- points `field40` at
+ * `a_lao_friend`, and runs `t_mframew_4` under `0x4b1`. `0x4b1` throws
+ * the hat (`t_hat_proc`) and holds 96 ticks; `0x4b3` plays sound `0x8b`
+ * and runs `t_mframew_4` again under `0x4b6`; `0x4b6` holds 48 under
+ * `0x4b7`; `0x4b7` runs the last stretch at rate 8 under `0x4ba`, whose
+ * re-entry installs `t_friendship_complete`.
+ */
+extern uint8_t a_lao_friend[];               /* 0x00177cc8 */
+long t_mframew_4(struct MK3THREAD *thread);
+
+long t_f_lao(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0x4b3) {
+        tsound_func(obj, 0x8b);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x4b6;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew_4;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot < 0x4b3) {
+        if (slot == 0) {
+            NewThread(obj, (MK3THREADFUNC)t_end_friend_proc);
+            NewThread(obj, (MK3THREADFUNC)t_cute_lil_doggy);
+            NewThread(obj, (MK3THREADFUNC)t_lao_dog_sounds);
+
+            obj->field40 = (uint32_t)(uintptr_t)a_lao_friend;
+
+            *mk3_frame(thread, thread->frame + 1) = 0x4b1;
+            thread->frame = thread->frame + 1;   /* push a level */
+            mk3_frame(thread, thread->frame)[1] =
+                (uint32_t)(uintptr_t)t_mframew_4;
+            *mk3_frame(thread, thread->frame + 1) = 0;
+            return 0;
+        }
+
+        if (slot != 0x4b1)
+            return -3;
+
+        NewThread(obj, (MK3THREADFUNC)t_hat_proc);
+
+        *mk3_frame(thread, thread->frame + 1) = 0x4b3;
+        thread->fieldfc = 0x60;
+        return 0x60;
+    }
+
+    if (slot == 0x4b7) {
+        obj->field1c = 8;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x4ba;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0x4ba)
+        return mk3_install(thread, (MK3THREADFUNC)t_friendship_complete);
+
+    if (slot != 0x4b6)
+        return -3;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x4b7;
+    thread->fieldfc = 0x30;
+    return 0x30;
+}
+
+
+/* --------------------------------------------------------------------- t_f_smoke_ninja
+ *
+ * armv7 0x000a5fc8, 388 bytes.  **Complete.**
+ *
+ * Robot Smoke's friendship borrows the chest routines from `mkzap.c`'s
+ * bomb: spawn a separate `t_end_friend_proc`, open the chest
+ * (`t_robo_open_chest`, `0x5cd`), run `a_smoke_friend` through
+ * `t_mframew_5` (`0x5cf`), sound `0x22` and another stretch (`0x5d3`),
+ * hold 16 ticks (`0x5d5`), a third stretch (`0x5d6`), delete the slave
+ * and close the chest (`t_robo_close_chest`, `0x5d8`), and hand off to
+ * `t_victory_animation` (`0x5d9`) -- which, as in `t_f_sonya`, never
+ * resumes here.
+ */
+long t_robo_open_chest(struct MK3THREAD *thread);    /* pointer slot 0x000f36c4 */
+long t_robo_close_chest(struct MK3THREAD *thread);   /* pointer slot 0x000f36bc */
+extern uint8_t a_smoke_friend[];             /* 0x00177e90 */
+
+long t_f_smoke_ninja(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+    uint32_t next;
+    uint32_t handler;
+
+    if (slot == 0x5d3) {
+        *mk3_frame(thread, thread->frame + 1) = 0x5d5;
+        thread->fieldfc = 0x10;
+        return 0x10;
+    }
+
+    if (slot > 0x5d3) {
+        if (slot == 0x5d6) {
+            delete_slave(obj);
+            next    = 0x5d8;
+            handler = (uint32_t)(uintptr_t)t_robo_close_chest;
+            goto push;
+        }
+        if (slot == 0x5d8) {
+            next    = 0x5d9;
+            handler = (uint32_t)(uintptr_t)t_victory_animation;
+            goto push;
+        }
+        if (slot != 0x5d5)
+            return -3;
+
+        next = 0x5d6;
+        goto run;
+    }
+
+    if (slot == 0x5cd) {
+        obj->field40 = (uint32_t)(uintptr_t)a_smoke_friend;
+        next = 0x5cf;
+        goto run;
+    }
+
+    if (slot == 0x5cf) {
+        obj->field1c = 0x22;
+        ochar_sound(obj);
+        next = 0x5d3;
+        goto run;
+    }
+
+    if (slot != 0)
+        return -3;
+
+    NewThread(obj, (MK3THREADFUNC)t_end_friend_proc);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x5cd;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_robo_open_chest;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
+run:
+    handler = (uint32_t)(uintptr_t)t_mframew_5;
+
+push:
+    *mk3_frame(thread, thread->frame + 1) = next;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] = handler;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
