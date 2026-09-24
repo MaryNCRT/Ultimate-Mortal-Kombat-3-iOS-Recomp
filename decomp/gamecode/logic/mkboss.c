@@ -2412,3 +2412,46 @@ long t_skc_swat_gun(MK3THREAD *thread)
 
     return mk3_install(thread, handler);
 }
+
+
+/* --------------------------------------------------------------------- t_mc_angle_jump
+ *
+ * armv7 0x000ab6f8, 128 bytes.  **Complete.**
+ *
+ * State 0 only: `is_towards_me`; not towards installs
+ * `t_return_to_beware`. Towards rolls `motaro_easy_randper`; a miss
+ * also installs `t_return_to_beware`. A hit checks distance -- far
+ * installs `t_return_to_beware` too, close installs `t_motaro_punch`
+ * instead -- one physical install site, four converging paths.
+ *
+ * Any other token: refused with -2.
+ */
+long t_mc_angle_jump(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+    MK3THREADFUNC handler;
+
+    if (slot != 0)
+        return -2;
+
+    is_towards_me(obj);
+    if (obj->field5c == 0) {
+        handler = (MK3THREADFUNC)t_return_to_beware;
+        return mk3_install(thread, handler);
+    }
+
+    motaro_easy_randper(obj);
+    if (obj->field5c == 0) {
+        handler = (MK3THREADFUNC)t_return_to_beware;
+        return mk3_install(thread, handler);
+    }
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0x80)
+        handler = (MK3THREADFUNC)t_return_to_beware;
+    else
+        handler = (MK3THREADFUNC)t_motaro_punch;
+
+    return mk3_install(thread, handler);
+}
