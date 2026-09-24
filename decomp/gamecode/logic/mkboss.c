@@ -4022,3 +4022,80 @@ loop_head:
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_mc_sg_pounce_sd
+ *
+ * armv7 0x000aba5c, 232 bytes.  **Complete.**
+ *
+ * State 0: `bossrandper` at `0x2ee`; a miss, or a hit beyond `0x90`,
+ * installs `t_return_to_beware`. Otherwise it measures AGAIN (a second
+ * `get_x_dist`, as the binary has it) -- beyond `0x70` installs
+ * `t_motaro_kick`, closer sets `a10 = 8` and starts a one-tick loop
+ * under `0x6c7`.
+ *
+ * `0x6c7`: `face_opponent`, count `a10` down; not yet zero re-arms and
+ * sleeps 1. At zero, `bossrandper` at `0x1f4` picks
+ * `t_motaro_grab_punch` on a hit and `t_motaro_punch` on a miss.
+ *
+ * Any other token: refused with -3.
+ */
+long t_mc_sg_pounce_sd(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+    MK3THREADFUNC handler;
+
+    if (token == 0x6c7) {
+        face_opponent(obj);
+        obj->a10 = obj->a10 - 1;
+        if (obj->a10 != 0)
+            goto rearm;
+
+        obj->field1c = 0x1f4;
+        bossrandper(obj);
+        if (obj->field5c == 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_motaro_punch);
+
+        handler = (MK3THREADFUNC)t_motaro_grab_punch;
+        goto install;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field1c = 0x2ee;
+    bossrandper(obj);
+    if (obj->field5c == 0) {
+        handler = (MK3THREADFUNC)t_return_to_beware;
+        goto install;
+    }
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0x90) {
+        handler = (MK3THREADFUNC)t_return_to_beware;
+        goto install;
+    }
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0x70) {
+        handler = (MK3THREADFUNC)t_motaro_kick;
+        goto install;
+    }
+
+    obj->a10 = 8;
+
+rearm:
+    *mk3_frame(thread, frame + 1) = 0x6c7;
+    thread->fieldfc = 1;
+    return 1;
+
+    /* The one store four paths share. Its value is a register the binary
+     * loads on the way in, so tools/factdiff.py reads it as `?` on both
+     * sides: these four handlers are traced by eye, not by the oracle. */
+install:
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)handler;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
