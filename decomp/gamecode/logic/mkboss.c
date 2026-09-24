@@ -4300,3 +4300,131 @@ install:
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_motaro_kick
+ *
+ * armv7 0x000aa868, 452 bytes.  **Complete.**
+ *
+ * State 0: pose (`field40 = 0x11`), sound, `am_i_facing_him`. Facing
+ * runs `t_mframew` under `0x4d5`; not facing skips straight to the
+ * wind-up below. `0x4d5` steps the animation back one strip
+ * (`field40 -= 0x10`) and joins it.
+ *
+ *     wind-up: `find_part2`, `field1c = 2`, `t_mframew` under `0x4dc`.
+ *
+ * `0x4dc`: `a10 = 4` strike checks, one tick apart under `0x4e3`
+ * (`field1c = 1`, `strike_check_a0`). A connection re-arms `0x4fa`
+ * and holds 10 ticks; four misses fall into `0x4fa` directly.
+ *
+ * `0x4fa`: `field1c = 3`, `t_mframew` under `0x4ea`. `0x4ea`: facing
+ * goes to `0x4f2`; not facing turns (`field40 = 0x30011`,
+ * `t_animate_a9` under `0x4f2`). `0x4f2`: `field40 = 0`,
+ * `pose_a9_manual`, install `t_local_reaction_exit`.
+ *
+ * Any other token: refused with -3.
+ */
+void pose_a9_manual(MK3OBJ *obj);
+
+long t_motaro_kick(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x4f2)
+        goto finish;
+
+    if (token == 0x4ea) {
+        am_i_facing_him(obj);
+        if (obj->field5c != 0)
+            goto finish;
+
+        obj->field40 = 0x30011;
+
+        *mk3_frame(thread, frame + 1) = 0x4f2;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x4e3) {
+        obj->a10 = obj->a10 - 1;
+        if (obj->a10 != 0)
+            goto strike;
+        goto recover;
+    }
+
+    if (token == 0x4fa)
+        goto recover;
+
+    if (token == 0x4dc) {
+        obj->a10 = 4;
+        goto strike;
+    }
+
+    if (token == 0x4d5) {
+        obj->field40 = obj->field40 - 0x10;
+        goto windup;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field40 = 0x11;
+    get_char_ani(obj);
+    obj->field1c = 1;
+    ochar_sound(obj);
+    am_i_facing_him(obj);
+    if (obj->field5c == 0)
+        goto windup;
+
+    obj->field1c = 1;
+
+    *mk3_frame(thread, frame + 1) = 0x4d5;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
+windup:
+    find_part2(obj);
+    obj->field1c = 2;
+
+    *mk3_frame(thread, frame + 1) = 0x4dc;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
+strike:
+    obj->field1c = 1;
+    strike_check_a0(obj);
+    if (obj->field5c == 0) {
+        *mk3_frame(thread, frame + 1) = 0x4e3;
+        thread->fieldfc = 1;
+        return 1;
+    }
+    *mk3_frame(thread, frame + 1) = 0x4fa;
+    thread->fieldfc = 0xa;
+    return 0xa;
+
+recover:
+    obj->field1c = 3;
+
+    *mk3_frame(thread, frame + 1) = 0x4ea;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
+finish:
+    obj->field40 = 0;
+    pose_a9_manual(obj);
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
