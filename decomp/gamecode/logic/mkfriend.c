@@ -1338,3 +1338,138 @@ bounce:
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_f_kitana
+ *
+ * armv7 0x000a6ddc, 236 bytes.  **Complete.**
+ *
+ * The free runs `center_around_me` on the OPPONENT (the A0 handover:
+ * the routine goes in `field1c` and `call_a0_for_him` runs it on the
+ * other fighter, the same way `face_him_at_me` does), then pushes
+ * `t_animate2_a9` at `0x50008` under `0x19c`. `0x19c` waits 112 ticks
+ * under `0x19d`; `0x19d` deletes the slave, poses animation 6
+ * (`find_ani2_part2`), and pushes `t_mframew` under `0x1a3`, whose
+ * re-entry installs `t_friendship_complete`.
+ */
+void center_around_me(MK3OBJ *obj);
+void call_a0_for_him(MK3OBJ *obj);
+void delete_slave(MK3OBJ *obj);
+void find_ani2_part2(MK3OBJ *obj);
+long t_animate2_a9(struct MK3THREAD *thread);   /* pointer slot 0x000f36c0 */
+
+long t_f_kitana(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0x19c) {
+        *mk3_frame(thread, thread->frame + 1) = 0x19d;
+        thread->fieldfc = 0x70;
+        return 0x70;
+    }
+
+    if (slot < 0x19c) {
+        if (slot != 0)
+            return -3;
+
+        obj->field1c = (uint32_t)(uintptr_t)center_around_me;
+        call_a0_for_him(obj);
+
+        obj->field40 = 0x50008;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x19c;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_animate2_a9;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0x19d) {
+        delete_slave(obj);
+
+        obj->field40 = 6;
+        find_ani2_part2(obj);
+
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x1a3;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0x1a3)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_friendship_complete);
+}
+
+
+/* --------------------------------------------------------------------- t_bounce
+ *
+ * armv7 0x000a6374, 216 bytes.  **Complete.**
+ *
+ * A bouncing ball. The free rolls a launch speed (`randu_minimum` with
+ * both bounds at `0x40000`, answering in `field1c`), negates it into
+ * the y velocity (`field48` and the part's own `field1c`), and waits two
+ * ticks under `0x524`, which just re-arms `0x526` for one tick.
+ *
+ * `0x526` is one physics step: velocity into the part, gravity
+ * `+0x8000` onto `field48`, and a floor test -- the part's y plus `0x20`
+ * against `G+0xac`. Still above it re-arms `0x526` through the SAME
+ * one-tick tail `0x524` uses (one physical block, two ways in); reaching
+ * it plays sound `0x71` and pops a level, or installs
+ * `t_local_reaction_exit` at the bottom.
+ */
+void randu_minimum(MK3OBJ *obj);
+
+long t_bounce(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0x524)
+        goto rearm;
+
+    if (slot == 0x526) {
+        obj->field08->field1c = obj->field48;
+        obj->field48          = obj->field48 + 0x8000;
+
+        obj->field1c = (uint32_t)((int32_t)MK3_FIELD12_S(obj->field08) + 0x20);
+        obj->field20 = *(uint32_t *)(G_BYTES + 0xac);
+
+        if ((int32_t)obj->field20 > (int32_t)obj->field1c)
+            goto rearm;
+
+        tsound_func(obj, 0x71);
+
+        if ((long)thread->frame > 0) {
+            thread->frame = thread->frame - 1;   /* back up a level */
+            return 0;
+        }
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (slot != 0)
+        return -3;
+
+    obj->field1c = 0x40000;
+    obj->field20 = 0x40000;
+    randu_minimum(obj);
+
+    obj->field48          = (uint32_t)(-(int32_t)obj->field1c);
+    obj->field08->field1c = obj->field48;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x524;
+    thread->fieldfc = 2;
+    return 2;
+
+rearm:
+    *mk3_frame(thread, thread->frame + 1) = 0x526;
+    thread->fieldfc = 1;
+    return 1;
+}
