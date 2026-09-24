@@ -2374,3 +2374,41 @@ long t_mhop7(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_skc_swat_gun
+ *
+ * armv7 0x000abd20, 104 bytes.  **Complete.**
+ *
+ * State 0 only: `sk_randper`; a hit installs `t_return_to_beware` on
+ * the current level. A miss checks distance -- far installs `t_sk_zap`
+ * (this file's own), close installs `mkdrone.c`'s `t_d_block` -- one
+ * physical install site, three literal handlers, reached three ways.
+ *
+ * Any other token: refused with -2.
+ */
+long sk_randper(MK3OBJ *obj);
+
+long t_skc_swat_gun(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+    MK3THREADFUNC handler;
+
+    if (slot != 0)
+        return -2;
+
+    sk_randper(obj);
+    if (obj->field5c != 0) {
+        handler = (MK3THREADFUNC)t_return_to_beware;
+        return mk3_install(thread, handler);
+    }
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0xd0)
+        handler = (MK3THREADFUNC)t_sk_zap;
+    else
+        handler = (MK3THREADFUNC)t_d_block;
+
+    return mk3_install(thread, handler);
+}
