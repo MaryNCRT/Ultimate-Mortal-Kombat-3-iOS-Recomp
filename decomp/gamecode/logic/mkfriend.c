@@ -1059,3 +1059,123 @@ long t_f_sheeva(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_sonya_flower_proc
+ *
+ * armv7 0x000a6c88, 228 bytes.  **Complete.**
+ *
+ * `t_f_sonya`'s own `NewThread` target: one flower. The free sleeps a
+ * random 20..29 ticks (`randu` answers in `field1c`, the sleep read
+ * straight back out of it) under `0x1f6`. `0x1f6` picks the flower's
+ * frame (`field08->field2c = 0xe6`), rolls a random x (`randu(0x18f)
+ * - 0xc7`, a spread of -199..199 left in `field1c` -- nothing here
+ * reads it back, so what consumes it is outside this routine), plants
+ * the part on the floor (`G+0xac` minus the frame's own height), rolls a
+ * random 3..8 animation rate, points `field40` at `a_flower`, and pushes
+ * `t_mframew` under `0x210`, whose re-entry parks on `t_wait_forever`.
+ */
+void randu(MK3OBJ *obj);
+int  GetFrameHeight(uint32_t ani);
+extern uint8_t a_flower[];                   /* 0x001779ec */
+
+long t_sonya_flower_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0x1f6) {
+        uint32_t floor;
+
+        obj->field08->field2c = 0xe6;
+
+        obj->field1c = 0xe6 + 0xa9;
+        randu(obj);
+        obj->field1c = obj->field1c - 0xc7;
+
+        floor = *(uint32_t *)(G_BYTES + 0xac);
+        MK3_SET_FIELD12(obj->field08,
+                        floor - (uint32_t)GetFrameHeight(obj->field08->field2c));
+
+        obj->field1c = 6;
+        randu(obj);
+        obj->field1c = obj->field1c + 3;
+
+        obj->field40 = (uint32_t)(uintptr_t)a_flower;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x210;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0x210)
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+
+    if (slot != 0)
+        return -3;
+
+    obj->field1c = 0xa;
+    randu(obj);
+    obj->field1c = obj->field1c + 0x14;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x1f6;
+    thread->fieldfc = obj->field1c;
+    return (long)obj->field1c;
+}
+
+
+/* --------------------------------------------------------------------- t_cute_lil_doggy
+ *
+ * armv7 0x000a5494, 240 bytes.  **Complete.**
+ *
+ * Leaf-shaped, like the `t_f_*` entries. The free sets the part's frame
+ * (`field08->field2c = 0x1463`) and picks a side by the part's own flip
+ * bit: unflipped starts the dog at `G[0x468] - 0x30` running right at
+ * `0x60000`, flipped at `G[0x470] + 0x60` running left at `0xfffa0000`
+ * -- the two camera edges `t_blade_proc` averages, so the dog enters
+ * from whichever edge is behind the fighter. Both sides then share one
+ * tail: x into the part's `field0e` (the low half of `field1c`, a
+ * halfword store), y to `G+0xac - 0x20`, the velocity into
+ * `field08->field18`, `field40` at `a_dog`, rate 3, and a push of
+ * `t_mframew` under `0x4a6`, whose re-entry parks on `t_wait_forever`.
+ */
+extern uint8_t a_dog[];                      /* 0x00177d0c */
+
+long t_cute_lil_doggy(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0x4a6)
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+
+    if (slot != 0)
+        return -3;
+
+    obj->field08->field2c = 0x1463;
+
+    if (obj->field08->field28 & 0x10) {
+        obj->field1c = *(uint32_t *)(G_BYTES + 0x470) + 0x60;
+        obj->field30 = 0xfffa0000;
+    } else {
+        obj->field1c = *(uint32_t *)(G_BYTES + 0x468) - 0x30;
+        obj->field30 = 0x60000;
+    }
+
+    MK3_SET_FIELD0E(obj->field08, (uint16_t)obj->field1c);
+    MK3_SET_FIELD12(obj->field08, *(uint32_t *)(G_BYTES + 0xac) - 0x20);
+    obj->field08->field18 = obj->field30;
+
+    obj->field40 = (uint32_t)(uintptr_t)a_dog;
+    obj->field1c = 3;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x4a6;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
