@@ -2940,3 +2940,65 @@ long t_mc_flipkp(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_motaro_flip_kicked
+ *
+ * armv7 0x000a9c10, 236 bytes.  **Complete.**
+ *
+ * State 0: `rsnd_func(obj, 0xa)`, `rsnd_ochar_sound`, `field48 =
+ * 0x60006`, `shake_a11`, `away_x_vel`, pose, push (resume token
+ * `0x78c`) into `other.c`'s `t_animate_a9`.
+ *
+ * `0x78c` (animate came back): `field1c = field20 = 0x10`,
+ * `randu_minimum` (its answer read back from `field1c` into `a10`),
+ * pushes `mkdrone.c`'s `t_d_beware`, resume token `0x792`.
+ *
+ * `0x792` (beware came back): installs `t_local_reaction_exit` on the
+ * current level -- also reachable directly, sharing that single
+ * physical install with the push above.
+ *
+ * Any other token: refused with -2.
+ */
+long t_motaro_flip_kicked(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x78c) {
+        obj->field1c = 0x10;
+        obj->field20 = 0x10;
+        randu_minimum(obj);
+        obj->a10 = obj->field1c;
+
+        *mk3_frame(thread, frame + 1) = 0x792;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_d_beware;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x792)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token != 0)
+        return -2;
+
+    rsnd_func(obj, 0xa);
+    obj->field1c = 0x30002;
+    rsnd_ochar_sound(obj);
+    obj->field48 = 0x60006;
+    shake_a11(obj);
+    obj->field1c = 0x50000;
+    away_x_vel(obj);
+    obj->field40 = 0x40020;
+
+    *mk3_frame(thread, frame + 1) = 0x78c;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_animate_a9;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
