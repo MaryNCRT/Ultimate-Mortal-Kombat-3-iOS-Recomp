@@ -430,6 +430,7 @@ void find_part2(MK3OBJ *obj);
 void set_proj_vel(MK3OBJ *obj);
 long tl_projectile_flight(MK3THREAD *thread);
 long t_mframew(struct MK3THREAD *thread);
+long tl_delete_proj_and_die(MK3THREAD *thread);
 
 long t_net_proc(MK3THREAD *thread)
 {
@@ -438,8 +439,8 @@ long t_net_proc(MK3THREAD *thread)
     uint32_t slot  = *mk3_frame(thread, frame + 1);
     MK3OBJ  *him;
 
-    if (slot == 0xeed)
-        return mk3_install(thread, (MK3THREADFUNC)t_mframew);
+    if (slot == 0xeed)   /* corrected: was t_mframew, the routine 0xedc pushes */
+        return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
 
     if (slot == 0xedc) {
         next_anirate(obj);
@@ -2316,10 +2317,8 @@ void is_jade_protected(MK3OBJ *obj)
 {
     MK3THREAD *th;
 
-    if (((MK3OBJ *)(void *)(uintptr_t)obj->field00->him)->field24 != 0x10) {
-        q_no(obj);                               /* not Jade */
-        return;
-    }
+    if (((MK3OBJ *)(void *)(uintptr_t)obj->field00->him)->field24 != 0x10)
+        goto no;                                 /* not Jade */
 
     for (th = TList; th != NULL; th = *(MK3THREAD **)(void *)th) {
         if (th->pid != 0x11f)
@@ -2332,6 +2331,9 @@ void is_jade_protected(MK3OBJ *obj)
         }
     }
 
+    /* One `bl q_no` in the binary, reached from both the not-Jade test
+     * and the end of the list. */
+no:
     q_no(obj);
 }
 

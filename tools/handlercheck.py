@@ -22,9 +22,9 @@ checks two things against the C body:
               one the binary actually loads
 
 A hit is not proof of a bug -- a comment mentioning a name satisfies the
-forward check, and `dumpfn.py` does not resolve an `ldr`/`add pc` pair that
-the compiler split apart, so a routine reached that way reads as never
-loaded. Check a hit against the disassembly before changing anything.
+forward check, and a literal that travels further than an `ldr` and a
+`mov` before its `add pc` is still missed. Check a hit against the
+disassembly before changing anything.
 
 Usage:
     python tools/handlercheck.py mkboss.c [function ...]
@@ -74,12 +74,49 @@ def c_bodies(src):
     return out
 
 
+RE_LDR = re.compile(r"0x([0-9a-f]+)\s+ldr(?:\.w)?\s+(r\d+), \[pc, #0x([0-9a-f]+)\]")
+RE_MOV = re.compile(r"0x[0-9a-f]+\s+mov\s+(r\d+), (r\d+)$")
+RE_ADDPC = re.compile(r"0x([0-9a-f]+)\s+add\s+(r\d+), pc")
+
+
+def split_pairs(out, word):
+    """The `ldr rX,[pc,#n] ... add rX,pc` pairs dumpfn.py leaves alone.
+
+    dumpfn resolves the pair only when it can see it whole. When the
+    compiler parks the literal in another register first -- `ldr r6, ...;
+    mov r1, r6; add r1, pc` ahead of a NewThread -- it prints nothing, and
+    the routine reads as never loaded. Follow the literal through `mov`.
+    The `add` uses its own pc, unaligned (see the Thumb literal memory).
+    """
+    lines = out.splitlines()
+    lit, found = {}, []
+    for i, ln in enumerate(lines):
+        ln = ln.strip()
+        m = RE_LDR.match(ln)
+        if m:
+            a = int(m.group(1), 16)
+            lit[m.group(2)] = word(((a + 4) & ~3) + int(m.group(3), 16))
+            continue
+        m = RE_MOV.match(ln)
+        if m and m.group(2) in lit:
+            lit[m.group(1)] = lit[m.group(2)]
+            continue
+        m = RE_ADDPC.match(ln)
+        if m:
+            resolved = i + 1 < len(lines) and "->" in lines[i + 1]
+            if not resolved and m.group(2) in lit:
+                found.append((lit[m.group(2)] + int(m.group(1), 16) + 4)
+                             & 0xffffffff)
+    return found
+
+
 def loaded_by(fn, word, names):
     out = subprocess.run([sys.executable, os.path.join(HERE, "dumpfn.py"), fn],
                          capture_output=True, text=True).stdout
     loaded = set()
-    for a in re.findall(r"-> 0x([0-9a-f]{8})", out):
-        a = int(a, 16)
+    addrs = [int(a, 16) for a in re.findall(r"-> 0x([0-9a-f]{8})", out)]
+    addrs += split_pairs(out, word)
+    for a in addrs:
         tgt = (word(a) if SLOT_LO <= a < SLOT_HI else a) & ~1
         if tgt in names:
             loaded.add(names[tgt])
