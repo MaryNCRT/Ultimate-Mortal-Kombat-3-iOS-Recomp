@@ -2551,3 +2551,70 @@ long t_skc_zap(MK3THREAD *thread)
 
     return mk3_install(thread, handler);
 }
+
+
+/* --------------------------------------------------------------------- t_sk_airborn_check
+ *
+ * armv7 0x000a8f14, 192 bytes.  **Complete.**
+ *
+ * State 0 only: `am_i_airborn`. Not airborn just pops a level when
+ * there is one to pop, or installs `t_local_reaction_exit` at the
+ * bottom.
+ *
+ * Airborn and a level to pop: copies the level ABOVE's own resume
+ * token down into this one (so whoever pops past THIS level resumes
+ * where the caller above was heading), then re-homes the handler this
+ * level was running one level down and immediately overwrites it with
+ * `t_sk_knocked_down` -- a dead store, kept because the oracle checks
+ * the binary's own instructions and not what looks minimal.
+ *
+ * Airborn with nothing to pop: installs `t_local_reaction_exit`, but
+ * this path never reloads `r0` afterward, so the return value is
+ * `field5c` (the airborn flag itself) left over from the check above,
+ * not `0`.
+ */
+long am_i_airborn(MK3OBJ *obj);
+
+long t_sk_airborn_check(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t frame;
+    uint32_t airborn;
+    uint32_t old_handler;
+
+    if (token != 0)
+        return -2;
+
+    am_i_airborn(obj);
+    airborn = obj->field5c;
+    frame   = thread->frame;
+
+    if (airborn == 0) {
+        if ((int32_t)frame <= 0) {
+            mk3_frame(thread, frame)[1] = (uint32_t)(uintptr_t)t_local_reaction_exit;
+            *mk3_frame(thread, frame + 1) = token;   /* 0 */
+            return 0;
+        }
+
+        thread->frame = frame - 1;   /* pop a level */
+        return 0;
+    }
+
+    if ((int32_t)frame <= 0) {
+        mk3_frame(thread, frame)[1] = (uint32_t)(uintptr_t)t_local_reaction_exit;
+        *mk3_frame(thread, frame + 1) = token;   /* 0 */
+        return (long)airborn;   /* leftover: field5c, still in r0 */
+    }
+
+    thread->frame = frame - 1;   /* pop a level */
+
+    old_handler            = mk3_frame(thread, frame)[1];
+    *mk3_frame(thread, frame) = *mk3_frame(thread, frame + 1);
+
+    mk3_frame(thread, frame - 1)[1] = old_handler;   /* dead, overwritten below */
+    mk3_frame(thread, frame - 1)[1] = (uint32_t)(uintptr_t)t_sk_knocked_down;
+    *mk3_frame(thread, frame) = 0;
+
+    return 0;
+}
