@@ -3156,3 +3156,56 @@ long t_mc_fk_sd(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_c_zoom_sd
+ *
+ * armv7 0x000ab988, 212 bytes.  **Complete.**
+ *
+ * State 0: `field1c = 0x2bc`, `bossrandper`; a miss installs
+ * `t_return_to_beware`. A hit parks `q_heading_down`'s own address in
+ * `field48` (again, a raw function pointer in a counter field),
+ * `a10 = 0x40`, pushes `mkdrone.c`'s `t_stance_wait_yes`, resume
+ * token `0x6ec`.
+ *
+ * `0x6ec`: checks distance -- close installs `t_motaro_punch`, far
+ * installs `t_motaro_kick` -- one physical install site, two
+ * converging paths.
+ *
+ * Any other token: refused with -2.
+ */
+long t_stance_wait_yes(struct MK3THREAD *thread);   /* not yet decompiled, mkdrone.c */
+long t_motaro_kick(struct MK3THREAD *thread);       /* not yet decompiled */
+
+long t_c_zoom_sd(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x6ec) {
+        get_x_dist(obj);
+        if ((int32_t)obj->field28 > 0x70)
+            return mk3_install(thread, (MK3THREADFUNC)t_motaro_kick);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_motaro_punch);
+    }
+
+    if (token != 0)
+        return -2;
+
+    obj->field1c = 0x2bc;
+    bossrandper(obj);
+    if (obj->field5c == 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_return_to_beware);
+
+    obj->field48 = (uint32_t)(uintptr_t)q_heading_down;
+    obj->a10     = 0x40;
+
+    *mk3_frame(thread, frame + 1) = 0x6ec;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_stance_wait_yes;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
