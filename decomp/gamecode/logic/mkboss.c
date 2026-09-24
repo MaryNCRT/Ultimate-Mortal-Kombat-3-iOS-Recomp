@@ -982,3 +982,150 @@ void q_is_he_car(MK3OBJ *obj)
     else
         q_yes(obj);
 }
+
+
+/* --------------------------------------------------------------------- t_boss_close_attack, t_motaro_far_easy/hard/med, t_sk_stupid
+ *
+ * armv7 0x000a879c/0xa869c/0xa863c/0xa85dc/0xa87fc, 96 bytes each.
+ * **Complete.**
+ *
+ * Five copies of one shape: state 0 only, push `t_random_do` -- reusing
+ * `field00->field64`/`field68` (the ordinary "slave object"/"slave part"
+ * pair everywhere else in this codebase) as a small count and a table
+ * pointer instead, the same field-repurposing this file already does
+ * for `field1c`/`field20` in the answer helpers. Each local move-choice
+ * table (`funcs.NNNN` in the compiler's own naming, an anonymous local
+ * array rather than a named function) is picked by which entry this
+ * function is.
+ */
+long t_random_do(struct MK3THREAD *thread);   /* not yet decompiled, mkdrone.c */
+extern MK3THREADFUNC funcs_boss_close_attack[];   /* 0x0017b9b0 */
+extern MK3THREADFUNC funcs_motaro_far_easy[];     /* 0x0017b9bc */
+extern MK3THREADFUNC funcs_motaro_far_hard[];     /* 0x0017b9c4 */
+extern MK3THREADFUNC funcs_motaro_far_med[];      /* 0x0017b9cc */
+extern MK3THREADFUNC funcs_sk_stupid[];           /* 0x0017b92c */
+
+long t_boss_close_attack(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot != 0)
+        return -3;
+
+    obj->field00->slave   = (uint32_t)(uintptr_t)funcs_boss_close_attack;
+    obj->field00->field64 = 3;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x1d3;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_random_do;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+long t_motaro_far_easy(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot != 0)
+        return -3;
+
+    obj->field00->slave   = (uint32_t)(uintptr_t)funcs_motaro_far_easy;
+    obj->field00->field64 = 2;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x180;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_random_do;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+long t_motaro_far_hard(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot != 0)
+        return -3;
+
+    obj->field00->slave   = (uint32_t)(uintptr_t)funcs_motaro_far_hard;
+    obj->field00->field64 = 2;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x16e;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_random_do;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+long t_motaro_far_med(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot != 0)
+        return -3;
+
+    obj->field00->slave   = (uint32_t)(uintptr_t)funcs_motaro_far_med;
+    obj->field00->field64 = 2;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x15b;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_random_do;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+long t_sk_stupid(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot != 0)
+        return -3;
+
+    obj->field00->slave   = (uint32_t)(uintptr_t)funcs_sk_stupid;
+    obj->field00->field64 = 5;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x3e3;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_random_do;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* --------------------------------------------------------------------- t_motaro_stupid_stance
+ *
+ * armv7 0x000a9898, 76 bytes.  **Complete.**
+ *
+ * State 0 only. Rolls a random 0x30..0x5f duration (`randu_minimum`,
+ * both bounds `0x30`, answering in `field1c`), parks it in `a10`, and
+ * installs `t_ss1` on the current level -- no push, so this replaces
+ * its own dispatcher rather than descending into it.
+ */
+void randu_minimum(MK3OBJ *obj);
+long t_ss1(struct MK3THREAD *thread);   /* not yet decompiled */
+
+long t_motaro_stupid_stance(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot != 0)
+        return -3;
+
+    obj->field1c = 0x30;
+    obj->field20 = 0x30;
+    randu_minimum(obj);
+
+    obj->a10 = obj->field1c;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_ss1);
+}
