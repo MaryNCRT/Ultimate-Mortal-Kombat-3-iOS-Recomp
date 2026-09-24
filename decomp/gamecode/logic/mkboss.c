@@ -3930,3 +3930,95 @@ long t_motaro_comboed(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_sk_taunt
+ *
+ * armv7 0x000aabb0, 328 bytes.  **Complete.**
+ *
+ * Shao Kahn's taunt, a loop. State 0: sound, pose, `a10 = 2`, then
+ * the loop head: `field1c = 3`, push (resume `0x3f2`) into `t_mframew`.
+ *
+ * `0x3f2`: hold for `randu(6) + 10` ticks under `0x3f7` -- the wait
+ * is `field1c` itself, stored in `fieldfc` and returned.
+ *
+ * `0x3f7`: count `a10` down; while it is not zero go round the loop
+ * head again. At zero: pose, `find_ani_part2`, `find_part2`,
+ * `field1c = 3`, push (resume `0x400`) into `t_mframew`.
+ *
+ * `0x400`: `randu_minimum` from `0x10` into `a10`, push (resume
+ * `0x406`) into `mkdrone.c`'s `t_d_beware`. `0x406`: installs
+ * `t_local_reaction_exit`. Any other token: refused with -3.
+ */
+void randu(MK3OBJ *obj);
+void find_part2(MK3OBJ *obj);
+
+long t_sk_taunt(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x406)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token == 0x400) {
+        obj->field1c = 0x10;
+        obj->field20 = 0x10;
+        randu_minimum(obj);
+        obj->a10 = obj->field1c;
+
+        *mk3_frame(thread, frame + 1) = 0x406;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_d_beware;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x3f7) {
+        obj->a10 = obj->a10 - 1;
+        if (obj->a10 != 0)
+            goto loop_head;
+
+        obj->field40 = 0x18;
+        find_ani_part2(obj);
+        find_part2(obj);
+        obj->field1c = 3;
+
+        *mk3_frame(thread, frame + 1) = 0x400;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x3f2) {
+        obj->field1c = 6;
+        randu(obj);
+        obj->field1c = obj->field1c + 0xa;
+        *mk3_frame(thread, frame + 1) = 0x3f7;
+        thread->fieldfc = obj->field1c;
+        return (long)(int32_t)obj->field1c;
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->field1c = 0x80003;
+    rsnd_ochar_sound(obj);
+    obj->field40 = 0x18;
+    get_char_ani(obj);
+    obj->a10 = 2;
+
+loop_head:
+    obj->field1c = 3;
+
+    *mk3_frame(thread, frame + 1) = 0x3f2;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_mframew;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
