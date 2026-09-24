@@ -3209,3 +3209,63 @@ long t_c_zoom_sd(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_sk_block_zap
+ *
+ * armv7 0x000a9ddc, 196 bytes.  **Complete.**
+ *
+ * State 0: `face_opponent`, push (resume token `0x5a7`) into
+ * `mkstat.c`'s `t_do_block_hi`.
+ *
+ * `0x5a7`: push (resume token `0x5a8`) into `mkdrone.c`'s
+ * `t_wait_proj_spawn`.
+ *
+ * `0x5a8`: push (resume token `0x5a9`) into `mkdrone.c`'s
+ * `t_wait_proj_pass`.
+ *
+ * `0x5a9`: installs `t_local_reaction_exit` on the current level.
+ *
+ * Any other token: refused with -2.
+ */
+long t_wait_proj_spawn(struct MK3THREAD *thread);   /* not yet decompiled, mkdrone.c */
+long t_wait_proj_pass(struct MK3THREAD *thread);    /* not yet decompiled, mkdrone.c */
+
+long t_sk_block_zap(MK3THREAD *thread)
+{
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x5a9)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token == 0x5a8) {
+        *mk3_frame(thread, frame + 1) = 0x5a9;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_wait_proj_pass;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x5a7) {
+        *mk3_frame(thread, frame + 1) = 0x5a8;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_wait_proj_spawn;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token != 0)
+        return -2;
+
+    face_opponent((MK3OBJ *)thread->proc);
+
+    *mk3_frame(thread, frame + 1) = 0x5a7;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_do_block_hi;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
