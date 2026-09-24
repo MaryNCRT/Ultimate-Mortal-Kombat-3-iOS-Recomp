@@ -1232,3 +1232,91 @@ long t_skc_lk_zap_lo(MK3THREAD *thread)
 
     return mk3_install(thread, handler);
 }
+
+
+/* --------------------------------------------------------------------- t_mc_hover
+ *
+ * armv7 0x000ab890, 88 bytes.  **Complete.**
+ *
+ * State 0 only. Rolls `motaro_randper` (result unused -- a chance
+ * table probably fed elsewhere), then installs `t_motaro_hop` when far
+ * (`field28 > 0x6f`) or `t_motaro_punch` when close, no push either
+ * way.
+ */
+long t_motaro_hop(struct MK3THREAD *thread);      /* not yet decompiled */
+long t_motaro_punch(struct MK3THREAD *thread);    /* not yet decompiled */
+
+long t_mc_hover(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+    MK3THREADFUNC handler;
+
+    if (slot != 0)
+        return -3;
+
+    motaro_randper(obj);
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0x6f)
+        handler = (MK3THREADFUNC)t_motaro_hop;
+    else
+        handler = (MK3THREADFUNC)t_motaro_punch;
+
+    return mk3_install(thread, handler);
+}
+
+
+/* --------------------------------------------------------------------- t_mc_propell_ls
+ *
+ * armv7 0x000ab8e8, 92 bytes.  **Complete.**
+ *
+ * State 0 only. Rolls `motaro_randper` (unused), then close (`field28
+ * <= 0x70`) installs `t_motaro_slided`, far installs
+ * `t_b_return_to_beware_4get`.
+ */
+long t_mc_propell_ls(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+    MK3THREADFUNC handler;
+
+    if (slot != 0)
+        return -3;
+
+    motaro_randper(obj);
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0x70)
+        handler = (MK3THREADFUNC)t_b_return_to_beware_4get;
+    else
+        handler = (MK3THREADFUNC)t_motaro_slided;
+
+    return mk3_install(thread, handler);
+}
+
+
+/* --------------------------------------------------------------------- t_skc_propell
+ *
+ * armv7 0x000a8e34, 84 bytes.  **Complete.**
+ *
+ * State 0 only, Shao Kahn's twin: close (`field28 <= 0x90`) installs
+ * `t_motaro_slided`, far installs `t_b_return_to_beware_4get`.
+ */
+long t_skc_propell(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+    MK3THREADFUNC handler;
+
+    if (slot != 0)
+        return -3;
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0x90)
+        handler = (MK3THREADFUNC)t_b_return_to_beware_4get;
+    else
+        handler = (MK3THREADFUNC)t_motaro_slided;
+
+    return mk3_install(thread, handler);
+}
