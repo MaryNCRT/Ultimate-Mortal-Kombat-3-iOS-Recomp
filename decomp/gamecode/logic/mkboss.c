@@ -1129,3 +1129,106 @@ long t_motaro_stupid_stance(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_ss1);
 }
+
+
+/* --------------------------------------------------------------------- q_is_this_a_joke
+ *
+ * armv7 0x000a9ea0, 68 bytes.  **Complete.**
+ *
+ * A joke round needs BOTH fighters at match wins 0 (`get_my_matchw`/
+ * `get_his_matchw` both answer 0 in `field1c`) AND this object weaker
+ * or equal strength AND the opponent's own strength no more than `0x53`.
+ * Any of those failing answers no.
+ */
+void get_my_matchw(MK3OBJ *obj);
+void get_his_matchw(MK3OBJ *obj);
+void get_his_strength(MK3OBJ *obj);
+void get_my_strength(MK3OBJ *obj);
+
+long q_is_this_a_joke(MK3OBJ *obj)
+{
+    get_my_matchw(obj);
+    if (obj->field1c != 0)
+        goto no;
+
+    get_his_matchw(obj);
+    if (obj->field1c != 0)
+        goto no;
+
+    get_his_strength(obj);
+    obj->field30 = obj->field1c;
+    get_my_strength(obj);
+
+    if ((int32_t)obj->field1c < (int32_t)obj->field30)
+        goto no;
+    if ((int32_t)obj->field30 > 0x53)
+        goto no;
+
+    q_yes(obj);
+    return (long)(uintptr_t)obj;   /* r0 left over from the "mov r0,r4" before the call */
+
+no:
+    q_no(obj);
+    return (long)(uintptr_t)obj;   /* same leftover-register shape */
+}
+
+
+/* --------------------------------------------------------------------- t_mc_flipk_away
+ *
+ * armv7 0x000a8d8c, 84 bytes.  **Complete.**
+ *
+ * State 0 only. Close (`field28 <= 0x80`) installs `t_motaro_slided`
+ * (pointer slot `0x000f3418`); further away installs `t_d_block`
+ * (`0x000f3428`, the same slot `t_b_return_to_beware_4get` reads) --
+ * one physical install site, two literal pointers, reached from both
+ * branches.
+ */
+long t_motaro_slided(struct MK3THREAD *thread);       /* pointer slot 0x000f3418 */
+long t_d_block(struct MK3THREAD *thread);             /* pointer slot 0x000f3428 */
+
+long t_mc_flipk_away(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+    MK3THREADFUNC handler;
+
+    if (slot != 0)
+        return -3;
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0x80)
+        handler = (MK3THREADFUNC)t_d_block;
+    else
+        handler = (MK3THREADFUNC)t_motaro_slided;
+
+    return mk3_install(thread, handler);
+}
+
+
+/* --------------------------------------------------------------------- t_skc_lk_zap_lo
+ *
+ * armv7 0x000a8de0, 84 bytes.  **Complete.**
+ *
+ * State 0 only, Shao Kahn's twin of `t_mc_flipk_away`: close (`field28
+ * <= 0x6f`) installs `t_sk_air_charge`, further installs `t_sk_charge`.
+ */
+long t_sk_air_charge(struct MK3THREAD *thread);   /* not yet decompiled */
+long t_sk_charge(struct MK3THREAD *thread);       /* not yet decompiled */
+
+long t_skc_lk_zap_lo(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+    MK3THREADFUNC handler;
+
+    if (slot != 0)
+        return -3;
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 <= 0x6f)
+        handler = (MK3THREADFUNC)t_sk_air_charge;
+    else
+        handler = (MK3THREADFUNC)t_sk_charge;
+
+    return mk3_install(thread, handler);
+}
