@@ -1629,7 +1629,7 @@ long t_grab_ani(MK3THREAD *thread)
  * `t_motaro_punch` -- one physical install site, four literal
  * pointers (three of them the same), reached from all four branches.
  */
-long t_boss_wait_land(struct MK3THREAD *thread);   /* not yet decompiled */
+long t_boss_wait_land(struct MK3THREAD *thread);
 void motaro_easy_randper(MK3OBJ *obj);
 long is_towards_me(MK3OBJ *obj);   /* not yet decompiled, mkdrone.c */
 
@@ -1725,6 +1725,73 @@ push_check_winner:
     thread->frame = thread->frame + 1;               /* push a level */
     mk3_frame(thread, thread->frame)[1] =
         (uint32_t)(uintptr_t)t_check_winner_status;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+
+/* --------------------------------------------------------------------- t_motaro_hip_jsrp
+ *
+ * armv7 0x000aa330, 260 bytes.  **Complete.**
+ *
+ * State 0: sound, pose, push (plants resume token `0x4b2` at the
+ * level above, descends into `other.c`'s `t_animate_a0_frames`).
+ *
+ * `0x4b2` (animate came back): sets up a jump arc in `field1c/20/24/28`,
+ * pushes `other.c`'s `t_flight`, resume token `0x4b7`.
+ *
+ * `0x4b7` (flight came back): sound, pose, installs `other.c`'s
+ * `t_mframew` on the current level (no push).
+ *
+ * Any other token: refused with -2 -- this one, unlike most of the
+ * file, is not the usual `mk3_push_handler`-style -3.
+ */
+void ochar_sound(MK3OBJ *obj);
+void shake_n_sound(MK3OBJ *obj);
+void find_ani_part2(MK3OBJ *obj);
+
+long t_motaro_hip_jsrp(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x4b2) {
+        obj->field1c = 0x10000;
+        obj->field20 = obj->field1c - 0x70000;
+        obj->field24 = obj->field20 + 0x68000;
+        obj->field28 = 4;
+
+        *mk3_frame(thread, frame + 1) = 0x4b7;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_flight;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x4b7) {
+        shake_n_sound(obj);
+        obj->field40 = 0x1a;
+        find_ani_part2(obj);
+        obj->field1c = 3;
+
+        return mk3_install(thread, (MK3THREADFUNC)t_mframew);
+    }
+
+    if (token != 0)
+        return -2;
+
+    obj->field1c = token;   /* 0, the leftover token */
+    ochar_sound(obj);
+    obj->field40 = 0x1a;
+    get_char_ani(obj);
+    obj->field1c = 0x20003;
+
+    *mk3_frame(thread, frame + 1) = 0x4b2;
+    thread->frame = thread->frame + 1;   /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_animate_a0_frames;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
