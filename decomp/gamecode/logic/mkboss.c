@@ -3375,3 +3375,66 @@ long t_sk_kick(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_motaro_upcutted
+ *
+ * armv7 0x000a9aec, 292 bytes.  **Complete.**
+ *
+ * `t_motaro_hit0`'s airborne check in front of `t_motaro_flip_kicked`'s
+ * body. State 0: `am_i_airborn`; airborne installs
+ * `t_motaro_hit_flight`. Grounded: sounds, `field48 = 0x60006`,
+ * `shake_a11`, `away_x_vel`, pose, push (resume `0x7b1`) into
+ * `other.c`'s `t_animate_a9`.
+ *
+ * `0x7b1`: `field1c = field20 = 0x10`, `randu_minimum` into `a10`,
+ * push (resume `0x7b7`) into `mkdrone.c`'s `t_d_beware`.
+ *
+ * `0x7b7`: installs `t_local_reaction_exit`. Any other token: -2.
+ */
+long t_motaro_upcutted(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x7b1) {
+        obj->field1c = 0x10;
+        obj->field20 = 0x10;
+        randu_minimum(obj);
+        obj->a10 = obj->field1c;
+
+        *mk3_frame(thread, frame + 1) = 0x7b7;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_d_beware;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x7b7)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token != 0)
+        return -2;
+
+    am_i_airborn(obj);
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_motaro_hit_flight);
+
+    rsnd_func(obj, 0xa);
+    obj->field1c = 0x30002;
+    rsnd_ochar_sound(obj);
+    obj->field48 = 0x60006;
+    shake_a11(obj);
+    obj->field1c = 0x60000;
+    away_x_vel(obj);
+    obj->field40 = 0x40020;
+
+    *mk3_frame(thread, frame + 1) = 0x7b1;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_animate_a9;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
