@@ -3561,3 +3561,75 @@ long t_boss1(MK3THREAD *thread)
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
+
+
+/* --------------------------------------------------------------------- t_motaro_sweep
+ *
+ * armv7 0x000aa210, 288 bytes.  **Complete.**
+ *
+ * State 0: sound, pose (`field40 = 0x14`, `a10 = field48 = 2`,
+ * `field1c = 3`), push `other.c`'s `t_striker` as a real call, resume
+ * `0x41a`.
+ *
+ * `0x41a`: a connected sweep installs `t_mot_sweep_hit`; a miss sets
+ * `field1c = 4` and pushes `t_mframew`, resume `0x41f`.
+ *
+ * `0x41f`: `field1c = 4` again and a second `t_mframew`, resume
+ * `0x421` -- the recovery is two animation runs, not one.
+ *
+ * `0x421`: installs `t_local_reaction_exit`. Any other token: -2.
+ */
+long t_mot_sweep_hit(struct MK3THREAD *thread);   /* not yet decompiled */
+
+long t_motaro_sweep(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x41a) {
+        if (obj->field5c != 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_mot_sweep_hit);
+
+        obj->field1c = 4;
+
+        *mk3_frame(thread, frame + 1) = 0x41f;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x41f) {
+        obj->field1c = 4;
+
+        *mk3_frame(thread, frame + 1) = 0x421;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x421)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    if (token != 0)
+        return -2;
+
+    obj->field1c = 2;
+    ochar_sound(obj);
+    obj->field20 = 0;
+    obj->field40 = 0x14;
+    obj->a10     = 2;
+    obj->field48 = 2;
+    obj->field1c = 3;
+
+    *mk3_frame(thread, frame + 1) = 0x41a;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level -- a real call */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_striker;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
