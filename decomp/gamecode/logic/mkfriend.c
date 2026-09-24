@@ -1617,3 +1617,121 @@ walk:
     thread->fieldfc = 1;
     return 1;
 }
+
+
+/* --------------------------------------------------------------------- t_dinger_proc
+ *
+ * armv7 0x000a5d9c, 220 bytes.  **Complete.**
+ *
+ * `t_f_sektor`'s own `NewThread` target. Plays sound `0x21`, points
+ * `field40` at `a_dinger`, and runs it at rate 4 through `t_mframew`
+ * under `0x404`; `0x404` holds 64 ticks under `0x405`; `0x405` runs the
+ * next stretch at rate 4 under `0x407`, whose re-entry parks on
+ * `t_wait_forever`.
+ */
+extern uint8_t a_dinger[];                   /* 0x00177c44 */
+
+long t_dinger_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0x404) {
+        *mk3_frame(thread, thread->frame + 1) = 0x405;
+        thread->fieldfc = 0x40;
+        return 0x40;
+    }
+
+    if (slot < 0x404) {
+        if (slot != 0)
+            return -3;
+
+        obj->field1c = 0x21;
+        ochar_sound(obj);
+
+        obj->field40 = (uint32_t)(uintptr_t)a_dinger;
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x404;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0x405) {
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x407;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0x407)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+}
+
+
+/* --------------------------------------------------------------------- t_wall_dragon_proc
+ *
+ * armv7 0x000a614c, 224 bytes.  **Complete.**
+ *
+ * The same shape as `t_dinger_proc`: points `field40` at
+ * `a_wall_dragon`, places it (`multi_adjust_xy` at `0`/`-0x30`), runs it
+ * at rate 5 under `0x599`, holds 32 ticks under `0x59a`, runs the rest
+ * at rate 4 under `0x59c`, and parks on `t_wait_forever`.
+ */
+extern uint8_t a_wall_dragon[];              /* 0x00177e68 */
+
+long t_wall_dragon_proc(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+
+    if (slot == 0x599) {
+        *mk3_frame(thread, thread->frame + 1) = 0x59a;
+        thread->fieldfc = 0x20;
+        return 0x20;
+    }
+
+    if (slot < 0x599) {
+        if (slot != 0)
+            return -3;
+
+        obj->field1c = 0;
+        obj->field40 = (uint32_t)(uintptr_t)a_wall_dragon;
+        obj->field20 = (uint32_t)~0x2f;
+        multi_adjust_xy(obj);
+
+        obj->field1c = 5;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x599;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot == 0x59a) {
+        obj->field1c = 4;
+
+        *mk3_frame(thread, thread->frame + 1) = 0x59c;
+        thread->frame = thread->frame + 1;   /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (slot != 0x59c)
+        return -3;
+
+    return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+}
