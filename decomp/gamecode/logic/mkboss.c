@@ -4428,3 +4428,111 @@ finish:
     pose_a9_manual(obj);
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+
+/* --------------------------------------------------------------------- t_boss_close
+ *
+ * armv7 0x000ac418, 424 bytes.  **Complete.**
+ *
+ * Motaro in close. State 0: `a10 = 0xc0`, `q_is_this_a_joke`; if it is
+ * and `bossrandper` at `0x1f4` agrees, installs
+ * `t_motaro_stupid_stance`. Otherwise `bossrandper` at `0xc8`: a hit
+ * pauses (`randu_minimum` from `0x40`, floor `0x10`, into `a10`; push
+ * `t_d_stance_pause` under `0x1a6`), a miss goes straight to the stalk.
+ *
+ *     stalk (and `0x1a6`): `a10 = 0x100`, `field48 = 0xd0`, push
+ *     `mkdrone.c`'s `t_d_stalk_a11` under `0x1ac`.
+ *
+ * `0x1ac`: if a sweep would land and `bossrandper` at `0xc8` agrees,
+ * installs `t_motaro_sweep`. Otherwise a closer stalk: `a10 = 0x100`,
+ * `field48 = 0x48`, `t_d_stalk_a11` under `0x1b9`.
+ *
+ * `0x1b9`: opponent grounded installs `t_boss_close_attack`. Airborne,
+ * `get_his_action`: action `0x308` installs `t_boss_counter_angle`,
+ * anything else `t_boss_wait_land`.
+ *
+ * Any other token: refused with -3.
+ */
+long t_d_stalk_a11(struct MK3THREAD *thread);   /* not yet decompiled, mkdrone.c */
+void get_his_action(MK3OBJ *obj);
+
+long t_boss_close(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x1a6)
+        goto stalk;
+
+    if (token == 0x1ac) {
+        q_ok_motaro_sweep(obj);
+        if (obj->field5c != 0) {
+            obj->field1c = 0xc8;
+            bossrandper(obj);
+            if (obj->field5c != 0)
+                return mk3_install(thread, (MK3THREADFUNC)t_motaro_sweep);
+        }
+
+        obj->a10     = 0x100;
+        obj->field48 = 0x100 - 0xb8;
+
+        *mk3_frame(thread, frame + 1) = 0x1b9;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_d_stalk_a11;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x1b9) {
+        is_he_airborn(obj);
+        if (obj->field5c == 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_boss_close_attack);
+
+        get_his_action(obj);
+        if (obj->field20 == 0x308)
+            return mk3_install(thread, (MK3THREADFUNC)t_boss_counter_angle);
+
+        return mk3_install(thread, (MK3THREADFUNC)t_boss_wait_land);
+    }
+
+    if (token != 0)
+        return -3;
+
+    obj->a10 = 0xc0;
+    q_is_this_a_joke(obj);
+    if (obj->field5c != 0) {
+        obj->field1c = 0x1f4;
+        bossrandper(obj);
+        if (obj->field5c != 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_motaro_stupid_stance);
+    }
+
+    obj->field1c = 0xc8;
+    bossrandper(obj);
+    if (obj->field5c != 0) {
+        obj->field1c = 0x40;
+        obj->field20 = 0x40 - 0x30;
+        randu_minimum(obj);
+        obj->a10 = obj->field1c;
+
+        *mk3_frame(thread, frame + 1) = 0x1a6;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_d_stance_pause;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+stalk:
+    obj->a10     = 0x100;
+    obj->field48 = 0x100 - 0x30;
+
+    *mk3_frame(thread, frame + 1) = 0x1ac;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_d_stalk_a11;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
