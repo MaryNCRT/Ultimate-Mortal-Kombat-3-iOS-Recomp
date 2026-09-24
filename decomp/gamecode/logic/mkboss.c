@@ -1662,3 +1662,69 @@ long t_boss_counter_angle(MK3THREAD *thread)
 
     return mk3_install(thread, handler);
 }
+
+
+/* --------------------------------------------------------------------- t_ss1
+ *
+ * armv7 0x000ab3d8, 192 bytes.  **Complete.**
+ *
+ * State 0: `stance_setup`, `next_anirate`, push (manual, plants resume
+ * token `0x2ce` at the level above, sets the new level's handler to
+ * `joy.c`'s own `t_check_winner_status`) and return.
+ *
+ * `0x2ce` (winner check came back): `am_i_facing_him`; not facing
+ * installs `mkdrone.c`'s `t_d_turnaround` on the current level (no
+ * push); facing re-arms this SAME handler for `0x2d2` next tick
+ * (token written, no push, no handler change) and sleeps one frame.
+ *
+ * `0x2d2`: count `obj->a10` (the argument slot) down; still positive re-runs the
+ * `next_anirate`+push tail (shared with state 0's own tail, reached
+ * two ways); at zero installs `t_local_reaction_exit` on the current
+ * level.
+ */
+void stance_setup(MK3OBJ *obj);
+long am_i_facing_him(MK3OBJ *obj);
+long next_anirate(MK3OBJ *obj);
+long t_d_turnaround(struct MK3THREAD *thread);   /* not yet decompiled, mkdrone.c */
+
+long t_ss1(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t slot = *mk3_frame(thread, thread->frame + 1);
+    MK3THREADFUNC handler;
+
+    if (slot == 0x2d2) {
+        obj->a10 = obj->a10 - 1;
+        if ((int32_t)obj->a10 != 0)
+            goto push_check_winner;
+
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    if (slot == 0x2ce) {
+        am_i_facing_him(obj);
+        if (obj->field5c != 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0x2d2;
+            thread->fieldfc = 1;
+            return 1;
+        }
+
+        handler = (MK3THREADFUNC)t_d_turnaround;
+        return mk3_install(thread, handler);
+    }
+
+    if (slot != 0)
+        return -3;
+
+    stance_setup(obj);
+
+push_check_winner:
+    next_anirate(obj);
+
+    *mk3_frame(thread, thread->frame + 1) = 0x2ce;   /* resume token, level above */
+    thread->frame = thread->frame + 1;               /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_check_winner_status;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
