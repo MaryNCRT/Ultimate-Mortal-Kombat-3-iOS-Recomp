@@ -2455,3 +2455,53 @@ long t_mc_angle_jump(MK3THREAD *thread)
 
     return mk3_install(thread, handler);
 }
+
+
+/* --------------------------------------------------------------------- t_sk_collapse
+ *
+ * armv7 0x000a968c, 180 bytes.  **Complete.**
+ *
+ * State 0: pose, push (plants resume token `0x830` at the level
+ * above, descends into `other.c`'s `t_animate_a9`).
+ *
+ * `0x830` (animate came back): sound, `field1c = 3`, pushes `other.c`'s
+ * `t_mframew`, resume token `0x834`.
+ *
+ * `0x834` (mframew came back): installs `other.c`'s `t_wait_forever`
+ * on the current level.
+ *
+ * Any other token: refused with -2.
+ */
+long t_sk_collapse(MK3THREAD *thread)
+{
+    MK3OBJ  *obj  = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    if (token == 0x830) {
+        shake_n_sound(obj);
+        obj->field1c = 3;
+
+        *mk3_frame(thread, frame + 1) = 0x834;   /* resume token, level above */
+        thread->frame = thread->frame + 1;        /* push a level */
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0x834)
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_forever);
+
+    if (token != 0)
+        return -2;
+
+    obj->field40 = 0x3001e;
+
+    *mk3_frame(thread, frame + 1) = 0x830;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_animate_a9;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
