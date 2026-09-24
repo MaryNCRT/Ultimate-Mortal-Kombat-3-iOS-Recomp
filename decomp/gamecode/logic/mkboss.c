@@ -1835,7 +1835,7 @@ long t_motaro_hip_jsrp(MK3THREAD *thread)
  * Any other token: refused with -3.
  */
 extern int16_t boss_attack_info[];   /* 0x0017b3c4 */
-long t_striker(struct MK3THREAD *thread);   /* not yet decompiled, other.c */
+long t_striker(struct MK3THREAD *thread);
 
 long t_motaro_punch(MK3THREAD *thread)
 {
@@ -2539,7 +2539,7 @@ long t_sk_collapse(MK3THREAD *thread)
  *
  * Any other token: refused with -3.
  */
-long t_sk_block_zap(struct MK3THREAD *thread);   /* not yet decompiled */
+long t_sk_block_zap(struct MK3THREAD *thread);
 
 long t_skc_zap(MK3THREAD *thread)
 {
@@ -2705,7 +2705,7 @@ long t_mc_dizzy(MK3THREAD *thread)
 void rsnd_func(MK3OBJ *unused, uint32_t which);
 void away_x_vel(MK3OBJ *obj);
 long t_avoid_corner_trap(struct MK3THREAD *thread);
-long t_motaro_stumble(struct MK3THREAD *thread);   /* not yet decompiled */
+long t_motaro_stumble(struct MK3THREAD *thread);
 
 long t_motaro_hard_comboed(MK3THREAD *thread)
 {
@@ -2758,7 +2758,7 @@ long t_motaro_hard_comboed(MK3THREAD *thread)
  *
  * Any other token: refused with -3.
  */
-long t_boss_ease_back(struct MK3THREAD *thread);   /* not yet decompiled */
+long t_boss_ease_back(struct MK3THREAD *thread);
 
 long t_boss_stalk(MK3THREAD *thread)
 {
@@ -3184,7 +3184,7 @@ long t_mc_fk_sd(MK3THREAD *thread)
  * Any other token: refused with -3.
  */
 long t_stance_wait_yes(struct MK3THREAD *thread);   /* not yet decompiled, mkdrone.c */
-long t_motaro_kick(struct MK3THREAD *thread);       /* not yet decompiled */
+long t_motaro_kick(struct MK3THREAD *thread);
 
 long t_c_zoom_sd(MK3THREAD *thread)
 {
@@ -3525,8 +3525,8 @@ long t_skc_dizzy(MK3THREAD *thread)
  *
  * Any other token: refused with -3.
  */
-long t_motaro_sweep(struct MK3THREAD *thread);   /* not yet decompiled */
-long t_boss_close(struct MK3THREAD *thread);     /* not yet decompiled */
+long t_motaro_sweep(struct MK3THREAD *thread);
+long t_boss_close(struct MK3THREAD *thread);
 extern MK3THREADFUNC funcs_boss1[];              /* 0x0017b9d4 */
 extern uint32_t mhe_motaro_far_attax[];          /* 0x0017b3b4 */
 
@@ -3588,7 +3588,7 @@ long t_boss1(MK3THREAD *thread)
  *
  * `0x421`: installs `t_local_reaction_exit`. Any other token: -3.
  */
-long t_mot_sweep_hit(struct MK3THREAD *thread);   /* not yet decompiled */
+long t_mot_sweep_hit(struct MK3THREAD *thread);
 
 long t_motaro_sweep(MK3THREAD *thread)
 {
@@ -4718,4 +4718,185 @@ hold:
     *mk3_frame(thread, frame + 1) = 0x528;
     thread->fieldfc = 1;
     return 1;
+}
+
+
+/* --------------------------------------------------------------------- t_sk_stalk
+ *
+ * armv7 0x000ac134, 740 bytes.  **Complete.**
+ *
+ * Shao Kahn's stalk -- the routine that decides most of what he does.
+ * State 0: `q_boss_stupid` answers yes and he installs `t_sk_stupid`.
+ * Otherwise, by distance (`get_x_dist`):
+ *
+ *     <= 0x5f   close:  see `0x24b`
+ *     <= 0x8f          see `0x285`
+ *     <= 0xdf          see `0x260`
+ *     farther          `bossrandper` at `0xc8`: `t_sk_zap`, or stalk
+ *                      in (`a10 = 0x100`, `field48 = 0xe0`,
+ *                      `t_d_stalk_a11` under `0x238`)
+ *
+ * The stalk states step closer: `0x238` rolls `0x1f4` -- a hit goes to
+ * `0x260`, a miss stalks again (`field48 = 0x90`, under `0x242`);
+ * `0x242` rolls `0x1f4` -- a hit goes to `0x285`, a miss stalks again
+ * (`field48 = 0x60`, under `0x24b`).
+ *
+ * The rest pick a move table for `t_random_do` in the object's own
+ * `field64`/`slave` pair:
+ *
+ *   `0x24b`  cornered and reacting (`q_is_he_car`) and `bossrandper_org`
+ *            at `0x2bc` agrees: `t_boss_ease_back`. Otherwise
+ *            `funcs_sk_stalk_close` (4 entries), resume `0x260`.
+ *   `0x260`  `field1c` still non-zero goes to `0x272`; otherwise
+ *            `funcs_sk_stalk_mid` (4), resume `0x272`.
+ *   `0x272`  `funcs_sk_stalk_far` (9), resume `0x285`.
+ *   `0x285`  `field1c` non-zero goes to `0x297`; otherwise
+ *            `funcs_sk_stalk_near` (4), resume `0x297`.
+ *   `0x297`  `funcs_sk_stalk_last` (7), resume `0x2a7` -- a token with
+ *            no case here, so a return lands on -3, as in
+ *            `t_motaro_comboed`.
+ *
+ * The `field1c` tests read whatever the last odds roll left there; the
+ * binary tests it, so this does too. Any other token: refused with -3.
+ */
+long t_sk_stupid(struct MK3THREAD *thread);
+extern MK3THREADFUNC funcs_sk_stalk_close[];   /* 0x0017b9a0, funcs.5315 */
+extern MK3THREADFUNC funcs_sk_stalk_mid[];     /* 0x0017b990, funcs.5319 */
+extern MK3THREADFUNC funcs_sk_stalk_far[];     /* 0x0017b96c, funcs.5322 */
+extern MK3THREADFUNC funcs_sk_stalk_near[];    /* 0x0017b95c, funcs.5326 */
+extern MK3THREADFUNC funcs_sk_stalk_last[];    /* 0x0017b940, funcs.5329 */
+
+long t_sk_stalk(MK3THREAD *thread)
+{
+    MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
+    uint32_t frame = thread->frame;
+    uint32_t token = *mk3_frame(thread, frame + 1);
+
+    switch (token) {
+    case 0:     break;
+    case 0x238: goto s238;
+    case 0x242: goto s242;
+    case 0x24b: goto s24b;
+    case 0x260: goto s260;
+    case 0x272: goto s272;
+    case 0x285: goto s285;
+    case 0x297: goto s297;
+    default:    return -3;
+    }
+
+    q_boss_stupid(obj);
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_sk_stupid);
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 <= 0x5f)
+        goto s24b;
+    if ((int32_t)obj->field28 <= 0x8f)
+        goto s285;
+    if ((int32_t)obj->field28 <= 0xdf)
+        goto s260;
+
+    obj->field1c = 0xc8;
+    bossrandper(obj);
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_sk_zap);
+
+    obj->a10     = 0x100;
+    obj->field48 = 0x100 - 0x20;
+    *mk3_frame(thread, frame + 1) = 0x238;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_d_stalk_a11;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
+s238:
+    obj->field1c = 0x1f4;
+    bossrandper(obj);
+    if (obj->field5c != 0)
+        goto s260;
+    obj->a10     = 0x100;
+    obj->field48 = 0x100 - 0x70;
+    *mk3_frame(thread, frame + 1) = 0x242;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_d_stalk_a11;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
+s242:
+    obj->field1c = 0x1f4;
+    bossrandper(obj);
+    if (obj->field5c != 0)
+        goto s285;
+    obj->a10     = 0x100;
+    obj->field48 = 0x100 - 0xa0;
+    *mk3_frame(thread, frame + 1) = 0x24b;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_d_stalk_a11;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
+s24b:
+    q_is_he_car(obj);
+    if (obj->field5c != 0) {
+        obj->field1c = 0x2bc;
+        bossrandper_org(obj);
+        if (obj->field5c != 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_boss_ease_back);
+    }
+    obj->slave   = (uint32_t)(uintptr_t)funcs_sk_stalk_close;
+    obj->field64 = 4;
+    *mk3_frame(thread, frame + 1) = 0x260;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_random_do;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
+s260:
+    if (obj->field1c != 0)
+        goto s272;
+    obj->slave   = (uint32_t)(uintptr_t)funcs_sk_stalk_mid;
+    obj->field64 = 4;
+    *mk3_frame(thread, frame + 1) = 0x272;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_random_do;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
+s272:
+    obj->slave   = (uint32_t)(uintptr_t)funcs_sk_stalk_far;
+    obj->field64 = 9;
+    *mk3_frame(thread, frame + 1) = 0x285;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_random_do;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
+s285:
+    if (obj->field1c != 0)
+        goto s297;
+    obj->slave   = (uint32_t)(uintptr_t)funcs_sk_stalk_near;
+    obj->field64 = 4;
+    *mk3_frame(thread, frame + 1) = 0x297;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_random_do;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
+s297:
+    obj->slave   = (uint32_t)(uintptr_t)funcs_sk_stalk_last;
+    obj->field64 = 7;
+    *mk3_frame(thread, frame + 1) = 0x2a7;   /* resume token, level above */
+    thread->frame = thread->frame + 1;        /* push a level */
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_random_do;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
 }

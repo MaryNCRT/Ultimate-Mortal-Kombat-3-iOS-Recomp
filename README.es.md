@@ -130,7 +130,7 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ## Progreso general
 
 ```
-███████████████████████████████░░░░░░░░░  76,63%
+███████████████████████████████░░░░░░░░░  76,64%
 ```
 
 | Área | Peso | Hecho | |
@@ -140,11 +140,11 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 | Especificaciones de los formatos de assets | 8% | 100% | `██████████` |
 | `lime/common` — núcleo del motor (109 fn) | 12% | **100%** | `██████████` |
 | `gamecode` — lógica de juego (291 fn) | 18% | **100%** | `██████████` |
-| `gamecode/logic` — motor de combate (2.172 fn) | 28% | 89,04% (1934) | `█████████░` |
+| `gamecode/logic` — motor de combate (2.172 fn) | 28% | 89,09% (1935) | `█████████░` |
 | Capa de plataforma PC nativa (161 fn a reescribir) | 17% | 10% | `█░░░░░░░░░` |
 | Stubs del EA SDK (~1.412 fn) | 5% | 0% | `░░░░░░░░░░` |
 
-**76,63% del esfuerzo total estimado. Todavía no hay nada jugable.**
+**76,64% del esfuerzo total estimado. Todavía no hay nada jugable.**
 
 **Las tres filas del medio se cuentan; el resto son estimaciones.**
 `tools/progress.py` lee el árbol en cada ejecución para `lime/common`,
@@ -170,20 +170,26 @@ tienen cuerpo; los nueve ficheros están además verificados contra el
 original recompilado.
 
 **Por qué el número sigue sin ser alto.** El motor de combate son 2.172
-funciones él solo, y 295 siguen sin cuerpo: ahí está casi todo el trabajo que
-queda. Dos ficheros concentran todo:
+funciones él solo, y 237 siguen sin cuerpo: ahí está casi todo el trabajo que
+queda. Un solo fichero lo concentra todo:
 
 | | faltan | qué es |
 |---|---:|---|
 | `mkdrone.c` | 237 | el oponente controlado por la máquina |
-| `mkboss.c` | 58 | Motaro y Shao Kahn |
 
-Diecinueve de los veintiún ficheros están terminados, incluidos los tres más
+Veinte de los veintiún ficheros están terminados, incluidos los tres más
 grandes — `moves.c`, `other.c` y `mkfatal.c` —, más `joy.c` (la capa de
-entrada), `mkbonus.c`, `mkreact.c`, `playback.c`, `mkzap.c` y `mkfriend.c`,
-cerrados todos desde que la cuenta de arriba estaba en ocho. Así que la cuenta
-va más avanzada de lo que sugiere la forma de la lista. Realistamente lo que
-queda siguen siendo meses de trabajo.
+entrada), `mkbonus.c`, `mkreact.c`, `playback.c`, `mkzap.c`, `mkfriend.c` y
+`mkboss.c` (Motaro y Shao Kahn), cerrados todos desde que la cuenta de arriba
+estaba en ocho. Así que la cuenta va más avanzada de lo que sugiere la forma de
+la lista. Realistamente lo que queda siguen siendo meses de trabajo.
+
+Una salvedad sobre «verificado». El oráculo compara escrituras, handlers,
+tokens de estado y llamadas; no compara valores de retorno, y no ve un handler
+que el binario lee a través de un slot de punteros. Las dos lagunas dejaron
+pasar errores reales al cerrar `mkboss.c`, así que ahora
+`tools/handlercheck.py` comprueba los nombres de handler contra la imagen, y
+los valores de retorno se revisan a ojo.
 
 ### `lime/common` está completo — y esto es lo que significa y lo que no
 
