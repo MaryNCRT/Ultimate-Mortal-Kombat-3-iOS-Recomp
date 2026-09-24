@@ -740,3 +740,85 @@ long t_sk_laugh(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+
+/* --------------------------------------------------------------------- q_yes / q_no
+ *
+ * armv7 0x000a85cc / 0x000a85d4, 8 bytes each.  **Complete.**
+ *
+ * mkboss.c's own private copies of the answer helpers `moves.c` also
+ * defines -- the same two instructions each (`field5c = 1` / `= 0`), at
+ * this file's own addresses. Written without `static` because
+ * tools/factdiff.py does not parse the keyword; nothing links the
+ * decomp files together, so the duplicate name costs nothing.
+ */
+void q_yes(MK3OBJ *obj)
+{
+    obj->field5c = 1;
+}
+
+void q_no(MK3OBJ *obj)
+{
+    obj->field5c = 0;
+}
+
+
+/* --------------------------------------------------------------------- get_mhe_long / get_mhe_word
+ *
+ * armv7 0x000a8d34 / 0x000a8d4c, 24 bytes each.  **Complete.**
+ *
+ * Index a per-ladder-order table: `field1c` holds the table,
+ * `ladderorder_a1` answers the order (1..3) in `field20`, and the entry
+ * replaces the table pointer in `field1c` -- a word, or a sign-extended
+ * halfword. The "mhe" tables (`mhe_sk_counter_randpers` and friends)
+ * are the boss AI's difficulty-by-ladder numbers; entry 0 is never read,
+ * since the order is never 0.
+ */
+void ladderorder_a1(MK3OBJ *obj);
+
+void get_mhe_long(MK3OBJ *obj)
+{
+    ladderorder_a1(obj);
+    obj->field1c = ((const uint32_t *)(uintptr_t)obj->field1c)[obj->field20];
+}
+
+void get_mhe_word(MK3OBJ *obj)
+{
+    ladderorder_a1(obj);
+    obj->field1c = (uint32_t)(int32_t)
+        ((const int16_t *)(uintptr_t)obj->field1c)[obj->field20];
+}
+
+
+/* --------------------------------------------------------------------- bossrandper
+ *
+ * armv7 0x000ab6bc, 44 bytes.  **Complete.**
+ *
+ * `randper` with the odds scaled to a fifth first: `field1c` goes
+ * through a double multiply by `0.2` (a VFP constant in the literal
+ * pool, truncated back toward zero by `vcvt.s32.f64`) and the answer is
+ * `randper`'s own, both in `r0` and in `field5c`. The only floating point
+ * in the boss AI.
+ */
+long bossrandper(MK3OBJ *obj)
+{
+    obj->field1c = (uint32_t)(int32_t)((double)(int32_t)obj->field1c * 0.2);
+    return randper(obj);
+}
+
+
+/* --------------------------------------------------------------------- sk_counter_randper
+ *
+ * armv7 0x000abcc4, 28 bytes.  **Complete.**
+ *
+ * Shao Kahn's counter-attack odds: the ladder-order entry of
+ * `mhe_sk_counter_randpers`, rolled through `bossrandper`.
+ */
+extern int16_t mhe_sk_counter_randpers[];    /* 0x0017b3d2 */
+
+long sk_counter_randper(MK3OBJ *obj)
+{
+    obj->field1c = (uint32_t)(uintptr_t)mhe_sk_counter_randpers;
+    get_mhe_word(obj);
+    return bossrandper(obj);
+}
