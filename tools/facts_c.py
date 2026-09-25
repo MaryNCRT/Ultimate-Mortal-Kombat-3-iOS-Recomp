@@ -146,6 +146,8 @@ RE_TERNARY = re.compile(r"^\(.*\)\s*\?\s*([^:?]+?)\s*:\s*([^:?]+?)$")
 # only bare statements missed every call the file makes inside an `if`,
 # which came out as dozens of phantom differences.
 RE_CALL = re.compile(r"\b([A-Za-z_][A-Za-z_0-9]*)\s*\(")
+RE_CCOMMENT = re.compile(r"/\*.*?\*/")
+RE_CSTRING = re.compile(r'"(?:\\.|[^"\\])*"')
 # This binary has no hardware integer divide: every `/` on a signed value
 # the compiler could not turn into a shift compiles to a runtime call
 # (`___divsi3`, `___udivsi3` for unsigned, `___modsi3`/`___umodsi3` for `%`).
@@ -313,6 +315,36 @@ RE_ASSIGN_LIT = re.compile(r"^\s*(?:\}\s*else\s*)?(?:\{\s*)?([A-Za-z_]\w*)\s*=\s
 RE_IDENT = re.compile(r"^[A-Za-z_]\w*$")
 
 
+# `MK3OBJPROC *proc = obj->field00;` -- a local naming a struct the function
+# writes through. Resolved back to `thread->proc` so a store can be placed.
+RE_ALIAS = re.compile(r"\b(?:struct\s+)?(MK3OBJ|MK3OBJPROC|MK3THREAD)\s*\*\s*"
+                      r"([A-Za-z_]\w*)\s*=\s*(?:\([^()]*\)\s*)*"
+                      r"([A-Za-z_]\w*(?:->[A-Za-z_]\w*)*)\s*;")
+
+
+def aliases(lines):
+    """{local: canonical path}; the object is `P`, the thread `thread`."""
+    out = {"obj": "P", "thread": "thread"}
+    for line in lines:
+        m = RE_ALIAS.search(line)
+        if m:
+            out[m.group(2)] = canon(m.group(3), out)
+    return out
+
+
+def canon(expr, al):
+    parts = expr.split("->")
+    head = al.get(parts[0], "?" + parts[0])
+    path = "->".join([head] + parts[1:])
+    return "P" if path == "thread->proc" else path
+
+
+def struct_tag(path):
+    """Which struct a base path is, when that is certain; `?` otherwise."""
+    return {"P": "MK3OBJ", "P->field00": "MK3OBJPROC",
+            "thread": "MK3THREAD"}.get(path, "?")
+
+
 def token_locals(lines):
     """The locals a function stores into the frame's token word."""
     names = set()
@@ -327,6 +359,7 @@ def facts_of(lines, maps):
     """One function's facts, in source order."""
     out = []
     tlocals = token_locals(lines)
+    al = aliases(lines)
     for i, line in enumerate(lines):
         s = line.strip()
         m = RE_ASSIGN_LIT.match(line)
@@ -338,7 +371,13 @@ def facts_of(lines, maps):
         # every state token in the file was silently dropped.
         m = RE_TOKEN.match(line)
         if m:
-            out.append(("token", value(m.group(1))))
+            tern = RE_TERNARY.match(m.group(1).strip())
+            if tern:
+                # `(token == 0) ? 0x1f5 : 0x1ff` -- two token stores
+                out.append(("token", value(tern.group(1))))
+                out.append(("token", value(tern.group(2))))
+            else:
+                out.append(("token", value(m.group(1))))
             continue
         # A raw-offset store starts with `*` too, so it joins the token
         # recogniser ABOVE the comment filter. Both were being eaten.
@@ -390,7 +429,13 @@ def facts_of(lines, maps):
         # call usually lives inside something else: `if (is_he_airborn(obj))`
         # is a branch AND a call, and handling the branch first swallowed
         # every one of them.
-        for cm in RE_CALL.finditer(line):
+        # ...but not inside a comment or a string: `/* max(v, 0) */` beside a
+        # bic, and seq_lookup's own name in its printf format, both read as
+        # calls the binary does not make. (The divide helpers below are found
+        # BY their comments, so they still scan the raw line.)
+        code = RE_CSTRING.sub('""', RE_CCOMMENT.sub(" ", line))
+        code = code.split("//", 1)[0]
+        for cm in RE_CALL.finditer(code):
             nm = cm.group(1)
             if nm not in NOT_A_CALL:
                 out.append(("call", nm))
@@ -413,8 +458,17 @@ def facts_of(lines, maps):
             root, chain, val = m.group(1), m.group(2), m.group(3)
             members = [p for p in chain.split("->") if p]
             last = members[-1]
-            # which struct the LAST hop lands in
-            if root == "thread" and len(members) == 1:
+            # Which struct the LAST hop lands in: resolved through the
+            # function's own aliases when it can be, guessed from the chain's
+            # length when it cannot -- and then tagged `?`, so the base check
+            # leaves it alone. The guess alone once called `proc->field64`
+            # (proc = obj->field00) an object store, and `obj->field08->x`
+            # (another object) a header store.
+            where = canon("->".join([root] + members[:-1]), al)
+            tag = struct_tag(where)
+            if tag != "?":
+                st = tag
+            elif root == "thread" and len(members) == 1:
                 st = "MK3THREAD"
             elif len(members) == 1:
                 st = "MK3OBJ"
@@ -437,10 +491,10 @@ def facts_of(lines, maps):
                     # shape) -- and nothing in the C alone says which. Two
                     # `?` gives the binary side slack for either one real
                     # store or two, rather than guessing.
-                    out.append(("store", hex(off), "?", st))
-                    out.append(("store", hex(off), "?", st))
+                    out.append(("store", hex(off), "?", tag))
+                    out.append(("store", hex(off), "?", tag))
                 else:
-                    out.append(("store", hex(off), value(val), st))
+                    out.append(("store", hex(off), value(val), tag))
             continue
 
         m = RE_RETURN.match(line)

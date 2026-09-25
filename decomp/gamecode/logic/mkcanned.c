@@ -151,6 +151,8 @@ void init_special(MK3OBJ *obj);
  *      frame[frame+1].w0 = 0
  */
 
+long t_st_victory(MK3THREAD *thread);
+
 long t_victory_animation(MK3THREAD *thread)
 {
     MK3OBJ *obj = (MK3OBJ *)thread->proc;
@@ -162,7 +164,12 @@ long t_victory_animation(MK3THREAD *thread)
     init_special(obj);
     am_i_shang(obj);
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_vicjump);
+    /* Corrected: this was an unconditional t_vicjump. The binary branches on
+     * am_i_shang's answer -- Shang Tsung gets his own victory, t_st_victory. */
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_st_victory);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_vicjump);
 }
 
 /* --------------------------------------------------------------------

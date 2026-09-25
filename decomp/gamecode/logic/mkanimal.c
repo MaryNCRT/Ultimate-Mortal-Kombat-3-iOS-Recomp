@@ -2158,11 +2158,7 @@ long tl_reptile_monkey(MK3THREAD *thread)
             obj->a10 = obj->a10 - 1;
             if ((long)obj->a10 <= 0) {
                 death_blow_complete(obj);
-
-                frame_a9(obj);
-                *mk3_frame(thread, thread->frame + 1) = 0x360;
-                thread->fieldfc = 4;
-                return 4;
+                goto hold_360;
             }
         }
 
@@ -2175,6 +2171,9 @@ long tl_reptile_monkey(MK3THREAD *thread)
     if (token != 0x360)
         return -3;
 
+    /* One tail in the binary, reached from the countdown's end and from
+     * 0x360 itself (`beq 0xa3f88`). */
+hold_360:
     frame_a9(obj);
     *mk3_frame(thread, thread->frame + 1) = 0x360;
     thread->fieldfc = 4;
