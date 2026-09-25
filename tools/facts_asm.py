@@ -88,7 +88,7 @@ RE_CALL = re.compile(r"^\s*func_[0-9a-fA-F]+_([A-Za-z_][A-Za-z_0-9]*)\(ctx\);")
 # "stub_auto_<name>(ctx);" (see armrecomp/recomp.py's STUBS handling). The
 # decompiled C calls it by its real name, so this is captured separately
 # and the prefix is stripped before comparison.
-RE_CALL_STUB = re.compile(r"^\s*stub_auto_([A-Za-z_][A-Za-z_0-9]*)\(ctx\);")
+RE_CALL_STUB = re.compile(r"^\s*stub_(?:auto_)?([A-Za-z_][A-Za-z_0-9]*)\(ctx\);")  # also hand-written shims, e.g. stub_printf
 # if (ctx->zf) goto L_00030e0c;
 RE_BR = re.compile(r"^\s*if \((.+?)\) goto (L_[0-9a-fA-F]+);")
 RE_GOTO = re.compile(r"^\s*goto (L_[0-9a-fA-F]+);")

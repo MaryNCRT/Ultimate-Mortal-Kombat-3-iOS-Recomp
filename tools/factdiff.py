@@ -183,28 +183,41 @@ RE_RCONST = re.compile(r"ctx->r\[(\d+)\] = (~?)\(?(0x[0-9a-f]+)u\)?;")
 RE_RCOPY = re.compile(r"ctx->r\[0\] = ctx->r\[(\d+)\];")
 
 
+RE_RMOV = re.compile(r"ctx->r\[(\d+)\] = ctx->r\[(\d+)\];")
+RE_RARITH = re.compile(r"ctx->r\[(\d+)\] = ctx->r\[(\d+)\] ([+-]) (0x[0-9a-f]+)u;")
+RE_RARITH_F = re.compile(r"_a = ctx->r\[(\d+)\], _b = (0x[0-9a-f]+)u, _r = _a ([+-]) _b;"
+                         r"\s*ctx->r\[(\d+)\] = _r;")
+
+
 def asm_ret_consts(lines):
     """Every constant the binary can hand back in r0.
 
     The recompiled function has one physical exit, so its `ret` fact is `?`.
-    This is the flow-insensitive over-approximation instead: constants moved
-    straight into r0, plus constants any register ever holds when it is copied
-    into r0. Loose on purpose -- it only has to catch a return value the binary
-    can never produce, like the -2 that `mvn r0, #2` (which is -3) was once
-    transcribed as.
+    This is a flow-insensitive over-approximation instead: every constant any
+    register can hold -- loaded, moved, or an immediate added to or taken from
+    one -- and r0's share of that. Loose on purpose: it only has to catch a
+    return value the binary can never produce, like the -2 that `mvn r0, #2`
+    (which is -3) was once transcribed as. `t_combj` returns 0x7f3 - 0x7f0;
+    `t_lkzap5` returns field5c + 0x10 where field5c is 0.
     """
+    text = "\n".join(lines)
     held = collections.defaultdict(set)
-    for ln in lines:
-        for m in RE_RCONST.finditer(ln):
-            v = int(m.group(3), 16)
-            if m.group(2):
-                v = ~v & 0xffffffff
-            held[m.group(1)].add(v)
-    out = set(held["0"])
-    for ln in lines:
-        for m in RE_RCOPY.finditer(ln):
-            out |= held[m.group(1)]
-    return out
+    for m in RE_RCONST.finditer(text):
+        v = int(m.group(3), 16)
+        held[m.group(1)].add((~v & 0xffffffff) if m.group(2) else v)
+    arith = [(m.group(1), m.group(2), m.group(3), int(m.group(4), 16))
+             for m in RE_RARITH.finditer(text)]
+    arith += [(m.group(4), m.group(1), m.group(3), int(m.group(2), 16))
+              for m in RE_RARITH_F.finditer(text)]
+    movs = [(m.group(1), m.group(2)) for m in RE_RMOV.finditer(text)]
+    for _ in range(3):
+        for d, src, op, k in arith:
+            base = held[src] | {0}          # an unknown that a branch proved 0
+            held[d] |= {((v + k) if op == "+" else (v - k)) & 0xffffffff
+                        for v in base}
+        for d, src in movs:
+            held[d] |= held[src]
+    return set(held["0"])
 
 
 def compare(a, b, label, out, slack_bin=0, slack_c=0):
@@ -282,7 +295,8 @@ def compare_by_name(a, b, label, out, allowed):
     for k in sorted(sa - sc):
         out.append("    %-9s binario tiene %s  y el C no" % (label, k))
         bad += 1
-    for k in sorted(sc - allowed()):
+    extra = sc - sa                    # only these need the (slow) image
+    for k in sorted(extra - allowed() if extra else ()):
         out.append("    %-9s el C tiene   %s  y el binario no lo produce" % (label, k))
         bad += 1
     return bad
@@ -296,29 +310,36 @@ ASM_BASE = {"[r0+0x108]": "MK3OBJ", "[[r0+0x108]+0x0]": "MK3OBJPROC"}
 
 
 def compare_bases(afacts, cfacts, out):
-    """A store the C makes at the right offset and value but in the wrong struct.
+    """Which struct each written offset lands in, compared as sets.
 
     The store bucket compares (offset, value) and never looked at where the
     write goes, so `obj->field00->field30 = 0` passed for a binary that writes
-    `obj->field30 = 0`. mkreact.c's t_b_weak_silent did exactly that.
+    `obj->field30 = 0` -- mkreact.c's t_b_weak_silent, and the five move-table
+    functions in mkboss.c. The value does not matter here, so computed stores
+    are checked too: for every offset the binary writes into the object or its
+    header, the C must write that offset into the same one. Sets, not counts,
+    for the same shared-tail reason as handlers. Offsets only the C can place
+    with certainty (tag `?` otherwise) take part.
     """
-    have = collections.defaultdict(set)
-    for f in cfacts:
-        if f[0] == "store" and f[2] != "?" and len(f) > 3:
-            have[(f[1], f[2])].add(f[3])
-    bad = 0
-    seen = set()
+    bin_where = collections.defaultdict(set)
     for f in afacts:
-        if f[0] != "store" or f[2] == "?" or len(f) < 4:
+        if f[0] == "store" and len(f) > 3 and f[3] in ASM_BASE:
+            bin_where[f[1]].add(ASM_BASE[f[3]])
+    c_where = collections.defaultdict(set)
+    c_unsure = set()
+    for f in cfacts:
+        if f[0] == "store" and len(f) > 3:
+            if f[3] == "?":
+                c_unsure.add(f[1])
+            elif f[3] in ("MK3OBJ", "MK3OBJPROC"):
+                c_where[f[1]].add(f[3])
+    bad = 0
+    for off in sorted(bin_where, key=lambda x: int(x, 16)):
+        if off in c_unsure or off not in c_where:
             continue
-        want = ASM_BASE.get(f[3])
-        key = (f[1], f[2])
-        if not want or key not in have or key in seen:
-            continue
-        seen.add(key)
-        if want not in have[key]:
-            out.append("    %-9s +%s = %s va a %s en el binario; el C lo escribe en %s"
-                       % ("base", f[1], f[2], want, "/".join(sorted(have[key]))))
+        for want in sorted(bin_where[off] - c_where[off]):
+            out.append("    %-9s +%s va a %s en el binario; el C lo escribe en %s"
+                       % ("base", off, want, "/".join(sorted(c_where[off]))))
             bad += 1
     return bad
 
@@ -341,7 +362,11 @@ def check(name, afacts, cfacts, alines=None):
 
     n += compare_by_name(a[1], c[1], "handler", out, routines)
     n += compare_by_name(a[2], c[2], "token", out, constants)
-    n += compare(a[3], c[3], "call", out)
+    # Leading underscores are the one spelling the two sides disagree on:
+    # the binary's `__do_winner_char` is `_do_winner_char` in C and
+    # `do_winner_char` in the transcription.
+    n += compare([x.lstrip("_") for x in a[3]], [x.lstrip("_") for x in c[3]],
+                 "call", out)
     # Return values: a non-zero constant the C returns must be one the binary
     # can put in r0. Zero is exempt -- the binary usually returns a zero it
     # already holds (the token) rather than loading one.
@@ -372,6 +397,8 @@ def main(argv):
     for name in sorted(cfns):
         if want and name != want:
             continue
+        if name not in afns and name.lstrip("_") in afns:
+            afns[name] = afns[name.lstrip("_")]
         if name not in afns:
             missing += 1
             if not summary:
