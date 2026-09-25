@@ -3058,9 +3058,9 @@ long t_b_weak_silent(MK3THREAD *thread)
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {
-        obj->field00->field30 = 0;
-        obj->field00->field34 = 0;
-        obj->field00->field38 = (uint32_t)(uintptr_t)t_cc_ken_masters;
+        obj->field30 = 0;
+        obj->field34 = 0;
+        obj->field38 = (uint32_t)(uintptr_t)t_cc_ken_masters;
 
         *mk3_frame(thread, thread->frame + 1) = 0x13bd;
         thread->frame = thread->frame + 1;
@@ -3073,11 +3073,9 @@ long t_b_weak_silent(MK3THREAD *thread)
     if (token != 0x13bd)
         return -3;
 
-    if ((long)thread->frame > 0) {
-        thread->frame = thread->frame - 1;
-        return 0;
-    }
-    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    /* Corrected: the binary installs t_weak3 here, unconditionally -- there
+     * is no "pop a level" on this path, and no t_local_reaction_exit. */
+    return mk3_install(thread, (MK3THREADFUNC)t_weak3);
 }
 
 
@@ -3105,9 +3103,9 @@ long t_b_weak_no_masters(MK3THREAD *thread)
     if (token == 0) {
         rsnd_func(obj, 6);
 
-        obj->field00->field30 = 0;
-        obj->field00->field34 = 0;
-        obj->field00->field38 = 0;
+        obj->field30 = 0;
+        obj->field34 = 0;
+        obj->field38 = 0;
 
         *mk3_frame(thread, thread->frame + 1) = 0x13ca;
         thread->frame = thread->frame + 1;
@@ -3120,11 +3118,9 @@ long t_b_weak_no_masters(MK3THREAD *thread)
     if (token != 0x13ca)
         return -3;
 
-    if ((long)thread->frame > 0) {
-        thread->frame = thread->frame - 1;
-        return 0;
-    }
-    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    /* Corrected: the binary installs t_weak3 here, unconditionally -- there
+     * is no "pop a level" on this path, and no t_local_reaction_exit. */
+    return mk3_install(thread, (MK3THREADFUNC)t_weak3);
 }
 
 

@@ -109,6 +109,7 @@ Usage:
     python factdiff.py --summary <recompiled.c> <readable.c>
 """
 import collections
+import re
 import sys
 import os
 
@@ -118,13 +119,21 @@ import facts_c                                               # noqa: E402
 
 
 def asm_sets(fs):
-    """The asm facts, bucketed for comparison."""
-    stores, handlers, tokens, calls, unk = [], [], [], [], 0
+    """The asm facts, bucketed for comparison.
+
+    The last element counts what this side declined to resolve, PER BUCKET:
+    {"store": n, "handler": n, "token": n}. A `?` stored into a frame's handler
+    word excuses a handler and nothing else. It used to be one shared count,
+    and that let an unresolved field store excuse a wrong handler -- which is
+    how mkreact.c's t_b_weak_silent verified while installing the wrong routine.
+    """
+    stores, handlers, tokens, calls = [], [], [], []
+    unk = {"store": 0, "handler": 0, "token": 0}
     for f in fs:
         if f[0] == "store":
             off, val = f[1], f[2]
             if val == "?":
-                unk += 1
+                unk["handler" if off == "0x4" else "store"] += 1
                 continue
             nm = facts_asm.name_of(val)
             # a handler is a store of a routine's address into the frame
@@ -133,31 +142,69 @@ def asm_sets(fs):
             else:
                 stores.append((off, val))
         elif f[0] == "token":
-            (tokens.append(f[1]) if f[1] != "?" else None)
-            unk += 1 if f[1] == "?" else 0
+            if f[1] == "?":
+                unk["token"] += 1
+            else:
+                tokens.append(f[1])
         elif f[0] == "call":
             calls.append(f[1])
     return stores, handlers, tokens, calls, unk
 
 
 def c_sets(fs):
-    """Ours, bucketed the same way."""
-    stores, handlers, tokens, calls, unk = [], [], [], [], 0
+    """Ours, bucketed the same way, with the same per-bucket unknowns."""
+    stores, handlers, tokens, calls, rets = [], [], [], [], []
+    unk = {"store": 0, "handler": 0, "token": 0}
     for f in fs:
         if f[0] == "store":
             off, val = f[1], f[2]
             if val == "?":
-                unk += 1
+                unk["store"] += 1
                 continue
             stores.append((off, val))
         elif f[0] == "handler":
-            handlers.append(f[1])
+            if f[1] == "?":
+                unk["handler"] += 1
+            else:
+                handlers.append(f[1])
         elif f[0] == "token":
-            (tokens.append(f[1]) if f[1] != "?" else None)
-            unk += 1 if f[1] == "?" else 0
+            if f[1] == "?":
+                unk["token"] += 1
+            else:
+                tokens.append(f[1])
         elif f[0] == "call":
             calls.append(f[1])
-    return stores, handlers, tokens, calls, unk
+        elif f[0] == "ret" and f[1] != "?":
+            rets.append(f[1])
+    return stores, handlers, tokens, calls, unk, rets
+
+
+RE_RCONST = re.compile(r"ctx->r\[(\d+)\] = (~?)\(?(0x[0-9a-f]+)u\)?;")
+RE_RCOPY = re.compile(r"ctx->r\[0\] = ctx->r\[(\d+)\];")
+
+
+def asm_ret_consts(lines):
+    """Every constant the binary can hand back in r0.
+
+    The recompiled function has one physical exit, so its `ret` fact is `?`.
+    This is the flow-insensitive over-approximation instead: constants moved
+    straight into r0, plus constants any register ever holds when it is copied
+    into r0. Loose on purpose -- it only has to catch a return value the binary
+    can never produce, like the -2 that `mvn r0, #2` (which is -3) was once
+    transcribed as.
+    """
+    held = collections.defaultdict(set)
+    for ln in lines:
+        for m in RE_RCONST.finditer(ln):
+            v = int(m.group(3), 16)
+            if m.group(2):
+                v = ~v & 0xffffffff
+            held[m.group(1)].add(v)
+    out = set(held["0"])
+    for ln in lines:
+        for m in RE_RCOPY.finditer(ln):
+            out |= held[m.group(1)]
+    return out
 
 
 def compare(a, b, label, out, slack_bin=0, slack_c=0):
@@ -194,18 +241,119 @@ def compare(a, b, label, out, slack_bin=0, slack_c=0):
     return len(only_bin) + len(only_c)
 
 
-def check(name, afacts, cfacts):
+_IMAGE = None
+
+
+def image_loaded(name):
+    """Every routine the function loads, pointer slots resolved through the image.
+
+    Borrowed from handlercheck.py, and only asked for when the handler bucket
+    disagrees, because it runs dumpfn.py once per function.
+    """
+    global _IMAGE
+    import handlercheck
+    if _IMAGE is None:
+        _IMAGE = (handlercheck.load_image(), handlercheck.load_names())
+    return handlercheck.loaded_by(name, *_IMAGE)
+
+
+RE_HEXLIT = re.compile(r"\b(0x[0-9a-f]+)u\b")
+
+
+def compare_by_name(a, b, label, out, allowed):
+    """Handlers and tokens, compared as SETS.
+
+    The binary shares tails: two paths load different handlers into one
+    register and jump to a single physical store, which the machine reader
+    sees as one `?`. The C writes each path out. Counting stores can never
+    match that, and the counts were what the old shared slack papered over --
+    along with real mistakes. So instead:
+
+        every concrete value the binary stores must appear in the C, and
+        every value the C stores must be one the binary could produce
+        (`allowed`: routines it loads, or constants in its code).
+
+    A wrong routine or a wrong token number still fails. 0x0 is the cleared
+    slot every install writes and is not compared.
+    """
+    sa = set(a) - {"0x0"}
+    sc = set(b) - {"0x0"}
+    bad = 0
+    for k in sorted(sa - sc):
+        out.append("    %-9s binario tiene %s  y el C no" % (label, k))
+        bad += 1
+    for k in sorted(sc - allowed()):
+        out.append("    %-9s el C tiene   %s  y el binario no lo produce" % (label, k))
+        bad += 1
+    return bad
+
+
+# Where a store lands, from the machine reader's `origin` of its base: the
+# object is whatever `thread->proc` (0x108) loaded, its header is word 0 of
+# that. Only these two are told apart -- they are the pair a transcription
+# confuses, `obj->x` against `obj->field00->x`.
+ASM_BASE = {"[r0+0x108]": "MK3OBJ", "[[r0+0x108]+0x0]": "MK3OBJPROC"}
+
+
+def compare_bases(afacts, cfacts, out):
+    """A store the C makes at the right offset and value but in the wrong struct.
+
+    The store bucket compares (offset, value) and never looked at where the
+    write goes, so `obj->field00->field30 = 0` passed for a binary that writes
+    `obj->field30 = 0`. mkreact.c's t_b_weak_silent did exactly that.
+    """
+    have = collections.defaultdict(set)
+    for f in cfacts:
+        if f[0] == "store" and f[2] != "?" and len(f) > 3:
+            have[(f[1], f[2])].add(f[3])
+    bad = 0
+    seen = set()
+    for f in afacts:
+        if f[0] != "store" or f[2] == "?" or len(f) < 4:
+            continue
+        want = ASM_BASE.get(f[3])
+        key = (f[1], f[2])
+        if not want or key not in have or key in seen:
+            continue
+        seen.add(key)
+        if want not in have[key]:
+            out.append("    %-9s +%s = %s va a %s en el binario; el C lo escribe en %s"
+                       % ("base", f[1], f[2], want, "/".join(sorted(have[key]))))
+            bad += 1
+    return bad
+
+
+def check(name, afacts, cfacts, alines=None):
     """One function: a verdict, the lines explaining it, and the unchecked."""
     a = asm_sets(afacts)
     c = c_sets(cfacts)
+    au, cu = a[4], c[4]
     out, n = [], 0
-    # a[4] and c[4] count what each side declined to resolve; each side's
-    # unknowns give the OTHER side that much slack.
-    n += compare(a[0], c[0], "store", out, a[4], c[4])
-    n += compare(a[1], c[1], "handler", out, a[4], c[4])
-    n += compare(a[2], c[2], "token", out, a[4], c[4])
+    n += compare(a[0], c[0], "store", out, au["store"], cu["store"])
+    n += compare_bases(afacts, cfacts, out)
+    lines = alines or []
+
+    def routines():
+        return image_loaded(name) | set(a[1])
+
+    def constants():
+        return {hex(int(x, 16)) for x in RE_HEXLIT.findall("\n".join(lines))} | set(a[2])
+
+    n += compare_by_name(a[1], c[1], "handler", out, routines)
+    n += compare_by_name(a[2], c[2], "token", out, constants)
     n += compare(a[3], c[3], "call", out)
-    return n, out, a[4] + c[4]
+    # Return values: a non-zero constant the C returns must be one the binary
+    # can put in r0. Zero is exempt -- the binary usually returns a zero it
+    # already holds (the token) rather than loading one.
+    if alines is not None:
+        possible = asm_ret_consts(alines)
+        for r in sorted(set(c[5])):
+            v = int(r, 16) & 0xffffffff
+            if v and v not in possible:
+                out.append("    %-9s el C devuelve %s y el binario nunca lo pone en r0"
+                           % ("ret", r))
+                n += 1
+    return n, out, sum(au.values()) + sum(cu.values())
 
 
 def main(argv):
@@ -231,7 +379,8 @@ def main(argv):
             continue
         n, lines, unk = check(name,
                               facts_asm.facts(afns[name]),
-                              facts_c.facts_of(cfns[name], maps))
+                              facts_c.facts_of(cfns[name], maps),
+                              afns[name])
         unchecked_total += unk
         if n == 0:
             clean += 1
