@@ -1008,11 +1008,12 @@ void q_is_he_car(MK3OBJ *obj)
  * armv7 0x000a879c/0xa869c/0xa863c/0xa85dc/0xa87fc, 96 bytes each.
  * **Complete.**
  *
- * Five copies of one shape: state 0 only, push `t_random_do` -- reusing
- * `field00->field64`/`field68` (the ordinary "slave object"/"slave part"
- * pair everywhere else in this codebase) as a small count and a table
- * pointer instead, the same field-repurposing this file already does
- * for `field1c`/`field20` in the answer helpers. Each local move-choice
+ * Five copies of one shape: state 0 only, push `t_random_do` with a small
+ * count and a table pointer in the OBJECT's own `field64`/`slave` pair
+ * (`[thread->proc, #0x64/#0x68]`). **Corrected**: these were first written
+ * through `field00`, the header's identically-offset pair; the binary never
+ * dereferences field00 here, and every other `t_random_do` caller in this
+ * file uses the object's pair too. Each local move-choice
  * table (`funcs.NNNN` in the compiler's own naming, an anonymous local
  * array rather than a named function) is picked by which entry this
  * function is.
@@ -1032,8 +1033,8 @@ long t_boss_close_attack(MK3THREAD *thread)
     if (slot != 0)
         return -3;
 
-    obj->field00->slave   = (uint32_t)(uintptr_t)funcs_boss_close_attack;
-    obj->field00->field64 = 3;
+    obj->slave   = (uint32_t)(uintptr_t)funcs_boss_close_attack;
+    obj->field64 = 3;
 
     *mk3_frame(thread, thread->frame + 1) = 0x1d3;
     thread->frame = thread->frame + 1;   /* push a level */
@@ -1051,8 +1052,8 @@ long t_motaro_far_easy(MK3THREAD *thread)
     if (slot != 0)
         return -3;
 
-    obj->field00->slave   = (uint32_t)(uintptr_t)funcs_motaro_far_easy;
-    obj->field00->field64 = 2;
+    obj->slave   = (uint32_t)(uintptr_t)funcs_motaro_far_easy;
+    obj->field64 = 2;
 
     *mk3_frame(thread, thread->frame + 1) = 0x180;
     thread->frame = thread->frame + 1;   /* push a level */
@@ -1070,8 +1071,8 @@ long t_motaro_far_hard(MK3THREAD *thread)
     if (slot != 0)
         return -3;
 
-    obj->field00->slave   = (uint32_t)(uintptr_t)funcs_motaro_far_hard;
-    obj->field00->field64 = 2;
+    obj->slave   = (uint32_t)(uintptr_t)funcs_motaro_far_hard;
+    obj->field64 = 2;
 
     *mk3_frame(thread, thread->frame + 1) = 0x16e;
     thread->frame = thread->frame + 1;   /* push a level */
@@ -1089,8 +1090,8 @@ long t_motaro_far_med(MK3THREAD *thread)
     if (slot != 0)
         return -3;
 
-    obj->field00->slave   = (uint32_t)(uintptr_t)funcs_motaro_far_med;
-    obj->field00->field64 = 2;
+    obj->slave   = (uint32_t)(uintptr_t)funcs_motaro_far_med;
+    obj->field64 = 2;
 
     *mk3_frame(thread, thread->frame + 1) = 0x15b;
     thread->frame = thread->frame + 1;   /* push a level */
@@ -1108,8 +1109,8 @@ long t_sk_stupid(MK3THREAD *thread)
     if (slot != 0)
         return -3;
 
-    obj->field00->slave   = (uint32_t)(uintptr_t)funcs_sk_stupid;
-    obj->field00->field64 = 5;
+    obj->slave   = (uint32_t)(uintptr_t)funcs_sk_stupid;
+    obj->field64 = 5;
 
     *mk3_frame(thread, thread->frame + 1) = 0x3e3;
     thread->frame = thread->frame + 1;   /* push a level */

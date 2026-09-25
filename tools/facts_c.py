@@ -155,6 +155,18 @@ RE_CALL = re.compile(r"\b([A-Za-z_][A-Za-z_0-9]*)\s*\(")
 # matched here, not the `/` itself.
 RE_DIVMOD_CALL = re.compile(r"/\*\s*_+((?:u?div|u?mod)si3)\s*\*/")
 # mk3_install(thread, (MK3THREADFUNC)t_jhp5)  and the plyr_install spelling
+# handler = (MK3THREADFUNC)t_d_block;
+#
+# A routine picked into a local and installed through it later --
+# `mk3_install(thread, handler)`. The install line names no routine, so
+# without this every name chosen this way was invisible, and a wrong one
+# verified: t_mc_flipk_away installed t_motaro_slided where the binary loads
+# t_d_block, and nothing said so.
+RE_HANDLER_LOCAL = re.compile(r"^\s*\w+\s*=\s*\(MK3THREADFUNC\)\s*"
+                              r"([A-Za-z_][A-Za-z_0-9]*)\s*;")
+# mk3_install(thread, handler) -- the install itself, with its token clear.
+RE_INSTALL_LOCAL = re.compile(r"mk3_(?:install|push_handler)\s*\(\s*thread\s*,"
+                              r"\s*[A-Za-z_][A-Za-z_0-9]*\s*\)")
 RE_INSTALL = re.compile(r"mk3_(?:install|push_handler)\s*\(\s*thread\s*,\s*"
                         r"\(MK3THREADFUNC\)\s*([A-Za-z_][A-Za-z_0-9]*)")
 RE_PLYRINST = re.compile(r"plyr_install\s*\([^,]+,[^,]+,\s*"
@@ -293,11 +305,34 @@ def struct_of(chain, maps):
     return parts
 
 
+# `next = 0x39a;` -- a literal assigned to a local that is later stored as a
+# token (`*mk3_frame(...) = next;`). A state machine that picks its next state
+# into a local wrote every token this way, and each one read as `?`.
+RE_ASSIGN_LIT = re.compile(r"^\s*(?:\}\s*else\s*)?(?:\{\s*)?([A-Za-z_]\w*)\s*=\s*"
+                           r"(0x[0-9a-fA-F]+|\d+)\s*;")
+RE_IDENT = re.compile(r"^[A-Za-z_]\w*$")
+
+
+def token_locals(lines):
+    """The locals a function stores into the frame's token word."""
+    names = set()
+    for line in lines:
+        m = RE_TOKEN.match(line)
+        if m and RE_IDENT.match(m.group(1).strip()):
+            names.add(m.group(1).strip())
+    return names
+
+
 def facts_of(lines, maps):
     """One function's facts, in source order."""
     out = []
+    tlocals = token_locals(lines)
     for i, line in enumerate(lines):
         s = line.strip()
+        m = RE_ASSIGN_LIT.match(line)
+        if m and m.group(1) in tlocals:
+            out.append(("token", value(m.group(2))))
+            continue
         # A token store also starts with `*`, so it is recognised BEFORE the
         # comment filter rather than after it. That ordering was a real bug:
         # every state token in the file was silently dropped.
@@ -314,6 +349,14 @@ def facts_of(lines, maps):
             out.append(("store", hex(int(off, 16)), value(val), st))
             continue
         if not s or s.startswith("*") or s.startswith("/*"):
+            continue
+
+        m = RE_HANDLER_LOCAL.match(line)
+        if m:
+            out.append(("handler", m.group(1)))
+            continue
+        if RE_INSTALL_LOCAL.search(line) and not RE_INSTALL.search(line):
+            out.append(("token", "0x0"))
             continue
 
         m = RE_INSTALL.search(line) or RE_PLYRINST.search(line)

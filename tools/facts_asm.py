@@ -189,11 +189,32 @@ def name_of(val):
     return syms.get(n) or syms.get(n & ~1)
 
 
+RE_REGWRITE = re.compile(r"ctx->r\[(\d+)\]\s*=[^=]")
+
+
+def single_defs(lines):
+    """Callee-saved registers (r4-r11) written exactly once in the body.
+
+    The prologue loads `thread->proc` into one of these and nothing writes it
+    again, so where it came from is still true after every branch. Every
+    other register's origin is forgotten at a label, as before.
+    """
+    count = {}
+    for line in lines:
+        for g in RE_REGWRITE.finditer(line):
+            r = int(g.group(1))
+            count[r] = count.get(r, 0) + 1
+    return {r for r, n in count.items() if 4 <= r <= 11 and n == 1}
+
+
 def facts(lines):
     """One function's facts, in the order the instructions reach them."""
     known = {}          # register -> constant
     origin = {}         # register -> a short note on where it came from
     out = []
+    keep = single_defs(lines)
+    entry = set()       # registers defined before the first branch or label
+    in_entry = True
     addr = None
     pend_reg = None     # the flag-setting add/sub form spans two lines
     pend_val = None
@@ -205,10 +226,25 @@ def facts(lines):
             continue
 
         if RE_LABEL.match(line):
-            # A join point: nothing survives it that we can prove.
+            # A join point: nothing survives it that we can prove -- except
+            # where a register came from, when that is settled: written once
+            # in the whole body, or defined in the entry block (which reaches
+            # every label) and not written since.
+            in_entry = False
             known.clear()
-            origin.clear()
+            for r in list(origin):
+                if r not in keep and r not in entry:
+                    del origin[r]
             continue
+
+        if in_entry and (RE_BR.match(line) or RE_GOTO.match(line)):
+            in_entry = False
+        for g in RE_REGWRITE.finditer(line):
+            r = int(g.group(1))
+            if in_entry:
+                entry.add(r)
+            else:
+                entry.discard(r)
 
         m = RE_SETC.match(line)
         if m:
