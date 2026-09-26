@@ -134,6 +134,8 @@ def asm_sets(fs):
             off, val = f[1], f[2]
             if val == "?":
                 unk["handler" if off == "0x4" else "store"] += 1
+                if off != "0x4":
+                    unk.setdefault("store_offs", []).append(off)
                 continue
             nm = facts_asm.name_of(val)
             # a handler is a store of a routine's address into the frame
@@ -160,7 +162,13 @@ def c_sets(fs):
             off, val = f[1], f[2]
             if val == "?":
                 unk["store"] += 1
+                unk.setdefault("store_offs", []).append(off)
                 continue
+            # A literal that happens to equal a symbol's address reads as that
+            # symbol on the binary side (0x8000c is also `___tcf_0`, an EA SDK
+            # routine) -- spell ours the same way so the two can meet.
+            if val.startswith("0x"):
+                val = facts_asm.name_of(val) or val
             stores.append((off, val))
         elif f[0] == "handler":
             if f[1] == "?":
@@ -218,6 +226,39 @@ def asm_ret_consts(lines):
         for d, src in movs:
             held[d] |= held[src]
     return set(held["0"])
+
+
+def compare_stores(a, b, out, unk_bin, unk_c):
+    """(offset, value) stores, where an unknown only excuses its own offset.
+
+    A store the binary could not resolve at +0x30 used to excuse any C store
+    anywhere -- t_b_punch wrote t_cc_block_avoid_corner into +0x38 where the
+    binary writes t_cc_punch, and two unresolved zeros at +0x30/+0x34 paid for
+    it. Now an unresolved store absorbs one disagreement at the same offset.
+    """
+    # Sets, not counts: a shared tail stores once in the binary and once per
+    # path in the C (t_back_to_the_fight's `fieldfc = 1`), which is structure,
+    # not behaviour. What must hold is that each side's (offset, value) pairs
+    # exist on the other, or an unknown at that very offset excuses them.
+    ca = collections.Counter(set(a))
+    cb = collections.Counter(set(b))
+    only_bin, only_c = ca - cb, cb - ca
+    ub = collections.Counter({o: 10 ** 6 for o in unk_bin})
+    uc = collections.Counter({o: 10 ** 6 for o in unk_c})
+    bad = 0
+    for (off, val), n in sorted(only_bin.items(), key=lambda x: str(x[0])):
+        take = min(n, uc[off]); uc[off] -= take; n -= take
+        if n > 0:
+            out.append("    %-9s binario tiene %s  x%d  y el C no"
+                       % ("store", (off, val), n))
+            bad += 1
+    for (off, val), n in sorted(only_c.items(), key=lambda x: str(x[0])):
+        take = min(n, ub[off]); ub[off] -= take; n -= take
+        if n > 0:
+            out.append("    %-9s el C tiene   %s  x%d  y el binario no"
+                       % ("store", (off, val), n))
+            bad += 1
+    return bad
 
 
 def compare(a, b, label, out, slack_bin=0, slack_c=0):
@@ -306,7 +347,8 @@ def compare_by_name(a, b, label, out, allowed):
 # object is whatever `thread->proc` (0x108) loaded, its header is word 0 of
 # that. Only these two are told apart -- they are the pair a transcription
 # confuses, `obj->x` against `obj->field00->x`.
-ASM_BASE = {"[r0+0x108]": "MK3OBJ", "[[r0+0x108]+0x0]": "MK3OBJPROC"}
+ASM_BASE = {"[r0+0x108]": "MK3OBJ", "[[r0+0x108]+0x0]": "MK3OBJPROC",
+            "[[r0+0x108]+0x8]": "MK3OBJ.field08"}
 
 
 def compare_bases(afacts, cfacts, out):
@@ -331,7 +373,7 @@ def compare_bases(afacts, cfacts, out):
         if f[0] == "store" and len(f) > 3:
             if f[3] == "?":
                 c_unsure.add(f[1])
-            elif f[3] in ("MK3OBJ", "MK3OBJPROC"):
+            elif f[3] in ("MK3OBJ", "MK3OBJPROC", "MK3OBJ.field08"):
                 c_where[f[1]].add(f[3])
     bad = 0
     for off in sorted(bin_where, key=lambda x: int(x, 16)):
@@ -350,7 +392,8 @@ def check(name, afacts, cfacts, alines=None):
     c = c_sets(cfacts)
     au, cu = a[4], c[4]
     out, n = [], 0
-    n += compare(a[0], c[0], "store", out, au["store"], cu["store"])
+    n += compare_stores(a[0], c[0], out, au.get("store_offs", []),
+                        cu.get("store_offs", []))
     n += compare_bases(afacts, cfacts, out)
     lines = alines or []
 
@@ -378,7 +421,8 @@ def check(name, afacts, cfacts, alines=None):
                 out.append("    %-9s el C devuelve %s y el binario nunca lo pone en r0"
                            % ("ret", r))
                 n += 1
-    return n, out, sum(au.values()) + sum(cu.values())
+    return n, out, (sum(v for k, v in au.items() if k != "store_offs")
+                    + sum(v for k, v in cu.items() if k != "store_offs"))
 
 
 def main(argv):
