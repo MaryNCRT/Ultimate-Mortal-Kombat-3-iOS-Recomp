@@ -189,6 +189,7 @@ def name_of(val):
     return syms.get(n) or syms.get(n & ~1)
 
 
+RE_PRED = re.compile(r"^\s*if \(.*\) \{ (.*?;)\s*(?:/\*.*?\*/)?\s*\}\s*$")
 RE_REGWRITE = re.compile(r"ctx->r\[(\d+)\]\s*=[^=]")
 
 
@@ -219,11 +220,31 @@ def facts(lines):
     pend_reg = None     # the flag-setting add/sub form spans two lines
     pend_val = None
 
+    cond_regs = set()   # registers last written under an IT predicate
     for line in lines:
         m = RE_ORIG.match(line)
         if m:
             addr = m.group(1)
             continue
+
+        # A predicated instruction -- `itt le; ldrle r3, [pc, #x]; strle r3,
+        # [r5, #0x40]` -- comes out as `if (cond) { stmt; }`, and every
+        # pattern below is anchored to a bare statement, so the whole IT block
+        # used to vanish: t_r_duck_punch's conditional field40 = 0x30007 read
+        # as a store the binary never makes. Read the statement inside. A
+        # register it writes is trusted only until the next unconditional
+        # line, so a value that may not have been loaded never reaches a fact
+        # outside its own block.
+        pm = RE_PRED.match(line)
+        if pm:
+            line = pm.group(1)
+            for g in RE_REGWRITE.finditer(line):
+                cond_regs.add(int(g.group(1)))
+        elif cond_regs and not RE_LABEL.match(line):
+            for r in cond_regs:
+                known.pop(r, None)
+                origin.pop(r, None)
+            cond_regs = set()
 
         if RE_LABEL.match(line):
             # A join point: nothing survives it that we can prove -- except

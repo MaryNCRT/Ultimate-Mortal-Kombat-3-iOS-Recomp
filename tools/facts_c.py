@@ -245,6 +245,8 @@ def split_functions(path):
 def value(expr, consts=None):
     """A literal as itself, a name as itself, anything else as `?`."""
     e = expr.strip().rstrip(";").strip()
+    # `0x14d9u` -- an unsigned suffix is still the same literal
+    e = re.sub(r"^((?:0[xX][0-9a-fA-F]+|\d+))[uUlL]+$", r"\1", e)
     # strip the casts the house style sprinkles about
     for cast in ("(uint32_t)(uintptr_t)", "(uint32_t)", "(uintptr_t)",
                  "(long)", "(int32_t)", "(MK3THREADFUNC)"):
@@ -342,6 +344,7 @@ def canon(expr, al):
 def struct_tag(path):
     """Which struct a base path is, when that is certain; `?` otherwise."""
     return {"P": "MK3OBJ", "P->field00": "MK3OBJPROC",
+            "P->field08": "MK3OBJ.field08",
             "thread": "MK3THREAD"}.get(path, "?")
 
 
