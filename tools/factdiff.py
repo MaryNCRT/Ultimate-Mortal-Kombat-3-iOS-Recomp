@@ -176,7 +176,9 @@ def c_sets(fs):
             else:
                 handlers.append(f[1])
         elif f[0] == "token":
-            if f[1] == "?":
+            # a token read out of a variable (`GLBL_joy_entry`) is a value
+            # neither side knows, not a name to match
+            if f[1] == "?" or not f[1].startswith("0x"):
                 unk["token"] += 1
             else:
                 tokens.append(f[1])
