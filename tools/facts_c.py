@@ -186,6 +186,7 @@ RE_BARENAME = re.compile(r"^\s*\(uint32_t\)\(uintptr_t\)"
 # spells several this way and every one of them read as a store the binary
 # makes and we do not, which is the most alarming shape a difference can take
 # and was nothing.
+RE_ARGSTORE = re.compile(r"^\s*\*mk3_arg\(\s*thread\s*,[^)]*\)\s*=\s*([^;]+);")
 RE_RAWSTORE = re.compile(r"^\s*\*\(uint32_t \*\)\s*\(\(char \*\)\s*"
                          r"([a-z_][a-z_0-9]*(?:->[a-z_][a-z_0-9]*)*)\s*\+\s*"
                          r"(0x[0-9a-fA-F]+)\)\s*=\s*([^;]+);")
@@ -217,17 +218,33 @@ NOT_A_CALL = frozenset((
 ))
 
 
+# `extern long *RoundParam;` / `extern int32_t table[];` -- a global whose
+# elements are words, so `RoundParam[2] = 0` is a store at +0x8 of it.
+RE_WORDARRAY = re.compile(r"^\s*extern\s+(?:const\s+)?(?:long|int32_t|uint32_t)\s+"
+                          r"(?:\*\s*([A-Za-z_]\w*)\s*;|([A-Za-z_]\w*)\s*\[\s*\]\s*;)")
+RE_ARRSTORE = re.compile(r"^\s*([A-Za-z_]\w*)\[(\d+|0x[0-9a-fA-F]+)\]\s*=\s*([^;]+);")
+WORD_ARRAYS = set()
+
+
 def split_functions(path):
     """{name: [line, ...]} for every function body in one .c file."""
     out, name, buf, depth, started = {}, None, [], 0, False
     prev = ""
     with open(path, encoding="utf-8", errors="replace") as fh:
+        for line in open(path, encoding="utf-8", errors="replace"):
+            wm = RE_WORDARRAY.match(line)
+            if wm:
+                WORD_ARRAYS.add(wm.group(1) or wm.group(2))
         for line in fh:
             line = line.rstrip("\n")
             if name is None:
                 m = RE_FUNCDEF.match(prev) if line.strip() == "{" else None
                 if m:
+                    # the signature rides along as a comment: nothing reads
+                    # comments for facts, and foreign_roots() needs the
+                    # parameters' types
                     name, buf, depth, started = m.group(1), [], 0, False
+                    buf.append("/* SIG " + prev.strip() + " */")
                 prev = line
                 if name is None:
                     continue
@@ -348,6 +365,24 @@ def struct_tag(path):
             "thread": "MK3THREAD"}.get(path, "?")
 
 
+RE_DECL = re.compile(r"\b(?:struct\s+)?([A-Z][A-Z0-9_]*)\s*\*\s*([A-Za-z_]\w*)")
+MK3_TYPES = {"MK3OBJ", "MK3OBJPROC", "MK3THREAD"}
+
+
+def foreign_roots(lines):
+    """Pointers declared as some struct other than the three MK3 ones.
+
+    `MK3PLAYBACK *p` -- a store through `p->field08` was placed with MK3OBJ's
+    offsets, a guess at the wrong struct entirely, and compared.
+    """
+    out = set()
+    for line in lines:
+        for m in RE_DECL.finditer(line):
+            if m.group(1) not in MK3_TYPES:
+                out.add(m.group(2))
+    return out
+
+
 def token_locals(lines):
     """The locals a function stores into the frame's token word."""
     names = set()
@@ -363,6 +398,7 @@ def facts_of(lines, maps):
     out = []
     tlocals = token_locals(lines)
     al = aliases(lines)
+    foreign = foreign_roots(lines)
     for i, line in enumerate(lines):
         s = line.strip()
         m = RE_ASSIGN_LIT.match(line)
@@ -384,6 +420,18 @@ def facts_of(lines, maps):
             continue
         # A raw-offset store starts with `*` too, so it joins the token
         # recogniser ABOVE the comment filter. Both were being eaten.
+        # `*mk3_arg(thread, cur) = saved;` -- a push onto the thread's
+        # argument stack, which the binary writes as `str rX, [rY, #0xa8]`
+        # with the cursor folded into rY. Starts with `*`, so it is caught
+        # here, above the comment filter, like the token store.
+        m = RE_ARRSTORE.match(line)
+        if m and m.group(1) in WORD_ARRAYS:
+            out.append(("store", hex(4 * int(m.group(2), 0)), value(m.group(3)), "?"))
+            continue
+        m = RE_ARGSTORE.match(line)
+        if m:
+            out.append(("store", "0xa8", value(m.group(1)), "MK3THREAD"))
+            continue
         m = RE_RAWSTORE.match(line)
         if m:
             base, off, val = m.group(1), m.group(2), m.group(3)
@@ -457,6 +505,8 @@ def facts_of(lines, maps):
                 joined += " " + lines[j].strip()
                 j += 1
             m = RE_STORE.match(joined)
+        if m and m.group(1) in foreign:
+            continue                    # a struct we cannot place
         if m:
             root, chain, val = m.group(1), m.group(2), m.group(3)
             members = [p for p in chain.split("->") if p]

@@ -1605,8 +1605,9 @@ long t_motaro_hip_jump(MK3THREAD *thread)
  *
  * armv7 0x000aa7f4, 116 bytes.  **Complete.**
  *
- * State 0: `adjust_him_xy`, step a frame, pose `field1c=6`, wait 6
- * ticks under `0x503`. `0x503` is the ordinary "pop a level, or
+ * State 0: `adjust_him_xy`, step a frame, wait 6 ticks under `0x503`.
+ * (Corrected: an invented `field1c = 6` store was removed.)
+ * `0x503` is the ordinary "pop a level, or
  * install `t_local_reaction_exit` at the bottom" tail.
  */
 void adjust_him_xy(MK3OBJ *obj);
@@ -1631,8 +1632,6 @@ long t_grab_ani(MK3THREAD *thread)
 
     adjust_him_xy(obj);
     do_next_a9_frame(obj);
-
-    obj->field1c = 6;
 
     *mk3_frame(thread, frame + 1) = 0x503;
     thread->fieldfc = 6;
