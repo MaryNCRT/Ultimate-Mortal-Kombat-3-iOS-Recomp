@@ -4432,13 +4432,15 @@ long t_blast_through_anything(MK3THREAD *thread)
     MK3OBJ *obj = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
-    if (token == 0xb82)
-        return mk3_install(thread, (MK3THREADFUNC)t_getup_reaction_exit);
-
-    if (token == 0xb8e) {
+    /* Corrected, 2026-09-26: 0xb82 (the landing) does the grounding and
+     * pushes t_mframew; 0xb8e only waits. The first transcription put the
+     * grounding under 0xb8e, skipped the t_mframew run, and wrote the first
+     * field40 to the object where the binary writes the header's. */
+    if (token == 0xb82) {
         ground_ochar(obj);
 
-        obj->field40 = (uint32_t)(int32_t)(int16_t)MK3_FIELD12(obj->field08);
+        obj->field00->field40 =
+            (uint16_t)(int16_t)MK3_FIELD12(obj->field08);   /* [header, #0x40] */
         obj->field38 = (uint32_t)(uintptr_t)t_back_to_the_fight;
         xfer_otherguy(obj);
 
@@ -4449,6 +4451,14 @@ long t_blast_through_anything(MK3THREAD *thread)
 
         obj->field1c = 4;
 
+        *mk3_frame(thread, thread->frame + 1) = 0xb8e;
+        thread->frame = thread->frame + 1;
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_mframew;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+        return 0;
+    }
+
+    if (token == 0xb8e) {
         *mk3_frame(thread, thread->frame + 1) = 0xb90;
         thread->fieldfc = 0x20;
         return 0x20;
