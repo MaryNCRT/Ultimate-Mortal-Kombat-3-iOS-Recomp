@@ -401,8 +401,34 @@ def token_locals(lines):
     return names
 
 
+# `*(uint32_t *)((char *)obj->field00 + 0x34) =` with the value below it
+RE_DEREF_OPEN = re.compile(r"^\s*\*(?:\((?:u?int(?:8|16|32)_t|long)\s*\*\)|mk3_frame\().*=\s*$")
+RE_INSTALL_OPEN = re.compile(r"mk3_(?:install|push_handler)\s*\(\s*thread\s*,\s*$")
+
+
+def join_installs(lines):
+    """`return mk3_install(thread,` with the routine on the next line.
+
+    The reader works a line at a time, so a call split after its first
+    argument named no routine at all -- t_lao_angle_hit's install of
+    t_lao_angle_blocked read as missing. Rejoin those before reading.
+    """
+    out, i = [], 0
+    while i < len(lines):
+        line = lines[i]
+        if ((RE_INSTALL_OPEN.search(line.rstrip()) or RE_DEREF_OPEN.match(line))
+                and i + 1 < len(lines)):
+            out.append(line.rstrip() + " " + lines[i + 1].strip())
+            i += 2
+            continue
+        out.append(line)
+        i += 1
+    return out
+
+
 def facts_of(lines, maps):
     """One function's facts, in source order."""
+    lines = join_installs(lines)
     out = []
     tlocals = token_locals(lines)
     al = aliases(lines)

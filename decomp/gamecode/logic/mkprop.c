@@ -1091,10 +1091,15 @@ void bike_hit_call(MK3OBJ *obj)
 
     n = *(uint32_t *)((char *)obj->field00 + 0x2c) - 1;
     obj->field1c = n;
-    if (n == 0)                         /* the pass that would zero it */
-        return;
+    if (n == 0) {
+        /* Corrected, 2026-09-26: the pass that would zero the count does
+         * not return -- it plays a sound and reloads the count to 7, then
+         * carries on like every other pass. */
+        rsnd_func(obj, 7);
+        obj->field1c = 7;
+    }
 
-    *(uint32_t *)((char *)obj->field00 + 0x2c) = n;
+    *(uint32_t *)((char *)obj->field00 + 0x2c) = obj->field1c;
 
     match_him_with_me_f(obj);
     obj->field1c = 0xffe0ffd0u;         /* -32 high, -48 low */
@@ -1509,19 +1514,21 @@ long t_pounce_scan(MK3THREAD *thread)
 
     obj->field1c = 0x12;
     q_is_he_a_boss(obj);
-    if (obj->field5c != 0)
+    if (obj->field5c != 0) {
         obj->field1c = 0x13;            /* a boss gets its own box */
-
-    strike_check_a0(obj);
+        strike_check_a0(obj);           /* one call per branch, as the binary has it */
+    } else {
+        strike_check_a0(obj);
+    }
     if (obj->field5c != 0)
-        return mk3_push_handler(thread, (MK3THREADFUNC)t_pounce_hit);
+        return mk3_install(thread, (MK3THREADFUNC)t_pounce_hit);
 
     if ((long)thread->frame > 0) {
         thread->frame -= 1;             /* back up a level */
         return 0;
     }
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
 
 
@@ -2372,31 +2379,42 @@ long tl_do_reptile_dash(MK3THREAD *thread)
  * gets `t_pounce_adjust_him`, which is the routine `t_pounce_fall` will run
  * each frame to keep the opponent under the attacker.
  */
-static void pounce_collapse_one(MK3THREAD *thread)
-{
-    uint32_t n;
-    uint32_t h;
-
-    if ((long)thread->frame > 0)
-        thread->frame -= 1;
-    else
-        mk3_push_handler(thread, (MK3THREADFUNC)t_local_reaction_exit);
-
-    n = thread->frame;
-    h = mk3_frame(thread, n + 1)[1];            /* the level above */
-    *mk3_frame(thread, n + 1) = *mk3_frame(thread, n + 2);
-    mk3_frame(thread, n)[1] = h;
-}
 
 long t_pounce_hit(MK3THREAD *thread)
 {
-    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t n, h;
 
     if (*mk3_frame(thread, thread->frame + 1) != 0)
         return -3;
 
-    pounce_collapse_one(thread);        /* written out twice in the binary */
-    pounce_collapse_one(thread);
+    /* Corrected, 2026-09-26: collapse one level, twice, written out as the
+     * binary has it. The first transcription used a helper that installed
+     * through mk3_push_handler -- which refuses when the slot above is
+     * busy, a check the binary does not make -- and ended the same way. */
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+    } else {
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_local_reaction_exit;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+    }
+    n = thread->frame;
+    h = mk3_frame(thread, n + 1)[1];            /* the level above */
+    *mk3_frame(thread, n + 1) = *mk3_frame(thread, n + 2);
+    mk3_frame(thread, n)[1] = h;
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+    } else {
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_local_reaction_exit;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+    }
+    n = thread->frame;
+    h = mk3_frame(thread, n + 1)[1];            /* the level above */
+    *mk3_frame(thread, n + 1) = *mk3_frame(thread, n + 2);
+    mk3_frame(thread, n)[1] = h;
 
     reset_proc_stack(thread);
 
@@ -2407,7 +2425,7 @@ long t_pounce_hit(MK3THREAD *thread)
 
     obj->field34 = (uint32_t)(uintptr_t)t_pounce_adjust_him;    /* callback */
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_pounce_fall);
+    return mk3_install(thread, (MK3THREADFUNC)t_pounce_fall);
 }
 
 
@@ -4120,7 +4138,7 @@ long t_air_sleep3(MK3THREAD *thread)
 
     q = (int32_t)obj->field20 / (int32_t)obj->field54;   /* ___divsi3 */
     obj->field20 = (uint32_t)q;
-    dy = (int32_t)obj->field28 / (int32_t)obj->field54;
+    dy = (int32_t)obj->field28 / (int32_t)obj->field54;   /* ___divsi3 */
     obj->field20 = (uint32_t)((q << 4) - (q << 2));      /* twelve */
     obj->field28 = (uint32_t)((dy << 4) - (dy << 2));
 
@@ -4970,14 +4988,8 @@ long t_decoy_proc(MK3THREAD *thread)
         gone = 1;                               /* somebody touched it */
     } else if (token == 0xcd8) {
         obj->a10 -= 1;
-        if (obj->a10 != 0) {
-            obj->field1c = (uint32_t)-4;        /* NUDGE */
-            obj->field20 = 0;
-            multi_adjust_xy(obj);
-            *mk3_frame(thread, thread->frame + 1) = 0xcd8;
-            thread->fieldfc = 1;
-            return 1;
-        }
+        if (obj->a10 != 0)
+            goto nudge;
 
         q_is_he_a_boss(obj);
         if (obj->field5c == 0) {
@@ -5008,13 +5020,8 @@ long t_decoy_proc(MK3THREAD *thread)
         return 0x16462;
     }
 
-    if (token == 0xd03) {                       /* FLASH AND STOP */
-        obj->field1c = 3;
-        create_fx(obj);
-        *mk3_frame(thread, thread->frame + 1) = 0xd09;
-        thread->fieldfc = 0x16462;
-        return 0x16462;
-    }
+    if (token == 0xd03)
+        goto flash_and_stop;
 
     if (token != 0 && token != 0xcea && token != 0xcd8)
         return -3;
@@ -5024,20 +5031,25 @@ long t_decoy_proc(MK3THREAD *thread)
         obj->field1c = 3;
         create_fx(obj);
         obj->a10 = 0xa;
-
-        obj->field1c = (uint32_t)-4;            /* NUDGE */
-        obj->field20 = 0;
-        multi_adjust_xy(obj);
-        *mk3_frame(thread, thread->frame + 1) = 0xcd8;
-        thread->fieldfc = 1;
-        return 1;
+        goto nudge;
     }
 
-    obj->field1c = 3;                           /* FLASH AND STOP */
+    /* Two tails the binary shares: NUDGE (state 0 and 0xcd8) and FLASH AND
+     * STOP (state 0 and 0xd03); written once each, as there. */
+flash_and_stop:
+    obj->field1c = 3;
     create_fx(obj);
     *mk3_frame(thread, thread->frame + 1) = 0xd09;
     thread->fieldfc = 0x16462;
     return 0x16462;
+
+nudge:
+    obj->field1c = (uint32_t)-4;
+    obj->field20 = 0;
+    multi_adjust_xy(obj);
+    *mk3_frame(thread, thread->frame + 1) = 0xcd8;
+    thread->fieldfc = 1;
+    return 1;
 }
 
 
@@ -6873,12 +6885,8 @@ long tl_do_mileena_prop(MK3THREAD *thread)
 
     if (token == 0xe1) {
         obj->a10 -= 1;
-        if ((long)obj->a10 > 0) {
-            next_anirate(obj);
-            *mk3_frame(thread, thread->frame + 1) = 0xe1;
-            thread->fieldfc = 1;
-            return 1;
-        }
+        if ((long)obj->a10 > 0)
+            goto hold_e1;                       /* one tail in the binary */
         finish = 1;
     } else if (token == 0xce) {
         obj->field48 -= 1;
@@ -6927,6 +6935,7 @@ long tl_do_mileena_prop(MK3THREAD *thread)
             q_is_he_a_boss(obj);
             if (obj->field5c == 0) {            /* a clean hit on a mortal */
                 obj->a10 = 0xb;
+hold_e1:
                 next_anirate(obj);
                 *mk3_frame(thread, thread->frame + 1) = 0xe1;
                 thread->fieldfc = 1;
@@ -8029,8 +8038,7 @@ long t_bike_call(MK3THREAD *thread)
     if (obj->field5c == 0) {                    /* on the ground */
         match_him_with_me_f(obj);
         ground_him(obj);
-        obj->field1c = (uint32_t)-0x20;
-        adjust_him_x(obj);
+        goto place;                             /* one tail in the binary */
     } else {
         get_x_dist(obj);
         if ((long)obj->field28 <= 0x30) {       /* close enough to place */
@@ -8041,6 +8049,7 @@ long t_bike_call(MK3THREAD *thread)
             him = (MK3OBJ *)(uintptr_t)obj->field00->him;
             *(int16_t *)((char *)him + 0x12) =
                 (int16_t)(uint16_t)obj->field38;
+place:
             obj->field1c = (uint32_t)-0x20;
             adjust_him_x(obj);
         }
