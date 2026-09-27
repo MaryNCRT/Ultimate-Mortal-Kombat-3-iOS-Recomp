@@ -1860,6 +1860,8 @@ long t_react_jump_table_act(MK3THREAD *thread)
  *      frame[frame+1].w0 = 0
  */
 
+long t_run_in_close(struct MK3THREAD *thread);
+
 long t_cornered_attack(MK3THREAD *thread)
 {
     MK3OBJ *obj = (MK3OBJ *)thread->proc;
@@ -1870,7 +1872,12 @@ long t_cornered_attack(MK3THREAD *thread)
     obj->field1c = (uint32_t)(uintptr_t)rpt_cornered;
     ask_mr_diff(obj);
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_stalk_in_close);
+    /* Corrected, 2026-09-26: the answer picks one of two routines; this
+     * was first written as an unconditional install of the second. */
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_run_in_close);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_stalk_in_close);
 }
 
 /* t_d_avoid_elbow_knee -- armv7 0x0006d4c0, 96 bytes.  **Complete.**
@@ -1989,6 +1996,8 @@ long c_uppercut(MK3THREAD *thread)
  *      frame[frame+1].w0 = 0
  */
 
+long t_d_jump_up_kick(struct MK3THREAD *thread);
+
 long t_close_airborn(MK3THREAD *thread)
 {
     MK3OBJ *obj = (MK3OBJ *)thread->proc;
@@ -1998,7 +2007,12 @@ long t_close_airborn(MK3THREAD *thread)
 
     is_towards_me(obj);
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_d_fflip_kick_jump);
+    /* Corrected, 2026-09-26: the answer picks one of two routines; this
+     * was first written as an unconditional install of the second. */
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_d_jump_up_kick);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_d_fflip_kick_jump);
 }
 
 /* t_av_sweep -- armv7 0x00070f70, 104 bytes.  **Complete.**
@@ -2009,6 +2023,8 @@ long t_close_airborn(MK3THREAD *thread)
  *      frame[frame+1].w0 = 0
  */
 
+long t_d_duck_block(struct MK3THREAD *thread);
+
 long t_av_sweep(MK3THREAD *thread)
 {
     MK3OBJ *obj = (MK3OBJ *)thread->proc;
@@ -2018,7 +2034,12 @@ long t_av_sweep(MK3THREAD *thread)
 
     q_am_i_cornered(obj);
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_d_bflip_jump);
+    /* Corrected, 2026-09-26: the answer picks one of two routines; this
+     * was first written as an unconditional install of the second. */
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_d_duck_block);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_d_bflip_jump);
 }
 
 /* t_sq_quake_abort -- armv7 0x0007113c, 104 bytes.  **Complete.**
@@ -2029,6 +2050,8 @@ long t_av_sweep(MK3THREAD *thread)
  *      frame[frame+1].w0 = 0
  */
 
+long t_d_flip_punch_jump(struct MK3THREAD *thread);
+
 long t_sq_quake_abort(MK3THREAD *thread)
 {
     MK3OBJ *obj = (MK3OBJ *)thread->proc;
@@ -2038,7 +2061,12 @@ long t_sq_quake_abort(MK3THREAD *thread)
 
     q_am_i_cornered(obj);
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_d_bflip_jump);
+    /* Corrected, 2026-09-26: the answer picks one of two routines; this
+     * was first written as an unconditional install of the second. */
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_d_flip_punch_jump);
+
+    return mk3_install(thread, (MK3THREADFUNC)t_d_bflip_jump);
 }
 
 /* t_drone_begin -- armv7 0x000721e4, 64 bytes.  **Complete.**
