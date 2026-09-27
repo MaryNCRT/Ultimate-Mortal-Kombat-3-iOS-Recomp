@@ -186,6 +186,14 @@ RE_BARENAME = re.compile(r"^\s*\(uint32_t\)\(uintptr_t\)"
 # spells several this way and every one of them read as a store the binary
 # makes and we do not, which is the most alarming shape a difference can take
 # and was nothing.
+# `*(uint32_t *)(uintptr_t)obj->field34 = 0x28;`, `*(uint32_t *)(void *)
+# (G_BYTES + 0x388 + p * 4) = 0x28;` -- a word stored through a computed
+# pointer. The offset is the first constant added to the base (0 when there is
+# none); the binary folds any index into the base register the same way.
+# Words only, because the machine reader only reports word stores.
+RE_DEREFSTORE = re.compile(r"^\s*\*\((?:u?int32_t|long)\s*\*\)(?P<lhs>[^=;]*?)\s*"
+                           r"(?P<op>[-+|&^]?=)(?!=)\s*(?P<val>[^;]+);")
+RE_FIRSTADD = re.compile(r"\+\s*(0x[0-9a-fA-F]+|\d+)\b")
 RE_ARGSTORE = re.compile(r"^\s*\*mk3_arg\(\s*thread\s*,[^)]*\)\s*=\s*([^;]+);")
 RE_RAWSTORE = re.compile(r"^\s*\*\(uint32_t \*\)\s*\(\(char \*\)\s*"
                          r"([a-z_][a-z_0-9]*(?:->[a-z_][a-z_0-9]*)*)\s*\+\s*"
@@ -433,6 +441,14 @@ def facts_of(lines, maps):
             out.append(("store", "0xa8", value(m.group(1)), "MK3THREAD"))
             continue
         m = RE_RAWSTORE.match(line)
+        if not m:
+            dm = RE_DEREFSTORE.match(line)
+            if dm and not line.lstrip().startswith("*mk3_"):
+                fa = RE_FIRSTADD.search(dm.group("lhs"))
+                off = int(fa.group(1), 0) if fa else 0
+                val = value(dm.group("val")) if dm.group("op") == "=" else "?"
+                out.append(("store", hex(off), val, "?"))
+                continue
         if m:
             base, off, val = m.group(1), m.group(2), m.group(3)
             # resolved through the aliases like any other store: `proc` here

@@ -1139,10 +1139,14 @@ long t_local_reaction_exit(MK3THREAD *thread)
     if (token == 0) {
         c = obj->field08->field24;
 
-        if (c == MK3_KILLS_PROJ_A || c == MK3_KILLS_PROJ_B)
+        /* Two am_i_airborn calls in the binary, one on each side of the
+         * projectile test; written the same way. */
+        if (c == MK3_KILLS_PROJ_A || c == MK3_KILLS_PROJ_B) {
             ReallyKillProjectile(obj);
-
-        airborne = am_i_airborn(obj);
+            airborne = am_i_airborn(obj);
+        } else {
+            airborne = am_i_airborn(obj);
+        }
 
         if (airborne != 0) {
             obj->field20 = 1;
@@ -2183,15 +2187,18 @@ long t_joy_duck_entry(MK3THREAD *thread)
 long t_joy_punch_htm2(MK3THREAD *thread)
 {
     MK3OBJ *obj = (MK3OBJ *)thread->proc;
-    int i;
 
     if (*mk3_frame(thread, thread->frame + 1) != 0)
         return -3;
 
     obj->field40 = 0xe;
     find_ani_part2(obj);
-    for (i = 0; i < 5; i++)
-        find_part2(obj);
+    /* unrolled, as the binary has it: 5 calls */
+    find_part2(obj);
+    find_part2(obj);
+    find_part2(obj);
+    find_part2(obj);
+    find_part2(obj);
 
     return mk3_install(thread, (MK3THREADFUNC)t_jmp4);
 }
@@ -2200,15 +2207,18 @@ long t_joy_punch_htm2(MK3THREAD *thread)
 long t_joy_punch_mth2(MK3THREAD *thread)
 {
     MK3OBJ *obj = (MK3OBJ *)thread->proc;
-    int i;
 
     if (*mk3_frame(thread, thread->frame + 1) != 0)
         return -3;
 
     obj->field40 = 0xf;
     find_ani_part2(obj);
-    for (i = 0; i < 5; i++)
-        find_part2(obj);
+    /* unrolled, as the binary has it: 5 calls */
+    find_part2(obj);
+    find_part2(obj);
+    find_part2(obj);
+    find_part2(obj);
+    find_part2(obj);
 
     return mk3_install(thread, (MK3THREADFUNC)t_jhp4);
 }
