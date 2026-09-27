@@ -435,7 +435,11 @@ def facts_of(lines, maps):
         m = RE_RAWSTORE.match(line)
         if m:
             base, off, val = m.group(1), m.group(2), m.group(3)
-            st = "MK3OBJPROC" if "field00" in base else "MK3OBJ"
+            # resolved through the aliases like any other store: `proc` here
+            # is usually `obj->field00`, which the text alone does not say
+            if base.split("->")[0] in foreign:
+                continue
+            st = struct_tag(canon(base, al))
             out.append(("store", hex(int(off, 16)), value(val), st))
             continue
         if not s or s.startswith("*") or s.startswith("/*"):

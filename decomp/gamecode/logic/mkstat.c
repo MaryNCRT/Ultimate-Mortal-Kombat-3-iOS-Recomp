@@ -1726,12 +1726,14 @@ long t_r_leg_slammed(MK3THREAD *thread)
         group_sound(obj);
         shake_n_sound(obj);
 
+        /* Corrected: the damage is always dealt -- a combo past three hits
+         * only drops it from 0x23 to 8 first (`bgt` over the `movs r3, #8`). */
         obj->a10 = 0x23;
         obj->field1c = obj->field00->p_hit;
-        if ((long)obj->field1c <= 3) {
-            damage_to_me(obj);
-            obj->field00->field54 = obj->field00->field54 + obj->a10;
-        }
+        if ((long)obj->field1c > 3)
+            obj->a10 = 8;
+        damage_to_me(obj);
+        obj->field00->field54 = obj->field00->field54 + obj->a10;
 
         obj->field1c = 0x30000;
         obj->field20 = (uint32_t)(0x30000 - 0x90000);
@@ -4346,8 +4348,7 @@ long t_combo_air_pause(MK3THREAD *thread)
     MK3OBJ      *obj   = (MK3OBJ *)thread->proc;
     MK3OBJPROC  *proc  = obj->field00;
     uint32_t     token = *mk3_frame(thread, thread->frame + 1);
-    uint32_t     cur, f, n, handler, next;
-    int          knee = 0;
+    uint32_t     cur, f, n, handler;
 
     if (token == 0) {
         obj->field20   = obj->field18;
@@ -4386,7 +4387,7 @@ long t_combo_air_pause(MK3THREAD *thread)
 
         am_i_joy(obj);
         if (obj->field5c == 0)
-            goto combo;                     /* the elbow path */
+            goto combo_elbow;                     /* the elbow path */
 
         obj->field28 = 0x10;
         obj->field48 = (uint32_t)(uintptr_t)
@@ -4406,12 +4407,10 @@ long t_combo_air_pause(MK3THREAD *thread)
 
     if (token == 0x8cc) {
         if (*(uint32_t *)(void *)(uintptr_t)obj->field48 != 0)
-            goto combo;                     /* the elbow path */
+            goto combo_elbow;                     /* the elbow path */
 
-        if (*(uint32_t *)(void *)(uintptr_t)obj->a10 != 0) {
-            knee = 1;
-            goto combo;
-        }
+        if (*(uint32_t *)(void *)(uintptr_t)obj->a10 != 0)
+            goto combo_knee;
 
         obj->field1c = proc->field20 - 1;
         if (obj->field1c != 0) {
@@ -4441,14 +4440,20 @@ long t_combo_air_pause(MK3THREAD *thread)
 
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 
-combo:
+    /* Two copies in the binary (0x4d240 elbow, 0x4d304 knee), each with its
+     * own air_combo_setup, token and routine; written out the same way.
+     * Corrected, 2026-09-26: at the bottom of the stack the handler install
+     * also clears the slot above, which the first transcription left out. */
+combo_elbow:
     air_combo_setup(obj);
 
-    if ((long)thread->frame > 0)
+    if ((long)thread->frame > 0) {
         thread->frame = thread->frame - 1;
-    else
+    } else {
         mk3_frame(thread, thread->frame)[1] =
             (uint32_t)(uintptr_t)t_local_reaction_exit;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+    }
 
     f = thread->frame;
     n = f + 1;
@@ -4456,12 +4461,32 @@ combo:
     *mk3_frame(thread, n) = *mk3_frame(thread, n + 1);
     mk3_frame(thread, f)[1] = handler;
 
-    next = knee ? 0x8e0 : 0x8da;
-    *mk3_frame(thread, thread->frame + 1) = next;
+    *mk3_frame(thread, thread->frame + 1) = 0x8da;
     thread->frame = thread->frame + 1;              /* push a level */
-    mk3_frame(thread, thread->frame)[1] = knee
-        ? (uint32_t)(uintptr_t)t_do_knee
-        : (uint32_t)(uintptr_t)t_do_elbow;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_do_elbow;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+
+combo_knee:
+    air_combo_setup(obj);
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+    } else {
+        mk3_frame(thread, thread->frame)[1] =
+            (uint32_t)(uintptr_t)t_local_reaction_exit;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+    }
+
+    f = thread->frame;
+    n = f + 1;
+    handler = mk3_frame(thread, n)[1];
+    *mk3_frame(thread, n) = *mk3_frame(thread, n + 1);
+    mk3_frame(thread, f)[1] = handler;
+
+    *mk3_frame(thread, thread->frame + 1) = 0x8e0;
+    thread->frame = thread->frame + 1;              /* push a level */
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_do_knee;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
