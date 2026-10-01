@@ -78,7 +78,7 @@ long funcs_14131(struct MK3THREAD *thread);
 long funcs_14174(struct MK3THREAD *thread);
 long funcs_14207(struct MK3THREAD *thread);
 long funcs_14271(struct MK3THREAD *thread);
-long q_is_proj_gone(struct MK3THREAD *thread);
+void q_is_proj_gone(MK3OBJ *obj);
 long t_cornered_attack(struct MK3THREAD *thread);
 long t_counter_grounded_sd(struct MK3THREAD *thread);
 long t_crossover_scan(struct MK3THREAD *thread);
@@ -1808,7 +1808,7 @@ void get_x_dist(MK3OBJ *obj);
 long is_throwing_allowed(MK3OBJ *obj);
 long is_towards_me(MK3OBJ *obj);
 void ochar_begin_calls(MK3OBJ *obj);
-long q_am_i_cornered(MK3OBJ *obj);
+void q_am_i_cornered(MK3OBJ *obj);
 long q_will_he_reach_me(MK3OBJ *obj);
 
 /* t_d_zap -- armv7 0x00067f90, 80 bytes.  **Complete.**
@@ -3548,4 +3548,275 @@ void q_is_he_reacting(MK3OBJ *obj)
         q_yes(obj);
     else
         q_no(obj);
+}
+
+
+/* ======================================================================
+ * Leaf predicates and small helpers.
+ *
+ * Written from `tools/cd.py` listings; each is verified against the binary by
+ * factdiff before it counts. The `q_*` family answers in `obj->field5c`
+ * through `vq_yes`/`vq_no`; the comparison in each is signed (`ble`/`bgt`).
+ * ====================================================================== */
+
+void vq_no(MK3OBJ *obj);
+void vq_yes(MK3OBJ *obj);
+void call_for_him(MK3OBJ *obj, void (*fn)(MK3OBJ *));
+void back_to_normal(MK3OBJ *obj);
+void get_his_dog(MK3OBJ *obj);
+long am_i_facing_him(MK3OBJ *obj);
+void *FindThreadProc(uint32_t pid);
+void get_my_dfe(MK3OBJ *obj);
+void d_behind_me_a5(MK3OBJ *obj);
+void is_he_body_propell(MK3OBJ *obj);
+void get_his_proj_proc(MK3OBJ *obj);
+void q_his_proj_proc(MK3OBJ *obj);
+void beh1(MK3OBJ *obj);
+long rpt_counter(struct MK3THREAD *thread);
+
+/* get_his_y_vel -- armv7 0x00068dd8: obj->field1c = him->field1c */
+void get_his_y_vel(MK3OBJ *obj)
+{
+    obj->field1c = ((MK3OBJ *)(uintptr_t)obj->field00->him)->field1c;
+}
+
+/* beh1 -- armv7 0x00068dc4: field2c = part->field28 (the whole word); when
+ * bit 4 of it is set, field30 = field34. */
+void beh1(MK3OBJ *obj)
+{
+    uint32_t w = *(const uint32_t *)(const void *)
+                    ((const char *)(const void *)obj->field08 + 0x28);
+
+    obj->field2c = w;
+    if ((w & 0x10u) != 0)
+        obj->field30 = obj->field34;
+}
+
+/* d_to_normal -- armv7 0x00072cb8 */
+void d_to_normal(MK3OBJ *obj)
+{
+    back_to_normal(obj);
+    obj->field1c = 0;
+    obj->field00->field5c = 0;
+}
+
+/* q_am_i_cornered -- armv7 0x00070f58: field5c = (field30 <= 0x90) */
+void q_am_i_cornered(MK3OBJ *obj)
+{
+    d_behind_me_a5(obj);
+    obj->field5c = ((int32_t)obj->field30 > 0x90) ? 0 : 1;
+}
+
+/* q_is_he_cornered -- armv7 0x000708a8 */
+void q_is_he_cornered(MK3OBJ *obj)
+{
+    call_for_him(obj, q_am_i_cornered);
+}
+
+/* should_i_promove -- armv7 0x0006c9f4 */
+void should_i_promove(MK3OBJ *obj)
+{
+    obj->field1c = (uint32_t)(uintptr_t)rpt_counter;
+    ask_mr_diff(obj);
+}
+
+/* d_either_edge_a5 -- armv7 0x00071328: field30 = min(field30, field34) */
+void d_either_edge_a5(MK3OBJ *obj)
+{
+    get_my_dfe(obj);
+    if ((int32_t)obj->field34 <= (int32_t)obj->field30)
+        obj->field30 = obj->field34;
+}
+
+/* d_front_me_a5 -- armv7 0x00070f28: swap field30/field34, then beh1 */
+void d_front_me_a5(MK3OBJ *obj)
+{
+    uint32_t a, b;
+
+    get_my_dfe(obj);
+    a = obj->field30;
+    b = obj->field34;
+    obj->field34 = a;
+    obj->field30 = b;
+    beh1(obj);
+}
+
+/* scan_1_entry -- armv7 0x0006c24c: read one halfword through field1c */
+void scan_1_entry(MK3OBJ *obj)
+{
+    const int16_t *p = (const int16_t *)(uintptr_t)obj->field1c;
+    int32_t v = *p++;
+
+    obj->field1c = (uint32_t)(uintptr_t)p;
+    obj->field24 = (uint32_t)v;
+    if ((int32_t)obj->field20 == v)
+        obj->field28 = obj->field28 + 1;
+}
+
+/* get_his_proj_proc -- armv7 0x0006ff18 */
+void get_his_proj_proc(MK3OBJ *obj)
+{
+    obj->field1c = (uint32_t)(uintptr_t)FindThreadProc(
+        (uint32_t)(obj->field00->field00->field00->field08 + 0x700));
+}
+
+void q_his_proj_proc(MK3OBJ *obj)
+{
+    get_his_proj_proc(obj);
+    if (obj->field1c != 0)
+        vq_yes(obj);
+    else
+        vq_no(obj);
+}
+
+/* q_is_he_dropping -- armv7 0x00068de4 */
+void q_is_he_dropping(MK3OBJ *obj)
+{
+    obj->field1c = ((MK3OBJ *)(uintptr_t)obj->field00->him)->field1c;
+    if ((int32_t)obj->field1c > 0)
+        vq_yes(obj);
+    else
+        vq_no(obj);
+}
+
+/* q_my_back_to_him -- armv7 0x0006f1d8: field5c = 1 - field5c, or 0 if it
+ * was not 0 or 1 (the `rsbs` borrows) */
+void q_my_back_to_him(MK3OBJ *obj)
+{
+    am_i_facing_him(obj);
+    obj->field5c = (obj->field5c <= 1u) ? 1u - obj->field5c : 0u;
+}
+
+/* is_he_body_propell -- armv7 0x0006c5ec */
+void is_he_body_propell(MK3OBJ *obj)
+{
+    uint32_t w;
+
+    get_his_action(obj);
+    w = obj->field20 & ~0xffu;
+    obj->field20 = w;
+    obj->field5c = (w == 0x200) ? 1 : 0;
+}
+
+/* The `get_x_dist` distance tests: yes inside the limit, no beyond it. */
+void q_dist_lift(MK3OBJ *obj)
+{
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0xa0)
+        vq_yes(obj);
+    else
+        vq_no(obj);
+}
+
+void q_is_he_axe_close(MK3OBJ *obj)
+{
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0x70)
+        vq_no(obj);
+    else
+        vq_yes(obj);
+}
+
+void q_is_he_bike_close(MK3OBJ *obj)
+{
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0x80)
+        vq_no(obj);
+    else
+        vq_yes(obj);
+}
+
+void q_is_he_scream_close(MK3OBJ *obj)
+{
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0xb0)
+        vq_no(obj);
+    else
+        vq_yes(obj);
+}
+
+void q_willy_uppercut(MK3OBJ *obj)
+{
+    get_his_dog(obj);
+    if ((int32_t)obj->field1c > 0x40)
+        vq_no(obj);
+    else
+        vq_yes(obj);
+}
+
+void q_is_proj_gone(MK3OBJ *obj)
+{
+    get_his_proj_proc(obj);
+    if (obj->field1c != 0)
+        vq_no(obj);
+    else
+        vq_yes(obj);
+}
+
+void q_run_then_flipk(MK3OBJ *obj)
+{
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0xef)
+        vq_no(obj);
+    else
+        vq_yes(obj);
+}
+
+void q_run_then_duck(MK3OBJ *obj)
+{
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0xaf)
+        q_his_proj_proc(obj);
+    else
+        vq_yes(obj);
+}
+
+void is_flyk_close(MK3OBJ *obj)
+{
+    is_he_body_propell(obj);
+    if (obj->field5c == 0)
+        goto yes;
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0x7f) {
+        vq_no(obj);
+        return;
+    }
+yes:
+    vq_yes(obj);
+}
+
+void is_propell_close(MK3OBJ *obj)
+{
+    is_he_body_propell(obj);
+    if (obj->field5c == 0)
+        goto yes;
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0x6f) {
+        vq_no(obj);
+        return;
+    }
+yes:
+    vq_yes(obj);
+}
+
+void q_corner_backf_land(MK3OBJ *obj)
+{
+    get_his_y_vel(obj);
+    if ((int32_t)obj->field1c < 0)
+        obj->field1c = (uint32_t)(-(int32_t)obj->field1c);
+    if ((int32_t)obj->field1c > 0x20000)
+        vq_no(obj);
+    else
+        vq_yes(obj);
+}
+
+void q_is_he_net_close(MK3OBJ *obj)
+{
+    get_his_y_vel(obj);
+    if ((int32_t)obj->field1c < 0)
+        obj->field1c = (uint32_t)(-(int32_t)obj->field1c);
+    if ((int32_t)obj->field1c > 0x10000)
+        vq_no(obj);
+    else
+        vq_yes(obj);
 }
