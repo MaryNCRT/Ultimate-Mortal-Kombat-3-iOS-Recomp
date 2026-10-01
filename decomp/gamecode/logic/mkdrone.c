@@ -1688,7 +1688,7 @@ long t_nr_hikick_if_u_can(MK3THREAD *thread)
  * for instruction by instruction.
  * -------------------------------------------------------------------- */
 
-long is_he_airborn(struct MK3THREAD *thread);
+long is_he_airborn(MK3OBJ *obj);
 
 /* t_swait_land_jsrp -- armv7 0x0006b404, 72 bytes.  **Complete.**
  *
@@ -3819,4 +3819,224 @@ void q_is_he_net_close(MK3OBJ *obj)
         vq_no(obj);
     else
         vq_yes(obj);
+}
+
+/* ======================================================================
+ * Second batch of leaves: the zone, wait and dizzy probes.
+ * ====================================================================== */
+
+long strike_check_a0_test(MK3OBJ *obj);
+long CountThreads(uint32_t pid);
+long randper(MK3OBJ *obj);
+void get_my_hitq(MK3OBJ *obj);
+long t_dizzy_sleep(struct MK3THREAD *thread);
+long rpt_counter_airborns(struct MK3THREAD *thread);
+
+/* is_throwing_allowed -- armv7 0x00067f74: the round clock halfword G+0x44c,
+ * above 1 means yes */
+long is_throwing_allowed(MK3OBJ *obj)
+{
+    int32_t w = *(const int16_t *)(const void *)(G_BYTES + 0x44c);
+
+    obj->field1c = (uint32_t)w;
+    obj->field5c = (w > 1) ? 1 : 0;
+    return (long)obj->field5c;
+}
+
+void q_jax_smash(MK3OBJ *obj)
+{
+    get_his_y_vel(obj);
+    if ((int32_t)obj->field1c < 0)
+        vq_no(obj);
+    else
+        vq_yes(obj);
+}
+
+void q_run_under_fk(MK3OBJ *obj)
+{
+    am_i_facing_him(obj);
+    if (obj->field5c != 0)
+        vq_no(obj);
+    else
+        vq_yes(obj);
+}
+
+/* d_init -- armv7 0x00067590 */
+void d_init(MK3OBJ *obj)
+{
+    MK3OBJPROC *proc = obj->field00;
+    uint32_t w = proc->field10 & ~1u;
+
+    obj->field2c = w;
+    proc->field10 = w;
+    obj->field1c = 2;
+    *(uint32_t *)(void *)(G_BYTES + 0x448) = 2;
+}
+
+void q_airborn_counter(MK3OBJ *obj)
+{
+    is_he_airborn(obj);
+    if (obj->field5c != 0) {
+        obj->field1c = (uint32_t)(uintptr_t)rpt_counter_airborns;
+        ask_mr_diff(obj);
+    }
+}
+
+void q_is_decoy_alive(MK3OBJ *obj)
+{
+    if (CountThreads(0x200 - obj->field00->field08 + 5) != 0)
+        vq_yes(obj);
+    else
+        vq_no(obj);
+}
+
+void is_he_attacking(MK3OBJ *obj)
+{
+    uint32_t w;
+
+    get_his_action(obj);
+    w = obj->field20 & ~0xffu;
+    obj->field20 = w;
+    obj->field5c = (w == 0x200 || w == 0x100) ? 1 : 0;
+}
+
+/* q_will_he_reach_me -- armv7 0x0006e9c4: put the object in HIS shoes (his
+ * proc, his part, his field58), run the strike test, put it back. */
+long q_will_he_reach_me(MK3OBJ *obj)
+{
+    MK3OBJPROC *proc = obj->field00;
+    MK3OBJ     *part = obj->field08;
+    MK3OBJ     *him  = proc->field00;
+    MK3OBJPROC *hp   = him->field00;
+    long        r;
+
+    obj->field00 = hp;
+    obj->field08 = him->field08;
+    obj->field1c = hp->field58;
+    r = strike_check_a0_test(obj);
+    obj->field08 = part;
+    obj->field00 = proc;
+    return r;
+}
+
+void q_backup_zap(MK3OBJ *obj)
+{
+    get_his_y_vel(obj);
+    if ((int32_t)obj->field1c < 0)
+        goto no;
+    get_his_dog(obj);
+    if ((int32_t)obj->field1c <= 0x70)
+        goto yes;
+no:
+    vq_no(obj);
+    return;
+yes:
+    vq_yes(obj);
+}
+
+/* ask_mr_diff -- armv7 0x0006c9c8: the difficulty (G+0x44c, 7 when it is out
+ * of range) indexes the halfword table field1c points at */
+long ask_mr_diff(MK3OBJ *obj)
+{
+    uint32_t d = (uint32_t)(int32_t)*(const int16_t *)(const void *)(G_BYTES + 0x44c);
+
+    obj->field20 = d;
+    if (d > 9u)
+        obj->field20 = 7;
+    obj->field1c = (uint32_t)(int32_t)
+        ((const int16_t *)(uintptr_t)obj->field1c)[obj->field20];
+    return randper(obj);
+}
+
+void lao_angle_wait(MK3OBJ *obj)
+{
+    get_his_action(obj);
+    if (obj->field20 != 0x20c)
+        goto yes;
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 <= 0x6f)
+        goto yes;
+    vq_no(obj);
+    return;
+yes:
+    vq_yes(obj);
+}
+
+/* q_is_he_below_ground -- armv7 0x00068e74: his y (halfword at +0x12) above
+ * zero and under what his proc keeps at +0x40 */
+void q_is_he_below_ground(MK3OBJ *obj)
+{
+    MK3OBJPROC *proc = obj->field00;
+    int32_t y = MK3_FIELD12_S((MK3OBJ *)(uintptr_t)proc->him);
+    uint32_t lim = *(const uint32_t *)(const void *)
+                      ((const char *)(const void *)proc->field00->field00 + 0x40);
+
+    obj->field1c = (uint32_t)y;
+    obj->field20 = lim;
+    if (y < 0)
+        goto no;
+    if ((int32_t)lim < y)
+        goto yes;
+no:
+    vq_no(obj);
+    return;
+yes:
+    vq_yes(obj);
+}
+
+/* q_is_he_dizzy -- armv7 0x00068ea0: is his frame's handler t_dizzy_sleep */
+void q_is_he_dizzy(MK3OBJ *obj)
+{
+    MK3THREAD *t = obj->field00->field00->thread;
+    uint32_t h = mk3_frame(t, t->frame)[1];
+
+    obj->field38 = h;
+    obj->field5c = (h == (uint32_t)(uintptr_t)t_dizzy_sleep) ? 1 : 0;
+}
+
+void q_is_kick_over(MK3OBJ *obj)
+{
+    get_his_action(obj);
+    if (obj->field20 == 0x50a)
+        goto yes;
+    is_he_airborn(obj);
+    if (obj->field5c != 0) {
+        vq_no(obj);
+        return;
+    }
+yes:
+    vq_yes(obj);
+}
+
+/* count_q_repeats -- armv7 0x0006c8e0: six scans of his hit queue, unrolled */
+void count_q_repeats(MK3OBJ *obj)
+{
+    uint32_t keep = obj->field24;
+
+    get_my_hitq(obj);
+    obj->field28 = 0;
+    scan_1_entry(obj);
+    scan_1_entry(obj);
+    scan_1_entry(obj);
+    scan_1_entry(obj);
+    scan_1_entry(obj);
+    scan_1_entry(obj);
+    obj->field24 = keep;
+}
+
+void q_drone_zone(MK3OBJ *obj)
+{
+    d_either_edge_a5(obj);
+    if ((int32_t)obj->field30 <= 0x4f)
+        goto yes;
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 <= 0xcf)
+        goto yes;
+    if ((int32_t)obj->field28 <= 0x100)
+        goto no;
+yes:
+    vq_yes(obj);
+    return;
+no:
+    vq_no(obj);
 }
