@@ -194,6 +194,10 @@ RE_BARENAME = re.compile(r"^\s*\(uint32_t\)\(uintptr_t\)"
 RE_DEREFSTORE = re.compile(r"^\s*\*\((?:u?int32_t|long)\s*\*\)(?P<lhs>[^=;]*?)\s*"
                            r"(?P<op>[-+|&^]?=)(?!=)\s*(?P<val>[^;]+);")
 RE_FIRSTADD = re.compile(r"\+\s*(0x[0-9a-fA-F]+|\d+)\b")
+# `*left = v;` through a parameter declared as a word pointer. Offset 0 of
+# whatever it points at; the value is whatever the C computed.
+RE_PLAINDEREF = re.compile(r"^\s*\*(?P<p>[A-Za-z_]\w*)\s*=(?!=)\s*(?P<v>[^;]+);")
+RE_WORDPTR_DECL = re.compile(r"\b(?:int|long|u?int32_t)\s*\*\s*([A-Za-z_]\w*)")
 RE_ARGSTORE = re.compile(r"^\s*\*mk3_arg\(\s*thread\s*,[^)]*\)\s*=\s*([^;]+);")
 RE_RAWSTORE = re.compile(r"^\s*\*\(uint32_t \*\)\s*\(\(char \*\)\s*"
                          r"([a-z_][a-z_0-9]*(?:->[a-z_][a-z_0-9]*)*)\s*\+\s*"
@@ -391,6 +395,16 @@ def foreign_roots(lines):
     return out
 
 
+def calls_in(line, fnlocals=()):
+    """The call facts on one line -- for the branches that `continue` before
+    the general call scan, which silently dropped every call on a line that
+    was also a store: `*(uint32_t *)(G_BYTES + 0x474) = (random32() >> 9) & 1u;`
+    lost its random32."""
+    code = RE_CSTRING.sub('""', RE_CCOMMENT.sub(" ", line)).split("//", 1)[0]
+    return [("call", m.group(1)) for m in RE_CALL.finditer(code)
+            if m.group(1) not in NOT_A_CALL and m.group(1) not in fnlocals]
+
+
 def token_locals(lines):
     """The locals a function stores into the frame's token word."""
     names = set()
@@ -433,6 +447,11 @@ def facts_of(lines, maps):
     tlocals = token_locals(lines)
     al = aliases(lines)
     foreign = foreign_roots(lines)
+    wordptrs = {m.group(1) for ln in lines for m in RE_WORDPTR_DECL.finditer(ln)}
+    # locals that hold a function: `MK3THREADLONGFUNC f = ...; r = f(t);` is
+    # an indirect call, which the machine reader does not list by name
+    fnlocals = {m.group(1) for ln in lines
+                for m in re.finditer(r"\b[A-Z][A-Z0-9_]*FUNC\w*\s+([A-Za-z_]\w*)\s*=", ln)}
     for i, line in enumerate(lines):
         s = line.strip()
         m = RE_ASSIGN_LIT.match(line)
@@ -458,13 +477,20 @@ def facts_of(lines, maps):
         # argument stack, which the binary writes as `str rX, [rY, #0xa8]`
         # with the cursor folded into rY. Starts with `*`, so it is caught
         # here, above the comment filter, like the token store.
+        m = RE_PLAINDEREF.match(line)
+        if m and m.group("p") in wordptrs:
+            out.append(("store", "0x0", value(m.group("v")), "?"))
+            out.extend(calls_in(line, fnlocals))
+            continue
         m = RE_ARRSTORE.match(line)
         if m and m.group(1) in WORD_ARRAYS:
             out.append(("store", hex(4 * int(m.group(2), 0)), value(m.group(3)), "?"))
+            out.extend(calls_in(line, fnlocals))
             continue
         m = RE_ARGSTORE.match(line)
         if m:
             out.append(("store", "0xa8", value(m.group(1)), "MK3THREAD"))
+            out.extend(calls_in(line, fnlocals))
             continue
         m = RE_RAWSTORE.match(line)
         if not m:
@@ -474,6 +500,7 @@ def facts_of(lines, maps):
                 off = int(fa.group(1), 0) if fa else 0
                 val = value(dm.group("val")) if dm.group("op") == "=" else "?"
                 out.append(("store", hex(off), val, "?"))
+                out.extend(calls_in(line, fnlocals))
                 continue
         if m:
             base, off, val = m.group(1), m.group(2), m.group(3)
@@ -534,7 +561,7 @@ def facts_of(lines, maps):
         code = code.split("//", 1)[0]
         for cm in RE_CALL.finditer(code):
             nm = cm.group(1)
-            if nm not in NOT_A_CALL:
+            if nm not in NOT_A_CALL and nm not in fnlocals:
                 out.append(("call", nm))
 
         for dm in RE_DIVMOD_CALL.finditer(line):

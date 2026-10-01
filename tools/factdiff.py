@@ -432,6 +432,27 @@ def check(name, afacts, cfacts, alines=None):
                     + sum(v for k, v in cu.items() if k != "store_offs"))
 
 
+def load_waivers():
+    """{(file, function): reason} from factdiff_waivers.txt.
+
+    A waiver is a function the tool CANNOT check -- a structure it does not
+    model, a type it cannot place -- that a person has read against the
+    disassembly. It is printed every run and never counted as a pass.
+    Format, one per line:   file.c : function : reason
+    """
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "factdiff_waivers.txt")
+    out = {}
+    if os.path.exists(path):
+        for ln in open(path, encoding="utf-8"):
+            ln = ln.strip()
+            if ln and not ln.startswith("#"):
+                parts = [x.strip() for x in ln.split(":", 2)]
+                if len(parts) == 3:
+                    out[(parts[0], parts[1])] = parts[2]
+    return out
+
+
 def main(argv):
     args = [x for x in argv[1:] if not x.startswith("--")]
     summary = "--summary" in argv
@@ -443,7 +464,8 @@ def main(argv):
     maps = facts_c.offsets()
     cfns = facts_c.split_functions(src)
 
-    clean = diff = missing = 0
+    clean = diff = missing = waived = 0
+    WAIVERS = load_waivers()
     unchecked_total = 0
     for name in sorted(cfns):
         if want and name != want:
@@ -464,6 +486,11 @@ def main(argv):
             clean += 1
             if not summary:
                 print("OK  %-28s (%d sin comprobar)" % (name, unk))
+        elif (os.path.basename(src), name) in WAIVERS:
+            # known and explained, listed by hand in factdiff_waivers.txt:
+            # not a pass, and not counted as one
+            waived += 1
+            print("~~  %-28s exenta: %s" % (name, WAIVERS[(os.path.basename(src), name)]))
         else:
             diff += 1
             print("!!  %-28s %d diferencia(s), %d sin comprobar"
@@ -475,6 +502,9 @@ def main(argv):
     print()
     print("%d funciones: %d coinciden, %d con diferencias, %d sin transcripcion"
           % (total, clean, diff, missing))
+    if waived:
+        print("%d exentas (tools/factdiff_waivers.txt): no cuentan como pasadas"
+              % waived)
     print("%d hechos quedaron sin comprobar (un lado dijo '?')"
           % unchecked_total)
     return 0
