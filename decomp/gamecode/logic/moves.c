@@ -4442,15 +4442,16 @@ void q_friend_ez(MK3OBJ *obj)
 void q_lia_scream(MK3OBJ *obj)
 {
     get_his_p_hit(obj);
-    if ((long)obj->field1c > 2) {
-        q_no(obj);
-        return;
-    }
+    if ((long)obj->field1c > 2)
+        goto no;
     q_is_he_a_boss(obj);
     if (obj->field5c != 0)
-        q_no(obj);
-    else
-        q_yes(obj);
+        goto no;
+    q_yes(obj);
+    return;
+
+no:
+    q_no(obj);
 }
 
 /* q_lk_friend -- armv7 0x00052810, 44 bytes.  **Complete.**
@@ -4716,15 +4717,16 @@ void q_scream_fatal(MK3OBJ *obj)
 void q_smoke_tele(MK3OBJ *obj)
 {
     get_his_p_hit(obj);
-    if ((long)obj->field1c > 1) {
-        q_no(obj);
-        return;
-    }
+    if ((long)obj->field1c > 1)
+        goto no;
     get_his_action(obj);
     if (obj->field20 == 0x616)
-        q_no(obj);
-    else
-        q_yes(obj);
+        goto no;
+    q_yes(obj);
+    return;
+
+no:
+    q_no(obj);
 }
 
 
@@ -5003,24 +5005,22 @@ void q_mercy_req_ez(MK3OBJ *obj)
 {
     obj->field1c = (uint32_t)(int32_t)
         (int16_t)*(uint16_t *)(G_BYTES + 0x45a);
-    if (*(uint16_t *)(G_BYTES + 0x45a) != 0) {
-        q_no(obj);
-        return;
-    }
+    if (*(uint16_t *)(G_BYTES + 0x45a) != 0)
+        goto no;
 
     obj->field1c = *(uint32_t *)H;
-    if (obj->field1c == 0) {
-        q_no(obj);
-        return;
-    }
+    if (obj->field1c == 0)
+        goto no;
 
     obj->field1c = *(uint32_t *)(H + 4);
-    if (obj->field1c == 0) {
-        q_no(obj);
-        return;
-    }
+    if (obj->field1c == 0)
+        goto no;
 
     q_fatality_req(obj);
+    return;
+
+no:
+    q_no(obj);
 }
 
 /* robo_lp_close -- armv7 0x000546d8, 60 bytes.  **Complete.**
@@ -5144,15 +5144,16 @@ void q_st_spike_fatal(MK3OBJ *obj)
 {
     obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x3ac);
     get_tsl_px(obj, obj);
-    if ((long)obj->field20 <= 0x3f) {
-        q_no(obj);
-        return;
-    }
+    if ((long)obj->field20 <= 0x3f)
+        goto no;
     q_am_i_cornered(obj);
-    if (obj->field5c == 0)
-        q_close_fatal(obj);
-    else
-        q_no(obj);
+    if (obj->field5c != 0)
+        goto no;
+    q_close_fatal(obj);
+    return;
+
+no:
+    q_no(obj);
 }
 
 
@@ -5194,16 +5195,17 @@ void lao_up(MK3OBJ *obj, MK3OBJ *other)
 void q_scorp_tele(MK3OBJ *obj)
 {
     get_his_p_hit(obj);
-    if ((long)obj->field1c > 4) {
-        q_no(obj);
-        return;
-    }
+    if ((long)obj->field1c > 4)
+        goto no;
     obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x418);
     get_tsl_px(obj, obj);
     if ((long)obj->field20 > 0x4f)
         q_yes(obj);
-    else
-        q_no(obj);
+    return;
+    goto no;
+
+no:
+    q_no(obj);
 }
 
 /* q_ermac_slam -- armv7 0x00052b24, 64 bytes.  **Complete.**
@@ -5212,16 +5214,17 @@ void q_scorp_tele(MK3OBJ *obj)
 void q_ermac_slam(MK3OBJ *obj)
 {
     get_his_p_hit(obj);
-    if ((long)obj->field1c > 3) {
-        q_no(obj);
-        return;
-    }
+    if ((long)obj->field1c > 3)
+        goto no;
     obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x430 + 4);
     get_tsl_px(obj, obj);
     if ((long)obj->field20 > 0x7f)
         q_yes(obj);
-    else
-        q_no(obj);
+    return;
+    goto no;
+
+no:
+    q_no(obj);
 }
 
 /* t_do_st_2_kano -- armv7 0x00052554, 64 bytes.  **Complete.**
@@ -5302,15 +5305,16 @@ void q_pit_fatal(MK3OBJ *obj)
 {
     long c = RoundParam[9];
 
-    if (c < 1 || c > 4) {
-        q_no(obj);
-        return;
-    }
+    if (c < 1 || c > 4)
+        goto no;
     is_he_facing_me(obj);
     if (obj->field5c == 0)
-        q_no(obj);
-    else
-        q_close_fatal_pit(obj);
+        goto no;
+    q_close_fatal_pit(obj);
+    return;
+
+no:
+    q_no(obj);
 }
 
 /* q_floor_blade -- armv7 0x00053590, 72 bytes.  **Complete.**
@@ -5327,22 +5331,21 @@ void q_pit_fatal(MK3OBJ *obj)
  * checked. All four refusals branch to the same two instructions. */
 void q_floor_blade(MK3OBJ *obj)
 {
-    if (CountThreads(0x206) != 0 || CountThreads(0x207) != 0) {
-        q_no(obj);
-        return;
-    }
+    if (CountThreads(0x206) != 0 || CountThreads(0x207) != 0)
+        goto no;
 
     get_his_p_hit(obj);
-    if ((long)obj->field1c > 2) {
-        q_no(obj);
-        return;
-    }
+    if ((long)obj->field1c > 2)
+        goto no;
 
     get_his_action(obj);
     if (obj->field20 == 0x617)
-        q_no(obj);
-    else
-        q_yes(obj);
+        goto no;
+    q_yes(obj);
+    return;
+
+no:
+    q_no(obj);
 }
 
 /* lao_hk_close -- armv7 0x000545a4, 72 bytes.  **Complete.**
@@ -5394,17 +5397,18 @@ void q_kano_upball(MK3OBJ *obj)
 {
     obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x440);
     get_tsl_px(obj, obj);
-    if ((long)obj->field20 <= 0x3f) {
-        q_no(obj);
-        return;
-    }
+    if ((long)obj->field20 <= 0x3f)
+        goto no;
 
     obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x420 + 4);
     get_tsl_px(obj, obj);
     if ((long)obj->field20 > 0x27)
         q_yes(obj);
-    else
-        q_no(obj);
+    return;
+    goto no;
+
+no:
+    q_no(obj);
 }
 
 /* q_mileena_zap -- armv7 0x00052bc8, 72 bytes.  **Complete.**  See
@@ -5413,17 +5417,18 @@ void q_mileena_zap(MK3OBJ *obj)
 {
     obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x420 + 4);
     get_tsl_px(obj, obj);
-    if ((long)obj->field20 <= 0x1f) {
-        q_no(obj);
-        return;
-    }
+    if ((long)obj->field20 <= 0x1f)
+        goto no;
 
     obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x3a8);
     get_tsl_px(obj, obj);
     if ((long)obj->field20 > 7)
         q_yes(obj);
-    else
-        q_no(obj);
+    return;
+    goto no;
+
+no:
+    q_no(obj);
 }
 
 /* lia_hk_close -- armv7 0x00054964, 72 bytes.  **Complete.**
@@ -5530,16 +5535,17 @@ void q_jax_dash(MK3OBJ *obj)
 {
     obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x420 + 4);
     get_tsl_px(obj, obj);
-    if ((long)obj->field20 <= 0x2f) {
-        q_no(obj);
-        return;
-    }
+    if ((long)obj->field20 <= 0x2f)
+        goto no;
 
     get_his_action(obj);
     if (obj->field20 == 0x509 || obj->field20 == 0x600)
-        q_no(obj);
-    else
-        q_yes(obj);
+        goto no;
+    q_yes(obj);
+    return;
+
+no:
+    q_no(obj);
 }
 
 /* q_sz_decoy -- armv7 0x00052e64, 76 bytes.  **Complete.**
@@ -5561,23 +5567,22 @@ void q_jax_dash(MK3OBJ *obj)
 void q_sz_decoy(MK3OBJ *obj)
 {
     get_his_p_hit(obj);
-    if ((long)obj->field1c > 0) {
-        q_no(obj);
-        return;
-    }
+    if ((long)obj->field1c > 0)
+        goto no;
 
     obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x3f8);
     get_tsl_px(obj, obj);
-    if ((long)obj->field20 <= 0xff) {
-        q_no(obj);
-        return;
-    }
+    if ((long)obj->field20 <= 0xff)
+        goto no;
 
     get_his_action(obj);
     if (obj->field20 == 0x610)
-        q_no(obj);
-    else
-        q_yes(obj);
+        goto no;
+    q_yes(obj);
+    return;
+
+no:
+    q_no(obj);
 }
 
 /* q_stick_sweep -- armv7 0x00052ccc, 76 bytes.  **Complete.**
@@ -5597,17 +5602,18 @@ void q_sz_decoy(MK3OBJ *obj)
 void q_stick_sweep(MK3OBJ *obj)
 {
     if (((*(uint32_t *)(Pp + 0x10) & 1u)
-         & *(uint32_t *)(Pp + 0x9c)) == 0) {
-        q_no(obj);
-        return;
-    }
+         & *(uint32_t *)(Pp + 0x9c)) == 0)
+        goto no;
 
     obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x418);
     get_tsl_px(obj, obj);
     if ((long)obj->field20 <= 0x4f)
-        q_no(obj);
-    else
-        q_yes(obj);
+        goto no;
+    q_yes(obj);
+    return;
+
+no:
+    q_no(obj);
 }
 
 
@@ -5628,18 +5634,19 @@ void q_stick_sweep(MK3OBJ *obj)
 void q_tusk_blur(MK3OBJ *obj)
 {
     obj->field1c = obj->field00->field00->field00->p_hit;
-    if ((long)obj->field1c > 1) {
-        q_no(obj);
-        return;
-    }
+    if ((long)obj->field1c > 1)
+        goto no;
 
     get_his_action(obj);
     if (obj->field20 == 0x60c || obj->field20 == 0x60b
         || obj->field20 == 0x617 || obj->field20 == 0x600
         || obj->field20 == 0x509)
-        q_no(obj);
-    else
-        q_yes(obj);
+        goto no;
+    q_yes(obj);
+    return;
+
+no:
+    q_no(obj);
 }
 
 /* q_mileena_roll -- armv7 0x00052c10, 84 bytes.  **Complete.**
@@ -5649,24 +5656,23 @@ void q_tusk_blur(MK3OBJ *obj)
 void q_mileena_roll(MK3OBJ *obj)
 {
     get_his_p_hit(obj);
-    if ((long)obj->field1c > 2) {
-        q_no(obj);
-        return;
-    }
+    if ((long)obj->field1c > 2)
+        goto no;
 
     obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x420 + 4);
     get_tsl_px(obj, obj);
-    if ((long)obj->field20 <= 0x1f) {
-        q_no(obj);
-        return;
-    }
+    if ((long)obj->field20 <= 0x1f)
+        goto no;
 
     obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x428);
     get_tsl_px(obj, obj);
     if ((long)obj->field20 <= 0x1f)
-        q_no(obj);
-    else
-        q_yes(obj);
+        goto no;
+    q_yes(obj);
+    return;
+
+no:
+    q_no(obj);
 }
 
 /* q_spear -- armv7 0x0005297c, 84 bytes.  **Complete.**
@@ -5678,23 +5684,22 @@ void q_spear(MK3OBJ *obj)
 {
     obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x420 + 4);
     get_tsl_px(obj, obj);
-    if ((long)obj->field20 <= 0x2f) {
-        q_no(obj);
-        return;
-    }
+    if ((long)obj->field20 <= 0x2f)
+        goto no;
 
     obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x420);
     get_tsl_px(obj, obj);
-    if ((long)obj->field20 <= 0x5f) {
-        q_no(obj);
-        return;
-    }
+    if ((long)obj->field20 <= 0x5f)
+        goto no;
 
     get_his_p_hit(obj);
     if ((long)obj->field1c > 4)
-        q_no(obj);
-    else
-        q_yes(obj);
+        goto no;
+    q_yes(obj);
+    return;
+
+no:
+    q_no(obj);
 }
 
 /* robo2_lp_close -- armv7 0x000543dc, 80 bytes.  **Complete.**
@@ -5754,22 +5759,21 @@ void robo2_lp_close(MK3OBJ *obj, MK3OBJ *other)
 void q_sz_forward_zap(MK3OBJ *obj)
 {
     get_his_p_hit(obj);
-    if ((long)obj->field1c > 1) {
-        q_no(obj);
-        return;
-    }
+    if ((long)obj->field1c > 1)
+        goto no;
 
     if (CountThreads(obj->field00->field08 + 0x204) != 0
-        || CountThreads(obj->field00->field08 + 0x700 + 7) != 0) {
-        q_no(obj);
-        return;
-    }
+        || CountThreads(obj->field00->field08 + 0x700 + 7) != 0)
+        goto no;
 
     get_his_action(obj);
     if (obj->field20 == 0x509)
-        q_no(obj);
-    else
-        q_yes(obj);
+        goto no;
+    q_yes(obj);
+    return;
+
+no:
+    q_no(obj);
 }
 
 /* robo1_lk_close -- armv7 0x0005444c, 88 bytes.  **Complete.**
@@ -5808,29 +5812,26 @@ void robo1_lk_close(MK3OBJ *obj, MK3OBJ *other)
 void q_floor_ice(MK3OBJ *obj)
 {
     get_his_action(obj);
-    if (obj->field20 == 0x610) {
-        q_no(obj);
-        return;
-    }
+    if (obj->field20 == 0x610)
+        goto no;
 
     get_his_dfe(obj);
-    if ((long)obj->field30 <= 0x5f || (long)obj->field34 <= 0x5f) {
-        q_no(obj);
-        return;
-    }
+    if ((long)obj->field30 <= 0x5f || (long)obj->field34 <= 0x5f)
+        goto no;
 
     obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x420 + 0xc);
     get_tsl_px(obj, obj);
-    if ((long)obj->field20 <= 0xbf) {
-        q_no(obj);
-        return;
-    }
+    if ((long)obj->field20 <= 0xbf)
+        goto no;
 
     get_his_p_hit(obj);
     if ((long)obj->field1c > 1)
-        q_no(obj);
-    else
-        q_yes(obj);
+        goto no;
+    q_yes(obj);
+    return;
+
+no:
+    q_no(obj);
 }
 
 /* mercy_xfer -- armv7 0x00054ac4, 96 bytes.  **Complete.**
@@ -5902,35 +5903,30 @@ void q_mercy_req(MK3OBJ *obj)
 {
     obj->field1c = (uint32_t)(int32_t)
         (int16_t)*(uint16_t *)(G_BYTES + 0x45a);
-    if (*(uint16_t *)(G_BYTES + 0x45a) != 0) {
-        q_no(obj);
-        return;
-    }
+    if (*(uint16_t *)(G_BYTES + 0x45a) != 0)
+        goto no;
 
     get_x_dist(obj);
-    if ((long)obj->field28 <= 0x9f) {
-        q_no(obj);
-        return;
-    }
+    if ((long)obj->field28 <= 0x9f)
+        goto no;
 
     obj->field1c = *(uint32_t *)H;
-    if (obj->field1c == 0) {
-        q_no(obj);
-        return;
-    }
+    if (obj->field1c == 0)
+        goto no;
 
     obj->field1c = *(uint32_t *)(H + 4);
-    if (obj->field1c == 0) {
-        q_no(obj);
-        return;
-    }
+    if (obj->field1c == 0)
+        goto no;
 
     obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x3cc);
     get_tsl_px(obj, obj);
     if ((long)obj->field20 <= 0x2f)
-        q_no(obj);
-    else
-        q_fatality_req(obj);
+        goto no;
+    q_fatality_req(obj);
+    return;
+
+no:
+    q_no(obj);
 }
 
 /* q_scorp_airthrow -- armv7 0x00053530, 96 bytes.  **Complete.**
@@ -5943,40 +5939,33 @@ void q_mercy_req(MK3OBJ *obj)
 void q_scorp_airthrow(MK3OBJ *obj)
 {
     q_is_he_a_boss(obj);
-    if (obj->field5c != 0) {
-        q_no(obj);
-        return;
-    }
+    if (obj->field5c != 0)
+        goto no;
 
     distance_from_ground(obj);
-    if ((long)obj->field1c <= 0x9f) {
-        q_no(obj);
-        return;
-    }
+    if ((long)obj->field1c <= 0x9f)
+        goto no;
 
     is_he_airborn(obj);
-    if (obj->field5c == 0) {
-        q_no(obj);
-        return;
-    }
+    if (obj->field5c == 0)
+        goto no;
 
     get_x_dist(obj);
-    if ((long)obj->field28 > 0x50) {
-        q_no(obj);
-        return;
-    }
+    if ((long)obj->field28 > 0x50)
+        goto no;
 
     get_y_dist(obj);
-    if ((long)obj->field28 > 0x50) {
-        q_no(obj);
-        return;
-    }
+    if ((long)obj->field28 > 0x50)
+        goto no;
 
     get_his_action(obj);
     if (obj->field20 == 0x507)
-        q_no(obj);
-    else
-        q_yes(obj);
+        goto no;
+    q_yes(obj);
+    return;
+
+no:
+    q_no(obj);
 }
 
 /* q_robo_net -- armv7 0x00052db0, 100 bytes.  **Complete.**
@@ -5988,30 +5977,27 @@ void q_scorp_airthrow(MK3OBJ *obj)
 void q_robo_net(MK3OBJ *obj)
 {
     get_his_p_hit(obj);
-    if ((long)obj->field1c > 2) {
-        q_no(obj);
-        return;
-    }
+    if ((long)obj->field1c > 2)
+        goto no;
 
     get_his_action(obj);
-    if (obj->field20 == 0x607) {
-        q_no(obj);
-        return;
-    }
+    if (obj->field20 == 0x607)
+        goto no;
 
     obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x420 + 4);
     get_tsl_px(obj, obj);
-    if ((long)obj->field20 <= 0x2f) {
-        q_no(obj);
-        return;
-    }
+    if ((long)obj->field20 <= 0x2f)
+        goto no;
 
     obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x408);
     get_tsl_px(obj, obj);
     if ((long)obj->field20 <= 0x4f)
-        q_no(obj);
-    else
-        q_yes(obj);
+        goto no;
+    q_yes(obj);
+    return;
+
+no:
+    q_no(obj);
 }
 
 
@@ -6112,27 +6098,26 @@ void lia_lk_close(MK3OBJ *obj, MK3OBJ *other)
 void q_bike_req(MK3OBJ *obj)
 {
     get_his_action(obj);
-    if (obj->field20 == 0x600) {
-        q_no(obj);
-        return;
-    }
+    if (obj->field20 == 0x600)
+        goto no;
 
     obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x3b8);
     get_tsl_px(obj, obj);
 
     if (*(int16_t *)((char *)obj->field00 + 0x7e) != 0) {
-        if ((long)obj->field20 <= 0x1f) {
-            q_no(obj);
-            return;
-        }
+        if ((long)obj->field20 <= 0x1f)
+        goto no;
         obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x440 + 4);
         get_tsl_px(obj, obj);
     }
 
     if ((long)obj->field20 > 0x7f)
         q_yes(obj);
-    else
-        q_no(obj);
+    return;
+    goto no;
+
+no:
+    q_no(obj);
 }
 
 
@@ -6154,23 +6139,22 @@ void q_jade_prop(MK3OBJ *obj)
 {
     get_his_action(obj);
     if (obj->field20 == 0x509 || obj->field20 == 0x60c
-        || obj->field20 == 0x600) {
-        q_no(obj);
-        return;
-    }
+        || obj->field20 == 0x600)
+        goto no;
 
     get_his_p_hit(obj);
-    if ((long)obj->field1c > 1) {
-        q_no(obj);
-        return;
-    }
+    if ((long)obj->field1c > 1)
+        goto no;
 
     obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x420 + 4);
     get_tsl_px(obj, obj);
     if ((long)obj->field20 <= 0x1f)
-        q_no(obj);
-    else
-        q_yes(obj);
+        goto no;
+    q_yes(obj);
+    return;
+
+no:
+    q_no(obj);
 }
 
 /* free_xfer -- armv7 0x0005436c, 112 bytes.  **Complete.**
