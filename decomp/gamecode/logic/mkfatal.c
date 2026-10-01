@@ -13024,7 +13024,6 @@ long t_cyrax_helecopter(MK3THREAD *thread)
     MK3THREADFUNC next_handler;
     MK3OBJ  *him;
     uint32_t next;
-    int      fx;
 
     if (token == 0) {
         *mk3_frame(thread, frame + 1) = 0xf12;
@@ -13052,30 +13051,84 @@ long t_cyrax_helecopter(MK3THREAD *thread)
         return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
     }
 
-    /* the eleven-state chain: hele_sound every fifteen frames */
-    fx = 0;
-    if      (token == 0xf3d) { next = 0xf3e; }
-    else if (token == 0xf3e) { next = 0xf3f; fx = 1; }
-    else if (token == 0xf3f) { next = 0xf40; fx = 1; }
-    else if (token == 0xf40) { next = 0xf41; fx = 1; }
-    else if (token == 0xf41) { next = 0xf42; }
-    else if (token == 0xf42) { next = 0xf43; }
-    else if (token == 0xf43) { next = 0xf44; }     /* r6 */
-    else if (token == 0xf44) { next = 0xf45; }
-    else if (token == 0xf45) { next = 0xf46; }
-    else if (token == 0xf46) { next = 0xf47; }     /* r6 */
-    else if (token == 0xf47) { next = 0xf48; }
-    else                     { next = 0; }
-
-    if (next != 0) {
-        if (fx) {
-            obj->field1c = 0x23;
-            create_fx(obj);
-        }
-
+    /* The eleven-state chain, hele_sound every fifteen frames. Written state
+     * by state, as the binary has it -- first transcribed as one table and a
+     * single sound call, which hid every token and seven of the eight calls
+     * from the oracle. The binary shares one tail between 0xf43 and 0xf46
+     * (hele_sound, then the token it already holds in a register). */
+    if (token == 0xf3d) {
         hele_sound(obj);
+        *mk3_frame(thread, frame + 1) = 0xf3e;
+        thread->fieldfc = 0xf;
+        return 0xf;
+    }
 
-        *mk3_frame(thread, frame + 1) = next;
+    if (token == 0xf3e) {
+        obj->field1c = 0x23;
+        create_fx(obj);
+        next = 0xf3f;
+        goto hele_tail;
+    }
+
+    if (token == 0xf3f) {
+        obj->field1c = 0x23;
+        create_fx(obj);
+        hele_sound(obj);
+        *mk3_frame(thread, frame + 1) = 0xf40;
+        thread->fieldfc = 0xf;
+        return 0xf;
+    }
+
+    if (token == 0xf40) {
+        obj->field1c = 0x23;
+        create_fx(obj);
+        hele_sound(obj);
+        *mk3_frame(thread, frame + 1) = 0xf41;
+        thread->fieldfc = 0xf;
+        return 0xf;
+    }
+
+    if (token == 0xf41) {
+        hele_sound(obj);
+        *mk3_frame(thread, frame + 1) = 0xf42;
+        thread->fieldfc = 0xf;
+        return 0xf;
+    }
+
+    if (token == 0xf42) {
+        hele_sound(obj);
+        *mk3_frame(thread, frame + 1) = 0xf43;
+        thread->fieldfc = 0xf;
+        return 0xf;
+    }
+
+    if (token == 0xf43) {
+        next = 0xf44;
+        goto hele_tail;
+    }
+
+    if (token == 0xf44) {
+        hele_sound(obj);
+        *mk3_frame(thread, frame + 1) = 0xf45;
+        thread->fieldfc = 0xf;
+        return 0xf;
+    }
+
+    if (token == 0xf45) {
+        hele_sound(obj);
+        *mk3_frame(thread, frame + 1) = 0xf46;
+        thread->fieldfc = 0xf;
+        return 0xf;
+    }
+
+    if (token == 0xf46) {
+        next = 0xf47;
+        goto hele_tail;
+    }
+
+    if (token == 0xf47) {
+        hele_sound(obj);
+        *mk3_frame(thread, frame + 1) = 0xf48;
         thread->fieldfc = 0xf;
         return 0xf;
     }
@@ -13158,6 +13211,13 @@ long t_cyrax_helecopter(MK3THREAD *thread)
     mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)next_handler;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
+
+hele_tail:
+    hele_sound(obj);
+
+    *mk3_frame(thread, frame + 1) = next;
+    thread->fieldfc = 0xf;
+    return 0xf;
 }
 
 
@@ -13582,7 +13642,7 @@ long t_scorpion_hell(MK3THREAD *thread)
     uint32_t frame = thread->frame;
     uint32_t token = *mk3_frame(thread, frame + 1);
     MK3OBJ  *him, *other, *s;
-    uint32_t span, half, next;
+    uint32_t span, half;
 
     if (token == 0) {
         *mk3_frame(thread, frame + 1) = 0x29f;
@@ -13647,14 +13707,21 @@ long t_scorpion_hell(MK3THREAD *thread)
         return 3;
     }
 
-    if (token == 0x30b || token == 0x30e || token == 0x310) {
+    /* Corrected, 2026-09-30: three states, two physical copies of the
+     * sound -- 0x30e has its own, 0x30b and 0x310 share one (each then
+     * re-arms the token the other register held: 0x30e or 0x312). */
+    if (token == 0x30e) {
         rsnd_func(obj, 3);
 
-        next = (token == 0x30b) ? 0x30e            /* r6 */
-             : (token == 0x30e) ? 0x310
-             :                    0x312;           /* r6 */
+        *mk3_frame(thread, frame + 1) = 0x310;
+        thread->fieldfc = 0xa;
+        return 0xa;
+    }
 
-        *mk3_frame(thread, frame + 1) = next;
+    if (token == 0x30b || token == 0x310) {
+        rsnd_func(obj, 3);
+
+        *mk3_frame(thread, frame + 1) = (token == 0x30b) ? 0x30e : 0x312;
         thread->fieldfc = 0xa;
         return 0xa;
     }
