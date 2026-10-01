@@ -8936,3 +8936,184 @@ long c_fast_orb(MK3THREAD *thread)
         h = (MK3THREADFUNC)t_block_orb;
     return mk3_install(thread, h);
 }
+
+/* ======================================================================
+ * t_avoid_agressive_bastards, t_asb2, t_d_run_a11, t_d_backup_jsrp. Batch 21.
+ * ====================================================================== */
+
+long t_duck_turnaround(struct MK3THREAD *thread);
+long t_d_sweep_kick(struct MK3THREAD *thread);
+void do_next_a9_frame(MK3OBJ *obj);
+void is_he_attacking(MK3OBJ *obj);
+
+/* the shared "pop one level and slide the pair above down" */
+#define POP_AND_SLIDE(thread)                                                  \
+    do {                                                                       \
+        uint32_t f_, w_;                                                       \
+        f_ = (thread)->frame;                                                  \
+        w_ = mk3_frame((thread), f_ + 1)[1];                                   \
+        *mk3_frame((thread), f_ + 1) = *mk3_frame((thread), f_ + 2);           \
+        mk3_frame((thread), f_)[1] = w_;                                       \
+    } while (0)
+
+/* t_avoid_agressive_bastards -- armv7 0x0006d3c0 */
+long t_avoid_agressive_bastards(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+    int32_t       d;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    d = *(const int16_t *)(const void *)(G_BYTES + 0x44c);
+    obj->field1c = (uint32_t)d;
+    if (d <= 1)
+        POP_OR_LEAVE(thread);
+
+    obj->field1c = obj->field00->field18;
+    if (obj->field1c != 0x309)
+        POP_OR_LEAVE(thread);
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+    } else {
+        mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+    POP_AND_SLIDE(thread);
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0x47)
+        h = (MK3THREADFUNC)t_d_sweep_kick;
+    else
+        h = (MK3THREADFUNC)t_d_slam;
+    return mk3_install(thread, h);
+}
+
+/* t_asb2 -- armv7 0x0006f0b8 */
+long t_asb2(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x11cc)
+        goto park;
+    if (token == 0x11ce) {
+        am_i_facing_him(obj);
+        if (obj->field5c == 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0x11d8;
+            thread->frame = thread->frame + 1;
+            return mk3_install(thread, (MK3THREADFUNC)t_duck_turnaround);
+        }
+        is_he_attacking(obj);
+        if (obj->field5c != 0)
+            goto park;
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+    if (token == 0x11d8) {
+        obj->field1c = 0x80;
+        *mk3_frame(thread, thread->frame + 1) = 0x11da;
+        thread->frame = thread->frame + 1;
+        return mk3_install(thread, (MK3THREADFUNC)t_d_wait_nonattack);
+    }
+    if (token == 0x11da)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    if (token != 0)
+        return -3;
+    *mk3_frame(thread, thread->frame + 1) = 0x11cc;
+    thread->frame = thread->frame + 1;
+    return mk3_install(thread, (MK3THREADFUNC)t_do_duck);
+
+park:
+    *mk3_frame(thread, thread->frame + 1) = 0x11ce;
+    thread->fieldfc = 1;
+    return 1;
+}
+
+/* t_d_run_a11 -- armv7 0x0006fcf4 */
+long t_d_run_a11(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x210) {
+        reduce_turbo_bar(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x212;
+        thread->frame = thread->frame + 1;
+        return mk3_install(thread, (MK3THREADFUNC)t_check_winner_status);
+    }
+    if (token == 0x212) {
+        next_anirate(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x215;
+        thread->frame = thread->frame + 1;
+        return mk3_install(thread, (MK3THREADFUNC)t_d_beware);
+    }
+    if (token == 0x215) {
+        get_x_dist(obj);
+        if ((int32_t)obj->field28 < (int32_t)obj->field48)
+            return mk3_install(thread, (MK3THREADFUNC)t_dist_retp);
+        obj->a10 = obj->a10 - 1;
+        if ((int32_t)obj->a10 <= 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_dist_retp);
+        goto facing;
+    }
+    if (token != 0)
+        return -3;
+    run_setup(obj);
+
+facing:
+    if (am_i_facing_him(obj) != 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x210;
+        thread->fieldfc = 1;
+        return 1;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_d_turnaround);
+}
+
+/* t_d_backup_jsrp -- armv7 0x000719fc: a four-frame backup animation played
+ * in pieces with do_next_a9_frame, a10 remembering where it started */
+long t_d_backup_jsrp(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x25a) {
+        *mk3_frame(thread, thread->frame + 1) = 0x25b;
+        thread->frame = thread->frame + 1;
+        return mk3_install(thread, (MK3THREADFUNC)t_d_beware);
+    }
+    if (token == 0x25b) {
+        obj->field40 = obj->a10 + 4;
+        do_next_a9_frame(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x260;
+        thread->fieldfc = 2;
+        return 2;
+    }
+    if (token == 0x260) {
+        *mk3_frame(thread, thread->frame + 1) = 0x261;
+        thread->frame = thread->frame + 1;
+        return mk3_install(thread, (MK3THREADFUNC)t_d_beware);
+    }
+    if (token == 0x261) {
+        obj->field40 = obj->a10;
+        do_next_a9_frame(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x264;
+        thread->fieldfc = 2;
+        return 2;
+    }
+    if (token == 0x264)
+        POP_OR_LEAVE(thread);
+    if (token != 0)
+        return -3;
+
+    obj->field20 = 0x301;
+    obj->field00->field18 = 0x301;
+    obj->field40 = 4;
+    get_char_ani(obj);
+    obj->a10 = obj->field40;
+    obj->field40 = obj->field40 + 8;
+    do_next_a9_frame(obj);
+    *mk3_frame(thread, thread->frame + 1) = 0x25a;
+    thread->fieldfc = 2;
+    return 2;
+}
