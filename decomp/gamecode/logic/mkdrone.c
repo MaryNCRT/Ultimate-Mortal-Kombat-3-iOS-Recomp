@@ -5913,3 +5913,211 @@ long t_ct_stick_sweep(MK3THREAD *thread)
         h = (MK3THREADFUNC)t_d_crossover_kick;
     return mk3_install(thread, h);
 }
+
+/* ======================================================================
+ * Three-token deciders, the finish-him chain and the zap picker.
+ * ====================================================================== */
+
+extern uint32_t *RoundParam;            /* the pointer slot, as in other.c */
+extern const int32_t ochar_zaps[];
+long t_boss_branch(struct MK3THREAD *thread);
+long t_check_winner_status(struct MK3THREAD *thread);
+long t_drone_execute_fatality(struct MK3THREAD *thread);
+long t_non_violent_finish(struct MK3THREAD *thread);
+long t_d_quake(struct MK3THREAD *thread);
+long t_d_uppercut(struct MK3THREAD *thread);
+long t_do_zap(struct MK3THREAD *thread);
+long t_do_duck(struct MK3THREAD *thread);
+long t_d_get_close_2_u(struct MK3THREAD *thread);
+long t_stance_wait_yes(struct MK3THREAD *thread);
+long t_retreat_wait_yes(struct MK3THREAD *thread);
+long funcs_10049(struct MK3THREAD *thread);
+
+/* t_drone_zone -- armv7 0x0006e8b4: state 0 arms q_drone_zone (field48) with
+ * a10 = 0x80 and waits; at 0x47c the distance is measured (for its side
+ * effect in field28) and the fighter runs in close */
+long t_drone_zone(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field48 = (uint32_t)(uintptr_t)q_drone_zone;
+        obj->a10     = 0x80;
+        *mk3_frame(thread, thread->frame + 1) = 0x47c;
+        thread->frame = thread->frame + 1;
+        mk3_install(thread, (MK3THREADFUNC)t_stance_wait_yes);
+        return -3;
+    }
+    if (token != 0x47c)
+        return -3;
+
+    get_x_dist(obj);
+    return mk3_install(thread, (MK3THREADFUNC)t_run_in_close);
+}
+
+/* t_d_finish_him -- armv7 0x00068ec8: slave word 0x11, push t_boss_branch
+ * and wait at 0x947; then field5c = 1 and either the fatality or, when
+ * RoundParam[0x40] is set, the non-violent finish (with field5c back to 0) */
+long t_d_finish_him(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+    uint32_t      token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *(uint32_t *)((char *)obj + 0x64) = 0x11;
+        *mk3_frame(thread, thread->frame + 1) = 0x947;
+        thread->frame = thread->frame + 1;
+        mk3_install(thread, (MK3THREADFUNC)t_boss_branch);
+        return -3;
+    }
+    if (token != 0x947)
+        return -3;
+
+    obj->field5c = 1;
+    if (RoundParam[0x40 / 4] != 0) {
+        obj->field5c = 0;
+        h = (MK3THREADFUNC)t_non_violent_finish;
+    } else {
+        h = (MK3THREADFUNC)t_drone_execute_fatality;
+    }
+    return mk3_install(thread, h);
+}
+
+/* t_d_open_jumpover -- armv7 0x00068a28: 0 pushes the forward flip and waits
+ * at 0x7d7; 0x7d7 pushes the winner check and waits at 0x7d8; 0x7d8 becomes
+ * the backward flip */
+long t_d_open_jumpover(MK3THREAD *thread)
+{
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x7d7) {
+        *mk3_frame(thread, thread->frame + 1) = 0x7d8;
+        thread->frame = thread->frame + 1;
+        return mk3_install(thread, (MK3THREADFUNC)t_check_winner_status);
+    }
+    if (token == 0x7d8)
+        return mk3_install(thread, (MK3THREADFUNC)t_d_bflip_jump);
+    if (token != 0)
+        return -3;
+    *mk3_frame(thread, thread->frame + 1) = 0x7d7;
+    thread->frame = thread->frame + 1;
+    return mk3_install(thread, (MK3THREADFUNC)t_d_fflip_jsrp);
+}
+
+/* t_jax_delayed_quake -- armv7 0x0006e384 */
+long t_jax_delayed_quake(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+    uint32_t      token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->a10     = 0x40;
+        obj->field48 = (uint32_t)(uintptr_t)q_jax_smash;
+        *mk3_frame(thread, thread->frame + 1) = 0xd38;
+        thread->frame = thread->frame + 1;
+        mk3_install(thread, (MK3THREADFUNC)t_retreat_wait_yes);
+        return -3;
+    }
+    if (token != 0xd38)
+        return -3;
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0xaf)
+        h = (MK3THREADFUNC)t_d_quake;
+    else
+        h = (MK3THREADFUNC)t_local_reaction_exit;
+    return mk3_install(thread, h);
+}
+
+/* t_non_violent_finish -- armv7 0x00068f54 */
+long t_non_violent_finish(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x96b;
+        thread->frame = thread->frame + 1;
+        mk3_install(thread, (MK3THREADFUNC)t_d_get_close_2_u);
+        return -3;
+    }
+    if (token != 0x96b)
+        return -3;
+
+    *(uint32_t *)((char *)obj + 0x68) = (uint32_t)(uintptr_t)funcs_10049;
+    *(uint32_t *)((char *)obj + 0x64) = 3;
+    *mk3_frame(thread, thread->frame + 1) = 0x975;
+    thread->frame = thread->frame + 1;
+    return mk3_install(thread, (MK3THREADFUNC)t_random_do);
+}
+
+/* c_sky_pro -- armv7 0x0006a3e0: 0 pushes t_nr_sweep_if_u_can (wait 0xe20);
+ * 0xe20 arms q_is_proj_gone, a10 = 0x30, pushes t_stance_wait_no (wait
+ * 0xe23); 0xe23 runs in close */
+long c_sky_pro(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0xe20) {
+        obj->field48 = (uint32_t)(uintptr_t)q_is_proj_gone;
+        obj->a10     = 0x30;
+        *mk3_frame(thread, thread->frame + 1) = 0xe23;
+        thread->frame = thread->frame + 1;
+        return mk3_install(thread, (MK3THREADFUNC)t_stance_wait_no);
+    }
+    if (token == 0xe23)
+        return mk3_install(thread, (MK3THREADFUNC)t_run_in_close);
+    if (token != 0)
+        return -3;
+    *mk3_frame(thread, thread->frame + 1) = 0xe20;
+    thread->frame = thread->frame + 1;
+    return mk3_install(thread, (MK3THREADFUNC)t_nr_sweep_if_u_can);
+}
+
+/* t_d_duck_then_uppercut -- armv7 0x00068b5c */
+long t_d_duck_then_uppercut(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x7fd) {
+        obj->field1c = 0x80;
+        *mk3_frame(thread, thread->frame + 1) = 0x7ff;
+        thread->frame = thread->frame + 1;
+        return mk3_install(thread, (MK3THREADFUNC)t_d_wait_nonattack);
+    }
+    if (token == 0x7ff)
+        return mk3_install(thread, (MK3THREADFUNC)t_d_uppercut);
+    if (token != 0)
+        return -3;
+    *mk3_frame(thread, thread->frame + 1) = 0x7fd;
+    thread->frame = thread->frame + 1;
+    return mk3_install(thread, (MK3THREADFUNC)t_do_duck);
+}
+
+/* t_d_zap_now -- armv7 0x00067fe0: ochar_zaps picks by character; negative
+ * means close in, otherwise this level leaves (field20 remembers it) and the
+ * zap runs one level above */
+long t_d_zap_now(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+    int32_t v;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    v = ochar_zaps[obj->field08->field24];
+    obj->field1c = (uint32_t)v;
+    if (v < 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_stalk_in_close);
+
+    obj->field20 = (uint32_t)(uintptr_t)t_local_reaction_exit;
+    mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    thread->frame = thread->frame + 1;
+    return mk3_install(thread, (MK3THREADFUNC)t_do_zap);
+}
