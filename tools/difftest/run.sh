@@ -23,7 +23,7 @@ export UMK3_SLICE
 
 FNS=""; ARGS=""
 while [ $# -gt 0 ]; do
-    case "$1" in -n) ARGS="$ARGS -n $2"; shift 2;; -v) ARGS="$ARGS -v"; shift;; *) FNS="$FNS $1"; shift;; esac
+    case "$1" in -n) ARGS="$ARGS -n $2"; shift 2;; -v) ARGS="$ARGS -v"; shift;; -d) ARGS="$ARGS -d"; shift;; *) FNS="$FNS $1"; shift;; esac
 done
 
 python "$HERE/gen.py" "$STEM" "$RC" "$OUT" $FNS
