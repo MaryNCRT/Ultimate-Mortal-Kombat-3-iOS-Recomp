@@ -36,7 +36,8 @@ for d in "$RC"/*/; do
     n="$(basename "$d")"
     [ -f "$d/recompiled.c" ] || continue
     if [ ! -f "$OBJ/$n.o" ] || [ "$d/recompiled.c" -nt "$OBJ/$n.o" ]; then
-        "$CC" $CFLAGS -I "$d" -c "$d/recompiled.c" -o "$OBJ/$n.o" &
+        python "$HERE/patch_blx.py" "$d/recompiled.c" "$OBJ/patched_$n.c" > /dev/null
+        "$CC" $CFLAGS -I "$d" -c "$OBJ/patched_$n.c" -o "$OBJ/$n.o" &
     fi
     OBJS="$OBJS $OBJ/$n.o"
 done
@@ -55,7 +56,7 @@ for d in "$RC"/*/; do
 done
 
 "$CC" $CFLAGS -I "$RC/$STEM" -I "$REPO/decomp/gamecode/logic" \
-    "$HERE/harness.c" "$OUT/gen_tests.c" "$OUT/gen_shims.c" "$OUT/gen_addrmap.c" "$OUT/gen_vars.c" "$OUT/gen_abs.c" \
+    "$HERE/harness.c" "$OUT/gen_tests.c" "$OUT/gen_shims.c" "$OUT/gen_addrmap.c" "$OUT/gen_vars.c" "$OUT/gen_abs.c" "$OUT/gen_oracle.c" \
     "$REPO/decomp/gamecode/logic/$STEM.c" "$OBJ/stubs_extra.o" $OBJS "$OBJ/arm_runtime.o" $SHIMOBJS \
     -Wl,--allow-multiple-definition -Wl,--image-base=0x10000000 -o "$OUT/difftest.exe"
 "$OUT/difftest.exe" $ARGS $FNS
