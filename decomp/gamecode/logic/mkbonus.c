@@ -169,7 +169,8 @@ void get_winner_ochar(MK3OBJ *obj)
     obj->field20 = (uint32_t)(uintptr_t)plyr_slot;
 
     inner    = (void *)(uintptr_t)obj->field20;   /* re-read the pointer just stored */
-    flagword = *(uint32_t *)((char *)inner + 0x10);
+    /* the slot's first word is the fighter's object; its +0x10 is the flags */
+    flagword = *(uint32_t *)((char *)(uintptr_t)*(uint32_t *)inner + 0x10);
     obj->field2c = flagword;
     if ((flagword & 0x200u) != 0)
         obj->field1c = 0xc;
