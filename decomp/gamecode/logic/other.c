@@ -230,7 +230,9 @@ void *GetThreadFunc(MK3THREAD *thread)
 
 void *GetProcFunc(MK3OBJ *obj)
 {
-    return GetThreadFunc(obj->thread);
+    MK3THREAD *t = obj->thread;
+
+    return (void *)(uintptr_t)((const uint32_t *)((const char *)t + t->frame * 8))[1];
 }
 
 
@@ -2092,6 +2094,7 @@ void randu(MK3OBJ *obj);
 
 void randu_minimum(MK3OBJ *obj)
 {
+    randu(obj);
     obj->field1c = obj->field1c - 1 + obj->field20;
 }
 
@@ -3576,7 +3579,7 @@ void *my_func(MK3OBJ *obj)
     MK3THREAD *t = (MK3THREAD *)((char *)mytc
                                  + obj->field00->field08 * MK3THREAD_STRIDE);
 
-    return GetThreadFunc(t);
+    return (void *)(uintptr_t)((const uint32_t *)((const char *)t + t->frame * 8))[1];
 }
 
 
@@ -5501,12 +5504,21 @@ long t_master_mercy_entry(MK3THREAD *thread)
  */
 void clear_queues(uint32_t which)
 {
-    char *base = G_BYTES + (which ? 0x218 : 0xc0);
+    char *base;
 
-    init_1_q(base + 0x00);
-    init_1_q(base + 0x54);
-    init_1_q(base + 0xa8);
-    init_1_q(base + 0xfc);
+    if (which == 0) {
+        base = G_BYTES;
+        init_1_q(base + 0xc0);
+        init_1_q(base + 0x114);
+        init_1_q(base + 0x168);
+        init_1_q(base + 0x1bc);
+    } else {
+        base = G_BYTES;
+        init_1_q(base + 0x218);
+        init_1_q(base + 0x26c);
+        init_1_q(base + 0x2c0);
+        init_1_q(base + 0x314);
+    }
 }
 
 
