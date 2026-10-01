@@ -1057,10 +1057,16 @@ void mk3_init_game(void)
 {
     char *rp = (char *)(void *)RoundParam;
     long  v;
-    int   i;
 
-    for (i = 0; i < 9; i++)                /* all 36 bytes of H */
-        *(long *)(void *)(H + i * 4) = 0;
+    *(long *)(void *)(H + 0) = 0;
+    *(long *)(void *)(H + 4) = 0;
+    *(long *)(void *)(H + 8) = 0;
+    *(long *)(void *)(H + 12) = 0;
+    *(long *)(void *)(H + 16) = 0;
+    *(long *)(void *)(H + 20) = 0;
+    *(long *)(void *)(H + 24) = 0;
+    *(long *)(void *)(H + 28) = 0;
+    *(long *)(void *)(H + 32) = 0;
 
     *(long *)(void *)(rp + 0x00) = -550;   /* default leftPlayerLimit  */
     *(long *)(void *)(rp + 0x04) =  0x3b6; /* default rightPlayerLimit */
@@ -1581,6 +1587,13 @@ long mk3_update(const long *joy, void **out)
 
                     jb[i] = 0;             /* the request word is consumed */
                     Playback_Begin(pb, seq, (his_x >= my_x) ? 0 : 1);
+
+                    /* the binary has this update twice: one physical call
+                     * here and one for the already-running case below */
+                    *(uint16_t *)(void *)(pp + 0x7e) = 1;
+                    Playback_Update(pb);
+                    jb[i] = *(int16_t *)(void *)(pb + 0x0c);
+                    continue;
                 }
             }
 
@@ -1644,13 +1657,21 @@ long mk3_update(const long *joy, void **out)
         if (r == MK3_THREAD_DONE) {
             char *p0 = *(char **)(void *)(Plyr + 0x00);
             char *p1 = *(char **)(void *)(Plyr + PLYR_STRIDE + 0x00);
+            long  k;
 
-            if (*(void **)(void *)(p0 + 0x64) == t->proc) {
-                *(void **)(void *)(p0 + 0x64) = NULL;
-                *(void **)(void *)(p0 + 0x68) = NULL;
-            } else if (*(void **)(void *)(p1 + 0x64) == t->proc) {
-                *(void **)(void *)(p1 + 0x64) = NULL;
-                *(void **)(void *)(p1 + 0x68) = NULL;
+            if (*(void **)(void *)(p0 + 0x64) == t->proc)
+                k = 0;
+            else if (*(void **)(void *)(p1 + 0x64) == t->proc)
+                k = 1;
+            else
+                k = -1;
+
+            if (k >= 0) {                       /* one store pair, indexed */
+                char *pk = k ? p1 : p0;
+
+                *(uint32_t *)(void *)(pk + 0x64) = 0;
+                pk = *(char **)(void *)(Plyr + k * PLYR_STRIDE + 0x00);
+                *(uint32_t *)(void *)(pk + 0x68) = 0;
             }
             TList_Release(t);
         }
