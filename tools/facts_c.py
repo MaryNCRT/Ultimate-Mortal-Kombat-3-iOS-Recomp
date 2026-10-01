@@ -533,7 +533,7 @@ def facts_of(lines, maps):
     # locals that hold a function: `MK3THREADLONGFUNC f = ...; r = f(t);` is
     # an indirect call, which the machine reader does not list by name
     fnlocals = {m.group(1) for ln in lines
-                for m in re.finditer(r"\b[A-Z][A-Z0-9_]*FUNC\w*\s+([A-Za-z_]\w*)\s*=", ln)}
+                for m in re.finditer(r"\b[A-Z][A-Z0-9_]*(?:FUNC|XFER)\w*\s+([A-Za-z_]\w*)\s*=", ln)}
     # `void (*fn)(X *);` -- a local function pointer: an indirect call
     fnlocals |= {m.group(1) for ln in lines
                  for m in re.finditer(r"\(\s*\*\s*([A-Za-z_]\w*)\s*\)\s*\(", ln)}
