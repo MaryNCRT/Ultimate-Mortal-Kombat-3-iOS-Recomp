@@ -8400,7 +8400,7 @@ long t_play_1_round(MK3THREAD *thread)
             th->fieldfc = 0;
             th->field08 = 0;
             th->proc    = Plyr + i * PLYR_STRIDE;
-            th->func    = (MK3THREADFUNC)t_round_intro_fx;
+            mk3_frame(th, 0)[1] = (uint32_t)(uintptr_t)t_round_intro_fx;
 
             *(uint32_t *)(GrObj + i * GROBJ_STRIDE + 0x2c) = 0xffffffffu;
         }
@@ -11635,14 +11635,25 @@ void init_players(uint32_t a, uint32_t b)
         *(char **)(pp + 4)      = other;        /* the other fighter */
         *(char **)(pp)          = plyr_o;
 
-        MK3_SET_FIELD0E((MK3OBJ *)grobj, n ? 0x12f : 0x60);
-        ground_ochar_ob((MK3OBJ *)grobj);
+        if (n == 0) {
+            MK3_SET_FIELD0E((MK3OBJ *)grobj, 0x60);
+            ground_ochar_ob((MK3OBJ *)grobj);
 
-        *(uint32_t *)(*(char **)plyr + 0x40) =
-            (uint16_t)MK3_FIELD12((MK3OBJ *)grobj);
-        *(uint32_t *)(plyr + 0x40) = 0;
+            *(uint32_t *)(*(char **)plyr + 0x40) =
+                (uint16_t)MK3_FIELD12((MK3OBJ *)grobj);
+            *(uint32_t *)(plyr + 0x40) = 0;
 
-        do_first_a9_frame((MK3OBJ *)plyr);
+            do_first_a9_frame((MK3OBJ *)plyr);
+        } else {
+            MK3_SET_FIELD0E((MK3OBJ *)grobj, 0x12f);
+            ground_ochar_ob((MK3OBJ *)grobj);
+
+            *(uint32_t *)(*(char **)plyr + 0x40) =
+                (uint16_t)MK3_FIELD12((MK3OBJ *)grobj);
+            *(uint32_t *)(plyr + 0x40) = 0;
+
+            do_first_a9_frame((MK3OBJ *)plyr);
+        }
     }
 
     *(uint32_t *)(GrObj + 0x74) ^= 0x10u;       /* face each other */
