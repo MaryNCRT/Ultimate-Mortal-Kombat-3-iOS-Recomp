@@ -1,4 +1,4 @@
-﻿<div align="center">
+<div align="center">
 
 <img src="docs/img/banner.jpg" alt="Ultimate Mortal Kombat 3 Recomp" width="880">
 
@@ -184,7 +184,7 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 | `gamecode` — game logic (291 fn) | 18% | **100%** | `██████████` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | **100%** | `██████████` |
 | Native PC platform layer (161 fn to rewrite) | 17% | 10% | `█░░░░░░░░░` |
-| EA SDK stubs (~1,412 fn) | 5% | 0% | `░░░░░░░░░░` |
+| EA SDK stubs (~1,412 fn) | 5% | 100% | ██████████ |
 
 **84.70% of the total estimated effort. Nothing is playable yet.**
 
@@ -214,7 +214,7 @@ body; all nine of its files are also verified against the recompiled original.
 written, including `mkdrone.c` (the AI opponent, 394 functions), the last file
 to close. What is left of the project is not decompilation: the 229 data
 tables, the PC platform layer (the 229 iOS-layer functions rewritten natively)
-and the EA SDK stubs. Realistically that is still months of work.
+| EA SDK stubs (~1,412 fn) | 5% | 100% | ██████████ |
 
 One caveat on "verified". The static fact diff (`tools/factdiff.py`) compares
 stores, handlers, state tokens and calls; it cannot see which constant a return
