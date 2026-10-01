@@ -169,27 +169,23 @@ real aunque no renderice un solo píxel.
 tienen cuerpo; los nueve ficheros están además verificados contra el
 original recompilado.
 
-**Por qué el número sigue sin ser alto.** El motor de combate son 2.172
-funciones él solo, y 237 siguen sin cuerpo: ahí está casi todo el trabajo que
-queda. Un solo fichero lo concentra todo:
+**Todas las funciones tienen ya cuerpo.** Las 2.172 funciones del motor de
+combate están escritas, incluido `mkdrone.c` (el oponente controlado por la
+máquina, 394 funciones), el último fichero en cerrarse. Lo que queda del
+proyecto ya no es decompilación: las 229 tablas de datos, la capa de plataforma
+PC (las 229 funciones de la capa iOS reescritas en nativo) y los stubs del EA
+SDK. Realistamente siguen siendo meses de trabajo.
 
-| | faltan | qué es |
-|---|---:|---|
-| `mkdrone.c` | 237 | el oponente controlado por la máquina |
-
-Veinte de los veintiún ficheros están terminados, incluidos los tres más
-grandes — `moves.c`, `other.c` y `mkfatal.c` —, más `joy.c` (la capa de
-entrada), `mkbonus.c`, `mkreact.c`, `playback.c`, `mkzap.c`, `mkfriend.c` y
-`mkboss.c` (Motaro y Shao Kahn), cerrados todos desde que la cuenta de arriba
-estaba en ocho. Así que la cuenta va más avanzada de lo que sugiere la forma de
-la lista. Realistamente lo que queda siguen siendo meses de trabajo.
-
-Una salvedad sobre «verificado». El oráculo compara escrituras, handlers,
-tokens de estado y llamadas; no compara valores de retorno, y no ve un handler
-que el binario lee a través de un slot de punteros. Las dos lagunas dejaron
-pasar errores reales al cerrar `mkboss.c`, así que ahora
-`tools/handlercheck.py` comprueba los nombres de handler contra la imagen, y
-los valores de retorno se revisan a ojo.
+Una salvedad sobre «verificado». El diff estático de hechos
+(`tools/factdiff.py`) compara escrituras, handlers, tokens de estado y
+llamadas; no ve qué constante devuelve cada camino (un pop devuelve 0, un
+rechazo -3) ni un handler que el binario lee a través de un slot de punteros.
+Por eso hay una segunda comprobación, de comportamiento: `tools/difftest/`
+ejecuta cada función decompilada y su original recompilado desde el mismo
+estado aleatorio en un proceso de 32 bits y compara el valor de retorno y toda
+la imagen de datos. Está limpia en `mkdrone.c` y `mkfriend.c`; el resto de
+ficheros se están triando (algunos avisos son límites de la harness, no bugs;
+ver docs/VERIFICATION.md).
 
 ### `lime/common` está completo — y esto es lo que significa y lo que no
 

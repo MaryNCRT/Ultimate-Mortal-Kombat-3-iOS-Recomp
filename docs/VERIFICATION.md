@@ -166,3 +166,26 @@ the end did.
 
 So the rule that stays a human one: **a sentence claiming what the engine
 does needs an address next to it, and the address needs reading.**
+
+
+---
+
+## Update 2026-10-01: the behavioural layer
+
+Candidate C (the static fact diff) is built (`tools/factdiff.py`) and every
+logic file passes it, with the exceptions listed in
+`tools/factdiff_waivers.txt`. It does not see returned constants, so a second
+layer exists: `tools/difftest/` (see docs/PROGRESS.md for usage and results).
+
+Known limits of the harness, each one a source of false positives:
+
+- scratch fields holding a value that looks like a handler address are turned
+  into native pointers for the C run, so arithmetic on them differs
+  (`t_fatality_align`, token 0xac2);
+- pointers to the native stack or to objects the harness does not model;
+- an oracle that itself hits an unimplemented import skips the scenario
+  (counted as "skipped", so low-coverage functions are flagged `LOWCOV`);
+- `rand` is shared by both sides, `random32` is not modelled beyond it.
+
+`tools/cd.py fn ...` prints the compact disassembly used to transcribe state
+machines (`--raw` for the unfolded listing).

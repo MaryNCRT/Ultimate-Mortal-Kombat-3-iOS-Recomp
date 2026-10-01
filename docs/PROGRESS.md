@@ -118,14 +118,38 @@ passes. Two functions of `moves.c` (`q_yes`, `q_no`) are not seen by the tool
 at all and were checked by eye. The checker still cannot see control flow
 across a merged tail; a clean file is "every fact matches", not a proof.
 
+### Behavioural differential test (`tools/difftest/`), 2026-10-01
+
+`factdiff` compares facts, never behaviour, and it missed a whole class of bug:
+the value a path returns (after a state-0 push the return is 0, not -3). So
+`tools/difftest/` runs both versions: a 32-bit process maps the binary slice at
+its own addresses, the oracle is every `recompiled.c` linked together, the
+decomp calls anything it has not got itself through shims into the oracle, and
+each scenario (randomised state, tokens taken from the ARM immediates) compares
+the return value and the entire data image. Use:
+`UMK3_SLICE=work/UMK3.armv7 sh tools/difftest/run.sh <stem> <rc_root> -n 80 [-d] [-v] [fn ...]`.
+
+Results: **`mkdrone.c` 393/394 clean** (`t_fatality_align`, token 0xac2, is a
+known harness false positive: a scratch field that holds a handler-looking
+value is converted to native form for the C run), `mkfriend.c` clean. Other
+files, failing functions per file: mkfatal 4, mkprop 2, mkanimal 3, mkbonus 4,
+mkcanned 1, mkslam 1, moves 8, other 66, mkboss 22, mkzap 22, mkreact 36;
+mkstat and playback segfault the harness. **These are not triaged**: many
+involve pointers to native stack/data or objects the harness cannot model, so
+each has to be classified as false positive or real bug. Running it on
+`mkdrone.c` found about 40 functions that returned -3 where the binary returns
+0 and several that had dropped branches -- expect real bugs among the rest.
+
 ### What is next
 
 The menu is drawn. What is left, in order:
 
-1. **`gamecode/logic`, 1,935 of 2,172.** The fight engine, and by a wide margin
-   the largest block left. Twenty of its twenty-one files are closed
-   (`mkreact.c`, `playback.c`, `mkzap.c`, `mkfriend.c` and `mkboss.c` since
-   joined that list); `mkdrone.c` (237 left) is the whole of the rest.
+1. **`gamecode/logic` is complete, 2,172 of 2,172** (`mkdrone.c`, 394
+   functions, closed 2026-10-01). What is left is *triage of the behavioural
+   test* (below), then the data tables, the PC platform layer and the EA SDK
+   stubs. The notes that follow on the minimal playable scene are kept for the
+   link-closure measurement; the `plyrthread` / `repell_func` gaps they mention
+   are written.
 
    **For a minimal playable scene the number is much smaller and it has been
    measured, not estimated.** All fifteen logic files were compiled to objects
