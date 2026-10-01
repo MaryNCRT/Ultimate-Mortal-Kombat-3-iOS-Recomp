@@ -199,7 +199,7 @@ RE_RARITH_F = re.compile(r"_a = ctx->r\[(\d+)\], _b = (0x[0-9a-f]+)u, _r = _a ([
                          r"\s*ctx->r\[(\d+)\] = _r;")
 
 
-def asm_ret_consts(lines):
+def asm_ret_consts(lines, reg="0"):
     """Every constant the binary can hand back in r0.
 
     The recompiled function has one physical exit, so its `ret` fact is `?`.
@@ -227,7 +227,9 @@ def asm_ret_consts(lines):
                         for v in base}
         for d, src in movs:
             held[d] |= held[src]
-    return set(held["0"])
+    if reg == "*":
+        return set().union(*held.values()) if held else set()
+    return set(held[reg])
 
 
 def compare_stores(a, b, out, unk_bin, unk_c):
@@ -403,7 +405,10 @@ def check(name, afacts, cfacts, alines=None):
         return image_loaded(name) | set(a[1])
 
     def constants():
-        return {hex(int(x, 16)) for x in RE_HEXLIT.findall("\n".join(lines))} | set(a[2])
+        # literals, plus anything a register can hold after add/sub of an
+        # immediate: t_scorpion_hell compares a token against 0x2ad - 0xe
+        lit = {hex(int(x, 16)) for x in RE_HEXLIT.findall("\n".join(lines))}
+        return lit | {hex(v) for v in asm_ret_consts(lines, "*")} | set(a[2])
 
     n += compare_by_name(a[1], c[1], "handler", out, routines)
     n += compare_by_name(a[2], c[2], "token", out, constants)
