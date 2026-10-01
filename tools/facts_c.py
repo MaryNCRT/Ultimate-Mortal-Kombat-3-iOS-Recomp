@@ -279,7 +279,7 @@ def inlined_text(path):
     helpers = {}
     for m in RE_STATIC_HELPER.finditer(text):
         names = [_param_name(d) for d in _split_top(m.group(2))]
-        if all(names) and "void" not in m.group(2):
+        if all(names) and m.group(2).strip() != "void":
             helpers[m.group(1)] = (names, m.group(3))
     if not helpers:
         return text
@@ -293,6 +293,7 @@ def inlined_text(path):
         if len(args) != len(names):
             return m.group(0)
         for n, a in zip(names, args):
+            a = re.sub(r"^\(\s*[A-Z][A-Z0-9_]*FUNC\w*\s*\)\s*", "", a)
             if not re.fullmatch(r"[\w.>-]+|\(\w+\)\s*\w+", a):
                 a = "(" + a + ")"
             body = re.sub(r"\b%s\b" % re.escape(n), lambda _m, a=a: a, body)

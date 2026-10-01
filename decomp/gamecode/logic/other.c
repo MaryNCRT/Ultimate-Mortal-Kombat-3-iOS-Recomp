@@ -7275,16 +7275,12 @@ static long mk3_shake_up(MK3THREAD *thread, uint32_t about)
 
 long t_shake_him_up(MK3THREAD *thread)
 {
-    MK3OBJ *obj = (MK3OBJ *)thread->proc;
-
-    return mk3_shake_up(thread, obj->field00->him);
+    return mk3_shake_up(thread, ((MK3OBJ *)thread->proc)->field00->him);
 }
 
 long t_shake_ob_up(MK3THREAD *thread)
 {
-    MK3OBJ *obj = (MK3OBJ *)thread->proc;
-
-    return mk3_shake_up(thread, (uint32_t)(uintptr_t)obj->field08);
+    return mk3_shake_up(thread, (uint32_t)(uintptr_t)((MK3OBJ *)thread->proc)->field08);
 }
 
 
@@ -11134,7 +11130,8 @@ long do_next_a9_frame_pxob(MK3OBJ *obj, MK3OBJ *ref, MK3OBJ *other)
             break;
 
         case 8:                                 /* branch on the character */
-            if (cursor[0] == other->field24)
+            obj->field1c = cursor[0];           /* the compare value is stored too */
+            if (cursor[0] == obj->field08->field24)
                 cursor = (const uint32_t *)(uintptr_t)cursor[1];
             else
                 cursor += 2;

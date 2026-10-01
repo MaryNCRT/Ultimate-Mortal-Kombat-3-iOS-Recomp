@@ -1,0 +1,4 @@
+# file : function : reason  -- functions the tool cannot check, READ BY HAND against the disassembly.
+# Shown as ~~ on every run and never counted as a pass.
+other.c : do_next_a9_frame_pxob : binary dispatches through a `mov pc,r2` jump table the asm reader does not follow; all 19 arms compared by hand (op 8 fixed)
+other.c : four_button_switch : returns through `mov r0,r1` after `subs r1,#1` (button 4 -> 3); return-constant check cannot see it
