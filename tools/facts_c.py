@@ -238,12 +238,76 @@ RE_ARRSTORE = re.compile(r"^\s*([A-Za-z_]\w*)\[(\d+|0x[0-9a-fA-F]+)\]\s*=\s*([^;
 WORD_ARRAYS = set()
 
 
+RE_STATIC_HELPER = re.compile(
+    r"^static\s+[\w\s\*]+?\b(\w+)\(([^)]*(?:\([^)]*\)[^)]*)*)\)\s*\n\{\n(.*?)\n\}\n",
+    re.S | re.M)
+
+
+def _split_top(text):
+    parts, depth, cur = [], 0, ""
+    for ch in text:
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth -= 1
+        if ch == "," and depth == 0:
+            parts.append(cur.strip())
+            cur = ""
+        else:
+            cur += ch
+    if cur.strip():
+        parts.append(cur.strip())
+    return parts
+
+
+def _param_name(decl):
+    m = re.search(r"\(\s*\*\s*(\w+)\s*\)", decl)
+    if m:
+        return m.group(1)
+    m = re.search(r"(\w+)\s*(?:\[\s*\w*\s*\])?\s*$", decl)
+    return m.group(1) if m else None
+
+
+def inlined_text(path):
+    """The source with `{ return helper(a, b); }` wrappers expanded to the
+    static helper's body, parameters replaced by the arguments. A checker that
+    reads one function at a time cannot see through the helper otherwise: the
+    stores and handlers live in it, the binary has them in the wrapper."""
+    text = open(path, encoding="utf-8", errors="replace").read()
+    helpers = {}
+    for m in RE_STATIC_HELPER.finditer(text):
+        names = [_param_name(d) for d in _split_top(m.group(2))]
+        if all(names) and "void" not in m.group(2):
+            helpers[m.group(1)] = (names, m.group(3))
+    if not helpers:
+        return text
+
+    def wrap(m):
+        name = m.group(2)
+        if name not in helpers:
+            return m.group(0)
+        names, body = helpers[name]
+        args = _split_top(m.group(3))
+        if len(args) != len(names):
+            return m.group(0)
+        for n, a in zip(names, args):
+            if not re.fullmatch(r"[\w.>-]+|\(\w+\)\s*\w+", a):
+                a = "(" + a + ")"
+            body = re.sub(r"\b%s\b" % re.escape(n), lambda _m, a=a: a, body)
+        return m.group(1) + "\n{\n" + body + "\n}\n"
+
+    return re.sub(r"(^[A-Za-z][^\n(]*\([^)\n]*\))\n\{\n\s*return\s+(\w+)\(([^;]*)\);\s*\n\}\n",
+                  wrap, text, flags=re.M)
+
+
 def split_functions(path):
     """{name: [line, ...]} for every function body in one .c file."""
     out, name, buf, depth, started = {}, None, [], 0, False
     prev = ""
+    text = inlined_text(path)
     with open(path, encoding="utf-8", errors="replace") as fh:
-        for line in open(path, encoding="utf-8", errors="replace"):
+        fh = iter(text.split("\n"))
+        for line in text.split("\n"):
             wm = RE_WORDARRAY.match(line)
             if wm:
                 WORD_ARRAYS.add(wm.group(1) or wm.group(2))

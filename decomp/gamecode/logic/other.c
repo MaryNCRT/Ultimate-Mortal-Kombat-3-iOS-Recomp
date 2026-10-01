@@ -540,12 +540,10 @@ void KillSThread(MK3THREAD *thread)
  */
 long t_self_terminate(MK3THREAD *thread)
 {
-    uint32_t *above = (uint32_t *)((char *)thread + (thread->frame + 1) * 8);
-
-    if (*above != 0)
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
         return -3;
 
-    *above = 0x12ff;
+    *mk3_frame(thread, thread->frame + 1) = 0x12ff;
     thread->fieldfc = 0x00016462u;
     return 0x00016462;
 }
@@ -4035,12 +4033,12 @@ void ground_multi(MK3OBJ *obj)
  */
 long t_round_loop(MK3THREAD *thread)
 {
-    uint32_t *above = (uint32_t *)((char *)thread + (thread->frame + 1) * 8);
+    uint32_t seen = *mk3_frame(thread, thread->frame + 1);
 
-    if (*above != 0 && *above != 0x12f8u)
+    if (seen != 0 && seen != 0x12f8u)
         return -3;
 
-    *above = 0x12f8u;
+    *mk3_frame(thread, thread->frame + 1) = 0x12f8u;
     thread->fieldfc = 1;
     return 1;
 }
@@ -4989,8 +4987,19 @@ static long mk3_park(MK3THREAD *thread, uint32_t token, uint32_t mask,
 
 long t_fhs3(MK3THREAD *thread)
 {
-    return mk3_park(thread, 0x1180, 0x0001,
-                    (MK3THREADFUNC)t_wait_fatality_finish);
+    uint32_t seen = *mk3_frame(thread, thread->frame + 1);
+
+    if (seen == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x1180;
+        thread->fieldfc = 0x0001;
+        return 0x0001;
+    }
+    if (seen != 0x1180)
+        return -3;
+
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_wait_fatality_finish;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
 }
 
 
@@ -5081,14 +5090,36 @@ long is_finish_him_allowed(MK3OBJ *obj)
 
 long t_multi_dummy_proc(MK3THREAD *thread)
 {
-    return mk3_park(thread, 0x05e6, 0x1000,
-                    (MK3THREADFUNC)t_multi_dummy_wake);
+    uint32_t seen = *mk3_frame(thread, thread->frame + 1);
+
+    if (seen == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x05e6;
+        thread->fieldfc = 0x1000;
+        return 0x1000;
+    }
+    if (seen != 0x05e6)
+        return -3;
+
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_multi_dummy_wake;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
 }
 
 long t_wait_forever(MK3THREAD *thread)
 {
-    return mk3_park(thread, 0x011d, 0x0040,
-                    (MK3THREADFUNC)t_wait_forever_wake);
+    uint32_t seen = *mk3_frame(thread, thread->frame + 1);
+
+    if (seen == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x011d;
+        thread->fieldfc = 0x0040;
+        return 0x0040;
+    }
+    if (seen != 0x011d)
+        return -3;
+
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_wait_forever_wake;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
 }
 
 
