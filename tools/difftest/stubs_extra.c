@@ -33,6 +33,13 @@ void stub_auto_rand(arm_ctx *ctx)
     ctx->r[0] = (g_rand >> 16) & 0x7fff;
 }
 
+/* the C side's rand(): the same generator, so both sides draw alike */
+int rand(void)
+{
+    g_rand = g_rand * 1103515245u + 12345u;
+    return (int)((g_rand >> 16) & 0x7fff);
+}
+
 /* atan2(double y, double x): y in r0:r1, x in r2:r3, result in r0:r1 */
 void stub_auto_atan2(arm_ctx *ctx)
 {
