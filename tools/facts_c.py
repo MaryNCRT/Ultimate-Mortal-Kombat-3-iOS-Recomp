@@ -435,6 +435,18 @@ def join_installs(lines):
             out.append(line.rstrip() + " " + lines[i + 1].strip())
             i += 2
             continue
+        # a word store through a cast pointer whose value runs on over
+        # several lines: join until the `;`
+        if (re.match(r"^\s*\*\((?:u?int32_t|long)\s*\*\)", line)
+                and "=" in line and not line.rstrip().endswith(";")):
+            joined, j = line.rstrip(), i + 1
+            while j < len(lines) and not joined.endswith(";") and j < i + 8:
+                joined += " " + lines[j].strip()
+                j += 1
+            if joined.endswith(";"):
+                out.append(joined)
+                i = j
+                continue
         out.append(line)
         i += 1
     return out
