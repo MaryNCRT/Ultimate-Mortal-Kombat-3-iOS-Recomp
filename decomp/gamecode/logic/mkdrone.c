@@ -5083,3 +5083,253 @@ long t_d_turnaround(MK3THREAD *thread)
     reset_proc_stack(thread);
     return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 }
+
+/* ======================================================================
+ * Two-state deciders: state 0 pushes a wait and refuses (-3 abandons this
+ * frame; the pushed level runs on the next), the resume token chooses.
+ * ====================================================================== */
+
+long t_d_bflip_jump(struct MK3THREAD *thread);
+long t_d_open_jumpover(struct MK3THREAD *thread);
+long t_do_jumpup_kick(struct MK3THREAD *thread);
+long funcs_13699(struct MK3THREAD *thread);
+long funcs_13782(struct MK3THREAD *thread);
+long c_tusk_blur(struct MK3THREAD *thread);
+long t_nr_sweep_if_u_can(struct MK3THREAD *thread);
+long t_d_block_projectile(struct MK3THREAD *thread);
+long t_d_flipk_over_proj(struct MK3THREAD *thread);
+long t_avoid_agressive_bastards(struct MK3THREAD *thread);
+long t_d_retreat_a11(struct MK3THREAD *thread);
+
+/* t_jump_up_kick_scan -- armv7 0x000706e8 */
+long t_jump_up_kick_scan(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 <= 0x90) {
+        reset_proc_stack(thread);
+        h = (MK3THREADFUNC)t_do_jumpup_kick;
+    } else {
+        if ((long)thread->frame > 0) {
+            thread->frame = thread->frame - 1;
+            return 0;
+        }
+        h = (MK3THREADFUNC)t_local_reaction_exit;
+    }
+    return mk3_install(thread, h);
+}
+
+/* c_duck_kickl -- armv7 0x000708bc */
+long c_duck_kickl(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    q_will_he_reach_me(obj);
+    if (obj->field5c == 0) {
+        h = (MK3THREADFUNC)t_return_to_beware;
+    } else {
+        q_is_he_cornered(obj);
+        if (obj->field5c != 0) {
+            h = (MK3THREADFUNC)t_d_crossover_kick;
+        } else {
+            *(uint32_t *)((char *)obj + 0x68) = (uint32_t)(uintptr_t)funcs_13699;
+            h = (MK3THREADFUNC)t_react_jump_table_act;
+        }
+    }
+    return mk3_install(thread, h);
+}
+
+/* t_d_get_open -- armv7 0x000712b0: two candidate jumps in field24/field38,
+ * ordered by which edge is nearer; the opponent's side swaps them */
+long t_d_get_open(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t h, a, b;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    get_my_dfe(obj);
+    a = (uint32_t)(uintptr_t)t_d_bflip_jump;
+    b = (uint32_t)(uintptr_t)t_d_open_jumpover;
+    obj->field24 = a;
+    obj->field38 = b;
+    if ((int32_t)obj->field34 <= (int32_t)obj->field30) {
+        obj->field24 = b;
+        obj->field38 = a;
+    }
+    is_he_right(obj);
+    if (obj->field5c != 0) {
+        h = obj->field38;
+    } else {
+        uint32_t x = obj->field24, y = obj->field38;
+
+        obj->field38 = x;
+        obj->field24 = y;
+        h = x;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)(uintptr_t)h);
+}
+
+/* c_react_flipk -- armv7 0x0006cb6c: the handler comes out of tab_react_flipk
+ * for characters up to 0x17 */
+long c_react_flipk(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t h;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    should_i_promove(obj);
+    if (obj->field5c == 0) {
+        h = (uint32_t)(uintptr_t)t_return_to_beware;
+    } else if (((MK3OBJ *)(uintptr_t)obj->field00->him)->field24 > 0x17) {
+        h = (uint32_t)(uintptr_t)t_return_to_beware;
+    } else {
+        h = tab_react_flipk[obj->field08->field24];
+        obj->field1c = h;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)(uintptr_t)h);
+}
+
+/* The three `_pro` / hat deciders: state 0 pushes t_nr_sweep_if_u_can and
+ * refuses, the resume token measures the distance. */
+long c_bombhi_pro(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+    uint32_t      token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0xe13;
+        thread->frame = thread->frame + 1;
+        mk3_install(thread, (MK3THREADFUNC)t_nr_sweep_if_u_can);
+        return -3;
+    }
+    if (token != 0xe13)
+        return -3;
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 < 0x110)
+        h = (MK3THREADFUNC)t_duck_under_proj;
+    else
+        h = (MK3THREADFUNC)t_run_in_close;
+    return mk3_install(thread, h);
+}
+
+long c_bomblo_pro(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+    uint32_t      token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0xe05;
+        thread->frame = thread->frame + 1;
+        mk3_install(thread, (MK3THREADFUNC)t_nr_sweep_if_u_can);
+        return -3;
+    }
+    if (token != 0xe05)
+        return -3;
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0xaf)
+        h = (MK3THREADFUNC)t_d_fflip_kick_jump;
+    else
+        h = (MK3THREADFUNC)t_duck_under_proj;
+    return mk3_install(thread, h);
+}
+
+long c_hat(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+    uint32_t      token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0xdad;
+        thread->frame = thread->frame + 1;
+        mk3_install(thread, (MK3THREADFUNC)t_nr_sweep_if_u_can);
+        return -3;
+    }
+    if (token != 0xdad)
+        return -3;
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0xbf)
+        h = (MK3THREADFUNC)t_d_flipk_over_proj;
+    else
+        h = (MK3THREADFUNC)t_d_block_projectile;
+    return mk3_install(thread, h);
+}
+
+/* c_elbow -- armv7 0x0006bcc4: push t_avoid_agressive_bastards and refuse;
+ * on 0x137e set the slave word and become t_react_jump_table_act */
+long c_elbow(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x137e;
+        thread->frame = thread->frame + 1;
+        mk3_install(thread, (MK3THREADFUNC)t_avoid_agressive_bastards);
+        return -3;
+    }
+    if (token != 0x137e)
+        return -3;
+
+    *(uint32_t *)((char *)obj + 0x68) = (uint32_t)(uintptr_t)funcs_13782;
+    return mk3_install(thread, (MK3THREADFUNC)t_react_jump_table_act);
+}
+
+/* t_ct_kswipe -- armv7 0x0006d050: two install sites */
+long t_ct_kswipe(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 <= 0x8f) {
+        h = (MK3THREADFUNC)t_d_block;
+    } else {
+        should_i_promove(obj);
+        if (obj->field5c == 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_swait_nonattack_jump);
+        h = (MK3THREADFUNC)t_d_zap;
+    }
+    return mk3_install(thread, h);
+}
+
+/* t_d_backoff_a_bit -- armv7 0x00067a30: state 0 sets a10/field48 (0x40,
+ * 0x80), pushes t_d_retreat_a11 and refuses; 0x303 leaves */
+long t_d_backoff_a_bit(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->a10     = 0x40;
+        obj->field48 = 0x40 + 0x40;
+        *mk3_frame(thread, thread->frame + 1) = 0x303;
+        thread->frame = thread->frame + 1;
+        mk3_install(thread, (MK3THREADFUNC)t_d_retreat_a11);
+        return -3;
+    }
+    if (token != 0x303)
+        return -3;
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
