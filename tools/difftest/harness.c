@@ -142,6 +142,8 @@ static uint32_t mytc(int n) { return A_MYTC + (uint32_t)n * 0x10c; }
 
 static uint32_t arm_handlers[64];
 static int      n_handlers;
+static uint32_t arm_preds[256];     /* object predicates (q_*), for the probe fields */
+static int      n_preds;
 
 /* a plausible, valid state, then randomised */
 static void scenario(const Test *t, uint32_t token)
@@ -177,6 +179,14 @@ static void scenario(const Test *t, uint32_t token)
         /* the animation-rate / script fields stay small */
         W(plyr(n) + 0x24) = rnd() % 40;
         W(grobj(n) + 0x24) = rnd() % 40;
+    }
+
+    /* the probes and the walk routine are function pointers: give them real ones */
+    if (n_preds) {
+        for (int n = 0; n < 2; n++) {
+            W(plyr(n) + 0x48) = arm_preds[rnd() % n_preds];
+            if (rnd() & 1) W(plyr(n) + 0x30) = arm_preds[rnd() % n_preds];
+        }
     }
 
     /* the thread */
@@ -218,6 +228,29 @@ static void init_handlers(void)
     qsort(by_native, (size_t)g_naddr, sizeof(AddrMap), map_cmp);
     for (int i = 0; i < g_naddr && n_handlers < 64; i += (g_naddr / 40 + 1))
         arm_handlers[n_handlers++] = g_addrmap[i].arm;
+    for (int i = 0; i < g_ntests && n_preds < 256; i++) {
+        if (g_tests[i].kind != 1 || strncmp(g_tests[i].name, "q_", 2)) continue;
+        for (int k = 0; k < g_naddr; k++)
+            if (g_addrmap[k].native == (uint32_t)(uintptr_t)g_tests[i].native)
+                arm_preds[n_preds++] = g_addrmap[k].arm;
+    }
+}
+
+/* `blx rN` in the recompiled code: look the target up among the recompiled
+ * functions. An address that is not one ends the scenario. */
+void arm_dispatch(arm_ctx *ctx, uint32_t target)
+{
+    uint32_t a = target & ~1u;
+    int lo = 0, hi = g_noracle - 1;
+    while (lo <= hi) {
+        int m = (lo + hi) / 2;
+        if (g_oracle[m].addr == a) {
+            g_oracle[m].fn(ctx);
+            return;
+        }
+        if (g_oracle[m].addr < a) lo = m + 1; else hi = m - 1;
+    }
+    arm_unimplemented("arm_dispatch", target, "indirect call to a function that is not recompiled");
 }
 
 static const AddrMap *find_native(uint32_t v)
@@ -502,7 +535,13 @@ int main(int argc, char **argv)
         total++;
         skipped_all += skipped;
         if (fails) { failed++; printf("FAIL %s\n", t->name); }
-        else if (g_verbose) printf("ok   %s (skipped %d)\n", t->name, skipped);
+        else {
+            int runs = nsc * (t->kind == 0 ? t->ntok + 2 : 1);
+            if (runs - skipped < 15)
+                printf("LOWCOV %s: only %d of %d scenarios ran\n", t->name, runs - skipped, runs);
+            else if (g_verbose)
+                printf("ok   %s (skipped %d)\n", t->name, skipped);
+        }
         fflush(stdout);
     }
     printf("%d functions, %d failed, %d scenarios skipped (the oracle itself crashed)\n", total, failed, skipped_all);

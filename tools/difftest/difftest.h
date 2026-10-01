@@ -21,6 +21,14 @@ typedef struct {
     const char *name;
 } AddrMap;
 
+typedef struct {
+    uint32_t addr;
+    void   (*fn)(arm_ctx *);
+} OracleEnt;
+
+extern const OracleEnt g_oracle[];
+extern const int       g_noracle;
+
 extern const Test    g_tests[];
 extern const int     g_ntests;
 extern const AddrMap g_addrmap[];
