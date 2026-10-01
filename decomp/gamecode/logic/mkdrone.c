@@ -9117,3 +9117,180 @@ long t_d_backup_jsrp(MK3THREAD *thread)
     thread->fieldfc = 2;
     return 2;
 }
+
+/* ======================================================================
+ * t_boss_branch, t_nr_drone_zone, t_flykick_towards_me, c_lia_zap. Batch 22.
+ * ====================================================================== */
+
+extern const uint32_t motaro_branches[];
+extern const uint32_t sk_branches[];
+long t_flykick_heading_up(struct MK3THREAD *thread);
+long t_drone_zone(struct MK3THREAD *thread);
+long t_d_bflip_jump(struct MK3THREAD *thread);
+long t_stw_proj_proc(struct MK3THREAD *thread);
+long t_do_jump_up(struct MK3THREAD *thread);
+void is_flyk_close(MK3OBJ *obj);
+
+/* t_boss_branch -- armv7 0x0006c2cc: for Motaro (0x18) and Shao Kahn (0x19)
+ * the handler is looked up in that boss's branch table by the number the
+ * object carries in +0x64; anyone else just pops */
+long t_boss_branch(MK3THREAD *thread)
+{
+    MK3OBJ         *obj = (MK3OBJ *)thread->proc;
+    const uint32_t *tab;
+    uint32_t        c, h;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = *(const uint32_t *)((const char *)obj + 0x64);
+    c = obj->field08->field24;
+    obj->field20 = c;
+    if (c != 0x18 && c != 0x19)
+        POP_OR_LEAVE(thread);
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+    } else {
+        mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+    POP_AND_SLIDE(thread);
+
+    tab = (c == 0x18) ? motaro_branches : sk_branches;
+    obj->field20 = (uint32_t)(uintptr_t)tab;
+    h = tab[obj->field1c];
+    obj->field1c = h;
+    return mk3_install(thread, (MK3THREADFUNC)(uintptr_t)h);
+}
+
+/* t_nr_drone_zone -- armv7 0x0006cdac */
+long t_nr_drone_zone(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+    int32_t  v;
+
+    if (token == 0x476)
+        return mk3_install(thread, (MK3THREADFUNC)t_drone_zone);
+    if (token != 0)
+        return -3;
+
+    v = *(const int16_t *)(const void *)(G_BYTES + 0x460);
+    obj->field1c = (uint32_t)v;
+    if (v <= 3)
+        POP_OR_LEAVE(thread);
+
+    obj->field1c = 0x12c;
+    randper(obj);
+    if (obj->field5c == 0)
+        POP_OR_LEAVE(thread);
+
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+    } else {
+        mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+    POP_AND_SLIDE(thread);
+
+    obj->field1c = 0xc0;
+    obj->field48 = 0xc0 + 0x10;
+    *mk3_frame(thread, thread->frame + 1) = 0x476;
+    thread->frame = thread->frame + 1;
+    return mk3_install(thread, (MK3THREADFUNC)t_d_retreat_a11);
+}
+
+/* t_flykick_towards_me -- armv7 0x0006f220 */
+long t_flykick_towards_me(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+    uint32_t      token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x12b4) {
+        get_x_dist(obj);
+        if ((int32_t)obj->field28 <= 0xa0) {
+            is_he_airborn(obj);
+            if (obj->field5c != 0)
+                return mk3_install(thread, (MK3THREADFUNC)t_d_block);
+        }
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+    if (token != 0)
+        return -3;
+
+    q_will_he_reach_me(obj);
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_d_block);
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 <= 0x7f)
+        return mk3_install(thread, (MK3THREADFUNC)t_d_block);
+
+    obj->field1c = ((MK3OBJ *)(uintptr_t)obj->field00->him)->field1c;
+    if ((int32_t)obj->field1c < 0) {
+        h = (MK3THREADFUNC)t_flykick_heading_up;
+    } else {
+        get_his_dog(obj);
+        if ((int32_t)obj->field1c <= 0x27) {
+            h = (MK3THREADFUNC)t_flykick_heading_up;
+        } else {
+            obj->a10     = 0x30;
+            obj->field48 = (uint32_t)(uintptr_t)is_flyk_close;
+            *mk3_frame(thread, thread->frame + 1) = 0x12b4;
+            thread->frame = thread->frame + 1;
+            h = (MK3THREADFUNC)t_stance_wait_yes;
+        }
+    }
+    return mk3_install(thread, h);
+}
+
+/* c_lia_zap -- armv7 0x00070fd8 */
+long c_lia_zap(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+    uint32_t      token = *mk3_frame(thread, thread->frame + 1);
+    int32_t       d;
+
+    if (token == 0xdf3) {
+        obj->a10     = 0x40;
+        obj->field48 = 0x40;
+        *mk3_frame(thread, thread->frame + 1) = 0xdf6;
+        thread->frame = thread->frame + 1;
+        return mk3_install(thread, (MK3THREADFUNC)t_d_run_a11);
+    }
+    if (token == 0xdf6)
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    if (token == 0xdfc)
+        return mk3_install(thread, (MK3THREADFUNC)t_d_uppercut);
+    if (token == 0xdf1) {
+        obj->field48 = 0;
+        *mk3_frame(thread, thread->frame + 1) = 0xdf3;
+        thread->frame = thread->frame + 1;
+        return mk3_install(thread, (MK3THREADFUNC)t_do_jump_up);
+    }
+    if (token != 0)
+        return -3;
+
+    get_x_dist(obj);
+    d = (int32_t)obj->field28;
+    if (d <= 0xbf) {
+        obj->a10     = 0x40;
+        obj->field48 = 0x40;
+        *mk3_frame(thread, thread->frame + 1) = 0xdfc;
+        thread->frame = thread->frame + 1;
+        h = (MK3THREADFUNC)t_d_run_a11;
+    } else if (d > 0xf0) {
+        h = (MK3THREADFUNC)t_d_fflip_kick_jump;
+    } else {
+        q_am_i_cornered(obj);
+        if (obj->field5c == 0) {
+            h = (MK3THREADFUNC)t_d_bflip_jump;
+        } else {
+            *mk3_frame(thread, thread->frame + 1) = 0xdf1;
+            thread->frame = thread->frame + 1;
+            h = (MK3THREADFUNC)t_stw_proj_proc;
+        }
+    }
+    return mk3_install(thread, h);
+}
