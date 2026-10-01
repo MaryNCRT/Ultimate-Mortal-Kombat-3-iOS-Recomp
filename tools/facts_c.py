@@ -227,6 +227,8 @@ NOT_A_CALL = frozenset((
     # not to anything the binary branches to
     "MK3_FIELD12", "MK3_SET_FIELD12", "MK3_FIELD0E", "MK3_SET_FIELD0E",
     "MK3_FIELD0E_S", "MK3_FIELD12_S", "G_SWITCH_COUNTER",
+    # a global holding a function pointer: an indirect call in the binary
+    "mk3_getbbox_cb",
 ))
 
 
