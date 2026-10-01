@@ -77,6 +77,7 @@ def main(argv):
                              capture_output=True, text=True).stdout.split("\n")
         head = [l for l in out if "bytes" in l][:1]
         print("== " + (head[0].split("  ")[0] + " " + " ".join(head[0].split()[1:3]) if head else fn))
+        rows = []
         pend = {}                       # reg -> literal value
         hm = re.search(r"0x([0-9a-f]+)\s+(\d+) bytes", " ".join(head))
         end = int(hm.group(1), 16) + int(hm.group(2)) if hm else 1 << 40
@@ -101,11 +102,90 @@ def main(argv):
             if mn.startswith("bl") and ";" in l:
                 note = l.split(";")[1].strip()
                 ops = ops.split("#")[0] + "#" + ops.split("#")[-1] if "#" in ops else ops
-            print("%05x %s %s%s" % (a & 0xfffff, mn, ops, ("   ; " + note) if note else ""))
+            rows.append((a & 0xfffff, mn, ops, note))
             if mn in ("bx", "pop") and "lr" in ops + "pc" and False:
                 ended = True
+        for ln in (rows if RAW else fold(rows)):
+            print(ln if isinstance(ln, str) else
+                  "%05x %s %s%s" % (ln[0], ln[1], ln[2], ("   ; " + ln[3]) if ln[3] else ""))
         print()
 
 
+RAW = "--raw" in sys.argv
+
+
+def fold(rows):
+    """Collapse the boilerplate every frame-handler repeats into one line:
+
+        TOKCHK obj=rX tok=rY      the refusal prologue (frame+1 token read)
+        INSTALL rH [tok=rZ]       handler into frame[frame], token slot above cleared
+
+    and drop the push/pop/return-value plumbing. Anything that does not match
+    exactly is left as the raw instruction."""
+    out = []
+    i = 0
+    rows = [r for r in rows
+            if not (r[1] in ("nop",) or (r[1] == "mov" and re.match(r"r0, r[4-9]$", r[2]) and False))]
+    n = len(rows)
+
+    def at(k):
+        return rows[i + k] if i + k < n else (0, "", "", "")
+
+    while i < n:
+        a = at(0)
+        # INSTALL: ldr r3,[T,#0xa4]; (mov r0,K)?; lsls r3,r3,#3; adds r3,r3,T; str H,[r3,#4];
+        #          ldr r3,[T,#0xa4]; adds r3,#1; str Z,[T,r3,lsl #3]
+        j = i
+        seq = []
+        while j < n and len(seq) < 9:
+            if rows[j][1] == "mov" and re.match(r"r0, r\d+$", rows[j][2]):
+                j += 1
+                continue
+            seq.append(rows[j])
+            j += 1
+            if len(seq) == 7:
+                break
+        if len(seq) == 7:
+            m1 = re.match(r"r3, \[(\w+), #0xa4\]$", seq[0][2])
+            ok = (seq[0][1].startswith("ldr") and m1 and seq[1][1].startswith("lsl")
+                  and re.match(r"r3, r3, #3$", seq[1][2]) and seq[2][1] == "adds"
+                  and re.match(r"r3, r3, %s$" % m1.group(1), seq[2][2])
+                  and seq[3][1] == "str" and re.match(r"(\w+), \[r3, #4\]$", seq[3][2])
+                  and seq[4][1].startswith("ldr") and seq[4][2] == seq[0][2]
+                  and seq[5][1] == "adds" and seq[5][2] == "r3, #1"
+                  and seq[6][1].startswith("str"))
+            if ok:
+                h = re.match(r"(\w+), \[r3, #4\]$", seq[3][2]).group(1)
+                out.append("%05x INSTALL %s" % (seq[0][0], h))
+                i = j
+                continue
+        # TOKCHK: ldr r3,[T,#0xa4]; ..; ldr O,[T,#0x108]; adds r3,#1; ldr K,[T,r3,lsl #3]; cbnz/cbz K
+        if a[1].startswith("ldr") and re.match(r"r\d+, \[r0, #0xa4\]$", a[2]):
+            win = rows[i:i + 7]
+            txt = [(w[1], w[2]) for w in win]
+            o = k = None
+            for w in win:
+                m = re.match(r"(\w+), \[r0, #0x108\]$", w[2])
+                if w[1].startswith("ldr") and m:
+                    o = m.group(1)
+                m = re.match(r"(\w+), \[r0, r3, lsl #3\]$", w[2])
+                if w[1].startswith("ldr") and m:
+                    k = m.group(1)
+            if o and k:
+                cut = None
+                for t, w in enumerate(win):
+                    if w[1] in ("cbnz", "cbz", "cmp", "bne", "beq") and k in w[2]:
+                        cut = t
+                        break
+                if cut is not None:
+                    out.append("%05x TOKCHK obj=%s tok=%s   (%s)" % (a[0], o, k, win[cut][1]))
+                    i += cut + 1
+                    continue
+        out.append(a)
+        i += 1
+    return [o for o in out if not (not isinstance(o, str) and o[1] in ("pop", "bx") and "lr" in o[2] + "pc")
+            and not (not isinstance(o, str) and o[1] == "mvn" and o[2] == "r0, #2")]
+
+
 if __name__ == "__main__":
-    main(sys.argv)
+    main([a for a in sys.argv if a != '--raw'])
