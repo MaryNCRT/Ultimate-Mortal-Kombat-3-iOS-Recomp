@@ -8451,3 +8451,262 @@ long t_react_jump_table(MK3THREAD *thread)
     obj->field24 = h;
     return mk3_install(thread, (MK3THREADFUNC)(uintptr_t)h);
 }
+
+/* ======================================================================
+ * The fatality family (friendship, animality, fatality 1 and 2) -- one
+ * template: align at the character's distance, arm q_is_he_dizzy and wait,
+ * then run the move or abort -- and the a11 walkers.
+ * ====================================================================== */
+
+extern const uint32_t ochar_friendship_distances[];
+extern const uint32_t ochar_animality_distances[];
+extern const uint32_t ochar_fatality_distances[];
+long t_fatality_align(struct MK3THREAD *thread);
+long t_do_friendship(struct MK3THREAD *thread);
+long t_do_animality(struct MK3THREAD *thread);
+long t_do_fatality_1(struct MK3THREAD *thread);
+long t_do_fatality_2(struct MK3THREAD *thread);
+long t_d_fatality_abort(struct MK3THREAD *thread);
+void q_my_back_to_him(MK3OBJ *obj);
+
+/* t_drone_friendship -- armv7 0x000691a4 */
+long t_drone_friendship(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x9c7) {
+        if (obj->field08->field24 == 1 && obj->field00->field18 != 0x302) {
+            *mk3_frame(thread, thread->frame + 1) = 0x9cb;
+            thread->frame = thread->frame + 1;
+            return mk3_install(thread, (MK3THREADFUNC)t_do_duck);
+        }
+        return mk3_install(thread, (MK3THREADFUNC)t_do_friendship);
+    }
+    if (token == 0x9cb)
+        return mk3_install(thread, (MK3THREADFUNC)t_do_friendship);
+    if (token != 0)
+        return -3;
+
+    obj->field1c = ochar_friendship_distances[obj->field08->field24];
+    *mk3_frame(thread, thread->frame + 1) = 0x9c7;
+    thread->frame = thread->frame + 1;
+    return mk3_install(thread, (MK3THREADFUNC)t_fatality_align);
+}
+
+/* t_drone_animality, t_drone_do_fatality1/2 -- armv7 0x00069274,
+ * 0x000694d4, 0x000693e0 */
+long t_drone_animality(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x9f3) {
+        obj->a10     = 0x40;
+        obj->field48 = (uint32_t)(uintptr_t)q_is_he_dizzy;
+        *mk3_frame(thread, thread->frame + 1) = 0x9f6;
+        thread->frame = thread->frame + 1;
+        return mk3_install(thread, (MK3THREADFUNC)t_stance_wait_yes);
+    }
+    if (token == 0x9f6) {
+        if (obj->a10 == 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_d_fatality_abort);
+        return mk3_install(thread, (MK3THREADFUNC)t_do_animality);
+    }
+    if (token != 0)
+        return -3;
+    obj->field1c = ochar_animality_distances[obj->field08->field24];
+    *mk3_frame(thread, thread->frame + 1) = 0x9f3;
+    thread->frame = thread->frame + 1;
+    return mk3_install(thread, (MK3THREADFUNC)t_fatality_align);
+}
+
+long t_drone_do_fatality1(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0xa33) {
+        obj->field48 = (uint32_t)(uintptr_t)q_is_he_dizzy;
+        obj->a10     = 0x40;
+        *mk3_frame(thread, thread->frame + 1) = 0xa36;
+        thread->frame = thread->frame + 1;
+        return mk3_install(thread, (MK3THREADFUNC)t_stance_wait_yes);
+    }
+    if (token == 0xa36) {
+        if (obj->field5c == 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_d_fatality_abort);
+        return mk3_install(thread, (MK3THREADFUNC)t_do_fatality_1);
+    }
+    if (token != 0)
+        return -3;
+    obj->field1c = (uint16_t)ochar_fatality_distances[obj->field08->field24];
+    *mk3_frame(thread, thread->frame + 1) = 0xa33;
+    thread->frame = thread->frame + 1;
+    return mk3_install(thread, (MK3THREADFUNC)t_fatality_align);
+}
+
+long t_drone_do_fatality2(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0xa27) {
+        obj->a10     = 0x40;
+        obj->field48 = (uint32_t)(uintptr_t)q_is_he_dizzy;
+        *mk3_frame(thread, thread->frame + 1) = 0xa2a;
+        thread->frame = thread->frame + 1;
+        return mk3_install(thread, (MK3THREADFUNC)t_stance_wait_yes);
+    }
+    if (token == 0xa2a) {
+        if (obj->a10 == 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_d_fatality_abort);
+        return mk3_install(thread, (MK3THREADFUNC)t_do_fatality_2);
+    }
+    if (token != 0)
+        return -3;
+    obj->field1c = (uint32_t)((int32_t)ochar_fatality_distances[obj->field08->field24] >> 16);
+    *mk3_frame(thread, thread->frame + 1) = 0xa27;
+    thread->frame = thread->frame + 1;
+    return mk3_install(thread, (MK3THREADFUNC)t_fatality_align);
+}
+
+/* t_fatality_stalk_a11 -- armv7 0x0007293c */
+long t_fatality_stalk_a11(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0xa91) {
+        *mk3_frame(thread, thread->frame + 1) = 0xa92;
+        thread->frame = thread->frame + 1;
+        return mk3_install(thread, (MK3THREADFUNC)t_check_winner_status);
+    }
+    if (token == 0xa92) {
+        next_anirate(obj);
+        get_x_dist(obj);
+        if ((int32_t)obj->field28 < (int32_t)obj->field48)
+            return mk3_install(thread, (MK3THREADFUNC)t_dist_retp);
+        obj->a10 = obj->a10 - 1;
+        if (obj->a10 == 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_dist_retp);
+        goto facing;
+    }
+    if (token != 0)
+        return -3;
+    face_opponent(obj);
+    d_walkf_setup(obj);
+
+facing:
+    am_i_facing_him(obj);
+    if (obj->field5c != 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0xa91;
+        thread->fieldfc = 1;
+        return 1;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_d_turnaround);
+}
+
+/* t_d_retreat_a11 -- armv7 0x00072828 */
+long t_d_retreat_a11(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x2ee) {
+        next_anirate(obj);
+        *mk3_frame(thread, thread->frame + 1) = 0x2f0;
+        thread->frame = thread->frame + 1;
+        return mk3_install(thread, (MK3THREADFUNC)t_d_beware);
+    }
+    if (token == 0x2f0) {
+        d_either_edge_a5(obj);
+        if ((int32_t)obj->field30 <= 0x4f)
+            return mk3_install(thread, (MK3THREADFUNC)t_d_cornered);
+        get_x_dist(obj);
+        if ((int32_t)obj->field28 > (int32_t)obj->field48)
+            return mk3_install(thread, (MK3THREADFUNC)t_dist_retp);
+        obj->a10 = obj->a10 - 1;
+        if ((int32_t)obj->a10 <= 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_dist_retp);
+        goto facing;
+    }
+    if (token != 0)
+        return -3;
+    face_opponent(obj);
+    d_walkb_setup(obj);
+
+facing:
+    if (am_i_facing_him(obj) != 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x2ee;
+        thread->fieldfc = 1;
+        return 1;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_d_turnaround);
+}
+
+/* t_av_tele_explode -- armv7 0x0006efc4 */
+long t_av_tele_explode(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x120d) {
+        am_i_facing_him(obj);
+        if (obj->field5c == 0)
+            goto turn;
+        goto pause;
+    }
+    if (token == 0x1211)
+        goto pause;
+    if (token == 0x1214)
+        return mk3_install(thread, (MK3THREADFUNC)t_d_hi_kick);
+    if (token != 0)
+        return -3;
+    obj->a10     = 0x10;
+    obj->field48 = (uint32_t)(uintptr_t)q_my_back_to_him;
+    *mk3_frame(thread, thread->frame + 1) = 0x120d;
+    thread->frame = thread->frame + 1;
+    return mk3_install(thread, (MK3THREADFUNC)t_stance_wait_yes);
+
+pause:
+    obj->a10 = 0x10;
+    *mk3_frame(thread, thread->frame + 1) = 0x1214;
+    thread->frame = thread->frame + 1;
+    return mk3_install(thread, (MK3THREADFUNC)t_d_stance_pause);
+
+turn:
+    *mk3_frame(thread, thread->frame + 1) = 0x1211;
+    thread->frame = thread->frame + 1;
+    return mk3_install(thread, (MK3THREADFUNC)t_d_turnaround_jsrp);
+}
+
+/* t_d_upcut_finish -- armv7 0x00068fe8 */
+long t_d_upcut_finish(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x97d) {
+        *mk3_frame(thread, thread->frame + 1) = 0x97e;
+        thread->frame = thread->frame + 1;
+        return mk3_install(thread, (MK3THREADFUNC)t_do_duck);
+    }
+    if (token == 0x97e) {
+        *mk3_frame(thread, thread->frame + 1) = 0x97f;
+        thread->fieldfc = 8;
+        return 8;
+    }
+    if (token == 0x97f) {
+        q_is_he_dizzy(obj);
+        if (obj->field5c != 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_d_uppercut);
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+    if (token != 0)
+        return -3;
+    obj->a10 = 0x10;
+    *mk3_frame(thread, thread->frame + 1) = 0x97d;
+    thread->frame = thread->frame + 1;
+    return mk3_install(thread, (MK3THREADFUNC)t_d_stance_pause);
+}
