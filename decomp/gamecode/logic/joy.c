@@ -1247,8 +1247,8 @@ long t_local_reaction_exit(MK3THREAD *thread)
  *      0x3fd         am_i_facing_him? no -> t_turn_around, yes -> 0x404
  *      0x400,0x42e,
  *      0x5e3,0x5f2,
- *      0x63b         stop_me_player, become t_local_reaction_exit
- *      0x403         become t_check_winner_status
+ *      0x63b         become t_local_reaction_exit (NO stop_me_player: that is 0x49a)
+ *      0x403         token := 0x404, push, become t_check_winner_status
  *      0x404         G[0x44e] -- the round timer -- zero means wait
  *      0x408         check_block_bit: blocking -> t_joy_block
  *      0x417         next_anirate, then the 0x3fd facing check
@@ -1257,7 +1257,8 @@ long t_local_reaction_exit(MK3THREAD *thread)
  *      0x43a, 0x446  the two walk directions
  *      0x44c, 0x455  pick the walk info, forward or back
  *      0x45c         call obj->field30 -- the walk routine -- then animate
- *      0x46c, 0x46d  PARK1's own token: fall through to the walk call
+ *      0x46c         PARK1 again
+ *      0x46d         token := 0x471, push, become t_check_winner_status
  *      0x471, 0x478,
  *      0x479, 0x47b  the walk loop and its flip check
  *      0x49a, 0x4a7  reduce_turbo_bar, stop
@@ -1265,10 +1266,11 @@ long t_local_reaction_exit(MK3THREAD *thread)
  *      0x4a4, 0x4a5  run: run_setup and next_anirate
  *      0x4b5         compare the walk routine against the stick
  *      0x5dc         the 0x40000/0x70000 pair and a descend into t_do_flip
- *      0x5eb         pop a level, set 0x1a/0x1b, descend into t_do_flip
+ *      0x5eb         set 0x1a/0x1b, -4.0, descend into t_do_flip (the pop is
+ *                    in the diagonal reads that come before it, not here)
  *      0x5fd         read the stick and branch on up+down / up+left
  *      0x617         count 0x48 down, then pop
- *      0x61f         push a level and read the stick
+ *      0x61f         read the stick (the push is in 0x4a4 / 0x478 before it)
  *
  * ## Two findings worth carrying out of here
  *
@@ -1295,6 +1297,7 @@ long t_do_flip(MK3THREAD *thread);
 long t_joy_block(MK3THREAD *thread);
 long t_walk_flip_check(MK3THREAD *thread);
 long t_joy_down(MK3THREAD *thread);
+long t_joy_duck_entry(MK3THREAD *thread);
 
 void get_walk_info_f(MK3OBJ *obj);            /* slot 0x000f37d4 */
 void get_walk_info_b(MK3OBJ *obj);            /* slot 0x000f37d0 */
@@ -1308,7 +1311,7 @@ long next_anirate(MK3OBJ *obj);
 void run_setup(MK3OBJ *obj);
 void distance_from_ground(MK3OBJ *obj);
 void face_opponent(MK3OBJ *obj);
-void get_my_height(MK3OBJ *obj);
+void get_my_height(MK3OBJ *obj);            /* returns r0 = field20 too */
 void reduce_turbo_bar(MK3OBJ *obj);
 /* `is_run_pressed` is defined earlier in this file; it answers in
  * `obj->field5c`, the boolean slot, and returns it as well. */
@@ -1333,294 +1336,118 @@ static long plyr_park1(MK3THREAD *t)
 long plyrthread(MK3THREAD *thread)
 {
     MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
-    uint32_t frame = thread->frame;
-    uint32_t token = *mk3_frame(thread, frame + 1);
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
     uint32_t bits;
 
+    /* The dispatch, as `tools/dispatch.py` executes it: token -> body address.
+     * Every label below is the address of the body in the binary, and every
+     * body ends in a return or a goto, so what follows reads the way the
+     * machine code runs. Several bodies share tails; a shared tail is one
+     * label here because it is one physical site there. */
     switch (token) {
-
-    /* ---------------------------------------------------------------- enter */
-    case 0:
-    case 0x3a9:
-        obj->field00->field10 |= 1;         /* driven from outside */
-        ochar_begin_calls(obj);
-        /* fall through */
-    case 0x3e1:
-        stuff_buttons(obj, (uint32_t)(uintptr_t)&bt_stance);
-        obj->field00->field10 |= 1;
-        *mk3_frame(thread, frame + 1) = 0x3e4;
-        thread->fieldfc = 1;
-        return 1;
-
-    case 0x3e4:
-    case 0x3e6:
-        *mk3_frame(thread, frame + 1) = 0x3e8;
-        thread->frame = frame + 1;
-        return plyr_install(thread, thread->frame, (const void *)t_wait_for_start);
-
-    /* ------------------------------------------------------- the round starts */
+    case 0x5fd:  goto L31046;
+    case 0x43a:  goto L310b8;
+    case 0x4a0:  goto L310f6;
+    case 0x4a3:  goto L31100;
+    case 0x45c:  goto L31112;
+    case 0x46c:  goto L31142;
     case 0x3e8:
-    case 0x3eb:
-        GLBL_joy_entry = 0x3eb;             /* where a reaction comes back to */
-        enable_all_buttons(obj);
-        reset_proc_stack(thread);
-        joystick_in_a0(obj);
-        if ((obj->field1c & 2u) != 0)
-            goto duck_check;                /* down: the duck path */
-        /* fall through */
-
-    case 0x3f8:
-        obj->field1c = 0;
-        obj->field00->field14 = 0;
-        stance_setup(obj);
-        /* fall through */
-
-    case 0x3fd:
-        if (am_i_facing_him(obj) == 0) {
-            *mk3_frame(thread, frame + 1) = 0x400;
-            thread->frame = frame + 1;
-            return plyr_install(thread, thread->frame,
-                                (const void *)t_turn_around);
-        }
-        *mk3_frame(thread, frame + 1) = 0x404;
-        thread->frame = frame + 1;
-        return plyr_install(thread, thread->frame,
-                            (const void *)t_check_winner_status);
-
-    /* ------------------------------------------------- the round-over endings */
+    case 0x3eb:  goto L311a6;
+    case 0x3f8:  goto L311ce;
+    case 0x3fd:  goto L311dc;
+    case 0x403:  goto L3120a;
+    case 0x5eb:  goto L31264;
+    case 0:
+    case 0x3a9:  goto L312ce;
+    case 0x3e1:  goto L312de;
+    case 0x4a7:  goto L3131e;
+    case 0x49a:  goto L3132c;
     case 0x400:
     case 0x42e:
     case 0x5e3:
     case 0x5f2:
-    case 0x63b:
-        stop_me_player(obj);
-        return plyr_install(thread, thread->frame,
-                            (const void *)t_local_reaction_exit);
-
-    case 0x403:
-        thread->frame = frame + 1;
-        return plyr_install(thread, thread->frame,
-                            (const void *)t_check_winner_status);
-
-    /* **The round timer.** G + 0x44e is a halfword; zero means the round has
-     * not started and the fighter goes back to waiting. */
-    case 0x404:
-        obj->field1c = (uint32_t)(long)
-            *(const int16_t *)(const void *)(G_BYTES + 0x44e);
-        if (*(const uint16_t *)(const void *)(G_BYTES + 0x44e) == 0) {
-            *mk3_frame(thread, frame + 1) = 0x3e8;
-            thread->frame = frame + 1;
-            return plyr_install(thread, thread->frame,
-                                (const void *)t_wait_for_start);
-        }
-        *mk3_frame(thread, frame + 1) = 0x408;
-        thread->fieldfc = 1;
-        return 1;
-
-    case 0x408:
-        check_block_bit(obj);
-        if (obj->field5c != 0)
-            return plyr_install(thread, thread->frame,
-                                (const void *)t_joy_block);
-        goto read_stick;
-
-    case 0x417:
-        next_anirate(obj);
-        goto facing_check;
-
-    /* ------------------------------------------------------------- the jump */
-    case 0x424:
-        face_opponent(obj);
-        disable_all_buttons(obj);
-        *mk3_frame(thread, frame + 1) = 0x427;
-        thread->frame = frame + 1;
-        *mk3_frame(thread, thread->frame + 1) = 0;
-        /* copy the handler down a level -- the binary reads [r3,#-4] and
-         * writes [r3,#4], which is frame[n-1].handler into frame[n].handler */
-        mk3_frame(thread, thread->frame)[1] =
-            mk3_frame(thread, thread->frame - 1)[1];
-        goto stick_state;
-
-    case 0x427:
-        stuff_buttons(obj, (uint32_t)(uintptr_t)&bt_jump);
-        distance_from_ground(obj);
-        obj->field48 = 0;
-        obj->a10 = obj->field1c;
-        *mk3_frame(thread, frame + 1) = 0x42e;
-        thread->frame = frame + 1;
-        return plyr_install(thread, thread->frame,
-                            (const void *)t_do_jump_up);
-
-    /* --------------------------------------------------------- walking, both */
-    case 0x43a:
-        obj->field2c = (*(const uint32_t *)(const void *)
-                          ((const char *)(const void *)obj->field08 + 0x28)
-                        & 0x10u) ^ 0x10u;
-        obj->field1c = 4;
-        goto walk_common;
-
-    case 0x446:
-        obj->field2c = *(const uint32_t *)(const void *)
-                          ((const char *)(const void *)obj->field08 + 0x28)
-                       & 0x10u;
-        obj->field1c = 8;
-        goto walk_common;
-
-    case 0x44c:
-        goto walk_pick;
-
-    case 0x455:
-        obj->field30 = (uint32_t)(uintptr_t)get_walk_info_b;
-        goto walk_pick_tail;
-
-    /* **The one indirect call in the function**: whatever 0x30 holds is the
-     * walk routine, and 0x44c / 0x455 chose it. */
-    case 0x45c:
-        ((void (*)(MK3OBJ *))(uintptr_t)obj->field30)(obj);
-        obj->field40 = obj->field24;
-        init_anirate(obj);
-        obj->field1c = obj->field20;
-        set_x_vel_player(obj);
-        obj->field00->field28 = obj->field40;
-        get_char_ani(obj);
-        obj->field00->field24 = obj->field40;
-        return plyr_park1(thread);
-
-    case 0x46c:
-    case 0x46d:
-        return plyr_park1(thread);
-
-    case 0x471:
-        obj->field1c = obj->field00->field28;
-        if (obj->field00->field28 == 1) {
-            is_run_pressed(obj);
-            if (obj->field5c != 0)
-                goto run_start;
-        }
-        /* fall through */
-    case 0x478:
-        *mk3_frame(thread, frame + 1) = 0x479;
-        goto push_and_copy;
-
-    case 0x479:
-        *mk3_frame(thread, frame + 1) = 0x47b;
-        thread->frame = frame + 1;
-        return plyr_install(thread, thread->frame,
-                            (const void *)t_walk_flip_check);
-
-    case 0x47b:
-        next_anirate(obj);
-        mask_joystick(obj);
-        if (obj->field1c == 0)
-            goto stop_state;
-        return plyr_park1(thread);
-
-    /* --------------------------------------------------------------- the bars */
-    case 0x49a:
-        goto stop_state;
-
-    case 0x4a7:
-        reduce_turbo_bar(obj);
-        if (obj->field1c != 0)
-            goto turbo_run;
-        goto stop_state;
-
-    /* ------------------------------------------------------------------- run */
-    case 0x4a0:
-    case 0x4a3:
-    run_start:
-        run_setup(obj);
-        *mk3_frame(thread, thread->frame + 1) = 0x4a4;
-        thread->fieldfc = 1;
-        return 1;
-
-    case 0x4a4:
-        *mk3_frame(thread, frame + 1) = 0x4a5;
-        goto push_and_copy;
-
-    case 0x4a5:
-        next_anirate(obj);
-        *mk3_frame(thread, frame + 1) = 0x4a7;
-        thread->frame = frame + 1;
-        return plyr_install(thread, thread->frame,
-                            (const void *)t_check_winner_status);
-
-    /* **Has the stick changed since the walk routine was chosen?** 0x30 still
-     * holds it, and the fighter's own 0x18 says what it is doing now. */
-    case 0x4b5:
-        obj->field1c = *(const uint32_t *)(const void *)
-                          ((const char *)(const void *)obj->field08 + 0x18);
-        if (obj->field1c == obj->field30)
-            goto stop_state;
-        mask_joystick(obj);
-        if (obj->field1c == 0)
-            goto stop_state;
-        goto run_start;
-
-    case 0x5dc:
-        thread->frame = frame - 1;          /* pop a level, keeping the pair */
-        goto flip_5dc;
-
-    case 0x5eb:
-        goto pop_and_flip;
-
-    case 0x5fd:
-        obj->field48 = 3;
-        goto read_stick;
-
-    case 0x617:
-        obj->field48 = obj->field48 - 1;
-        if ((long)obj->field48 > 0)
-            goto read_stick_again;
-        if ((long)thread->frame <= 0)
-            return plyr_install(thread, thread->frame,
-                                (const void *)t_local_reaction_exit);
-        thread->frame = frame - 1;
-        return 0;
-
-    case 0x61f:
-        goto push_and_read;
-
-    default:
-        return -3;
+    case 0x63b:  goto L31336;
+    case 0x455:  goto L3135c;
+    case 0x3e4:
+    case 0x3e6:  goto L31372;
+    case 0x47b:  goto L31392;
+    case 0x617:  goto L313a8;
+    case 0x46d:  goto L313c8;
+    case 0x404:  goto L313e4;
+    case 0x427:  goto L3140e;
+    case 0x408:  goto L31448;
+    case 0x479:  goto L31460;
+    case 0x4a5:  goto L3147c;
+    case 0x5dc:  goto L314d0;
+    case 0x4b5:  goto L31506;
+    case 0x4a4:  goto L31538;
+    case 0x61f:  goto L3155c;
+    case 0x424:  goto L315f4;
+    case 0x417:  goto L31630;
+    case 0x478:  goto L31648;
+    case 0x471:  goto L31654;
+    case 0x446:  goto L316b4;
+    case 0x44c:  goto L31760;
+    default:     return -3;
     }
 
-    /* ================================================== the shared bodies ==== */
+    /* ----------------------------------------------------------- 0x5fd, 0x617 */
+L31046:                                 /* 0x5fd: the diagonal read, counted */
+    obj->field48 = 3;
+L3104a:                                 /* 0x617 comes back here, still counting */
+    joystick_in_a0(obj);
+    bits = obj->field1c;
+    obj->field20 = bits;
+    obj->field1c = bits & 9u;
+    if ((bits & 9u) == 9u)
+        goto L314a4;
+    bits &= 5u;
+    obj->field20 = bits;
+    if (bits == 5u)
+        goto L31238;
+    *mk3_frame(thread, thread->frame + 1) = 0x617;
+    thread->fieldfc = 1;
+    return 1;
 
-duck_check:
+    /* ----------------------------------------------------- walking, 0x43a... */
+L310b8:                                 /* 0x43a, and the back-walk of the stick read */
+    obj->field2c = (*(const uint32_t *)(const void *)
+                      ((const char *)(const void *)obj->field08 + 0x28)
+                    & 0x10u) ^ 0x10u;
+    obj->field1c = 4;
+    goto L310cc;
+
+L316b4:                                 /* 0x446 and the forward walk */
     obj->field2c = *(const uint32_t *)(const void *)
-                      ((const char *)(const void *)obj->field08 + 0x28) & 0x10u;
+                      ((const char *)(const void *)obj->field08 + 0x28)
+                   & 0x10u;
     obj->field1c = 8;
-    goto walk_common;
+    goto L310cc;
 
-walk_common:
+L31760:                                 /* 0x44c */
+L310cc:
     obj->field00->field34 = obj->field1c;   /* the direction mask */
     obj->field24 = 0;
     obj->field00->field18 = 0;
     obj->field40 = 1;
-    if (obj->field2c != 0) {
-        obj->field30 = (uint32_t)(uintptr_t)get_walk_info_b;
-        goto walk_pick_tail;
-    }
+    if (obj->field2c != 0)
+        goto L31352;
     obj->field30 = (uint32_t)(uintptr_t)get_walk_info_f;
-    goto run_or_walk;
+L310ee:
+    if (is_run_pressed(obj) == 0)
+        goto L31112;
 
-walk_pick:
-    obj->field00->field34 = obj->field1c;
-    goto walk_common;
+    /* 0x4a0 comes in here; 0x4a3 comes in one step later, without the setup */
+L310f6:
+    run_setup(obj);
+L31100:
+    *mk3_frame(thread, thread->frame + 1) = 0x4a4;
+    thread->fieldfc = 1;
+    return 1;
 
-walk_pick_tail:
-    if (obj->field30 != (uint32_t)(uintptr_t)get_walk_info_f)
-        goto walk_call;
-    goto run_or_walk;
-
-run_or_walk:
-    is_run_pressed(obj);
-    if (obj->field5c == 0)
-        goto walk_call;
-    goto run_start;
-
-walk_call:
+    /* **The one indirect call in the function**: whatever 0x30 holds is the
+     * walk routine, and 0x44c / 0x455 chose it. */
+L31112:                                 /* 0x45c */
     ((void (*)(MK3OBJ *))(uintptr_t)obj->field30)(obj);
     obj->field40 = obj->field24;
     init_anirate(obj);
@@ -1629,121 +1456,193 @@ walk_call:
     obj->field00->field28 = obj->field40;
     get_char_ani(obj);
     obj->field00->field24 = obj->field40;
-    return plyr_park1(thread);
-
-read_stick:
-    joystick_in_a0(obj);
-    bits = obj->field1c;
-    if ((bits & 8u) != 0 && (int16_t)obj->field00->field7c == 0)
-        goto duck_check;
-    if ((bits & 4u) != 0 && (int16_t)obj->field00->field7c == 0)
-        goto back_walk;
-    if ((bits & 1u) != 0)
-        goto jump_prep;
-    if ((bits & 2u) == 0)
-        goto down_state;
-    return plyr_install(thread, thread->frame, (const void *)t_joy_down);
-
-read_stick_again:
-    obj->field48 = 3;
-    joystick_in_a0(obj);
-    bits = obj->field1c;
-    obj->field20 = bits;
-    obj->field1c = bits & 9u;
-    if ((bits & 9u) == 9u)
-        goto pop_and_flip_hi;
-    obj->field20 = bits & 5u;
-    if ((bits & 5u) == 5u)
-        goto pop_and_flip;
-    *mk3_frame(thread, thread->frame + 1) = 0x617;
+L31142:                                 /* 0x46c, and everything that parks one frame */
+    *mk3_frame(thread, thread->frame + 1) = 0x46d;
     thread->fieldfc = 1;
     return 1;
 
-back_walk:
-    obj->field2c = (*(const uint32_t *)(const void *)
-                      ((const char *)(const void *)obj->field08 + 0x28)
-                    & 0x10u) ^ 0x10u;
-    obj->field1c = 4;
-    goto walk_common;
-
-jump_prep:
-    face_opponent(obj);
-    disable_all_buttons(obj);
-    *mk3_frame(thread, frame + 1) = 0x427;
-    thread->frame = frame + 1;
-    *mk3_frame(thread, thread->frame + 1) = 0;
-    mk3_frame(thread, thread->frame)[1] =
-        mk3_frame(thread, thread->frame - 1)[1];
-    goto stick_state;
-
-down_state:
-    *mk3_frame(thread, frame + 1) = 0x417;
-    thread->frame = frame + 1;
-    mk3_frame(thread, thread->frame)[1] =
-        (uint32_t)(uintptr_t)t_back_to_shang_check;
-    *mk3_frame(thread, thread->frame + 1) = 0;
-    return 0;
-
-facing_check:
+    /* ---------------------------------------------------------- the round start */
+L311a6:                                 /* 0x3e8, 0x3eb */
+    GLBL_joy_entry = 0x3eb;             /* where a reaction comes back to */
+    enable_all_buttons(obj);
+    reset_proc_stack(thread);
+    joystick_in_a0(obj);
+    if ((obj->field1c & 2u) != 0)
+        goto L316ec;
+L311ce:                                 /* 0x3f8 */
+    obj->field1c = 0;
+    obj->field00->field14 = 0;
+    stance_setup(obj);
+L311dc:                                 /* 0x3fd, 0x417's second half */
     if (am_i_facing_him(obj) == 0) {
         *mk3_frame(thread, thread->frame + 1) = 0x400;
         thread->frame = thread->frame + 1;
         return plyr_install(thread, thread->frame,
                             (const void *)t_turn_around);
     }
+L3120a:                                 /* 0x403 */
     *mk3_frame(thread, thread->frame + 1) = 0x404;
     thread->frame = thread->frame + 1;
     return plyr_install(thread, thread->frame,
                         (const void *)t_check_winner_status);
 
-stop_state:
+    /* The pop: a fighter that has been pushed one level goes back down and
+     * the pair above it is slid down with it. Reached from the diagonal
+     * reads, and from nowhere else. */
+L31238:
+    if ((long)thread->frame <= 0)
+        goto L31780;
+L31242:
+    thread->frame = thread->frame - 1;
+L31248:
+    {
+        uint32_t f = thread->frame;
+        uint32_t h = mk3_frame(thread, f + 1)[1];
+
+        *mk3_frame(thread, f + 1) = *mk3_frame(thread, f + 2);
+        mk3_frame(thread, f)[1] = h;
+    }
+L31264:                                 /* 0x5eb: the second flip, without the pop */
+    obj->field20 = 0x1a;
+    obj->field1c = 0x1a + 1;
+    obj->field34 = 0;
+    /* `ldr.w r3, [pc, #0x560]` at 0x0003126c, so the literal is at
+     * Align(0x31270,4) + 0x560 = 0x000317d0, and the word there is
+     * 0xfffc0000 -- the exact mirror of the +0x40000 the first flip loads. */
+    obj->field48 = 0xfffc0000u;             /* -4.0 in 16.16 */
+    *mk3_frame(thread, thread->frame + 1) = 0x5f2;
+    thread->frame = thread->frame + 1;
+    return plyr_install(thread, thread->frame, (const void *)t_do_flip);
+
+    /* --------------------------------------------------------------- the entry */
+L312ce:                                 /* 0, 0x3a9 */
+    obj->field00->field10 |= 1;         /* driven from outside */
+    ochar_begin_calls(obj);
+L312de:                                 /* 0x3e1 */
+    stuff_buttons(obj, (uint32_t)(uintptr_t)&bt_stance);
+    obj->field00->field10 |= 1;
+    *mk3_frame(thread, thread->frame + 1) = 0x3e4;
+    thread->fieldfc = 1;
+    return 1;
+
+    /* ------------------------------------------------------------ the bars, stop */
+L3131e:                                 /* 0x4a7 */
+    reduce_turbo_bar(obj);
+    if (obj->field1c != 0)
+        goto L316c6;
+L3132c:                                 /* 0x49a, and every way a walk ends */
     stop_me_player(obj);
+L31336:                                 /* 0x400, 0x42e, 0x5e3, 0x5f2, 0x63b: no stop */
     return plyr_install(thread, thread->frame,
                         (const void *)t_local_reaction_exit);
 
-turbo_run:
-    obj->field30 = 0xfffc0000u;             /* -4.0 in 16.16 */
-    joystick_in_a0(obj);
-    if ((obj->field1c & 8u) != 0)
-        goto compare_walk;
-    if ((obj->field1c & 4u) != 0) {
-        obj->field30 = (uint32_t)(-(long)obj->field30);
-        goto compare_walk_tail;
-    }
-    goto stop_state;
+    /* 0x455 comes in at the compare; the zero-direction path has just set
+     * the backward routine and joins it. */
+L31352:
+    obj->field30 = (uint32_t)(uintptr_t)get_walk_info_b;
+L3135c:
+    if (obj->field30 != (uint32_t)(uintptr_t)get_walk_info_f)
+        goto L31112;
+    goto L310ee;
 
-compare_walk:
-    obj->field1c = *(const uint32_t *)(const void *)
-                      ((const char *)(const void *)obj->field08 + 0x18);
-compare_walk_tail:
-    if (obj->field1c == obj->field30)
-        goto stop_state;
+L31372:                                 /* 0x3e4, 0x3e6 */
+    *mk3_frame(thread, thread->frame + 1) = 0x3e8;
+    thread->frame = thread->frame + 1;
+    return plyr_install(thread, thread->frame,
+                        (const void *)t_wait_for_start);
+
+L31392:                                 /* 0x47b */
+    next_anirate(obj);
     mask_joystick(obj);
     if (obj->field1c == 0)
-        goto stop_state;
-    goto run_start;
+        goto L3132c;
+    goto L31142;
 
-push_and_copy:
+L313a8:                                 /* 0x617: count down, then pop */
+    obj->field48 = obj->field48 - 1;
+    if ((long)obj->field48 > 0)
+        goto L3104a;
+    if ((long)thread->frame <= 0)
+        goto L31786;
+L313be:
+    thread->frame = thread->frame - 1;
+    return 0;
+
+L313c8:                                 /* 0x46d: run the winner check, come back at 0x471 */
+    *mk3_frame(thread, thread->frame + 1) = 0x471;
     thread->frame = thread->frame + 1;
-    *mk3_frame(thread, thread->frame + 1) = 0;
-    mk3_frame(thread, thread->frame)[1] =
-        mk3_frame(thread, thread->frame - 1)[1];
-    goto read_stick_again;
+    return plyr_install(thread, thread->frame,
+                        (const void *)t_check_winner_status);
 
-push_and_read:
+    /* **The round timer.** G + 0x44e is a halfword; zero means the round has
+     * not started and the fighter goes back to waiting. */
+L313e4:                                 /* 0x404 */
+    obj->field1c = (uint32_t)(long)
+        *(const int16_t *)(const void *)(G_BYTES + 0x44e);
+    if (*(const uint16_t *)(const void *)(G_BYTES + 0x44e) == 0)
+        goto L31372;
+    *mk3_frame(thread, thread->frame + 1) = 0x408;
+    thread->fieldfc = 1;
+    return 1;
+
+L3140e:                                 /* 0x427: the jump */
+    stuff_buttons(obj, (uint32_t)(uintptr_t)&bt_jump);
+    distance_from_ground(obj);
+    obj->field48 = 0;
+    obj->a10 = obj->field1c;
+    *mk3_frame(thread, thread->frame + 1) = 0x42e;
     thread->frame = thread->frame + 1;
+    return plyr_install(thread, thread->frame, (const void *)t_do_jump_up);
+
+L31448:                                 /* 0x408 */
+    if (check_block_bit(obj) != 0)
+        return plyr_install(thread, thread->frame, (const void *)t_joy_block);
+
+    /* ---------------------------------------------------------- the stick read */
+    joystick_in_a0(obj);
+    bits = obj->field1c;
+    if ((bits & 8u) != 0 && (int16_t)obj->field00->field7e == 0)
+        goto L316b4;
+    if ((bits & 4u) != 0 && (int16_t)obj->field00->field7e == 0)
+        goto L310b8;
+    if ((bits & 1u) != 0)
+        goto L315f4;
+    if ((bits & 2u) == 0)
+        goto L3178e;
+    mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_joy_down;
     *mk3_frame(thread, thread->frame + 1) = 0;
-    mk3_frame(thread, thread->frame)[1] =
-        mk3_frame(thread, thread->frame - 1)[1];
-    goto read_stick_again;
+    return 0;
 
-stick_state:
-    goto read_stick_again;
+L31460:                                 /* 0x479 */
+    *mk3_frame(thread, thread->frame + 1) = 0x47b;
+    thread->frame = thread->frame + 1;
+    return plyr_install(thread, thread->frame,
+                        (const void *)t_walk_flip_check);
 
-/* **The 0x40000 / 0x70000 pair, from one register.** `mov #0x40000` then
- * `add #0x30000` -- the shared-literal habit, so they must be transcribed as
- * the addition and not as two constants. */
-flip_5dc:
+L3147c:                                 /* 0x4a5 */
+    next_anirate(obj);
+    *mk3_frame(thread, thread->frame + 1) = 0x4a7;
+    thread->frame = thread->frame + 1;
+    return plyr_install(thread, thread->frame,
+                        (const void *)t_check_winner_status);
+
+    /* The 9 pair: up and the first horizontal. The same pop, then the first
+     * flip with its 0x40000 / 0x70000 pair. */
+L314a4:
+    if ((long)thread->frame <= 0)
+        goto L31758;
+L314ae:
+    thread->frame = thread->frame - 1;
+L314b4:
+    {
+        uint32_t f = thread->frame;
+        uint32_t h = mk3_frame(thread, f + 1)[1];
+
+        *mk3_frame(thread, f + 1) = *mk3_frame(thread, f + 2);
+        mk3_frame(thread, f)[1] = h;
+    }
+L314d0:                                 /* 0x5dc: **the 0x40000 / 0x70000 pair, from one
+                                         * register** -- `mov #0x40000` then `add #0x30000` */
     obj->field48 = 0x40000;
     obj->field34 = 0x40000 + 0x30000;
     obj->field1c = 0x1a;
@@ -1752,30 +1651,128 @@ flip_5dc:
     thread->frame = thread->frame + 1;
     return plyr_install(thread, thread->frame, (const void *)t_do_flip);
 
-pop_and_flip_hi:
-    if ((long)thread->frame <= 0)
-        return plyr_install(thread, thread->frame,
-                            (const void *)t_local_reaction_exit);
-    thread->frame = thread->frame - 1;
-    goto flip_5dc;
+    /* **Has the stick changed since the walk routine was chosen?** 0x30 still
+     * holds it, and the fighter's own 0x18 says what it is doing now. A fresh
+     * run joins at 0x31100, NOT at the setup: the run is already set up. */
+L31506:                                 /* 0x4b5 */
+    obj->field1c = *(const uint32_t *)(const void *)
+                      ((const char *)(const void *)obj->field08 + 0x18);
+    if (obj->field1c == obj->field30)
+        goto L3132c;
+    mask_joystick(obj);
+    if (obj->field1c == 0)
+        goto L3132c;
+    goto L31100;
 
-pop_and_flip:
-    if ((long)thread->frame <= 0)
-        return plyr_install(thread, thread->frame,
-                            (const void *)t_local_reaction_exit);
-    thread->frame = thread->frame - 1;
-    obj->field20 = 0x1a;
-    obj->field1c = 0x1a + 1;
-    obj->field34 = 0;
-    /* `ldr.w r3, [pc, #0x560]` at 0x0003126c, so the literal is at
-     * Align(0x31270,4) + 0x560 = 0x000317d0, and the word there is
-     * 0xfffc0000. This was transcribed as -8.0 and it is -4.0: the exact
-     * mirror of the +0x40000 the other flip path loads. Both angled jumps
-     * cover the same ground. */
-    obj->field48 = 0xfffc0000u;             /* -4.0 in 16.16 */
-    *mk3_frame(thread, thread->frame + 1) = 0x5f2;
+L31538:                                 /* 0x4a4 */
+    *mk3_frame(thread, thread->frame + 1) = 0x4a5;
+L3153c:                                 /* push a level, copy the handler down */
     thread->frame = thread->frame + 1;
-    return plyr_install(thread, thread->frame, (const void *)t_do_flip);
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    mk3_frame(thread, thread->frame)[1] =
+        mk3_frame(thread, thread->frame - 1)[1];
+
+L3155c:                                 /* 0x61f: the read with no counter */
+    joystick_in_a0(obj);
+    bits = obj->field1c;
+    obj->field20 = bits;
+    obj->field1c = bits & 9u;
+    if ((bits & 9u) == 9u)
+        goto L3158e;
+    bits &= 5u;
+    obj->field20 = bits;
+    if (bits == 5u)
+        goto L315ae;
+    if ((long)thread->frame > 0)
+        goto L313be;
+    return plyr_install(thread, thread->frame,
+                        (const void *)t_local_reaction_exit);
+
+L3158e:
+    if ((long)thread->frame > 0)
+        goto L314ae;
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_local_reaction_exit;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    goto L314b4;
+
+L315ae:
+    if ((long)thread->frame > 0)
+        goto L31242;
+L315b8:
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_local_reaction_exit;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    goto L31248;
+
+L315f4:                                 /* 0x424: the jump, from the stick */
+    face_opponent(obj);
+    disable_all_buttons(obj);
+    *mk3_frame(thread, thread->frame + 1) = 0x427;
+    thread->frame = thread->frame + 1;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    mk3_frame(thread, thread->frame)[1] =
+        mk3_frame(thread, thread->frame - 1)[1];
+    goto L31046;
+
+L31630:                                 /* 0x417 */
+    next_anirate(obj);
+    goto L311dc;
+
+L31648:                                 /* 0x478 */
+    *mk3_frame(thread, thread->frame + 1) = 0x479;
+    goto L3153c;
+
+L31654:                                 /* 0x471 */
+    obj->field1c = obj->field00->field28;
+    if (obj->field00->field28 != 1)
+        goto L31648;
+    if (is_run_pressed(obj) != 0)
+        goto L310f6;
+    goto L31648;
+
+L316c6:                                 /* turbo run: -8.0 in 16.16 */
+    obj->field30 = 0xfff80000u;
+    joystick_in_a0(obj);
+    bits = obj->field1c;
+    if ((bits & 8u) != 0)
+        goto L31506;
+    if ((bits & 4u) != 0) {
+        obj->field30 = (uint32_t)(-(long)obj->field30);
+        goto L31506;
+    }
+    goto L3132c;
+
+L316ec:                                 /* down on the round start: how tall are we? */
+    get_my_height(obj);
+    if ((int32_t)obj->field20 <= 0x60)
+        goto L31772;
+    return plyr_install(thread, thread->frame, (const void *)t_joy_down);
+
+L31758:
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_local_reaction_exit;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    goto L314b4;
+
+L31772:
+    return plyr_install(thread, thread->frame,
+                        (const void *)t_joy_duck_entry);
+
+L31780:
+    goto L315b8;
+
+L31786:
+    return plyr_install(thread, thread->frame,
+                        (const void *)t_local_reaction_exit);
+
+L3178e:                                 /* nothing pressed: the shang check */
+    *mk3_frame(thread, thread->frame + 1) = 0x417;
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] =
+        (uint32_t)(uintptr_t)t_back_to_shang_check;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
 }
 
 
