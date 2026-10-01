@@ -226,7 +226,7 @@ NOT_A_CALL = frozenset((
     # accessor macros for the half-word fields: they compile to a ldrh/strh,
     # not to anything the binary branches to
     "MK3_FIELD12", "MK3_SET_FIELD12", "MK3_FIELD0E", "MK3_SET_FIELD0E",
-    "MK3_FIELD0E_S", "MK3_FIELD12_S",
+    "MK3_FIELD0E_S", "MK3_FIELD12_S", "G_SWITCH_COUNTER",
 ))
 
 
@@ -528,6 +528,9 @@ def facts_of(lines, maps):
     # an indirect call, which the machine reader does not list by name
     fnlocals = {m.group(1) for ln in lines
                 for m in re.finditer(r"\b[A-Z][A-Z0-9_]*FUNC\w*\s+([A-Za-z_]\w*)\s*=", ln)}
+    # `void (*fn)(X *);` -- a local function pointer: an indirect call
+    fnlocals |= {m.group(1) for ln in lines
+                 for m in re.finditer(r"\(\s*\*\s*([A-Za-z_]\w*)\s*\)\s*\(", ln)}
     for i, line in enumerate(lines):
         s = line.strip()
         m = RE_ASSIGN_LIT.match(line)
