@@ -5698,3 +5698,218 @@ long c_robo_tele_sd(MK3THREAD *thread)
     thread->frame = thread->frame + 1;
     return mk3_install(thread, (MK3THREADFUNC)t_nr_attack_sd);
 }
+
+/* ======================================================================
+ * Argument-stack deciders (ckik3, cpch3), waits and scans.
+ * ====================================================================== */
+
+long t_kick_will_miss(struct MK3THREAD *thread);
+long t_react_jump_table(struct MK3THREAD *thread);
+long funcs_14030(struct MK3THREAD *thread);
+long funcs_13934(struct MK3THREAD *thread);
+long t_d_stalk_a11_ntl(struct MK3THREAD *thread);
+long t_stsw_zap(struct MK3THREAD *thread);
+long t_stance_wait_no(struct MK3THREAD *thread);
+long t_tusk_jup_scan(struct MK3THREAD *thread);
+long t_return_to_beware_4get(struct MK3THREAD *thread);
+long is_throwing_allowed(MK3OBJ *obj);
+void is_he_attacking(MK3OBJ *obj);
+long t_d_fflip_jsrp(struct MK3THREAD *thread);
+
+/* ckik3 -- armv7 0x0006ea94: keep field20 on the argument stack across the
+ * reach test, then react through the jump table with funcs.14030, or miss */
+long ckik3(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+    uint32_t      n;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    n = thread->fieldf8;
+    *mk3_arg(thread, n) = obj->field20;
+    thread->fieldf8 = n + 1;
+    q_will_he_reach_me(obj);
+    n = thread->fieldf8 - 1;
+    thread->fieldf8 = n;
+    obj->field20 = *mk3_arg(thread, n);
+    if (obj->field5c == 0) {
+        h = (MK3THREADFUNC)t_kick_will_miss;
+    } else {
+        *(uint32_t *)((char *)obj + 0x68) = (uint32_t)(uintptr_t)funcs_14030;
+        h = (MK3THREADFUNC)t_react_jump_table;
+    }
+    return mk3_install(thread, h);
+}
+
+/* cpch3 -- armv7 0x0006d1dc: the same with the distance (over 0x60 forgets) */
+long cpch3(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+    uint32_t      n;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    n = thread->fieldf8;
+    *mk3_arg(thread, n) = obj->field20;
+    thread->fieldf8 = n + 1;
+    get_x_dist(obj);
+    n = thread->fieldf8 - 1;
+    thread->fieldf8 = n;
+    obj->field20 = *mk3_arg(thread, n);
+    if ((int32_t)obj->field28 > 0x60) {
+        h = (MK3THREADFUNC)t_return_to_beware_4get;
+    } else {
+        *(uint32_t *)((char *)obj + 0x68) = (uint32_t)(uintptr_t)funcs_13934;
+        h = (MK3THREADFUNC)t_react_jump_table;
+    }
+    return mk3_install(thread, h);
+}
+
+/* t_d_get_close_2_u -- armv7 0x0006e69c: far (over 0xff) pushes the forward
+ * flip and comes back at 0xa82; either way the close action is the same */
+long t_d_get_close_2_u(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        get_x_dist(obj);
+        if ((int32_t)obj->field28 > 0xff) {
+            *mk3_frame(thread, thread->frame + 1) = 0xa82;
+            thread->frame = thread->frame + 1;
+            return mk3_install(thread, (MK3THREADFUNC)t_d_fflip_jsrp);
+        }
+    } else if (token != 0xa82) {
+        return -3;
+    }
+    obj->field48 = 0x40;
+    return mk3_install(thread, (MK3THREADFUNC)t_d_stalk_a11_ntl);
+}
+
+/* t_d_wait_nonattack -- armv7 0x0006c77c: park a frame at a time at 0x779
+ * for a10 frames while he is attacking, then pop or leave */
+long t_d_wait_nonattack(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0)
+        goto park;
+    if (token != 0x779)
+        return -3;
+
+    obj->a10 = obj->a10 - 1;
+    if (obj->a10 != 0) {
+        is_he_attacking(obj);
+        if (obj->field5c != 0)
+            goto park;
+    }
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+park:
+    *mk3_frame(thread, thread->frame + 1) = 0x779;
+    thread->fieldfc = 1;
+    return 1;
+}
+
+/* t_tusk_jump_up_zap -- armv7 0x000699ac */
+long t_tusk_jump_up_zap(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field48 = (uint32_t)(uintptr_t)t_tusk_jup_scan;
+        *mk3_frame(thread, thread->frame + 1) = 0xcd3;
+        thread->frame = thread->frame + 1;
+        mk3_install(thread, (MK3THREADFUNC)t_do_jump_up);
+        return -3;
+    }
+    if (token != 0xcd3)
+        return -3;
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* t_swait_nonattack_jump -- armv7 0x0006b308 */
+long t_swait_nonattack_jump(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->field48 = (uint32_t)(uintptr_t)is_he_attacking;
+        obj->a10     = 0x40;
+        *mk3_frame(thread, thread->frame + 1) = 0x11c8;
+        thread->frame = thread->frame + 1;
+        mk3_install(thread, (MK3THREADFUNC)t_stance_wait_no);
+        return -3;
+    }
+    if (token != 0x11c8)
+        return -3;
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* t_crossover_scan -- armv7 0x00068640: my x against his, ordered by the
+ * sign of my part's field18; in order it scans the flip kick, out of order
+ * it pops (or leaves at the bottom) */
+long t_crossover_scan(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3OBJ       *part = obj->field08;
+    MK3OBJ       *him  = (MK3OBJ *)(uintptr_t)obj->field00->him;
+    MK3THREADFUNC h;
+    int32_t       mine, his, v;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    mine = MK3_FIELD0E_S(part);
+    obj->field20 = (uint32_t)mine;
+    his = MK3_FIELD0E_S(him);
+    obj->field24 = (uint32_t)his;
+    v = (int32_t)part->field18;
+    obj->field28 = (uint32_t)v;
+    if (v <= 0) {
+        obj->field20 = (uint32_t)his;
+        obj->field24 = (uint32_t)mine;
+    }
+    if ((int32_t)obj->field20 >= (int32_t)obj->field24) {
+        h = (MK3THREADFUNC)t_scan_flip_kick;
+    } else {
+        if ((long)thread->frame > 0) {
+            thread->frame = thread->frame - 1;
+            return 0;
+        }
+        h = (MK3THREADFUNC)t_local_reaction_exit;
+    }
+    return mk3_install(thread, h);
+}
+
+/* t_ct_stick_sweep -- armv7 0x0006d57c */
+long t_ct_stick_sweep(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    is_throwing_allowed(obj);
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_stsw_zap);
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0x7f)
+        h = (MK3THREADFUNC)t_d_block;
+    else
+        h = (MK3THREADFUNC)t_d_crossover_kick;
+    return mk3_install(thread, h);
+}
