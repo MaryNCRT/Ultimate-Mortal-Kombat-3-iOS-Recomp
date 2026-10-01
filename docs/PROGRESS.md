@@ -102,10 +102,21 @@ the landed part of `mkdrone.c`, 6 in `moves.c`, 4 in `mkbonus.c`, a few
 elsewhere. Some are false positives (a routine named only in a table, a
 literal that travels further than `ldr`+`mov`); `t_b_weak_silent` is not.
 
-**Before `mkdrone.c`:** triage those hits, and give `factdiff.py` per-bucket
-slack so an unknown store cannot excuse a wrong handler. Until then a file's
-"closed" means "every function has a body that passed the oracle", not
-"every function is right".
+**Status, 2026-10-01 -- the debt is paid.** `factdiff.py` now has per-bucket
+slack, set comparison for handlers/tokens, return-constant checks, a store
+reader that follows pointer arithmetic, `g[n/4]` views, indirect calls through
+function-pointer locals and expansion of one-line `static` wrapper helpers.
+About 150 mistranscribed functions in nominally closed files were found and
+fixed (wrong handler slots, invented "pop" tails, shared tails duplicated into
+two sites, a dropped `randu` call, a -4.0 that is -8.0, a `plyrthread` whose
+pop/flip/run states were wrong -- it was rewritten label by label from the
+binary). Every file of `gamecode/logic` now passes the strict checker; the
+functions it cannot see through (jump tables, post-indexed stores, globals) are
+listed one by one in `tools/factdiff_waivers.txt`, were read by hand against the
+disassembly, and print as `~~` on every run -- they are never counted as
+passes. Two functions of `moves.c` (`q_yes`, `q_no`) are not seen by the tool
+at all and were checked by eye. The checker still cannot see control flow
+across a merged tail; a clean file is "every fact matches", not a proof.
 
 ### What is next
 
@@ -188,8 +199,8 @@ three decompilation figures are **measured from the tree** by
 maintains. Two numbers are worth keeping apart:
 
 - **~73%** — share of the *whole project*, counting analysis, tooling and formats.
-- **~84%** — share of the *decompilation itself*: 2,152 finished functions of
-  2,572 (109 `lime/common` + 291 `gamecode` + 1,752 `gamecode/logic`).
+- **~91%** — share of the *decompilation itself*: 2,335 finished functions of
+  2,572 (109 `lime/common` + 291 `gamecode` + 1,935 `gamecode/logic`).
 
 Both are true. The first says the foundations are in place and the engine core is
 done; the second says the fight engine is now more than three-quarters written.
@@ -245,7 +256,7 @@ any of the port is written.
 | 8 — Decompile fight logic | 🔄 1,752/2,172 — seventeen of twenty-one files closed |
 | 9 — Widescreen, gamepad, mods | ⬜ not started |
 
-**Honest framing:** 2,152 of 2,572 functions are done. The percentage is not the
+**Honest framing:** 2,335 of 2,572 functions are done. The percentage is not the
 interesting number — **nothing is playable**, because the fight engine has no
 runtime and a third of it is still unread. What the number does say is that the
 menu you can click on is not a mock-up: it is the retail front end, transcribed
