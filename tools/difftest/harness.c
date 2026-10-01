@@ -294,6 +294,8 @@ static void native_to_arm(uint8_t *img)
     }
 }
 
+static void arm_to_native(void);
+static void native_to_arm(uint8_t *img);
 /* ------------------------------------------------------------- calls */
 static arm_ctx g_shim_ctx;
 
@@ -303,7 +305,21 @@ uint32_t oracle_call(void (*fn)(arm_ctx *), uint32_t a, uint32_t b, uint32_t c, 
     memset(&g_shim_ctx, 0, sizeof g_shim_ctx);
     g_shim_ctx.r[SP] = STK_SHIM;
     g_shim_ctx.r[0] = a; g_shim_ctx.r[1] = b; g_shim_ctx.r[2] = c; g_shim_ctx.r[3] = d;
+    /* handler pointers the C stored are shown to the oracle in ARM form and
+     * put back afterwards -- only those words, so a value the oracle writes
+     * that merely looks like a handler address is left alone */
+    static struct { uint32_t a, arm, nat; } sw[(GLOB_HI - GLOB_LO) / 4];
+    int nsw = 0;
+    for (uint32_t ad = GLOB_LO; ad < GLOB_HI; ad += 4) {
+        uint32_t v = W(ad);
+        if (v > 0x400000u) {
+            const AddrMap *m = find_native(v);
+            if (m) { sw[nsw].a = ad; sw[nsw].arm = m->arm; sw[nsw].nat = v; nsw++; W(ad) = m->arm; }
+        }
+    }
     fn(&g_shim_ctx);
+    for (int i = 0; i < nsw; i++)
+        if (W(sw[i].a) == sw[i].arm) W(sw[i].a) = sw[i].nat;
     uint32_t r = g_shim_ctx.r[0];
     g_shim_ctx = save;
     return r;
@@ -434,6 +450,8 @@ static int test_one(const Test *t, int nsc, int *skipped, int *failed_scen)
             arm_to_native();
             int ok_n = run_native(t, arg, &rn);
             if (!ok_n) {
+                if (g_debug)
+                    printf("    C fault: code %lx at pc %#x, address %#x\n", g_fault_code, g_fault_pc, g_fault_addr);
                 printf("  %-28s token %#x: the C crashed where the oracle did not\n", t->name, token);
                 fails++; (*failed_scen)++;
                 if (fails >= 3) return fails;

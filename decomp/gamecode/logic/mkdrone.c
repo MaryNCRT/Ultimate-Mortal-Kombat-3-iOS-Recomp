@@ -7851,6 +7851,8 @@ long t_stance_wait_no(struct MK3THREAD *thread);
 long t_nr_drone_zone(struct MK3THREAD *thread);
 void d_walkf_setup(MK3OBJ *obj);
 void d_walkb_setup(MK3OBJ *obj);
+void MKEvent_Add(long type, long subtype, long param, long player);
+extern int rand(void);
 long is_he_short(MK3OBJ *obj);
 long am_i_facing_him(MK3OBJ *obj);
 
@@ -9548,4 +9550,401 @@ long t_standard_zap_counter(MK3THREAD *thread)
         h = (MK3THREADFUNC)t_nr_sweep_if_u_can;
     }
     return mk3_install(thread, h);
+}
+
+/* ======================================================================
+ * t_drfp1 and t_d_beware. Batch 24.
+ * ====================================================================== */
+
+extern const uint32_t *const ochar_cat_tables[];
+long t_drfp2(struct MK3THREAD *thread);
+long t_drfp3(struct MK3THREAD *thread);
+long t_drfp1(struct MK3THREAD *thread);
+long strike_check_a0(MK3OBJ *obj);
+
+/* t_drfp1 -- armv7 0x00071be8: strike-check the value four words down the
+ * argument stack; a miss moves on to t_drfp3 / t_drfp2, a hit counts the
+ * proc's repeat counter (+0x60) down and parks for field1c frames */
+long t_drfp1(MK3THREAD *thread)
+{
+    MK3OBJ     *obj = (MK3OBJ *)thread->proc;
+    MK3OBJPROC *proc;
+    uint32_t    token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t    n;
+
+    if (token == 0x706) {
+        obj->field1c = 3;
+        *mk3_frame(thread, thread->frame + 1) = 0x709;
+        thread->frame = thread->frame + 1;
+        return mk3_install(thread, (MK3THREADFUNC)t_mframew);
+    }
+    if (token == 0x709) {
+        obj->field1c = *mk3_arg(thread, thread->fieldf8 - 4);
+        strike_check_a0(obj);
+        if (obj->field5c == 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_drfp2);
+        proc = obj->field00;
+        n = *(const uint32_t *)((const char *)proc + 0x60) - 1;
+        obj->field1c = n;
+        if (n == 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_drfp2);
+        *(uint32_t *)((char *)proc + 0x60) = n;
+        obj->field1c = obj->field00->field1c;
+        *mk3_frame(thread, thread->frame + 1) = 0x716;
+        thread->fieldfc = obj->field1c;
+        return (long)obj->field1c;
+    }
+    if (token == 0x716)
+        return mk3_install(thread, (MK3THREADFUNC)t_drfp1);
+    if (token == 0x6f8) {
+        obj->field1c = *mk3_arg(thread, thread->fieldf8 - 4);
+        strike_check_a0(obj);
+        if (obj->field5c == 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_drfp3);
+        proc = obj->field00;
+        n = *(const uint32_t *)((const char *)proc + 0x60) - 1;
+        obj->field1c = n;
+        if (n == 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_drfp3);
+        *(uint32_t *)((char *)proc + 0x60) = n;
+        obj->field1c = obj->field00->field1c;
+        *mk3_frame(thread, thread->frame + 1) = 0x706;
+        thread->fieldfc = obj->field1c;
+        return (long)obj->field1c;
+    }
+    if (token != 0)
+        return -3;
+    obj->field1c = 3;
+    *mk3_frame(thread, thread->frame + 1) = 0x6f8;
+    thread->frame = thread->frame + 1;
+    return mk3_install(thread, (MK3THREADFUNC)t_mframew);
+}
+
+/* t_d_beware -- armv7 0x0006c40c: watch his action. When he starts a new
+ * one that has an entry in ochar_cat_tables[character][action >> 8][action &
+ * 0xff], save the level that is about to be popped (handler at proc+0x6c,
+ * token at +0x70, a10 and field48 at +0x74/+0x78 -- t_return_to_beware puts
+ * them back) and run that entry's routine in its place */
+long t_d_beware(MK3THREAD *thread)
+{
+    MK3OBJ         *obj = (MK3OBJ *)thread->proc;
+    MK3OBJPROC     *proc;
+    MK3OBJ         *part;
+    const uint32_t *row;
+    const uint32_t *tab;
+    uint32_t        act, last, f, h, w, tok;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    last = *(const uint16_t *)(const void *)(G_BYTES + 0x45c);
+    obj->field1c = (uint32_t)(int32_t)(int16_t)last;
+    if (last != 0)
+        POP_OR_LEAVE(thread);
+
+    get_his_action(obj);
+    if (obj->field1c == 0)
+        POP_OR_LEAVE(thread);
+
+    proc = obj->field00;
+    act  = obj->field20;
+    obj->field1c = proc->field5c;
+    if (proc->field5c == act)
+        POP_OR_LEAVE(thread);
+
+    proc->field5c = act;
+    part = obj->field08;
+    obj->field24 = (uint32_t)((int32_t)act >> 8);
+    obj->field1c = part->field24;
+    tab = ochar_cat_tables[part->field24];
+    obj->field28 = (uint32_t)(uintptr_t)tab;
+    row = (const uint32_t *)(uintptr_t)tab[(int32_t)act >> 8];
+    obj->field24 = (uint32_t)(uintptr_t)row;
+    if (row == 0)
+        POP_OR_LEAVE(thread);
+
+    obj->field20 = act & 0xffu;
+    w = row[act & 0xffu];
+    obj->field20 = w;
+    if (w == 0)
+        POP_OR_LEAVE(thread);
+
+    obj->field28 = part->field24;
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+    } else {
+        mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+
+    proc = obj->field00;
+    h   = mk3_frame(thread, thread->frame)[1];
+    tok = *mk3_frame(thread, thread->frame + 1);
+    *(uint32_t *)((char *)proc + 0x6c) = h;
+    *(uint32_t *)((char *)proc + 0x70) = tok;
+
+    POP_AND_SLIDE(thread);
+
+    *(uint32_t *)((char *)obj->field00 + 0x74) = obj->a10;
+    *(uint32_t *)((char *)obj->field00 + 0x78) = obj->field48;
+    mk3_frame(thread, thread->frame)[1] = obj->field20;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    (void)f;
+    return 0;
+}
+
+/* ======================================================================
+ * t_d_unblock, t_wait_proj_pass, t_fatality_align, t_drone_execute_fatality.
+ * Batch 25.
+ * ====================================================================== */
+
+long t_d_backup_jump(struct MK3THREAD *thread);
+long t_d_fflip_jsrp(struct MK3THREAD *thread);
+long t_d_bflip_jsrp(struct MK3THREAD *thread);
+long t_fatality_stalk_a11(struct MK3THREAD *thread);
+long t_d_fatality_cornered(struct MK3THREAD *thread);
+long t_d_fatality_abort(struct MK3THREAD *thread);
+long t_drone_mercy(struct MK3THREAD *thread);
+long t_drone_do_fatality1(struct MK3THREAD *thread);
+long t_drone_do_fatality2(struct MK3THREAD *thread);
+long t_dist_retp(struct MK3THREAD *thread);
+long t_wait_proj_pass(struct MK3THREAD *thread);
+void get_his_proj_proc(MK3OBJ *obj);
+void d_walkb_setup(MK3OBJ *obj);
+void MKEvent_Add(long type, long subtype, long param, long player);
+extern int rand(void);
+
+#define B25_S16(p, o) (*(const int16_t *)(const void *)((const char *)(p) + (o)))
+#define B25_U32(p, o) (*(const uint32_t *)(const void *)((const char *)(p) + (o)))
+
+/* "put the next token in the slot above, climb a level, run beware there" */
+#define B25_PUSH_BEWARE(thread, next)                                          \
+    do {                                                                       \
+        *mk3_frame((thread), (thread)->frame + 1) = (next);                    \
+        (thread)->frame = (thread)->frame + 1;                                 \
+        return mk3_install((thread), (MK3THREADFUNC)t_d_beware);               \
+    } while (0)
+
+#define B25_PARK(thread, next)                                                 \
+    do {                                                                       \
+        *mk3_frame((thread), (thread)->frame + 1) = (next);                    \
+        (thread)->fieldfc = 1;                                                 \
+        return 1;                                                              \
+    } while (0)
+
+/* t_d_unblock -- armv7 0x000717d4: a chain of beware waits around a short
+ * backup animation; the answer to am_i_short picks how it ends */
+long t_d_unblock(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    switch (token) {
+    case 0x7a1: B25_PARK(thread, 0x7a2);
+    case 0x7a2: B25_PUSH_BEWARE(thread, 0x7a3);
+    case 0x7a3: B25_PARK(thread, 0x7a4);
+    case 0x7a4: B25_PUSH_BEWARE(thread, 0x7a5);
+    case 0x7a5: B25_PARK(thread, 0x7a6);
+    case 0x7a6: B25_PUSH_BEWARE(thread, 0x7a7);
+    case 0x7a7:
+        obj->field40 = obj->a10;
+        do_next_a9_frame(obj);
+        B25_PARK(thread, 0x7ac);
+    case 0x7ac: B25_PUSH_BEWARE(thread, 0x7ad);
+    case 0x7ad: B25_PARK(thread, 0x7ae);
+    case 0x7ae: B25_PUSH_BEWARE(thread, 0x7af);
+    case 0x7af: B25_PARK(thread, 0x7b0);
+    case 0x7b0: B25_PUSH_BEWARE(thread, 0x7b1);
+    case 0x7b1:
+        am_i_short(obj);
+        if (obj->field5c == 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+        return mk3_install(thread, (MK3THREADFUNC)t_d_backup_jump);
+    case 0:
+        break;
+    default:
+        return -3;
+    }
+
+    obj->field20 = 0;
+    obj->field00->field18 = 0;
+    obj->field40 = 0xc;
+    am_i_short(obj);
+    if (obj->field5c != 0)
+        obj->field40 = 6;
+    get_char_ani(obj);
+    obj->a10     = obj->field40;
+    obj->field40 = obj->field40 + 4;
+    do_next_a9_frame(obj);
+    B25_PUSH_BEWARE(thread, 0x7a1);
+}
+
+/* t_wait_proj_pass -- armv7 0x0006ffd4: wait for his projectile to pass.
+ * While it has no body (+0x84) keep waiting; once it has, compare where it
+ * and I are, mirrored when it faces left (flag 0x10 in its part's +0x28);
+ * if it is already by me, call it a 0x505 and leave, else wait on */
+long t_wait_proj_pass(MK3THREAD *thread)
+{
+    MK3OBJ     *obj = (MK3OBJ *)thread->proc;
+    MK3OBJ     *p;
+    MK3OBJPROC *lr;
+    const char *body;
+    const char *part;
+    int32_t     a, b, x, w;
+    uint32_t    f;
+    int         left;
+
+    f = *mk3_frame(thread, thread->frame + 1);
+    if (f == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0xfbf;
+        thread->fieldfc = 1;
+        return 1;
+    }
+    if (f != 0xfbf)
+        return -3;
+
+    get_his_proj_proc(obj);
+    p = (MK3OBJ *)(uintptr_t)obj->field1c;
+    if (p == 0)
+        POP_OR_LEAVE(thread);
+
+    lr = p->field00;
+    body = (const char *)(uintptr_t)lr->field84;
+    if (body == 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_proj_pass);
+
+    part = (const char *)p->field08;
+    obj->field28 = (uint32_t)(int32_t)B25_S16(part, 0xe);
+    a = (int32_t)B25_U32(body, 0);
+    obj->field24 = (uint32_t)a;
+    b = (int32_t)B25_U32(body, 8);
+    obj->field2c = (uint32_t)b;
+    w = (int32_t)B25_U32(part, 0x28);
+    obj->field34 = (uint32_t)w;
+    left = (w & 0x10) != 0;
+    if (left) {
+        a = -a;
+        obj->field24 = (uint32_t)a;
+        b = -b;
+        obj->field2c = (uint32_t)b;
+    }
+    x = (int32_t)obj->field28 + (int32_t)obj->field24 - (int32_t)obj->field2c;
+    obj->field28 = (uint32_t)x;
+    a = (int32_t)B25_S16(obj->field08, 0xe);
+    obj->field24 = (uint32_t)a;
+    w = (int32_t)B25_U32(part, 0x28);
+    if (w & 0x10) {
+        obj->field28 = (uint32_t)a;
+        obj->field24 = (uint32_t)x;
+        b = a;
+        a = x;
+    } else {
+        b = x;
+    }
+    obj->field34 = (uint32_t)w;
+    if (a > b)
+        return mk3_install(thread, (MK3THREADFUNC)t_wait_proj_pass);
+    obj->field20 = 0x505;
+    lr->field18 = 0x505;
+    POP_OR_LEAVE(thread);
+}
+
+/* t_fatality_align -- armv7 0x000724d8: close to (or back off from) the
+ * distance he was at when this started, then hand over to the fatality */
+long t_fatality_align(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    int32_t  d;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0xab2) {
+        if (obj->a10 != 0)
+            POP_OR_LEAVE(thread);
+        return mk3_install(thread, (MK3THREADFUNC)t_d_fatality_abort);
+    }
+    if (token == 0xac2)
+        goto cornered;
+    if (token == 0xac9) {
+        next_anirate(obj);
+        get_x_dist(obj);
+        if ((int32_t)obj->field28 <= (int32_t)obj->field48)
+            goto step;
+        return mk3_install(thread, (MK3THREADFUNC)t_dist_retp);
+    }
+    if (token == 0xaae)
+        goto stalk;
+    if (token != 0)
+        return -3;
+
+    obj->field48 = obj->field1c;
+    get_x_dist(obj);
+    if ((int32_t)obj->field1c >= (int32_t)obj->field28)
+        goto cornered;
+    d = (int32_t)obj->field28 - (int32_t)obj->field1c;
+    if (d <= 0xff)
+        goto stalk;
+    *mk3_frame(thread, thread->frame + 1) = 0xaae;
+    thread->frame = thread->frame + 1;
+    return mk3_install(thread, (MK3THREADFUNC)t_d_fflip_jsrp);
+
+stalk:
+    obj->a10 = 0xc0;
+    *mk3_frame(thread, thread->frame + 1) = 0xab2;
+    thread->frame = thread->frame + 1;
+    return mk3_install(thread, (MK3THREADFUNC)t_fatality_stalk_a11);
+
+cornered:
+    obj->a10 = 0x80;
+    q_am_i_cornered(obj);
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_d_fatality_cornered);
+    get_x_dist(obj);
+    d = (int32_t)obj->field28 - (int32_t)obj->field48;
+    obj->field28 = (uint32_t)d;
+    if (d < 0) {
+        d = -d;
+        obj->field28 = (uint32_t)d;
+    }
+    if (d > 0xff) {
+        *mk3_frame(thread, thread->frame + 1) = 0xac2;
+        thread->frame = thread->frame + 1;
+        return mk3_install(thread, (MK3THREADFUNC)t_d_bflip_jsrp);
+    }
+    face_opponent(obj);
+    d_walkb_setup(obj);
+    B25_PARK(thread, 0xac9);
+
+step:
+    obj->a10 = obj->a10 - 1;
+    if (obj->a10 != 0)
+        B25_PARK(thread, 0xac9);
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+    } else {
+        mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    }
+    POP_AND_SLIDE(thread);
+    return mk3_install(thread, (MK3THREADFUNC)t_d_fatality_abort);
+}
+
+/* t_drone_execute_fatality -- armv7 0x000707cc: when no mercy is already
+ * under way, one time in ten (when both fighters have health left) offer
+ * mercy; otherwise pick fatality 1 or 2 on a coin toss */
+long t_drone_execute_fatality(MK3THREAD *thread)
+{
+    uint32_t r;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    if (*(const int16_t *)(const void *)(G_BYTES + 0x45a) == 0) {
+        r = (uint32_t)random32() % 10000u;
+        if (r < 1000u && *(const int32_t *)(const void *)H > 0 &&
+            *(const int32_t *)(const void *)(H + 4) > 0) {
+            MKEvent_Add(4, 0x45, 0, 0);
+            return mk3_install(thread, (MK3THREADFUNC)t_drone_mercy);
+        }
+    }
+    if ((rand() & 0x80) != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_drone_do_fatality1);
+    return mk3_install(thread, (MK3THREADFUNC)t_drone_do_fatality2);
 }
