@@ -4783,3 +4783,303 @@ void q_proj_jclose(MK3OBJ *obj)
 yes:
     vq_yes(obj);
 }
+
+/* ======================================================================
+ * Duck/fan/stance setups, flip watchers and the multi-state net/turn threads.
+ * ====================================================================== */
+
+long t_mframew(struct MK3THREAD *thread);
+long t_scan_flip_kick(struct MK3THREAD *thread);
+long t_dont_zap_towards_jumper(struct MK3THREAD *thread);
+long t_very_far_airborn(struct MK3THREAD *thread);
+long t_d_fflip_noscan_jsrp(struct MK3THREAD *thread);
+long t_watch_flip_punch(struct MK3THREAD *thread);
+long t_watch_flip_kick(struct MK3THREAD *thread);
+long t_retreat_wait_yes(struct MK3THREAD *thread);
+long t_d_turnaround_jsrp(struct MK3THREAD *thread);
+long t_drone_zone(struct MK3THREAD *thread);
+long rpt_promoves(struct MK3THREAD *thread);
+long t_d_fflip_scan_jsrp(struct MK3THREAD *thread);
+long t_fflip_watchout(struct MK3THREAD *thread);
+void stance_setup(MK3OBJ *obj);
+void do_next_a9_frame(MK3OBJ *obj);
+void get_char_ani(MK3OBJ *obj);
+void face_opponent(MK3OBJ *obj);
+void distance_off_ground(MK3OBJ *obj);
+void q_no(MK3OBJ *obj);
+
+/* t_d_duck_fast -- armv7 0x000715b4 */
+long t_d_duck_fast(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field20 = 0x302;
+    obj->field00->field18 = 0x302;
+    stop_me_player(obj);
+    face_opponent(obj);
+    obj->field40 = 4;
+    get_char_ani(obj);
+    obj->field1c = 1;
+    return mk3_install(thread, (MK3THREADFUNC)t_mframew);
+}
+
+/* c_air_fan -- armv7 0x0006aa28: how far his y is from the floor decides */
+long c_air_fan(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+    int32_t       y, d;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    y = MK3_FIELD12_S((MK3OBJ *)(uintptr_t)obj->field00->him);
+    obj->field28 = (uint32_t)y;
+    d = (int32_t)*(const uint32_t *)(const void *)(G_BYTES + 0xac) - y;
+    obj->field1c = (uint32_t)d;
+    if (d > 0xa0)
+        h = (MK3THREADFUNC)t_d_zap_now;
+    else
+        h = (MK3THREADFUNC)t_duck_under_proj;
+    return mk3_install(thread, h);
+}
+
+/* d_stance_setup -- armv7 0x00071e0c: step the animation script back one
+ * word (skipping runs of 8-opcodes five words long), then scan forward to the
+ * next 1 and keep the pointer one word before it; the old pointer is
+ * restored when it lies between the two */
+void d_stance_setup(MK3OBJ *obj)
+{
+    const uint32_t *p, *q, *last;
+    uint32_t        v, saved;
+
+    stop_me_player(obj);
+    obj->field30 = obj->field40;
+    stance_setup(obj);
+    do_next_a9_frame(obj);
+
+    p = (const uint32_t *)(uintptr_t)obj->field40;
+    p = p - 1;
+    obj->field40 = (uint32_t)(uintptr_t)p;
+    v = *p;
+    obj->field2c = v;
+    while (v == 8) {
+        const uint32_t *old = p;
+
+        p = old + 5;
+        obj->field40 = (uint32_t)(uintptr_t)p;
+        v = *p;
+        obj->field2c = v;
+    }
+
+    q = p;
+    obj->field2c = (uint32_t)(uintptr_t)q;
+    do {
+        last = q;
+        v = *q++;
+        obj->field20 = v;
+        obj->field2c = (uint32_t)(uintptr_t)q;
+    } while (v != 1);
+
+    saved = obj->field30;
+    obj->field2c = (uint32_t)(uintptr_t)(last - 1);
+    if ((int32_t)saved >= (int32_t)(uintptr_t)p &&
+        (int32_t)(uintptr_t)(last - 1) >= (int32_t)saved)
+        obj->field40 = saved;
+}
+
+/* t_fflip_scan -- armv7 0x0006e754: close enough scans, otherwise the level
+ * pops (or becomes t_local_reaction_exit at the bottom) */
+long t_fflip_scan(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 <= 0x6f) {
+        h = (MK3THREADFUNC)t_scan_flip_kick;
+    } else {
+        if ((long)thread->frame > 0) {
+            thread->frame = thread->frame - 1;
+            return 0;
+        }
+        h = (MK3THREADFUNC)t_local_reaction_exit;
+    }
+    return mk3_install(thread, h);
+}
+
+/* c_swat_gun -- armv7 0x0006d350 */
+long c_swat_gun(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = (uint32_t)(uintptr_t)rpt_counter;
+    ask_mr_diff(obj);
+    if (obj->field5c == 0) {
+        h = (MK3THREADFUNC)t_return_to_beware;
+    } else {
+        get_x_dist(obj);
+        if ((int32_t)obj->field28 > 0xd0)
+            h = (MK3THREADFUNC)t_d_zap_now;
+        else
+            h = (MK3THREADFUNC)t_d_block;
+    }
+    return mk3_install(thread, h);
+}
+
+/* c_floor_ice -- armv7 0x0006dfd4 */
+long c_floor_ice(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = (uint32_t)(uintptr_t)rpt_promoves;
+    ask_mr_diff(obj);
+    if (obj->field5c == 0) {
+        h = (MK3THREADFUNC)t_return_to_beware;
+    } else {
+        get_x_dist(obj);
+        if ((int32_t)obj->field28 > 0x6f)
+            h = (MK3THREADFUNC)t_drone_zone;
+        else
+            h = (MK3THREADFUNC)t_run_in_close;
+    }
+    return mk3_install(thread, h);
+}
+
+/* t_d_attack_very_far -- armv7 0x00070bf4: two install sites, as the binary
+ * has them */
+long t_d_attack_very_far(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    is_towards_me(obj);
+    if (obj->field5c == 0) {
+        h = (MK3THREADFUNC)t_dont_zap_towards_jumper;
+    } else {
+        q_airborn_counter(obj);
+        if (obj->field5c == 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_dont_zap_towards_jumper);
+        h = (MK3THREADFUNC)t_very_far_airborn;
+    }
+    return mk3_install(thread, h);
+}
+
+/* t_d_fflip_jsrp -- armv7 0x00070de0 */
+long t_d_fflip_jsrp(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+    int32_t       d;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    frontflip_setup(obj);
+    d = *(const int16_t *)(const void *)(G_BYTES + 0x44c);
+    obj->field1c = (uint32_t)d;
+    if (d > 3) {
+        obj->field34 = (uint32_t)(uintptr_t)t_fflip_watchout;
+        h = (MK3THREADFUNC)t_d_fflip_scan_jsrp;
+    } else {
+        h = (MK3THREADFUNC)t_d_fflip_noscan_jsrp;
+    }
+    return mk3_install(thread, h);
+}
+
+/* t_fflip_watchout -- armv7 0x000705fc: refuses while he is far (over 0xa0),
+ * then picks the watch by whether he is in the air */
+long t_fflip_watchout(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0xa0)
+        return -3;
+
+    reset_proc_stack(thread);
+    is_he_airborn(obj);
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_watch_flip_punch);
+    return mk3_install(thread, (MK3THREADFUNC)t_watch_flip_kick);
+}
+
+/* t_tusk_jup_scan -- armv7 0x00070758 */
+long t_tusk_jup_scan(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    distance_off_ground(obj);
+    if ((int32_t)obj->field1c > 0x3f) {
+        reset_proc_stack(thread);
+        h = (MK3THREADFUNC)t_d_zap_now;
+    } else {
+        q_no(obj);
+        if ((long)thread->frame > 0) {
+            thread->frame = thread->frame - 1;
+            return 0;
+        }
+        h = (MK3THREADFUNC)t_local_reaction_exit;
+    }
+    return mk3_install(thread, h);
+}
+
+/* t_robo2_delayed_net -- armv7 0x00069a60: state 0 sets the net test and
+ * waits at 0xce7 behind t_retreat_wait_yes; 0xce7 becomes t_d_zap */
+long t_robo2_delayed_net(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        obj->a10 = 0x40;
+        obj->field48 = (uint32_t)(uintptr_t)q_is_he_net_close;
+        *mk3_frame(thread, thread->frame + 1) = 0xce7;
+        thread->frame = thread->frame + 1;
+        return mk3_install(thread, (MK3THREADFUNC)t_retreat_wait_yes);
+    }
+    if (token != 0xce7)
+        return -3;
+    return mk3_install(thread, (MK3THREADFUNC)t_d_zap);
+}
+
+/* t_d_turnaround -- armv7 0x00070674: push the jsrp turnaround and come back
+ * at 0x1bf to reset and leave */
+long t_d_turnaround(MK3THREAD *thread)
+{
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0) {
+        *mk3_frame(thread, thread->frame + 1) = 0x1bf;
+        thread->frame = thread->frame + 1;
+        return mk3_install(thread, (MK3THREADFUNC)t_d_turnaround_jsrp);
+    }
+    if (token != 0x1bf)
+        return -3;
+    reset_proc_stack(thread);
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
