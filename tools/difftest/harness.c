@@ -49,9 +49,14 @@ static volatile int g_in_run;
 static volatile DWORD g_t0;
 static const char *volatile g_cur;
 
+static uint32_t g_fault_addr, g_fault_pc;
+static unsigned long g_fault_code;
+
 static LONG WINAPI crash_filter(EXCEPTION_POINTERS *ep)
 {
-    (void)ep;
+    g_fault_addr = ep->ExceptionRecord->NumberParameters > 1 ? (uint32_t)ep->ExceptionRecord->ExceptionInformation[1] : 0;
+    g_fault_code = ep->ExceptionRecord->ExceptionCode;
+    g_fault_pc = (uint32_t)(uintptr_t)ep->ExceptionRecord->ExceptionAddress;
     if (g_in_run)
         longjmp(g_jb, 1);
     return EXCEPTION_CONTINUE_SEARCH;
@@ -86,11 +91,16 @@ static const uint32_t interesting[] = {
 };
 
 static const Test *g_t;
+static int g_ptrmode;           /* this scenario: most words are valid addresses */
 
 static uint32_t pick(void)
 {
     uint32_t r = rnd();
     uint32_t v;
+    /* now and then a valid address, so a field the code uses as a pointer
+     * (a table, a script) reads real memory instead of killing the scenario */
+    if (g_ptrmode ? ((r >> 20) % 10 < 6) : (((r >> 20) & 7) == 0))
+        return 0x100000u + ((r >> 3) & 0x1fffffu & ~3u);
     switch (r % 8) {
     case 0: case 1: case 2:
         v = interesting[(r >> 3) % (sizeof interesting / sizeof interesting[0])];
@@ -137,6 +147,7 @@ static int      n_handlers;
 static void scenario(const Test *t, uint32_t token)
 {
     g_t = t;
+    g_ptrmode = (int)(rnd() & 1);
     memset((void *)(uintptr_t)ARENA, 0, ARENA_SZ);
     fill(A_G, 0x478);
     fill(A_H, 0x24);
@@ -284,8 +295,12 @@ static void capture(uint8_t *i, uint8_t *a)
 typedef long (*thread_fn)(void *);
 typedef void (*obj_fn)(void *);
 
+void stubs_reseed(uint32_t seed);
+static uint32_t g_seed;
+
 static int run_oracle(const Test *t, uint32_t arg, int32_t *ret)
 {
+    stubs_reseed(g_seed);
     arm_ctx ctx;
     memset(&ctx, 0, sizeof ctx);
     ctx.r[SP] = STK_ORACLE;
@@ -303,6 +318,7 @@ static int run_oracle(const Test *t, uint32_t arg, int32_t *ret)
 
 static int run_native(const Test *t, uint32_t arg, int32_t *ret)
 {
+    stubs_reseed(g_seed);
     g_in_run = 1; g_t0 = GetTickCount(); g_cur = t->name;
     if (setjmp(g_jb) == 0) {
         if (t->kind == 0)
@@ -318,7 +334,7 @@ static int run_native(const Test *t, uint32_t arg, int32_t *ret)
     return 0;
 }
 
-static int g_verbose;
+static int g_verbose, g_debug;
 
 /* An instruction the recompiler could not translate (an indirect call, say)
  * ends THIS scenario, not the run: the oracle cannot answer, so it is skipped.
@@ -369,11 +385,17 @@ static int test_one(const Test *t, int nsc, int *skipped, int *failed_scen)
         for (int s = 0; s < nsc; s++) {
             uint32_t token = t->kind == 0 ? toks[ti] : 0;
             scenario(t, token);
+            g_seed = rnd();
             snapshot();
             int32_t ro = 0, rn = 0;
             uint32_t arg = t->kind == 0 ? mytc(0) : plyr(0);
             int ok_o = run_oracle(t, arg, &ro);
-            if (!ok_o) { (*skipped)++; continue; }
+            if (!ok_o) {
+                if (g_debug && *skipped < 4)
+                    printf("    skipped: code %lx at pc %#x, address %#x\n", g_fault_code, g_fault_pc, g_fault_addr);
+                (*skipped)++;
+                continue;
+            }
             capture(orcI, orcA);
             restore();
             arm_to_native();
@@ -387,6 +409,18 @@ static int test_one(const Test *t, int nsc, int *skipped, int *failed_scen)
             capture(resI, resA);
             native_to_arm(resI);
             int bad = compare(t, token, ro, rn);
+            if (bad && g_debug && fails == 0) {
+                /* Plyr[0] (the object) before / oracle / C, 27 words */
+                printf("    Plyr[0] words: before | oracle | C\n");
+                for (uint32_t o = 0; o < 0x6c; o += 4) {
+                    uint32_t b, a, c;
+                    memcpy(&b, snapI + (plyr(0) + o - IMG_LO), 4);
+                    memcpy(&a, orcI + (plyr(0) + o - IMG_LO), 4);
+                    memcpy(&c, resI + (plyr(0) + o - IMG_LO), 4);
+                    printf("      +%02x  %08x | %08x | %08x%s\n", o, b, a, c, a != c ? "   <--" : "");
+                }
+                printf("    G halfword 0x44c = %d\n", *(int16_t *)(uintptr_t)(A_G + 0x44c));
+            }
             if (bad) {
                 fails++; (*failed_scen)++;
                 if (fails >= 3) return fails;
@@ -404,11 +438,28 @@ int main(int argc, char **argv)
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-n") && i + 1 < argc) nsc = atoi(argv[++i]);
         else if (!strcmp(argv[i], "-v")) g_verbose = 1;
+        else if (!strcmp(argv[i], "-d")) g_debug = 1;
         else only = argv[i];
     }
     if (!slice) { fprintf(stderr, "UMK3_SLICE not set\n"); return 2; }
 
     if (!VirtualAlloc((void *)(uintptr_t)IMG_LO, IMG_SZ, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)) {
+        /* the process heap can land inside the range; where it lands changes
+         * from launch to launch, so try again in a fresh process */
+        const char *t = getenv("DT_TRY");
+        int tries = t ? atoi(t) : 0;
+        if (tries < 12) {
+            char nb[16];
+            snprintf(nb, sizeof nb, "%d", tries + 1);
+            SetEnvironmentVariableA("DT_TRY", nb);
+            STARTUPINFOA si; PROCESS_INFORMATION pi; DWORD code = 2;
+            memset(&si, 0, sizeof si); si.cb = sizeof si;
+            if (CreateProcessA(0, GetCommandLineA(), 0, 0, TRUE, 0, 0, 0, &si, &pi)) {
+                WaitForSingleObject(pi.hProcess, INFINITE);
+                GetExitCodeProcess(pi.hProcess, &code);
+                return (int)code;
+            }
+        }
         fprintf(stderr, "cannot map the image range at %#x (%lu)\n", IMG_LO, GetLastError());
         return 2;
     }

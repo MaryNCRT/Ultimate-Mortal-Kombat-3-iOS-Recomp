@@ -20,6 +20,13 @@ void stub_auto_fflush(arm_ctx *ctx)
 }
 
 static uint32_t g_rand = 12345u;
+
+/* the harness reseeds before each side runs, so both see the same sequence */
+void stubs_reseed(uint32_t seed)
+{
+    g_rand = seed;
+}
+
 void stub_auto_rand(arm_ctx *ctx)
 {
     g_rand = g_rand * 1103515245u + 12345u;

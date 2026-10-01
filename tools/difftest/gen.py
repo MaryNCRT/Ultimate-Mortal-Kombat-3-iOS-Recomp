@@ -176,7 +176,7 @@ def main(argv):
             if n in seen:
                 continue
             seen.add(n)
-            f.write('    { (uint32_t)(uintptr_t)&%s, 0x%08x, "%s" },\n' % (n, ofuncs[n][0] | 1, n))
+            f.write('    { (uint32_t)(uintptr_t)&%s, 0x%08x, "%s" },\n' % (n, (own.get(n) or ofuncs[n])[0] | 1, n))
         f.write("};\nconst int g_naddr = %d;\n" % len(seen))
 
     # ---- gen_tests.c
@@ -186,11 +186,11 @@ def main(argv):
             f.write("extern void %s();\n" % n)
         f.write("const Test g_tests[] = {\n")
         for n in tests:
-            toks, imms = scan_constants(rc_text, ofuncs[n][1])
+            toks, imms = scan_constants(rc_text, own[n][1])
             toks = toks[:12]
             imms = imms[:40]
             f.write('    { "%s", (void *)%s, %s, %d, %d, { %s }, %d, { %s } },\n' % (
-                n, n, ofuncs[n][1], 0 if dfuncs[n] == "thread" else 1,
+                n, n, own[n][1], 0 if dfuncs[n] == "thread" else 1,
                 len(toks), ", ".join("0x%x" % t for t in toks) or "0",
                 len(imms), ", ".join("0x%x" % t for t in imms) or "0"))
         f.write("};\nconst int g_ntests = %d;\n" % len(tests))
