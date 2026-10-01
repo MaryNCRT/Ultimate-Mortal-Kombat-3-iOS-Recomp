@@ -5968,8 +5968,14 @@ void recharge_bars(void)
 {
     uint32_t *g = (uint32_t *)G_BYTES;
 
-    g[0x380 / 4] = g[0x378 / 4] = g[0x384 / 4] = g[0x37c / 4] = 0x30;
-    g[0x36c / 4] = g[0x368 / 4] = g[0x374 / 4] = g[0x370 / 4] = 0xa6;
+    g[0x380 / 4] = 0x30;
+    g[0x378 / 4] = 0x30;
+    g[0x384 / 4] = 0x30;
+    g[0x37c / 4] = 0x30;
+    g[0x36c / 4] = 0xa6;
+    g[0x368 / 4] = 0xa6;
+    g[0x374 / 4] = 0xa6;
+    g[0x370 / 4] = 0xa6;
 
     MKEvent_Add(3, 0, (long)g[0x368 / 4], 0);
     MKEvent_Add(3, 0, (long)g[0x36c / 4], 1);
@@ -10706,13 +10712,8 @@ long t_game_finished(MK3THREAD *thread)
 
     if (token == 0x11ad) {
         obj->a10 = obj->a10 - 1;
-        if (obj->a10 != 0) {
-            obj->field1c = 0x43;
-            create_fx(obj);
-            *mk3_frame(thread, thread->frame + 1) = 0x11aa;
-            thread->fieldfc = 6;
-            return 6;
-        }
+        if (obj->a10 != 0)
+            goto blink;
 
         *(uint32_t *)(GrObj + 0x2c) = 0xffffffffu;
         *(uint32_t *)(GrObj + 0x78) = 0xffffffffu;
@@ -10749,12 +10750,14 @@ long t_game_finished(MK3THREAD *thread)
     }
 
     *(uint32_t *)(G_BYTES + 0x210) = 0;         /* both x velocities */
-    *(uint32_t *)(G_BYTES + 0x0b8) = 0;
+    *(uint32_t *)(G_BYTES + 0xb8) = 0;
 
     obj->field1c = 0x42;
     create_fx(obj);
 
     obj->a10 = 10;                              /* ten alternations */
+
+blink:
     obj->field1c = 0x43;
     create_fx(obj);
 

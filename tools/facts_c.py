@@ -234,6 +234,8 @@ NOT_A_CALL = frozenset((
 # elements are words, so `RoundParam[2] = 0` is a store at +0x8 of it.
 RE_WORDARRAY = re.compile(r"^\s*extern\s+(?:const\s+)?(?:long|int32_t|uint32_t)\s+"
                           r"(?:\*\s*([A-Za-z_]\w*)\s*;|([A-Za-z_]\w*)\s*\[\s*\]\s*;)")
+# `g[0x368 / 4] = v;` -- a word of a byte-offset-in-words view of something
+RE_ARRDIV = re.compile(r"^\s*(\w+)\[\s*(0x[0-9a-fA-F]+|\d+)\s*/\s*4\s*\]\s*=(?!=)\s*([^;]+);")
 RE_ARRSTORE = re.compile(r"^\s*([A-Za-z_]\w*)\[(\d+|0x[0-9a-fA-F]+)\]\s*=\s*([^;]+);")
 WORD_ARRAYS = set()
 
@@ -502,7 +504,8 @@ def join_installs(lines):
         # a word store through a cast pointer whose value runs on over
         # several lines: join until the `;`
         if (re.match(r"^\s*\*\((?:u?int32_t|long)\s*\*\)", line)
-                and "=" in line and not line.rstrip().endswith(";")):
+                and "=" in line
+                and not RE_CCOMMENT.sub("", line).split("//")[0].rstrip().endswith(";")):
             joined, j = line.rstrip(), i + 1
             while j < len(lines) and not joined.endswith(";") and j < i + 8:
                 joined += " " + lines[j].strip()
@@ -559,6 +562,11 @@ def facts_of(lines, maps):
         m = RE_PLAINDEREF.match(line)
         if m and m.group("p") in wordptrs:
             out.append(("store", "0x0", value(m.group("v")), "?"))
+            out.extend(calls_in(line, fnlocals))
+            continue
+        m = RE_ARRDIV.match(line)
+        if m and m.group(1) in wordptrs:
+            out.append(("store", hex(int(m.group(2), 0)), value(m.group(3)), "?"))
             out.extend(calls_in(line, fnlocals))
             continue
         m = RE_ARRSTORE.match(line)
