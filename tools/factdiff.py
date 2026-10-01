@@ -130,6 +130,8 @@ def asm_sets(fs):
     stores, handlers, tokens, calls = [], [], [], []
     unk = {"store": 0, "handler": 0, "token": 0}
     for f in fs:
+        if f[0] == "store" and len(f) > 3 and f[3] == "r13":
+            continue        # an outgoing stack argument (`str r3, [sp]`), not a field
         if f[0] == "store":
             off, val = f[1], f[2]
             if val == "?":
