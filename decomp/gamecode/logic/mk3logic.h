@@ -172,7 +172,8 @@ typedef struct MK3OBJPROC {
                                   *       NewThreadProc(obj, t_target), a
                                   *       homing target thread. */
     uint16_t field7c;            /* 0x7c  the four-button gate, signed */
-    uint8_t  _pad7e[6];
+    uint16_t field7e;            /* 0x7e  read signed by plyrthread, beside the gate */
+    uint8_t  _pad80[4];
     uint32_t field84;            /* 0x84  where tell_world_stk publishes the
                                   *       stick get_char_stk resolved, and what
                                   *       create_proj_proc clears. Two writers
