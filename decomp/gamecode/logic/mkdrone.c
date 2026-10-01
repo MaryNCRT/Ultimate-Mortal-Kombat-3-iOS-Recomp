@@ -4315,3 +4315,292 @@ long t_dflip3(MK3THREAD *thread)
     obj->field00->field28 = v;
     return mk3_install(thread, (MK3THREADFUNC)t_do_flip);
 }
+
+/* ======================================================================
+ * Distance deciders, the retp/ochar threads and the projectile probes.
+ *
+ * The deciders below read one distance or table entry, choose between two
+ * handlers and install it -- ONE install site, which is why each picks into
+ * a local first.
+ * ====================================================================== */
+
+long t_d_fflip_kick_jump(struct MK3THREAD *thread);
+long t_d_crossover_kick(struct MK3THREAD *thread);
+long t_swait_nonattack_jump(struct MK3THREAD *thread);
+long t_asb2(struct MK3THREAD *thread);
+long t_d_lo_kick(struct MK3THREAD *thread);
+long t_stalk_in_close(struct MK3THREAD *thread);
+long t_local_reaction_exit(struct MK3THREAD *thread);
+long t_duck_under_proj(struct MK3THREAD *thread);
+long t_d_zap_now(struct MK3THREAD *thread);
+long t_drfp4(struct MK3THREAD *thread);
+long t_random_do(struct MK3THREAD *thread);
+long t_run_in_close_now(struct MK3THREAD *thread);
+long c_froze_closer(struct MK3THREAD *thread);
+long t_d_body_propell(struct MK3THREAD *thread);
+long t_perhaps_flipk(struct MK3THREAD *thread);
+long t_react_jump_table_act(struct MK3THREAD *thread);
+long t_d_bflip_noscan_jsrp(struct MK3THREAD *thread);
+long t_d_attack(struct MK3THREAD *thread);
+long funcs_7674(struct MK3THREAD *thread);
+long funcs_13651(struct MK3THREAD *thread);
+void find_ani_part2(MK3OBJ *obj);
+void stop_me_player(MK3OBJ *obj);
+void find_part2(MK3OBJ *obj);
+extern const int32_t ochar_props[];
+
+long c_lkzaplo(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0x7f)
+        h = (MK3THREADFUNC)t_d_fflip_kick_jump;
+    else
+        h = (MK3THREADFUNC)t_d_crossover_kick;
+    return mk3_install(thread, h);
+}
+
+long t_av_sonya_bike(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0x6f)
+        h = (MK3THREADFUNC)t_swait_nonattack_jump;
+    else
+        h = (MK3THREADFUNC)t_asb2;
+    return mk3_install(thread, h);
+}
+
+long t_diff_no_propell(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0x47)
+        h = (MK3THREADFUNC)t_stalk_in_close;
+    else
+        h = (MK3THREADFUNC)t_d_lo_kick;
+    return mk3_install(thread, h);
+}
+
+long c_frozen(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0x6f)
+        h = (MK3THREADFUNC)t_run_in_close_now;
+    else
+        h = (MK3THREADFUNC)c_froze_closer;
+    return mk3_install(thread, h);
+}
+
+long c_tusk_zap_air(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    get_his_dog(obj);
+    if ((int32_t)obj->field1c > 0x18)
+        h = (MK3THREADFUNC)t_d_zap_now;
+    else
+        h = (MK3THREADFUNC)t_duck_under_proj;
+    return mk3_install(thread, h);
+}
+
+long t_run_in_close(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+    int32_t       d;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    d = *(const int16_t *)(const void *)(G_BYTES + 0x44c);
+    obj->field1c = (uint32_t)d;
+    if (d > 1)
+        h = (MK3THREADFUNC)t_run_in_close_now;
+    else
+        h = (MK3THREADFUNC)t_perhaps_flipk;
+    return mk3_install(thread, h);
+}
+
+long t_d_propell_attack_now(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+    int32_t       v;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    v = ochar_props[obj->field08->field24];
+    obj->field1c = (uint32_t)v;
+    if (v < 0)
+        h = (MK3THREADFUNC)t_stalk_in_close;
+    else
+        h = (MK3THREADFUNC)t_d_body_propell;
+    return mk3_install(thread, h);
+}
+
+long c_juppunch(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0x60) {
+        h = (MK3THREADFUNC)t_return_to_beware;
+    } else {
+        *(uint32_t *)((char *)obj + 0x68) = (uint32_t)(uintptr_t)funcs_13651;
+        h = (MK3THREADFUNC)t_react_jump_table_act;
+    }
+    return mk3_install(thread, h);
+}
+
+long t_d_bflip_jsrp(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    d_behind_me_a5(obj);
+    if ((int32_t)obj->field30 > 0x6f) {
+        backflip_setup(obj);
+        h = (MK3THREADFUNC)t_d_bflip_noscan_jsrp;
+    } else {
+        reset_proc_stack(thread);
+        h = (MK3THREADFUNC)t_d_attack;
+    }
+    return mk3_install(thread, h);
+}
+
+/* t_dist_retp -- armv7 0x0006eda4: stop, then pop a level, or become
+ * t_local_reaction_exit when there is none to pop */
+long t_dist_retp(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    stop_me_player(obj);
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+        return 0;
+    }
+    return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+}
+
+/* t_ochar_do -- armv7 0x00067534: this level becomes t_local_reaction_exit
+ * (and field20 remembers it), and one level above it the routine field1c
+ * names runs */
+long t_ochar_do(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field20 = (uint32_t)(uintptr_t)t_local_reaction_exit;
+    mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    thread->frame = thread->frame + 1;
+    mk3_frame(thread, thread->frame)[1] = obj->field1c;
+    *mk3_frame(thread, thread->frame + 1) = 0;
+    return 0;
+}
+
+/* t_drfp3 -- armv7 0x00071b28: peek the argument stack into field40, find
+ * the animation part and two parts, hand over to t_drfp4 */
+long t_drfp3(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field40 = *mk3_arg(thread, thread->fieldf8 - 1);
+    find_ani_part2(obj);
+    find_part2(obj);
+    find_part2(obj);
+    return mk3_install(thread, (MK3THREADFUNC)t_drfp4);
+}
+
+/* t_run_in_close_hard -- armv7 0x0006783c: two words in the object, then a
+ * push with resume token 0x226 into t_random_do */
+long t_run_in_close_hard(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    *(uint32_t *)((char *)obj + 0x68) = (uint32_t)(uintptr_t)funcs_7674;
+    *(uint32_t *)((char *)obj + 0x64) = 3;
+    *mk3_frame(thread, thread->frame + 1) = 0x226;
+    thread->frame = thread->frame + 1;
+    return mk3_install(thread, (MK3THREADFUNC)t_random_do);
+}
+
+/* his_proj_front_x -- armv7 0x0006ff34: where the front of his projectile is:
+ * its part's x plus the offsets the proc keeps at +0x84, mirrored when the
+ * part faces left */
+void his_proj_front_x(MK3OBJ *obj)
+{
+    MK3OBJ         *proj;
+    MK3OBJPROC     *pp;
+    MK3OBJ         *part;
+    const uint32_t *off;
+    uint32_t        a, b, f;
+
+    get_his_proj_proc(obj);
+    proj = (MK3OBJ *)(uintptr_t)obj->field1c;
+    pp   = proj->field00;
+    obj->field38 = (uint32_t)(uintptr_t)proj;
+    part = proj->field08;
+    off  = (const uint32_t *)(uintptr_t)pp->field84;
+    obj->field30 = (uint32_t)(uintptr_t)part;
+    obj->field1c = (uint32_t)(uintptr_t)off;
+    obj->field28 = (uint32_t)(int32_t)MK3_FIELD0E_S(part);
+    if (off == 0)
+        return;
+    a = off[0];
+    obj->field24 = a;
+    b = off[2];
+    obj->field2c = b;
+    f = *(const uint32_t *)(const void *)((const char *)(const void *)part + 0x28);
+    obj->field34 = f;
+    if ((f & 0x10u) != 0) {
+        obj->field24 = (uint32_t)(-(int32_t)a);
+        obj->field2c = (uint32_t)(-(int32_t)b);
+    }
+    obj->field28 = obj->field24 + obj->field28 + obj->field2c;
+}
