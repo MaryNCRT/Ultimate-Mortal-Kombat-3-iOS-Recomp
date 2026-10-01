@@ -1,0 +1,40 @@
+# Firmas conocidas de src/lime/common.
+#
+# Formato:  nombre | tipoRetorno | tipo nombre, tipo nombre, ...
+#
+# Sin esto Ghidra emite `undefined4 *param_1` y aritmetica de patrones de bits;
+# con las firmas aplicadas emite float y el C se vuelve legible.
+#
+# Origen de cada firma: desensamblado verificado (ver PROGRESS.md) y los
+# nombres mangled C++ que conserva el binario, p.ej.
+#   __Z21LIME_RenderMeshSingleP8MESHINFOP7TEXTURES2_fl
+#   __Z14LIME_LoadSkin1PcP8SKININFO
+
+# ---- Matrix.cpp ----
+# Matriz 4x4 de floats en orden fila-mayor (verificado por tests).
+_limeMatrixLoadIdentity  | void | float *m
+_limeMatrixCopy          | void | float *src, float *dst
+_limeMatrixMult          | void | float *a, float *b, float *out
+_RotMatrixX              | void | float *m, float angle
+_RotMatrixY              | void | float *m, float angle
+_RotMatrixZ              | void | float *m, float angle
+_limeScaleMatrix         | void | float *m, float scale
+_limeScaleMatrixXYZ      | void | float *m, float sx, float sy, float sz
+_CreatePerspectiveMatrix | void | float *m, float fov, float aspect, float zNear, float zFar
+_limeMatrix3x4RotateSkin | void | float *m, float *vin, float *vout
+_RotVector               | void | float *m, float *vin, float *vout
+
+# ---- limeVector.cpp ----
+_Len                     | float | float *v
+_Normalise               | void  | float *v
+
+# ---- RenderMesh.cpp ----
+# Firmas derivadas del desensamblado verificado de _LIME_LoadMeshSet y de los
+# nombres mangled C++ que conserva el binario.
+_LIME_LoadMeshSet          | MESHSETINFO* | char *filename, int useLighting
+_LIME_FreeMeshSet          | void         | MESHSETINFO *set
+_LIME_FindMeshByName       | MESHINFO*    | MESHSETINFO *set, char *name
+_LIME_LoadMeshSetTextures  | void         | MESHSETINFO *set
+_LIME_FreeMeshSetTextures  | void         | MESHSETINFO *set
+_IsTextureFullBright       | int          | char *textureName
+_Read64CharsFromMem        | char*        | char *src, char *dst
