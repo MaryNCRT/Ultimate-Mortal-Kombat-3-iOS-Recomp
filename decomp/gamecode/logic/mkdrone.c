@@ -1806,7 +1806,7 @@ void get_his_action(MK3OBJ *obj);
  * ignored the result. */
 void get_x_dist(MK3OBJ *obj);
 long is_throwing_allowed(MK3OBJ *obj);
-long is_towards_me(MK3OBJ *obj);
+void is_towards_me(MK3OBJ *obj);
 void ochar_begin_calls(MK3OBJ *obj);
 void q_am_i_cornered(MK3OBJ *obj);
 long q_will_he_reach_me(MK3OBJ *obj);
@@ -4039,4 +4039,279 @@ yes:
     return;
 no:
     vq_no(obj);
+}
+
+/* ======================================================================
+ * Flip setups, the "forget" returns and the closeup picker.
+ * ====================================================================== */
+
+long is_he_right(MK3OBJ *obj);
+void reset_proc_stack(MK3THREAD *thread);
+long t_victory_animation(struct MK3THREAD *thread);
+long t_return_to_beware(struct MK3THREAD *thread);
+extern const uint32_t tab_react_flipk[];
+
+/* backflip_setup / frontflip_setup -- armv7 0x00070c6c, 0x00070cf8: the same
+ * body with the test inverted. Both lay out the jump (0x40000, 0x70000, 0x1a,
+ * 0x1b) and mirror it when the opponent is on the other side. */
+void backflip_setup(MK3OBJ *obj)
+{
+    obj->field48 = 0x40000;
+    obj->field1c = 0x1a;
+    obj->field34 = 0x40000 + 0x30000;
+    obj->field20 = 0x1b;
+    is_he_right(obj);
+    if (obj->field5c != 0) {
+        obj->field20 = 0x1a;
+        obj->field1c = 0x1b;
+        obj->field48 = (uint32_t)(-(int32_t)obj->field48);
+        obj->field34 = (uint32_t)(-(int32_t)obj->field34);
+    }
+}
+
+void frontflip_setup(MK3OBJ *obj)
+{
+    obj->field48 = 0x40000;
+    obj->field1c = 0x1a;
+    obj->field34 = 0x40000 + 0x30000;
+    obj->field20 = 0x1b;
+    is_he_right(obj);
+    if (obj->field5c == 0) {
+        obj->field20 = 0x1a;
+        obj->field1c = 0x1b;
+        obj->field48 = (uint32_t)(-(int32_t)obj->field48);
+        obj->field34 = (uint32_t)(-(int32_t)obj->field34);
+    }
+}
+
+/* q_is_he_lower -- armv7 0x00068e30 */
+void q_is_he_lower(MK3OBJ *obj)
+{
+    MK3OBJPROC *proc = obj->field00;
+    MK3OBJ     *him  = (MK3OBJ *)(uintptr_t)proc->him;
+    int32_t     y, d;
+
+    obj->field1c = him->field1c;
+    if ((int32_t)obj->field1c < 0)
+        goto no;
+    y = MK3_FIELD12_S(him);
+    obj->field20 = (uint32_t)y;
+    d = (int32_t)(*(const uint32_t *)(const void *)
+                    ((const char *)(const void *)proc->field00->field00 + 0x40)
+                  - (uint32_t)y);
+    obj->field24 = (uint32_t)d;
+    if (d <= (int32_t)obj->field38)
+        goto yes;
+no:
+    vq_no(obj);
+    return;
+yes:
+    vq_yes(obj);
+}
+
+/* t_return_and_4get, t_return_to_beware_4get -- armv7 0x000695f8, 0x0006c148:
+ * the same two bodies, clearing the animation and the proc's answer and
+ * handing over to t_return_to_beware */
+long t_return_and_4get(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0;
+    obj->field00->field5c = 0;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_return_to_beware);
+}
+
+long t_return_to_beware_4get(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field1c = 0;
+    obj->field00->field5c = 0;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_return_to_beware);
+}
+
+/* is_towards_me -- armv7 0x00070940: his x speed (field18) against which side
+ * he is on; zero means no */
+void is_towards_me(MK3OBJ *obj)
+{
+    int32_t v = (int32_t)((MK3OBJ *)(uintptr_t)obj->field00->him)->field18;
+
+    obj->field1c = (uint32_t)v;
+    if (v == 0)
+        goto no;
+    if (v < 0) {
+        is_he_right(obj);
+        if (obj->field5c == 0)
+            goto no;
+        goto yes;
+    }
+    is_he_right(obj);
+    if (obj->field5c != 0)
+        goto no;
+yes:
+    obj->field5c = 1;
+    return;
+no:
+    obj->field5c = 0;
+}
+
+/* t_attack_closeup_sd -- armv7 0x0006aedc: the handler comes out of
+ * tab_react_flipk[part->field24] */
+long t_attack_closeup_sd(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t h;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    h = tab_react_flipk[obj->field08->field24];
+    obj->field1c = h;
+
+    return mk3_push_handler(thread, (MK3THREADFUNC)(uintptr_t)h);
+}
+
+/* t_d_fatality_abort -- armv7 0x000703c8 */
+long t_d_fatality_abort(MK3THREAD *thread)
+{
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    reset_proc_stack(thread);
+
+    /* the refusal was above; a second one here would read the slot of the
+     * stack that was just reset */
+    return mk3_install(thread, (MK3THREADFUNC)t_victory_animation);
+}
+
+/* ======================================================================
+ * Return-to-beware, the tracker probe, the flip scans.
+ * ====================================================================== */
+
+long t_d_propell_attack_now(struct MK3THREAD *thread);
+long t_do_flip(MK3THREAD *thread);
+long t_dflip3(MK3THREAD *thread);
+
+/* t_return_to_beware -- armv7 0x0006c184: the proc keeps a saved state at
+ * 0x6c (handler), 0x70 (resume token), 0x74 and 0x78 (the two words of the
+ * object it overwrote); this puts them back and resumes */
+long t_return_to_beware(MK3THREAD *thread)
+{
+    MK3OBJ     *obj  = (MK3OBJ *)thread->proc;
+    MK3OBJPROC *proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    proc = obj->field00;
+    obj->a10     = *(const uint32_t *)(const void *)((const char *)(const void *)proc + 0x74);
+    obj->field48 = *(const uint32_t *)(const void *)((const char *)(const void *)proc + 0x78);
+    mk3_frame(thread, thread->frame)[1] =
+        *(const uint32_t *)(const void *)((const char *)(const void *)proc + 0x6c);
+    *mk3_frame(thread, thread->frame + 1) =
+        *(const uint32_t *)(const void *)((const char *)(const void *)obj->field00 + 0x70);
+    return 0;
+}
+
+/* q_is_tracker_close -- armv7 0x000701d8: his projectile's x against mine,
+ * absolute, inside 0x6f. No projectile counts as close. */
+void q_is_tracker_close(MK3OBJ *obj)
+{
+    MK3OBJ *proj;
+    int32_t px, mx;
+
+    get_his_proj_proc(obj);
+    if (obj->field1c == 0)
+        goto yes;
+    proj = (MK3OBJ *)(uintptr_t)obj->field1c;
+    px = MK3_FIELD0E_S(proj->field08);
+    obj->field20 = (uint32_t)px;
+    mx = MK3_FIELD0E_S(obj->field08);
+    obj->field24 = (uint32_t)mx;
+    obj->field20 = (uint32_t)(px - mx);
+    if ((int32_t)obj->field20 < 0)
+        obj->field20 = (uint32_t)(-(int32_t)obj->field20);
+    if ((int32_t)obj->field20 > 0x6f) {
+        vq_no(obj);
+        return;
+    }
+yes:
+    vq_yes(obj);
+}
+
+/* t_d_propell_attack -- armv7 0x00067ec4: the difficulty picks the handler */
+long t_d_propell_attack(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+    int32_t       d;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    d = *(const int16_t *)(const void *)(G_BYTES + 0x44c);
+    obj->field1c = (uint32_t)d;
+    if (d > 2)
+        h = (MK3THREADFUNC)t_d_propell_attack_now;
+    else
+        h = (MK3THREADFUNC)t_diff_no_propell;
+    return mk3_install(thread, h);
+}
+
+/* t_d_bflip_scan_jsrp, t_d_fflip_scan_jsrp -- armv7 0x00070ca4, 0x00070e4c:
+ * push field34 on the argument stack, set the flip up, hand over to t_dflip3 */
+long t_d_bflip_scan_jsrp(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t n;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    n = thread->fieldf8;
+    *mk3_arg(thread, n) = obj->field34;
+    thread->fieldf8 = n + 1;
+    backflip_setup(obj);
+    return mk3_install(thread, (MK3THREADFUNC)t_dflip3);
+}
+
+long t_d_fflip_scan_jsrp(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t n;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    n = thread->fieldf8;
+    *mk3_arg(thread, n) = obj->field34;
+    thread->fieldf8 = n + 1;
+    frontflip_setup(obj);
+    return mk3_install(thread, (MK3THREADFUNC)t_dflip3);
+}
+
+/* t_dflip3 -- armv7 0x000682e0: pop field34 back, mirror it into the proc,
+ * then the flip itself */
+long t_dflip3(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t n, v;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    n = thread->fieldf8 - 1;
+    thread->fieldf8 = n;
+    v = *mk3_arg(thread, n);
+    obj->field34 = v;
+    obj->field00->field28 = v;
+    return mk3_install(thread, (MK3THREADFUNC)t_do_flip);
 }
