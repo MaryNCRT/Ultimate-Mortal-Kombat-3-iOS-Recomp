@@ -4604,3 +4604,182 @@ void his_proj_front_x(MK3OBJ *obj)
     }
     obj->field28 = obj->field24 + obj->field28 + obj->field2c;
 }
+
+/* ======================================================================
+ * Zap/slam deciders and the drfp chain.
+ * ====================================================================== */
+
+long t_d_zap(struct MK3THREAD *thread);
+long t_d_block(struct MK3THREAD *thread);
+long t_do_body_propell(struct MK3THREAD *thread);
+long t_run_in_and_slam(struct MK3THREAD *thread);
+long t_block_orb(struct MK3THREAD *thread);
+long t_d_knee(struct MK3THREAD *thread);
+long t_drone_sweep_closeup_sd(struct MK3THREAD *thread);
+long t_attack_closeup_sd(struct MK3THREAD *thread);
+long t_run_in_close(struct MK3THREAD *thread);
+long t_d_crossover_kick(struct MK3THREAD *thread);
+void should_i_promove(MK3OBJ *obj);
+void his_proj_front_x(MK3OBJ *obj);
+
+long t_stsw_zap(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 <= 0x7f)
+        h = (MK3THREADFUNC)t_d_crossover_kick;
+    else if ((int32_t)obj->field28 > 0xd0)
+        h = (MK3THREADFUNC)t_d_zap;
+    else
+        h = (MK3THREADFUNC)t_d_block;
+    return mk3_install(thread, h);
+}
+
+/* t_d_body_propell -- armv7 0x0006c264: this level becomes
+ * t_local_reaction_exit (and field38 remembers it), one level above it the
+ * body-propell routine runs */
+long t_d_body_propell(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field38 = (uint32_t)(uintptr_t)t_local_reaction_exit;
+    mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+
+    thread->frame = thread->frame + 1;
+    return mk3_install(thread, (MK3THREADFUNC)t_do_body_propell);
+}
+
+/* t_drfp2 -- armv7 0x00071b84: t_drfp3 with a third find_part2 */
+long t_drfp2(MK3THREAD *thread)
+{
+    MK3OBJ *obj = (MK3OBJ *)thread->proc;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    obj->field40 = *mk3_arg(thread, thread->fieldf8 - 1);
+    find_ani_part2(obj);
+    find_part2(obj);
+    find_part2(obj);
+    find_part2(obj);
+    return mk3_install(thread, (MK3THREADFUNC)t_drfp4);
+}
+
+/* The three `_sd` deciders: ask whether to promote, then pick by distance.
+ * No promotion means t_return_to_beware. */
+long c_er_slam_sd(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    should_i_promove(obj);
+    if (obj->field5c == 0) {
+        h = (MK3THREADFUNC)t_return_to_beware;
+    } else {
+        get_x_dist(obj);
+        if ((int32_t)obj->field28 > 0x9f)
+            h = (MK3THREADFUNC)t_run_in_close;
+        else
+            h = (MK3THREADFUNC)t_attack_closeup_sd;
+    }
+    return mk3_install(thread, h);
+}
+
+long c_proj_sd(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    should_i_promove(obj);
+    if (obj->field5c == 0) {
+        h = (MK3THREADFUNC)t_return_to_beware;
+    } else {
+        get_x_dist(obj);
+        if ((int32_t)obj->field28 > 0x9f)
+            h = (MK3THREADFUNC)t_drone_sweep_closeup_sd;
+        else
+            h = (MK3THREADFUNC)t_attack_closeup_sd;
+    }
+    return mk3_install(thread, h);
+}
+
+long c_jaxdash_sd(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    should_i_promove(obj);
+    if (obj->field5c == 0) {
+        h = (MK3THREADFUNC)t_return_to_beware;
+    } else {
+        get_x_dist(obj);
+        if ((int32_t)obj->field28 > 0x56)
+            h = (MK3THREADFUNC)t_run_in_close;
+        else
+            h = (MK3THREADFUNC)t_d_knee;
+    }
+    return mk3_install(thread, h);
+}
+
+long t_scorp_anti_orb(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+
+    if (*mk3_frame(thread, thread->frame + 1) != 0)
+        return -3;
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 <= 0xaf) {
+        h = (MK3THREADFUNC)t_run_in_and_slam;
+    } else {
+        get_x_dist(obj);
+        if ((int32_t)obj->field28 > 0xf0)
+            h = (MK3THREADFUNC)t_d_propell_attack_now;
+        else
+            h = (MK3THREADFUNC)t_block_orb;
+    }
+    return mk3_install(thread, h);
+}
+
+/* q_proj_jclose -- armv7 0x0006ff80: is his projectile within reach of a
+ * jump. The reach is 0xc0, or 0x90 unless he is character 0xe, 0x12 or
+ * 0x16 (the three whose projectiles travel far). */
+void q_proj_jclose(MK3OBJ *obj)
+{
+    uint32_t c;
+    int32_t  d;
+
+    his_proj_front_x(obj);
+    obj->field30 = 0xc0;
+    c = ((MK3OBJ *)(uintptr_t)obj->field00->him)->field24;
+    obj->field24 = c;
+    if (!(c == 0xe || c == 0x12) && c != 0x16)
+        obj->field30 = 0x90;
+    obj->field24 = (uint32_t)(int32_t)MK3_FIELD0E_S(obj->field08);
+    d = (int32_t)obj->field24 - (int32_t)obj->field28;
+    obj->field28 = (uint32_t)d;
+    if (d <= (int32_t)obj->field30)
+        goto yes;
+    vq_no(obj);
+    return;
+yes:
+    vq_yes(obj);
+}
