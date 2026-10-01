@@ -408,6 +408,9 @@ static int test_one(const Test *t, int nsc, int *skipped, int *failed_scen)
             }
             capture(resI, resA);
             native_to_arm(resI);
+            /* and put the live memory back in ARM form: the next scenario
+             * only rewrites part of it */
+            native_to_arm((uint8_t *)(uintptr_t)IMG_LO);
             int bad = compare(t, token, ro, rn);
             if (bad && g_debug && fails == 0) {
                 /* Plyr[0] (the object) before / oracle / C, 27 words */
@@ -434,12 +437,12 @@ int main(int argc, char **argv)
 {
     const char *slice = getenv("UMK3_SLICE");
     int nsc = 150;
-    const char *only = 0;
+    const char *only[256]; int nonly = 0;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-n") && i + 1 < argc) nsc = atoi(argv[++i]);
         else if (!strcmp(argv[i], "-v")) g_verbose = 1;
         else if (!strcmp(argv[i], "-d")) g_debug = 1;
-        else only = argv[i];
+        else if (nonly < 256) only[nonly++] = argv[i];
     }
     if (!slice) { fprintf(stderr, "UMK3_SLICE not set\n"); return 2; }
 
@@ -492,7 +495,7 @@ int main(int argc, char **argv)
     int total = 0, failed = 0, skipped_all = 0;
     for (int i = 0; i < g_ntests; i++) {
         const Test *t = &g_tests[i];
-        if (only && strcmp(only, t->name)) continue;
+        if (nonly) { int hit = 0; for (int k = 0; k < nonly; k++) if (!strcmp(only[k], t->name)) hit = 1; if (!hit) continue; }
         int skipped = 0, fs = 0;
         rs = 0x9e3779b97f4a7c15ull ^ ((uint64_t)i * 0x100000001b3ull);
         int fails = test_one(t, nsc, &skipped, &fs);
