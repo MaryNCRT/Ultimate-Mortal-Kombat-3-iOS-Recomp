@@ -9294,3 +9294,258 @@ long c_lia_zap(MK3THREAD *thread)
     }
     return mk3_install(thread, h);
 }
+
+/* ======================================================================
+ * t_ct_square, c_angle_jump, t_drone_entry, t_standard_zap_counter. Batch 23.
+ * ====================================================================== */
+
+long t_caj_corner(struct MK3THREAD *thread);
+long t_caj_towards_me(struct MK3THREAD *thread);
+long t_d_zap_jump(struct MK3THREAD *thread);
+long t_d_lk_hi_zap_jump(struct MK3THREAD *thread);
+long t_d_attack(struct MK3THREAD *thread);
+long t_d_wait_finish_react(struct MK3THREAD *thread);
+long t_d_backup_jsrp(struct MK3THREAD *thread);
+long t_hangout_check(struct MK3THREAD *thread);
+long t_boss_branch(struct MK3THREAD *thread);
+long t_return_and_4get(struct MK3THREAD *thread);
+long t_indian_reflect(struct MK3THREAD *thread);
+long t_lk_zap_low(struct MK3THREAD *thread);
+long t_jade_anti_zap(struct MK3THREAD *thread);
+long t_cyrax_counter_zap(struct MK3THREAD *thread);
+long t_d_block_projectile(struct MK3THREAD *thread);
+long t_run_then_flipk(struct MK3THREAD *thread);
+long t_run_then_duck_under(struct MK3THREAD *thread);
+long t_nr_jump_over_proj(struct MK3THREAD *thread);
+long rpt_angle(struct MK3THREAD *thread);
+long am_i_short(MK3OBJ *obj);
+void d_to_normal(MK3OBJ *obj);
+void stance_setup(MK3OBJ *obj);
+void q_square_lower(MK3OBJ *obj);
+void q_is_he_dropping(MK3OBJ *obj);
+void q_is_he_cornered(MK3OBJ *obj);
+
+/* t_ct_square -- armv7 0x00071340 */
+long t_ct_square(MK3THREAD *thread)
+{
+    MK3OBJ  *obj = (MK3OBJ *)thread->proc;
+    uint32_t token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x1243)
+        goto dropping;
+    if (token == 0x1248) {
+        get_x_dist(obj);
+        if ((int32_t)obj->field28 > 0x4f)
+            return mk3_install(thread, (MK3THREADFUNC)t_d_zap);
+        obj->field48 = (uint32_t)(uintptr_t)q_square_lower;
+        obj->a10     = 0x40;
+        *mk3_frame(thread, thread->frame + 1) = 0x1252;
+        thread->frame = thread->frame + 1;
+        return mk3_install(thread, (MK3THREADFUNC)t_stance_wait_yes);
+    }
+    if (token == 0x1252) {
+        d_either_edge_a5(obj);
+        if ((int32_t)obj->field30 > 0x4f)
+            return mk3_install(thread, (MK3THREADFUNC)t_d_hi_kick);
+        return mk3_install(thread, (MK3THREADFUNC)t_d_uppercut);
+    }
+    if (token == 0x1241) {
+        *mk3_frame(thread, thread->frame + 1) = 0x1243;
+        thread->frame = thread->frame + 1;
+        return mk3_install(thread, (MK3THREADFUNC)t_d_turnaround_jsrp);
+    }
+    if (token != 0)
+        return -3;
+
+    get_x_dist(obj);
+    if ((int32_t)obj->field28 > 0xfc)
+        goto dropping;
+    obj->a10     = 0x40;
+    obj->field48 = (uint32_t)(uintptr_t)q_my_back_to_him;
+    *mk3_frame(thread, thread->frame + 1) = 0x1241;
+    thread->frame = thread->frame + 1;
+    return mk3_install(thread, (MK3THREADFUNC)t_stance_wait_yes);
+
+dropping:
+    obj->a10     = 0x40;
+    obj->field48 = (uint32_t)(uintptr_t)q_is_he_dropping;
+    *mk3_frame(thread, thread->frame + 1) = 0x1248;
+    thread->frame = thread->frame + 1;
+    return mk3_install(thread, (MK3THREADFUNC)t_stance_wait_yes);
+}
+
+/* c_angle_jump -- armv7 0x00070a18 */
+long c_angle_jump(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3OBJ       *part;
+    MK3THREADFUNC h;
+    uint32_t      token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t      c;
+    int32_t       d;
+
+    if (token == 0xc24) {
+        part = obj->field08;
+        obj->field1c = 6;
+        c = part->field24;
+        obj->field20 = c;
+        if (c == 4)
+            return mk3_install(thread, (MK3THREADFUNC)t_d_zap_jump);
+        obj->field1c = 0x19;
+        c = part->field24;
+        obj->field20 = c;
+        if (c == 5)
+            return mk3_install(thread, (MK3THREADFUNC)t_d_zap_jump);
+        obj->field1c = 0x16;
+        c = part->field24;
+        obj->field20 = c;
+        if (c == 0xd)
+            return mk3_install(thread, (MK3THREADFUNC)t_d_lk_hi_zap_jump);
+        return mk3_install(thread, (MK3THREADFUNC)t_d_zap);
+    }
+    if (token != 0)
+        return -3;
+
+    obj->field1c = (uint32_t)(uintptr_t)rpt_angle;
+    ask_mr_diff(obj);
+    if (obj->field5c == 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_return_to_beware);
+
+    obj->field1c = ((MK3OBJ *)(uintptr_t)obj->field00->him)->field18;
+    if (obj->field1c == 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_return_and_4get);
+
+    is_towards_me(obj);
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_caj_towards_me);
+    q_is_he_cornered(obj);
+    if (obj->field5c != 0)
+        return mk3_install(thread, (MK3THREADFUNC)t_caj_corner);
+
+    get_x_dist(obj);
+    d = (int32_t)obj->field28;
+    if (d <= 0x5f) {
+        h = (MK3THREADFUNC)t_d_flip_punch_jump;
+    } else if (d > 0xaf) {
+        h = (MK3THREADFUNC)t_return_to_beware;
+    } else {
+        *mk3_frame(thread, thread->frame + 1) = 0xc24;
+        thread->frame = thread->frame + 1;
+        h = (MK3THREADFUNC)t_dont_zap_teles;
+    }
+    return mk3_install(thread, h);
+}
+
+/* t_drone_entry -- armv7 0x00072ccc */
+long t_drone_entry(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+    uint32_t      token = *mk3_frame(thread, thread->frame + 1);
+
+    if (token == 0x36f) {
+        *mk3_frame(thread, thread->frame + 1) = 0x370;
+        thread->frame = thread->frame + 1;
+        return mk3_install(thread, (MK3THREADFUNC)t_d_beware);
+    }
+    if (token == 0x370) {
+        stance_setup(obj);
+        if (am_i_facing_him(obj) == 0)
+            return mk3_install(thread, (MK3THREADFUNC)t_d_turnaround);
+        *(uint32_t *)((char *)obj + 0x64) = 0x10;
+        *mk3_frame(thread, thread->frame + 1) = 0x378;
+        thread->frame = thread->frame + 1;
+        return mk3_install(thread, (MK3THREADFUNC)t_boss_branch);
+    }
+    if (token == 0x378) {
+        if (am_i_short(obj) != 0) {
+            *mk3_frame(thread, thread->frame + 1) = 0x37b;
+            thread->frame = thread->frame + 1;
+            return mk3_install(thread, (MK3THREADFUNC)t_d_backup_jsrp);
+        }
+        goto hangout;
+    }
+    if (token == 0x37b)
+        goto hangout;
+    if (token == 0x381) {
+        if (q_is_he_reacting(obj) != 0)
+            h = (MK3THREADFUNC)t_d_wait_finish_react;
+        else
+            h = (MK3THREADFUNC)t_d_attack;
+        return mk3_install(thread, h);
+    }
+    if (token != 0)
+        return -3;
+
+    reset_proc_stack(thread);
+    d_to_normal(obj);
+    *mk3_frame(thread, thread->frame + 1) = 0x36f;
+    thread->frame = thread->frame + 1;
+    return mk3_install(thread, (MK3THREADFUNC)t_check_winner_status);
+
+hangout:
+    *mk3_frame(thread, thread->frame + 1) = 0x381;
+    thread->frame = thread->frame + 1;
+    return mk3_install(thread, (MK3THREADFUNC)t_hangout_check);
+}
+
+/* t_standard_zap_counter -- armv7 0x0006de68: by character (a tbb of 15 from
+ * character 3), otherwise by distance */
+long t_standard_zap_counter(MK3THREAD *thread)
+{
+    MK3OBJ       *obj = (MK3OBJ *)thread->proc;
+    MK3THREADFUNC h;
+    uint32_t      token = *mk3_frame(thread, thread->frame + 1);
+    uint32_t      c;
+    int32_t       d;
+
+    if (token == 0xe89) {
+        *mk3_frame(thread, thread->frame + 1) = 0xe8a;
+        thread->frame = thread->frame + 1;
+        return mk3_install(thread, (MK3THREADFUNC)t_nr_jump_over_proj);
+    }
+    if (token == 0xe8a)
+        return mk3_install(thread, (MK3THREADFUNC)t_duck_under_proj);
+    if (token != 0)
+        return -3;
+
+    c = obj->field08->field24 - 3;
+    if (c <= 0xe) {
+        switch (c) {
+        case 0:
+            return mk3_install(thread, (MK3THREADFUNC)t_indian_reflect);
+        case 4:
+        case 8:
+        case 11:
+        case 14:
+            return mk3_install(thread, (MK3THREADFUNC)t_d_propell_attack_now);
+        case 5:
+            return mk3_install(thread, (MK3THREADFUNC)t_cyrax_counter_zap);
+        case 10:
+            return mk3_install(thread, (MK3THREADFUNC)t_lk_zap_low);
+        case 13:
+            return mk3_install(thread, (MK3THREADFUNC)t_jade_anti_zap);
+        default:
+            break;
+        }
+    }
+
+    obj->field1c = ((MK3OBJ *)(uintptr_t)obj->field00->him)->field24;
+    if (obj->field1c == 8)
+        return mk3_install(thread, (MK3THREADFUNC)t_d_block_projectile);
+
+    get_x_dist(obj);
+    d = (int32_t)obj->field28;
+    if (d <= 0x9f)
+        h = (MK3THREADFUNC)t_duck_under_proj;
+    else if (d > 0xf0)
+        h = (MK3THREADFUNC)t_run_then_flipk;
+    else if (d > 0xd0)
+        h = (MK3THREADFUNC)t_run_then_duck_under;
+    else {
+        *mk3_frame(thread, thread->frame + 1) = 0xe89;
+        thread->frame = thread->frame + 1;
+        h = (MK3THREADFUNC)t_nr_sweep_if_u_can;
+    }
+    return mk3_install(thread, h);
+}
