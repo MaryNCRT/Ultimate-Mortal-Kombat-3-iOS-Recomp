@@ -210,26 +210,21 @@ even though it renders no pixels.
 **The engine core is the fourth row, and it is done.** All 109 functions have a
 body; all nine of its files are also verified against the recompiled original.
 
-**Why the number is still not high.** The fight engine is 2,172 functions on
-its own and 237 of them have no body yet, which is where nearly all of the
-remaining work is. One file holds all of it:
+**Every function now has a body.** All 2,172 functions of the fight engine are
+written, including `mkdrone.c` (the AI opponent, 394 functions), the last file
+to close. What is left of the project is not decompilation: the 229 data
+tables, the PC platform layer (the 229 iOS-layer functions rewritten natively)
+and the EA SDK stubs. Realistically that is still months of work.
 
-| | missing | what it is |
-|---|---:|---|
-| `mkdrone.c` | 237 | the AI opponent |
-
-Twenty of the twenty-one files are finished, including the three largest --
-`moves.c`, `other.c` and `mkfatal.c` -- plus `joy.c` (the input layer),
-`mkbonus.c`, `mkreact.c`, `playback.c`, `mkzap.c`, `mkfriend.c` and `mkboss.c`
-(Motaro and Shao Kahn), all closed since the count above stood at eight. So
-the count is further along than the shape of the list suggests. Realistically
-the rest is still months of work.
-
-One caveat on "verified". The oracle compares stores, handlers, state tokens
-and calls; it does not compare return values, and it cannot see a handler the
-binary fetches through a pointer slot. Both gaps let real mistakes through
-while closing `mkboss.c`, so `tools/handlercheck.py` now checks handler names
-against the image, and return values are checked by eye.
+One caveat on "verified". The static fact diff (`tools/factdiff.py`) compares
+stores, handlers, state tokens and calls; it cannot see which constant a return
+path yields (a pop returns 0, a refusal -3) and it cannot see a handler the
+binary fetches through a pointer slot. Both gaps let real mistakes through, so
+there is now a second, behavioural check: `tools/difftest/` runs each decomp
+function and its recompiled original from the same randomised state in one
+32-bit process and compares the return value and the whole data image. It is
+clean on `mkdrone.c` and `mkfriend.c`; the other files are being triaged (some
+reports are limits of the harness, not bugs -- see docs/VERIFICATION.md).
 
 ### `lime/common` is complete — and here is what that does and does not mean
 
@@ -347,6 +342,9 @@ tools/
   macho.py               Mach-O parser: slices, symbols, sections, stub resolution
   stabs.py               rebuilds the original source tree from the STABS table
   disasm.py              disassembles a single function by name
+  cd.py                  compact disassembly with literals resolved and idioms folded
+  factdiff.py            static fact diff: decomp C vs recompiled original
+  difftest/              behavioural differential test, decomp vs recompiled, same random state
   archstats.py           ARM/Thumb ratio and mnemonic inventory
   rank.py                scores functions by difficulty
   meshset.py             .meshset reader (all three variants)
