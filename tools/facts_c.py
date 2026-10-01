@@ -235,7 +235,7 @@ NOT_A_CALL = frozenset((
 RE_WORDARRAY = re.compile(r"^\s*extern\s+(?:const\s+)?(?:long|int32_t|uint32_t)\s+"
                           r"(?:\*\s*([A-Za-z_]\w*)\s*;|([A-Za-z_]\w*)\s*\[\s*\]\s*;)")
 # `g[0x368 / 4] = v;` -- a word of a byte-offset-in-words view of something
-RE_ARRDIV = re.compile(r"^\s*(\w+)\[\s*(0x[0-9a-fA-F]+|\d+)\s*/\s*4\s*\]\s*=(?!=)\s*([^;]+);")
+RE_ARRDIV = re.compile(r"^\s*(\w+)\[\s*\(?\s*(0x[0-9a-fA-F]+|\d+)[^\]]*?/\s*4\s*\]\s*=(?!=)\s*([^;]+);")
 RE_ARRSTORE = re.compile(r"^\s*([A-Za-z_]\w*)\[(\d+|0x[0-9a-fA-F]+)\]\s*=\s*([^;]+);")
 WORD_ARRAYS = set()
 
