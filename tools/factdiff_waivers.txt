@@ -1,0 +1,10 @@
+# file : function : reason  -- functions the tool cannot check, READ BY HAND against the disassembly.
+# Shown as ~~ on every run and never counted as a pass.
+other.c : do_next_a9_frame_pxob : binary dispatches through a `mov pc,r2` jump table the asm reader does not follow; all 19 arms compared by hand (op 8 fixed)
+other.c : four_button_switch : returns through `mov r0,r1` after `subs r1,#1` (button 4 -> 3); return-constant check cannot see it
+mk3.c : MKEvent_Clear : store through a global pointer (`MKEventQueue->count = 0` = [[g]+0]); read by hand, matches
+mk3.c : TList_Init : stores through the mytc base and loop-carried registers; both loops and the two NULL cuts compared by hand against 0x31bb4..0x31c0a
+mk3.c : mk3_init_game : binary uses post-indexed `str r0,[r3],#4` for the 9 words of H; all 9 + the RoundParam stores compared by hand
+mk3.c : mk3_init : the 2-thread loop is peeled into two copies in the binary, handlers come from __DATA pointer slots (0xf3860/0xf3870/0xf386c); every store/call of the binary compared by hand
+mkcombo.c : t_process_combo_table : float global store (ComboPrint = 1.5f is the 0x3fc00000 the binary stores through a pointer); compared by hand
+joy.c : plyrthread : rewritten from the disassembly label by label (one label per binary address, 0 token/handler/call differences); the one fact left is the store to the global GLBL_joy_entry (=0x3eb at 0x311b2), which the checker cannot see

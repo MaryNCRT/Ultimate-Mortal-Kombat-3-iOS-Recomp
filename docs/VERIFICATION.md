@@ -1,0 +1,191 @@
+# Verifying the decomp against the binary
+
+Which method, and why. Written after a day in which six transcription
+errors reached `joy.c` and one unchecked claim in the Godot port deformed
+the character model on every hit.
+
+## What went wrong, precisely
+
+None of the six was a reasoning error. Every one was a value read wrong
+off a screen of disassembly:
+
+| # | error | what it should have been |
+|---|---|---|
+| 1 | `t_jmp4`/`t_jmp5` sent `sel 0` to the continuation | `sel 0` is the cross-over |
+| 2 | `part->field58 = 2` in the low punches | `3` — `mov.w sl, #3` at 0x00030aa0 |
+| 3 | `t_jmp4` wrote `field48 = -1` unconditionally | only when the strike connected |
+| 4 | `t_jmp5` assumed the same condition as its twin | the opposite one |
+| 5 | `plyrthread` flip speed as `0xfff80000` | `0xfffc0000`, the word at 0x000317d0 |
+| 6 | `check_block_bit` / `is_he_right` declared `void` | both return their flag in r0 |
+
+The common factor is that all six are **mechanical facts** — a constant, a
+store offset, a branch target, a return register. A machine reads those
+without getting tired. A person reading a fifth screen of Thumb does not.
+
+## The measurement that settles it
+
+`TOOLS/armrecomp/recomp.py` translates ARM to C one instruction per
+statement and **reports anything it cannot translate** rather than
+emitting something plausible. Run over the files that matter:
+
+| file | functions | unsupported instructions |
+|---|---|---|
+| `joy.c` | 73 | **0** (4,422 translated) |
+| `mkreact.c` | 207 | 2 |
+| `moves.c` | 355 | 13 |
+| `mkstat.c` | 62 | 4 |
+| `other.c` | 333 | 4 |
+
+So a faithful, machine-made transcription of essentially everything is
+one command away, and has been all along.
+
+What that transcription looks like, for the store this project got wrong:
+
+```c
+ctx->r[10] = 0x3u;
+/* 00030aa4  str r3, [r2, #0x30] */
+MEM_ST32((ctx->r[2] + 48), ctx->r[3]);
+/* 00030aa6  ldr r3, [r4] */
+ctx->r[3] = MEM_LD32((ctx->r[4]));
+/* 00030aa8  str.w sl, [r3, #0x58] */
+MEM_ST32((ctx->r[3] + 88), ctx->r[10]);
+```
+
+Constant-propagate one register and that reads `store [+0x58] = 3`,
+which contradicts the hand-written `field58 = 2` on sight.
+
+## The four candidates
+
+### A. The existing generators — `pushfn`, `leaffn`, `microfn`, `parkfn`
+
+Already in `tools/`, already responsible for hundreds of functions, and
+already built on the right principle: they execute or match a body and
+**refuse** anything they cannot account for instruction by instruction.
+
+Two limits make them the wrong tool for *checking* what is already
+written. They skip written functions by construction — `pushfn.main`
+does `done = dumpfn.written()` and filters on `n not in done` — and they
+only handle the shapes they know.
+
+Forced over **all 1,604 already-written `gamecode/logic` functions**,
+`pushfn` could read **329 of them, 20.5%**. The refusals, and they are
+honest ones:
+
+| count | reason |
+|---|---|
+| 932 | `not the guard` — not the frame-push shape at all |
+| 162 | `cmp` — a comparison the interpreter does not model |
+| 55 | `store r8, [sp, #-0x4]!` — a register-save form it does not read |
+| 37 | body over 512 bytes |
+| 30 | `cmp.w` |
+| 17 | a pointer slot with no symbol |
+| 15 | `push.w` |
+| 22 | nine smaller reasons |
+
+Refusing is correct behaviour and the reason it can be trusted where it
+does accept. But a checker that covers a fifth of the code is not a
+checker, and the fifth it covers is the shape least likely to be got
+wrong by hand.
+
+Keep them for what they are good at: writing new functions of a known
+shape, correctly, without a human in the loop.
+
+### B. The runtime oracle — the original Phase 2 plan
+
+Execute the recompiled function and the readable one on the same inputs
+and compare. Highest confidence available, and it is what `CLAUDE.md`
+set out to do.
+
+It needs a harness: a memory model, real `MK3OBJ` / `MK3THREAD` layouts,
+and a stub for every leaf the function calls. `t_jhp4` alone reaches
+`get_last_button`, `group_sound`, `rsnd_func`, `punch_strike_check` and
+`t_act_mframew`; a fight function five levels deep reaches most of the
+file. That is weeks, and the stubs themselves would need verifying.
+
+Not now. Worth revisiting once the cheaper method stops finding things.
+
+### C. Static fact diff, off the recompiler — **recommended**
+
+Extract from the recompiled C the facts that a transcription can get
+wrong, and extract the same facts from the readable C:
+
+- every store, as `(offset, value)` after constant propagation
+- every call, in order, with its immediate arguments
+- the constants actually used, as a multiset
+- the branch structure: which condition reaches which target
+- whether r0 is live at the return
+
+Then diff the two. No execution, no harness, no stubs — and it inherits
+the recompiler's coverage, which the table above shows is effectively
+total.
+
+Against the six errors:
+
+| error | caught by C? | how |
+|---|---|---|
+| 1 branch inverted | yes | condition-to-target mapping differs |
+| 2 `field58` | yes | `store [+0x58]` value 3 vs 2 |
+| 3 unconditional store | yes | a branch the readable C does not have |
+| 4 opposite condition | yes | same |
+| 5 wrong literal | yes | constant multiset |
+| 6 dropped return value | yes | r0 live at return, declared `void` |
+
+Six of six. Not because the method is clever — because all six were
+mechanical, and this method only checks mechanical things.
+
+### D. Constant-only audit
+
+The cheap half of C: compare hex literals and nothing else. Catches 2
+and 5, misses the structural ones. Worth having for an afternoon, not
+worth building instead of C.
+
+## The recommendation
+
+Build **C**, in this order:
+
+1. A fact extractor over the recompiler output. Constant propagation
+   over straight-line blocks is enough; where it cannot resolve a
+   register it reports `unknown` rather than guessing, the same
+   discipline the rest of `tools/` already keeps.
+2. A fact extractor over the readable C. Simpler: the house style is
+   regular, and `mk3logic.h` gives field names to offsets.
+3. The diff, with a per-function verdict and a reason for every
+   difference.
+
+Then run it over everything already written before adding anything new.
+
+## What this does not cover
+
+A fact diff proves the readable C does what the instructions do. It says
+nothing about whether the *English in the banner* is true, and the
+banners are where this project keeps its findings. The Godot port's
+claim that interpolating between consecutive frames is what the engine
+does was false, cost a day, and no instruction-level check would have
+caught it — only following `next_anirate` and `PlayerAutoSmoothAnims` to
+the end did.
+
+So the rule that stays a human one: **a sentence claiming what the engine
+does needs an address next to it, and the address needs reading.**
+
+
+---
+
+## Update 2026-10-01: the behavioural layer
+
+Candidate C (the static fact diff) is built (`tools/factdiff.py`) and every
+logic file passes it, with the exceptions listed in
+`tools/factdiff_waivers.txt`. It does not see returned constants, so a second
+layer exists: `tools/difftest/` (see docs/PROGRESS.md for usage and results).
+
+Known limits of the harness, each one a source of false positives:
+
+- scratch fields holding a value that looks like a handler address are turned
+  into native pointers for the C run, so arithmetic on them differs
+  (`t_fatality_align`, token 0xac2);
+- pointers to the native stack or to objects the harness does not model;
+- an oracle that itself hits an unimplemented import skips the scenario
+  (counted as "skipped", so low-coverage functions are flagged `LOWCOV`);
+- `rand` is shared by both sides, `random32` is not modelled beyond it.
+
+`tools/cd.py fn ...` prints the compact disassembly used to transcribe state
+machines (`--raw` for the unfolded listing).
