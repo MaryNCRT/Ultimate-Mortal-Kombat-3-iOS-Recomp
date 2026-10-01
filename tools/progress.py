@@ -66,7 +66,7 @@ JUDGEMENT = {
     "tooling": 100.0,       # tooling and the verification oracle
     "formats": 100.0,       # asset format specifications
     "platform": 10.0,       # native PC platform layer
-    "sdkstubs": 0.0,        # EA SDK stubs
+    "sdkstubs": 100.0,        # EA SDK stubs
 }
 
 
