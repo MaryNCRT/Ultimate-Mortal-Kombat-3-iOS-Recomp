@@ -4898,8 +4898,10 @@ long t_sz_post_zap(MK3THREAD *thread)
     obj->field1c = obj->field08->field24;
 
     if (obj->field1c == 0x15) {              /* one character, unnamed */
-        obj->field40 = 0x24 - 4;
-        obj->field54 = 0x24 - 4 - 0xe;       /* the same register */
+        /* r3 holds the character (0x15) here, not the 0x24 from above:
+         * `subs r3, #4` / `subs r3, #0xe` (difftest) */
+        obj->field40 = 0x15 - 4;
+        obj->field54 = 0x15 - 4 - 0xe;       /* the same register */
         find_ani2_part_a14(obj);
     }
 
@@ -5088,7 +5090,7 @@ long t_osz_forward_entry(MK3THREAD *thread)
         obj->field20 = 0x2d00a4;
         obj->field24 = 0x10006c;
 
-        *mk3_frame(thread, frame + 1) = 0x86b;
+        *mk3_frame(thread, frame + 1) = 0x871;   /* r1, re-loaded with 0x871 by the dispatch (difftest) */
         thread->frame = thread->frame + 1;   /* push a level */
         next_handler = (uint32_t)(uintptr_t)t_ice_collision_check;
         goto install_shared;
@@ -5845,16 +5847,16 @@ long tl_jzap3(MK3THREAD *thread)
     if (slot != 0)
         return -3;
 
-    if (obj->field08->field28 & 0x10) {
+    if (obj->field08->field28 & 0x10)
         MK3_SET_FIELD0E(obj->field08, MK3_FIELD0E(obj->field08) + 0xa);
-
-        obj->field00->field3c = obj->field1c;
-        obj->a10               = 0;
-        obj->field20            = 0x20;
-        zap_init_special_act(obj);
-    } else {
+    else
         MK3_SET_FIELD0E(obj->field08, MK3_FIELD0E(obj->field08) - 0xa);
-    }
+
+    /* both sides join here (`b #0x7ab42`; difftest) */
+    obj->field00->field3c = obj->field1c;
+    obj->a10               = 0;
+    obj->field20            = 0x20;
+    zap_init_special_act(obj);
 
     obj->field1c = 0;
     ochar_sound(obj);
@@ -6097,30 +6099,49 @@ long t_saw_strike_check(MK3THREAD *thread)
     if (obj->field5c == 0)
         goto pop_or_exit;
 
-    if ((long)thread->frame <= 0)
-        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    /* A hit pops a level -- at the bottom the exit is installed instead --
+     * and then slides the level above down into this one, the shape
+     * mkdrone.c calls POP_AND_SLIDE; then straight to the 0x719 park, not
+     * through the reacting test (difftest) */
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+    } else {
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_local_reaction_exit;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+    }
+    {
+        uint32_t f = thread->frame;
+        uint32_t h = mk3_frame(thread, f + 1)[1];
 
-    thread->frame = thread->frame - 1;
+        *mk3_frame(thread, f + 1) = *mk3_frame(thread, f + 2);
+        mk3_frame(thread, f)[1]   = h;
+    }
 
     obj->thread->pid = 0x207;
     obj->field1c = 5;
     ochar_sound(obj);
     stop_a8(obj->field08);
+    goto park_719;
 
 reacting_check:
     if (obj->field5c != 0) {
+park_719:
         *mk3_frame(thread, thread->frame + 1) = 0x719;
         thread->fieldfc = 1;
         return 1;
     }
 
+    /* `add r3, #0x100000` on 0x5c, which is 0 here; and set_proj_vel's
+     * answer is NOT tested: the code joins the 0x722 park below the test */
     obj->field1c = 0x100000;
     set_proj_vel(obj);
+    goto park_722;
 
 onscreen_watch:
     if (obj->field5c == 0)
         return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
 
+park_722:
     *mk3_frame(thread, thread->frame + 1) = 0x722;
     thread->fieldfc = 1;
     return 1;
@@ -7241,14 +7262,14 @@ long tl_do_sw_zap(MK3THREAD *thread)
  * `field1c=3`, and a push of `t_mframew` under `0xe97`, which just
  * installs `tl_delete_proj_and_die`.
  *
- * `0xe7d` is a second launch this routine can also reach directly (from
- * outside, since nothing here plants it): the same `field1c=0x14` strike
- * attempt, a hit falling into the SAME `0xe8a` impact every other hit in
- * this routine reaches, and a miss instead pushing `tl_projectile_flight`
- * under `0xe84` -- a genuine flight phase, not just another strike retry.
- * `0xe84` throws (`0xa0000`/`4`, `set_proj_vel`) and re-arms `0xe7d`
- * itself under a fresh push of `tl_projectile_flight`, so the miss path
- * keeps flying and re-trying the strike box each time it comes back.
+ * `0xe7d` is the second strike attempt (`0xe76` parks on it): the same
+ * `field1c=0x14` check, a hit falling into the `0xe8a` impact, and a miss
+ * parking three ticks on `0xe84`. `0xe84` throws (`0xa0000`/`4`,
+ * `set_proj_vel`) and pushes `tl_projectile_flight` under `0xe8a` -- r6, which
+ * the dispatch reloaded with 0xe8a on the way to 0xe84 -- so when the flight
+ * returns, the projectile goes to the impact state. An earlier reading had
+ * 0xe7d push the flight and 0xe84 re-arm 0xe7d; the differential test showed
+ * otherwise.
  */
 long tl_projectile_flight(MK3THREAD *thread);
 
@@ -7267,12 +7288,10 @@ long t_swat_proj_proc(MK3THREAD *thread)
         if (obj->field5c != 0)
             goto impact;
 
+        /* park 3 on 0xe84 (0x76fac), not a push (difftest) */
         *mk3_frame(thread, frame + 1) = 0xe84;
-        thread->frame = thread->frame + 1;   /* push a level */
-        mk3_frame(thread, thread->frame)[1] =
-            (uint32_t)(uintptr_t)tl_projectile_flight;
-        *mk3_frame(thread, thread->frame + 1) = 0;
-        return 0;
+        thread->fieldfc = 3;
+        return 3;
     }
 
     if (slot == 0xe8a)
@@ -7288,7 +7307,9 @@ long t_swat_proj_proc(MK3THREAD *thread)
 
         obj->field48 = 0x12;
 
-        *mk3_frame(thread, frame + 1) = 0xe7d;
+        /* r6: the dispatch reloaded it with 0xe8a on the way here, so the
+         * flight returns into the impact state (difftest) */
+        *mk3_frame(thread, frame + 1) = 0xe8a;
         thread->frame = thread->frame + 1;   /* push a level */
         mk3_frame(thread, thread->frame)[1] =
             (uint32_t)(uintptr_t)tl_projectile_flight;
@@ -7305,7 +7326,7 @@ long t_swat_proj_proc(MK3THREAD *thread)
         if (obj->field5c != 0)
             goto impact;
 
-        *mk3_frame(thread, frame + 1) = 0xe76;
+        *mk3_frame(thread, frame + 1) = 0xe7d;   /* r6, still 0xe7d from the dispatch (difftest) */
         thread->fieldfc = 3;
         return 3;
     }
@@ -8795,9 +8816,9 @@ vector_track:
             hyp = (int32_t)((uint32_t)(int32_t)obj->field54 >> 16);
             obj->field54 = (uint32_t)hyp;
 
-            nx = sdx / hyp;                       /* ___divsi3 */
+            nx = mk3_sdiv(sdx, hyp);              /* ___divsi3 */
             obj->field20 = (uint32_t)nx;
-            ny = (int32_t)obj->field28 / hyp;     /* ___divsi3 */
+            ny = mk3_sdiv((int32_t)obj->field28, hyp); /* ___divsi3 */
             obj->field28 = (uint32_t)ny;
 
             vx = (int32_t)obj->field08->field18;
@@ -8821,9 +8842,9 @@ vector_track:
             hyp = (int32_t)((uint32_t)(int32_t)obj->field54 >> 16);
             obj->field54 = (uint32_t)hyp;
 
-            nx = vx / hyp;                         /* ___divsi3 */
+            nx = mk3_sdiv(vx, hyp);                /* ___divsi3 */
             obj->field20 = (uint32_t)nx;
-            ny = vy / hyp;                          /* ___divsi3 */
+            ny = mk3_sdiv(vy, hyp);                 /* ___divsi3 */
 
             obj->field54 = 5;
             obj->field20 = (uint32_t)(nx * 5);
@@ -8901,14 +8922,15 @@ long t_rocket_explode(MK3THREAD *thread)
  *
  * `0x1011` is `t_rr_up`'s own token from the caller's side: `point_rocket`,
  * `next_anirate`, then decrement `field00->field28` (the current phase's
- * remaining count). While it is still running, `0x101f` just parks a
- * one-frame sleep and comes straight back to `0x1011` -- the per-frame tick.
+ * remaining count). While it is still running, it pushes a level running the
+ * current phase's handler (`rocket_routines[index*3]`) under `0x101f`, which
+ * parks one frame and comes back to `0x1011` -- the per-frame tick.
  * When it hits zero, the phase index advances and the NEXT entry's duration
- * (`rocket_routines[(index+1)*3 + 2]`) seeds the counter for the phase to
- * come; a non-zero duration pushes a level running that phase's own handler
- * under `0x101f` (so the tick above resumes once it pops), and a zero
- * duration -- the table's `{0,0,0}` terminator -- installs `t_rocket_explode`
- * on the spot instead.
+ * (`rocket_routines[(index+1)*3 + 2]`) seeds the counter; a non-zero
+ * duration just parks on `0x1011` again (the new phase's handler runs from
+ * the next tick), and a zero duration -- the table's `{0,0,0}` terminator --
+ * installs `t_rocket_explode` instead. (An earlier reading pushed the new
+ * phase at once; the differential test showed the binary parks.)
  */
 long t_target(struct MK3THREAD *thread);
 void point_rocket(MK3OBJ *obj);
@@ -8950,13 +8972,12 @@ long t_rocket2_proc(MK3THREAD *thread)
         obj->field1c = dur;
 
         if (dur != 0) {
+            /* b 0x78682: arm the new count and park on 0x1011 -- the next
+             * routine is pushed on the following tick, not now (difftest) */
             proc->field28 = dur;
-            *mk3_frame(thread, frame + 1) = 0x101f;
-            thread->frame = thread->frame + 1;   /* push a level */
-            mk3_frame(thread, thread->frame)[1] =
-                rocket_routines[idx * 3];
-            *mk3_frame(thread, thread->frame + 1) = 0;
-            return 0;
+            *mk3_frame(thread, frame + 1) = 0x1011;
+            thread->fieldfc = 1;
+            return 1;
         }
 
         return mk3_install(thread, (MK3THREADFUNC)t_rocket_explode);
@@ -9986,12 +10007,14 @@ long t_swat_bomb_proc(MK3THREAD *thread)
  * (`field1c = field20 = 0x20`). `field40` is saved across all of that in a
  * callee-saved register and restored either way before `i_am_a_sitting_duck`,
  * so the create-proj detour never leaks into the animation state. It descends
- * into `t_backwards_ani2` under `0x921`.
+ * into `t_mframew` (slot 0x000f37cc) under `0x921`.
  *
  * `0x921` does no work of its own: it just re-arms `0x922` and sleeps sixteen
  * frames (`fieldfc = 0x10`) -- the only stage in the chain that is a a plain
  * wait rather than a descent. `0x922` finishes it: `field1c = 3`,
- * `field40 = 0`, `t_mframew` installed on the current level, no push.
+ * `field40 = 0`, `t_backwards_ani2` (slot 0x000f3704) installed on the current
+ * level, no push. (The two handlers were crossed in an earlier reading; the
+ * slots and the difftest settle it.)
  */
 long t_animate_a0_frames(MK3THREAD *thread);     /* pointer slot 0x000f36b8 */
 void group_sound(MK3OBJ *obj);
@@ -10033,10 +10056,12 @@ long tl_bomb33(MK3THREAD *thread)
 
         obj->field1c = 4;
 
+        /* slot 0x000f37cc holds t_mframew (0x0005a25d) -- not the
+         * t_backwards_ani2 that 0x922 installs (difftest) */
         *mk3_frame(thread, frame + 1) = 0x921;
         thread->frame = thread->frame + 1;   /* push a level */
         mk3_frame(thread, thread->frame)[1] =
-            (uint32_t)(uintptr_t)t_backwards_ani2;
+            (uint32_t)(uintptr_t)t_mframew;
         *mk3_frame(thread, thread->frame + 1) = 0;
         return 0;
     }
@@ -10050,7 +10075,7 @@ long tl_bomb33(MK3THREAD *thread)
     if (slot == 0x922) {
         obj->field1c = 3;
         obj->field40 = 0;
-        return mk3_install(thread, (MK3THREADFUNC)t_mframew);
+        return mk3_install(thread, (MK3THREADFUNC)t_backwards_ani2);   /* the slot's contents (difftest) */
     }
 
     if (slot != 0)

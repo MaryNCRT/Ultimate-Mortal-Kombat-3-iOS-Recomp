@@ -13,6 +13,7 @@ typedef struct {
     uint32_t    tok[12];            /* resume tokens seen in the ARM code      */
     int         nimm;
     uint32_t    imm[40];            /* comparison constants seen in the ARM    */
+    int         noret;              /* the C is void: r0 is not a result       */
 } Test;
 
 typedef struct {

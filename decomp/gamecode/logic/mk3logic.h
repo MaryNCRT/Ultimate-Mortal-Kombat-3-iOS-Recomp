@@ -143,9 +143,13 @@ typedef struct MK3OBJPROC {
      * tl_do_lao_tele and tl_do_robo_tele both read it with `ldr`, a
      * full word, and compare the result against a signed y. Two
      * readings of one offset; neither is discarded. The word users
-     * reach it as an offset rather than through this field. */
-    uint16_t field40;
-    uint8_t  _pad42[2];
+     * reach it as an offset rather than through this field.
+     * Settled by tools/difftest: every other site in the tree is `ldr`/`str`
+     * (t_another_scorpion stores an `ldrsh` result, sign-extended, and the
+     * old halfword declaration truncated it), so it is a WORD.
+     * ground_player's `ldrh` takes the low half, which is all
+     * MK3_SET_FIELD12 keeps anyway. */
+    uint32_t field40;
     uint32_t p_hit;              /* 0x44  per zero_my_p_hit */
     uint32_t field48;            /* 0x48  t_b_sweep writes it beside p_hit
                                   *       from the same register */
@@ -510,6 +514,19 @@ static inline long mk3_install(MK3THREAD *thread, MK3THREADFUNC handler)
     mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)handler;
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
+}
+
+/* `blx ___divsi3`: signed divide with the ARM result where C has none. A zero
+ * divisor gives 0 (what ARMv7 `sdiv` gives, and what the difftest oracle's
+ * stub returns) and INT_MIN / -1 gives INT_MIN. Plain `/` traps on x86 in both
+ * cases: t_rocket_hunt divides by a hypotenuse that can be 0. */
+static inline int32_t mk3_sdiv(int32_t a, int32_t b)
+{
+    if (b == 0)
+        return 0;
+    if (b == -1)
+        return (int32_t)(0u - (uint32_t)a);
+    return a / b;
 }
 
 #endif /* MK3LOGIC_H */
