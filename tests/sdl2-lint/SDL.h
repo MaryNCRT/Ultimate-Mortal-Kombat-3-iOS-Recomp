@@ -64,7 +64,12 @@ typedef enum {
 #define SDL_GL_CONTEXT_PROFILE_COMPATIBILITY 0x0002
 
 typedef enum { SDL_QUIT = 0x100, SDL_WINDOWEVENT = 0x200, SDL_KEYDOWN = 0x300 } SDL_EventType;
-typedef enum { SDL_WINDOWEVENT_SIZE_CHANGED = 6, SDL_WINDOWEVENT_CLOSE = 14 } SDL_WindowEventID;
+typedef enum {
+    SDL_WINDOWEVENT_SIZE_CHANGED = 6,
+    SDL_WINDOWEVENT_FOCUS_GAINED = 12,
+    SDL_WINDOWEVENT_FOCUS_LOST   = 13,
+    SDL_WINDOWEVENT_CLOSE        = 14
+} SDL_WindowEventID;
 
 typedef struct { Sint32 sym; } SDL_Keysym;
 typedef struct { Uint32 type; SDL_Keysym keysym; } SDL_KeyboardEvent;
@@ -95,5 +100,38 @@ void          SDL_GL_GetDrawableSize(SDL_Window *window, int *w, int *h);
 Uint64 SDL_GetPerformanceCounter(void);
 Uint64 SDL_GetPerformanceFrequency(void);
 int    SDL_PollEvent(SDL_Event *event);
+
+/* ---- audio: what runtime/platform/sdl_audio.c uses, from the documented
+ *      SDL2 API (SDL_audio.h). Same caveat as everything above. */
+typedef uint16_t Uint16;
+typedef Uint16   SDL_AudioFormat;
+typedef Uint32   SDL_AudioDeviceID;
+typedef void (*SDL_AudioCallback)(void *userdata, Uint8 *stream, int len);
+
+typedef struct SDL_AudioSpec {
+    int               freq;
+    SDL_AudioFormat   format;
+    Uint8             channels;
+    Uint8             silence;
+    Uint16            samples;
+    Uint16            padding;
+    Uint32            size;
+    SDL_AudioCallback callback;
+    void             *userdata;
+} SDL_AudioSpec;
+
+#define SDL_INIT_AUDIO  0x10u
+#define AUDIO_S16SYS    0x8010
+
+Uint32 SDL_WasInit(Uint32 flags);
+int    SDL_InitSubSystem(Uint32 flags);
+SDL_AudioDeviceID SDL_OpenAudioDevice(const char *device, int iscapture,
+                                      const SDL_AudioSpec *desired,
+                                      SDL_AudioSpec *obtained,
+                                      int allowed_changes);
+void   SDL_PauseAudioDevice(SDL_AudioDeviceID dev, int pause_on);
+void   SDL_CloseAudioDevice(SDL_AudioDeviceID dev);
+int    SDL_QueueAudio(SDL_AudioDeviceID dev, const void *data, Uint32 len);
+Uint32 SDL_GetQueuedAudioSize(SDL_AudioDeviceID dev);
 
 #endif /* UMK3_SDL2_LINT_FIXTURE_H */
