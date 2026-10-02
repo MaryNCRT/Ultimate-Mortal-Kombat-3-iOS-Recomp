@@ -62,6 +62,17 @@ int  *limeScreenHeightP = &limeScreenHeight;
 int   limeDeviceSideways         = 1;
 int   limeDeferredDeviceSideways = 1;
 
+/* The physical panel, portrait, as the binary's __data has it: 0x00171ae4 and
+ * 0x00171ae8 hold 320 and 480. `LIMEDS_Set3dMode` divides by the height. */
+int   limeDeviceWidth  = 320;
+int   limeDeviceHeight = 480;
+
+/* __common in the binary. `limeBegin` writes the sideways matrix every frame
+ * and `LIMEDS_Set3dMode` the perspective one. */
+float limePerspectiveMatrix[16];
+float limeSidewaysMat[16];
+float ratio = 1.666f;                   /* 0x0017146c; Set3dMode sets 0.6 */
+
 void lime_menu_set_screen(int w, int h)
 {
     limeScreenWidth  = w;
@@ -134,7 +145,20 @@ static int g_depth_test = 1;
 static int g_colour_mask = 1;
 static long g_fills;
 
-void limeBegin(void)  { limeRenderedPolyCount = 0; }
+/* armv7 0x00066a74. Only the parts the port needs: the poly counter, and the
+ * sideways matrix, which the binary rebuilds every frame --
+ *
+ *      sideways   RotMatrixZ(limeSidewaysMat, -pi/2)      0xbfc90fdb
+ *      otherwise  RotMatrixZ(limeSidewaysMat, 0)          identity
+ *
+ * The binary also swaps limeScreenWidth/Height to the device's here; the port
+ * sets those from the window instead (lime_menu_set_screen), so that part is
+ * left out on purpose. */
+void limeBegin(void)
+{
+    limeRenderedPolyCount = 0;
+    RotMatrixZ(limeSidewaysMat, limeDeviceSideways ? -1.57079637f : 0.0f);
+}
 void limeFinish(void) { }
 
 #ifndef UMK3_REAL_GL   /* headless; see runtime/draw_gl.c for the windowed half */
@@ -142,6 +166,7 @@ void limeSet2DDrawing(void)     { g_in_2d = 1; }
 void limeEnableDepthTest(void)  { g_depth_test = 1; }
 void limeDisableDepthTest(void) { g_depth_test = 0; }
 void limeClearDepthBuffer(void) { }
+void limePortDisplayRotation(void) { }
 void limeSetColourMask(int on)  { g_colour_mask = on; }
 
 #endif  /* !UMK3_REAL_GL */
