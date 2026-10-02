@@ -393,8 +393,12 @@ class Emitter(object):
 
         if m in ("lsl", "lsls", "lsr", "lsrs", "asr", "asrs"):
             d = self.ireg(ins, ops[0].reg)
-            a = R(ops[1])
-            b = R(ops[2]) if len(ops) > 2 else "ctx->r[%d]" % d
+            if len(ops) > 2:
+                a, b = R(ops[1]), R(ops[2])
+            else:
+                # two-operand form `lsls rd, rm`: rd = rd << rm (the shifted
+                # value is the destination, the amount is the operand)
+                a, b = "ctx->r[%d]" % d, R(ops[1])
             if m.startswith("lsl"):
                 expr = "(%s) << ((%s) & 31)" % (a, b)
             elif m.startswith("lsr"):

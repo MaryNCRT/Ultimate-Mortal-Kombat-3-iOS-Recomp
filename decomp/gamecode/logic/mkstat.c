@@ -2943,7 +2943,7 @@ long t_air_strike(MK3THREAD *thread)
                     return 1;
                 }
 
-                obj->field24 = (uint32_t)(int32_t)MK3_FIELD12(part);
+                obj->field24 = (uint32_t)(int32_t)MK3_FIELD12_S(part);
                 obj->field1c = obj->field00->field40;
                 if ((long)obj->field1c > (long)obj->field24) {
                     *mk3_frame(thread, thread->frame + 1) = 0x90f;
