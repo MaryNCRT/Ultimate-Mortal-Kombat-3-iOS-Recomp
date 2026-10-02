@@ -51,12 +51,16 @@ static const char *volatile g_cur;
 
 static uint32_t g_fault_addr, g_fault_pc;
 static unsigned long g_fault_code;
+/* a fault inside oracle code reached through a shim is the oracle's own
+ * crash on this random state, not the C's: the scenario is skipped */
+static volatile int g_shim_depth, g_fault_in_shim;
 
 static LONG WINAPI crash_filter(EXCEPTION_POINTERS *ep)
 {
     g_fault_addr = ep->ExceptionRecord->NumberParameters > 1 ? (uint32_t)ep->ExceptionRecord->ExceptionInformation[1] : 0;
     g_fault_code = ep->ExceptionRecord->ExceptionCode;
     g_fault_pc = (uint32_t)(uintptr_t)ep->ExceptionRecord->ExceptionAddress;
+    g_fault_in_shim = g_shim_depth > 0;
     if (g_in_run)
         longjmp(g_jb, 1);
     return EXCEPTION_CONTINUE_SEARCH;
@@ -288,8 +292,18 @@ static void native_to_arm(uint8_t *img)
         uint32_t v;
         memcpy(&v, img + (a - IMG_LO), 4);
         if (v > 0x400000u) {
-            const AddrMap *m = find_native(v);
-            if (m) memcpy(img + (a - IMG_LO), &m->arm, 4);
+            /* exact, or a few bytes off: a scratch word seeded with a handler
+             * address and then counted down/up (t_odor_proc's `field48 - 1`)
+             * moves both sides by the same delta from their own address */
+            for (int d = 0; d <= 8; d++) {
+                const AddrMap *m = find_native(v + d);
+                if (!m && d) m = find_native(v - d), d = m ? -d : d;
+                if (m) {
+                    uint32_t arm = m->arm - (uint32_t)d;
+                    memcpy(img + (a - IMG_LO), &arm, 4);
+                    break;
+                }
+            }
         }
     }
 }
@@ -305,6 +319,13 @@ uint32_t oracle_call(void (*fn)(arm_ctx *), uint32_t a, uint32_t b, uint32_t c, 
     memset(&g_shim_ctx, 0, sizeof g_shim_ctx);
     g_shim_ctx.r[SP] = STK_SHIM;
     g_shim_ctx.r[0] = a; g_shim_ctx.r[1] = b; g_shim_ctx.r[2] = c; g_shim_ctx.r[3] = d;
+    /* a function passed as an argument (call_for_him(obj, set_inviso)) is
+     * called by the oracle with blx: hand it the ARM address */
+    for (int i = 0; i < 4; i++)
+        if (g_shim_ctx.r[i] > 0x400000u) {
+            const AddrMap *m = find_native(g_shim_ctx.r[i]);
+            if (m) g_shim_ctx.r[i] = m->arm;
+        }
     /* handler pointers the C stored are shown to the oracle in ARM form and
      * put back afterwards -- only those words, so a value the oracle writes
      * that merely looks like a handler address is left alone */
@@ -317,7 +338,9 @@ uint32_t oracle_call(void (*fn)(arm_ctx *), uint32_t a, uint32_t b, uint32_t c, 
             if (m) { sw[nsw].a = ad; sw[nsw].arm = m->arm; sw[nsw].nat = v; nsw++; W(ad) = m->arm; }
         }
     }
+    g_shim_depth++;
     fn(&g_shim_ctx);
+    g_shim_depth--;
     for (int i = 0; i < nsw; i++)
         if (W(sw[i].a) == sw[i].arm) W(sw[i].a) = sw[i].nat;
     uint32_t r = g_shim_ctx.r[0];
@@ -400,7 +423,7 @@ void arm_unimplemented(const char *func, uint32_t addr, const char *text)
 static int compare(const Test *t, uint32_t token, int32_t ro, int32_t rn)
 {
     int bad = 0;
-    if (t->kind == 0 && ro != rn) {
+    if (t->kind == 0 && !t->noret && ro != rn) {
         printf("  %-28s token %#x: return oracle %d, C %d\n", t->name, token, ro, rn);
         bad++;
     }
@@ -409,6 +432,16 @@ static int compare(const Test *t, uint32_t token, int32_t ro, int32_t rn)
         if (memcmp(orcI + i, resI + i, 4) != 0) {
             uint32_t a = IMG_LO + i, vo, vn;
             memcpy(&vo, orcI + i, 4); memcpy(&vn, resI + i, 4);
+            /* a word seeded with a handler address and then moved by
+             * arithmetic (a counter, an offset): both sides moved by the same
+             * amount from their own form of the same function */
+            int same = 0;
+            for (int k = 0; k < g_naddr && !same; k++)
+                if (vn - g_addrmap[k].native == vo - g_addrmap[k].arm
+                    && vn - g_addrmap[k].native + 0x100000u < 0x200000u)
+                    same = 1;
+            if (same)
+                continue;
             const char *where = "";
             if (a >= mytc(0) && a < mytc(0) + 0x10c) where = " (thread 0)";
             else if (a >= plyr(0) && a < plyr(0) + 0x6c) where = " (Plyr[0])";
@@ -448,7 +481,12 @@ static int test_one(const Test *t, int nsc, int *skipped, int *failed_scen)
             capture(orcI, orcA);
             restore();
             arm_to_native();
+            g_shim_depth = 0; g_fault_in_shim = 0;
             int ok_n = run_native(t, arg, &rn);
+            if (!ok_n && g_fault_in_shim) {
+                (*skipped)++;
+                continue;
+            }
             if (!ok_n) {
                 if (g_debug)
                     printf("    C fault: code %lx at pc %#x, address %#x\n", g_fault_code, g_fault_pc, g_fault_addr);

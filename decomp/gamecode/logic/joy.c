@@ -2765,7 +2765,7 @@ long t_joy_block_loop(MK3THREAD *thread)
     if (token == 0) {
         *mk3_frame(thread, thread->frame + 1) = 0x283;
         thread->fieldfc = 1;               /* sleep one frame */
-        return 0;
+        return 1;
     }
 
     if (token == 0x28b || token == 0x292)
@@ -2845,7 +2845,7 @@ long t_joy_duck_block_loop(MK3THREAD *thread)
     if (token == 0) {
         *mk3_frame(thread, thread->frame + 1) = 0x256;
         thread->fieldfc = 1;               /* sleep one frame */
-        return 0;
+        return 1;
     }
 
     if (token == 0x25a)
@@ -3106,8 +3106,8 @@ long t_joy_duck_kickl(MK3THREAD *thread)
     if (token != 0x1b6)
         return -3;
 
-    obj->field1c = obj->field00->field14 + 8;
-    obj->field00->field14 = obj->field1c;
+    /* in r3 only: 0x1c is not written (difftest) */
+    obj->field00->field14 = obj->field00->field14 + 8;
     return mk3_install(thread, (MK3THREADFUNC)t_post_joy_duck_kick);
 }
 
@@ -3442,7 +3442,9 @@ long t_jmp5(MK3THREAD *thread)
     if (token != 0x837)
         return -3;
 
-    if (obj->field5c == 0)
+    /* `cbnz` on 0x5c: a non-zero answer abandons the punch (difftest; the
+     * condition was the other way round before) */
+    if (obj->field5c != 0)
         return mk3_install(thread, (MK3THREADFUNC)t_joy_un_lo_punch2);
 
     /* The button code out of the queue entry get_last_button left in 0x1c:

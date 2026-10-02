@@ -59,8 +59,7 @@ typedef struct IMG_PROC {
     uint8_t  _pad24[4];
     uint32_t field28;            /* 0x28  the shake pair */
     uint8_t  _pad2c[0x14];
-    uint16_t field40;            /* 0x40 */
-    uint8_t  _pad42[2];
+    uint32_t field40;            /* 0x40  a word (see mk3logic.h) */
     uint32_t p_hit;              /* 0x44 */
     uint8_t  _pad48[0x0c];
     uint32_t field54;            /* 0x54  add_combo_damage */

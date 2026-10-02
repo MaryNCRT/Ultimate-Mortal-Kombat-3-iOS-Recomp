@@ -6189,7 +6189,7 @@ long t_sonya_kiss_crusher(MK3THREAD *thread)
 
         center_around_him(obj);
 
-        *mk3_frame(thread, frame + 1) = 0x162f;
+        *mk3_frame(thread, thread->frame + 1) = 0x162f;   /* re-read: a callee moved it */
         thread->fieldfc = 0x90;
         return 0x90;
     }

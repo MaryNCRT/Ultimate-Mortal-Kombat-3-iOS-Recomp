@@ -5199,9 +5199,10 @@ void q_scorp_tele(MK3OBJ *obj)
         goto no;
     obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x418);
     get_tsl_px(obj, obj);
-    if ((long)obj->field20 > 0x4f)
+    if ((long)obj->field20 > 0x4f) {
         q_yes(obj);
-    return;
+        return;
+    }
     goto no;
 
 no:
@@ -5218,9 +5219,10 @@ void q_ermac_slam(MK3OBJ *obj)
         goto no;
     obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x430 + 4);
     get_tsl_px(obj, obj);
-    if ((long)obj->field20 > 0x7f)
+    if ((long)obj->field20 > 0x7f) {
         q_yes(obj);
-    return;
+        return;
+    }
     goto no;
 
 no:
@@ -5402,9 +5404,10 @@ void q_kano_upball(MK3OBJ *obj)
 
     obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x420 + 4);
     get_tsl_px(obj, obj);
-    if ((long)obj->field20 > 0x27)
+    if ((long)obj->field20 > 0x27) {
         q_yes(obj);
-    return;
+        return;
+    }
     goto no;
 
 no:
@@ -5422,9 +5425,10 @@ void q_mileena_zap(MK3OBJ *obj)
 
     obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x3a8);
     get_tsl_px(obj, obj);
-    if ((long)obj->field20 > 7)
+    if ((long)obj->field20 > 7) {
         q_yes(obj);
-    return;
+        return;
+    }
     goto no;
 
 no:
@@ -5588,27 +5592,29 @@ no:
 /* q_stick_sweep -- armv7 0x00052ccc, 76 bytes.  **Complete.**
  *
  *      if (((*(uint32_t *)(Pp + 0x10) & 1) & *(uint32_t *)(Pp + 0x9c)) == 0)
- *          q_no(obj)
+ *          q_yes(obj)
  *      else {
  *          obj->field1c = &G + 0x418 ; get_tsl_px(obj, obj)
  *          if (obj->field20 <= 0x4f) q_no(obj); else q_yes(obj);
  *      }
  *
  * **The gate is one bit ANDed against a whole word.** The low bit of Pp + 0x10
- * is masked out first and then tested against Pp + 0x9c, so the test passes
- * only when that bit is set AND the other word has its bit zero set too.
- * Written as the two instructions do it rather than simplified, because which
- * of the two words is the flag and which the mask is not established. */
+ * is masked out first and then tested against Pp + 0x9c. When the two do not
+ * share that bit, `beq` goes straight to the q_yes call (0x501ac) and the
+ * distance is never asked; only when both have it does the sweep need the
+ * opponent more than 0x4f away. (An earlier reading had the gate answering
+ * no; tools/difftest caught it.) Written as the two instructions do it,
+ * because which of the two words is the flag and which the mask is not
+ * established. */
 void q_stick_sweep(MK3OBJ *obj)
 {
     if (((*(uint32_t *)(Pp + 0x10) & 1u)
-         & *(uint32_t *)(Pp + 0x9c)) == 0)
-        goto no;
-
-    obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x418);
-    get_tsl_px(obj, obj);
-    if ((long)obj->field20 <= 0x4f)
-        goto no;
+         & *(uint32_t *)(Pp + 0x9c)) != 0) {
+        obj->field1c = (uint32_t)(uintptr_t)(G_BYTES + 0x418);
+        get_tsl_px(obj, obj);
+        if ((long)obj->field20 <= 0x4f)
+            goto no;
+    }
     q_yes(obj);
     return;
 
@@ -6111,9 +6117,14 @@ void q_bike_req(MK3OBJ *obj)
         get_tsl_px(obj, obj);
     }
 
-    if ((long)obj->field20 > 0x7f)
+    if ((long)obj->field20 > 0x7f) {
+
         q_yes(obj);
-    return;
+
+        return;
+
+    }
+
     goto no;
 
 no:

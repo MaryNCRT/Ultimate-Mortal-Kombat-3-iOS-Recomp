@@ -57,8 +57,12 @@ def decomp_functions(path):
     """{name: kind} for every `long f(MK3THREAD *)` / `void f(MK3OBJ *)` defined."""
     src = open(path, encoding="utf-8", errors="replace").read()
     out = {}
-    for m in re.finditer(r"^(?:static\s+)?(?:long|void|int32_t|uint32_t)\s+(\w+)\(\s*(?:struct\s+)?(MK3THREAD|MK3OBJ)\s*\*\s*\w+\s*\)\s*\n\{", src, re.M):
-        out[m.group(1)] = "thread" if m.group(2) == "MK3THREAD" else "obj"
+    voids = set()
+    for m in re.finditer(r"^(?:static\s+)?(long|void|int32_t|uint32_t)\s+(\w+)\(\s*(?:struct\s+)?(MK3THREAD|MK3OBJ)\s*\*\s*\w+\s*\)\s*\n?\s*\{", src, re.M):
+        out[m.group(2)] = "thread" if m.group(3) == "MK3THREAD" else "obj"
+        if m.group(1) == "void":
+            voids.add(m.group(2))
+    decomp_functions.voids = voids      # void: r0 after the call is not a result
     return out, src
 
 
@@ -112,7 +116,8 @@ def main(argv):
     only = set(argv[4:])
     os.makedirs(out_dir, exist_ok=True)
     src_path = os.path.join(LOGIC, stem + ".c")
-    dfuncs, _ = decomp_functions(src_path)
+    dfuncs, src_text = decomp_functions(src_path)
+    code_text = re.sub(r"/\*.*?\*/|//[^\n]*", "", src_text, flags=re.S)   # comments say "&G + 0x440"
     ofuncs = oracle_functions(rc_dir)
     own = oracle_functions(rc_dir, stem)
     rc_text = open(os.path.join(rc_dir, stem, "recompiled.c"), encoding="utf-8", errors="replace").read()
@@ -127,16 +132,40 @@ def main(argv):
     undef = sorted({l.split()[-1].lstrip("_") for l in nm.splitlines() if " U " in l})
     defined = {l.split()[-1].lstrip("_") for l in nm.splitlines() if re.search(r" [TtDdBbRrCc] ", l)}
 
+    # `extern T name[];            /* 0xADDR */`               the table is at ADDR
+    # `extern T *name;             /* slot 0xADDR */`          the variable is at ADDR
+    # `extern T *name;             /* pointer slot -> 0xADDR */` / `/* 0xADDR */`
+    #                                                          the variable HOLDS ADDR
+    commented = {}
+    hdr_text = open(os.path.join(LOGIC, "mk3logic.h"), encoding="utf-8", errors="replace").read()
+    for m in re.finditer(r"^\s*extern\s+[\w\s]+?(\**)\s*(\w+)\s*(\[\s*\w*\s*\])?\s*;\s*/\*\s*(slot\s+|pointer slot\s*->\s*)?0x([0-9a-fA-F]+)",
+                         hdr_text + "\n" + src_text, re.M):
+        star, name, arr, how, addr = m.groups()
+        if arr or (how or "").strip() == "slot":
+            commented.setdefault(name, ("abs", int(addr, 16)))
+        elif star:
+            commented.setdefault(name, ("pvar", int(addr, 16)))
+
     shims, defsyms, pvars, unresolved = [], [], [], []
     for u in undef:
         if u in ofuncs and u not in dfuncs:
             shims.append(u)
-        elif u in ptr_vars and u in syms and sizes.get(u, 4) > 8:
+        elif u in ptr_vars and u in syms and sizes.get(u, 4) > 8 \
+                and not re.search(r"(?<![&\s\w])&%s\b|[=(,]\s*&\s*%s\b"   # address-of, not `&&` or a bitwise `a & b`
+                                  % (re.escape(u), re.escape(u)), code_text):
+            # (`&bt_null` takes the symbol's own address: the table, as in
+            # the binary -- so it is an absolute symbol, not a variable)
             pvars.append(u)
         elif u in syms:
             defsyms.append(u)
-        elif u in ("memset", "memcpy", "memcmp", "memmove", "strlen"):
+        elif u in ("memset", "memcpy", "memcmp", "memmove", "strlen", "rand", "atan2"):
             pass
+        elif u in commented:
+            # no symbol in the binary (an anonymous table, a literal-pool
+            # slot): the declaration's own comment gives the address
+            kind, addr = commented[u]
+            syms[u] = addr
+            (pvars if kind == "pvar" else defsyms).append(u)
         else:
             unresolved.append(u)
     if unresolved:
@@ -205,10 +234,11 @@ def main(argv):
             toks, imms = scan_constants(rc_text, own[n][1])
             toks = toks[:12]
             imms = imms[:40]
-            f.write('    { "%s", (void *)%s, %s, %d, %d, { %s }, %d, { %s } },\n' % (
+            f.write('    { "%s", (void *)%s, %s, %d, %d, { %s }, %d, { %s }, %d },\n' % (
                 n, n, own[n][1], 0 if dfuncs[n] == "thread" else 1,
                 len(toks), ", ".join("0x%x" % t for t in toks) or "0",
-                len(imms), ", ".join("0x%x" % t for t in imms) or "0"))
+                len(imms), ", ".join("0x%x" % t for t in imms) or "0",
+                1 if n in decomp_functions.voids else 0))
         f.write("};\nconst int g_ntests = %d;\n" % len(tests))
     print("%d tests, %d shims, %d defsyms, %d pointer vars" % (len(tests), len(shims), len(defsyms), len(pvars)))
 

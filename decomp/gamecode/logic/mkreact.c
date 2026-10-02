@@ -2911,6 +2911,7 @@ long t_avoid_corner_trap(MK3THREAD *thread)
  * the evidence; the tool is not able to repeat it yet and its gap list says
  * so.
  */
+extern long *RoundParam;                /* pointer slot -> 0x0038ed04 */
 long t_background_death(MK3THREAD *thread)
 {
     uint32_t stage;
@@ -2918,7 +2919,7 @@ long t_background_death(MK3THREAD *thread)
     if (*mk3_frame(thread, thread->frame + 1) != 0)
         return -3;
 
-    stage = *(const uint32_t *)(const void *)(G_BYTES + 0x24) - 1;
+    stage = (uint32_t)RoundParam[9] - 1;   /* slot 0xf3534 is RoundParam, not G (difftest) */
 
     if (stage > 3)
         return mk3_install(thread, (MK3THREADFUNC)t_pit_abort);
@@ -4504,7 +4505,9 @@ long t_blast_through_anything(MK3THREAD *thread)
 
     MKEvent_Add(4, 0x36, 0, (long)obj->field00->field08);
 
-    obj->field38 = (uint32_t)(uintptr_t)t_ken_masters_xfer;
+    /* pointer slot 0xf3724 holds t_wait_forever (read from the binary;
+     * difftest) */
+    obj->field38 = (uint32_t)(uintptr_t)t_wait_forever;
     xfer_otherguy(obj);
 
     obj->field1c = 0x10000;           /* 1.0 in 16.16 */
@@ -4589,27 +4592,39 @@ long t_ccp3(MK3THREAD *thread)
     }
 
     /* First erasure. */
-    if ((long)thread->frame <= 0)
-        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
-    thread->frame = thread->frame - 1;
+    /* at the bottom the exit goes in first and the slide still runs (difftest) */
+    if ((long)thread->frame <= 0) {
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_local_reaction_exit;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+    } else {
+        thread->frame = thread->frame - 1;
+    }
     below   = mk3_frame(thread, thread->frame + 1)[1];
     carried = *mk3_frame(thread, thread->frame + 2);
     *mk3_frame(thread, thread->frame + 1) = carried;
     mk3_frame(thread, thread->frame)[1] = below;
 
     /* Second erasure. */
-    if ((long)thread->frame <= 0)
-        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
-    thread->frame = thread->frame - 1;
+    /* at the bottom the exit goes in first and the slide still runs (difftest) */
+    if ((long)thread->frame <= 0) {
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_local_reaction_exit;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+    } else {
+        thread->frame = thread->frame - 1;
+    }
     below   = mk3_frame(thread, thread->frame + 1)[1];
     carried = *mk3_frame(thread, thread->frame + 2);
     *mk3_frame(thread, thread->frame + 1) = carried;
     mk3_frame(thread, thread->frame)[1] = below;
 
     /* Third erasure, landing on t_separate_us. */
-    if ((long)thread->frame <= 0)
-        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
-    thread->frame = thread->frame - 1;
+    /* at the bottom the exit goes in first and the slide still runs (difftest) */
+    if ((long)thread->frame <= 0) {
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_local_reaction_exit;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+    } else {
+        thread->frame = thread->frame - 1;
+    }
     below   = mk3_frame(thread, thread->frame + 1)[1];
     carried = *mk3_frame(thread, thread->frame + 2);
     *mk3_frame(thread, thread->frame + 1) = carried;
@@ -4670,9 +4685,13 @@ long t_check_stay_down(MK3THREAD *thread)
         }
     }
 
-    if ((long)thread->frame <= 0)
-        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
-    thread->frame = thread->frame - 1;
+    /* at the bottom the exit goes in first and the slide still runs (difftest) */
+    if ((long)thread->frame <= 0) {
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_local_reaction_exit;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+    } else {
+        thread->frame = thread->frame - 1;
+    }
     below   = mk3_frame(thread, thread->frame + 1)[1];
     carried = *mk3_frame(thread, thread->frame + 2);
     *mk3_frame(thread, thread->frame + 1) = carried;
@@ -5296,7 +5315,10 @@ long t_pit_fall_scan(MK3THREAD *thread)
     RoundParam[10] = RoundParam[10] - 1;
     MKEvent_Add(4, 0x3e, 0, (long)obj->field00->field08);
 
-    other->field1c = (uint32_t)((int32_t)other->field1c / 3);
+    /* `smull` by 0x55555556 is /3, then `rsb r3, r3, r2`: what is kept is
+     * the other two thirds (difftest) */
+    other->field1c = (uint32_t)((int32_t)other->field1c
+                                - (int32_t)other->field1c / 3);
 
     obj->field48 = 0x50005;
     shake_a11(obj);
@@ -7987,7 +8009,7 @@ long t_r_ermac_slam(MK3THREAD *thread)
         obj->field20 = obj->field1c - 0x48000;   /* -8.0 */
         obj->field24 = obj->field20 + 0x86000;   /* 0.375 */
         obj->field28 = 4;
-        obj->field40 = obj->field40 + 0x3f;
+        obj->field40 = obj->field28 + 0x3f;
 
         *mk3_frame(thread, thread->frame + 1) = 0x22e;
         thread->frame = thread->frame + 1;
@@ -8540,11 +8562,8 @@ long t_r_sweep(struct MK3THREAD *thread)
         obj->field1c = 5;
         group_sound(obj);
 
-        *mk3_frame(thread, thread->frame + 1) = 0;
-        thread->frame = thread->frame + 1;
-        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_sweep3;
-        *mk3_frame(thread, thread->frame + 1) = 0;
-        return 0;
+        /* installed in place, not pushed (difftest) */
+        return mk3_install(thread, (MK3THREADFUNC)t_sweep3);
     }
 
     if (token != 0)
@@ -8688,7 +8707,8 @@ long t_sweep3(struct MK3THREAD *thread)
 
         *mk3_frame(thread, thread->frame + 1) = 0xdf2;
         thread->frame = thread->frame + 1;
-        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_d_beware;
+        /* slot 0xf37ac: the mframew flavour of beware (difftest) */
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_d_beware_mframew;
         *mk3_frame(thread, thread->frame + 1) = 0;
         return 0;
     }
@@ -9566,7 +9586,7 @@ long t_r_summon(struct MK3THREAD *thread)
         obj->field20 = obj->field1c - 0x60000;   /* -9.0 */
         obj->field24 = obj->field20 + 0x96000;   /* 0.34375 */
         obj->field28 = 5;
-        obj->field40 = obj->field40 + 0x19;
+        obj->field40 = obj->field28 + 0x19;
 
         *mk3_frame(thread, thread->frame + 1) = 0x5de;
         thread->frame = thread->frame + 1;
@@ -9706,7 +9726,7 @@ long t_r_kano_roll(struct MK3THREAD *thread)
         obj->field20 = obj->field1c - 0x80000;   /* -4.0 */
         obj->field24 = obj->field20 + 0x44000;   /* 0.265625 */
         obj->field28 = 5;
-        obj->field40 = obj->field40 + 0x19;
+        obj->field40 = obj->field28 + 0x19;
 
         *mk3_frame(thread, thread->frame + 1) = 0xf06;
         thread->frame = thread->frame + 1;
@@ -9774,7 +9794,7 @@ long t_r_jax_dash(struct MK3THREAD *thread)
         obj->field20 = obj->field1c - 0xe0000;   /* -6.0 */
         obj->field24 = obj->field20 + 0x66000;   /* 0.3984375 */
         obj->field28 = 5;
-        obj->field40 = obj->field40 + 0x19;
+        obj->field40 = obj->field28 + 0x19;
 
         *mk3_frame(thread, thread->frame + 1) = 0x5ae;
         thread->frame = thread->frame + 1;
@@ -9841,7 +9861,7 @@ long t_r_superkang(struct MK3THREAD *thread)
         obj->field20 = obj->field1c - 0x90000;   /* -3.0 */
         obj->field24 = obj->field20 + 0x34000;   /* 0.203125 */
         obj->field28 = 5;
-        obj->field40 = obj->field40 + 0x19;
+        obj->field40 = obj->field28 + 0x19;
 
         *mk3_frame(thread, thread->frame + 1) = 0x4b7;
         thread->frame = thread->frame + 1;
@@ -9901,7 +9921,7 @@ long t_r_square(struct MK3THREAD *thread)
         obj->field20 = obj->field1c - 0xa0000;   /* -5.0 */
         obj->field24 = obj->field20 + 0x58000;   /* 0.34375 */
         obj->field28 = 5;
-        obj->field40 = obj->field40 + 0x19;
+        obj->field40 = obj->field28 + 0x19;
 
         *mk3_frame(thread, thread->frame + 1) = 0xf3e;
         thread->frame = thread->frame + 1;
@@ -10108,7 +10128,7 @@ long t_r_robo_bomb(struct MK3THREAD *thread)
         obj->field20 = obj->field1c - 0x90000;   /* -6.0 */
         obj->field24 = obj->field20 + 0xc6000;   /* 0.71875 */
         obj->field28 = 5;
-        obj->field40 = obj->field40 + 0x19;
+        obj->field40 = obj->field28 + 0x19;
 
         *mk3_frame(thread, thread->frame + 1) = 0x6dc;
         thread->frame = thread->frame + 1;
@@ -10246,7 +10266,7 @@ long t_r_slide(struct MK3THREAD *thread)
         obj->field24 = obj->field20 + 0x66000;   /* 0.375 */
         obj->field28 = 4;
         obj->field34 = 0;
-        obj->field40 = obj->field40 + 0x1a;
+        obj->field40 = obj->field28 + 0x1a;
 
         *mk3_frame(thread, thread->frame + 1) = 0x466;
         thread->frame = thread->frame + 1;
@@ -10380,7 +10400,7 @@ long t_r_roundhouse(struct MK3THREAD *thread)
         obj->field20 = obj->field1c - 0xe0000;   /* -8.0 */
         obj->field24 = obj->field20 + 0x88000;   /* 0.53125 */
         obj->field28 = 5;
-        obj->field40 = obj->field40 + 0x19;
+        obj->field40 = obj->field28 + 0x19;
 
         *mk3_frame(thread, thread->frame + 1) = 0xf23;
         thread->frame = thread->frame + 1;
@@ -10467,7 +10487,7 @@ long t_r_lao_spin(struct MK3THREAD *thread)
         obj->field20 = obj->field1c - 0xe0000;   /* -12.0 */
         obj->field24 = obj->field20 + 0xc6000;   /* 0.375 */
         obj->field28 = 5;
-        obj->field40 = obj->field40 + 0x19;
+        obj->field40 = obj->field28 + 0x19;
 
         *mk3_frame(thread, thread->frame + 1) = 0x738;
         thread->frame = thread->frame + 1;
@@ -10534,7 +10554,7 @@ long t_r_orb(struct MK3THREAD *thread)
         obj->field20 = obj->field1c - 0x48000;   /* -8.0 */
         obj->field24 = obj->field20 + 0x86000;   /* 0.375 */
         obj->field28 = 4;
-        obj->field40 = obj->field40 + 0x3f;
+        obj->field40 = obj->field28 + 0x3f;
 
         *mk3_frame(thread, thread->frame + 1) = 0x351;
         thread->frame = thread->frame + 1;
@@ -10692,7 +10712,7 @@ long t_r_mileena_roll(struct MK3THREAD *thread)
         obj->field20 = obj->field1c - 0x48000;   /* -8.0 */
         obj->field24 = obj->field20 + 0x86000;   /* 0.375 */
         obj->field28 = 4;
-        obj->field40 = obj->field40 + 0x3f;
+        obj->field40 = obj->field28 + 0x3f;
 
         *mk3_frame(thread, thread->frame + 1) = 0x2e2;
         thread->frame = thread->frame + 1;
@@ -10936,7 +10956,7 @@ long t_r_robo_tele(struct MK3THREAD *thread)
         obj->field20 = obj->field1c - 0xc0000;   /* -11.0 */
         obj->field24 = obj->field20 + 0xb6000;   /* 0.34375 */
         obj->field28 = 5;
-        obj->field40 = obj->field40 + 0x19;
+        obj->field40 = obj->field28 + 0x19;
 
         *mk3_frame(thread, thread->frame + 1) = 0x6c4;
         thread->frame = thread->frame + 1;
@@ -11489,7 +11509,7 @@ long t_r_motaro_kick(struct MK3THREAD *thread)
         obj->field20 = obj->field1c - 0x100000;  /* -8.0 */
         obj->field24 = obj->field20 + 0x88000;   /* 0.53125 */
         obj->field28 = 5;
-        obj->field40 = obj->field40 + 0x19;
+        obj->field40 = obj->field28 + 0x19;
 
         *mk3_frame(thread, thread->frame + 1) = 0xd75;
         thread->frame = thread->frame + 1;
@@ -11598,7 +11618,7 @@ long t_r_sk_air_charge(struct MK3THREAD *thread)
         obj->field20 = obj->field1c - 0xc0000;   /* -6.0 */
         obj->field24 = obj->field20 + 0x68000;   /* 0.40625 */
         obj->field28 = 5;
-        obj->field40 = obj->field40 + 0x19;
+        obj->field40 = obj->field28 + 0x19;
 
         *mk3_frame(thread, thread->frame + 1) = 0xd51;
         thread->frame = thread->frame + 1;
@@ -11895,7 +11915,7 @@ long t_r_net(struct MK3THREAD *thread)
         obj->field1c = obj->a10;
         obj->field28 = 5;
         obj->field20 = obj->a10;
-        obj->field40 = obj->field40 + 0x19;
+        obj->field40 = obj->field28 + 0x19;
 
         *mk3_frame(thread, thread->frame + 1) = 0x518;
         thread->frame = thread->frame + 1;

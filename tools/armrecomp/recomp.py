@@ -250,6 +250,8 @@ class Emitter(object):
                     base = base[:-len(c)]
                     break
 
+        # inside an IT block only cmp/cmn/tst/teq set flags (see below)
+        self._flags_off = it_cond is not None and base not in ("cmp", "cmn", "tst", "teq")
         body = self.translate_body(ins, base, ops, fname)
 
         # **Instructions inside an IT block do not update the flags.**
@@ -344,7 +346,7 @@ class Emitter(object):
             if m.startswith("mvn"):
                 src = "~(%s)" % src
             lines = ["ctx->r[%d] = %s;" % (d, src)]
-            if ins.update_flags:
+            if self.uf(ins):
                 lines.append("SET_NZ(ctx->r[%d]);" % d)
             return lines
 
@@ -369,7 +371,7 @@ class Emitter(object):
             else:
                 expr = "%s %s %s" % (a, op, b)
             lines = ["ctx->r[%d] = %s;" % (d, expr)]
-            if ins.update_flags:
+            if self.uf(ins):
                 if m.startswith("add"):
                     lines = ["{ uint32_t _a = %s, _b = %s, _r = _a + _b;" % (a, b),
                              "  ctx->r[%d] = _r; set_flags_add(ctx, _a, _b, _r); }" % d]
@@ -378,11 +380,23 @@ class Emitter(object):
                              "  ctx->r[%d] = _r; set_flags_sub(ctx, _a, _b, _r); }" % d]
                 else:
                     lines.append("SET_NZ(ctx->r[%d]);" % d)
+                    # a logical op takes C from the shifter: `ands r3, r3,
+                    # r2, asr #32` + `it lo` is how the compiler rounds a
+                    # signed /16 (t_kiss_orb). Computed before the write,
+                    # since d may be the shifted register.
+                    c = self.shifter_carry(ins, ops[2]) if len(ops) > 2 else None
+                    if c:
+                        lines.insert(0, "ctx->cf = %s;" % c)
             return lines
 
         if m in ("rsb", "rsbs"):
             d = self.ireg(ins, ops[0].reg)
             a, b = R(ops[1]), self.shifted(ins, ops[2])
+            if self.uf(ins):
+                # `rsbs r3, r3, #1` + `it lo` is how q_six_button tests for
+                # zero: the flags are those of b - a
+                return ["{ uint32_t _a = %s, _b = %s, _r = _a - _b;" % (b, a),
+                        "  ctx->r[%d] = _r; set_flags_sub(ctx, _a, _b, _r); }" % d]
             return ["ctx->r[%d] = (%s) - (%s);" % (d, b, a)]
 
         if m in ("mul", "muls"):
@@ -406,8 +420,18 @@ class Emitter(object):
             else:
                 expr = "(uint32_t)((int32_t)(%s) >> ((%s) & 31))" % (a, b)
             lines = ["ctx->r[%d] = %s;" % (d, expr)]
-            if ins.update_flags:
+            if self.uf(ins):
                 lines.append("SET_NZ(ctx->r[%d]);" % d)
+                # C is the last bit shifted out (unchanged for a zero amount);
+                # computed before the write, since d may be the source
+                if m.startswith("lsl"):
+                    c = "_n <= 32 ? (_v >> (32 - _n)) & 1u : 0u"
+                elif m.startswith("lsr"):
+                    c = "_n <= 32 ? (_v >> (_n - 1)) & 1u : 0u"
+                else:
+                    c = "_n >= 32 ? _v >> 31 : (_v >> (_n - 1)) & 1u"
+                lines.insert(0, "{ uint32_t _v = %s, _n = (%s) & 0xffu;"
+                                " if (_n) ctx->cf = %s; }" % (a, b, c))
             return lines
 
         if m in ("cmp", "cmn"):
@@ -421,7 +445,11 @@ class Emitter(object):
         if m in ("tst", "teq"):
             a, b = R(ops[0]), self.shifted(ins, ops[1])
             op = "&" if m == "tst" else "^"
-            return ["SET_NZ((%s) %s (%s));" % (a, op, b)]
+            lines = ["SET_NZ((%s) %s (%s));" % (a, op, b)]
+            c = self.shifter_carry(ins, ops[1])
+            if c:
+                lines.insert(0, "ctx->cf = %s;" % c)
+            return lines
 
         # ---------- memoria ----------
         if m in ("ldr", "ldrb", "ldrh", "ldrsb", "ldrsh",
@@ -515,6 +543,27 @@ class Emitter(object):
             return self.vfp(ins, m, ops, fname)
 
         raise Unsupported(ins.mnemonic + " " + ins.op_str)
+
+    def uf(self, ins):
+        """Does this instruction set the flags? Capstone says `rsbs`/`adds` for
+        a 16-bit encoding inside an IT block, where the S bit is clear."""
+        return ins.update_flags and not getattr(self, "_flags_off", False)
+
+    def shifter_carry(self, ins, op):
+        """C expression for the shifter's carry-out, or None if C is unchanged
+        (no shift: a plain register leaves the carry alone)."""
+        if op.type != ARM_OP_REG or not op.shift.type or not op.shift.value:
+            return None
+        val, st, n = self.rd(ins, op), op.shift.type, op.shift.value
+        if st == ARM_SFT_LSL:
+            return "((%s) >> %d) & 1u" % (val, 32 - n) if 0 < n < 32 else None
+        if st in (ARM_SFT_LSR, ARM_SFT_ASR):
+            if n >= 32:
+                return "((%s) >> 31) & 1u" % val
+            return "((%s) >> %d) & 1u" % (val, n - 1)
+        if st == ARM_SFT_ROR:
+            return "((%s) >> %d) & 1u" % (val, (n - 1) & 31)
+        return None
 
     def shifted(self, ins, op):
         """Operando que puede llevar un desplazamiento incorporado."""

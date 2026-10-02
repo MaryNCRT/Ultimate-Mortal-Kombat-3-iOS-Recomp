@@ -143,9 +143,13 @@ typedef struct MK3OBJPROC {
      * tl_do_lao_tele and tl_do_robo_tele both read it with `ldr`, a
      * full word, and compare the result against a signed y. Two
      * readings of one offset; neither is discarded. The word users
-     * reach it as an offset rather than through this field. */
-    uint16_t field40;
-    uint8_t  _pad42[2];
+     * reach it as an offset rather than through this field.
+     * Settled by tools/difftest: every other site in the tree is `ldr`/`str`
+     * (t_another_scorpion stores an `ldrsh` result, sign-extended, and the
+     * old halfword declaration truncated it), so it is a WORD.
+     * ground_player's `ldrh` takes the low half, which is all
+     * MK3_SET_FIELD12 keeps anyway. */
+    uint32_t field40;
     uint32_t p_hit;              /* 0x44  per zero_my_p_hit */
     uint32_t field48;            /* 0x48  t_b_sweep writes it beside p_hit
                                   *       from the same register */
