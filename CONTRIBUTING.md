@@ -44,21 +44,25 @@ The raw Ghidra output is a **draft**. It gets regenerated whenever signatures im
 
 ---
 
-## Picking up a module
+## Picking up work
 
-Check [docs/PROGRESS.md](docs/PROGRESS.md) for the current state, then open an issue saying which module you are taking so two people don't do the same one.
+**Every function is decompiled** (2,572 of 2,572, October 2026), so there is no
+module left to claim in the old sense. Check [docs/PROGRESS.md](docs/PROGRESS.md)
+for the current state, then open an issue saying what you are taking so two
+people don't do the same thing. The open work, roughly in order of what it
+unlocks:
 
-### Good first modules
+| Area | What it is | Where to start |
+|---|---|---|
+| **Fight runtime** | Running the decompiled fight engine frame by frame: its cooperative thread scheduler, the per-frame logic, the bridge from `Task_GameInit`, input | `docs/HANDOFF.md`, "Where the project actually stands"; `runtime/test_main.c` |
+| **Data tables** | Measuring and extracting the 229 tables the fight engine reads (`sm_*`, `ochar_*`, `a_*`, `reaction_table`...) from the user's own copy at build time | `docs/PROGRESS.md`, "The other axis" |
+| **Platform layer** | MP3 music on SDL2; the fight's keyboard and gamepad input | `runtime/platform/` |
+| **Port decisions** | Widescreen, frame rate, mods: already written up as issues, waiting for a decision and an implementation | issues #22, #23, #24, #29 |
+| **Verification** | Raising coverage where the difftest reports `LOWCOV`, and reconciling the 15 prototype disagreements `tools/protos.py` lists | `tools/difftest/`, issue #26 |
 
-| Module | Functions | NEON | Notes |
-|---|---|---|---|
-| `DS_DebugWin.c` | 7 | 0% | No NEON at all — the gentlest starting point |
-| `RenderScene.cpp` | 14 | 7% | Mostly clean decompiler output |
-| `Events.cpp` | 22 | 9% | Larger, but mostly straightforward |
-
-### Harder ones
-
-`RenderSkinned.cpp` (45% NEON), `limeFont.cpp` (67%), `LIMEDS_Misc.cpp` (50%). For these, treat the decompiler output as a sketch of the *control flow* only — the arithmetic has to be derived from the disassembly.
+Correcting a decompiled function is still welcome and still follows the
+workflow below: read the disassembly, fix the C, and show the differential test
+passing.
 
 ### The workflow
 
