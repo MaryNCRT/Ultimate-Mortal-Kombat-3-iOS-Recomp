@@ -329,8 +329,9 @@ void ConvertQSTMatrixtoPCMatrix(const QSTMATRIX *src, float *dst)
 
 /* ---------------------------------------------------------- LIMEDS_Set3dMode
  *
- * armv7 0x0005d944, 216 bytes (armv6 0x00080134).  Transcribed in full;
- * **draft** -- no differential test against the oracle yet.
+ * armv7 0x0005d944, 216 bytes (armv6 0x00080134).  **Verified**:
+ * tests/test_limeds_camera_gl_diff.c, 2,004 cases, GL call stream and the
+ * globals it writes bit-identical to the recompiled original.
  *
  * Resets both matrix stacks, then builds the projection:
  *
@@ -397,8 +398,10 @@ void LIMEDS_Set3dMode(void)
 
 /* ---------------------------------------------- LIMEDS_SetCameraOrientation
  *
- * armv6 0x0007ff84, armv7 0x0005d798.  **Draft** -- rows corrected against the
- * armv7 disassembly, but no differential test against the oracle yet.
+ * armv6 0x0007ff84, armv7 0x0005d798.  **Verified**: rows corrected against the
+ * armv7 disassembly and checked by tests/test_limeds_camera_gl_diff.c, 5,008
+ * cases including the degenerate ones, every glMultMatrixf matrix
+ * bit-identical to the recompiled original.
  *
  * This is **gluLookAt**, written out by hand. The engine never links GLU, so
  * the view matrix is built here and this is the only place the camera basis
