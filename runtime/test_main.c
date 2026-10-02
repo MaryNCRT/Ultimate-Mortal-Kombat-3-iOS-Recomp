@@ -50,6 +50,8 @@
 void Task_LoadGeneralData(void);
 int  FEInit_LoadABit(long step);
 void Task_FEMain(void);
+void limeBegin(void);
+void limeFinish(void);
 
 extern int   FE_CurrentTask;
 extern float limeTouchScreenX[], limeTouchScreenY[];
@@ -260,7 +262,9 @@ int main(int argc, char **argv)
 
             menu_frame(ww, wh, &was_down);
             while (acc >= 1.0 / 60.0) {
+                limeBegin();            /* GameCodeMain's order; see menu_main.c */
                 Task_FEMain();
+                limeFinish();
                 acc -= 1.0 / 60.0;
             }
             hint(ww, wh);
