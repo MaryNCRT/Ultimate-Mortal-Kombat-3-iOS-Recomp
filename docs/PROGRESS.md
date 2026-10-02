@@ -2,7 +2,7 @@
 
 Current state of the project. Written so that someone can pick it up with no prior context.
 
-**Last updated:** 2026-09-19 — see [HANDOFF.md](HANDOFF.md) for the route and
+**Last updated:** 2026-10-02 — see [HANDOFF.md](HANDOFF.md) for the route and
 [ENCARGO.md](ENCARGO.md) for the next task.
 
 > Latest: **the decompiled main menu is on screen and takes input.**
@@ -12,8 +12,9 @@ Current state of the project. Written so that someone can pick it up with no pri
 > for a finger. `UMK3_SHOT=<n>` ticks n frames, writes `umk3-menu.ppm` and
 > quits, which is where the screenshot in the repo root comes from.
 >
-> The fight engine is at **1,752 of 2,172** and seventeen of its twenty-one files
-> are closed. Nothing is playable: the menu draws and responds, and the fight
+> The fight engine is **complete, 2,172 of 2,172**; every one of its twenty-one
+> files has a body and the behavioural triage (`tools/difftest/`) is under way.
+> Nothing is playable: the menu draws and responds, and the fight
 > itself has no runtime yet.
 >
 > **The function count is not the whole job.** See "The other axis" below:
@@ -131,9 +132,11 @@ the return value and the entire data image. Use:
 
 Results: **`mkdrone.c` 393/394 clean** (`t_fatality_align`, token 0xac2, is a
 known harness false positive: a scratch field that holds a handler-looking
-value is converted to native form for the C run), `mkfriend.c` clean. Other
-files, failing functions per file: mkfatal 4, mkprop 2, mkanimal 3, mkbonus 4,
-mkcanned 1, mkslam 1, moves 8, other 66, mkboss 22, mkzap 22, mkreact 36;
+value is converted to native form for the C run), `mkfriend.c`, `mkbonus.c`, `mkcanned.c`,
+`mkslam.c`, `mkprop.c` and `mkcombo.c` clean (the last four after the fixes in
+PR #34, one of which was an oracle bug: `recomp.py` mistranslated two-operand
+`lsls rd, rm`). Other files, failing functions per file: mkfatal 4, mkanimal 3,
+moves 8, other 66, mkboss 22, mkzap 22, mkreact 36;
 mkstat and playback segfault the harness. **These are not triaged**: many
 involve pointers to native stack/data or objects the harness cannot model, so
 each has to be classified as false positive or real bug. Running it on
@@ -212,22 +215,22 @@ one**, and only one of them has ever been measured.
 ## Overall progress
 
 ```
-██████████████████████████████████░░░░░░  84.70%
+██████████████████████████████████░░░░░░  85.55%
 ```
 
-**84.70% of the total estimated effort. Nothing is playable yet.**
+**85.55% of the total estimated effort. Nothing is playable yet.**
 
 Weights are our judgement of how much of the total each area represents. The
 three decompilation figures are **measured from the tree** by
 `tools/progress.py` on every run; the other five are estimates a person
 maintains. Two numbers are worth keeping apart:
 
-- **~73%** — share of the *whole project*, counting analysis, tooling and formats.
-- **~91%** — share of the *decompilation itself*: 2,335 finished functions of
-  2,572 (109 `lime/common` + 291 `gamecode` + 1,935 `gamecode/logic`).
+- **85.55%** — share of the *whole project*, counting analysis, tooling and formats.
+- **100%** — share of the *decompilation itself*: 2,572 of 2,572 functions have a
+  body (109 `lime/common` + 291 `gamecode` + 2,172 `gamecode/logic`).
 
-Both are true. The first says the foundations are in place and the engine core is
-done; the second says the fight engine is now more than three-quarters written.
+Both are true. The first says what is left is the platform layer; the second says
+there is no function left to transcribe, only bodies left to prove.
 
 | Area | Weight | Done | |
 |---|---:|---:|---|
@@ -237,7 +240,7 @@ done; the second says the fight engine is now more than three-quarters written.
 | `lime/common` — engine core (109 fn) | 12% | **100%** | `██████████` |
 | `gamecode` — game logic (291 fn) | 18% | **100%** | `██████████` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | **100%** | `██████████` |
-| Native PC platform layer (161 fn to rewrite) | 17% | 10% | `█░░░░░░░░░` |
+| Native PC platform layer (161 fn to rewrite) | 17% | 15% | `██░░░░░░░░` |
 | EA SDK stubs (27 fn the game calls) | 5% | 100% | `██████████` |
 
 **The platform layer shrank twice.** It used to read "229 fn rewritten".
@@ -246,8 +249,12 @@ done; the second says the fight engine is now more than three-quarters written.
 `ES1Renderer.m` and `ES2Renderer.m`, which are Apple's `GLES2Sample` template
 with the method sets matching exactly. Both have published, readable, legally
 reusable sources. **68 of 229 — 30% — need no reverse engineering**, leaving
-161. The 10% reflects that those modules have known upstream sources, not that
-any of the port is written.
+161. **15%, measured 2026-10-02:** of the 49 C entry points in `lime/iphone/lime.m`,
+46 have a native definition in `runtime/`, and about 25 of those do real work
+(GL state, sprite and rect drawing, texture and file loading, the heap, the
+language query). Audio, save files and the face-me sprites are still empty
+bodies, and the ~180 Objective-C methods (views, controllers, renderers, Finch)
+are replaced by the SDL2/GL backend rather than rewritten one by one.
 
 ### Milestones
 
@@ -259,8 +266,8 @@ any of the port is written.
 | Every LIME asset format | ✅ done — `.scene` was the last |
 | **The engine core is decompiled** | ✅ **done — 109 of 109** |
 | **The engine core is verified** | ✅ **all nine files** |
-| Something renders on a PC screen | ⬜ not started |
-| The game boots natively | ⬜ far off |
+| Something renders on a PC screen | ✅ done — the menu and all 18 arenas |
+| The game boots natively | 🔄 the front end boots and takes input; the fight has no runtime |
 | The game is playable natively | ⬜ far off |
 
 ---
@@ -274,15 +281,15 @@ any of the port is written.
 | 2 — Verification oracle | ✅ complete and proven |
 | 3 — Ghidra automation | ✅ headless pipeline working |
 | 4 — Decompile `lime/common` | ✅ **complete — 109/109, every file verified** |
-| 5 — Native PC platform layer | ⬜ not started |
+| 5 — Native PC platform layer | 🔄 started — window, GL, textures, files; no audio, no saves |
 | 6 — EA SDK stubs | ✅ complete — the 27 entry points the game calls, plus `LocaleManager`, in `runtime/gamecode_stubs.c` |
 | 7 — Decompile `gamecode` | ✅ 291/291 |
-| 8 — Decompile fight logic | 🔄 1,752/2,172 — seventeen of twenty-one files closed |
+| 8 — Decompile fight logic | ✅ 2,172/2,172 — behavioural triage in progress |
 | 9 — Widescreen, gamepad, mods | ⬜ not started |
 
-**Honest framing:** 2,335 of 2,572 functions are done. The percentage is not the
+**Honest framing:** 2,572 of 2,572 functions have a body. The percentage is not the
 interesting number — **nothing is playable**, because the fight engine has no
-runtime and a third of it is still unread. What the number does say is that the
+runtime and its behavioural test is still being triaged. What the number does say is that the
 menu you can click on is not a mock-up: it is the retail front end, transcribed
 function by function, running on the retail assets.
 
@@ -298,9 +305,9 @@ function by function, running on the retail assets.
 | `RenderSkinned.cpp` (20 fn) | ✅ | **18,780 cases, 0 divergences** |
 | `Events.cpp` (22 fn) | ✅ | **2,224 cases, 0 divergences** |
 | `RenderMesh.cpp` (19 fn) | ✅ | **590 files, 7,327 meshes, 0 divergences** |
-| `RenderScene.cpp` (14 fn) | ✅ | ⬜ no test yet |
-| `limeFont.cpp` (6 fn) | ✅ | ⬜ no test yet |
-| `DS_DebugWin.c` (7 fn) | ✅ | ⬜ no test yet |
+| `RenderScene.cpp` (14 fn) | ✅ | **80 cases, 0 divergences** — helpers only |
+| `limeFont.cpp` (6 fn) | ✅ | **896 cases, 0 divergences** |
+| `DS_DebugWin.c` (7 fn) | ✅ | **58 cases, 0 divergences** |
 
 **Only the last column means verified.** A body that compiles and passes
 `symcheck` is a strong claim about structure and no claim at all about
@@ -316,7 +323,7 @@ are where the next person should look.
 
 ## Module status — `gamecode`
 
-**291 of 291.** Plus 1,752 of 2,172 in `gamecode/logic`.
+**291 of 291.** Plus 2,172 of 2,172 in `gamecode/logic`.
 
 | file | done | total | test | checks |
 |---|---:|---:|---|---:|
