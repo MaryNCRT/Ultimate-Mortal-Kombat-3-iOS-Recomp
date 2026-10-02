@@ -3249,10 +3249,14 @@ extern void  *SpearTexture[];           /* 0x001ab654 */
 extern float  FaceMeMatrix[];             /* pointer slot */
 extern float  ShadowOffset;             /* 0x0014dfc8 */
 
-void limeDrawFaceMeSpriteWH(void *tex, const float *m, float x, long a,
-                            float y, long b, long c, float d, float e,
-                            float w, float f, float g, float h, float i,
-                            float j, long k, float l);
+/* (tex, m, x, y, z, u0, v0, du, dv, w, h, r, g, b, a) plus two words the call
+ * stores and the callee never reads -- every one a float, which matters off
+ * ARM: on x86-64 a float and a long travel in different registers. Read off
+ * limeDrawFaceMeSpriteWH (0x0006649c) and its call at 0x000210cc. */
+void limeDrawFaceMeSpriteWH(void *tex, const float *m, float x, float y,
+                            float z, float u0, float v0, float du, float dv,
+                            float w, float h, float r, float g, float b,
+                            float a, float unused0, float unused1);
 
 
 /* ------------------------------------------------------------- RenderExtras
@@ -3329,10 +3333,10 @@ void RenderExtras(void)
         y     = (float)((double)ShadowOffset + 1.35);
 
         /* the shaft: width is however far the spear reaches */
-        limeDrawFaceMeSpriteWH(tex, FaceMeMatrix, SpearEndPos[i][0], 0,
-                               y, 0, 0, 1.0f, 1.0f,
+        limeDrawFaceMeSpriteWH(tex, FaceMeMatrix, SpearEndPos[i][0], 0.0f,
+                               y, 0.0f, 0.0f, 1.0f, 1.0f,
                                SpearStartPos[i][0] - SpearEndPos[i][0],
-                               0.25f, 1.0f, 1.0f, 1.0f, 1.0f, 0, 0.25f);
+                               0.25f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f, 0.25f);
 
         if (phase > 1)
             continue;                           /* one phase has no tip */
@@ -3340,25 +3344,25 @@ void RenderExtras(void)
         if (SpearWhichTexture[i] > 2) {
             if (SpearStartPos[i][0] < SpearEndPos[i][0]) {
                 tex = SpearTexture[4];
-                limeDrawFaceMeSpriteWH(tex, FaceMeMatrix, SpearEndPos[i][0], 0,
-                                       y, 0, 0, 1.0f, 1.0f, 0.25f,
-                                       0.25f, 1.0f, 1.0f, 1.0f, 1.0f, 0, 0.25f);
+                limeDrawFaceMeSpriteWH(tex, FaceMeMatrix, SpearEndPos[i][0], 0.0f,
+                                       y, 0.0f, 0.0f, 1.0f, 1.0f, 0.25f,
+                                       0.25f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f, 0.25f);
             } else {
                 tex = SpearTexture[3];
-                limeDrawFaceMeSpriteWH(tex, FaceMeMatrix, SpearEndPos[i][0], 0,
-                                       y, 0, 0, 1.0f, 1.0f, 0.25f,
-                                       0.25f, 1.0f, 1.0f, 1.0f, 1.0f, 0, 0.25f);
+                limeDrawFaceMeSpriteWH(tex, FaceMeMatrix, SpearEndPos[i][0], 0.0f,
+                                       y, 0.0f, 0.0f, 1.0f, 1.0f, 0.25f,
+                                       0.25f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f, 0.25f);
             }
         } else {
             tex = SpearTexture[3];
             if (SpearStartPos[i][0] < SpearEndPos[i][0])
-                limeDrawFaceMeSpriteWH(tex, FaceMeMatrix, SpearEndPos[i][0], 0,
-                                       y, 0, 0, 1.0f, 1.0f, 0.25f,
-                                       0.25f, 1.0f, 1.0f, 1.0f, 1.0f, 0, 0.25f);
+                limeDrawFaceMeSpriteWH(tex, FaceMeMatrix, SpearEndPos[i][0], 0.0f,
+                                       y, 0.0f, 0.0f, 1.0f, 1.0f, 0.25f,
+                                       0.25f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f, 0.25f);
             else
-                limeDrawFaceMeSpriteWH(tex, FaceMeMatrix, SpearEndPos[i][0], 0,
-                                       y, 0, 0, 1.0f, 1.0f, -0.25f,
-                                       0.25f, 1.0f, 1.0f, 1.0f, 1.0f, 0, 0.25f);
+                limeDrawFaceMeSpriteWH(tex, FaceMeMatrix, SpearEndPos[i][0], 0.0f,
+                                       y, 0.0f, 0.0f, 1.0f, 1.0f, -0.25f,
+                                       0.25f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f, 0.25f);
         }
     }
 }

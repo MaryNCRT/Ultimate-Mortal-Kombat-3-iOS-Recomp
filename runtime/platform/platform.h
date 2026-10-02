@@ -40,6 +40,11 @@ int plat_mouse(int *x, int *y);
 /* Seconds since plat_open, monotonic. */
 double plat_time(void);
 
+/* Whether the window has the keyboard focus -- the PC's "app is active". The
+ * iOS delegate's WillResignActive / DidBecomeActive pair is driven from the
+ * edges of this (runtime/lime_app.c). */
+bool plat_focused(void);
+
 /* ------------------------------------------------------------------ input
  *
  * The fight engine takes ONE TEN-BIT WORD PER PLAYER and nothing else -- see
@@ -113,5 +118,8 @@ void plat_audio_update(void);
  * decoder to play a menu loop would be absurd. */
 void plat_music_play(const char *path, int loop);
 void plat_music_stop(void);
+
+/* 0..1, applied to the track playing now and to the next one. */
+void plat_music_volume(float gain);
 
 #endif
