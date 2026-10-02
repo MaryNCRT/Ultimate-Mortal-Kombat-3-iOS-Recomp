@@ -180,12 +180,30 @@ layer exists: `tools/difftest/` (see docs/PROGRESS.md for usage and results).
 Known limits of the harness, each one a source of false positives:
 
 - scratch fields holding a value that looks like a handler address are turned
-  into native pointers for the C run, so arithmetic on them differs
-  (`t_fatality_align`, token 0xac2);
+  into native pointers for the C run, so arithmetic on them differs. The
+  harness recognises a handler moved by a small offset, negated, doubled,
+  halved or stored unaligned; it cannot recognise two of them added together
+  or one truncated to 16 bits. **The four failures left in the full run are
+  exactly these**, each checked against the disassembly by hand and found
+  equivalent: `t_fatality_align` (mkdrone, token 0xac2), `t_summon_spawn`
+  (mkzap, `field48 + a10`), `t_summon_proc` and `t_sky_ice_proc` (mkzap, a
+  handler-seeded `field48` added to a halfword coordinate);
 - pointers to the native stack or to objects the harness does not model;
-- an oracle that itself hits an unimplemented import skips the scenario
-  (counted as "skipped", so low-coverage functions are flagged `LOWCOV`);
-- `rand` is shared by both sides, `random32` is not modelled beyond it.
+- an oracle that itself hits an unimplemented import, or an indirect call to
+  a routine that is not recompiled, skips the scenario (counted as "skipped",
+  so low-coverage functions are flagged `LOWCOV`);
+- `rand` is shared by both sides, `random32` is not modelled beyond it;
+- the a9 animation scripts the harness seeds contain no routine addresses
+  (the position opcodes would add them to coordinates), so script opcodes that
+  call a routine are skipped by the oracle rather than compared.
+
+**One thing that looked like a limit was a recompiler bug.** Until 2026-10-02
+`recomp.py` emitted `adr r2, #4` as the constant 4 and `mov pc, r2` as a plain
+register write, so the oracle of the a9 frame walker always took case 0 of its
+19-entry branch table, and eleven `other.c` functions "failed". The idiom is now
+resolved into a switch (36 sites in `other`, `moves`, `playback`), and the
+family passes. A failure that clusters on one helper is worth reading in the
+oracle before it is filed as a harness limit.
 
 `tools/cd.py fn ...` prints the compact disassembly used to transcribe state
 machines (`--raw` for the unfolded listing).
