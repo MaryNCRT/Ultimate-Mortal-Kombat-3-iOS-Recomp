@@ -172,7 +172,7 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ## Overall progress
 
 ```
-████████████████████████████████░░░░░░░░  84.70%
+██████████████████████████████████░░░░░░  84.70%
 ```
 
 | Area | Weight | Done | |
@@ -184,7 +184,7 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 | `gamecode` — game logic (291 fn) | 18% | **100%** | `██████████` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | **100%** | `██████████` |
 | Native PC platform layer (161 fn to rewrite) | 17% | 10% | `█░░░░░░░░░` |
-| EA SDK stubs (~1,412 fn) | 5% | 100% | ██████████ |
+| EA SDK stubs (27 fn the game calls) | 5% | 100% | `██████████` |
 
 **84.70% of the total estimated effort. Nothing is playable yet.**
 
@@ -213,8 +213,17 @@ body; all nine of its files are also verified against the recompiled original.
 **Every function now has a body.** All 2,172 functions of the fight engine are
 written, including `mkdrone.c` (the AI opponent, 394 functions), the last file
 to close. What is left of the project is not decompilation: the 229 data
-tables, the PC platform layer (the 229 iOS-layer functions rewritten natively)
-| EA SDK stubs (~1,412 fn) | 5% | 100% | ██████████ |
+tables and the PC platform layer (the 229 iOS-layer functions rewritten
+natively). Realistically that is still months of work.
+
+**The EA SDK row is at 100% because of what the game calls, not because of
+the SDK's size.** Of the ~1,412 SDK functions, the game reaches exactly 27
+(`EASDK_*` logging, ticker and network queries; `EASOC_*` Mayhem and Facebook)
+plus the `LocaleManager` constructor. All of them are stubbed with their real
+signatures in `runtime/gamecode_stubs.c`, and the build links with no other SDK
+symbol. The remaining ~1,385 are SDK-internal: nothing in the port references
+them, so they are dropped rather than stubbed, and none of their code is in
+this repository.
 
 One caveat on "verified". The static fact diff (`tools/factdiff.py`) compares
 stores, handlers, state tokens and calls; it cannot see which constant a return
