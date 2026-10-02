@@ -23,6 +23,7 @@ static HGLRC     g_rc;
 static bool      g_quit;
 static LARGE_INTEGER g_freq, g_start;
 static bool      g_mouse_down;
+static bool      g_focused = true;
 static int       g_mouse_x, g_mouse_y;
 static unsigned char g_key[256];
 
@@ -57,6 +58,14 @@ static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
     case WM_MOUSEMOVE:
         g_mouse_x = (short)LOWORD(lp);
         g_mouse_y = (short)HIWORD(lp);
+        return 0;
+    case WM_ACTIVATE:
+        /* LOWORD: WA_INACTIVE (0), WA_ACTIVE or WA_CLICKACTIVE */
+        g_focused = LOWORD(wp) != WA_INACTIVE;
+        if (!g_focused) {               /* no key stays held across a focus loss */
+            memset(g_key, 0, sizeof g_key);
+            g_mouse_down = false;
+        }
         return 0;
     case WM_SIZE: {
         int w = LOWORD(lp), h2 = HIWORD(lp);
@@ -133,6 +142,11 @@ void plat_size(int *width, int *height)
     GetClientRect(g_wnd, &r);
     if (width)  *width  = r.right - r.left;
     if (height) *height = r.bottom - r.top;
+}
+
+bool plat_focused(void)
+{
+    return g_focused;
 }
 
 double plat_time(void)
