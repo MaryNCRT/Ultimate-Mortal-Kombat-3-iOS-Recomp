@@ -71,6 +71,13 @@ bool plat_open(const char *title, int width, int height)
     return true;
 }
 
+static bool g_focused = true;
+
+bool plat_focused(void)
+{
+    return g_focused;
+}
+
 bool plat_poll(void)
 {
     SDL_Event ev;
@@ -85,6 +92,10 @@ bool plat_poll(void)
         case SDL_WINDOWEVENT:
             if (ev.window.event == SDL_WINDOWEVENT_CLOSE) {
                 g_quit = true;
+            } else if (ev.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
+                g_focused = false;
+            } else if (ev.window.event == SDL_WINDOWEVENT_FOCUS_GAINED) {
+                g_focused = true;
             } else if (ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
                 int dw, dh;
                 SDL_GL_GetDrawableSize(g_wnd, &dw, &dh);
