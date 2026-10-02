@@ -10007,12 +10007,14 @@ long t_swat_bomb_proc(MK3THREAD *thread)
  * (`field1c = field20 = 0x20`). `field40` is saved across all of that in a
  * callee-saved register and restored either way before `i_am_a_sitting_duck`,
  * so the create-proj detour never leaks into the animation state. It descends
- * into `t_backwards_ani2` under `0x921`.
+ * into `t_mframew` (slot 0x000f37cc) under `0x921`.
  *
  * `0x921` does no work of its own: it just re-arms `0x922` and sleeps sixteen
  * frames (`fieldfc = 0x10`) -- the only stage in the chain that is a a plain
  * wait rather than a descent. `0x922` finishes it: `field1c = 3`,
- * `field40 = 0`, `t_mframew` installed on the current level, no push.
+ * `field40 = 0`, `t_backwards_ani2` (slot 0x000f3704) installed on the current
+ * level, no push. (The two handlers were crossed in an earlier reading; the
+ * slots and the difftest settle it.)
  */
 long t_animate_a0_frames(MK3THREAD *thread);     /* pointer slot 0x000f36b8 */
 void group_sound(MK3OBJ *obj);
@@ -10054,10 +10056,12 @@ long tl_bomb33(MK3THREAD *thread)
 
         obj->field1c = 4;
 
+        /* slot 0x000f37cc holds t_mframew (0x0005a25d) -- not the
+         * t_backwards_ani2 that 0x922 installs (difftest) */
         *mk3_frame(thread, frame + 1) = 0x921;
         thread->frame = thread->frame + 1;   /* push a level */
         mk3_frame(thread, thread->frame)[1] =
-            (uint32_t)(uintptr_t)t_backwards_ani2;
+            (uint32_t)(uintptr_t)t_mframew;
         *mk3_frame(thread, thread->frame + 1) = 0;
         return 0;
     }
