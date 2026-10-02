@@ -1,5 +1,9 @@
 # Handoff
 
+> **Historical snapshot (last revised mid-September 2026).** Figures in it, such as
+> "1,752 of 2,172", are out of date: `gamecode/logic` is complete (2,172/2,172).
+> The current state is in [PROGRESS.md](PROGRESS.md).
+
 Written for whoever picks this up next, human or model, with no prior context.
 Read this, then [METHODOLOGY.md](METHODOLOGY.md). Everything else is reference.
 

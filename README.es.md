@@ -53,7 +53,7 @@ Los objetivos a largo plazo, en orden:
 | Objetivo | Estado |
 |---|---|
 | Entender el binario y sus formatos de archivo | ✅ en gran parte hecho |
-| Recuperar C legible, función a función | 🔄 en curso |
+| Recuperar C legible, función a función | ✅ todas las funciones tienen cuerpo — triaje de comportamiento en curso |
 | Sustituir la capa de plataforma iOS por una nativa de PC | 🔄 empezada — ventana, contexto GL y carga de assets funcionan en Windows y Linux; sin audio ni mapeo de mando |
 | Widescreen, soporte de mando, mods | ⬜ planeado |
 | **Dos jugadores locales en una máquina** | ⬜ planeado — [la build de iPad lo trae](docs/IPAD-BUILD.md) |
@@ -130,7 +130,7 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ## Progreso general
 
 ```
-██████████████████████████████████░░░░░░  84,70%
+██████████████████████████████████░░░░░░  85,55%
 ```
 
 | Área | Peso | Hecho | |
@@ -141,10 +141,10 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 | `lime/common` — núcleo del motor (109 fn) | 12% | **100%** | `██████████` |
 | `gamecode` — lógica de juego (291 fn) | 18% | **100%** | `██████████` |
 | `gamecode/logic` — motor de combate (2.172 fn) | 28% | **100%** | `██████████` |
-| Capa de plataforma PC nativa (161 fn a reescribir) | 17% | 10% | `█░░░░░░░░░` |
+| Capa de plataforma PC nativa (161 fn a reescribir) | 17% | 15% | `██░░░░░░░░` |
 | Stubs del EA SDK (27 fn que llama el juego) | 5% | 100% | `██████████` |
 
-**84,70% del esfuerzo total estimado. Todavía no hay nada jugable.**
+**85,55% del esfuerzo total estimado. Todavía no hay nada jugable.**
 
 **Las tres filas del medio se cuentan; el resto son estimaciones.**
 `tools/progress.py` lee el árbol en cada ejecución para `lime/common`,
@@ -172,7 +172,7 @@ original recompilado.
 **Todas las funciones tienen ya cuerpo.** Las 2.172 funciones del motor de
 combate están escritas, incluido `mkdrone.c` (el oponente controlado por la
 máquina, 394 funciones), el último fichero en cerrarse. Lo que queda del
-proyecto ya no es decompilación: las 229 tablas de datos, la capa de plataforma
+proyecto ya no es decompilación: las 229 tablas de datos y la capa de plataforma
 PC (las 229 funciones de la capa iOS reescritas en nativo). Los stubs del EA
 SDK ya están: el juego solo llama a 27 funciones del SDK (más el constructor de
 `LocaleManager`), todas en `runtime/gamecode_stubs.c`; las ~1.385 restantes son
@@ -185,7 +185,7 @@ rechazo -3) ni un handler que el binario lee a través de un slot de punteros.
 Por eso hay una segunda comprobación, de comportamiento: `tools/difftest/`
 ejecuta cada función decompilada y su original recompilado desde el mismo
 estado aleatorio en un proceso de 32 bits y compara el valor de retorno y toda
-la imagen de datos. Está limpia en `mkdrone.c` y `mkfriend.c`; el resto de
+la imagen de datos. Está limpia en `mkdrone.c`, `mkfriend.c`, `mkbonus.c`, `mkcanned.c`, `mkslam.c`, `mkprop.c` y `mkcombo.c`; el resto de
 ficheros se están triando (algunos avisos son límites de la harness, no bugs;
 ver docs/VERIFICATION.md).
 
@@ -195,16 +195,12 @@ Las **109 de 109** funciones del núcleo del motor tienen cuerpo. Todas compilan
 todas pasan la verja estructural, y el módulo entero construye limpio con
 `-Wall -Wextra`.
 
-**No significa que las 109 estén verificadas.** Cuatro módulos tienen tests
-diferenciales contra el original recompilado; el resto están leídas, escritas y
-compiladas, que es una afirmación más débil y honesta:
-
-| | |
-|---|---|
-| Verificado por comportamiento | `Matrix`, `limeVector`, el cargador de `RenderMesh`, la matemática de `RenderSkinned`, el pool de `Events`, las conversiones de `LIMEDS_Misc` |
-| Casos comparados | 103.907 sintéticos, más 590 ficheros y 7.327 mallas de datos reales |
-| Divergencias | **0** |
-| Escrito, compilado, aún sin pasar por el oráculo | el resto |
+**Y los nueve ficheros tienen test diferencial** contra el original
+recompilado: unos 84.000 casos sintéticos más 590 ficheros y 7.327 mallas de
+datos reales, con **0 divergencias**. La salvedad: el test de `RenderScene.cpp`
+cubre sus helpers (lista de transparentes, paleta, búsqueda de mallas) y **no**
+los dos renderizadores de escena, cuyos cuerpos están marcados como
+*estructurales*.
 
 Varios cuerpos son **estructurales**: la secuencia de llamadas y los accesos a
 campos están recuperados, y alguna condición de rama o algún enum de GL queda
@@ -223,20 +219,22 @@ cuerpo escrito con confianza y equivocado que solo destapó un test diferencial.
 
 ## Estado actual
 
-| Módulo | Decompilado | Verificado | C limpio | Test diferencial |
-|---|---|---|---|---|
-| `Matrix.cpp` (11 fn) | ✅ | ✅ | ✅ | **40.006 casos, 0 divergencias** |
-| `limeVector.cpp` (2 fn) | ✅ | ✅ | ✅ | **20.013 casos, 0 divergencias** |
-| `RenderMesh.cpp` — cargador (3 de 19 fn) | ✅ | ✅ | ✅ | **590 archivos, 7.327 mallas, 0 divergencias** |
-| `other.c` — `SwitchQueue` (1 de 333 fn) | ✅ | ✅ | ✅ | **500 pushes, 0 divergencias** |
-| `RenderScene.cpp` (14 fn) | ✅ | ⬜ | ⬜ | ⬜ |
-| `RenderSkinned.cpp` (20 fn) | ✅ | ⬜ | ⬜ | ⬜ |
-| `Events.cpp` (22 fn) | ✅ | ⬜ | ⬜ | ⬜ |
-| `limeFont.cpp` (6 fn) | ✅ | ⬜ | ⬜ | ⬜ |
-| `LIMEDS_Misc.cpp` (8 fn) | ✅ | ⬜ | ⬜ | ⬜ |
-| `DS_DebugWin.c` (7 fn) | ✅ | ⬜ | ⬜ | ⬜ |
+| Módulo | Cuerpo escrito | Test diferencial |
+|---|---|---|
+| `Matrix.cpp` (11 fn) | ✅ | **40.006 casos, 0 divergencias** |
+| `limeVector.cpp` (2 fn) | ✅ | **20.013 casos, 0 divergencias** |
+| `LIMEDS_Misc.cpp` (8 fn) | ✅ | **21.950 casos, 0 divergencias** |
+| `RenderSkinned.cpp` (20 fn) | ✅ | **18.780 casos, 0 divergencias** |
+| `Events.cpp` (22 fn) | ✅ | **2.224 casos, 0 divergencias** |
+| `limeFont.cpp` (6 fn) | ✅ | **896 casos, 0 divergencias** |
+| `RenderScene.cpp` (14 fn) | ✅ | **80 casos, 0 divergencias** — solo helpers |
+| `DS_DebugWin.c` (7 fn) | ✅ | **58 casos, 0 divergencias** |
+| `RenderMesh.cpp` (19 fn) | ✅ | **590 archivos, 7.327 mallas, 0 divergencias** |
+| `other.c` — `SwitchQueue` (1 de 333 fn) | ✅ | **500 pushes, 0 divergencias** |
 
-Tres módulos y medio están de verdad terminados: decompilados, verificados, reescritos a mano y demostrados equivalentes. Eso son 17 funciones de 2.572, incluida la primera del motor de combate. El porcentaje es pequeño; el *proceso* que las produjo es el activo de verdad, y ya funciona desatendido.
+Las 2.572 funciones decompiladas tienen cuerpo. La lógica de combate se
+verifica además con `tools/difftest/` (ver arriba); ese triaje es el trabajo en
+curso.
 
 Estado detallado, decisiones y deuda técnica conocida: [docs/PROGRESS.md](docs/PROGRESS.md).
 
