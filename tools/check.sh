@@ -29,6 +29,11 @@ case "$(uname -s)" in
     MINGW*|MSYS*|CYGWIN*) NATIVE=win32_gl.c ; OTHER=sdl_gl.c   ;;
     *)                    NATIVE=sdl_gl.c   ; OTHER=win32_gl.c ;;
 esac
+# each backend is a window file and an audio file
+case "$NATIVE" in
+    win32_gl.c) NATIVE_AUDIO=win32_audio.c ; OTHER_AUDIO=sdl_audio.c   ;;
+    *)          NATIVE_AUDIO=sdl_audio.c   ; OTHER_AUDIO=win32_audio.c ;;
+esac
 
 errors=0
 warnings=0
@@ -58,6 +63,9 @@ echo "=== platform backend (native: $NATIVE) ==="
 pe=$errors
 check_one "runtime/platform/$NATIVE" ""
 printf '  %-18s %d errors\n' "$NATIVE" "$((errors - pe))"
+pe=$errors
+check_one "runtime/platform/$NATIVE_AUDIO" ""
+printf '  %-18s %d errors\n' "$NATIVE_AUDIO" "$((errors - pe))"
 
 echo
 echo "=== platform backend (off-platform: $OTHER) ==="
@@ -82,6 +90,9 @@ if [ -n "$OTHER" ]; then
     oe=$errors
     check_one "runtime/platform/$OTHER" "$extra"
     printf '  %-18s %d errors\n' "$OTHER" "$((errors - oe))"
+    oe=$errors
+    check_one "runtime/platform/$OTHER_AUDIO" "$extra"
+    printf '  %-18s %d errors\n' "$OTHER_AUDIO" "$((errors - oe))"
 fi
 
 # ---------------------------------------------------------------- stray bytes
