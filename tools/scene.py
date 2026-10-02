@@ -26,6 +26,7 @@ consistent across formats and is its own question.
 Usage:
   python scene.py validate <res dir>
   python scene.py dump     <file.scene>
+  python scene.py xforms   <file.scene> [frame]   each object's rotation, scale, position
 """
 
 import glob
@@ -57,8 +58,16 @@ class Scene(object):
             self.name = _cstr(raw, 0)
 
         def track(self, i):
-            """(float, float, float) for track record i."""
-            return struct.unpack_from("<3f", self.tracks, i * TRACK_SIZE)
+            """(value, field5, palette index) for track record i.
+
+            +0 and +4 are floats; +8 is the uint16 index into the transform
+            palette (`key.paletteIndex`, 0x0005f464) -- read as a float it
+            prints as a denormal like 1.4e-45, which is the integer 1.
+            """
+            off = i * TRACK_SIZE
+            v, f5 = struct.unpack_from("<2f", self.tracks, off)
+            idx = struct.unpack_from("<H", self.tracks, off + 8)[0]
+            return v, f5, idx
 
     def __init__(self, data):
         if len(data) < 8:
@@ -92,17 +101,26 @@ class Scene(object):
         if pos != len(data):
             raise ValueError("landed at %d, file is %d bytes" % (pos, len(data)))
 
-    def tail_record(self, i):
-        """The 40-byte tail record, as the loader reads it.
+    def palette(self, i):
+        """Transform palette entry i (`SceneMtxPalette`), 40 bytes on disk:
 
-        Four floats scaled and narrowed to int16, then five int32s. The loader
-        reads the first field at +4 rather than +0, because +0 of the array is
-        the count3 that precedes it.
+            +0x00  float q[4]       rotation quaternion, x y z, w LAST
+                                    (the loader scales it by 32767.0 into int16)
+            +0x10  float scale[3]
+            +0x1c  float translation[3]
+
+        Returned as (q, scale, translation). An earlier reading split the
+        record as four floats and five ints -- 36 of its 40 bytes -- which
+        dropped the translation's z. See docs/SCENE-FORMAT.md.
         """
         off = i * TAIL_SIZE
-        f = struct.unpack_from("<4f", self.tail, off)
-        n = struct.unpack_from("<5i", self.tail, off + 16)
-        return f, n
+        v = struct.unpack_from("<10f", self.tail, off)
+        return v[0:4], v[4:7], v[7:10]
+
+    def transform(self, obj, frame=0):
+        """(q, scale, translation) of an object at a frame, through its track."""
+        _, _, idx = obj.track(frame)
+        return self.palette(idx)
 
 
 def load(path):
@@ -147,10 +165,25 @@ def dump(path):
         for j in range(min(sc.count2, 3)):
             print("       %s" % (obj.track(j),))
     if sc.count3:
-        print("  tail: %d records of %d bytes" % (sc.count3, TAIL_SIZE))
+        print("  palette: %d transforms of %d bytes" % (sc.count3, TAIL_SIZE))
         for i in range(min(sc.count3, 3)):
-            f, n = sc.tail_record(i)
-            print("       floats %s  ints %s" % (f, n))
+            q, sc3, t = sc.palette(i)
+            print("       q %s  scale %s  pos %s" % (q, sc3, t))
+
+
+def xforms(path, frame=0):
+    """Every object's placement at a frame: what a 3D tool needs to rebuild
+    the stage from its .meshset (objects are named after their meshes)."""
+    sc = load(path)
+    for obj in sc.objects:
+        if not sc.count2:
+            continue
+        v, _, _ = obj.track(frame)
+        q, scale, t = sc.transform(obj, frame)
+        print("%-20s q(xyzw) %s  scale %s  pos %s%s" % (
+            obj.name, tuple(round(x, 4) for x in q),
+            tuple(round(x, 4) for x in scale), tuple(round(x, 2) for x in t),
+            "" if v > 0.03 else "  (hidden on this frame)"))
 
 
 if __name__ == "__main__":
@@ -162,6 +195,8 @@ if __name__ == "__main__":
         sys.exit(0 if validate(path) else 1)
     elif cmd == "dump":
         dump(path)
+    elif cmd == "xforms":
+        xforms(path, int(sys.argv[3]) if len(sys.argv) > 3 else 0)
     else:
         print(__doc__)
         sys.exit(1)
