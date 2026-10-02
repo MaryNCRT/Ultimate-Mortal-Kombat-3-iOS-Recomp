@@ -86,6 +86,12 @@ static void resolve(const char *rel, char *out, size_t n)
     snprintf(out, n, "%s/../%s", g_lime_asset_root, rel);
 }
 
+/* For the rest of the platform layer (lime_menu.c's sounds and saves). */
+void lime_platform_resolve(const char *rel, char *out, size_t n)
+{
+    resolve(rel, out, n);
+}
+
 
 /* ------------------------------------------------------------------ files */
 
