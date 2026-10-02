@@ -54,7 +54,7 @@ Los objetivos a largo plazo, en orden:
 |---|---|
 | Entender el binario y sus formatos de archivo | ✅ en gran parte hecho |
 | Recuperar C legible, función a función | ✅ todas las funciones tienen cuerpo — triaje de comportamiento en curso |
-| Sustituir la capa de plataforma iOS por una nativa de PC | 🔄 empezada — ventana, contexto GL y carga de assets funcionan en Windows y Linux; sin audio ni mapeo de mando |
+| Sustituir la capa de plataforma iOS por una nativa de PC | 🔄 empezada — ventana, contexto GL y carga de assets funcionan en Windows y Linux; sonidos, música (Windows) y partidas guardadas funcionan; sin mapeo de mando |
 | Widescreen, soporte de mando, mods | ⬜ planeado |
 | **Dos jugadores locales en una máquina** | ⬜ planeado — [la build de iPad lo trae](docs/IPAD-BUILD.md) |
 | Restaurar contenido oculto e inalcanzable | ⬜ tras tener build jugable |
@@ -130,7 +130,7 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ## Progreso general
 
 ```
-██████████████████████████████████░░░░░░  85,55%
+███████████████████████████████████░░░░░  86,57%
 ```
 
 | Área | Peso | Hecho | |
@@ -141,10 +141,10 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 | `lime/common` — núcleo del motor (109 fn) | 12% | **100%** | `██████████` |
 | `gamecode` — lógica de juego (291 fn) | 18% | **100%** | `██████████` |
 | `gamecode/logic` — motor de combate (2.172 fn) | 28% | **100%** | `██████████` |
-| Capa de plataforma PC nativa (161 fn a reescribir) | 17% | 15% | `██░░░░░░░░` |
+| Capa de plataforma PC nativa (161 fn a reescribir) | 17% | 21% | `██░░░░░░░░` |
 | Stubs del EA SDK (27 fn que llama el juego) | 5% | 100% | `██████████` |
 
-**85,55% del esfuerzo total estimado. Todavía no hay nada jugable.**
+**86,57% del esfuerzo total estimado. Todavía no hay nada jugable.**
 
 **Las tres filas del medio se cuentan; el resto son estimaciones.**
 `tools/progress.py` lee el árbol en cada ejecución para `lime/common`,

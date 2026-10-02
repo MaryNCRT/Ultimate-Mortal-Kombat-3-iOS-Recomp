@@ -114,4 +114,7 @@ void plat_audio_update(void);
 void plat_music_play(const char *path, int loop);
 void plat_music_stop(void);
 
+/* 0..1, applied to the track playing now and to the next one. */
+void plat_music_volume(float gain);
+
 #endif

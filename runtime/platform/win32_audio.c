@@ -67,6 +67,7 @@ static WAVEHDR  g_hdr[BUFFERS];
 static short    g_buf[BUFFERS][BUF_FRAMES];
 static int      g_next;         /* the buffer to refill next */
 static int      g_music;
+static float    g_music_gain = 1.0f;
 
 int plat_audio_open(int rate)
 {
@@ -259,7 +260,24 @@ void plat_music_play(const char *path, int loop)
         return;                         /* no decoder, or no such file */
 
     g_music = 1;
+    plat_music_volume(g_music_gain);
     mciSendStringA(loop ? "play umk3bgm repeat" : "play umk3bgm", NULL, 0, NULL);
+}
+
+/* MCI's scale is 0..1000. Kept across tracks, as GBMusicTrack's gain is set
+ * once by limePlayTune and then only by limeSetTuneVol. */
+void plat_music_volume(float gain)
+{
+    char cmd[96];
+
+    if (gain < 0.0f) gain = 0.0f;
+    if (gain > 1.0f) gain = 1.0f;
+    g_music_gain = gain;
+    if (!g_music)
+        return;
+    _snprintf(cmd, sizeof cmd, "setaudio umk3bgm volume to %d", (int)(gain * 1000.0f + 0.5f));
+    cmd[sizeof cmd - 1] = 0;
+    mciSendStringA(cmd, NULL, 0, NULL);
 }
 
 void plat_music_stop(void)
