@@ -79,8 +79,12 @@ static void save_shot(int w, int h)
     free(px);
 }
 
+void lime_app_resign_active(void);
+void lime_app_become_active(void);
+
 int main(int argc, char **argv)
 {
+    int focused = 1;
     const char *root = (argc > 1) ? argv[1] : ".";
     const char *shot = getenv("UMK3_SHOT");
     int   shot_at = shot ? atoi(shot) : 0;
@@ -117,6 +121,28 @@ int main(int argc, char **argv)
     while (plat_poll()) {
         int mx, my, down;
         int ww, wh;
+
+        /* The window's focus is the app's foreground: losing it is
+         * applicationWillResignActive, and the loop stops ticking the way
+         * [glView stopAnimation] stops the display link; regaining it is
+         * applicationDidBecomeActive. See runtime/lime_app.c. */
+        {
+            int f = shot_at ? 1 : plat_focused();   /* a shot runs unattended */
+            if (f != focused) {
+                focused = f;
+                if (f) {
+                    lime_app_become_active();
+                    last = plat_time();     /* the time away is not owed */
+                    acc = 0.0;
+                } else {
+                    lime_app_resign_active();
+                }
+            }
+            if (!f) {
+                plat_swap();
+                continue;
+            }
+        }
 
         /* Is a tick due? `Task_FEMain` both advances the menu and draws it,
          * so a pass with no tick has nothing to put on the screen. Clearing

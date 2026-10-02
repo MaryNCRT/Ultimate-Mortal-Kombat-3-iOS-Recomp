@@ -33,6 +33,7 @@ add_executable(umk3-menu
     runtime/gamecode_stubs.c
     runtime/lime_menu.c
     runtime/lime_platform.c
+    runtime/lime_app.c
     runtime/wav.c
     ${UMK3_MENU_GAMECODE}
     ${UMK3_MENU_LIME}
@@ -87,6 +88,7 @@ add_executable(umk3-test
     runtime/gamecode_stubs.c
     runtime/lime_menu.c
     runtime/lime_platform.c
+    runtime/lime_app.c
     runtime/lime/meshset.c
     runtime/lime/scene.c
     runtime/lime/events.c

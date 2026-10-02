@@ -360,3 +360,143 @@ void limeFillRect(float x, float y, float w, float h,
 /* The character models on the select screen go through the array pointers and
  * `glDrawElements`, all of which opengl32 provides unchanged. Nothing to add
  * here. */
+
+
+/* ------------------------------------------------------- face-me sprites
+ *
+ * Billboards for the fight: blood drops, blood pools and Scorpion's spear.
+ * Transcribed from the binary (`python tools/cd.py limeDrawFaceMeSprite
+ * limeDrawFaceUpSprite limeDrawFaceMeSpriteWH`); the arithmetic is 2-lane
+ * NEON there and is written out per lane here.
+ *
+ * `m` is FaceMeMatrix, the camera's rotation, so an offset run through
+ * RotVector(m, ...) lies in the screen plane: the quad faces the viewer.
+ *
+ *   FaceMe / FaceUp (tex, m, x, y, z, u0, v0, du, dv, size, r, g, b, a)
+ *     h      = size / 2
+ *     base   = (x, y + h, z) for all four corners -- the quad sits ON the
+ *              point, not around it
+ *     corner = base + RotVector(m, offset), offsets in strip order
+ *              FaceMe: (-h,-h,0) (+h,-h,0) (-h,+h,0) (+h,+h,0)
+ *              FaceUp: (-h,-h,0) (+h,0,-h) (-h,0,+h) (+h,0,+h)
+ *              -- FaceUp's first corner really is FaceMe's: the binary
+ *              differs from FaceMe only in the last three offsets. Kept.
+ *     uv     = (u0, 1-v0) (u0+du, 1-v0) (u0, 1-(v0+dv)) (u0+du, 1-(v0+dv))
+ *     colour = rgba * 255 as bytes, the same for every corner
+ *
+ *   FaceMeWH (tex, m, x, y, z, u0, v0, du, dv, w, h, r, g, b, a, -, -)
+ *     corner = (x, y, z) + RotVector(m, (0,0,0) (w,0,0) (0,h,0) (w,h,0))
+ *              -- anchored at a corner, not centred
+ *     uv     as above; colour as four FLOATS
+ *     The two trailing arguments are stored by the one caller
+ *     (RenderExtras) and never read.
+ *
+ * All three bind tex->name, enable GL_TEXTURE_2D, draw a 4-vertex
+ * GL_TRIANGLE_STRIP from client arrays and disable GL_TEXTURE_2D; WH also
+ * disables GL_VERTEX_ARRAY. The other client arrays are left enabled, as
+ * on device.
+ */
+static void face_corner(const float *m, const float *base, float ox, float oy,
+                        float oz, float *out)
+{
+    limeVECTOR3 in, r;
+
+    in.x = ox; in.y = oy; in.z = oz;
+    RotVector(m, &in, &r);
+    out[0] = base[0] + r.x;
+    out[1] = base[1] + r.y;
+    out[2] = base[2] + r.z;
+}
+
+static void face_uv(float *uv, float u0, float v0, float du, float dv)
+{
+    uv[0] = u0;      uv[1] = 1.0f - v0;
+    uv[2] = u0 + du; uv[3] = 1.0f - v0;
+    uv[4] = u0;      uv[5] = 1.0f - (v0 + dv);
+    uv[6] = u0 + du; uv[7] = 1.0f - (v0 + dv);
+}
+
+static void face_draw(TEXTURE *tex, const float *xyz, const float *uv,
+                      const void *colour, GLenum colour_type)
+{
+    glBindTexture(GL_TEXTURE_2D, (GLuint)tex->name);
+    glEnable(GL_TEXTURE_2D);
+    glColorPointer(4, colour_type, 0, colour);
+    glEnableClientState(GL_COLOR_ARRAY);
+    glVertexPointer(3, GL_FLOAT, 0, xyz);
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glTexCoordPointer(2, GL_FLOAT, 0, uv);
+    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glDisable(GL_TEXTURE_2D);
+}
+
+static void face_sprite(int up, TEXTURE *tex, const float *m,
+                        float x, float y, float z,
+                        float u0, float v0, float du, float dv, float size,
+                        float r, float g, float b, float a)
+{
+    float h = size * 0.5f, base[3], xyz[12], uv[8];
+    unsigned char rgba[16];
+    int i;
+
+    base[0] = x; base[1] = y + h; base[2] = z;
+    face_corner(m, base, -h, -h, 0.0f, xyz + 0);
+    if (up) {
+        face_corner(m, base,  h, 0.0f, -h, xyz + 3);
+        face_corner(m, base, -h, 0.0f,  h, xyz + 6);
+        face_corner(m, base,  h, 0.0f,  h, xyz + 9);
+    } else {
+        face_corner(m, base,  h, -h, 0.0f, xyz + 3);
+        face_corner(m, base, -h,  h, 0.0f, xyz + 6);
+        face_corner(m, base,  h,  h, 0.0f, xyz + 9);
+    }
+    face_uv(uv, u0, v0, du, dv);
+
+    /* vcvt.u32.f32: truncation toward zero, saturating at 0 */
+    for (i = 0; i < 4; i++) {
+        float c[4];
+        int k;
+        c[0] = r * 255.0f; c[1] = g * 255.0f; c[2] = b * 255.0f; c[3] = a * 255.0f;
+        for (k = 0; k < 4; k++)
+            rgba[i * 4 + k] = (unsigned char)(c[k] > 0.0f ? (unsigned)c[k] : 0u);
+    }
+    face_draw(tex, xyz, uv, rgba, GL_UNSIGNED_BYTE);
+}
+
+void limeDrawFaceMeSprite(TEXTURE *tex, const float *m, float x, float y, float z,
+                          float u0, float v0, float du, float dv, float size,
+                          float r, float g, float b, float a)
+{
+    face_sprite(0, tex, m, x, y, z, u0, v0, du, dv, size, r, g, b, a);
+}
+
+void limeDrawFaceUpSprite(TEXTURE *tex, const float *m, float x, float y, float z,
+                          float u0, float v0, float du, float dv, float size,
+                          float r, float g, float b, float a)
+{
+    face_sprite(1, tex, m, x, y, z, u0, v0, du, dv, size, r, g, b, a);
+}
+
+void limeDrawFaceMeSpriteWH(TEXTURE *tex, const float *m, float x, float y, float z,
+                            float u0, float v0, float du, float dv,
+                            float w, float h, float r, float g, float b, float a,
+                            float unused0, float unused1)
+{
+    float base[3], xyz[12], uv[8], rgba[16];
+    int i;
+
+    (void)unused0; (void)unused1;
+    base[0] = x; base[1] = y; base[2] = z;
+    xyz[0] = x; xyz[1] = y; xyz[2] = z;
+    face_corner(m, base, w,    0.0f, 0.0f, xyz + 3);
+    face_corner(m, base, 0.0f, h,    0.0f, xyz + 6);
+    face_corner(m, base, w,    h,    0.0f, xyz + 9);
+    face_uv(uv, u0, v0, du, dv);
+    for (i = 0; i < 4; i++) {
+        rgba[i * 4 + 0] = r; rgba[i * 4 + 1] = g;
+        rgba[i * 4 + 2] = b; rgba[i * 4 + 3] = a;
+    }
+    face_draw(tex, xyz, uv, rgba, GL_FLOAT);
+    glDisableClientState(GL_VERTEX_ARRAY);
+}

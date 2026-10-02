@@ -163,16 +163,36 @@ void limeFillRect(float x, float y, float w, float h,
 }
 #endif  /* !UMK3_REAL_GL */
 
-/* The three billboard entries the fight HUD uses. The front end reaches none of
- * them; they are here so the module links whole rather than in pieces. */
-void limeDrawFaceMeSprite(TEXTURE *t, float *pos, float size, float *col)
-{ (void)t; (void)pos; (void)size; (void)col; }
+/* The three billboard entries -- blood and Scorpion's spear. The windowed
+ * build draws them (runtime/draw_gl.c, transcribed from the binary); headless,
+ * they only have to link, with the signatures the callers really use. */
+#ifndef UMK3_REAL_GL
+void limeDrawFaceMeSprite(TEXTURE *t, const float *m, float x, float y, float z,
+                          float u0, float v0, float du, float dv, float size,
+                          float r, float g, float b, float a)
+{
+    (void)t; (void)m; (void)x; (void)y; (void)z; (void)u0; (void)v0;
+    (void)du; (void)dv; (void)size; (void)r; (void)g; (void)b; (void)a;
+}
 
-void limeDrawFaceMeSpriteWH(TEXTURE *t, float *pos, float w, float h, float *col)
-{ (void)t; (void)pos; (void)w; (void)h; (void)col; }
+void limeDrawFaceUpSprite(TEXTURE *t, const float *m, float x, float y, float z,
+                          float u0, float v0, float du, float dv, float size,
+                          float r, float g, float b, float a)
+{
+    (void)t; (void)m; (void)x; (void)y; (void)z; (void)u0; (void)v0;
+    (void)du; (void)dv; (void)size; (void)r; (void)g; (void)b; (void)a;
+}
 
-void limeDrawFaceUpSprite(TEXTURE *t, float *pos, float size, float *col)
-{ (void)t; (void)pos; (void)size; (void)col; }
+void limeDrawFaceMeSpriteWH(TEXTURE *t, const float *m, float x, float y, float z,
+                            float u0, float v0, float du, float dv,
+                            float w, float h, float r, float g, float b, float a,
+                            float unused0, float unused1)
+{
+    (void)t; (void)m; (void)x; (void)y; (void)z; (void)u0; (void)v0;
+    (void)du; (void)dv; (void)w; (void)h; (void)r; (void)g; (void)b; (void)a;
+    (void)unused0; (void)unused1;
+}
+#endif  /* !UMK3_REAL_GL */
 
 
 /* ---------------------------------------------------------------- matrices */

@@ -133,6 +133,9 @@ static void menu_frame(int w, int h, int *was_down)
     *was_down = down;
 }
 
+void lime_app_resign_active(void);
+void lime_app_become_active(void);
+
 int main(int argc, char **argv)
 {
     const char *res = NULL;
@@ -141,6 +144,7 @@ int main(int argc, char **argv)
     int    ww = 1280, wh = 720, was_down = 0, was_test = 0, was_menu_key = 0;
     long   step;
     double acc = 0.0, last;
+    int    focused = 1;
 
     setvbuf(stdout, NULL, _IONBF, 0);
 
@@ -213,6 +217,25 @@ int main(int argc, char **argv)
 
     while (plat_poll()) {
         int k;
+
+        /* Focus is the app's foreground; see runtime/lime_app.c. */
+        {
+            int f = plat_focused();
+            if (f != focused) {
+                focused = f;
+                if (f) {
+                    lime_app_become_active();
+                    last = plat_time();
+                    acc = 0.0;
+                } else {
+                    lime_app_resign_active();
+                }
+            }
+            if (!f) {
+                plat_swap();
+                continue;
+            }
+        }
 
         plat_size(&ww, &wh);
         if (wh <= 0) wh = 1;
