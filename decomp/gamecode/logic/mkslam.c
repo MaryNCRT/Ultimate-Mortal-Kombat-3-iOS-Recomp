@@ -3723,7 +3723,7 @@ long t_robo2_slam(MK3THREAD *thread)
         }
 
         part = obj->field08;
-        obj->field20 = (uint32_t)(int32_t)MK3_FIELD12(part);
+        obj->field20 = (uint32_t)(int32_t)MK3_FIELD12_S(part);
         obj->field1c = *(uint32_t *)((char *)obj->field00 + 0x40) + 0x10;
 
         if ((long)obj->field1c > (long)obj->field20) {

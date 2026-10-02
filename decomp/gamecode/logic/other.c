@@ -5422,7 +5422,7 @@ const uint32_t *do_ani_offset_xy(MK3OBJ *obj, MK3OBJ *ref, MK3OBJ *target,
 
     dy = script[1];
     obj->field1c = dy;
-    v = (uint32_t)((int32_t)MK3_FIELD12(him) + (int32_t)dy);
+    v = (uint32_t)((int32_t)MK3_FIELD12_S(him) + (int32_t)dy);
     obj->field28 = v;
     MK3_SET_FIELD12(target, v);
 
