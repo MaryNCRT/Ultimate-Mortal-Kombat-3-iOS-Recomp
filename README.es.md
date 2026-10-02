@@ -130,7 +130,7 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ## Progreso general
 
 ```
-████████████████████████████████░░░░░░░░  79,70%
+██████████████████████████████████░░░░░░  84,70%
 ```
 
 | Área | Peso | Hecho | |
@@ -142,9 +142,9 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 | `gamecode` — lógica de juego (291 fn) | 18% | **100%** | `██████████` |
 | `gamecode/logic` — motor de combate (2.172 fn) | 28% | **100%** | `██████████` |
 | Capa de plataforma PC nativa (161 fn a reescribir) | 17% | 10% | `█░░░░░░░░░` |
-| Stubs del EA SDK (~1.412 fn) | 5% | 0% | `░░░░░░░░░░` |
+| Stubs del EA SDK (27 fn que llama el juego) | 5% | 100% | `██████████` |
 
-**79,70% del esfuerzo total estimado. Todavía no hay nada jugable.**
+**84,70% del esfuerzo total estimado. Todavía no hay nada jugable.**
 
 **Las tres filas del medio se cuentan; el resto son estimaciones.**
 `tools/progress.py` lee el árbol en cada ejecución para `lime/common`,
@@ -173,8 +173,10 @@ original recompilado.
 combate están escritas, incluido `mkdrone.c` (el oponente controlado por la
 máquina, 394 funciones), el último fichero en cerrarse. Lo que queda del
 proyecto ya no es decompilación: las 229 tablas de datos, la capa de plataforma
-PC (las 229 funciones de la capa iOS reescritas en nativo) y los stubs del EA
-SDK. Realistamente siguen siendo meses de trabajo.
+PC (las 229 funciones de la capa iOS reescritas en nativo). Los stubs del EA
+SDK ya están: el juego solo llama a 27 funciones del SDK (más el constructor de
+`LocaleManager`), todas en `runtime/gamecode_stubs.c`; las ~1.385 restantes son
+internas del SDK y no se enlazan. Realistamente siguen siendo meses de trabajo.
 
 Una salvedad sobre «verificado». El diff estático de hechos
 (`tools/factdiff.py`) compara escrituras, handlers, tokens de estado y

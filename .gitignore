@@ -84,3 +84,11 @@ Thumbs.db
 build/
 build_*/
 dist/
+
+# Raw disassembly / transcripts of the retail binary (derivative work).
+# The EA SDK is not decompiled: the game-facing boundary is stubbed by hand
+# in runtime/gamecode_stubs.c, the rest of the SDK is simply not linked.
+/asm/
+/easdk/
+/transcript/
+/easdk_stubs.c
