@@ -4136,9 +4136,9 @@ long t_air_sleep3(MK3THREAD *thread)
     if (obj->field54 == 0)
         obj->field54 = 1;
 
-    q = (int32_t)obj->field20 / (int32_t)obj->field54;   /* ___divsi3 */
+    q = mk3_sdiv((int32_t)obj->field20, (int32_t)obj->field54);   /* ___divsi3 */
     obj->field20 = (uint32_t)q;
-    dy = (int32_t)obj->field28 / (int32_t)obj->field54;   /* ___divsi3 */
+    dy = mk3_sdiv((int32_t)obj->field28, (int32_t)obj->field54);   /* ___divsi3 */
     obj->field20 = (uint32_t)((q << 4) - (q << 2));      /* twelve */
     obj->field28 = (uint32_t)((dy << 4) - (dy << 2));
 
@@ -7192,7 +7192,7 @@ long tl_do_super_kang(MK3THREAD *thread)
 
     obj->field48 = (uint32_t)n;
     obj->field20 = 0x200000u;
-    obj->field20 = (uint32_t)(0x200000 / n);    /* ___divsi3 */
+    obj->field20 = (uint32_t)mk3_sdiv(0x200000, (int32_t)n);    /* ___divsi3 */
     if ((long)obj->field20 > 0x40000)
         obj->field20 = 0x40000u;                /* 4.0 at most */
     obj->field20 = (uint32_t)(-(int32_t)obj->field20);

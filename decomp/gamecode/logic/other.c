@@ -1940,7 +1940,7 @@ void init_special(MK3OBJ *obj)
 long is_he_right(MK3OBJ *obj)
 {
     MK3OBJ *him = (MK3OBJ *)(uintptr_t)obj->field00->him;
-    long    r = (him->field0c > obj->field08->field0c) ? 1 : 0;
+    long    r = ((int32_t)him->field0c > (int32_t)obj->field08->field0c) ? 1 : 0;  /* `ite le`: signed */
 
     obj->field5c = (uint32_t)r;
     return r;
@@ -3372,7 +3372,7 @@ void multi_adjust_xy_ob(MK3OBJ *obj, uint32_t target_w, uint32_t dx, uint32_t dy
         dx = (uint32_t)(-(int32_t)dx);
 
     MK3_SET_FIELD0E(target, (uint16_t)(MK3_FIELD0E(target) + dx));
-    MK3_SET_FIELD12(target,MK3_FIELD12((target) + dy));
+    MK3_SET_FIELD12(target, (uint16_t)(MK3_FIELD12(target) + dy));
 }
 
 
@@ -6773,7 +6773,7 @@ long t_clock3(MK3THREAD *thread)
  *          frame = frame + 1                   ; a call, not a tail call
  *          frame[frame].handler = t_wait_for_start
  *          frame[frame+1].w0 = 0
- *      token == 0x17ec:  unwind
+ *      token == 0x17ec:  install t_local_reaction_exit (slot 0x000f3708)
  *      otherwise:        return -3
  *
  * The second routine to push a level, and the shape reads as a call now that
@@ -6796,8 +6796,10 @@ long t_mercy_start(MK3THREAD *thread)
     MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
+    /* not an unwind: the binary installs the handler in pointer slot
+     * 0x000f3708 (t_local_reaction_exit) at this level (difftest) */
     if (token == 0x17ec)
-        return mk3_unwind(thread);
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 
     if (token != 0)
         return -3;
@@ -8849,7 +8851,7 @@ long t_back_to_shang_check(MK3THREAD *thread)
  *          ground_ochar(obj)
  *          obj->field00->field40 = (int16_t)obj->field08->field12
  *          park(0x18c1, 4)
- *      token 0x18c1:  unwind
+ *      token 0x18c1:  install t_local_reaction_exit
  *      otherwise:     return -3
  *
  * **Character 0xc is Shang Tsung.** The routine is called
@@ -8894,15 +8896,17 @@ long t_back_to_shang_form(MK3THREAD *thread)
         do_first_a9_frame(obj);
         ground_ochar(obj);
 
-        obj->field00->field40 = (uint16_t)MK3_FIELD12(obj->field08);
+        obj->field00->field40 = (uint32_t)(int32_t)MK3_FIELD12_S(obj->field08);   /* ldrsh */
 
         *mk3_frame(thread, thread->frame + 1) = 0x18c1;
         thread->fieldfc = 4;
         return 4;
     }
 
+    /* not an unwind: installs the handler in pointer slot 0x000f3708
+     * (t_local_reaction_exit) at this level (difftest) */
     if (token == 0x18c1)
-        return mk3_unwind(thread);
+        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
 
     if (token != 0)
         return -3;
@@ -9926,7 +9930,9 @@ void bar_reducer(MK3OBJ *obj)
         uint32_t bit = i + 1;
 
         obj->field30 = bit;
-        if ((*(const int16_t *)(G_BYTES + 0x454) & (int16_t)bit) == 0) {
+        /* `ands r3, r2` is stored to 0x20 before the test (difftest) */
+        obj->field20 = (uint32_t)(int32_t)*(const int16_t *)(G_BYTES + 0x454) & bit;
+        if (obj->field20 == 0) {
             obj->field20 = bit;
             *(int16_t *)(G_BYTES + 0x454) = (int16_t)bit;
             obj->field1c = 0x27;
@@ -10445,7 +10451,7 @@ long t_finish_him_sequence(MK3THREAD *thread)
  * `_a_animality`.
  */
 extern uint32_t a_mercy[];              /* 0x0016f6a8 */
-extern MK3THREADFUNC t_make_db_tone;    /* through the slot at 0x000f3200 */
+long t_make_db_tone(MK3THREAD *thread);  /* pointer slot 0x000f3200 -> 0x00033c31 */
 
 long t_fx_mercy(MK3THREAD *thread)
 {
@@ -10454,7 +10460,7 @@ long t_fx_mercy(MK3THREAD *thread)
     uint32_t next_token;
 
     if (token == 0) {
-        NewThread(obj, t_make_db_tone);
+        NewThread(obj, (MK3THREADFUNC)t_make_db_tone);
         MKEvent_Add(3, 0xf, 0, 0);
         *mk3_frame(thread, thread->frame + 1) = 0xfde;
         thread->fieldfc = 0x30;
@@ -10557,7 +10563,7 @@ long t_fx_mercy(MK3THREAD *thread)
  * `end_of_match_chores` first. So the loop is left the same way whether or not
  * the match ended, and the difference is one call.
  */
-extern MK3THREADFUNC t_bonus_count;     /* through the slot at 0x000f3214 */
+long t_bonus_count(MK3THREAD *thread);   /* pointer slot 0x000f3214 -> 0x0007ccb9 */
 
 long t_play3(MK3THREAD *thread)
 {
@@ -10792,7 +10798,7 @@ blink:
  *      token 0x17de:
  *          obj->field1c = 0
  *          G[0x45c] = (uint16_t)0
- *          reset_proc_stack(obj)
+ *          reset_proc_stack(thread)
  *          frame[frame].handler = t_play3
  *          frame[frame+1].w0 = 0
  *          frame = frame + 1                   ; push
@@ -10821,7 +10827,7 @@ blink:
  * level, then push `t_master_mercy_entry` on top of it. Mercy runs, and when it
  * unwinds the round ends normally.
  */
-void reset_proc_stack(MK3OBJ *obj);
+void reset_proc_stack(MK3THREAD *thread);   /* r0 is the thread, not the object */
 
 long t_master_proc_mercy(MK3THREAD *thread)
 {
@@ -10840,7 +10846,7 @@ long t_master_proc_mercy(MK3THREAD *thread)
     if (token == 0x17de) {
         obj->field1c = 0;
         *(uint16_t *)(G_BYTES + 0x45c) = 0;     /* nobody has won */
-        reset_proc_stack(obj);
+        reset_proc_stack(thread);
 
         mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_play3;
         *mk3_frame(thread, thread->frame + 1) = 0;
@@ -11403,7 +11409,7 @@ long strike_check_regs(MK3OBJ *obj, const uint32_t *p)
  *      token 0x171f:
  *          next_anirate(obj)
  *          if (--obj->a10 != 0) park(0x171f, 1)
- *          else { reset_proc_stack(obj); install t_local_reaction_exit }
+ *          else { reset_proc_stack(thread); install t_local_reaction_exit }
  *      otherwise:  return -3
  *
  * The whole arrival. His slot is cleared, both his bars filled to the same
@@ -11455,7 +11461,7 @@ long t_spawn_wingman(MK3THREAD *thread)
             return 1;
         }
 
-        reset_proc_stack(obj);
+        reset_proc_stack(thread);
         mk3_frame(thread, thread->frame)[1] =
             (uint32_t)(uintptr_t)t_local_reaction_exit;
         *mk3_frame(thread, thread->frame + 1) = 0;
@@ -11504,7 +11510,7 @@ long t_spawn_wingman(MK3THREAD *thread)
     ground_ochar(obj);
     tsound_func(obj, c + 0x28);    /* his name */
 
-    obj->field00->field40 = (uint16_t)MK3_FIELD12(obj->field08);
+    obj->field00->field40 = (uint32_t)(int32_t)MK3_FIELD12_S(obj->field08);   /* ldrsh */
 
     obj->field40 = 0x1a;
     get_char_ani(obj);

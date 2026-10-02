@@ -848,16 +848,18 @@ long sk_counter_randper(MK3OBJ *obj)
  * armv7 0x000a89e8, 28 bytes.  **Complete.**
  *
  * `obj->field00->him`'s own `field1c` (a signed velocity), read into
- * `field1c` and tested: negative (rising) answers yes, everything else
- * (falling or still) answers no.
+ * `field1c` and tested: negative (rising) answers NO -- `blt` goes to
+ * 0xa85d4, which is q_no -- and anything else (falling or still) answers
+ * yes, as the name says. (The reading was the other way round until
+ * tools/difftest compared it.)
  */
 void q_heading_down(MK3OBJ *obj)
 {
     obj->field1c = ((MK3OBJ *)(uintptr_t)obj->field00->him)->field1c;
     if ((int32_t)obj->field1c < 0)
-        q_yes(obj);
-    else
         q_no(obj);
+    else
+        q_yes(obj);
 }
 
 
@@ -1168,7 +1170,7 @@ void get_my_strength(MK3OBJ *obj);
 long q_is_this_a_joke(MK3OBJ *obj)
 {
     get_my_matchw(obj);
-    if (obj->field1c != 0)
+    if (obj->field1c == 0)                  /* cbz: no match word, no joke */
         goto no;
 
     get_his_matchw(obj);
@@ -1247,10 +1249,12 @@ long t_skc_lk_zap_lo(MK3THREAD *thread)
         return -3;
 
     get_x_dist(obj);
+    /* far: the air charge, near: the ground one (literals resolved by
+     * difftest -- the two were the other way round) */
     if ((int32_t)obj->field28 <= 0x6f)
-        handler = (MK3THREADFUNC)t_sk_air_charge;
-    else
         handler = (MK3THREADFUNC)t_sk_charge;
+    else
+        handler = (MK3THREADFUNC)t_sk_air_charge;
 
     return mk3_install(thread, handler);
 }
@@ -1367,7 +1371,7 @@ long t_skc_stationary(MK3THREAD *thread)
         return -3;
 
     sk_randper(obj);
-    if (obj->field5c != 0) {
+    if (obj->field5c == 0) {                /* cbnz goes on to the distance (difftest) */
         handler = (MK3THREADFUNC)t_return_to_beware;
         return mk3_install(thread, handler);
     }
@@ -1403,7 +1407,7 @@ long t_mc_stationary(MK3THREAD *thread)
         return -3;
 
     motaro_randper(obj);
-    if (obj->field5c != 0) {
+    if (obj->field5c == 0) {                /* cbnz goes on to the distance (difftest) */
         handler = (MK3THREADFUNC)t_return_to_beware;
         return mk3_install(thread, handler);
     }
@@ -1578,7 +1582,7 @@ long t_motaro_hip_jump(MK3THREAD *thread)
         *mk3_frame(thread, frame + 1) = 0x4c3;
         thread->frame = thread->frame + 1;   /* push a level */
         mk3_frame(thread, thread->frame)[1] =
-            (uint32_t)(uintptr_t)t_check_winner_status;
+            (uint32_t)(uintptr_t)t_motaro_hip_jsrp;
         *mk3_frame(thread, thread->frame + 1) = 0;
         return 0;
     }
@@ -1595,7 +1599,7 @@ long t_motaro_hip_jump(MK3THREAD *thread)
     *mk3_frame(thread, frame + 1) = 0x4c1;
     thread->frame = thread->frame + 1;   /* push a level */
     mk3_frame(thread, thread->frame)[1] =
-        (uint32_t)(uintptr_t)t_motaro_hip_jsrp;
+        (uint32_t)(uintptr_t)t_check_winner_status;   /* slot 0xf37a8 (difftest) */
     *mk3_frame(thread, thread->frame + 1) = 0;
     return 0;
 }
@@ -1670,7 +1674,7 @@ long t_boss_counter_angle(MK3THREAD *thread)
     }
 
     motaro_easy_randper(obj);
-    if (obj->field5c != 0) {
+    if (obj->field5c == 0) {                /* cbnz goes on to the distance (difftest) */
         handler = (MK3THREADFUNC)t_boss_wait_land;
         return mk3_install(thread, handler);
     }
@@ -2419,7 +2423,7 @@ long t_skc_swat_gun(MK3THREAD *thread)
         return -3;
 
     sk_randper(obj);
-    if (obj->field5c != 0) {
+    if (obj->field5c == 0) {                /* cbnz goes on to the distance (difftest) */
         handler = (MK3THREADFUNC)t_return_to_beware;
         return mk3_install(thread, handler);
     }
@@ -2621,20 +2625,23 @@ long t_sk_airborn_check(MK3THREAD *thread)
         return 0;
     }
 
+    /* At the bottom the exit is installed and then the SAME slide runs
+     * (`b #0xa8f5a`), one level up from where it runs after a pop -- and the
+     * result is 0 either way (difftest; this used to return field5c). */
     if ((int32_t)frame <= 0) {
         mk3_frame(thread, frame)[1] = (uint32_t)(uintptr_t)t_local_reaction_exit;
         *mk3_frame(thread, frame + 1) = token;   /* 0 */
-        return (long)airborn;   /* leftover: field5c, still in r0 */
+    } else {
+        thread->frame = frame - 1;   /* pop a level */
     }
+    frame = thread->frame;
 
-    thread->frame = frame - 1;   /* pop a level */
+    old_handler                   = mk3_frame(thread, frame + 1)[1];
+    *mk3_frame(thread, frame + 1) = *mk3_frame(thread, frame + 2);
 
-    old_handler            = mk3_frame(thread, frame)[1];
-    *mk3_frame(thread, frame) = *mk3_frame(thread, frame + 1);
-
-    mk3_frame(thread, frame - 1)[1] = old_handler;   /* dead, overwritten below */
-    mk3_frame(thread, frame - 1)[1] = (uint32_t)(uintptr_t)t_sk_knocked_down;
-    *mk3_frame(thread, frame) = 0;
+    mk3_frame(thread, frame)[1] = old_handler;   /* dead, overwritten below */
+    mk3_frame(thread, frame)[1] = (uint32_t)(uintptr_t)t_sk_knocked_down;
+    *mk3_frame(thread, frame + 1) = 0;
 
     return 0;
 }

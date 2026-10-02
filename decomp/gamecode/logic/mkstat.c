@@ -93,11 +93,13 @@ void upcut_blood_me(MK3OBJ *obj)
 
 /* jade_normpal -- armv7 0x0004fd00, 12 bytes.  **Complete.**
  *
- *      player_normpal(obj)
+ *      ldr r0, [r0, #0x44]  ->  player_normpal(obj->a10)
+ *
+ * The palette is reset on the object in a10, not on obj itself (difftest).
  */
 void jade_normpal(MK3OBJ *obj)
 {
-    player_normpal(obj);
+    player_normpal((MK3OBJ *)obj->a10);
 }
 
 /* --------------------------------------------------------------------
@@ -5082,7 +5084,7 @@ miss:
  *      token == 0x504:  obj->field1c = 0x10; adjust_him_a0(obj)
  *      token == 0x50e:  obj->field1c = 0x1c (0x50e only)
  *                       do_next_a9_frame(obj)
- *                       token := 0x513, park 4
+ *                       token := 0x509 (from 0x504) / 0x513 (from 0x50e), park 4
  *
  *      token == 0x509:  obj->field1c = 0x00050010; adjust_him_a0(obj)
  *                       do_next_a9_frame(obj)
@@ -5320,7 +5322,9 @@ long tl_do_noogy(MK3THREAD *thread)
         }
 
         do_next_a9_frame(obj);
-        *mk3_frame(thread, thread->frame + 1) = 0x513;
+        /* the token is r8, still the last constant the dispatch compared:
+         * 0x509 when entered as 0x504, 0x513 when entered as 0x50e */
+        *mk3_frame(thread, thread->frame + 1) = token == 0x504 ? 0x509 : 0x513;
         thread->fieldfc = 4;
         return 4;
     }

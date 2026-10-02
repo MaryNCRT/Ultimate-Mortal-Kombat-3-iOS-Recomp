@@ -182,6 +182,23 @@ class Emitter(object):
             return "ctx->r[%d]" % i
         raise Unsupported("operando no legible tipo %d" % op.type)
 
+    @staticmethod
+    def adr_target(ins):
+        """
+        Direccion que calcula `adr rd, #imm` (o `addw/subw rd, pc, #imm`).
+
+        Capstone da el desplazamiento, no la direccion: el valor es
+        Align(direccion + 4, 4) + imm. Antes se emitia el desplazamiento tal
+        cual (`adr r2, #4` -> r2 = 4), y la tabla de saltos de
+        do_next_a9_frame_pxob saltaba siempre al caso 0.
+        """
+        imm = ins.operands[-1].imm
+        if ins.mnemonic.split(".")[0] == "subw":
+            imm = -imm
+        if not (-4096 < imm < 4096):        # ya es una direccion absoluta
+            return imm & 0xFFFFFFFF
+        return (((ins.address + 4) & ~3) + imm) & 0xFFFFFFFF
+
     def literal_addr(self, ins, op):
         """Si el operando es [pc, #N], devuelve la direccion del literal."""
         if op.type == ARM_OP_MEM and op.mem.base and self.rname(ins, op.mem.base) == "pc":
@@ -250,6 +267,8 @@ class Emitter(object):
                     base = base[:-len(c)]
                     break
 
+        # inside an IT block only cmp/cmn/tst/teq set flags (see below)
+        self._flags_off = it_cond is not None and base not in ("cmp", "cmn", "tst", "teq")
         body = self.translate_body(ins, base, ops, fname)
 
         # **Instructions inside an IT block do not update the flags.**
@@ -318,7 +337,7 @@ class Emitter(object):
         # ---------- adr: direccion relativa al PC, conocida al recompilar ----------
         if m == "adr":
             d = self.ireg(ins, ops[0].reg)
-            return ["ctx->r[%d] = 0x%08xu;" % (d, ops[1].imm & 0xFFFFFFFF)]
+            return ["ctx->r[%d] = 0x%08xu;" % (d, self.adr_target(ins))]
 
         # ---------- multiplicacion larga ----------
         if m in ("smull", "umull"):
@@ -336,6 +355,17 @@ class Emitter(object):
                     % (lo, hi)]
 
         # ---------- movimientos enteros ----------
+        # `mov pc, rN` de una tabla de saltos resuelta (ver _branch_table)
+        if m == "mov" and ins.address in self.tables:
+            reg, targets = self.tables[ins.address]
+            lines = ["switch (ctx->r[%d]) {" % reg]
+            for i, t in enumerate(targets):
+                lines.append("    case %d: goto L_%08x;" % (i, t))
+            lines.append('    default: arm_unimplemented("%s", 0x%08xu, "indice fuera de tabla"); break;'
+                         % (fname, ins.address))
+            lines.append("}")
+            return lines
+
         if m in ("mov", "movs", "movw", "mvn", "mvns"):
             if self.is_vfp(ins, ops[0].reg):
                 return self.vfp_mov(ins, ops)
@@ -344,7 +374,7 @@ class Emitter(object):
             if m.startswith("mvn"):
                 src = "~(%s)" % src
             lines = ["ctx->r[%d] = %s;" % (d, src)]
-            if ins.update_flags:
+            if self.uf(ins):
                 lines.append("SET_NZ(ctx->r[%d]);" % d)
             return lines
 
@@ -369,7 +399,7 @@ class Emitter(object):
             else:
                 expr = "%s %s %s" % (a, op, b)
             lines = ["ctx->r[%d] = %s;" % (d, expr)]
-            if ins.update_flags:
+            if self.uf(ins):
                 if m.startswith("add"):
                     lines = ["{ uint32_t _a = %s, _b = %s, _r = _a + _b;" % (a, b),
                              "  ctx->r[%d] = _r; set_flags_add(ctx, _a, _b, _r); }" % d]
@@ -378,11 +408,23 @@ class Emitter(object):
                              "  ctx->r[%d] = _r; set_flags_sub(ctx, _a, _b, _r); }" % d]
                 else:
                     lines.append("SET_NZ(ctx->r[%d]);" % d)
+                    # a logical op takes C from the shifter: `ands r3, r3,
+                    # r2, asr #32` + `it lo` is how the compiler rounds a
+                    # signed /16 (t_kiss_orb). Computed before the write,
+                    # since d may be the shifted register.
+                    c = self.shifter_carry(ins, ops[2]) if len(ops) > 2 else None
+                    if c:
+                        lines.insert(0, "ctx->cf = %s;" % c)
             return lines
 
         if m in ("rsb", "rsbs"):
             d = self.ireg(ins, ops[0].reg)
             a, b = R(ops[1]), self.shifted(ins, ops[2])
+            if self.uf(ins):
+                # `rsbs r3, r3, #1` + `it lo` is how q_six_button tests for
+                # zero: the flags are those of b - a
+                return ["{ uint32_t _a = %s, _b = %s, _r = _a - _b;" % (b, a),
+                        "  ctx->r[%d] = _r; set_flags_sub(ctx, _a, _b, _r); }" % d]
             return ["ctx->r[%d] = (%s) - (%s);" % (d, b, a)]
 
         if m in ("mul", "muls"):
@@ -406,8 +448,18 @@ class Emitter(object):
             else:
                 expr = "(uint32_t)((int32_t)(%s) >> ((%s) & 31))" % (a, b)
             lines = ["ctx->r[%d] = %s;" % (d, expr)]
-            if ins.update_flags:
+            if self.uf(ins):
                 lines.append("SET_NZ(ctx->r[%d]);" % d)
+                # C is the last bit shifted out (unchanged for a zero amount);
+                # computed before the write, since d may be the source
+                if m.startswith("lsl"):
+                    c = "_n <= 32 ? (_v >> (32 - _n)) & 1u : 0u"
+                elif m.startswith("lsr"):
+                    c = "_n <= 32 ? (_v >> (_n - 1)) & 1u : 0u"
+                else:
+                    c = "_n >= 32 ? _v >> 31 : (_v >> (_n - 1)) & 1u"
+                lines.insert(0, "{ uint32_t _v = %s, _n = (%s) & 0xffu;"
+                                " if (_n) ctx->cf = %s; }" % (a, b, c))
             return lines
 
         if m in ("cmp", "cmn"):
@@ -421,7 +473,11 @@ class Emitter(object):
         if m in ("tst", "teq"):
             a, b = R(ops[0]), self.shifted(ins, ops[1])
             op = "&" if m == "tst" else "^"
-            return ["SET_NZ((%s) %s (%s));" % (a, op, b)]
+            lines = ["SET_NZ((%s) %s (%s));" % (a, op, b)]
+            c = self.shifter_carry(ins, ops[1])
+            if c:
+                lines.insert(0, "ctx->cf = %s;" % c)
+            return lines
 
         # ---------- memoria ----------
         if m in ("ldr", "ldrb", "ldrh", "ldrsb", "ldrsh",
@@ -498,6 +554,10 @@ class Emitter(object):
 
         # ---------- addw/subw: inmediato de 12 bits, no altera flags ----------
         if m in ("addw", "subw") and len(ops) == 3:
+            if ops[1].type == ARM_OP_REG and self.ireg(ins, ops[1].reg) == 15:
+                # la forma `adr` de 32 bits: pc ALINEADO a 4, como `adr`
+                return ["ctx->r[%d] = 0x%08xu;"
+                        % (self.ireg(ins, ops[0].reg), self.adr_target(ins))]
             op = "+" if m == "addw" else "-"
             return ["ctx->r[%d] = (uint32_t)(%s %s %s);"
                     % (self.ireg(ins, ops[0].reg), R(ops[1]), op, R(ops[2]))]
@@ -515,6 +575,27 @@ class Emitter(object):
             return self.vfp(ins, m, ops, fname)
 
         raise Unsupported(ins.mnemonic + " " + ins.op_str)
+
+    def uf(self, ins):
+        """Does this instruction set the flags? Capstone says `rsbs`/`adds` for
+        a 16-bit encoding inside an IT block, where the S bit is clear."""
+        return ins.update_flags and not getattr(self, "_flags_off", False)
+
+    def shifter_carry(self, ins, op):
+        """C expression for the shifter's carry-out, or None if C is unchanged
+        (no shift: a plain register leaves the carry alone)."""
+        if op.type != ARM_OP_REG or not op.shift.type or not op.shift.value:
+            return None
+        val, st, n = self.rd(ins, op), op.shift.type, op.shift.value
+        if st == ARM_SFT_LSL:
+            return "((%s) >> %d) & 1u" % (val, 32 - n) if 0 < n < 32 else None
+        if st in (ARM_SFT_LSR, ARM_SFT_ASR):
+            if n >= 32:
+                return "((%s) >> 31) & 1u" % val
+            return "((%s) >> %d) & 1u" % (val, n - 1)
+        if st == ARM_SFT_ROR:
+            return "((%s) >> %d) & 1u" % (val, (n - 1) & 31)
+        return None
 
     def shifted(self, ins, op):
         """Operando que puede llevar un desplazamiento incorporado."""
@@ -943,6 +1024,8 @@ class Emitter(object):
             return False, targets               # salto incondicional
         if base in ("tbb", "tbh"):
             return False, targets               # tabla indirecta: no seguible
+        if base == "mov" and ins.op_str.replace(" ", "").startswith("pc,"):
+            return False, targets               # mov pc: salto indirecto
         return True, targets
 
     def decode_reachable(self, addr, size, thumb):
@@ -993,12 +1076,58 @@ class Emitter(object):
                     if idx:
                         self.tables[pc] = (self.ireg(ins, idx), tbl)
 
+            if base == "mov" and ins.op_str.replace(" ", "").startswith("pc,"):
+                tbl = self._branch_table(ins, found)
+                if tbl:
+                    self.tables[pc] = tbl
+                    targets.extend(t for t in tbl[1] if lo <= t < hi)
+
             work.extend(targets)
             if fall:
                 work.append(pc + ins.size)
 
         covered = sum(i.size for i in found.values())
         return found, size - covered
+
+    def _branch_table(self, ins, found):
+        """
+        Resuelve el otro idioma de switch denso del binario, una tabla de
+        instrucciones `b.w` (4 bytes cada una) en vez de desplazamientos:
+
+            cmp   rM, #limite
+            bhi   <default>
+            adr   rN, tabla            (o `addw rN, pc, #imm`)
+            add.w rN, rN, rM, lsl #2
+            mov   pc, rN
+          tabla:
+            b.w   caso_0
+            b.w   caso_1 ...
+
+        Devuelve (indice del registro rM, [direccion de cada entrada]) o None.
+        Cada entrada es una instruccion `b.w`, que el descenso recursivo sigue
+        como cualquier otro codigo. Lo usan do_next_a9_frame_pxob (other),
+        moves y playback.
+        """
+        dst = self.ireg(ins, ins.operands[1].reg) if len(ins.operands) > 1 else None
+        prev = sorted((a for a in found if a < ins.address), reverse=True)[:6]
+        base = idx = limit = None
+        for a in prev:
+            p = found[a]
+            pm = p.mnemonic.split(".")[0]
+            po = p.operands
+            if idx is None and pm == "add" and len(po) == 3                     and po[2].type == ARM_OP_REG and po[2].shift.value == 2                     and self.ireg(p, po[0].reg) == dst:
+                idx = self.ireg(p, po[2].reg)
+            elif base is None and idx is not None and (
+                    pm == "adr" or (pm == "addw" and len(po) == 3
+                                    and po[1].type == ARM_OP_REG
+                                    and self.ireg(p, po[1].reg) == 15))                     and self.ireg(p, po[0].reg) == dst:
+                base = self.adr_target(p)
+            elif limit is None and base is not None and pm == "cmp"                     and po[1].type == ARM_OP_IMM and self.ireg(p, po[0].reg) == idx:
+                limit = po[1].imm
+                break
+        if base is None or idx is None or limit is None or not (0 <= limit < 256):
+            return None
+        return idx, [base + 4 * i for i in range(limit + 1)]
 
     def _jump_table(self, ins, found, code, base_addr, lo, hi):
         """
@@ -1096,7 +1225,7 @@ class Emitter(object):
             # compilaba -- con el error a 15.000 lineas de distancia de la causa.
             # Lo encontro create_fx_param, arrastrada como dependencia por
             # --with-deps al verificar SwitchQueue.
-            if b in ("tbb", "tbh"):
+            if b in ("tbb", "tbh", "mov"):
                 tbl = self.tables.get(ins.address)
                 if tbl:
                     for t in tbl[1]:
