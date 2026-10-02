@@ -442,18 +442,18 @@ long t_indian_victory(MK3THREAD *thread)
     MK3OBJ  *obj   = (MK3OBJ *)thread->proc;
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
-    if (token == 0)
+    if (token == 0x1fc) {
+        obj->field1c = 6;
+        *mk3_frame(thread, thread->frame + 1) = 0x1ff;
+        thread->frame = thread->frame + 1;
+        return mk3_install(thread, (MK3THREADFUNC)t_mframew);
+    }
+
+    if (token == 0) {
         obj->field40 = 0x0005000d;
-
-    if (token == 0 || token == 0x1fc) {
-        if (token == 0x1fc)
-            obj->field1c = 6;
-
-        *mk3_frame(thread, thread->frame + 1) = (token == 0) ? 0x1f5 : 0x1ff;
-        thread->frame = thread->frame + 1;          /* push a level */
-        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_animate_a9;
-        *mk3_frame(thread, thread->frame + 1) = 0;
-        return 0;
+        *mk3_frame(thread, thread->frame + 1) = 0x1f5;
+        thread->frame = thread->frame + 1;
+        return mk3_install(thread, (MK3THREADFUNC)t_animate_a9);
     }
 
     if (token == 0x1f5) {
