@@ -232,6 +232,7 @@ void glRotatef(float angle, float x, float y, float z)
  */
 
 void lime_platform_resolve(const char *rel, char *out, size_t n);
+void limeLog(const char *fmt, ...);
 
 #define LIME_SOUNDS 512
 
@@ -313,8 +314,7 @@ void limePlayTune(const char *name, long vol, long loop)
     snprintf(rel, sizeof rel, "res/audio/%s", name);
     lime_platform_resolve(rel, g_tune_path, sizeof g_tune_path);
     g_tune_loop = loop;
-    g_tune_vol  = loop ? vol : -1;
-    plat_music_volume((float)vol / 100.0f);
+    g_tune_vol  = loop ? vol : -1;    plat_music_volume((float)vol / 100.0f);
     plat_music_play(g_tune_path, loop != 0);
 }
 
@@ -334,7 +334,12 @@ void limeSetTuneVol(long v)
     g_tune_vol = v;                     /* lasttunevol, as limeSetTuneVol stores it */
     plat_music_volume((float)v / 100.0f);
 }
-void limeCheckForUserMusic(void)      { }
+/* AudioSessionGetProperty('othr') on device -- "is another app's audio
+ * playing?" -- as 1 or 0. ResetSettingsData turns the game's music OFF when it
+ * says yes. This was `void`, so the caller read whatever was in the return
+ * register, nearly always non-zero, and a first run started with music off.
+ * No other app owns the speakers here: 0. */
+int limeCheckForUserMusic(void)       { return 0; }
 
 
 /* ------------------------------------------------------------------ system */

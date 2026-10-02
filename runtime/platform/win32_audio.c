@@ -256,8 +256,16 @@ void plat_music_play(const char *path, int loop)
 
     _snprintf(cmd, sizeof cmd, "open \"%s\" type mpegvideo alias umk3bgm", path);
     cmd[sizeof cmd - 1] = 0;
-    if (mciSendStringA(cmd, NULL, 0, NULL) != 0)
-        return;                         /* no decoder, or no such file */
+    {
+        MCIERROR e = mciSendStringA(cmd, NULL, 0, NULL);
+        if (e != 0) {                   /* no decoder, or no such file */
+            char msg[256];
+            if (!mciGetErrorStringA(e, msg, sizeof msg))
+                msg[0] = 0;
+            fprintf(stderr, "music: cannot open %s: %s\n", path, msg);
+            return;
+        }
+    }
 
     g_music = 1;
     plat_music_volume(g_music_gain);
