@@ -146,8 +146,8 @@ The menu is drawn. What is left, in order:
 
 1. **`gamecode/logic` is complete, 2,172 of 2,172** (`mkdrone.c`, 394
    functions, closed 2026-10-01). What is left is *triage of the behavioural
-   test* (below), then the data tables, the PC platform layer and the EA SDK
-   stubs. The notes that follow on the minimal playable scene are kept for the
+   test* (below), then the data tables and the PC platform layer (the EA SDK
+   boundary is stubbed). The notes that follow on the minimal playable scene are kept for the
    link-closure measurement; the `plyrthread` / `repell_func` gaps they mention
    are written.
 
@@ -212,7 +212,7 @@ one**, and only one of them has ever been measured.
 ## Overall progress
 
 ```
-████████████████████████████████░░░░░░░░  84.70%
+██████████████████████████████████░░░░░░  84.70%
 ```
 
 **84.70% of the total estimated effort. Nothing is playable yet.**
@@ -238,7 +238,7 @@ done; the second says the fight engine is now more than three-quarters written.
 | `gamecode` — game logic (291 fn) | 18% | **100%** | `██████████` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | **100%** | `██████████` |
 | Native PC platform layer (161 fn to rewrite) | 17% | 10% | `█░░░░░░░░░` |
-| EA SDK stubs (~1,412 fn) | 5% | 100% | ██████████ |
+| EA SDK stubs (27 fn the game calls) | 5% | 100% | `██████████` |
 
 **The platform layer shrank twice.** It used to read "229 fn rewritten".
 **56** of those are `Finch/`, a vendored copy of MIT-licensed
@@ -275,7 +275,7 @@ any of the port is written.
 | 3 — Ghidra automation | ✅ headless pipeline working |
 | 4 — Decompile `lime/common` | ✅ **complete — 109/109, every file verified** |
 | 5 — Native PC platform layer | ⬜ not started |
-| 6 — EA SDK stubs | ⬜ not started (scope reduced, see below) |
+| 6 — EA SDK stubs | ✅ complete — the 27 entry points the game calls, plus `LocaleManager`, in `runtime/gamecode_stubs.c` |
 | 7 — Decompile `gamecode` | ✅ 291/291 |
 | 8 — Decompile fight logic | 🔄 1,752/2,172 — seventeen of twenty-one files closed |
 | 9 — Widescreen, gamepad, mods | ⬜ not started |
