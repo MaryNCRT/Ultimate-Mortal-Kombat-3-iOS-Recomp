@@ -53,7 +53,7 @@ The long-term goals, in order:
 | Goal | Status |
 |---|---|
 | Understand the binary and its file formats | ✅ largely done |
-| Recover readable C source, function by function | 🔄 in progress |
+| Recover readable C source, function by function | ✅ every function has a body — behavioural triage in progress |
 | Replace the iOS platform layer with a native PC one | 🔄 started — window, GL context and asset loading run on Windows and Linux; no audio, no input mapping |
 | Widescreen, gamepad support, modding | ⬜ planned |
 | **Local two-player on one machine** | ⬜ planned — [the iPad build has it](docs/IPAD-BUILD.md) |
@@ -172,7 +172,7 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ## Overall progress
 
 ```
-██████████████████████████████████░░░░░░  84.70%
+██████████████████████████████████░░░░░░  85.55%
 ```
 
 | Area | Weight | Done | |
@@ -183,10 +183,10 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 | `lime/common` — engine core (109 fn) | 12% | **100%** | `██████████` |
 | `gamecode` — game logic (291 fn) | 18% | **100%** | `██████████` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | **100%** | `██████████` |
-| Native PC platform layer (161 fn to rewrite) | 17% | 10% | `█░░░░░░░░░` |
+| Native PC platform layer (161 fn to rewrite) | 17% | 15% | `██░░░░░░░░` |
 | EA SDK stubs (27 fn the game calls) | 5% | 100% | `██████████` |
 
-**84.70% of the total estimated effort. Nothing is playable yet.**
+**85.55% of the total estimated effort. Nothing is playable yet.**
 
 **The middle three rows are counted, the rest are estimates.** `tools/progress.py`
 reads the tree on every run for `lime/common`, `gamecode` and `gamecode/logic`;
@@ -232,7 +232,7 @@ binary fetches through a pointer slot. Both gaps let real mistakes through, so
 there is now a second, behavioural check: `tools/difftest/` runs each decomp
 function and its recompiled original from the same randomised state in one
 32-bit process and compares the return value and the whole data image. It is
-clean on `mkdrone.c` and `mkfriend.c`; the other files are being triaged (some
+clean on `mkdrone.c`, `mkfriend.c`, `mkbonus.c`, `mkcanned.c`, `mkslam.c`, `mkprop.c` and `mkcombo.c`; the other files are being triaged (some
 reports are limits of the harness, not bugs -- see docs/VERIFICATION.md).
 
 ### `lime/common` is complete — and here is what that does and does not mean

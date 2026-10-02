@@ -1,5 +1,9 @@
 # Encargo — what to pick up next
 
+> **Superseded.** This work order predates the completion of `gamecode/logic`
+> (2,172/2,172, 2026-10-01). The current next steps are in
+> [PROGRESS.md](PROGRESS.md), under "What is next".
+
 A short, specific work order for whoever takes this on next. Read
 [HANDOFF.md](HANDOFF.md) first for orientation; this file is the *current* task.
 
