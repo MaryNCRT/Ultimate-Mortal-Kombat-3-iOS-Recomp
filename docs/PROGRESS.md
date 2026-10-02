@@ -2,8 +2,10 @@
 
 Current state of the project. Written so that someone can pick it up with no prior context.
 
-**Last updated:** 2026-10-02 — see [HANDOFF.md](HANDOFF.md) for the route and
-[ENCARGO.md](ENCARGO.md) for the next task.
+**Last updated:** 2026-10-02 — this is the canonical status record. Read
+[CURRENT-ROUTE.md](CURRENT-ROUTE.md) before doing work; [HANDOFF.md](HANDOFF.md)
+and [ENCARGO.md](ENCARGO.md) are preserved historical snapshots, not active work
+orders.
 
 > Latest: **the decompiled main menu is on screen and takes input.**
 > `build/umk3-menu.exe <res>` opens a window, runs the real front end --
@@ -190,7 +192,10 @@ The menu is drawn. What is left, in order:
    link-closure measurement; the `plyrthread` / `repell_func` gaps they mention
    are written.
 
-   **For a minimal playable scene the number is much smaller and it has been
+   **Historical link-closure measurement.** The functions named below now have
+   bodies; they remain relevant only as the original measurement of what must
+   be wired into the native fight runtime. For the active route, use
+   [CURRENT-ROUTE.md](CURRENT-ROUTE.md). For a minimal playable scene the number is much smaller and it has been
    measured, not estimated.** All fifteen logic files were compiled to objects
    and linked against storage for the six globals; the undefined symbols were
    then intersected with the transitive closure of the call graph from
@@ -2446,7 +2451,13 @@ aspect ratio. A widescreen port has to decide each one deliberately:
   connected peer does not time out, and its 89-case jump table is laid out
   backwards -- highest case at the lowest address.
 
-## Next up
+## Historical snapshot — superseded 2026-10-01
+
+> This entry recorded the route before `gamecode/logic` was completed. It is
+> retained as project history only. Do not use it as a task list; see
+> [CURRENT-ROUTE.md](CURRENT-ROUTE.md).
+
+## Next up (historical)
 
 **`gamecode/logic` -- the fight engine.** 3 of 2,172, and the only module left.
 `lime/common` is complete at 109/109 and verified against the oracle, and

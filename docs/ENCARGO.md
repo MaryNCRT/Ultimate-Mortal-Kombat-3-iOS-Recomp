@@ -1,11 +1,12 @@
-# Encargo — what to pick up next
+# Historical work order — superseded
 
-> **Superseded.** This work order predates the completion of `gamecode/logic`
-> (2,172/2,172, 2026-10-01). The current next steps are in
-> [PROGRESS.md](PROGRESS.md), under "What is next".
+> **Do not follow the task below.** This work order predates the completion of
+> `gamecode/logic` (2,172/2,172, 2026-10-01). The active sequence is
+> [CURRENT-ROUTE.md](CURRENT-ROUTE.md); [PROGRESS.md](PROGRESS.md) is the
+> canonical status record. The remainder is retained solely as historical
+> context for how the transcription was completed.
 
-A short, specific work order for whoever takes this on next. Read
-[HANDOFF.md](HANDOFF.md) first for orientation; this file is the *current* task.
+A short, specific work order from an earlier project phase. It is not current.
 
 ---
 
