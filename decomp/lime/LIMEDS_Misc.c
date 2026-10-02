@@ -329,29 +329,76 @@ void ConvertQSTMatrixtoPCMatrix(const QSTMATRIX *src, float *dst)
 
 /* ---------------------------------------------------------- LIMEDS_Set3dMode
  *
- * armv6 0x00080134, 216 bytes.
+ * armv7 0x0005d944, 216 bytes (armv6 0x00080134).  Transcribed in full;
+ * **draft** -- no differential test against the oracle yet.
  *
- * Resets both matrix stacks for 3D drawing: `glMatrixMode(GL_MODELVIEW)` then
- * `glLoadIdentity`, and the same for `GL_PROJECTION` (0x1701).
+ * Resets both matrix stacks, then builds the projection:
  *
- * It then installs a projection built around the literal `0x3f19999a`, which is
- * **0.6f**. That constant is not the field of view -- `CreatePerspectiveMatrix`
- * takes that as an argument -- so it is more likely a near plane or a scale, and
- * it is left unnamed here rather than guessed at.
+ *      ratio = 0.6f                                        0x3f19999a
+ *      CreatePerspectiveMatrix(limePerspectiveMatrix,
+ *                              0.436331958f,               0x3edf66e7, 25 deg
+ *                              0.6f, 1.0f, 400.0f)         aspect, near, far
+ *      limeScaleMatrix(limePerspectiveMatrix,
+ *                      (sideways ? limeScreenWidth : limeScreenHeight)
+ *                      / limeDeviceHeight)
+ *      glMultMatrixf(limePerspectiveMatrix)
+ *      glMultMatrixf(limeSidewaysMat)
+ *
+ * The three GL calls are the stubs at 0xdda7c / 0xdda88 / 0xdda94, which
+ * resolve through consecutive `__la_symbol_ptr` slots to glLoadIdentity,
+ * glMatrixMode and glMultMatrixf -- and the call pattern agrees
+ * (`mov r0,#0x1700; blx dda88; blx dda7c`).
+ *
+ * **The 0.6 aspect is for the PORTRAIT panel.** The iPhone's GL surface is
+ * 320x480 and `limeBegin` writes `limeSidewaysMat = RotMatrixZ(-pi/2)` when
+ * the device is sideways, so the landscape game is turned onto it here, after
+ * the perspective, exactly as `limeSet2DDrawing` turns its ortho.
+ *
+ * Until this was transcribed the function stopped after the two
+ * `glLoadIdentity` calls, so every 3D draw in the front end -- the vortex
+ * behind the main menu above all -- went through an IDENTITY projection: no
+ * perspective, z clipped at +-1, and the spinning shells collapsed into flat
+ * streaks along the bottom of the screen.
+ *
+ * `limePortDisplayRotation` is not in the binary. It is the port's stand-in
+ * for the phone being held sideways; see its definition in runtime/draw_gl.c.
  */
+extern float ratio;                             /* 0x0017146c */
+extern float limePerspectiveMatrix[16];         /* 0x00391f8c */
+extern float limeSidewaysMat[16];               /* 0x00391fd4 */
+extern int   limeDeviceSideways;                /* 0x00171ad8 */
+extern int   limeDeviceHeight;                  /* 0x00171ae8 */
+extern int   limeScreenWidth;
+extern int   limeScreenHeight;
+
+void limePortDisplayRotation(void);
+
 void LIMEDS_Set3dMode(void)
 {
+    float *m = limePerspectiveMatrix;
+    int    s;
+
     glMatrixMode(GL_MODELVIEW);         /* 0x1700 */
     glLoadIdentity();
     glMatrixMode(GL_PROJECTION);        /* 0x1701 */
     glLoadIdentity();
-    /* projection setup follows, using the 0.6f literal */
+    limePortDisplayRotation();          /* port only -- not in the binary */
+
+    ratio = 0.6f;
+    CreatePerspectiveMatrix(m, 0.436331958f, 0.6f, 1.0f, 400.0f);
+
+    s = limeDeviceSideways ? limeScreenWidth : limeScreenHeight;
+    limeScaleMatrix(m, (float)s / (float)limeDeviceHeight);
+
+    glMultMatrixf(limePerspectiveMatrix);
+    glMultMatrixf(limeSidewaysMat);
 }
 
 
 /* ---------------------------------------------- LIMEDS_SetCameraOrientation
  *
- * armv6 0x0007ff84, 376 bytes.  **Complete.**
+ * armv6 0x0007ff84, armv7 0x0005d798.  **Draft** -- rows corrected against the
+ * armv7 disassembly, but no differential test against the oracle yet.
  *
  * This is **gluLookAt**, written out by hand. The engine never links GLU, so
  * the view matrix is built here and this is the only place the camera basis
@@ -419,7 +466,7 @@ void LIMEDS_SetCameraOrientation(float eyeX, float eyeY, float eyeZ,
                                  float upX,  float upY,  float upZ)
 {
     float m[16];
-    float fx, fy, fz, rx, ry, rz, len;
+    float fx, fy, fz, rx, ry, rz, ux, uy, uz, len;
 
     glMatrixMode(GL_MODELVIEW);         /* 0x1700 */
     glLoadIdentity();
@@ -433,19 +480,39 @@ void LIMEDS_SetCameraOrientation(float eyeX, float eyeY, float eyeZ,
         fx /= len; fy /= len; fz /= len;
     }
 
-    rx = upY * fz - upZ * fy;           /* cross product, inlined as in the ROM */
+    rx = upY * fz - upZ * fy;           /* side = up x F, inlined as in the ROM */
     ry = upZ * fx - upX * fz;
     rz = upX * fy - upY * fx;
+
+    /* true up = F x side -- from the side vector BEFORE it is normalised
+     * (0x5d848..0x5d878 use s8/s10/s12 ahead of the vdivne at 0x5d886). */
+    ux = fy * rz - fz * ry;
+    uy = fz * rx - fx * rz;
+    uz = fx * ry - fy * rx;
 
     len = sqrtf(rx * rx + ry * ry + rz * rz);
     if (len != 0.0f) {
         rx /= len; ry /= len; rz /= len;
     }
 
-    /* written down columns: this is the transpose, i.e. the inverse rotation */
+    len = sqrtf(ux * ux + uy * uy + uz * uz);
+    if (len != 0.0f) {
+        ux /= len; uy /= len; uz /= len;
+    }
+
+    /* Rows side / up / F, stored at sp+0x10 (armv7 0x5d88e..0x5d8e8):
+     *
+     *      0x10 0x20 0x30   side      m[0] m[4] m[8]
+     *      0x14 0x24 0x34   up        m[1] m[5] m[9]
+     *      0x18 0x28 0x38   F         m[2] m[6] m[10]
+     *
+     * This used to put F on the second row and ZEROS on the third, with no up
+     * vector at all. Every eye-space z came out 0, so w was 0 and anything
+     * drawn through SetToUseCamera -- the main menu's vortex among it --
+     * collapsed. */
     m[0] = rx;   m[4] = ry;   m[8]  = rz;   m[12] = 0.0f;
-    m[1] = fx;   m[5] = fy;   m[9]  = fz;   m[13] = 0.0f;
-    m[2] = 0.0f; m[6] = 0.0f; m[10] = 0.0f; m[14] = 0.0f;
+    m[1] = ux;   m[5] = uy;   m[9]  = uz;   m[13] = 0.0f;
+    m[2] = fx;   m[6] = fy;   m[10] = fz;   m[14] = 0.0f;
     m[3] = 0.0f; m[7] = 0.0f; m[11] = 0.0f; m[15] = 1.0f;
 
     glMultMatrixf(m);

@@ -268,6 +268,40 @@ void limeSet2DDrawing(void)
     limeEnableAlphaBlending_Basic();
 }
 
+/* --------------------------------------------------------------------- 3D */
+
+extern float limeSidewaysMat[16];
+
+/* **The port's stand-in for holding the phone sideways.** Not in the binary.
+ *
+ * On the iPhone GL draws onto the PORTRAIT panel and the game turns itself onto
+ * it: the binary's limeSet2DDrawing is `limeSidewaysMat * glOrthof(0, 480,
+ * 320, 0)`, and LIMEDS_Set3dMode is `perspective * limeSidewaysMat`, with
+ * limeSidewaysMat = RotMatrixZ(-pi/2) from limeBegin.
+ *
+ * This window is already landscape, so limeSet2DDrawing above draws the ortho
+ * with no rotation at all -- which is the iPhone's image with the panel's
+ * rotation undone. The 3D path has to undo the same rotation, or the 0.6
+ * aspect lands on the wrong axis. LIMEDS_Set3dMode calls this right after its
+ * projection glLoadIdentity, so the stack becomes
+ *
+ *      inverse(limeSidewaysMat) * perspective * limeSidewaysMat
+ *
+ * A rotation's inverse is its transpose. limeSidewaysMat is the identity when
+ * the device is not sideways, and then this is a no-op. */
+void limePortDisplayRotation(void)
+{
+    const float *s = limeSidewaysMat;
+    float t[16] = {
+        s[0], s[4], s[8],  0.0f,
+        s[1], s[5], s[9],  0.0f,
+        s[2], s[6], s[10], 0.0f,
+        0.0f, 0.0f, 0.0f,  1.0f,
+    };
+
+    glMultMatrixf(t);
+}
+
 void limeEnableDepthTest(void)  { glEnable(GL_DEPTH_TEST); }
 void limeDisableDepthTest(void) { glDisable(GL_DEPTH_TEST); }
 void limeClearDepthBuffer(void) { glClear(GL_DEPTH_BUFFER_BIT); }
