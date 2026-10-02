@@ -4,7 +4,7 @@
 
 # Ultimate Mortal Kombat 3 — iOS Decompilation & PC Port
 
-**A work-in-progress decompilation of the 2011 iOS release of Ultimate Mortal Kombat 3, aiming at a native PC port for Windows and Linux.**
+**A complete decompilation of the 2011 iOS release of Ultimate Mortal Kombat 3 — every one of the game's 2,572 functions is now readable C — and a native PC port for Windows and Linux that is still in progress.**
 
 [Getting started](docs/GETTING-STARTED.md) · [Methodology](docs/METHODOLOGY.md) · [LIME engine](docs/LIME-ENGINE.md) · [Asset formats](docs/X-TABLES.md) · [Mesh viewer](docs/MESH-VIEWER.md) · [Game bugs](docs/GAME-BUGS.md) · [Hidden content](docs/HIDDEN-CONTENT.md) · [Stages](docs/STAGES.md) · [Roster](docs/ROSTER.md) · [Move tables](docs/MOVES-TABLES.md) · [Lighting](docs/LIGHTING.md) · [Font format](docs/FONT-FORMAT.md) · [Scene format](docs/SCENE-FORMAT.md) · [PVR format](docs/PVR-FORMAT.md) · [Frame lists](docs/FRAMELISTS.md) · [MAME reference](docs/MAME-ARCADE.md) · [iPad build](docs/IPAD-BUILD.md) · [Architecture](docs/ARCHITECTURE.md) · [Progress](docs/PROGRESS.md) · [Handoff](docs/HANDOFF.md) · [Next task](docs/ENCARGO.md) · [AI disclosure](AI-DISCLOSURE.md) · [Español](README.es.md)
 
@@ -23,6 +23,24 @@ The imagery here is worth being precise about. The banner combines fan art of th
 What lives here is *our own* work: analysis tools, documentation of file formats, hand-written C, and test harnesses. Everything that touches the original game reads it from **a copy you supply yourself** and produces its output locally, where `.gitignore` keeps it out of the repository.
 
 You need a legally obtained copy of *Ultimate Mortal Kombat 3* for iOS (version 1.2.59) to use any of this. If you don't have one, nothing in this repository will do anything useful for you.
+
+---
+
+## Where the project stands — 2 October 2026
+
+| | |
+|---|---|
+| **Decompiled** | ✅ **All of it.** 2,572 of 2,572 game functions have hand-written C: the LIME engine core (109), the game logic (291) and the fight engine (2,172). Nothing is left to transcribe. |
+| **Verified** | ✅ The engine core passes differential tests against the recompiled original with zero divergences. The fight engine passes a behavioural differential test file by file, with the exceptions listed in [Verification](#how-much-of-it-is-verified) — every one of them a known limit of the test harness, not a known bug. |
+| **Runs natively** | 🔄 The real front end boots in an OpenGL window: menus, text, sounds, music and save files on Windows. Linux runs it through SDL2 (its new audio backend is not build-tested yet, and plays no music). All 18 arenas render with an animated fighter in them. |
+| **Playable** | ❌ **Not yet.** The fight engine is decompiled but has no runtime to run in, and the 229 data tables it reads (special-move lists, animation scripts, reaction tables) are not extracted yet. Those two are the road to the first fight. |
+
+**What "decompiled" does and does not mean here.** It means every function the
+game runs has a body that was written against the disassembly and checked
+against an independent ARM→C recompilation of the same code. It does not mean
+the game plays: code without its data tables and without a loop to drive it is
+a complete engine sitting still. The [progress section](#overall-progress) puts
+numbers on both halves, and is explicit about what the numbers leave out.
 
 ---
 
@@ -52,15 +70,16 @@ The long-term goals, in order:
 
 | Goal | Status |
 |---|---|
-| Understand the binary and its file formats | ✅ largely done |
-| Recover readable C source, function by function | ✅ every function has a body — behavioural triage in progress |
-| Replace the iOS platform layer with a native PC one | 🔄 started — window, GL context and asset loading run on Windows and Linux; sounds, music (Windows) and save files work; no input mapping |
+| Understand the binary and its file formats | ✅ done — every LIME asset format is specified |
+| Recover readable C source, function by function | ✅ **done** — 2,572 of 2,572, behaviourally tested |
+| Replace the iOS platform layer with a native PC one | 🔄 started — window, GL, textures, files, sound, music (Windows), saves and focus pause run natively; the fight's input waits for the fight runtime |
+| Run the fight: engine runtime and its 229 data tables | ⬜ **next** — the step that makes the game playable |
 | Widescreen, gamepad support, modding | ⬜ planned |
 | **Local two-player on one machine** | ⬜ planned — [the iPad build has it](docs/IPAD-BUILD.md) |
 | Restore hidden and unreachable content | ⬜ after a playable build |
 | 60 fps, modern netcode | ⬜ long term |
 
-**This is a long project.** Realistically it is a year or more of work. Nothing here is playable yet. What *is* here is a working method, a large amount of verified knowledge, and tooling that makes the remaining work tractable.
+**Nothing here is playable yet.** What *is* here is the whole game as readable, tested C, a working method, a large amount of verified knowledge, and tooling that makes the remaining work tractable. The remaining work is integration, not decompilation: a runtime for the fight engine, its data tables, and the rest of the platform layer.
 
 ---
 
@@ -188,6 +207,28 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 
 **86.74% of the total estimated effort. Nothing is playable yet.**
 
+**Read that number for what it measures, and for what it leaves out.** It
+weighs the eight areas in the table, and two pieces of work are in none of
+them:
+
+- **The fight runtime.** The table counts the fight engine's 2,172 functions
+  as written; nothing in it counts the loop, the thread scheduler and the
+  glue that make them run frame by frame on a PC. Today they compile and are
+  tested in isolation; they do not yet run as a game.
+- **229 data tables.** Linking the fight engine for the first time left 423
+  undefined symbols, and 229 of them are not code but arrays in the binary:
+  the special-move command lists (`sm_*`), per-character parameters
+  (`ochar_*`), animation scripts (`a_*`) and engine-wide tables such as
+  `reaction_table`. A fighter cannot throw a special move, react to a hit or
+  animate without them. Three are decoded so far. They are extracted from
+  each user's own copy at build time, never committed — see
+  [docs/PROGRESS.md](docs/PROGRESS.md#the-other-axis-229-data-tables-nobody-has-counted).
+
+So 86.74% is honest about functions and formats, and **silent about the two
+things between here and a playable fight.** The weights are not being revised
+upward to make room for them until somebody can say how big they are; this
+paragraph exists so the gap is on the record instead.
+
 **The middle three rows are counted, the rest are estimates.** `tools/progress.py`
 reads the tree on every run for `lime/common`, `gamecode` and `gamecode/logic`;
 the other five are judgement calls a person maintains.
@@ -210,11 +251,10 @@ even though it renders no pixels.
 **The engine core is the fourth row, and it is done.** All 109 functions have a
 body; all nine of its files are also verified against the recompiled original.
 
-**Every function now has a body.** All 2,172 functions of the fight engine are
+**Every function has a body.** All 2,172 functions of the fight engine are
 written, including `mkdrone.c` (the AI opponent, 394 functions), the last file
-to close. What is left of the project is not decompilation: the 229 data
-tables and the PC platform layer (the 229 iOS-layer functions rewritten
-natively). Realistically that is still months of work.
+to close. What is left is not decompilation: it is the fight runtime, the 229
+data tables above, and the platform layer.
 
 **The EA SDK row is at 100% because of what the game calls, not because of
 the SDK's size.** Of the ~1,412 SDK functions, the game reaches exactly 27
@@ -225,15 +265,55 @@ symbol. The remaining ~1,385 are SDK-internal: nothing in the port references
 them, so they are dropped rather than stubbed, and none of their code is in
 this repository.
 
-One caveat on "verified". The static fact diff (`tools/factdiff.py`) compares
-stores, handlers, state tokens and calls; it cannot see which constant a return
-path yields (a pop returns 0, a refusal -3) and it cannot see a handler the
-binary fetches through a pointer slot. Both gaps let real mistakes through, so
-there is now a second, behavioural check: `tools/difftest/` runs each decomp
-function and its recompiled original from the same randomised state in one
-32-bit process and compares the return value and the whole data image. It is
-clean on `mkdrone.c`, `mkfriend.c`, `mkbonus.c`, `mkcanned.c`, `mkslam.c`, `mkprop.c` and `mkcombo.c`; the other files are being triaged (some
-reports are limits of the harness, not bugs -- see docs/VERIFICATION.md).
+### How much of it is verified
+
+Two independent checks run against the binary, and they see different things.
+
+- **`tools/factdiff.py`, static.** For every logic function it compares the
+  stores, handler installs, state tokens and calls in the C against the
+  recompiled original. Every logic file passes, with the exceptions listed in
+  `tools/factdiff_waivers.txt`. It cannot see which constant a return path
+  yields, or a handler fetched through a pointer slot.
+- **`tools/difftest/`, behavioural.** Each decompiled function and its
+  recompiled original run from the same randomised state in one 32-bit
+  process, and the return value and the **whole data image** are compared
+  afterwards. This is the check that found about 80 real transcription bugs in
+  the fight engine (a token read from the wrong register, a branch dropped, a
+  pointer slot resolved to the wrong routine) and several bugs in the
+  recompiler itself.
+
+| File | Functions | Tested | Failing | Which |
+|---|---:|---:|---:|---|
+| `other.c` | 333 | 260 | 0 |  |
+| `mkdrone.c` | 394 | 393 | 1 | `t_fatality_align` (harness limit) |
+| `moves.c` | 357 | 193 | 0 |  |
+| `mkreact.c` | 207 | 207 | 0 |  |
+| `mkzap.c` | 174 | 172 | 3 | `t_summon_spawn`, `t_summon_proc`, `t_sky_ice_proc` (harness limits) |
+| `mkfatal.c` | 149 | 149 | 0 |  |
+| `mkboss.c` | 104 | 103 | 0 |  |
+| `mkprop.c` | 80 | 80 | 0 |  |
+| `joy.c` | 73 | 72 | 0 |  |
+| `mkanimal.c` | 63 | 61 | 0 |  |
+| `mkstat.c` | 62 | 62 | 0 |  |
+| `mkslam.c` | 60 | 60 | 0 |  |
+| `mkfriend.c` | 45 | 45 | 0 |  |
+| `mkcanned.c` | 20 | 20 | 0 |  |
+| `mkcombo.c` | 16 | 16 | 0 |  |
+| `mkbonus.c` | 8 | 6 | 0 |  |
+| `mk3.c` | 19 | 2 | 0 |  |
+| `playback.c` | 4 | 0 | 0 | nothing the oracle covers |
+| `mkrepell.c` | 1 | 0 | 0 | nothing the oracle covers |
+| **Fight engine total** | **2,172** | **1,901** | **4** | all harness limits |
+
+One full run on 2 October 2026, oracles regenerated from the fixed `recomp.py`. `mkzap.c` reported 4 in that run; the fourth, `tl_bomb33`, was a real bug (a crossed pointer slot) and has been fixed and re-tested since. The two files not listed (3 functions) have no tests.
+
+"Tested" is the number of functions the oracle covers in that file; the rest
+are reached only through their callers (data-driven dispatch, or functions the
+recompiler leaves to a jump table). The failures that remain are **harness
+limits, each checked by hand against the disassembly**: a field the harness
+seeds with a handler address, which the code then adds to or truncates, cannot
+hold the same value in its ARM and native forms. They are named in
+[docs/VERIFICATION.md](docs/VERIFICATION.md).
 
 ### `lime/common` is complete — and here is what that does and does not mean
 
@@ -327,7 +407,7 @@ Getting there cost three wasted rounds. The decoder scored 5.5% and fourteen car
 
 **Landing on a file's last byte can prove nothing at all.** If every record is the same size, *any* split of that size walks the file perfectly — 324 bytes reads equally well as 268+56 or 324+0. `.events` was audited as resting on exactly that circularity, because `numEntries` looked constant at 1. Across the full corpus of 1,547 tracks it takes ten distinct values and 103 tracks are not 1, so the walk was real evidence after all. A constant makes a walk worthless; a constant seen on part of the data may not be a constant. Both halves matter, and the layout is now derived from the loader's own pointer arithmetic so it does not depend on the walk either way.
 
-**The game prints its own move input tables.** The in-game moves list reprints the displayed move's input sequence every frame, one integer per line. The period of the repetition is the number of inputs in the move. That makes the move tables — the fight-engine data static analysis handles worst — recoverable by scrolling through the list with a log running, no decompilation involved. [Issue #5](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/issues/5).
+**The move tables were sitting in the binary with their names on.** The in-game moves list reprints a move's first input every frame, and for a while the plan was to recover the tables by scrolling through that list with a log running ([issue #5](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/issues/5)). Decompiling `MovesList` made that unnecessary: the tables are static data in `__DATA` with symbols — `_Kano_Moves5`, `_Kano_Moves6` and so on, 48 tables and 673 rows — and `tools/moves.py` reads them directly. See [docs/MOVES-TABLES.md](docs/MOVES-TABLES.md).
 
 **The `.meshset` model format is solved and verified.** Not by guessing — by running EA's own `LIME_LoadMeshSet`, recompiled, against the game's real data and comparing what it leaves in memory to our specification: **590 files, 7,327 meshes, 2.9M vertices, byte-for-byte agreement** on indices, vertices, bounds and per-vertex lighting. See [docs/MESHSET-FORMAT.md](docs/MESHSET-FORMAT.md).
 
@@ -375,8 +455,17 @@ tools/
   ghidra/                headless decompilation scripts
   signatures/            function signatures and struct layouts fed to Ghidra
 
-decomp/lime/             verified, hand-written C — the actual product
-runtime/                 CPU/memory runtime the recompiled code executes against
+decomp/                  the hand-written C -- the actual product
+  lime/                  the LIME engine core (109 functions)
+  gamecode/              the game: front end, players, blood, HUD (291 functions)
+  gamecode/logic/        the fight engine: moves, reactions, AI, fatalities (2,172)
+runtime/                 the native port around the decompiled code
+  platform/              the OS boundary: Win32 and SDL2 windows, GL, audio, input
+  lime_menu.c, draw_gl.c the iOS platform layer, rewritten (sound, saves, sprites)
+  lime_app.c             the app lifecycle (focus = iOS foreground)
+  menu_main.c            umk3-menu: the real front end in a window
+  fight_*.c, test_main.c umk3-fight / umk3-test: the arena and fighter test scene
+  arm_runtime.c          CPU/memory runtime the recompiled oracle executes against
 tests/                   differential test harnesses
 docs/                    format specifications, methodology, progress
 ```
@@ -422,15 +511,45 @@ Everything derived from the binary lands in `work/`, which is git-ignored. Set
 `UMK3_WORK` to put it elsewhere, and `GHIDRA_HOME` before using
 `tools/decomp_driver.py`. All paths are resolved by `tools/umk3paths.py`.
 
+### Build and run the native port
+
+```bash
+# Windows (MinGW-w64 + Ninja) builds the win32 backend; Linux uses SDL2.
+cmake -S . -B build -G Ninja
+cmake --build build
+
+# The real front end, in a window. Point it at res/ inside YOUR extracted .ipa.
+build/umk3-menu  path/to/Payload/UMK3.app/res
+
+# The arena and fighter test scene: umk3-fight <res> [character] [stage]
+# (Windows backend only for now, like umk3-test)
+build/umk3-fight path/to/Payload/UMK3.app/res
+
+# Both in one program: F2 enters the test scene, F3 returns to the menu.
+build/umk3-test  path/to/Payload/UMK3.app/res
+```
+
+The mouse stands in for a finger. Save files go to `%APPDATA%/UMK3` on Windows
+and `~/.local/share/umk3` on Linux (`UMK3_SAVE_DIR` overrides both); music needs
+the Windows backend for now. `UMK3_SHOT=<n>` runs n frames, writes a screenshot
+and quits.
+
 ---
 
 ## Contributing
 
 Contributions are welcome, and the project is structured so that people can work in parallel without stepping on each other — each module is independent, and the acceptance criterion is objective.
 
-**One rule matters more than the rest: a function is not done until its differential test passes with zero divergences.** Readable code that behaves *almost* like the original is worse than no code at all, because it fails silently and much later.
+**One rule matters more than the rest: nothing is done until it is checked against the binary.** Readable code that behaves *almost* like the original is worse than no code at all, because it fails silently and much later.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for how to pick up a module, and [docs/PROGRESS.md](docs/PROGRESS.md) for what is currently unclaimed.
+The decompilation is finished, so the open work has changed shape. Where help is most useful now:
+
+- **The fight runtime** — running the decompiled fight engine frame by frame: its thread scheduler, the per-frame logic and the bridge from `Task_GameInit`.
+- **The 229 data tables** — measuring and extracting the `sm_*`, `ochar_*`, `a_*` and single tables from the user's own copy at build time ([docs/PROGRESS.md](docs/PROGRESS.md#the-other-axis-229-data-tables-nobody-has-counted)).
+- **The platform layer** — MP3 music on the SDL2 backend, the fight's keyboard and gamepad input.
+- **Port decisions already written down** in the open issues: widescreen ([#22](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/issues/22), [#24](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/issues/24)), frame rate ([#23](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/issues/23)), mods ([#29](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/issues/29)).
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the working rules, and [docs/PROGRESS.md](docs/PROGRESS.md) for the detail.
 
 ---
 

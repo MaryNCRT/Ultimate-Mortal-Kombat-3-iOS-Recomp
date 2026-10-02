@@ -1,48 +1,53 @@
 # Handoff
 
-> **Historical snapshot (last revised mid-September 2026).** Figures in it, such as
-> "1,752 of 2,172", are out of date: `gamecode/logic` is complete (2,172/2,172).
-> The current state is in [PROGRESS.md](PROGRESS.md).
+> **The status section below was rewritten on 2026-10-02.** Most of the rest
+> of this file is a dated diary of what each finished module settled; it is
+> kept because the facts in it are still true, but its counts ("1,752 of
+> 2,172" and the like) are history. The live numbers are in
+> [PROGRESS.md](PROGRESS.md) and come from `python tools/progress.py`.
 
 Written for whoever picks this up next, human or model, with no prior context.
 Read this, then [METHODOLOGY.md](METHODOLOGY.md). Everything else is reference.
 
 ---
 
-## Where the project actually stands
+## Where the project actually stands (2026-10-02)
 
-**This section goes stale fast — before trusting a number in it, re-run
-`python tools/progress.py` and `python tools/sync_figures.py`, which is what
-last updated it, on 2026-09-18.**
+**Re-run `python tools/progress.py` before trusting a number here.**
 
-**74.29% of the total estimated effort. Nothing is playable.** The arithmetic is
-in the [README](../README.md#overall-progress) and the weights are a judgement
-call; the completion figures are measured by `tools/progress.py` on every run.
+**The decompilation is finished. Nothing is playable.** 86.74% of the
+estimated effort by the README's weights, which count functions and formats
+and leave out the fight runtime and the 229 data tables (see below).
 
 | | |
 |---|---|
 | Asset formats | **100%** — solved, demonstrated, animating |
 | `lime/common` | **109 of 109** written, **all nine files verified** |
-| Native executable | **exists**, draws all 18 arenas with a skinned animated fighter |
-| `gamecode` | **291 of 291** — finished, and it BOOTS: `tests/test_menu_boot.c` runs the loader and sixty ticks of the main menu |
-| `gamecode/logic` (fight engine) | 1,752 of 2,172 — 80.66%, seventeen of twenty-one files closed |
-| Platform layer | window, GL context and asset loading on Windows and Linux; no audio, no input mapping |
+| `gamecode` | **291 of 291** — the front end boots natively and takes input |
+| `gamecode/logic` (fight engine) | **2,172 of 2,172**, and behaviourally tested file by file by `tools/difftest/` (results table in PROGRESS.md) |
+| Native executables | `umk3-menu` (the real front end), `umk3-fight` (arenas and a skinned fighter), `umk3-test` (both) |
+| Platform layer | window, GL, textures, files, sound, music (Win32), save files, focus pause; SDL2 has no music yet; the fight's input is not wired |
 
-The shape of the project has changed: **two of the three code modules are
-finished.** `lime/common` is 109 of 109 and `gamecode` is 291 of 291 — every
-front-end screen, every menu, the HUD, the tower, the loaders and the whole
-network lobby. The fight engine is now the only mountain left, and most of it
-is behind: 1,752 of 2,172 functions written, 420 left across four files
-(`mkdrone.c`, `mkboss.c`, `mkzap.c`, `mkfriend.c` — see PROGRESS.md's "what is
-next" for the breakdown).
+**The front is no longer decompilation.** It is integration, in this order:
 
-**If you are picking this up mid-stream, the front is `gamecode/logic`.** The
-method does not change — smallest-function-first through
-`python tools/pending.py`, because the small ones keep turning up the constants
-and struct offsets the big ones then need. The bar for landing one is in the
-["Next up"](PROGRESS.md#next-up) section of PROGRESS.md and is not negotiable:
-`check.sh` at **zero errors and zero warnings** in `decomp/gamecode`, `symcheck`
-at zero unknown callees, figures republished with `tools/sync_figures.py`.
+1. **The fight runtime.** The fight engine is a set of cooperative threads
+   (`MK3THREAD`, frames, tokens, `fieldfc` sleeps) driven by a scheduler in
+   `other.c` and entered from the front end through `Task_GameInit`. Every
+   function of it exists and is tested; what does not exist is the loop that
+   runs them frame by frame in the native executable and hands them input.
+   `runtime/test_main.c` is where the bridge belongs (its header says why the
+   front end itself is not edited).
+2. **The 229 data tables** the fight engine reads: `sm_*` special-move lists,
+   `ochar_*` per-character tables, `a_*` animation scripts, and singles such
+   as `reaction_table`. They are extracted from the user's own copy at build
+   time, never committed. PROGRESS.md, "The other axis", has the inventory
+   and the three already done.
+3. **The rest of the platform layer:** the fight's keyboard and gamepad input
+   (the engine takes one ten-bit word per player, see `platform.h`), and MP3
+   music on SDL2.
+
+`tools/difftest/` stays useful through all of it: any function touched while
+wiring the runtime can be re-run against the recompiled original in seconds.
 
 ---
 
@@ -113,7 +118,10 @@ protects nothing and costs the project its only visible evidence.
 
 ---
 
-## What to do next, in order
+## The route that got here (mid-September 2026)
+
+> Kept as written then; the current next steps are in "Where the project
+> actually stands" above.
 
 ### 1. `gamecode` is finished — read it before starting the logic module
 
@@ -198,10 +206,13 @@ reverse engineering. The GL target is measured, not guessed: **77 entry points**
 all ES 1.1 fixed function, three texture units, no shaders anywhere. See
 [LIME-ENGINE.md](LIME-ENGINE.md).
 
-What exists today: window creation and a GL context on Windows (`win32_gl.c`)
-and everywhere else (`sdl_gl.c`, selected by CMake, or `-DUMK3_BACKEND=sdl2` to
-force it on Windows), plus the asset readers under `runtime/lime/`. **No audio
-at all, and no input mapping.** Those are the gaps.
+What exists today (2026-10-02): window creation and a GL context on Windows
+(`win32_gl.c`) and everywhere else (`sdl_gl.c`, selected by CMake, or
+`-DUMK3_BACKEND=sdl2` to force it on Windows), the asset readers under
+`runtime/lime/`, and all 49 C entry points of `lime.m` transcribed from the
+binary -- sound, music, save files, the face-me billboards, the app lifecycle
+on window focus (`runtime/lime_menu.c`, `draw_gl.c`, `lime_app.c`). **The gaps
+are the fight's input mapping and music on SDL2.**
 
 ### 4. Renderer fixes whose causes are now known
 
@@ -210,9 +221,10 @@ Not open searches any more — each has a named function behind it:
 - [#20](../../issues/20) a mirrored fighter needs `glCullFace(GL_FRONT)` to go
   with its negative X scale. `runtime/demo.c` enables culling and never calls
   `glCullFace`, which is correct only while one fighter is drawn.
-- [#17](../../issues/17) the second background layer — `RenderLevelBG`,
-  `MaintainLevelScenes` and `AnimateBG` are the three functions that settle it,
-  all still pending.
+- [#17](../../issues/17) the second background layer — settled: all three
+  functions (`RenderLevelBG`, `MaintainLevelScenes`, `AnimateBG`) and
+  `GameInit_LoadABit` are decompiled; the second scene is a second filename in
+  the stage record, drawn instead of the first or during a blast.
 - [#19](../../issues/19) Graveyard's floor gap.
 
 ## Things that will bite you

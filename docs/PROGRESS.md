@@ -5,20 +5,22 @@ Current state of the project. Written so that someone can pick it up with no pri
 **Last updated:** 2026-10-02 — see [HANDOFF.md](HANDOFF.md) for the route and
 [ENCARGO.md](ENCARGO.md) for the next task.
 
-> Latest: **the decompiled main menu is on screen and takes input.**
-> `build/umk3-menu.exe <res>` opens a window, runs the real front end --
-> `Task_LoadGeneralData`, the 88-step loader, `Task_FEMain` every frame --
-> and draws it with real OpenGL from the real assets. The mouse stands in
-> for a finger. `UMK3_SHOT=<n>` ticks n frames, writes `umk3-menu.ppm` and
-> quits, which is where the screenshot in the repo root comes from.
+> Latest (2026-10-02): **the decompilation is complete and behaviourally
+> tested.** All 2,572 functions -- 109 engine core, 291 game logic, 2,172
+> fight engine -- have hand-written C, and the fight engine has been run file
+> by file against the recompiled original by `tools/difftest/`, which found
+> and fixed about 80 transcription bugs and several bugs in the recompiler. The
+> results table is in "Behavioural differential test" below; what remains in
+> it are harness limits, each checked by hand.
 >
-> The fight engine is **complete, 2,172 of 2,172**; every one of its twenty-one
-> files has a body and the behavioural triage (`tools/difftest/`) is under way.
-> Nothing is playable: the menu draws and responds, and the fight
-> itself has no runtime yet.
+> **Natively:** the real front end runs in a window with sound, music
+> (Windows) and save files, and pauses on losing focus;
+> `build/umk3-menu.exe <res>` opens it, the mouse stands in for a finger, and
+> `UMK3_SHOT=<n>` ticks n frames, writes `umk3-menu.ppm` and quits.
 >
-> **The function count is not the whole job.** See "The other axis" below:
-> 229 data tables are missing and nothing has ever counted them.
+> **Not playable yet.** The fight engine has no runtime, and the 229 data
+> tables it reads are not extracted -- see "The other axis" below. Those two
+> are the road to the first fight.
 >
 > Before that: **all 18 arenas render, textured, with their effects and an
 > animated fighter standing in them.**
@@ -130,28 +132,49 @@ each scenario (randomised state, tokens taken from the ARM immediates) compares
 the return value and the entire data image. Use:
 `UMK3_SLICE=work/UMK3.armv7 sh tools/difftest/run.sh <stem> <rc_root> -n 80 [-d] [-v] [fn ...]`.
 
-Results (2026-10-02, after the round-2 triage on branch `difftest-triage-2`):
-mkboss, moves, mkreact, mkstat, joy, mkanimal, mk3, mkfatal and the files
-listed clean before report **0 failing functions**. What remains:
+Results (2026-10-02, one full run with every fix below in place):
 
-- `mkzap.c`: 3 -- `t_summon_spawn`, `t_summon_proc`, `t_sky_ice_proc`. Checked
-  instruction by instruction against the disassembly and equivalent; the
-  harness seeds the field with a handler address and the code adds two of them
-  (or truncates one to 16 bits), so the native and ARM forms cannot agree.
-  Harness false positives, not decomp bugs.
-- `other.c`: the a9 frame-walker family (`do_next_a9_frame`, `frame_a9`,
-  `t_mframew`, ...). **These were an oracle bug, not a harness limit**:
-  `recomp.py` emitted `adr r2, #4` as the constant 4 and `mov pc, r2` as a
-  plain register write, so the oracle always took case 0 of the walker's
-  19-entry branch table. Fixed (see below); with the corrected oracle and
-  scenarios that seed a script of small opcodes in `field40` (1000 scenarios
-  per function), the family reports 0 failures. Limits: script opcodes that
-  call a routine named in the script are skipped by the oracle, and
-  `pose_a9_manual`, `pose2_a9_manual`, `pose_him_a9` and `do_first_a9_frame`
-  still run few scenarios (`LOWCOV`).
-- `playback.c` has nothing the oracle covers (0 tests).
+| File | Functions | Tested | Failing | Which |
+|---|---:|---:|---:|---|
+| `other.c` | 333 | 260 | 0 |  |
+| `mkdrone.c` | 394 | 393 | 1 | `t_fatality_align` (harness limit) |
+| `moves.c` | 357 | 193 | 0 |  |
+| `mkreact.c` | 207 | 207 | 0 |  |
+| `mkzap.c` | 174 | 172 | 3 | `t_summon_spawn`, `t_summon_proc`, `t_sky_ice_proc` (harness limits) |
+| `mkfatal.c` | 149 | 149 | 0 |  |
+| `mkboss.c` | 104 | 103 | 0 |  |
+| `mkprop.c` | 80 | 80 | 0 |  |
+| `joy.c` | 73 | 72 | 0 |  |
+| `mkanimal.c` | 63 | 61 | 0 |  |
+| `mkstat.c` | 62 | 62 | 0 |  |
+| `mkslam.c` | 60 | 60 | 0 |  |
+| `mkfriend.c` | 45 | 45 | 0 |  |
+| `mkcanned.c` | 20 | 20 | 0 |  |
+| `mkcombo.c` | 16 | 16 | 0 |  |
+| `mkbonus.c` | 8 | 6 | 0 |  |
+| `mk3.c` | 19 | 2 | 0 |  |
+| `playback.c` | 4 | 0 | 0 | nothing the oracle covers |
+| `mkrepell.c` | 1 | 0 | 0 | nothing the oracle covers |
+| **Fight engine total** | **2,172** | **1,901** | **4** | all harness limits |
 
-Fixed in this round:
+One full run on 2 October 2026, oracles regenerated from the fixed `recomp.py`. `mkzap.c` reported 4 in that run; the fourth, `tl_bomb33`, was a real bug (a crossed pointer slot) and has been fixed and re-tested since. The two files not listed (3 functions) have no tests.
+
+What the remaining failures are, and why each is not a bug, is in
+[VERIFICATION.md](VERIFICATION.md). Two notes on coverage:
+
+- **"Tested" is what the oracle covers.** A function the recompiler cannot reach
+  on its own (data-driven dispatch, jump-table targets) is exercised through
+  its callers only. Functions marked `LOWCOV` in a run ran fewer than 15 of
+  their scenarios: the a9 posing helpers (`pose_a9_manual`, `pose2_a9_manual`,
+  `pose_him_a9`, `do_first_a9_frame`) are the main ones.
+- **The a9 frame-walker family in `other.c` was the last cluster to clear, and
+  it was an oracle bug**, not a harness limit: `recomp.py` emitted `adr r2, #4`
+  as the constant 4 and `mov pc, r2` as a plain register write, so the oracle
+  always took case 0 of the walker's 19-entry branch table. With that fixed and
+  scenarios that seed a script of small opcodes in `field40`, the family passes
+  at 1,000 scenarios per function.
+
+Fixed in the triage (rounds 2 and 3, PR #34, #37):
 
 - **Real decomp bugs** (about 80 sites over the two rounds). Recurring
   classes: next token taken from the register the dispatch last compared
@@ -175,18 +198,17 @@ Fixed in this round:
   `arm_unimplemented` inside a shim is a skipped scenario, not a C failure;
   fault PCs are printed as link-time addresses.
 
-The full suite has not yet been re-run end to end with every one of these
-changes in place; the per-file numbers above come from targeted runs of each
-file's failing functions plus the earlier full pass.
+The table above is one full end-to-end run with every one of these changes
+in place, oracles regenerated from the fixed `recomp.py`.
 
 ### What is next
 
 The menu is drawn. What is left, in order:
 
 1. **`gamecode/logic` is complete, 2,172 of 2,172** (`mkdrone.c`, 394
-   functions, closed 2026-10-01). What is left is *triage of the behavioural
-   test* (below), then the data tables and the PC platform layer (the EA SDK
-   boundary is stubbed). The notes that follow on the minimal playable scene are kept for the
+   functions, closed 2026-10-01), and its behavioural triage is done
+   (2026-10-02). What is left is the fight runtime, the data tables and the
+   rest of the PC platform layer (the EA SDK boundary is stubbed). The notes that follow on the minimal playable scene are kept for the
    link-closure measurement; the `plyrthread` / `repell_func` gaps they mention
    are written.
 
@@ -237,7 +259,7 @@ each) — which is how we know what the work looks like: each one needs its
 extent measured from the symbol gap, its stride derived from a multiply at a
 use site, and its entries resolved.
 
-**None of this is in the 71.87%.** A fighter cannot throw a special move
+**None of this is in the overall percentage.** A fighter cannot throw a special move
 without `sm_*`, cannot react to a hit without `reaction_table`, and cannot
 animate without `a_*`. The function bar is honest about functions and silent
 about everything else, and this section exists so that silence is on the record
@@ -308,8 +330,9 @@ rewritten one by one.
 | **The engine core is decompiled** | ✅ **done — 109 of 109** |
 | **The engine core is verified** | ✅ **all nine files** |
 | Something renders on a PC screen | ✅ done — the menu and all 18 arenas |
-| The game boots natively | 🔄 the front end boots and takes input; the fight has no runtime |
-| The game is playable natively | ⬜ far off |
+| **Every game function is decompiled** | ✅ **done — 2,572 of 2,572** (2026-10-01), behaviourally tested (2026-10-02) |
+| The game boots natively | 🔄 the front end boots, takes input, plays sound and music and saves; the fight has no runtime |
+| The game is playable natively | ⬜ next: the fight runtime and the 229 data tables |
 
 ---
 
@@ -322,10 +345,10 @@ rewritten one by one.
 | 2 — Verification oracle | ✅ complete and proven |
 | 3 — Ghidra automation | ✅ headless pipeline working |
 | 4 — Decompile `lime/common` | ✅ **complete — 109/109, every file verified** |
-| 5 — Native PC platform layer | 🔄 started — window, GL, textures, files, sound, music (Windows), saves |
+| 5 — Native PC platform layer | 🔄 started — window, GL, textures, files, sound, music (Windows), saves, focus pause; SDL2 music and the fight's input remain |
 | 6 — EA SDK stubs | ✅ complete — the 27 entry points the game calls, plus `LocaleManager`, in `runtime/gamecode_stubs.c` |
 | 7 — Decompile `gamecode` | ✅ 291/291 |
-| 8 — Decompile fight logic | ✅ 2,172/2,172 — behavioural triage in progress |
+| 8 — Decompile fight logic | ✅ 2,172/2,172 — behavioural triage done (see the results table) |
 | 9 — Widescreen, gamepad, mods | ⬜ not started |
 
 **Honest framing:** 2,572 of 2,572 functions have a body. The percentage is not the
