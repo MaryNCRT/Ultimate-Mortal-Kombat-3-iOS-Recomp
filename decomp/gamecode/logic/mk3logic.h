@@ -516,4 +516,17 @@ static inline long mk3_install(MK3THREAD *thread, MK3THREADFUNC handler)
     return 0;
 }
 
+/* `blx ___divsi3`: signed divide with the ARM result where C has none. A zero
+ * divisor gives 0 (what ARMv7 `sdiv` gives, and what the difftest oracle's
+ * stub returns) and INT_MIN / -1 gives INT_MIN. Plain `/` traps on x86 in both
+ * cases: t_rocket_hunt divides by a hypotenuse that can be 0. */
+static inline int32_t mk3_sdiv(int32_t a, int32_t b)
+{
+    if (b == 0)
+        return 0;
+    if (b == -1)
+        return (int32_t)(0u - (uint32_t)a);
+    return a / b;
+}
+
 #endif /* MK3LOGIC_H */

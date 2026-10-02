@@ -50,6 +50,7 @@ static volatile DWORD g_t0;
 static const char *volatile g_cur;
 
 static uint32_t g_fault_addr, g_fault_pc;
+static const char *g_unimpl = "";   /* the import or function that could not run */
 static unsigned long g_fault_code;
 /* a fault inside oracle code reached through a shim is the oracle's own
  * crash on this random state, not the C's: the scenario is skipped */
@@ -59,7 +60,10 @@ static LONG WINAPI crash_filter(EXCEPTION_POINTERS *ep)
 {
     g_fault_addr = ep->ExceptionRecord->NumberParameters > 1 ? (uint32_t)ep->ExceptionRecord->ExceptionInformation[1] : 0;
     g_fault_code = ep->ExceptionRecord->ExceptionCode;
-    g_fault_pc = (uint32_t)(uintptr_t)ep->ExceptionRecord->ExceptionAddress;
+    /* as a link-time address (image base 0x10000000), so it can be looked
+     * up with nm: the image is loaded wherever ASLR puts it */
+    g_fault_pc = (uint32_t)(uintptr_t)ep->ExceptionRecord->ExceptionAddress
+               - (uint32_t)(uintptr_t)GetModuleHandleA(0) + 0x10000000u;
     g_fault_in_shim = g_shim_depth > 0;
     if (g_in_run)
         longjmp(g_jb, 1);
@@ -185,6 +189,25 @@ static void scenario(const Test *t, uint32_t token)
         W(grobj(n) + 0x24) = rnd() % 40;
     }
 
+    /* field40 is the animation script pointer the a9 frame walker reads: half
+     * the time aim it at a script of small opcodes (0..0x13, the walker's
+     * jump table has 0x13 entries) with random arguments between them, so the
+     * table's cases run instead of the out-of-range default every time */
+    for (int n = 0; n < 2; n++) {
+        if (rnd() & 1) {
+            uint32_t S = ARENA + 0x1000u + (uint32_t)n * 0x1000u;
+            /* No handler addresses among the arguments: the position opcodes
+             * add an argument to a coordinate, and a handler there differs
+             * between its ARM and native forms (false positives in five a9
+             * functions). The cost: an opcode that calls a routine named in
+             * the script finds none and the oracle skips the scenario. */
+            for (uint32_t i = 0; i < 0x1000u / 4; i++)
+                W(S + i * 4) = (rnd() % 3) ? rnd() % 0x14 : pick();
+            W(plyr(n) + 0x40) = S;
+            W(grobj(n) + 0x40) = S + 0x800u;
+        }
+    }
+
     /* the probes and the walk routine are function pointers: give them real ones */
     if (n_preds) {
         for (int n = 0; n < 2; n++) {
@@ -275,15 +298,23 @@ static const AddrMap *find_arm(uint32_t v)
     return 0;
 }
 
-static void arm_to_native(void)
+static void arm_to_native_range(uint32_t lo, uint32_t hi)
 {
-    for (uint32_t a = GLOB_LO; a < GLOB_HI; a += 4) {
+    for (uint32_t a = lo; a < hi; a += 4) {
         uint32_t v = W(a);
         if ((v & 1) && v > 0x10000 && v < 0x100000) {
             const AddrMap *m = find_arm(v);
             if (m) W(a) = m->native;
         }
     }
+}
+
+static void arm_to_native(void)
+{
+    arm_to_native_range(GLOB_LO, GLOB_HI);
+    /* the a9 scripts scenario() writes into the arena call routines named in
+     * them: the C calls those natively (the arena is not compared) */
+    arm_to_native_range(ARENA + 0x1000u, ARENA + 0x3000u);
 }
 
 static void native_to_arm(uint8_t *img)
@@ -414,6 +445,10 @@ static int g_verbose, g_debug;
 void arm_unimplemented(const char *func, uint32_t addr, const char *text)
 {
     (void)func; (void)addr; (void)text;
+    /* reached from the C through a shim, it is the oracle that cannot
+     * answer, not the C that failed: skipped like a fault in a shim */
+    g_fault_in_shim = g_shim_depth > 0;
+    g_fault_code = 0; g_fault_pc = addr; g_fault_addr = 0; g_unimpl = func;
     if (g_in_run)
         longjmp(g_jb, 1);
     fprintf(stderr, "unimplemented outside a run: %s %s\n", func, text);
@@ -430,6 +465,18 @@ static int compare(const Test *t, uint32_t token, int32_t ro, int32_t rn)
     /* image */
     for (uint32_t i = 0; i < IMG_SZ && bad < 8; i += 4) {
         if (memcmp(orcI + i, resI + i, 4) != 0) {
+            /* a handler stored at any alignment outside the globals (KillProc
+             * writing t_self_terminate into a thread at a random address): the
+             * C left its native address where the oracle left the ARM one */
+            for (int j = (int)i - 3; j <= (int)i + 3; j++) {
+                uint32_t wo, wn; const AddrMap *m;
+                if (j < 0 || j + 4 > (int)IMG_SZ) continue;
+                memcpy(&wo, orcI + j, 4); memcpy(&wn, resI + j, 4);
+                if (wn > 0x400000u && (m = find_native(wn)) && m->arm == wo)
+                    memcpy(resI + j, orcI + j, 4);
+            }
+            if (memcmp(orcI + i, resI + i, 4) == 0)
+                continue;
             uint32_t a = IMG_LO + i, vo, vn;
             memcpy(&vo, orcI + i, 4); memcpy(&vn, resI + i, 4);
             /* a word seeded with a handler address and then moved by
@@ -437,8 +484,13 @@ static int compare(const Test *t, uint32_t token, int32_t ro, int32_t rn)
              * amount from their own form of the same function */
             int same = 0;
             for (int k = 0; k < g_naddr && !same; k++)
-                if (vn - g_addrmap[k].native == vo - g_addrmap[k].arm
-                    && vn - g_addrmap[k].native + 0x100000u < 0x200000u)
+                if ((vn - g_addrmap[k].native == vo - g_addrmap[k].arm
+                     && vn - g_addrmap[k].native + 0x100000u < 0x200000u)
+                    /* or negated (t_doice3: field48 = -field48) */
+                    || (0u - vn == g_addrmap[k].native && 0u - vo == g_addrmap[k].arm)
+                    /* or doubled / halved (t_bomb_gravity2: field48 <<= 1) */
+                    || (vn == g_addrmap[k].native << 1 && vo == g_addrmap[k].arm << 1)
+                    || (vn == g_addrmap[k].native >> 1 && vo == g_addrmap[k].arm >> 1))
                     same = 1;
             if (same)
                 continue;
@@ -473,8 +525,9 @@ static int test_one(const Test *t, int nsc, int *skipped, int *failed_scen)
             uint32_t arg = t->kind == 0 ? mytc(0) : plyr(0);
             int ok_o = run_oracle(t, arg, &ro);
             if (!ok_o) {
-                if (g_debug && *skipped < 4)
-                    printf("    skipped: code %lx at pc %#x, address %#x\n", g_fault_code, g_fault_pc, g_fault_addr);
+                if (g_debug && *skipped < 400)
+                    printf("    skipped: code %lx at pc %#x, address %#x %s\n", g_fault_code, g_fault_pc, g_fault_addr,
+                           g_fault_code ? "" : g_unimpl);
                 (*skipped)++;
                 continue;
             }
@@ -489,7 +542,7 @@ static int test_one(const Test *t, int nsc, int *skipped, int *failed_scen)
             }
             if (!ok_n) {
                 if (g_debug)
-                    printf("    C fault: code %lx at pc %#x, address %#x\n", g_fault_code, g_fault_pc, g_fault_addr);
+                    printf("    C fault: code %lx at pc %#x, address %#x, shim depth %d\n", g_fault_code, g_fault_pc, g_fault_addr, g_shim_depth);
                 printf("  %-28s token %#x: the C crashed where the oracle did not\n", t->name, token);
                 fails++; (*failed_scen)++;
                 if (fails >= 3) return fails;

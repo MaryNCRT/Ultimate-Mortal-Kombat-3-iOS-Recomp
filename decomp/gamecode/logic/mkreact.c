@@ -1404,11 +1404,21 @@ long t_r_elbow_knee(MK3THREAD *thread)
  *      if (frame[frame+1].w0 != 0) return -3
  *      am_i_close_to_edge(obj)
  *      obj->field1c = 0x30000
- *      obj->field38 = t_ken_masters_xfer
- *      takeover_him(obj)
- *      frame[frame].handler = t_stumble_back_vel
+ *      if (obj->field5c == 0) {
+ *          frame[frame].handler = t_stumble_back_vel
+ *      } else {                        -- at the edge: drag him along
+ *          obj->field38 = t_ken_masters_xfer
+ *          takeover_him(obj)
+ *          frame[frame].handler = t_block_exit
+ *      }
  *      frame[frame+1].w0 = 0
+ *
+ * The cbnz on 0x5c at 0x43274 was missing: the takeover only happens at the
+ * edge, and that path installs t_block_exit (0x448dd), not t_stumble_back_vel
+ * (difftest).
  */
+
+long t_block_exit(MK3THREAD *thread);
 
 long t_separate_us(MK3THREAD *thread)
 {
@@ -1419,10 +1429,13 @@ long t_separate_us(MK3THREAD *thread)
 
     am_i_close_to_edge(obj);
     obj->field1c = 0x30000;
+    if (obj->field5c == 0)
+        return mk3_push_handler(thread, (MK3THREADFUNC)t_stumble_back_vel);
+
     obj->field38 = (uint32_t)(uintptr_t)t_ken_masters_xfer;
     takeover_him(obj);
 
-    return mk3_push_handler(thread, (MK3THREADFUNC)t_stumble_back_vel);
+    return mk3_push_handler(thread, (MK3THREADFUNC)t_block_exit);
 }
 
 /* t_block3 -- armv7 0x00043698, 92 bytes.  **Complete.**
@@ -3450,12 +3463,11 @@ long t_pounce4(MK3THREAD *thread)
  * armv7 0x000470dc, a hundred and forty-eight bytes.
  *
  *      state 0
- *          part->field20 = 0x80000 ; part->field20's sibling on the other
- *              object = 0x80000                    ; 8.0
+ *          obj->field20 = obj->field08->field20 = 0x80000   ; 8.0
  *          token = 0x1cf ; thread->fieldfc = 1 ; return 1
  *      state 0x1cf
- *          obj->field1c = (int16_t)MK3_FIELD12(other)
- *          obj->field20 = other->field00->field40
+ *          obj->field1c = (int16_t)MK3_FIELD12(obj->field08)
+ *          obj->field20 = obj->field00->field40     (both corrected by difftest)
  *          if (obj->field20 > obj->field1c) sleep again
  *          stop_me_player(obj) ; ground_player(obj)
  *          pop
@@ -3472,7 +3484,7 @@ long t_slammed_slam_down(MK3THREAD *thread)
     uint32_t token = *mk3_frame(thread, thread->frame + 1);
 
     if (token == 0) {
-        obj->field00->field20 = 0x80000;        /* 8.0 in 16.16 */
+        obj->field20 = 0x80000;                 /* 8.0 in 16.16 */
         obj->field08->field20 = 0x80000;
 
         *mk3_frame(thread, thread->frame + 1) = 0x1cf;
@@ -3484,7 +3496,7 @@ long t_slammed_slam_down(MK3THREAD *thread)
         return -3;
 
     obj->field1c = (uint32_t)(int32_t)(int16_t)MK3_FIELD12(obj->field08);
-    obj->field20 = obj->field08->field00->field40;
+    obj->field20 = obj->field00->field40;       /* ldr r3,[r4]; ldr r3,[r3,#0x40] */
     if ((long)obj->field20 > (long)obj->field1c) {
         thread->fieldfc = 1;
         return 1;
@@ -3621,7 +3633,8 @@ long t_avoid_corner_trap_b(MK3THREAD *thread)
         return -3;
 
     thread->fieldf8 = thread->fieldf8 - 1;
-    obj->field00->p_hit = *mk3_arg(thread, thread->fieldf8);
+    obj->field1c = *mk3_arg(thread, thread->fieldf8);   /* str r1,[r2,#0x1c] */
+    obj->field00->p_hit = obj->field1c;
 
     if ((long)thread->frame > 0) {
         thread->frame = thread->frame - 1;
@@ -3934,16 +3947,16 @@ long t_b_duck_hit_soft(MK3THREAD *thread)
  *          obj->field54 = 0x50000                     ; 5.0
  *          am_i_short(obj)
  *          if (obj->field5c == 0)
- *              obj->field54 += 0x30000                ; 8.0 standing
+ *              obj->field54 = 0 + 0x30000             ; 3.0 standing
  *          obj->field1c = obj->field54 ; away_x_vel(obj)
  *          obj->field48 = 2 ; obj->p_hit = 3
  *          install t_block_shake_n_exit
  *
- * **The low punch's block pushes harder if you are NOT ducking.** field54
- * starts at 5.0 and gains 3.0 more -- to 8.0 -- unless `am_i_short` says the
- * victim is crouched. So blocking a low punch while standing costs more
- * ground than blocking it while already down, the opposite of what the
- * duck-hit pair above does for a hit that lands while ducking.
+ * **The push is 5.0 crouched, 3.0 standing.** The add at 0x44a10 is
+ * `add r3, r3, #0x30000` with r3 still holding field5c, which is zero on that
+ * path -- so it does not add to the 5.0, it replaces it with 3.0. An earlier
+ * reading took it as `field54 += 3.0` (8.0 standing); the differential test
+ * showed the binary leaves 3.0.
  *
  * This time the corner handover in field38 is `t_cc_punch` rather than
  * `t_cc_block_avoid_corner` -- the pause-and-pop routine, not the corner
@@ -3976,7 +3989,9 @@ long t_b_lo_punch(MK3THREAD *thread)
     obj->field54 = 0x50000;        /* 5.0 in 16.16 */
     am_i_short(obj);
     if (obj->field5c == 0)
-        obj->field54 = obj->field54 + 0x30000; /* +3.0 */
+        /* add r3,r3,#0x30000 with r3 = field5c, which is 0 here: the speed
+         * becomes 3.0, it is not 5.0 + 3.0 (difftest) */
+        obj->field54 = obj->field5c + 0x30000;
 
     obj->field1c = obj->field54;
     away_x_vel(obj);
@@ -4441,7 +4456,7 @@ long t_blast_through_anything(MK3THREAD *thread)
         ground_ochar(obj);
 
         obj->field00->field40 =
-            (uint16_t)(int16_t)MK3_FIELD12(obj->field08);   /* [header, #0x40] */
+            (uint32_t)(int32_t)(int16_t)MK3_FIELD12(obj->field08);   /* ldrsh: sign-extended (difftest) */
         obj->field38 = (uint32_t)(uintptr_t)t_back_to_the_fight;
         xfer_otherguy(obj);
 
@@ -5630,7 +5645,7 @@ long t_ken_masters_xfer(MK3THREAD *thread)
         move_slave_too(obj);
 
         other = obj->field08;
-        obj->field1c = other->field18 >> 1;
+        obj->field1c = (uint32_t)((int32_t)other->field18 >> 1);   /* asrs (difftest) */
         if ((int32_t)obj->field1c < 0)
             obj->field1c = (uint32_t)(-(int32_t)obj->field1c);
 
@@ -6373,7 +6388,12 @@ long t_r_hi_kick(MK3THREAD *thread)
         MK3OBJ *other;
 
         if (token == 0x602) {
+            /* 0x4555e: a10 = 10, then b 0x45548 -- park on 0x609 and return
+             * 1; the countdown starts next frame (difftest) */
             obj->a10 = 0xa;
+            *mk3_frame(thread, thread->frame + 1) = 0x609;
+            thread->fieldfc = 1;
+            return 1;
         } else {
             other = obj->field08;
             obj->field1c = other->field18;
@@ -7280,7 +7300,8 @@ long t_r_combo5(MK3THREAD *thread)
         /* obj->field00->field04->field24 -- field04 is not a struct field
          * anywhere else in this file, so read raw rather than invent one. */
         uint8_t *inner = *(uint8_t **)((uint8_t *)obj->field00 + 4);
-        if (*(uint32_t *)(inner + 0x24) == 0xd)
+        obj->field1c = *(uint32_t *)(inner + 0x24);  /* str r3,[r4,#0x1c] (difftest) */
+        if (obj->field1c == 0xd)
             set_quarter_damage(obj);
         else
             set_half_damage(obj);
@@ -7444,7 +7465,7 @@ void me_in_back(MK3OBJ *obj);
  *              }
  *              obj->field1c = 0x610 ; obj->field00->field18 = 0x610
  *              other = obj->field08
- *              other->field2c = other->field30 & ~8 ; other->field30 = other->field2c
+ *              obj->field2c = other->field30 & ~8 ; other->field30 = obj->field2c
  *              player_froze_pal(obj)
  *              other = obj->field08 ; obj->field1c = other->field24
  *              if (other->field24 == 0xa) {
@@ -7452,15 +7473,13 @@ void me_in_back(MK3OBJ *obj);
  *                  if ((unsigned)(obj->field1c - 0x811) <= 3) {
  *                      obj->field40 = 1 ; pose2_a9_manual(obj)
  *                  }
- *                  -- falls into the shake-loop push below
- *              } else {
- *                  obj->field1c = 4 ; obj->field20 = 3 ; obj->field24 = 2
  *              }
+ *              obj->field1c = 4 ; obj->field20 = 3 ; obj->field24 = 2   (both paths)
  *              push t_shake_ob_up                       (0x11b6)
  *          }
  *      state 0x11b6
- *          obj->field1c = 4 ; obj->field20 = 3 ; obj->field24 = 2
- *          push t_shake_ob_up                           (0x11b6)      ; loop
+ *          obj->field1c = 4 ; obj->field20 = 3 ; obj->field24 = 8
+ *          push t_shake_ob_up                           (0x11bb: a second shake, then the wait)
  *      state 0x11bb
  *          token = 0x11bd ; thread->fieldfc = 0x60 ; return 0x60
  *      state 0x11bd  (also reached by fall-through, see above)
@@ -7497,7 +7516,9 @@ long t_r_freeze(MK3THREAD *thread)
         obj->field20 = 3;
         obj->field24 = 3 + 5;   /* corrected: `adds r3, #5`, not the decrement of the other path */
 
-        *mk3_frame(thread, thread->frame + 1) = 0x11b6;
+        /* str r0 with r0 = 0x11bb, the dispatch's first compare (difftest):
+         * the second shake resumes into the 0x60-frame wait */
+        *mk3_frame(thread, thread->frame + 1) = 0x11bb;
         thread->frame = thread->frame + 1;
         mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_shake_ob_up;
         *mk3_frame(thread, thread->frame + 1) = 0;
@@ -7562,8 +7583,8 @@ state_11bd:
     obj->field00->field18 = 0x610;
 
     other = obj->field08;
-    other->field2c = other->field30 & ~8u;
-    other->field30 = other->field2c;
+    obj->field2c = other->field30 & ~8u;        /* str r3,[r4,#0x2c]: obj's (difftest) */
+    other->field30 = obj->field2c;
 
     player_froze_pal(obj);
 
@@ -7576,11 +7597,11 @@ state_11bd:
             obj->field40 = 1;
             pose2_a9_manual(obj);
         }
-    } else {
-        obj->field1c = 4;
-        obj->field20 = 3;
-        obj->field24 = 2;
     }
+    /* both paths reach 0x46054 (difftest) */
+    obj->field1c = 4;
+    obj->field20 = 3;
+    obj->field24 = 2;
 
     *mk3_frame(thread, thread->frame + 1) = 0x11b6;
     thread->frame = thread->frame + 1;
@@ -7629,7 +7650,7 @@ void multi_adjust_xy(MK3OBJ *obj);
  *          if (!obj->field5c) obj->field1c = -obj->field1c
  *          -- both paths converge here:
  *          set_x_vel_player(obj)
- *          obj->a10 = 3 ; obj->field40 += 1 ; obj->field48 = obj->field40 + 0x3c
+ *          obj->a10 = 3 ; obj->field40 = 4 ; obj->field48 = 0x40   (one register)
  *          -- falls into the sleep below
  *      state 0x3b3
  *          token = 0x3b3 ; thread->fieldfc = 1 ; return 1       ; the sleep
@@ -7749,9 +7770,11 @@ long t_r_fan_lift(MK3THREAD *thread)
 fan_lift_launch:
     set_x_vel_player(obj);
 
+    /* one register: movs r3,#3 / adds r3,#1 / adds r3,#0x3c -- constants
+     * 3, 4 and 0x40, not field40 + 1 (difftest) */
     obj->a10 = 3;
-    obj->field40 = obj->field40 + 1;
-    obj->field48 = obj->field40 + 0x3c;
+    obj->field40 = 3 + 1;
+    obj->field48 = 3 + 1 + 0x3c;
 
     *mk3_frame(thread, thread->frame + 1) = 0x3b3;
     thread->fieldfc = 1;
@@ -8589,11 +8612,10 @@ long t_r_sweep(struct MK3THREAD *thread)
  * whether the stick was held right after `shake_n_sound` -- either jumps
  * straight to `t_mframew`, or spends three separate pushes of `t_d_beware`
  * chained by self-resumes in between (0xdf2 -> 0xdf6 -> 0xdf7 -> 0xdf8 ->
- * 0xdf9 -> 0xdfa, which loops back to 0xdf8 rather than falling out on its
- * own). `t_d_beware` is what actually breaks that loop, by writing 0xdfb or
- * 0xe01 into this level's own resume slot before it pops back down here --
- * both land on the same next step, `t_check_stay_down`, which is outside
- * this function's own 492 bytes to trace further.
+ * 0xdf9 -> 0xdfa -> 0xdfb). 0xdfa resumes at 0xdfb, not 0xdf8: the token is
+ * r1, still the dispatch's compare constant 0xdfb -- an earlier reading had
+ * it loop back, the differential test showed it does not. 0xdfb and 0xe01
+ * both land on the same next step, `t_check_stay_down`.
  *
  * `MK3OBJPROC.field5c` is named here for the first time: `t_sweep3` clears
  * it (state 0xdea's stick-held branch) right after `shake_n_sound`, a single
@@ -8621,7 +8643,7 @@ long t_r_sweep(struct MK3THREAD *thread)
  *      state 0xdf9
  *          push t_d_beware                                    (0xdfa)
  *      state 0xdfa
- *          resume self at 0xdf8 after 1 frame
+ *          resume self at 0xdfb after 1 frame
  *      state 0xdfb, 0xe01
  *          push t_check_stay_down                              (0xe05)
  *      state 0xe05
@@ -8656,7 +8678,8 @@ long t_sweep3(struct MK3THREAD *thread)
     }
 
     if (token == 0xdfa) {
-        *mk3_frame(thread, thread->frame + 1) = 0xdf8;
+        /* str r1 with r1 = 0xdfb, the dispatch's compare constant (difftest) */
+        *mk3_frame(thread, thread->frame + 1) = 0xdfb;
         thread->fieldfc = 1;
         return 1;
     }
@@ -11210,7 +11233,7 @@ long t_rek3(struct MK3THREAD *thread)
  *              shift ; install obj->field30
  *          (falls into the field38 check below when field30 == 0, or when
  *           field30 != 0 but not airborne)
- *      field38 check (also reached from state 0x1038's restore, below)
+ *      field38 check
  *          if obj->field38 != 0
  *              *mk3_arg(thread, thread->fieldf8++) = obj->field34
  *              push obj->field38                             (0x1038)
@@ -11233,7 +11256,8 @@ long t_rek3(struct MK3THREAD *thread)
  *                  else: install t_local_reaction_exit
  *      state 0x1038
  *          obj->field34 = *mk3_arg(thread, --thread->fieldf8)
- *          (rejoin the field38 check above)
+ *          (rejoin at the field34 test, PAST the field38 check: b 0x4745e.
+ *           Re-testing field38 would push its handler again -- difftest)
  */
 long t_rst5(struct MK3THREAD *thread)
 {
@@ -11244,7 +11268,7 @@ long t_rst5(struct MK3THREAD *thread)
     if (token == 0x1038) {
         thread->fieldf8 = thread->fieldf8 - 1;
         obj->field34 = *mk3_arg(thread, thread->fieldf8);
-        goto rst5_field38_check;
+        goto rst5_field34_check;        /* b 0x4745e: past the field38 test (difftest) */
     }
 
     if (token != 0)
@@ -11273,6 +11297,7 @@ rst5_field38_check:
         return 0;
     }
 
+rst5_field34_check:
     if (obj->field34 == 0) {
         if ((int32_t)thread->frame > 0) {
             thread->frame = thread->frame - 1;
