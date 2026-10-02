@@ -45,6 +45,8 @@ long  lime_gl_fill_count(void);
 void  Task_LoadGeneralData(void);
 int   FEInit_LoadABit(long step);
 void  Task_FEMain(void);
+void  limeBegin(void);
+void  limeFinish(void);
 
 extern float limeTouchScreenX[], limeTouchScreenY[];
 extern float limeLastTouchScreenX[], limeLastTouchScreenY[];
@@ -197,7 +199,13 @@ int main(int argc, char **argv)
          * A shot needs the ticks to have happened, so it counts them rather
          * than swaps. */
         while (acc >= 1.0 / 60.0) {
+            /* GameCodeMain's order: limeBegin, the task, limeFinish. limeBegin
+             * is what writes limeSidewaysMat, which LIMEDS_Set3dMode multiplies
+             * into every 3D projection -- skip it and the matrix stays zero and
+             * the main menu's vortex is never drawn. */
+            limeBegin();
             Task_FEMain();
+            limeFinish();
             acc -= 1.0 / 60.0;
             frames++;
         }
