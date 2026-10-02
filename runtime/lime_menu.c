@@ -38,6 +38,7 @@
  * faster, and `lime_menu_set_fps_scale` is how.
  */
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -213,7 +214,8 @@ void glRotatef(float angle, float x, float y, float z)
  * `python tools/cd.py limeLoadSound limePlaySound limePlayTune ...` -- and is
  * kept here, down to the quirks:
  *
- *   limeInitAudio      clears the 512-entry sound table (0x171c38)
+ *   limeInitSound      calls limeInitAudio, which clears the 512-entry
+ *                      sound table (0x171c38)
  *   limeLoadSound      the first EMPTY slot gets [Sound initWithFile:
  *                      "res/audio/<name>.wav"] and its index is returned --
  *                      from 0, -1 only when all 512 are taken. A file that
@@ -244,7 +246,8 @@ static long       g_sounds_played;
 
 long lime_menu_sounds_played(void) { return g_sounds_played; }
 
-void limeInitSound(void)
+/* [[Finch alloc] init], then the table cleared -- 0x200 words */
+void limeInitAudio(void)
 {
     int i;
 
@@ -253,6 +256,11 @@ void limeInitSound(void)
         free(g_sound[i].pcm);
         g_sound[i].pcm = NULL;
     }
+}
+
+void limeInitSound(void)
+{
+    limeInitAudio();                    /* all it does on device */
 }
 
 long limeLoadSound(const char *name)
@@ -292,18 +300,40 @@ void limePlaySound(long h, float v, float p, long f)
     plat_audio_play_at(g_sound[h].pcm, g_sound[h].frames, g_sound[h].rate, v);
 }
 
+/* limePlayTune keeps the path, the loop flag and the volume (lasttunevol,
+ * lasttuneloop) for limeRestartPlayTune -- and sets the volume to -1 for a
+ * tune that does not repeat, which is what makes the restart skip it. */
+static char g_tune_path[1400];
+static long g_tune_vol = -1, g_tune_loop;
+
 void limePlayTune(const char *name, long vol, long loop)
 {
-    char rel[300], full[1400];
+    char rel[300];
 
     snprintf(rel, sizeof rel, "res/audio/%s", name);
-    lime_platform_resolve(rel, full, sizeof full);
+    lime_platform_resolve(rel, g_tune_path, sizeof g_tune_path);
+    g_tune_loop = loop;
+    g_tune_vol  = loop ? vol : -1;
     plat_music_volume((float)vol / 100.0f);
-    plat_music_play(full, loop != 0);
+    plat_music_play(g_tune_path, loop != 0);
+}
+
+/* What the app delegate calls on returning to the foreground: the last
+ * repeating tune again, from the start, at the last volume. */
+void limeRestartPlayTune(void)
+{
+    if (g_tune_vol == -1)
+        return;
+    plat_music_volume((float)g_tune_vol / 100.0f);
+    plat_music_play(g_tune_path, g_tune_loop != 0);
 }
 
 void limeStopTune(void)               { plat_music_stop(); }
-void limeSetTuneVol(long v)           { plat_music_volume((float)v / 100.0f); }
+void limeSetTuneVol(long v)
+{
+    g_tune_vol = v;                     /* lasttunevol, as limeSetTuneVol stores it */
+    plat_music_volume((float)v / 100.0f);
+}
 void limeCheckForUserMusic(void)      { }
 
 
@@ -453,6 +483,20 @@ void limeMemoryReport(const char *tag) { (void)tag; }
 
 void *limeMalloc(const char *tag, size_t bytes);
 
+/* limeLog is EMPTY in the shipped binary (push the varargs, pop, return), so
+ * nothing above was ever printed on device. UMK3_LOG=1 prints it here. */
+void limeLog(const char *fmt, ...)
+{
+    va_list ap;
+    const char *on = getenv("UMK3_LOG");
+
+    if (!on || !*on)
+        return;
+    va_start(ap, fmt);
+    vprintf(fmt, ap);
+    va_end(ap);
+}
+
 static void save_dir(char *out, size_t n)
 {
     const char *e = getenv("UMK3_SAVE_DIR");
@@ -505,7 +549,7 @@ void *limeLoadSaveFile(const char *name)
 
     f = fopen(path, "rb");
     if (f == NULL) {
-        printf("*** Load failed: %s\n", name);
+        limeLog("*** Load failed: %s\n", name);
         return NULL;
     }
     fseek(f, 0, SEEK_END);
@@ -515,11 +559,11 @@ void *limeLoadSaveFile(const char *name)
     if (buf == NULL || (n > 0 && fread(buf, 1, (size_t)n, f) != (size_t)n)) {
         fclose(f);
         limeFree(buf);
-        printf("*** Load failed: %s\n", name);
+        limeLog("*** Load failed: %s\n", name);
         return NULL;
     }
     fclose(f);
-    printf("*** Loaded %s, of size %d bytes\n", name, (int)n);
+    limeLog("*** Loaded %s, of size %d bytes\n", name, (int)n);
     return buf;
 }
 
