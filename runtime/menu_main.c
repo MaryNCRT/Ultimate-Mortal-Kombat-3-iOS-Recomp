@@ -175,6 +175,7 @@ int main(int argc, char **argv)
             acc -= 1.0 / 60.0;
             frames++;
         }
+        plat_audio_update();            /* the clicks and the menu tune */
 
         /* UMK3_SHOT=<n> ticks n times, saves the buffer and quits. Before the
          * swap: after it the back buffer is no longer what was just drawn. The

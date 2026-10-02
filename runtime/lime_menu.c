@@ -16,15 +16,18 @@
  * a stub that lies about them would produce a menu that behaves differently
  * from the original for reasons nobody could trace.
  *
- * **Not real:** anything whose only effect is on the glass or the speaker.
- * Sound, tunes, vibration, the modal dialogs and the loading spinner do
- * nothing. They are recorded where recording is cheap, so a test can assert a
- * click was requested without a device to hear it.
+ * **Sound is real** since 2026-10-02: sounds and tunes go to platform.h's
+ * mixer, with the semantics read off the binary (see the sound section).
+ * `limePlaySound` still counts, so a test can assert a click was requested
+ * without a device to hear it.
+ *
+ * **Not real:** vibration, the modal dialogs and the loading spinner -- their
+ * only effect is on the glass or the hand, and nothing reads them back.
  *
  * The line between the two is not "is it easy" -- it is **does the game read it
  * back**. `limeGetStringWidth` is in `decomp/lime/limeFont.c` because the front
- * end lays out text against the answer; `limePlaySound` is a counter because
- * nothing ever asks how the note sounded.
+ * end lays out text against the answer; nothing ever asks how a note sounded,
+ * so sound needs no more than to be heard.
  *
  * ## limeFPSScaleFactor is 1.0 and that is a decision
  *
@@ -40,6 +43,8 @@
 #include <string.h>
 
 #include "../decomp/lime/lime.h"
+#include "platform/platform.h"
+#include "wav.h"
 
 
 /* ------------------------------------------------------------------ screen */
@@ -201,32 +206,104 @@ void glRotatef(float angle, float x, float y, float z)
 #endif  /* !UMK3_REAL_GL */
 
 
-/* ------------------------------------------------------------------- sound */
+/* ------------------------------------------------------------------- sound
+ *
+ * The iOS layer is Finch (one-shot `Sound` objects) and `GBMusicTrack` (one
+ * streamed tune). What each entry point does was read off the binary --
+ * `python tools/cd.py limeLoadSound limePlaySound limePlayTune ...` -- and is
+ * kept here, down to the quirks:
+ *
+ *   limeInitAudio      clears the 512-entry sound table (0x171c38)
+ *   limeLoadSound      the first EMPTY slot gets [Sound initWithFile:
+ *                      "res/audio/<name>.wav"] and its index is returned --
+ *                      from 0, -1 only when all 512 are taken. A file that
+ *                      fails to load leaves the slot empty and still returns
+ *                      the index, so the next load reuses it.
+ *   limePlaySound      id == -1 does nothing; otherwise `play`, then
+ *                      `setGain:` with the second argument. The third and
+ *                      fourth arguments are never read.
+ *   limePlayTune       "res/audio/<name>", repeat if `loop`, gain vol / 100.
+ *   limeSetTuneVol     gain vol / 100.
+ *   limeStopTune       close and release the tune.
+ *
+ * The mixer under it is platform.h's: silent, not broken, without a device.
+ */
 
-static long g_sounds_played;
-static long g_next_sound_handle = 1;
+void lime_platform_resolve(const char *rel, char *out, size_t n);
+
+#define LIME_SOUNDS 512
+
+typedef struct {
+    unsigned char *pcm;          /* NULL: the slot is empty */
+    int            frames;
+    int            rate;
+} lime_sound;
+
+static lime_sound g_sound[LIME_SOUNDS];
+static long       g_sounds_played;
 
 long lime_menu_sounds_played(void) { return g_sounds_played; }
 
-void limeInitSound(void) { }
+void limeInitSound(void)
+{
+    int i;
+
+    plat_audio_open(16000);             /* 496 of the 497 files are 16 kHz */
+    for (i = 0; i < LIME_SOUNDS; i++) {
+        free(g_sound[i].pcm);
+        g_sound[i].pcm = NULL;
+    }
+}
 
 long limeLoadSound(const char *name)
 {
-    (void)name;
-    /* A distinct non-zero handle per load. Zero would read as "failed" and the
-     * front end skips the click on a zero handle, which would quietly hide a
-     * real loading bug later. */
-    return g_next_sound_handle++;
+    char rel[160], full[1200];
+    long i;
+
+    for (i = 0; i < LIME_SOUNDS; i++)
+        if (!g_sound[i].pcm)
+            break;
+    if (i == LIME_SOUNDS)
+        return -1;
+
+    snprintf(rel, sizeof rel, "res/audio/%s.wav", name);
+    lime_platform_resolve(rel, full, sizeof full);
+    if (!wav_load_u8(full, &g_sound[i].pcm, &g_sound[i].frames, &g_sound[i].rate))
+        g_sound[i].pcm = NULL;          /* as on device: the index, an empty slot */
+    return i;
 }
 
-void limeDeleteSound(long h)                 { (void)h; }
+void limeDeleteSound(long h)
+{
+    if (h < 0 || h >= LIME_SOUNDS)
+        return;
+    free(g_sound[h].pcm);
+    g_sound[h].pcm = NULL;
+}
+
 void limePlaySound(long h, float v, float p, long f)
-{ (void)h; (void)v; (void)p; (void)f; g_sounds_played++; }
+{
+    (void)p; (void)f;                   /* not read by the original either */
+    if (h == -1)
+        return;
+    g_sounds_played++;
+    if (h < 0 || h >= LIME_SOUNDS || !g_sound[h].pcm)
+        return;
+    plat_audio_play_at(g_sound[h].pcm, g_sound[h].frames, g_sound[h].rate, v);
+}
 
 void limePlayTune(const char *name, long vol, long loop)
-{ (void)name; (void)vol; (void)loop; }
-void limeStopTune(void)               { }
-void limeSetTuneVol(long v)           { (void)v; }
+{
+    char rel[300], full[1400];
+
+    snprintf(rel, sizeof rel, "res/audio/%s", name);
+    lime_platform_resolve(rel, full, sizeof full);
+    plat_music_volume((float)vol / 100.0f);
+    plat_music_play(full, loop != 0);
+}
+
+void limeStopTune(void)               { plat_music_stop(); }
+void limeSetTuneVol(long v)           { plat_music_volume((float)v / 100.0f); }
 void limeCheckForUserMusic(void)      { }
 
 
@@ -345,23 +422,135 @@ long limeRand(void) { return rand(); }
 
 void limeMemoryReport(const char *tag) { (void)tag; }
 
-/* The save file. Returning NULL is the "no save yet" path the game already
- * handles -- Reset_SaveData runs and the tower starts empty -- so this is a
- * real answer rather than a stub that pretends. */
-/* One argument, not two. All sixteen call sites in the decomp pass only the
- * name; the size parameter was added here on the assumption that a loader
- * reports a length, and the caller then supplied whatever happened to be in
- * that register -- which this function wrote a zero through. */
+/* ------------------------------------------------------------- save files
+ *
+ * Read off the binary (`python tools/cd.py limeLoadSaveFile limeWriteFile`):
+ *
+ *   limeLoadSaveFile(name)   NSData dataWithContentsOfFile:
+ *                            "<home>/Documents/<name>"; nil -> log "*** Load
+ *                            failed: %s" and return NULL; else malloc(length),
+ *                            getBytes:, log "*** Loaded %s, of size %d bytes"
+ *                            and return the copy (the caller limeFree()s it).
+ *   limeWriteFile(name, data, size)
+ *                            dataWithBytes:length: then writeToFile:atomically:
+ *                            YES; returns that BOOL. No caller reads it.
+ *
+ * One argument to the loader, not two: all the call sites pass only the name.
+ * NULL is the "no save yet" path the game handles -- Reset_SaveData runs and
+ * the tower starts empty.
+ *
+ * `Documents/` becomes UMK3_SAVE_DIR if set, else %APPDATA%/UMK3 on Windows
+ * and $XDG_DATA_HOME/umk3 (~/.local/share/umk3) elsewhere. The directory is
+ * made on the first write.
+ */
+#ifdef _WIN32
+#include <direct.h>
+#define lime_mkdir(p) _mkdir(p)
+#else
+#include <sys/stat.h>
+#define lime_mkdir(p) mkdir((p), 0755)
+#endif
+
+void *limeMalloc(const char *tag, size_t bytes);
+
+static void save_dir(char *out, size_t n)
+{
+    const char *e = getenv("UMK3_SAVE_DIR");
+
+    if (e && *e) {
+        snprintf(out, n, "%s", e);
+        return;
+    }
+#ifdef _WIN32
+    e = getenv("APPDATA");
+    snprintf(out, n, "%s/UMK3", (e && *e) ? e : ".");
+#else
+    e = getenv("XDG_DATA_HOME");
+    if (e && *e)
+        snprintf(out, n, "%s/umk3", e);
+    else {
+        e = getenv("HOME");
+        snprintf(out, n, "%s/.local/share/umk3", (e && *e) ? e : ".");
+    }
+#endif
+}
+
+/* Make the save directory and its parents; existing ones are fine. */
+static void make_dirs(char *path)
+{
+    char *p;
+
+    for (p = path + 1; *p; p++) {
+        if (*p == '/' || *p == '\\') {
+            char c = *p;
+            if (p[-1] == ':')           /* "C:/" is the drive, not a directory */
+                continue;
+            *p = 0;
+            lime_mkdir(path);
+            *p = c;
+        }
+    }
+    lime_mkdir(path);
+}
+
 void *limeLoadSaveFile(const char *name)
 {
-    (void)name;
-    return NULL;                        /* no save file: the first-run path */
+    char dir[600], path[800];
+    FILE *f;
+    long n;
+    void *buf;
+
+    save_dir(dir, sizeof dir);
+    snprintf(path, sizeof path, "%s/%s", dir, name);
+
+    f = fopen(path, "rb");
+    if (f == NULL) {
+        printf("*** Load failed: %s\n", name);
+        return NULL;
+    }
+    fseek(f, 0, SEEK_END);
+    n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    buf = limeMalloc("savefile", n > 0 ? (size_t)n : 1);
+    if (buf == NULL || (n > 0 && fread(buf, 1, (size_t)n, f) != (size_t)n)) {
+        fclose(f);
+        limeFree(buf);
+        printf("*** Load failed: %s\n", name);
+        return NULL;
+    }
+    fclose(f);
+    printf("*** Loaded %s, of size %d bytes\n", name, (int)n);
+    return buf;
 }
 
 long limeWriteFile(const char *name, const void *data, long size)
 {
-    (void)name; (void)data;
-    return size;
+    char dir[600], path[800], tmp[820];
+    FILE *f;
+    int ok;
+
+    save_dir(dir, sizeof dir);
+    make_dirs(dir);
+    snprintf(path, sizeof path, "%s/%s", dir, name);
+    snprintf(tmp, sizeof tmp, "%s.tmp", path);
+
+    /* atomically:YES -- a crash mid-write leaves the old file, not half of
+     * the new one */
+    f = fopen(tmp, "wb");
+    if (f == NULL)
+        return 0;
+    ok = size <= 0 || fwrite(data, 1, (size_t)size, f) == (size_t)size;
+    ok = (fclose(f) == 0) && ok;
+    if (!ok) {
+        remove(tmp);
+        return 0;
+    }
+    remove(path);                       /* rename() does not replace on Windows */
+    if (rename(tmp, path) != 0) {
+        remove(tmp);
+        return 0;
+    }
+    return 1;
 }
 
 

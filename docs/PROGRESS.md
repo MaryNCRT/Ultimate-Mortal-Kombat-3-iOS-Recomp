@@ -215,10 +215,10 @@ one**, and only one of them has ever been measured.
 ## Overall progress
 
 ```
-██████████████████████████████████░░░░░░  85.55%
+███████████████████████████████████░░░░░  86.57%
 ```
 
-**85.55% of the total estimated effort. Nothing is playable yet.**
+**86.57% of the total estimated effort. Nothing is playable yet.**
 
 Weights are our judgement of how much of the total each area represents. The
 three decompilation figures are **measured from the tree** by
@@ -240,7 +240,7 @@ there is no function left to transcribe, only bodies left to prove.
 | `lime/common` — engine core (109 fn) | 12% | **100%** | `██████████` |
 | `gamecode` — game logic (291 fn) | 18% | **100%** | `██████████` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | **100%** | `██████████` |
-| Native PC platform layer (161 fn to rewrite) | 17% | 15% | `██░░░░░░░░` |
+| Native PC platform layer (161 fn to rewrite) | 17% | 21% | `██░░░░░░░░` |
 | EA SDK stubs (27 fn the game calls) | 5% | 100% | `██████████` |
 
 **The platform layer shrank twice.** It used to read "229 fn rewritten".
@@ -249,12 +249,16 @@ there is no function left to transcribe, only bodies left to prove.
 `ES1Renderer.m` and `ES2Renderer.m`, which are Apple's `GLES2Sample` template
 with the method sets matching exactly. Both have published, readable, legally
 reusable sources. **68 of 229 — 30% — need no reverse engineering**, leaving
-161. **15%, measured 2026-10-02:** of the 49 C entry points in `lime/iphone/lime.m`,
-46 have a native definition in `runtime/`, and about 25 of those do real work
+161. **21%, measured 2026-10-02:** of the 49 C entry points in `lime/iphone/lime.m`,
+46 have a native definition in `runtime/`, and about 34 of those do real work
 (GL state, sprite and rect drawing, texture and file loading, the heap, the
-language query). Audio, save files and the face-me sprites are still empty
-bodies, and the ~180 Objective-C methods (views, controllers, renderers, Finch)
-are replaced by the SDL2/GL backend rather than rewritten one by one.
+language query, and since 2026-10-02 sound, music and save files -- each one
+transcribed from what the binary does, see `runtime/lime_menu.c`). Music plays
+on the Win32 backend only (MCI decodes the MP3s; SDL2's core cannot). The
+face-me sprites are still empty bodies -- 672 bytes of NEON per entry point,
+used only by the fight's particles -- and the ~180 Objective-C methods (views,
+controllers, renderers, Finch) are replaced by the SDL2/GL backend rather than
+rewritten one by one.
 
 ### Milestones
 
@@ -281,7 +285,7 @@ are replaced by the SDL2/GL backend rather than rewritten one by one.
 | 2 — Verification oracle | ✅ complete and proven |
 | 3 — Ghidra automation | ✅ headless pipeline working |
 | 4 — Decompile `lime/common` | ✅ **complete — 109/109, every file verified** |
-| 5 — Native PC platform layer | 🔄 started — window, GL, textures, files; no audio, no saves |
+| 5 — Native PC platform layer | 🔄 started — window, GL, textures, files, sound, music (Windows), saves |
 | 6 — EA SDK stubs | ✅ complete — the 27 entry points the game calls, plus `LocaleManager`, in `runtime/gamecode_stubs.c` |
 | 7 — Decompile `gamecode` | ✅ 291/291 |
 | 8 — Decompile fight logic | ✅ 2,172/2,172 — behavioural triage in progress |

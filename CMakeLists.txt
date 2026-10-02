@@ -33,6 +33,7 @@ add_executable(umk3-menu
     runtime/gamecode_stubs.c
     runtime/lime_menu.c
     runtime/lime_platform.c
+    runtime/wav.c
     ${UMK3_MENU_GAMECODE}
     ${UMK3_MENU_LIME}
     ${UMK3_MENU_RUNLIME}
@@ -52,6 +53,7 @@ add_executable(umk3-fight
     runtime/fight_scene.c
     runtime/fight_render.c
     runtime/fight_audio.c
+    runtime/wav.c
     runtime/fight_select.c
     runtime/fight_stubs.c
     runtime/lime/meshset.c
@@ -77,6 +79,7 @@ add_executable(umk3-test
     runtime/fight_scene.c
     runtime/fight_render.c
     runtime/fight_audio.c
+    runtime/wav.c
     runtime/fight_select.c
     runtime/fight_stubs.c
     runtime/draw_gl.c
@@ -115,8 +118,9 @@ if(UMK3_BACKEND STREQUAL "win32")
     endif()
     target_sources(umk3 PRIVATE runtime/platform/win32_gl.c)
     target_link_libraries(umk3 PRIVATE opengl32 gdi32)
-    target_sources(umk3-menu PRIVATE runtime/platform/win32_gl.c)
-    target_link_libraries(umk3-menu PRIVATE opengl32 gdi32)
+    target_sources(umk3-menu PRIVATE runtime/platform/win32_gl.c
+                                    runtime/platform/win32_audio.c)
+    target_link_libraries(umk3-menu PRIVATE opengl32 gdi32 winmm)
     target_sources(umk3-fight PRIVATE runtime/platform/win32_gl.c
                                      runtime/platform/win32_audio.c)
     target_link_libraries(umk3-fight PRIVATE opengl32 gdi32 winmm)
@@ -127,7 +131,8 @@ elseif(UMK3_BACKEND STREQUAL "sdl2")
     find_package(SDL2 REQUIRED)
     find_package(OpenGL REQUIRED)
     target_sources(umk3 PRIVATE runtime/platform/sdl_gl.c)
-    target_sources(umk3-menu PRIVATE runtime/platform/sdl_gl.c)
+    target_sources(umk3-menu PRIVATE runtime/platform/sdl_gl.c
+                                    runtime/platform/sdl_audio.c)
     target_include_directories(umk3-menu PRIVATE ${SDL2_INCLUDE_DIRS})
     target_link_libraries(umk3-menu PRIVATE ${SDL2_LIBRARIES} OpenGL::GL m)
     # SDL2_INCLUDE_DIRS is the spelling the Debian/Ubuntu config module uses;

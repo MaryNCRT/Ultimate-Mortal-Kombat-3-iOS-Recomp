@@ -263,6 +263,7 @@ int main(int argc, char **argv)
                 Task_FEMain();
                 acc -= 1.0 / 60.0;
             }
+            plat_audio_update();        /* the menu's clicks and tune */
             hint(ww, wh);
         }
 
