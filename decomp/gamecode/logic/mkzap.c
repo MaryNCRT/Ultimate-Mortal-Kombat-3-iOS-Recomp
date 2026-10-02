@@ -4898,8 +4898,10 @@ long t_sz_post_zap(MK3THREAD *thread)
     obj->field1c = obj->field08->field24;
 
     if (obj->field1c == 0x15) {              /* one character, unnamed */
-        obj->field40 = 0x24 - 4;
-        obj->field54 = 0x24 - 4 - 0xe;       /* the same register */
+        /* r3 holds the character (0x15) here, not the 0x24 from above:
+         * `subs r3, #4` / `subs r3, #0xe` (difftest) */
+        obj->field40 = 0x15 - 4;
+        obj->field54 = 0x15 - 4 - 0xe;       /* the same register */
         find_ani2_part_a14(obj);
     }
 
@@ -5088,7 +5090,7 @@ long t_osz_forward_entry(MK3THREAD *thread)
         obj->field20 = 0x2d00a4;
         obj->field24 = 0x10006c;
 
-        *mk3_frame(thread, frame + 1) = 0x86b;
+        *mk3_frame(thread, frame + 1) = 0x871;   /* r1, re-loaded with 0x871 by the dispatch (difftest) */
         thread->frame = thread->frame + 1;   /* push a level */
         next_handler = (uint32_t)(uintptr_t)t_ice_collision_check;
         goto install_shared;
@@ -5845,16 +5847,16 @@ long tl_jzap3(MK3THREAD *thread)
     if (slot != 0)
         return -3;
 
-    if (obj->field08->field28 & 0x10) {
+    if (obj->field08->field28 & 0x10)
         MK3_SET_FIELD0E(obj->field08, MK3_FIELD0E(obj->field08) + 0xa);
-
-        obj->field00->field3c = obj->field1c;
-        obj->a10               = 0;
-        obj->field20            = 0x20;
-        zap_init_special_act(obj);
-    } else {
+    else
         MK3_SET_FIELD0E(obj->field08, MK3_FIELD0E(obj->field08) - 0xa);
-    }
+
+    /* both sides join here (`b #0x7ab42`; difftest) */
+    obj->field00->field3c = obj->field1c;
+    obj->a10               = 0;
+    obj->field20            = 0x20;
+    zap_init_special_act(obj);
 
     obj->field1c = 0;
     ochar_sound(obj);
@@ -6097,30 +6099,49 @@ long t_saw_strike_check(MK3THREAD *thread)
     if (obj->field5c == 0)
         goto pop_or_exit;
 
-    if ((long)thread->frame <= 0)
-        return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
+    /* A hit pops a level -- at the bottom the exit is installed instead --
+     * and then slides the level above down into this one, the shape
+     * mkdrone.c calls POP_AND_SLIDE; then straight to the 0x719 park, not
+     * through the reacting test (difftest) */
+    if ((long)thread->frame > 0) {
+        thread->frame = thread->frame - 1;
+    } else {
+        mk3_frame(thread, thread->frame)[1] = (uint32_t)(uintptr_t)t_local_reaction_exit;
+        *mk3_frame(thread, thread->frame + 1) = 0;
+    }
+    {
+        uint32_t f = thread->frame;
+        uint32_t h = mk3_frame(thread, f + 1)[1];
 
-    thread->frame = thread->frame - 1;
+        *mk3_frame(thread, f + 1) = *mk3_frame(thread, f + 2);
+        mk3_frame(thread, f)[1]   = h;
+    }
 
     obj->thread->pid = 0x207;
     obj->field1c = 5;
     ochar_sound(obj);
     stop_a8(obj->field08);
+    goto park_719;
 
 reacting_check:
     if (obj->field5c != 0) {
+park_719:
         *mk3_frame(thread, thread->frame + 1) = 0x719;
         thread->fieldfc = 1;
         return 1;
     }
 
+    /* `add r3, #0x100000` on 0x5c, which is 0 here; and set_proj_vel's
+     * answer is NOT tested: the code joins the 0x722 park below the test */
     obj->field1c = 0x100000;
     set_proj_vel(obj);
+    goto park_722;
 
 onscreen_watch:
     if (obj->field5c == 0)
         return mk3_install(thread, (MK3THREADFUNC)tl_delete_proj_and_die);
 
+park_722:
     *mk3_frame(thread, thread->frame + 1) = 0x722;
     thread->fieldfc = 1;
     return 1;
@@ -7305,7 +7326,7 @@ long t_swat_proj_proc(MK3THREAD *thread)
         if (obj->field5c != 0)
             goto impact;
 
-        *mk3_frame(thread, frame + 1) = 0xe76;
+        *mk3_frame(thread, frame + 1) = 0xe7d;   /* r6, still 0xe7d from the dispatch (difftest) */
         thread->fieldfc = 3;
         return 3;
     }
@@ -10050,7 +10071,7 @@ long tl_bomb33(MK3THREAD *thread)
     if (slot == 0x922) {
         obj->field1c = 3;
         obj->field40 = 0;
-        return mk3_install(thread, (MK3THREADFUNC)t_mframew);
+        return mk3_install(thread, (MK3THREADFUNC)t_backwards_ani2);   /* the slot's contents (difftest) */
     }
 
     if (slot != 0)

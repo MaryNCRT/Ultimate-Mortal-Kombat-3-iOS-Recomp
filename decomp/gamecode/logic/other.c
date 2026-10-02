@@ -1940,7 +1940,7 @@ void init_special(MK3OBJ *obj)
 long is_he_right(MK3OBJ *obj)
 {
     MK3OBJ *him = (MK3OBJ *)(uintptr_t)obj->field00->him;
-    long    r = (him->field0c > obj->field08->field0c) ? 1 : 0;
+    long    r = ((int32_t)him->field0c > (int32_t)obj->field08->field0c) ? 1 : 0;  /* `ite le`: signed */
 
     obj->field5c = (uint32_t)r;
     return r;
@@ -3372,7 +3372,7 @@ void multi_adjust_xy_ob(MK3OBJ *obj, uint32_t target_w, uint32_t dx, uint32_t dy
         dx = (uint32_t)(-(int32_t)dx);
 
     MK3_SET_FIELD0E(target, (uint16_t)(MK3_FIELD0E(target) + dx));
-    MK3_SET_FIELD12(target,MK3_FIELD12((target) + dy));
+    MK3_SET_FIELD12(target, (uint16_t)(MK3_FIELD12(target) + dy));
 }
 
 
@@ -8894,7 +8894,7 @@ long t_back_to_shang_form(MK3THREAD *thread)
         do_first_a9_frame(obj);
         ground_ochar(obj);
 
-        obj->field00->field40 = (uint16_t)MK3_FIELD12(obj->field08);
+        obj->field00->field40 = (uint32_t)(int32_t)MK3_FIELD12_S(obj->field08);   /* ldrsh */
 
         *mk3_frame(thread, thread->frame + 1) = 0x18c1;
         thread->fieldfc = 4;
@@ -9926,7 +9926,9 @@ void bar_reducer(MK3OBJ *obj)
         uint32_t bit = i + 1;
 
         obj->field30 = bit;
-        if ((*(const int16_t *)(G_BYTES + 0x454) & (int16_t)bit) == 0) {
+        /* `ands r3, r2` is stored to 0x20 before the test (difftest) */
+        obj->field20 = (uint32_t)(int32_t)*(const int16_t *)(G_BYTES + 0x454) & bit;
+        if (obj->field20 == 0) {
             obj->field20 = bit;
             *(int16_t *)(G_BYTES + 0x454) = (int16_t)bit;
             obj->field1c = 0x27;
@@ -11504,7 +11506,7 @@ long t_spawn_wingman(MK3THREAD *thread)
     ground_ochar(obj);
     tsound_func(obj, c + 0x28);    /* his name */
 
-    obj->field00->field40 = (uint16_t)MK3_FIELD12(obj->field08);
+    obj->field00->field40 = (uint32_t)(int32_t)MK3_FIELD12_S(obj->field08);   /* ldrsh */
 
     obj->field40 = 0x1a;
     get_char_ani(obj);
