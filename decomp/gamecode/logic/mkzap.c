@@ -7262,14 +7262,14 @@ long tl_do_sw_zap(MK3THREAD *thread)
  * `field1c=3`, and a push of `t_mframew` under `0xe97`, which just
  * installs `tl_delete_proj_and_die`.
  *
- * `0xe7d` is a second launch this routine can also reach directly (from
- * outside, since nothing here plants it): the same `field1c=0x14` strike
- * attempt, a hit falling into the SAME `0xe8a` impact every other hit in
- * this routine reaches, and a miss instead pushing `tl_projectile_flight`
- * under `0xe84` -- a genuine flight phase, not just another strike retry.
- * `0xe84` throws (`0xa0000`/`4`, `set_proj_vel`) and re-arms `0xe7d`
- * itself under a fresh push of `tl_projectile_flight`, so the miss path
- * keeps flying and re-trying the strike box each time it comes back.
+ * `0xe7d` is the second strike attempt (`0xe76` parks on it): the same
+ * `field1c=0x14` check, a hit falling into the `0xe8a` impact, and a miss
+ * parking three ticks on `0xe84`. `0xe84` throws (`0xa0000`/`4`,
+ * `set_proj_vel`) and pushes `tl_projectile_flight` under `0xe8a` -- r6, which
+ * the dispatch reloaded with 0xe8a on the way to 0xe84 -- so when the flight
+ * returns, the projectile goes to the impact state. An earlier reading had
+ * 0xe7d push the flight and 0xe84 re-arm 0xe7d; the differential test showed
+ * otherwise.
  */
 long tl_projectile_flight(MK3THREAD *thread);
 
@@ -7288,12 +7288,10 @@ long t_swat_proj_proc(MK3THREAD *thread)
         if (obj->field5c != 0)
             goto impact;
 
+        /* park 3 on 0xe84 (0x76fac), not a push (difftest) */
         *mk3_frame(thread, frame + 1) = 0xe84;
-        thread->frame = thread->frame + 1;   /* push a level */
-        mk3_frame(thread, thread->frame)[1] =
-            (uint32_t)(uintptr_t)tl_projectile_flight;
-        *mk3_frame(thread, thread->frame + 1) = 0;
-        return 0;
+        thread->fieldfc = 3;
+        return 3;
     }
 
     if (slot == 0xe8a)
@@ -7309,7 +7307,9 @@ long t_swat_proj_proc(MK3THREAD *thread)
 
         obj->field48 = 0x12;
 
-        *mk3_frame(thread, frame + 1) = 0xe7d;
+        /* r6: the dispatch reloaded it with 0xe8a on the way here, so the
+         * flight returns into the impact state (difftest) */
+        *mk3_frame(thread, frame + 1) = 0xe8a;
         thread->frame = thread->frame + 1;   /* push a level */
         mk3_frame(thread, thread->frame)[1] =
             (uint32_t)(uintptr_t)tl_projectile_flight;
@@ -8816,9 +8816,9 @@ vector_track:
             hyp = (int32_t)((uint32_t)(int32_t)obj->field54 >> 16);
             obj->field54 = (uint32_t)hyp;
 
-            nx = sdx / hyp;                       /* ___divsi3 */
+            nx = mk3_sdiv(sdx, hyp);              /* ___divsi3 */
             obj->field20 = (uint32_t)nx;
-            ny = (int32_t)obj->field28 / hyp;     /* ___divsi3 */
+            ny = mk3_sdiv((int32_t)obj->field28, hyp); /* ___divsi3 */
             obj->field28 = (uint32_t)ny;
 
             vx = (int32_t)obj->field08->field18;
@@ -8842,9 +8842,9 @@ vector_track:
             hyp = (int32_t)((uint32_t)(int32_t)obj->field54 >> 16);
             obj->field54 = (uint32_t)hyp;
 
-            nx = vx / hyp;                         /* ___divsi3 */
+            nx = mk3_sdiv(vx, hyp);                /* ___divsi3 */
             obj->field20 = (uint32_t)nx;
-            ny = vy / hyp;                          /* ___divsi3 */
+            ny = mk3_sdiv(vy, hyp);                 /* ___divsi3 */
 
             obj->field54 = 5;
             obj->field20 = (uint32_t)(nx * 5);
@@ -8922,14 +8922,15 @@ long t_rocket_explode(MK3THREAD *thread)
  *
  * `0x1011` is `t_rr_up`'s own token from the caller's side: `point_rocket`,
  * `next_anirate`, then decrement `field00->field28` (the current phase's
- * remaining count). While it is still running, `0x101f` just parks a
- * one-frame sleep and comes straight back to `0x1011` -- the per-frame tick.
+ * remaining count). While it is still running, it pushes a level running the
+ * current phase's handler (`rocket_routines[index*3]`) under `0x101f`, which
+ * parks one frame and comes back to `0x1011` -- the per-frame tick.
  * When it hits zero, the phase index advances and the NEXT entry's duration
- * (`rocket_routines[(index+1)*3 + 2]`) seeds the counter for the phase to
- * come; a non-zero duration pushes a level running that phase's own handler
- * under `0x101f` (so the tick above resumes once it pops), and a zero
- * duration -- the table's `{0,0,0}` terminator -- installs `t_rocket_explode`
- * on the spot instead.
+ * (`rocket_routines[(index+1)*3 + 2]`) seeds the counter; a non-zero
+ * duration just parks on `0x1011` again (the new phase's handler runs from
+ * the next tick), and a zero duration -- the table's `{0,0,0}` terminator --
+ * installs `t_rocket_explode` instead. (An earlier reading pushed the new
+ * phase at once; the differential test showed the binary parks.)
  */
 long t_target(struct MK3THREAD *thread);
 void point_rocket(MK3OBJ *obj);
@@ -8971,13 +8972,12 @@ long t_rocket2_proc(MK3THREAD *thread)
         obj->field1c = dur;
 
         if (dur != 0) {
+            /* b 0x78682: arm the new count and park on 0x1011 -- the next
+             * routine is pushed on the following tick, not now (difftest) */
             proc->field28 = dur;
-            *mk3_frame(thread, frame + 1) = 0x101f;
-            thread->frame = thread->frame + 1;   /* push a level */
-            mk3_frame(thread, thread->frame)[1] =
-                rocket_routines[idx * 3];
-            *mk3_frame(thread, thread->frame + 1) = 0;
-            return 0;
+            *mk3_frame(thread, frame + 1) = 0x1011;
+            thread->fieldfc = 1;
+            return 1;
         }
 
         return mk3_install(thread, (MK3THREADFUNC)t_rocket_explode);

@@ -158,7 +158,10 @@ def main(argv):
             pvars.append(u)
         elif u in syms:
             defsyms.append(u)
-        elif u in ("memset", "memcpy", "memcmp", "memmove", "strlen", "rand", "atan2"):
+        elif u in ("memset", "memcpy", "memcmp", "memmove", "strlen", "rand", "atan2",
+                   "printf", "fprintf", "puts", "fflush"):
+            # the C library: linked from libc. Setting one to 0 also breaks
+            # the harness's own printf/fflush (mkstat, playback segfaulted)
             pass
         elif u in commented:
             # no symbol in the binary (an anonymous table, a literal-pool

@@ -182,6 +182,23 @@ class Emitter(object):
             return "ctx->r[%d]" % i
         raise Unsupported("operando no legible tipo %d" % op.type)
 
+    @staticmethod
+    def adr_target(ins):
+        """
+        Direccion que calcula `adr rd, #imm` (o `addw/subw rd, pc, #imm`).
+
+        Capstone da el desplazamiento, no la direccion: el valor es
+        Align(direccion + 4, 4) + imm. Antes se emitia el desplazamiento tal
+        cual (`adr r2, #4` -> r2 = 4), y la tabla de saltos de
+        do_next_a9_frame_pxob saltaba siempre al caso 0.
+        """
+        imm = ins.operands[-1].imm
+        if ins.mnemonic.split(".")[0] == "subw":
+            imm = -imm
+        if not (-4096 < imm < 4096):        # ya es una direccion absoluta
+            return imm & 0xFFFFFFFF
+        return (((ins.address + 4) & ~3) + imm) & 0xFFFFFFFF
+
     def literal_addr(self, ins, op):
         """Si el operando es [pc, #N], devuelve la direccion del literal."""
         if op.type == ARM_OP_MEM and op.mem.base and self.rname(ins, op.mem.base) == "pc":
@@ -320,7 +337,7 @@ class Emitter(object):
         # ---------- adr: direccion relativa al PC, conocida al recompilar ----------
         if m == "adr":
             d = self.ireg(ins, ops[0].reg)
-            return ["ctx->r[%d] = 0x%08xu;" % (d, ops[1].imm & 0xFFFFFFFF)]
+            return ["ctx->r[%d] = 0x%08xu;" % (d, self.adr_target(ins))]
 
         # ---------- multiplicacion larga ----------
         if m in ("smull", "umull"):
@@ -338,6 +355,17 @@ class Emitter(object):
                     % (lo, hi)]
 
         # ---------- movimientos enteros ----------
+        # `mov pc, rN` de una tabla de saltos resuelta (ver _branch_table)
+        if m == "mov" and ins.address in self.tables:
+            reg, targets = self.tables[ins.address]
+            lines = ["switch (ctx->r[%d]) {" % reg]
+            for i, t in enumerate(targets):
+                lines.append("    case %d: goto L_%08x;" % (i, t))
+            lines.append('    default: arm_unimplemented("%s", 0x%08xu, "indice fuera de tabla"); break;'
+                         % (fname, ins.address))
+            lines.append("}")
+            return lines
+
         if m in ("mov", "movs", "movw", "mvn", "mvns"):
             if self.is_vfp(ins, ops[0].reg):
                 return self.vfp_mov(ins, ops)
@@ -526,6 +554,10 @@ class Emitter(object):
 
         # ---------- addw/subw: inmediato de 12 bits, no altera flags ----------
         if m in ("addw", "subw") and len(ops) == 3:
+            if ops[1].type == ARM_OP_REG and self.ireg(ins, ops[1].reg) == 15:
+                # la forma `adr` de 32 bits: pc ALINEADO a 4, como `adr`
+                return ["ctx->r[%d] = 0x%08xu;"
+                        % (self.ireg(ins, ops[0].reg), self.adr_target(ins))]
             op = "+" if m == "addw" else "-"
             return ["ctx->r[%d] = (uint32_t)(%s %s %s);"
                     % (self.ireg(ins, ops[0].reg), R(ops[1]), op, R(ops[2]))]
@@ -992,6 +1024,8 @@ class Emitter(object):
             return False, targets               # salto incondicional
         if base in ("tbb", "tbh"):
             return False, targets               # tabla indirecta: no seguible
+        if base == "mov" and ins.op_str.replace(" ", "").startswith("pc,"):
+            return False, targets               # mov pc: salto indirecto
         return True, targets
 
     def decode_reachable(self, addr, size, thumb):
@@ -1042,12 +1076,58 @@ class Emitter(object):
                     if idx:
                         self.tables[pc] = (self.ireg(ins, idx), tbl)
 
+            if base == "mov" and ins.op_str.replace(" ", "").startswith("pc,"):
+                tbl = self._branch_table(ins, found)
+                if tbl:
+                    self.tables[pc] = tbl
+                    targets.extend(t for t in tbl[1] if lo <= t < hi)
+
             work.extend(targets)
             if fall:
                 work.append(pc + ins.size)
 
         covered = sum(i.size for i in found.values())
         return found, size - covered
+
+    def _branch_table(self, ins, found):
+        """
+        Resuelve el otro idioma de switch denso del binario, una tabla de
+        instrucciones `b.w` (4 bytes cada una) en vez de desplazamientos:
+
+            cmp   rM, #limite
+            bhi   <default>
+            adr   rN, tabla            (o `addw rN, pc, #imm`)
+            add.w rN, rN, rM, lsl #2
+            mov   pc, rN
+          tabla:
+            b.w   caso_0
+            b.w   caso_1 ...
+
+        Devuelve (indice del registro rM, [direccion de cada entrada]) o None.
+        Cada entrada es una instruccion `b.w`, que el descenso recursivo sigue
+        como cualquier otro codigo. Lo usan do_next_a9_frame_pxob (other),
+        moves y playback.
+        """
+        dst = self.ireg(ins, ins.operands[1].reg) if len(ins.operands) > 1 else None
+        prev = sorted((a for a in found if a < ins.address), reverse=True)[:6]
+        base = idx = limit = None
+        for a in prev:
+            p = found[a]
+            pm = p.mnemonic.split(".")[0]
+            po = p.operands
+            if idx is None and pm == "add" and len(po) == 3                     and po[2].type == ARM_OP_REG and po[2].shift.value == 2                     and self.ireg(p, po[0].reg) == dst:
+                idx = self.ireg(p, po[2].reg)
+            elif base is None and idx is not None and (
+                    pm == "adr" or (pm == "addw" and len(po) == 3
+                                    and po[1].type == ARM_OP_REG
+                                    and self.ireg(p, po[1].reg) == 15))                     and self.ireg(p, po[0].reg) == dst:
+                base = self.adr_target(p)
+            elif limit is None and base is not None and pm == "cmp"                     and po[1].type == ARM_OP_IMM and self.ireg(p, po[0].reg) == idx:
+                limit = po[1].imm
+                break
+        if base is None or idx is None or limit is None or not (0 <= limit < 256):
+            return None
+        return idx, [base + 4 * i for i in range(limit + 1)]
 
     def _jump_table(self, ins, found, code, base_addr, lo, hi):
         """
@@ -1145,7 +1225,7 @@ class Emitter(object):
             # compilaba -- con el error a 15.000 lineas de distancia de la causa.
             # Lo encontro create_fx_param, arrastrada como dependencia por
             # --with-deps al verificar SwitchQueue.
-            if b in ("tbb", "tbh"):
+            if b in ("tbb", "tbh", "mov"):
                 tbl = self.tables.get(ins.address)
                 if tbl:
                     for t in tbl[1]:

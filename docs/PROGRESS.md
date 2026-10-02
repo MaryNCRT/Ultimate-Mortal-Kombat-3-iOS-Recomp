@@ -130,18 +130,54 @@ each scenario (randomised state, tokens taken from the ARM immediates) compares
 the return value and the entire data image. Use:
 `UMK3_SLICE=work/UMK3.armv7 sh tools/difftest/run.sh <stem> <rc_root> -n 80 [-d] [-v] [fn ...]`.
 
-Results: **`mkdrone.c` 393/394 clean** (`t_fatality_align`, token 0xac2, is a
-known harness false positive: a scratch field that holds a handler-looking
-value is converted to native form for the C run), `mkfriend.c`, `mkbonus.c`, `mkcanned.c`,
-`mkslam.c`, `mkprop.c` and `mkcombo.c` clean (the last four after the fixes in
-PR #34, one of which was an oracle bug: `recomp.py` mistranslated two-operand
-`lsls rd, rm`). Other files, failing functions per file: mkfatal 4, mkanimal 3,
-moves 8, other 66, mkboss 22, mkzap 22, mkreact 36;
-mkstat and playback segfault the harness. **These are not triaged**: many
-involve pointers to native stack/data or objects the harness cannot model, so
-each has to be classified as false positive or real bug. Running it on
-`mkdrone.c` found about 40 functions that returned -3 where the binary returns
-0 and several that had dropped branches -- expect real bugs among the rest.
+Results (2026-10-02, after the round-2 triage on branch `difftest-triage-2`):
+mkboss, moves, mkreact, mkstat, joy, mkanimal, mk3, mkfatal and the files
+listed clean before report **0 failing functions**. What remains:
+
+- `mkzap.c`: 3 -- `t_summon_spawn`, `t_summon_proc`, `t_sky_ice_proc`. Checked
+  instruction by instruction against the disassembly and equivalent; the
+  harness seeds the field with a handler address and the code adds two of them
+  (or truncates one to 16 bits), so the native and ARM forms cannot agree.
+  Harness false positives, not decomp bugs.
+- `other.c`: the a9 frame-walker family (`do_next_a9_frame`, `frame_a9`,
+  `t_mframew`, ...). **These were an oracle bug, not a harness limit**:
+  `recomp.py` emitted `adr r2, #4` as the constant 4 and `mov pc, r2` as a
+  plain register write, so the oracle always took case 0 of the walker's
+  19-entry branch table. Fixed (see below); with the corrected oracle and
+  scenarios that seed a script of small opcodes in `field40` (1000 scenarios
+  per function), the family reports 0 failures. Limits: script opcodes that
+  call a routine named in the script are skipped by the oracle, and
+  `pose_a9_manual`, `pose2_a9_manual`, `pose_him_a9` and `do_first_a9_frame`
+  still run few scenarios (`LOWCOV`).
+- `playback.c` has nothing the oracle covers (0 tests).
+
+Fixed in this round:
+
+- **Real decomp bugs** (about 80 sites over the two rounds). Recurring
+  classes: next token taken from the register the dispatch last compared
+  (`tl_do_noogy`, `t_sweep3`, `t_r_freeze`, `t_swat_proj_proc`); register
+  reuse read as `field += k` (`t_b_lo_punch`, `t_r_fan_lift`); `unwind` where
+  the binary installs `t_local_reaction_exit` from slot 0xf3708
+  (`t_mercy_start`, `t_back_to_shang_form`); lost branches (`t_separate_us`,
+  `t_r_hi_kick`, `t_rocket2_proc`, `t_rst5`); wrong base object or argument
+  (`jade_normpal`, `t_slammed_slam_down`, `reset_proc_stack` takes the
+  thread); sign (`t_blast_through_anything` ldrsh, `t_ken_masters_xfer` asr);
+  handlers through a pointer slot declared as variables (`t_bonus_count`,
+  `t_make_db_tone`).
+- **`mk3_sdiv`** in `mk3logic.h`: `___divsi3` with the ARM result for a zero
+  divisor (0) and INT_MIN / -1, where `/` traps on x86 (`t_rocket_hunt`).
+- **`recomp.py`**: `adr` and `addw rd, pc, #imm` now give Align(PC, 4) + imm;
+  the `adr` / `add rN, rN, rM, lsl #2` / `mov pc, rN` branch-table idiom is
+  resolved into a switch (36 sites in other, moves and playback).
+- **harness / gen.py**: libc functions (`printf`, `fflush`) are no longer
+  defined as 0 (that segfaulted mkstat and playback); handlers stored
+  unaligned, negated, doubled or halved are recognised; an oracle that hits
+  `arm_unimplemented` inside a shim is a skipped scenario, not a C failure;
+  fault PCs are printed as link-time addresses.
+
+The full suite has not yet been re-run end to end with every one of these
+changes in place; the per-file numbers above come from targeted runs of each
+file's failing functions plus the earlier full pass.
 
 ### What is next
 
