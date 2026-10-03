@@ -31,7 +31,8 @@
  * Environment, for testing:
  *   UMK3_SHOT=<n>     tick n times, write umk3-game.ppm, quit
  *   UMK3_TAPS=<list>  scripted taps, "tick:x,y;tick:x,y;..." in game
- *                     coordinates (480x320), each a press held for 3 ticks
+ *                     coordinates (480x320), each a press held for 3 ticks;
+ *                     the mouse is ignored while a script runs
  *   UMK3_LOG_TASKS=1  print every change of CurrentTask and FE_CurrentTask
  */
 
@@ -209,7 +210,9 @@ int main(int argc, char **argv)
         plat_size(&ww, &wh);
 
         /* The mouse as one finger, on its edges; see runtime/menu_main.c. */
-        down = plat_mouse(&mx, &my);
+        /* A scripted run is the script's alone: a click on the window
+         * would be a second finger nobody asked for. */
+        down = plat_mouse(&mx, &my) && g_ntaps == 0;
         {
             static float prev_tx = -1.0f, prev_ty = -1.0f;
             float tx = (float)mx * VIRT_W / (ww ? ww : 1);

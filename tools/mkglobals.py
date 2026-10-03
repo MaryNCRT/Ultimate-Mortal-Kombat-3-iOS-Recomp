@@ -661,6 +661,11 @@ def main():
     plain, slots = [], []
     for name, (path, line, m) in sorted(seen.items()):
         is_slot = "pointer slot" in line and m.group("stars") and not m.group("dims")
+        # `extern int *ErmacUnlockedPtr; /* slot -> 0x000ff974 */` says the
+        # same thing in fewer words, about a name the image does not have.
+        if (not is_slot and m.group("stars") and not m.group("dims")
+                and name not in extents and _ARROW.search(line)):
+            is_slot = True
         wide = (m.group("stars") and not m.group("dims")
                 and not getattr(m, "fnptr", False)
                 and extents.get(name, 0) > 4)
@@ -799,6 +804,11 @@ def main():
                     # stride the image was laid out with.
                     dims = dims.replace("[]", "[%d]"
                                         % (extents[name] // stride), 1)
+                elif m.group("stars"):
+                    # An array of pointers: four bytes an element in the
+                    # image, whatever the host's are. `DestinyNames` was
+                    # 108 / sizeof(const char) -- 108 entries for 27.
+                    dims = dims.replace("[]", "[%d]" % (extents[name] // 4), 1)
                 else:
                     dims = dims.replace(
                         "[]", "[%d / sizeof(%s)]" % (extents[name], typ), 1)

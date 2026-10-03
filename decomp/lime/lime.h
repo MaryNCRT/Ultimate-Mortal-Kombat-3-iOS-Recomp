@@ -506,8 +506,9 @@ extern struct SCENEINFO *g_sceneList;
 extern TRANSPMESH       g_transpMeshList[TRANSPMESH_MAX];
 extern int              g_transpMeshCount;
 
-/* The binary's own names: _DebugWindows is a POINTER to the array, and
- * _DS_DebugWindowOn is the enable flag. An earlier pass called them
+/* The binary's own names: _DebugWindows is the window array (reached
+ * through a slot, so it is declared as the pointer the slot holds -- see
+ * lime_globals.c), and _DS_DebugWindowOn is the enable flag. An earlier pass called them
  * g_debugWindows and g_debugWindowEnabled, which were inventions sitting
  * next to a symbol table that had both. */
 extern DEBUGWINDOW     *DebugWindows;
