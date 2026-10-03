@@ -309,12 +309,14 @@ long lime_heap_overruns(void) { return g_overruns; }
  * failure branch and make a passing test meaningless.
  */
 #ifndef UMK3_REAL_GL   /* headless; see runtime/draw_gl.c for the windowed half */
-static int g_texture_sentinel;
+/* A whole TEXTURE, zeroed: the mesh path reads ->field50 at +0x50, and the
+ * int this used to be ended four bytes in. */
+static TEXTURE g_texture_sentinel;
 
 TEXTURE *limeLoadTexture(const char *path, int a, int b)
 {
     (void)path; (void)a; (void)b;
-    return (TEXTURE *)&g_texture_sentinel;
+    return &g_texture_sentinel;
 }
 
 void limeDeleteTexture(TEXTURE *tex)
@@ -372,8 +374,12 @@ static int g_depth_writes = 1;
 
 int lime_platform_depth_writes(void)        { return g_depth_writes; }
 
+/* armv7 0x00065e54 / 0x00065e60: glDepthMask(1) / glDepthMask(0). The
+ * windowed build issues them in draw_gl.c; this half records them. */
+#ifndef UMK3_REAL_GL   /* headless; see runtime/draw_gl.c for the windowed half */
 void limeEnableDepthWrites(void)            { g_depth_writes = 1; }
 void limeDisableDepthWrites(void)           { g_depth_writes = 0; }
+#endif  /* !UMK3_REAL_GL */
 
 
 /* ------------------------------------------------------------- sprites

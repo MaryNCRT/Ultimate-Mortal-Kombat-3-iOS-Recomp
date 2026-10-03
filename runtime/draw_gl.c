@@ -163,6 +163,30 @@ static int load_rgba(const char *path, LimeImage *out)
     return 0;
 }
 
+/* armv7 0x000670a0 keeps the texture's own name in its first 0x40 bytes:
+ * sprintf("res/Textures/%s"), the last three characters replaced by "pvr"
+ * (the PNG branch puts "pvr" back before the copy too), then
+ *
+ *      tex->field50 = IsTextureFullBrightPath(tex)        0x67226
+ *
+ * which is the flag LIME_RenderMeshSingle reads to skip the vertex lighting.
+ * It used to stay 0, so every full-bright texture was lit. The binary's
+ * strcpy has no bound; this one stops at the field. */
+int IsTextureFullBrightPath(const char *path);       /* RenderMesh.c */
+
+static void tex_set_name(TEXTURE *t, const char *path)
+{
+    char buf[0x80];
+    size_t n;
+
+    snprintf(buf, sizeof buf, "res/Textures/%s", path);
+    n = strlen(buf);
+    if (n >= 3)
+        memcpy(buf + n - 3, "pvr", 3);
+    snprintf((char *)t->_pad00, sizeof t->_pad00, "%s", buf);
+    t->field50 = IsTextureFullBrightPath((const char *)t->_pad00);
+}
+
 TEXTURE *limeLoadTexture(const char *path, int a, int b)
 {
     TexEntry *e;
@@ -190,8 +214,13 @@ TEXTURE *limeLoadTexture(const char *path, int a, int b)
     glBindTexture(GL_TEXTURE_2D, name);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+    /* No wrap mode, on purpose. Every glTexParameteri in the binary (PVRTexture
+     * createGLTexture, Texture2D initWithData, seven calls in all) sets the
+     * filters or GENERATE_MIPMAP and none sets GL_TEXTURE_WRAP_S/T, so every
+     * texture keeps the default GL_REPEAT -- and the font depends on it: a
+     * glyph on the second atlas page has a V past 1.0 (J is at 2504 of 2048),
+     * which REPEAT folds onto the second sheet. This used to set GL_CLAMP,
+     * and J, Á and Ñ drew as nothing: "UGAR" for JUGAR. */
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, img.width, img.height, 0,
                  GL_RGBA, GL_UNSIGNED_BYTE, img.rgba);
     free(img.rgba);
@@ -201,6 +230,7 @@ TEXTURE *limeLoadTexture(const char *path, int a, int b)
         return NULL;
     e->path = _strdup(path);
     e->tex.name = name;
+    tex_set_name(&e->tex, path);
     e->w = img.width;
     e->h = img.height;
     e->next = g_textures;
@@ -246,10 +276,6 @@ void limeSet2DDrawing(void)
     /* Y increases downward: the origin is the top-left corner, which is where
      * the front end puts (0,0) -- FE_Y(24) is 24 pixels below the top. */
     glOrtho(0.0, (double)g_screen_w, (double)g_screen_h, 0.0, -1.0, 1.0);
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
-    glDisable(GL_DEPTH_TEST);
-    glEnable(GL_TEXTURE_2D);
 
     /* **MODULATE, explicitly.** The front end colours its text by handing the
      * sprite call a row of `mmfontcol` and letting it multiply against a white
@@ -265,7 +291,15 @@ void limeSet2DDrawing(void)
      * that assumed. */
     glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
 
-    limeEnableAlphaBlending_Basic();
+    /* The rest of armv7 0x00066da0: cull off, modelview reset -- and nothing
+     * else. The binary does NOT touch the depth test, texturing or blending
+     * here; this used to disable the first and enable the other two. Each
+     * sprite enables texturing for itself (below), and the callers set
+     * blending and depth as they want them -- FE_Task_Main_Menu, for one,
+     * calls limeEnableAlphaBlending_Basic just before this. */
+    glDisable(GL_CULL_FACE);
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
 }
 
 /* --------------------------------------------------------------------- 3D */
@@ -302,14 +336,26 @@ void limePortDisplayRotation(void)
     glMultMatrixf(t);
 }
 
+/* armv7 0x00065e54 / 0x00065e60 / 0x0006699c. */
+void limeEnableDepthWrites(void)  { glDepthMask(GL_TRUE); }
+void limeDisableDepthWrites(void) { glDepthMask(GL_FALSE); }
+void limeGetCurrentModelMatrix(float *out)
+{
+    glGetFloatv(GL_MODELVIEW_MATRIX, out);
+}
+
 void limeEnableDepthTest(void)  { glEnable(GL_DEPTH_TEST); }
 void limeDisableDepthTest(void) { glDisable(GL_DEPTH_TEST); }
 void limeClearDepthBuffer(void) { glClear(GL_DEPTH_BUFFER_BIT); }
 
-void limeSetColourMask(int on)
+/* armv7 0x00066e68: glColorMask on the four arguments, each `uxtb`-narrowed.
+ * The game calls it as (1, 1, 1, 0) -- colour on, ALPHA off -- around the
+ * passes that must not disturb destination alpha. It used to take one int and
+ * force alpha on, so that call wrote alpha. */
+void limeSetColourMask(long r, long g, long b, long a)
 {
-    GLboolean f = on ? GL_TRUE : GL_FALSE;
-    glColorMask(f, f, f, GL_TRUE);
+    glColorMask((GLboolean)(unsigned char)r, (GLboolean)(unsigned char)g,
+                (GLboolean)(unsigned char)b, (GLboolean)(unsigned char)a);
 }
 
 
@@ -327,8 +373,12 @@ static void quad(TEXTURE *page, float x, float y, float w, float h,
     if (page == NULL)
         return;
 
-    glBindTexture(GL_TEXTURE_2D, (GLuint)page->name);
+    /* armv7 0x00065e7c: depth writes off for the quad and back on after,
+     * texturing switched on by the sprite itself. */
+    glDepthMask(GL_FALSE);
+    glEnable(GL_TEXTURE_2D);
     glColor4f(r, g, b, a);
+    glBindTexture(GL_TEXTURE_2D, (GLuint)page->name);
 
     if (angle != 0.0f) {
         glPushMatrix();
@@ -350,6 +400,7 @@ static void quad(TEXTURE *page, float x, float y, float w, float h,
     if (angle != 0.0f)
         glPopMatrix();
 
+    glDepthMask(GL_TRUE);
     g_sprites++;
 }
 
@@ -378,15 +429,18 @@ void lime_platform_last_sprite(float *out8)
 void limeFillRect(float x, float y, float w, float h,
                   float r, float g, float b, float a)
 {
-    glDisable(GL_TEXTURE_2D);
+    /* armv7 0x000666ac: depth writes off, texturing off -- and LEFT off, the
+     * next sprite turns it back on -- then depth writes back on. */
+    glDepthMask(GL_FALSE);
     glColor4f(r, g, b, a);
+    glDisable(GL_TEXTURE_2D);
     glBegin(GL_QUADS);
         glVertex2f(x,     y);
         glVertex2f(x + w, y);
         glVertex2f(x + w, y + h);
         glVertex2f(x,     y + h);
     glEnd();
-    glEnable(GL_TEXTURE_2D);
+    glDepthMask(GL_TRUE);
     g_fills++;
 }
 

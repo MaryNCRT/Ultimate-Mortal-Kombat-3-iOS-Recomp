@@ -16,6 +16,8 @@
 #include "gl.h"
 
 #include <SDL.h>
+#include <stdlib.h>
+#include <string.h>
 
 static SDL_Window   *g_wnd;
 static SDL_GLContext g_ctx;
@@ -135,4 +137,79 @@ void plat_close(void)
     if (g_ctx) { SDL_GL_DeleteContext(g_ctx); g_ctx = NULL; }
     if (g_wnd) { SDL_DestroyWindow(g_wnd); g_wnd = NULL; }
     SDL_Quit();
+}
+
+
+/* UTF-16 (the game's strings) to UTF-8 (SDL's), BMP only -- the game's text
+ * has no surrogate pairs. */
+static void utf16_to_utf8(const unsigned short *in, char *out, size_t n)
+{
+    size_t o = 0;
+
+    for (; in && *in && o + 4 < n; in++) {
+        unsigned c = *in;
+        if (c < 0x80) {
+            out[o++] = (char)c;
+        } else if (c < 0x800) {
+            out[o++] = (char)(0xc0 | (c >> 6));
+            out[o++] = (char)(0x80 | (c & 0x3f));
+        } else {
+            out[o++] = (char)(0xe0 | (c >> 12));
+            out[o++] = (char)(0x80 | ((c >> 6) & 0x3f));
+            out[o++] = (char)(0x80 | (c & 0x3f));
+        }
+    }
+    out[o] = 0;
+}
+
+int plat_ask(const unsigned short *msg, const unsigned short *ok,
+             const unsigned short *cancel)
+{
+    char m[1024], a[128], b[128];
+    SDL_MessageBoxButtonData btn[2];
+    SDL_MessageBoxData box;
+    int hit = -1;
+
+    utf16_to_utf8(msg, m, sizeof m);
+    utf16_to_utf8(ok, a, sizeof a);
+    utf16_to_utf8(cancel, b, sizeof b);
+
+    btn[0].flags = SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT;
+    btn[0].buttonid = 0;
+    btn[0].text = a;
+    btn[1].flags = SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT;
+    btn[1].buttonid = 1;
+    btn[1].text = b;
+
+    memset(&box, 0, sizeof box);
+    box.flags = SDL_MESSAGEBOX_INFORMATION;
+    box.window = g_wnd;
+    box.title = "Ultimate Mortal Kombat 3";
+    box.message = m;
+    box.numbuttons = cancel ? 2 : 1;
+    box.buttons = btn;
+
+    if (SDL_ShowMessageBox(&box, &hit) != 0 || hit < 0)
+        return cancel ? 1 : 0;
+    return hit;
+}
+
+/* POSIX locale variables, in the order setlocale(LC_MESSAGES) reads them:
+ * "es_CO.UTF-8" gives "es". */
+void plat_language(char *out, int n)
+{
+    static const char *vars[] = { "LC_ALL", "LC_MESSAGES", "LANG" };
+    const char *v = NULL;
+    int i;
+
+    if (n <= 0)
+        return;
+    out[0] = 0;
+    for (i = 0; i < 3 && (v == NULL || *v == 0); i++)
+        v = getenv(vars[i]);
+    if (v == NULL || strcmp(v, "C") == 0 || strcmp(v, "POSIX") == 0)
+        return;
+    for (i = 0; i < n - 1 && v[i] && v[i] != '_' && v[i] != '.' && v[i] != '@'; i++)
+        out[i] = v[i];
+    out[i] = 0;
 }

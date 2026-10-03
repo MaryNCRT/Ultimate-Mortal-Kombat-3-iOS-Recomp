@@ -17,10 +17,11 @@
  *
  * The front end reads two pairs of globals. `limeTouchScreenX/Y[0]` is where a
  * finger IS, with -1 meaning nothing is down. `limeLastTouchScreenX/Y[0]` is
- * where it WAS: a screen tests `limeLastTouchScreenX[0] != -1` together with a
- * released touch to recognise a tap, which is why a button clicks on release
- * and not on press. So a mouse button held sets the live pair, and letting go
- * leaves the last pair set for exactly one frame.
+ * where it was at the end of the last tick. The mouse button is delivered as
+ * the touch events EAGLView receives (lime_touch_began/moved/ended, in
+ * lime_menu.c) and limeFinish copies the live pair into the last one, exactly
+ * as on the device -- so a press, a hold and a release each have their own
+ * shape, and a button that clicks on release sees the release.
  */
 
 #include <stdio.h>
@@ -48,8 +49,10 @@ void  Task_FEMain(void);
 void  limeBegin(void);
 void  limeFinish(void);
 
-extern float limeTouchScreenX[], limeTouchScreenY[];
-extern float limeLastTouchScreenX[], limeLastTouchScreenY[];
+void  lime_menu_advance_clock(double seconds);
+void  lime_touch_began(float x, float y);
+void  lime_touch_moved(float x, float y, float prev_x, float prev_y);
+void  lime_touch_ended(float x, float y, float prev_x, float prev_y);
 extern int   FE_CurrentTask;
 
 /* win32_gl.c owns the window; the pointer state comes from it. */
@@ -89,6 +92,7 @@ int main(int argc, char **argv)
     int focused = 1;
     const char *root = (argc > 1) ? argv[1] : ".";
     const char *shot = getenv("UMK3_SHOT");
+    const char *screen = getenv("UMK3_SCREEN");
     int   shot_at = shot ? atoi(shot) : 0;
     int   frames = 0;
     long  step;
@@ -105,18 +109,18 @@ int main(int argc, char **argv)
     lime_platform_set_asset_root(root);
     lime_gl_set_screen(VIRT_W, VIRT_H);
 
-    /* Nothing is touching the screen. Both pairs, because a screen that reads
-     * the last pair before anything has happened would see whatever was in
-     * memory. */
-    limeTouchScreenX[0] = limeTouchScreenY[0] = -1.0f;
-    limeLastTouchScreenX[0] = limeLastTouchScreenY[0] = -1.0f;
-
     printf("loading...\n");
     Task_LoadGeneralData();
     for (step = 0; step < 200; step++)
         if (FEInit_LoadABit(step))
             break;
     printf("loaded at step %ld\n", step);
+
+    /* UMK3_SCREEN=<n> starts on front-end task n instead of the main menu --
+     * written straight into FE_CurrentTask, as tests/test_menu_screens.c does,
+     * so a shot can show a screen that would otherwise need clicks to reach. */
+    if (screen)
+        FE_CurrentTask = atoi(screen);
 
     t0 = plat_time();
     last = t0;
@@ -158,25 +162,29 @@ int main(int argc, char **argv)
             continue;
 
         plat_size(&ww, &wh);
-        glViewport(0, 0, ww, wh);
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         /* The window is a scaled copy of the 480x320 the game believes in, so
-         * a click has to come back the same way. */
+         * a click has to come back the same way. The button is one finger,
+         * delivered as EAGLView's touch events on its edges -- began, moved,
+         * ended -- and limeFinish rolls the slots into their Last copies at the
+         * end of each tick. That is what makes a press, a hold and a release
+         * look different to the front end. */
         down = plat_mouse(&mx, &my);
-        if (down) {
-            limeTouchScreenX[0] = (float)mx * VIRT_W / (ww ? ww : 1);
-            limeTouchScreenY[0] = (float)my * VIRT_H / (wh ? wh : 1);
-            limeLastTouchScreenX[0] = limeTouchScreenX[0];
-            limeLastTouchScreenY[0] = limeTouchScreenY[0];
-        } else if (was_down) {
-            /* The release frame: the live pair goes to -1 and the last pair
-             * stays, which is the pattern the button code recognises. */
-            limeTouchScreenX[0] = limeTouchScreenY[0] = -1.0f;
-        } else {
-            limeTouchScreenX[0] = limeTouchScreenY[0] = -1.0f;
-            limeLastTouchScreenX[0] = limeLastTouchScreenY[0] = -1.0f;
+        {
+            static float prev_tx = -1.0f, prev_ty = -1.0f;
+            float tx = (float)mx * VIRT_W / (ww ? ww : 1);
+            float ty = (float)my * VIRT_H / (wh ? wh : 1);
+
+            if (down && !was_down)
+                lime_touch_began(tx, ty);
+            else if (down && (tx != prev_tx || ty != prev_ty))
+                lime_touch_moved(tx, ty, prev_tx, prev_ty);
+            else if (!down && was_down)
+                lime_touch_ended(prev_tx, prev_ty, prev_tx, prev_ty);
+            if (down) {
+                prev_tx = tx;
+                prev_ty = ty;
+            }
         }
         was_down = down;
 
@@ -203,6 +211,16 @@ int main(int argc, char **argv)
              * is what writes limeSidewaysMat, which LIMEDS_Set3dMode multiplies
              * into every 3D projection -- skip it and the matrix stays zero and
              * the main menu's vortex is never drawn. */
+            /* -[EAGLView drawView], 0x00061668, is one tick: glViewport,
+             * glClearColor(0, 0, 0, 1), glClear(0x4100) -- colour and depth
+             * -- then GameCodeMain. The clear belongs to the tick, not to the
+             * swap. Two ticks drawn over one clear leave the first one's depth
+             * behind, and the tower's bricks, drawn at the same depth again,
+             * fail GL_LESS and vanish behind the background fill. */
+            glViewport(0, 0, ww, wh);
+            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            lime_menu_advance_clock(1.0 / 60.0);
             limeBegin();
             Task_FEMain();
             limeFinish();
