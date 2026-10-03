@@ -92,6 +92,7 @@ int main(int argc, char **argv)
     int focused = 1;
     const char *root = (argc > 1) ? argv[1] : ".";
     const char *shot = getenv("UMK3_SHOT");
+    const char *screen = getenv("UMK3_SCREEN");
     int   shot_at = shot ? atoi(shot) : 0;
     int   frames = 0;
     long  step;
@@ -114,6 +115,12 @@ int main(int argc, char **argv)
         if (FEInit_LoadABit(step))
             break;
     printf("loaded at step %ld\n", step);
+
+    /* UMK3_SCREEN=<n> starts on front-end task n instead of the main menu --
+     * written straight into FE_CurrentTask, as tests/test_menu_screens.c does,
+     * so a shot can show a screen that would otherwise need clicks to reach. */
+    if (screen)
+        FE_CurrentTask = atoi(screen);
 
     t0 = plat_time();
     last = t0;

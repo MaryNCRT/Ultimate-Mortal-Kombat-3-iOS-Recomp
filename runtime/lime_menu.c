@@ -253,7 +253,7 @@ void lime_menu_touch_idle(void)
 
 static int g_in_2d;
 static int g_depth_test = 1;
-static int g_colour_mask = 1;
+static long g_colour_mask[4] = { 1, 1, 1, 1 };
 static long g_fills;
 
 /* armv7 0x00066a74, transcribed whole. The one substitution is the clock:
@@ -334,7 +334,12 @@ void limeEnableDepthTest(void)  { g_depth_test = 1; }
 void limeDisableDepthTest(void) { g_depth_test = 0; }
 void limeClearDepthBuffer(void) { }
 void limePortDisplayRotation(void) { }
-void limeSetColourMask(int on)  { g_colour_mask = on; }
+/* armv7 0x00066e68: four channels, each narrowed to a byte. */
+void limeSetColourMask(long r, long g, long b, long a)
+{
+    g_colour_mask[0] = r;  g_colour_mask[1] = g;
+    g_colour_mask[2] = b;  g_colour_mask[3] = a;
+}
 
 #endif  /* !UMK3_REAL_GL */
 int  lime_menu_in_2d(void)      { return g_in_2d; }
