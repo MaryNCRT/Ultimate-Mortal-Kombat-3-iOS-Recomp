@@ -8,6 +8,7 @@
  */
 
 #include <stdint.h>
+#include "lime_glapi.h"   /* the GL calls' calling convention */
 #include <string.h>   /* memset, for clearSpriteListsAndEvents */
 
 /* TEXTURETOLOAD is the engine's {name, destination} pair — see decomp/lime,
@@ -639,7 +640,7 @@ void limeFinish(void);
 void limeStartLoadingAnim(void);
 void limeStopLoadingAnim(void);
 void heartbeatUpdate(void);
-void glDisable(unsigned cap);
+void LIME_GLAPI glDisable(unsigned cap);
 
 
 /* -------------------------------------------------------- LIME_KillAllLights
@@ -1562,12 +1563,12 @@ typedef struct MESHSETINFO  MESHSETINFO;
 
 void LIMEDS_SetObjectOrientation(limeMATRIX44 *m, limeVECTOR3 *pos);
 void LIME_RenderMesh(MESHSETINFO *set, int index, TEXTURE *tex0, TEXTURE *tex1, long flags);
-void glPushMatrix(void);
-void glPopMatrix(void);
-void glScalef(float x, float y, float z);
-void glEnable(unsigned int cap);
-void glCullFace(unsigned int mode);
-void glColor4f(float r, float g, float b, float a);
+void LIME_GLAPI glPushMatrix(void);
+void LIME_GLAPI glPopMatrix(void);
+void LIME_GLAPI glScalef(float x, float y, float z);
+void LIME_GLAPI glEnable(unsigned int cap);
+void LIME_GLAPI glCullFace(unsigned int mode);
+void LIME_GLAPI glColor4f(float r, float g, float b, float a);
 
 #define GL_FRONT      0x0404
 #define GL_BACK       0x0405
@@ -2958,8 +2959,8 @@ void LIME_RenderScene(long a, void *scene, long frameA, long frameB, float t,
                       long b, long c, long d, void *tex, long e, float *att);
 void limeDisableAlphaBlending(void);
 void limeEnableDepthWrites(void);
-void glMatrixMode(unsigned int m);
-void glMultMatrixf(const float *m);
+void LIME_GLAPI glMatrixMode(unsigned int m);
+void LIME_GLAPI glMultMatrixf(const float *m);
 #define GL_MODELVIEW 0x1700
 
 
@@ -4715,8 +4716,8 @@ extern float IntroPlayer1PosX;          /* 0x0014f930 */
 extern float IntroPlayer1PosZ;          /* 0x0014f934 */
 extern float PlayerSize;                /* 0x00150cc4 */
 
-void glTranslatef(float x, float y, float z);
-void glRotatef(float a, float x, float y, float z);
+void LIME_GLAPI glTranslatef(float x, float y, float z);
+void LIME_GLAPI glRotatef(float a, float x, float y, float z);
 
 
 /* --------------------------------------------------- RenderIntroCharacterPlayer
@@ -10111,7 +10112,7 @@ long  mk3_who_in_front(void);
 long *HavePreloadedCharacter(long who);
 void  RenderDebugCube(void);
 void  RenderAxesLines(float x, float y, float z);
-void  glLoadIdentity(void);
+void LIME_GLAPI glLoadIdentity(void);
 void  limeGetCurrentModelMatrix(float *out);
 void  limeScaleMatrixXYZ(float *m, float sx, float sy, float sz);
 void  LIME_TriggerEventsFromSceneOffsetIfFollowing(long slot, long follow,

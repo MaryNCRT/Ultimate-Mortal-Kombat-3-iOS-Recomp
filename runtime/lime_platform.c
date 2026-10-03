@@ -339,14 +339,14 @@ int lime_platform_matrix_depth(void)
 }
 
 #ifndef UMK3_REAL_GL   /* headless; see runtime/draw_gl.c for the windowed half */
-void glPushMatrix(void)   { g_matrix_depth++; }
-void glPopMatrix(void)    { if (g_matrix_depth > 0) g_matrix_depth--; }
-void glLoadIdentity(void) { }
+void LIME_GLAPI glPushMatrix(void)   { g_matrix_depth++; }
+void LIME_GLAPI glPopMatrix(void)    { if (g_matrix_depth > 0) g_matrix_depth--; }
+void LIME_GLAPI glLoadIdentity(void) { }
 
-void glMatrixMode(unsigned mode)                  { (void)mode; }
-void glTranslatef(float x, float y, float z)      { (void)x; (void)y; (void)z; }
-void glMultMatrixf(const float *m)                { (void)m; }
-void glScalef(float x, float y, float z)          { (void)x; (void)y; (void)z; }
+void LIME_GLAPI glMatrixMode(unsigned mode)                  { (void)mode; }
+void LIME_GLAPI glTranslatef(float x, float y, float z)      { (void)x; (void)y; (void)z; }
+void LIME_GLAPI glMultMatrixf(const float *m)                { (void)m; }
+void LIME_GLAPI glScalef(float x, float y, float z)          { (void)x; (void)y; (void)z; }
 
 
 #endif  /* !UMK3_REAL_GL */
@@ -453,27 +453,27 @@ long lime_platform_draw_calls(void)   { return g_draw_calls; }
 long lime_platform_draw_indices(void) { return g_draw_indices; }
 
 #ifndef UMK3_REAL_GL   /* headless; see runtime/draw_gl.c for the windowed half */
-void glDrawElements(unsigned mode, int count, unsigned type, const void *idx)
+void LIME_GLAPI glDrawElements(unsigned mode, int count, unsigned type, const void *idx)
 {
     (void)mode; (void)type; (void)idx;
     g_draw_calls++;
     g_draw_indices += count;
 }
 
-void glEnable(unsigned cap)                       { (void)cap; }
-void glDisable(unsigned cap)                      { (void)cap; }
-void glEnableClientState(unsigned a)              { (void)a; }
-void glDisableClientState(unsigned a)             { (void)a; }
+void LIME_GLAPI glEnable(unsigned cap)                       { (void)cap; }
+void LIME_GLAPI glDisable(unsigned cap)                      { (void)cap; }
+void LIME_GLAPI glEnableClientState(unsigned a)              { (void)a; }
+void LIME_GLAPI glDisableClientState(unsigned a)             { (void)a; }
 void glClientActiveTexture(unsigned u)            { (void)u; }
 void glActiveTexture(unsigned u)                  { (void)u; }
-void glBindTexture(unsigned t, unsigned n)        { (void)t; (void)n; }
-void glTexEnvf(unsigned t, unsigned p, float v)   { (void)t; (void)p; (void)v; }
-void glVertexPointer(int s, unsigned t, int st, const void *p)   { (void)s; (void)t; (void)st; (void)p; }
-void glTexCoordPointer(int s, unsigned t, int st, const void *p) { (void)s; (void)t; (void)st; (void)p; }
-void glColorPointer(int s, unsigned t, int st, const void *p)    { (void)s; (void)t; (void)st; (void)p; }
-void glColor4f(float r, float g, float b, float a){ (void)r; (void)g; (void)b; (void)a; }
-void glDepthMask(unsigned char flag)              { (void)flag; }
-void glShadeModel(unsigned mode)                  { (void)mode; }
-void glCullFace(unsigned mode)                    { (void)mode; }
+void LIME_GLAPI glBindTexture(unsigned t, unsigned n)        { (void)t; (void)n; }
+void LIME_GLAPI glTexEnvf(unsigned t, unsigned p, float v)   { (void)t; (void)p; (void)v; }
+void LIME_GLAPI glVertexPointer(int s, unsigned t, int st, const void *p)   { (void)s; (void)t; (void)st; (void)p; }
+void LIME_GLAPI glTexCoordPointer(int s, unsigned t, int st, const void *p) { (void)s; (void)t; (void)st; (void)p; }
+void LIME_GLAPI glColorPointer(int s, unsigned t, int st, const void *p)    { (void)s; (void)t; (void)st; (void)p; }
+void LIME_GLAPI glColor4f(float r, float g, float b, float a){ (void)r; (void)g; (void)b; (void)a; }
+void LIME_GLAPI glDepthMask(unsigned char flag)              { (void)flag; }
+void LIME_GLAPI glShadeModel(unsigned mode)                  { (void)mode; }
+void LIME_GLAPI glCullFace(unsigned mode)                    { (void)mode; }
 
 #endif  /* !UMK3_REAL_GL */
