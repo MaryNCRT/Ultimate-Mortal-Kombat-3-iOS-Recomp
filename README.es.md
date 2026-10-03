@@ -446,10 +446,11 @@ build/umk3-fight ruta/a/Payload/UMK3.app/res
 build/umk3-test  ruta/a/Payload/UMK3.app/res
 ```
 
-El ratón hace de dedo. Las partidas se guardan en `%APPDATA%/UMK3` en Windows y
-en `~/.local/share/umk3` en Linux (`UMK3_SAVE_DIR` cambia las dos); la música, de
-momento, necesita el backend de Windows. `UMK3_SHOT=<n>` ejecuta n frames, guarda
-una captura y sale.
+El menú aparece después de los dos logos iniciales y la carga del front end; el
+ratón hace de dedo. Las partidas se guardan en `%APPDATA%/UMK3` en Windows y en
+`~/.local/share/umk3` en Linux (`UMK3_SAVE_DIR` cambia las dos); la música, de
+momento, necesita el backend de Windows. `UMK3_SHOT=<n>` omite los logos,
+ejecuta n frames del menú, guarda una captura y sale.
 
 ---
 

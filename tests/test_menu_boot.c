@@ -1,15 +1,17 @@
 /*
  * test_menu_boot.c -- boot the decompiled front end with no window.
  *
- *   gcc -std=c99 -O0 -I runtime -I decomp/lime -o menu_boot  *       tests/test_menu_boot.c decomp/gamecode/*.c decomp/lime/*.c  *       runtime/gamecode_globals.c runtime/gamecode_stubs.c  *       runtime/lime_menu.c runtime/lime_platform.c runtime/lime/*.c -lm
+ * Compile this file with all C sources in decomp/gamecode/, decomp/lime/,
+ * runtime/lime/, plus runtime/gamecode_globals.c, runtime/gamecode_stubs.c,
+ * runtime/lime_menu.c, and runtime/lime_platform.c.
  *   ./menu_boot <path to the extracted UMK3.app/res>
  *
- * Exit 0 means the whole boot ran: general data, the 88-step front-end loader,
- * and sixty ticks of the main menu. The counts at the end are what the menu
- * ASKED to draw, which is the part that tests the transcription.
+ * Exit 0 means the whole boot ran: general data, both publisher splash
+ * screens, the incremental front-end loader, and sixty ticks of the main menu.
+ * The counts are what the transcribed screens ASKED to draw.
  *
- * Runs the boot sequence the game runs -- general data, then the front-end
- * loader -- and then ticks the front-end task function a fixed number of times.
+ * Runs the boot sequence in the task dispatcher -- splash, front-end init,
+ * then the front-end task function for a fixed number of frames.
  * Nothing draws: the platform layer counts sprites, fills and fonts instead, so
  * this reports what the menus *asked* for. That is the part that tests the
  * transcription; a window would only test the GL code.
@@ -32,17 +34,19 @@ long lime_heap_check(const char *where);
 long lime_heap_live(void);
 
 void Task_LoadGeneralData(void);
-int  FEInit_LoadABit(long step);
+void Task_LoadSplashScreen(void);
+void Task_FEInit(void);
 void Task_FEMain(void);
 
 extern int FE_CurrentTask;
 extern int FE_TaskStackPointer;
+extern int CurrentTask;
+extern long SplashCount;
 
 int main(int argc, char **argv)
 {
     const char *root = (argc > 1) ? argv[1] : ".";
-    long step, done = -1;
-    int  frame;
+    long frame;
     long sprites0, fills0;
     char where[64];
 
@@ -60,20 +64,40 @@ int main(int argc, char **argv)
     Task_LoadGeneralData();
     printf("   loaded, %ld allocations live\n", lime_heap_live());
 
-    printf("== front-end loader ==\n");
-    for (step = 0; step < 200; step++) {
-        if (FEInit_LoadABit(step)) {
-            done = step;
-            break;
+    printf("== publisher splash sequence ==\n");
+    sprites0 = lime_platform_sprite_count();
+    for (frame = 0; CurrentTask == 8 && frame < 500; frame++) {
+        Task_LoadSplashScreen();
+        if (frame % 30 == 29) {
+            sprintf(where, "splash frame %ld", frame);
+            if (lime_heap_check(where))
+                printf("   ^^ damaged during %s\n", where);
         }
-        sprintf(where, "step %ld", step);
-        if (lime_heap_check(where))
-            printf("   ^^ damaged during step %ld\n", step);
     }
-    if (done >= 0)
-        printf("   finished at step %ld\n", done);
-    else
-        printf("   did not finish in 200 steps\n");
+    if (CurrentTask != 1 || SplashCount != 492 ||
+        lime_platform_sprite_count() - sprites0 != 479) {
+        printf("   FAIL: CurrentTask=%d SplashCount=%ld sprites=%ld\n",
+               CurrentTask, SplashCount,
+               lime_platform_sprite_count() - sprites0);
+        return 1;
+    }
+    printf("   %ld frames, 479 sprite draws, CurrentTask=%d\n",
+           frame, CurrentTask);
+
+    printf("== incremental front-end loader ==\n");
+    for (frame = 0; CurrentTask != 3 && frame < 100; frame++) {
+        Task_FEInit();
+        if (frame % 10 == 9) {
+            sprintf(where, "FE init frame %ld", frame);
+            if (lime_heap_check(where))
+                printf("   ^^ damaged during %s\n", where);
+        }
+    }
+    if (CurrentTask != 3) {
+        printf("   FAIL: loader did not hand off (CurrentTask=%d)\n",
+               CurrentTask);
+        return 1;
+    }
     printf("   live allocations   %ld\n", lime_heap_live());
 
     printf("== after load ==\n");

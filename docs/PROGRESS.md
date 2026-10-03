@@ -15,8 +15,10 @@ Current state of the project. Written so that someone can pick it up with no pri
 >
 > **Natively:** the real front end runs in a window with sound, music
 > (Windows) and save files, and pauses on losing focus;
-> `build/umk3-menu.exe <res>` opens it, the mouse stands in for a finger, and
-> `UMK3_SHOT=<n>` ticks n frames, writes `umk3-menu.ppm` and quits.
+> `build/umk3-menu.exe <res>` plays both publisher splash screens, loads the
+> front end, then opens the menu. The mouse stands in for a finger.
+> `UMK3_SHOT=<n>` skips the splash screens, ticks n menu frames, writes
+> `umk3-menu.ppm` and quits.
 >
 > **Not playable yet.** The fight engine has no runtime, and the 229 data
 > tables it reads are not extracted -- see "The other axis" below. Those two
@@ -35,17 +37,23 @@ Current state of the project. Written so that someone can pick it up with no pri
 > so this backend has only been checked against the reduced lint fixture, not
 > real SDL2 headers or a running SDL2 window.
 
-`tests/test_menu_boot.c` still exits 0 headless, and that is the transcription
-test: it runs `Task_LoadGeneralData`, the 88-step front-end loader and sixty
-ticks of `Task_FEMain` with the platform layer counting draw calls instead of
-making them. The menu asks for **480 sprites and 89 fills a second** and stays
-on `FE_Task_Main_Menu`. Along the way the retail build's own diagnostics come
-out -- the settings reset with its ten values, `Num Text strings Loading: 1022`,
-and the bare `F` and `G` the loader prints.
+`tests/test_menu_boot.c` is the headless transcription test. It runs
+`Task_LoadGeneralData`, all 492 splash calls (479 sprite draws), the incremental
+`Task_FEInit` handoff, and sixty `Task_FEMain` ticks with the platform layer
+counting draw calls instead of making them. The menu asks for **480 sprites and
+89 fills a second** and stays on `FE_Task_Main_Menu`. Along the way the retail
+build's own diagnostics come out -- the settings reset with its ten values,
+`Num Text strings Loading: 1022`, and the bare `F` and `G` the loader prints.
 
-`runtime/menu_main.c` is the same boot with `runtime/draw_gl.c` in place of the
-counters. Keeping both matters: the headless one tests the decompilation, the
-windowed one tests the GL code, and a failure in either says which.
+`runtime/menu_main.c` and `runtime/test_main.c` use that same task sequence with
+`runtime/draw_gl.c` in place of the counters. Keeping both matters: the headless
+one tests the decompilation, the windowed ones test the GL code, and a failure
+in either says which.
+
+The updated boot harness and both windowed targets compile. The resource-backed
+headless harness was not executed in this pass because that would require
+opening the user's extracted game data; its splash-count and task-transition
+assertions still need a run against the supplied `res/` directory.
 
 ### What it took, and it was all one thing
 

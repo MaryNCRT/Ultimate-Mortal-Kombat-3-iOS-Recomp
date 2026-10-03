@@ -528,10 +528,11 @@ build/umk3-fight path/to/Payload/UMK3.app/res
 build/umk3-test  path/to/Payload/UMK3.app/res
 ```
 
-The mouse stands in for a finger. Save files go to `%APPDATA%/UMK3` on Windows
+The menu opens after the two publisher splash screens and the front-end load;
+the mouse stands in for a finger. Save files go to `%APPDATA%/UMK3` on Windows
 and `~/.local/share/umk3` on Linux (`UMK3_SAVE_DIR` overrides both); music needs
-the Windows backend for now. `UMK3_SHOT=<n>` runs n frames, writes a screenshot
-and quits.
+the Windows backend for now. `UMK3_SHOT=<n>` skips the splash screens, runs n
+menu frames, writes a screenshot and quits.
 
 ---
 
