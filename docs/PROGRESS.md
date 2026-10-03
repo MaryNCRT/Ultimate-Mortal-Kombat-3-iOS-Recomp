@@ -2710,7 +2710,7 @@ resolved-address calls, not stub imports. Nothing left to do in this file.
 
 The select screen (front-end task 0x1b) segfaulted on entry and no fighter
 model was ever shown. Traced one crash at a time, each checked against the
-binary. Five fixes, then a stop at a layout question that needs real work.
+binary. Six fixes, then a stop at a layout question that needs real work.
 
 1. **64-bit pointers in 32-bit slots.** `Load1Character` stores the
    ANIMATEDCHARACTER in the word at +0x04 of a 0x668-byte front-end slot; the
@@ -2738,6 +2738,14 @@ binary. Five fixes, then a stop at a layout question that needs real work.
    frame was -1 and `RenderFECharacters` skipped every fighter.
    `mkglobals.py` now emits them with their lists from the image
    (`KanoIdleFrames[53]` = 0xd4 bytes, matching `SizeofIdleLists[1]`).
+
+6. **The "?" cards were invisible.** Locked fighters (16 and 17 while
+   `TreasureGained` is clear) draw `HIDDENPORTRAIT.PNG` in `midcol`, which was
+   declared a pointer slot and got zeroed storage: colour (0, 0, 0, 0). In the
+   image `_midcol` at 0x0014fa10 is four floats, 0.5 0.5 0.5 1, like `col`
+   just before it (already fixed as an array). `darkcol`, `semicol` and
+   `semidarkcol` (0x0014fa20..0x0014fa40) had the same fault; all four are now
+   `float x[4]` with their values from the image.
 
 `runtime/gamecode_globals.c` was regenerated, minus `ratio`: the generator
 emits it because it does not see `runtime/lime_menu.c`, which already defines

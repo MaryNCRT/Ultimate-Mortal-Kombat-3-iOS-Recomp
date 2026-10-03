@@ -3192,7 +3192,7 @@ void DrawMainMenu(int c1, int c2, int c3, int c4, int c5)
 }
 
 
-extern float *darkcol;                  /* pointer slot */
+extern float  darkcol[4];               /* 0x0014fa20, RGBA 0.1 0.1 0.1 1 */
 
 float limeGetStringWidth(void *font, const char *text);
 
@@ -10330,8 +10330,8 @@ void FE_Task_VS_Screen(void)
 #define TREASURE_PART_MOVE 24.0f
 #define TREASURE_FADE_STEP -0.033333335f
 
-extern float *semicol;                  /* pointer slot -> 0x0014fa30 */
-extern float *semidarkcol;              /* pointer slot -> 0x0014fa40 */
+extern float  semicol[4];               /* 0x0014fa30, RGBA */
+extern float  semidarkcol[4];           /* 0x0014fa40, RGBA */
 extern long   TreasurePlayed;           /* 0x000ff8bc */
 extern long  *endurancerand1;           /* pointer slot -> 0x0014e218 */
 extern long  *endurancerand2;           /* pointer slot -> 0x0014e21c */
@@ -11241,7 +11241,11 @@ void FE_Task_Multiplayer(void)
 
 extern long  CS_Layout[CS_ROWS][CS_COLS];   /* 0x00101630 */
 extern long  CS_Layout2[CS_ROWS][CS_COLS];  /* 0x001016a0 */
-extern float *midcol;                       /* pointer slot -> 0x0014fa10 */
+/* Four floats in __data, like `col` sixteen bytes before it -- not a pointer
+ * slot. Declared `float *` it got zeroed storage, and every locked character's
+ * "?" card was drawn in (0, 0, 0, 0): invisible. The binary has 0.5 0.5 0.5 1.
+ * darkcol, semicol and semidarkcol, the next three, had the same fault. */
+extern float  midcol[4];                    /* 0x0014fa10, RGBA 0.5 0.5 0.5 1 */
 extern long  lastopponentCharacter;         /* 0x0010171c */
 extern long  PlayerSelectToggle;            /* 0x00101720 */
 extern float SmokeCounter;                  /* 0x00101724 */
