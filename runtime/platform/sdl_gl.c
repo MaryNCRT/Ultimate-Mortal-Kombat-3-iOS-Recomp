@@ -16,6 +16,7 @@
 #include "gl.h"
 
 #include <SDL.h>
+#include <stdlib.h>
 #include <string.h>
 
 static SDL_Window   *g_wnd;
@@ -191,4 +192,24 @@ int plat_ask(const unsigned short *msg, const unsigned short *ok,
     if (SDL_ShowMessageBox(&box, &hit) != 0 || hit < 0)
         return cancel ? 1 : 0;
     return hit;
+}
+
+/* POSIX locale variables, in the order setlocale(LC_MESSAGES) reads them:
+ * "es_CO.UTF-8" gives "es". */
+void plat_language(char *out, int n)
+{
+    static const char *vars[] = { "LC_ALL", "LC_MESSAGES", "LANG" };
+    const char *v = NULL;
+    int i;
+
+    if (n <= 0)
+        return;
+    out[0] = 0;
+    for (i = 0; i < 3 && (v == NULL || *v == 0); i++)
+        v = getenv(vars[i]);
+    if (v == NULL || strcmp(v, "C") == 0 || strcmp(v, "POSIX") == 0)
+        return;
+    for (i = 0; i < n - 1 && v[i] && v[i] != '_' && v[i] != '.' && v[i] != '@'; i++)
+        out[i] = v[i];
+    out[i] = 0;
 }

@@ -284,3 +284,12 @@ int plat_ask(const unsigned short *msg, const unsigned short *ok,
                     (cancel ? MB_OKCANCEL : MB_OK) | MB_TASKMODAL);
     return (r == IDOK) ? 0 : 1;
 }
+
+void plat_language(char *out, int n)
+{
+    if (n <= 0)
+        return;
+    out[0] = 0;
+    GetLocaleInfoA(MAKELCID(GetUserDefaultUILanguage(), SORT_DEFAULT),
+                   LOCALE_SISO639LANGNAME, out, n);
+}
