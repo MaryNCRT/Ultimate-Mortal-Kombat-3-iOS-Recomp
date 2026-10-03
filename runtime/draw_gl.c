@@ -214,8 +214,13 @@ TEXTURE *limeLoadTexture(const char *path, int a, int b)
     glBindTexture(GL_TEXTURE_2D, name);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+    /* No wrap mode, on purpose. Every glTexParameteri in the binary (PVRTexture
+     * createGLTexture, Texture2D initWithData, seven calls in all) sets the
+     * filters or GENERATE_MIPMAP and none sets GL_TEXTURE_WRAP_S/T, so every
+     * texture keeps the default GL_REPEAT -- and the font depends on it: a
+     * glyph on the second atlas page has a V past 1.0 (J is at 2504 of 2048),
+     * which REPEAT folds onto the second sheet. This used to set GL_CLAMP,
+     * and J, Á and Ñ drew as nothing: "UGAR" for JUGAR. */
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, img.width, img.height, 0,
                  GL_RGBA, GL_UNSIGNED_BYTE, img.rgba);
     free(img.rgba);

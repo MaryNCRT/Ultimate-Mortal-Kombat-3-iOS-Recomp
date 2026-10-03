@@ -53,6 +53,11 @@ bool plat_focused(void);
 int plat_ask(const unsigned short *msg, const unsigned short *ok,
              const unsigned short *cancel);
 
+/* The user's interface language as an ISO 639-1 code ("es", "en", ...) in
+ * `out`, at least 3 bytes; "" when it cannot be told. The iPhone's
+ * [NSLocale preferredLanguages][0]. */
+void plat_language(char *out, int n);
+
 /* ------------------------------------------------------------------ input
  *
  * The fight engine takes ONE TEN-BIT WORD PER PLAYER and nothing else -- see

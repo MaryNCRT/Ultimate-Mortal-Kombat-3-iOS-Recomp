@@ -574,11 +574,44 @@ static char g_language[8] = "EN";
  * `limeGetLanguage(Language, 10)` and then builds "LANGUAGE_TEXT_%s" from what
  * it wrote -- declared as returning a pointer, `Language` stayed empty and the
  * key came out as "LANGUAGE_TEXT_", which Info.plist has no entry for. */
+/* armv7 0x00067478: [[[NSLocale preferredLanguages] objectAtIndex:0]
+ * uppercaseString], strlcpy'd into the caller's buffer and then cut to two
+ * characters with dst[2] = 0 -- "es-CO" arrives as "ES". The game ships
+ * LANGUAGE_TEXT_ EN, FR, DE, IT, ES, KO, ZH and OTHER, so on a Spanish system
+ * it comes up in Spanish, as the phone would.
+ *
+ * The windowed build asks the system (plat_language); UMK3_LANG=<code>
+ * overrides it. The headless build keeps lime_menu_set_language's value, EN
+ * unless a test says otherwise, so its counts do not depend on the machine. */
 void limeGetLanguage(char *dst, int len)
 {
+    char code[16];
+    int i;
+
     if (dst == NULL || len <= 0)
         return;
-    snprintf(dst, (size_t)len, "%s", g_language);
+
+    snprintf(code, sizeof code, "%s", g_language);
+#ifdef UMK3_REAL_GL
+    {
+        const char *e = getenv("UMK3_LANG");
+        if (e && *e) {
+            snprintf(code, sizeof code, "%s", e);
+        } else {
+            char sys[16];
+            plat_language(sys, (int)sizeof sys);
+            if (sys[0])
+                snprintf(code, sizeof code, "%s", sys);
+        }
+    }
+#endif
+    for (i = 0; code[i]; i++)
+        if (code[i] >= 'a' && code[i] <= 'z')
+            code[i] = (char)(code[i] - 'a' + 'A');
+
+    snprintf(dst, (size_t)len, "%s", code);
+    if (len > 2)
+        dst[2] = 0;
 }
 
 void lime_menu_set_language(const char *code)
