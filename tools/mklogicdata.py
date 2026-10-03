@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """mklogicdata.py -- the fight engine's data tables, read out of the binary.
 
-    python tools/mklogicdata.py <UMK3.armv7> <symbols.txt> <needed.txt> \
-                                <native.txt> > build/logic_data.c
+    python tools/mklogicdata.py <UMK3.armv7> <symbols.txt> --nm <nm> \
+                                <object>... > build/logic_data.c
+
+The objects are everything else the program links; what they reference and
+none of them defines is what this has to supply. (The older form takes the two
+lists as files: `<needed.txt> <native.txt>` in place of `--nm ...`.)
 
 Linking all of `decomp/gamecode/logic` leaves about three hundred symbols
 undefined, and none of them is code: they are the move lists (`sm_*`), the
@@ -40,6 +44,7 @@ The output is generated from the user's own binary at build time and is not
 checked in: it is the game's data, the same as the textures.
 """
 
+import os
 import re
 import sys
 
@@ -85,7 +90,8 @@ __attribute__((constructor)) static void uppercut_stream_init(void)
 }
 """
 
-LOGIC_DIR = "decomp/gamecode/logic"
+LOGIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "..", "decomp", "gamecode", "logic")
 
 
 def logic_slots(size):
@@ -199,8 +205,44 @@ def extents(syms):
     return out
 
 
+def from_objects(nm, objects):
+    """(needed, native) from the compiled objects themselves.
+
+    native is every symbol they define; needed is every one they reference
+    and none defines -- which, once the code links, is exactly the data. A
+    32-bit COFF symbol carries a leading underscore and stdcall a `@n`
+    suffix; both are dropped.
+    """
+    import subprocess
+    out = subprocess.run([nm] + list(objects), capture_output=True,
+                         text=True).stdout
+    defined, undefined = set(), set()
+    for line in out.splitlines():
+        p = line.split()
+        if len(p) == 2 and p[0] == "U":
+            kind, name = "U", p[1]
+        elif len(p) == 3:
+            kind, name = p[1], p[2]
+        else:
+            continue
+        name = re.sub(r"@\d+$", "", name)
+        if name.startswith("_"):
+            name = name[1:]
+        if kind == "U":
+            undefined.add(name)
+        elif kind.upper() in ("T", "D", "B", "R", "C"):
+            defined.add(name)
+    return sorted(undefined - defined), defined
+
+
 def main():
-    binary, symbols, needed_path, native_path = sys.argv[1:5]
+    if len(sys.argv) > 4 and sys.argv[3] == "--nm":
+        binary, symbols = sys.argv[1:3]
+        needed, native = from_objects(sys.argv[4], sys.argv[5:])
+    else:
+        binary, symbols, needed_path, native_path = sys.argv[1:5]
+        native = set(l.strip() for l in open(native_path) if l.strip())
+        needed = [l.strip() for l in open(needed_path) if l.strip()]
     data = open(binary, "rb").read()
     syms = load_symbols(symbols)
     size = extents(syms)
@@ -213,8 +255,6 @@ def main():
         real = at[a][0]
         syms[alias] = syms[real]
         size[alias] = size[real]
-    native = set(l.strip() for l in open(native_path) if l.strip())
-    needed = [l.strip() for l in open(needed_path) if l.strip()]
 
     # Data symbols, sorted, for "which symbol contains this address".
     data_syms = sorted((a, n) for n, (a, s) in syms.items()

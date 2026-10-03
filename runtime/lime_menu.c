@@ -672,6 +672,10 @@ static void plist_load(void)
     fclose(f);
 }
 
+/* armv7 0x00065560: `[[[[NSBundle mainBundle] infoDictionary]
+ * objectForKey:key] cString]`. A missing key is nil and `[nil cString]` is
+ * NULL -- which is what -[UMK3AppDelegate startAppWithOptions:] tests to fall
+ * back to English when the bundle has no TOS_URL_<language>. */
 const char *limeGetPropertyString(const char *key)
 {
     static char value[256];
@@ -679,7 +683,7 @@ const char *limeGetPropertyString(const char *key)
     const char *at, *s, *e;
 
     if (key == NULL || *key == 0)
-        return "";
+        return NULL;
 
     plist_load();
     if (g_plist) {
@@ -702,9 +706,9 @@ const char *limeGetPropertyString(const char *key)
     /* FE_Task_About_About prints this into "Version: %s". The binary this was
      * read from is 1.2.59, and it is the one answer worth keeping when the
      * plist is not where the assets are. */
-    if (strcmp(key, "CFBundleVersion") == 0)
+    if (g_plist == NULL && strcmp(key, "CFBundleVersion") == 0)
         return "1.2.59";
-    return "";
+    return NULL;
 }
 
 /* armv7 0x0006529c. Its own LCG, not the C library's: `_rand_seed` starts at

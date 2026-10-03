@@ -88,7 +88,17 @@ class Image(object):
             if not name.startswith("_"):
                 continue
             name = name[1:]
+            # A file-static in a C++ translation unit is mangled `_ZL<len>
+            # <name>`. GameCode.cpp's `TaskFunctionList` -- the ten-entry table
+            # GameCodeMain dispatches the whole game through -- is
+            # `__ZL16TaskFunctionList`, and under that spelling it was never
+            # found, so the table came out empty.
+            m = re.match(r"_ZL(\d+)(\w+)$", name)
+            if m and len(m.group(2)) == int(m.group(1)):
+                name = m.group(2)
             a = int(p[0], 16)
+            if name in self.addr and p[1] != "SECT":
+                continue
             self.addr[name] = a
             self.sect[name] = p[3]
             by_addr.setdefault(a, []).append(name)

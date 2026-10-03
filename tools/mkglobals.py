@@ -91,9 +91,13 @@ def symbol_extents():
         sect, name = parts[3], parts[-1]
         if sect not in DATA_SECTIONS or not name.startswith("_"):
             continue
+        name = name[1:]
+        # `__ZL16TaskFunctionList`: a C++ file-static; see tools/mkdata.py.
+        m = re.match(r"_ZL(\d+)(\w+)$", name)
+        if m and len(m.group(2)) == int(m.group(1)):
+            name = m.group(2)
         try:
-            by_section.setdefault(sect, set()).add((int(parts[0], 16),
-                                                    name[1:]))
+            by_section.setdefault(sect, set()).add((int(parts[0], 16), name))
         except ValueError:
             pass
 
@@ -439,6 +443,61 @@ def undefined_symbols():
             DEFINED.add(parts[2])
 
     return undef
+
+
+# Slots the transcription named without writing down where they point. Each
+# is read the same way its neighbours are: achievements.c declares
+# `FE_WidthScale` "pointer slot -> 0x000ff9b8" two lines above the
+# `FE_WidthScaleP` GameCode.c dereferences, and `*GamePausedPtr == 0` gates the
+# pause overlay exactly where `GamePaused` does elsewhere.
+SLOT_TARGETS = {
+    "FE_WidthScaleP": "FE_WidthScale",
+    "FE_HeightScaleP": "FE_HeightScale",
+    "GamePausedPtr": "GamePaused",
+}
+
+_ARROW = re.compile(r"->\s*(?:(0x[0-9a-fA-F]+)|_(\w+))")
+_ARROWS = None
+
+
+def runtime_defines(name):
+    """True if a file in runtime/ defines `name` at file scope."""
+    pat = re.compile(r"^(?!extern|static|\s|#|/)[^;(]*\b%s\b\s*(\[|=|;)"
+                     % re.escape(name), re.M)
+    for fn in sorted(os.listdir("runtime")):
+        if fn == "gamecode_globals.c":
+            continue                        # this script's own output
+        if fn.endswith(".c") and pat.search(
+                open(os.path.join("runtime", fn), encoding="utf-8",
+                     errors="replace").read()):
+            return True
+    return False
+
+
+def slot_target(name, line, img):
+    """The global a made-up slot name points at, or None.
+
+    The declaration's comment says it: `/* pointer slot -> 0x00150590 */`
+    is CurrentTask, `-> _Players` is Players. Any of the name's declarations
+    may carry the arrow, so all of them are looked at.
+    """
+    global _ARROWS
+    if name in SLOT_TARGETS:
+        return SLOT_TARGETS[name]
+    if _ARROWS is None:
+        _ARROWS = {}
+        for path, ln, m in decl_lines():
+            a = _ARROW.search(ln)
+            if a:
+                _ARROWS.setdefault(m.group("name"), a.groups())
+    hit = _ARROW.search(line) and _ARROW.search(line).groups() \
+        or _ARROWS.get(name)
+    if not hit:
+        return None
+    addr, sym = hit
+    if sym:
+        return sym
+    return img.name_at.get(int(addr, 16))
 
 
 def assigned_names():
@@ -824,8 +883,37 @@ def main():
     print("/* ---- %d pointer slots: storage, then a pointer at it ---- */"
           % len(slots))
     print()
+    defined_here = set(seen) | set(
+        re.findall(r"(\w+)\s*\[", " ".join(d for d, _b in extra)))
     for name, path, line, m in slots:
         typ, stars = m.group("type"), m.group("stars")
+        # A name the transcription made up for a slot -- `FE_WidthScaleP` is
+        # the slot that holds &FE_WidthScale -- is not storage of its own.
+        # Giving it some made the slot point at zeros: the splash screen drew
+        # 480 * 0 wide. It points at the variable it names.
+        target = slot_target(name, line, img) if name not in extents else None
+        if target:
+            ref = ("%s__store" % target) if target in slot_names else \
+                  "(void *)&%s" % target
+            if target not in defined_here:
+                if (target not in DEFINED and not runtime_defines(target)
+                        and extents.get(target)):
+                    # Nothing defines the variable itself -- the
+                    # transcription only ever reached it through this slot.
+                    # It is a word or two of the image: define it here,
+                    # with the image's bytes.
+                    raw = img.bytes_of(target) or b""
+                    body = ", ".join(str(b) for b in raw)
+                    print("unsigned char %s[%d] __attribute__((aligned(4)))%s;"
+                          % (target, extents[target],
+                             (" = { %s }" % body) if any(raw) else ""))
+                    defined_here.add(target)
+                else:
+                    print("extern char %s[];" % target)
+                ref = "(void *)%s" % target
+            print("%s %s%s = (%s %s)%s;  /* the slot holding &%s */"
+                  % (typ, stars, name, typ, stars, ref, target))
+            continue
         # The storage starts with what the image holds. A zeroed backing for
         # `darkcol` is a black colour and for `IntroLists` a table of null
         # lists: the slot rule fixed the crash and kept the wrong value.
