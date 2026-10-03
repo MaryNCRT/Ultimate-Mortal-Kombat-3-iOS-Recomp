@@ -10,6 +10,7 @@
  */
 
 #include <stdint.h>
+#include "lime_glapi.h"   /* the GL calls' calling convention */
 #include <string.h>
 
 /* Both live in the slice's data and both hold 1.0f as shipped. */
@@ -2998,8 +2999,8 @@ void limeEnableDepthWrites(void);
 void limeDisableDepthTest(void);
 void limeDisableDepthWrites(void);
 void limeEnableAlphaBlending_Basic(void);
-void glPushMatrix(void);
-void glScalef(float x, float y, float z);
+void LIME_GLAPI glPushMatrix(void);
+void LIME_GLAPI glScalef(float x, float y, float z);
 void SetToUseCamera(const float *eye);
 void limeEnableAlphaBlending_Additive(void);
 void RotMatrixY(float *m, float angle);
@@ -4636,9 +4637,9 @@ void LIME_Slider(int window, float *value, const char *label, float lo, float hi
 void LIME_PushMatrix(void);
 void LIME_PopMatrix(int count);
 void limeGetCurrentModelMatrix(float *out);
-void glMatrixMode(unsigned mode);
-void glLoadIdentity(void);
-void glRotatef(float angle, float x, float y, float z);
+void LIME_GLAPI glMatrixMode(unsigned mode);
+void LIME_GLAPI glLoadIdentity(void);
+void LIME_GLAPI glRotatef(float angle, float x, float y, float z);
 long RenderPlayer(void *player, long a, long b);
 
 void RenderFECharacters(long slot0, long slot1)
@@ -9249,7 +9250,7 @@ extern void  *MeshSet_LIGHTNING3;       /* 0x00183d50 */
 extern void  *MeshSet_LIGHTNING4;       /* 0x00183d54 */
 extern void  *MeshSet_LIGHTNING5;       /* 0x00183d58 */
 
-void glPopMatrix(void);
+void LIME_GLAPI glPopMatrix(void);
 
 void DrawTower3D(void)
 {

@@ -4,6 +4,7 @@
  * translation unit defines. See the script for the pointer-slot rule.
  */
 
+#include <stddef.h>
 #include "gamecode_globals.h"
 
 #define SLOT_WORDS    64

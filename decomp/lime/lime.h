@@ -16,6 +16,7 @@
 #ifndef LIME_H
 #define LIME_H
 
+#include "lime_glapi.h"
 #include <stdint.h>
 #include <stddef.h>
 
@@ -716,7 +717,7 @@ void       *GetMatrixFromPalette(long index, SCENEINFO *scene);
 void        AddToTranspMeshList(MESHSETINFO *meshset, const SCENENODE *node,
                                 const QSTMATRIX *qst, long a3, long a4);
 void        ClearTranspMeshList(void);
-void        glScalef(float x, float y, float z);
+void LIME_GLAPI glScalef(float x, float y, float z);
 SCENEINFO *LIME_LoadScene(const char *filename, int a, const char *b, int c);
 void LIME_RenderMeshSingle(MESHINFO *mesh, TEXTURE *t0, TEXTURE *t1,
                            float alpha, long flags);
@@ -801,7 +802,7 @@ void   LIME_RenderScene(long arg1, SCENEINFO *scene,
                         const SKINMATRIX43 *flushMatrix);
 void   LIME_RenderSceneOverrideTextures(SCENEINFO *scene, TEXTURE **textures,
                                         long frame);
-void   glCullFace(unsigned mode);
+void LIME_GLAPI glCullFace(unsigned mode);
 #ifndef GL_BACK
 #define GL_BACK 0x0405
 #endif
@@ -886,30 +887,30 @@ extern int  g_whirlwindFirstFrame;
  * declared with GLenum and GLboolean -- and `void glDepthMask(int)` against
  * `void glDepthMask(GLboolean)` is a conflict, not a duplicate. */
 #ifndef UMK3_REAL_GL
-void glEnable(unsigned cap);
-void glDisable(unsigned cap);
-void glEnableClientState(unsigned array);
-void glDisableClientState(unsigned array);
+void LIME_GLAPI glEnable(unsigned cap);
+void LIME_GLAPI glDisable(unsigned cap);
+void LIME_GLAPI glEnableClientState(unsigned array);
+void LIME_GLAPI glDisableClientState(unsigned array);
 void glClientActiveTexture(unsigned unit);
 void glActiveTexture(unsigned unit);
-void glBindTexture(unsigned target, unsigned name);
-void glTexEnvf(unsigned target, unsigned pname, float param);
-void glVertexPointer(int size, unsigned type, int stride, const void *p);
-void glTexCoordPointer(int size, unsigned type, int stride, const void *p);
-void glColorPointer(int size, unsigned type, int stride, const void *p);
-void glDrawElements(unsigned mode, int count, unsigned type, const void *idx);
-void glColor4f(float r, float g, float b, float a);
-void glDepthMask(unsigned char flag);   /* GLboolean, not int -- the real
+void LIME_GLAPI glBindTexture(unsigned target, unsigned name);
+void LIME_GLAPI glTexEnvf(unsigned target, unsigned pname, float param);
+void LIME_GLAPI glVertexPointer(int size, unsigned type, int stride, const void *p);
+void LIME_GLAPI glTexCoordPointer(int size, unsigned type, int stride, const void *p);
+void LIME_GLAPI glColorPointer(int size, unsigned type, int stride, const void *p);
+void LIME_GLAPI glDrawElements(unsigned mode, int count, unsigned type, const void *idx);
+void LIME_GLAPI glColor4f(float r, float g, float b, float a);
+void LIME_GLAPI glDepthMask(unsigned char flag);   /* GLboolean, not int -- the real
                                            header says so and the two
                                            declarations have to agree */
-void glShadeModel(unsigned mode);
+void LIME_GLAPI glShadeModel(unsigned mode);
 
-void glPushMatrix(void);
-void glPopMatrix(void);
-void glLoadIdentity(void);
-void glMatrixMode(unsigned mode);
-void glTranslatef(float x, float y, float z);
-void glMultMatrixf(const float *m);
+void LIME_GLAPI glPushMatrix(void);
+void LIME_GLAPI glPopMatrix(void);
+void LIME_GLAPI glLoadIdentity(void);
+void LIME_GLAPI glMatrixMode(unsigned mode);
+void LIME_GLAPI glTranslatef(float x, float y, float z);
+void LIME_GLAPI glMultMatrixf(const float *m);
 #else
 /* A real GL supplies all of the above. Two exceptions: the multitexture calls
  * arrived in GL 1.3 and Windows' opengl32 exports 1.1, so runtime/draw_gl.c

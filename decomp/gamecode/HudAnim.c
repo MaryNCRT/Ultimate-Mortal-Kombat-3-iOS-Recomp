@@ -11,6 +11,7 @@
  */
 
 #include <stdint.h>
+#include "lime_glapi.h"   /* the GL calls' calling convention */
 
 typedef struct TEXTURE TEXTURE;
 typedef struct TEXTURETOLOAD {
@@ -183,10 +184,10 @@ void limeDisableDepthTest(void);
 void limeDisableDepthWrites(void);
 void limeEnableDepthTest(void);
 void limeEnableDepthWrites(void);
-void glPushMatrix(void);
-void glPopMatrix(void);
-void glRotatef(float a, float x, float y, float z);
-void glScalef(float x, float y, float z);
+void LIME_GLAPI glPushMatrix(void);
+void LIME_GLAPI glPopMatrix(void);
+void LIME_GLAPI glRotatef(float a, float x, float y, float z);
+void LIME_GLAPI glScalef(float x, float y, float z);
 
 
 /* ------------------------------------------------------------ HUDANIM_Render
