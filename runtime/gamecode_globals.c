@@ -159,7 +159,6 @@ extern char CancelCustomButtonsPos5[0x78];
 extern char CancelCustomButtonsPos6[0x78];
 extern void *CancelTexture;
 extern long Character1;
-extern int *Character1Ptr;
 extern long Character2;
 extern long Character2Override;
 extern signed char CharacterAvailable[CHARACTER_SLOTS];
@@ -170,7 +169,6 @@ extern void *CharacterVSTexture[26];
 extern void *CharacterVSTexture2[26];
 extern float Character_SelectWait;
 extern long ClassicSubZeroUnlocked;
-extern int *ClassicSubZeroUnlockedPtr;
 extern int ClearedZBuffer;
 extern long ClockSingles;
 extern long ClockTens;
@@ -192,12 +190,12 @@ extern char DEFAULT_CustomButtonsPos5[0x78];
 extern char DEFAULT_CustomButtonsPos6[0x78];
 extern long DangerMessage[2];
 extern void *DangerTPage;
-extern const char *DestinationGrandMaster[44 / sizeof(const char)];
-extern const char *DestinationMaster[184 / sizeof(const char)];
-extern const char *DestinationNovice[144 / sizeof(const char)];
-extern const char *DestinationWarrior[160 / sizeof(const char)];
+extern const char *DestinationGrandMaster[11];
+extern const char *DestinationMaster[46];
+extern const char *DestinationNovice[36];
+extern const char *DestinationWarrior[40];
 extern long Destiny;
-extern const char *DestinyNames[0];
+extern const char *DestinyNames[27];
 extern long DestinyToSelect;
 extern long DidIntroThisFrame;
 extern long DifficultyList[176 / sizeof(long)];
@@ -228,7 +226,6 @@ extern long EnduranceMatchTreasure7[64 / sizeof(long)];
 extern long EnduranceMatchTreasure8[64 / sizeof(long)];
 extern long EnduranceTowerList[176 / sizeof(long)];
 extern int ErmacUnlocked;
-extern int *ErmacUnlockedPtr;
 extern long ExtraEffects;
 extern float FECAMPOSX;
 extern float FECAMPOSY;
@@ -244,7 +241,7 @@ extern long FESlideDir;
 extern long FESlideNextTask;
 extern float FESlideOffset;
 extern void (*FETaskFunctionList[265])(void);
-extern const char *FETaskNames[204 / sizeof(const char)];
+extern const char *FETaskNames[51];
 extern long FETuneSelection;
 extern float FE_AspectRatioAdjust;
 extern int FE_CurrentTask;
@@ -282,7 +279,7 @@ extern long FriendshipMessage;
 extern long GI_LoadCount;
 extern float GameCounter;
 extern GAMEEVENT GameEvents[GAME_EVENT_SLOTS];
-extern GAMEFONT GameFont;
+extern char GameFont[98396 / sizeof(char)];
 extern long GameInitState;
 extern long GameMode;
 extern void **GameObjects;
@@ -330,7 +327,6 @@ extern float JINNERDIAL;
 extern float JOUTERDIAL;
 extern float JSIZE;
 extern int JadeUnlocked;
-extern int *JadeUnlockedPtr;
 extern long JaxBeingSquashed;
 extern int JaxGrowCounter;
 extern long JaxSquashFlip;
@@ -395,7 +391,7 @@ extern long LastTouch_PlayMultiPlayer;
 extern long LastTouch_PlaySK;
 extern long LastTouch_PlaySurvival;
 extern float LevelBGPos[3];
-extern void *LevelBGTexture[32 / sizeof(void)];
+extern void *LevelBGTexture[8];
 extern long LevelMusic[64 / sizeof(long)];
 extern long LevelSelect;
 extern char Level_Info[4084 / sizeof(char)];
@@ -445,7 +441,6 @@ extern void *MeshSet_VORTEX5;
 extern void *MeshSet_VS_BRICK;
 extern void *MetalScreenTexture;
 extern long MileenaUnlocked;
-extern int *MileenaUnlockedPtr;
 extern void *MoveIconsTexture;
 extern long MoveListPage;
 extern float MoveUpTower;
@@ -537,7 +532,7 @@ extern long SoundListUniqueIds[UNSIZED_BYTES / sizeof(long)];
 extern char SoundListUniqueNames[16384 / sizeof(char)];
 extern float SpearEndPos[2][3];
 extern float SpearStartPos[2][3];
-extern void *SpearTexture[20 / sizeof(void)];
+extern void *SpearTexture[5];
 extern long SpearWhichTexture[2];
 extern long SpeedNormal;
 extern long SplashCount;
@@ -555,7 +550,6 @@ extern long SurvivalCharacter1;
 extern long SurvivalHealth;
 extern long SurvivalStage;
 extern long *SurvivalStageP;
-extern int *SurvivalStagePtr;
 extern float SwapLayers;
 extern void *TPages[6];
 extern void (*TaskFunctionList[41])(void);
@@ -608,7 +602,7 @@ extern long TrainingCatagory;
 extern TRAININGMOVE TrainingData[83];
 extern float TrainingGoodMessage;
 extern long TrainingMoveCount;
-extern const char *TrainingNames[72 / sizeof(const char)];
+extern const char *TrainingNames[18];
 extern long TreasurePlayed;
 extern float TreasureSelectTime;
 extern long TreasureSelected;
@@ -618,10 +612,10 @@ extern int VSAssetsLoaded;
 extern float VSScroll;
 extern void *VSTexture;
 extern float VSWait;
-extern char *Versus_Names[640 / sizeof(char)];
-extern char *Versus_Names2[716 / sizeof(char)];
-extern char *Versus_Names2_LOW[104 / sizeof(char)];
-extern char *Versus_Names_LOW[736 / sizeof(char)];
+extern char *Versus_Names[160];
+extern char *Versus_Names2[179];
+extern char *Versus_Names2_LOW[26];
+extern char *Versus_Names_LOW[184];
 extern MKMOVE VeteranMoves[76];
 extern void *Vortex1Texture;
 extern void *Vortex2Texture;
@@ -686,7 +680,7 @@ extern long girlrand2;
 extern float glowProgress;
 extern long groundoffsets[104 / sizeof(long)];
 extern long group_choices[40 / sizeof(long)];
-extern long *group_table[40 / sizeof(long)];
+extern long *group_table[10];
 extern SOUNDENTRY gs_attack[29];
 extern SOUNDENTRY gs_death[19];
 extern SOUNDENTRY gs_face_hit_voice[47];
@@ -724,12 +718,12 @@ extern long mpLobbyCurrentPage;
 extern long mpOpponentJoystickInput[16 / sizeof(long)];
 extern char mpSpriteList[0x140];
 extern float mxvelx;
-extern BUTTONNEW nameEntryButtons[520 / sizeof(BUTTONNEW)];
+extern BUTTONNEW nameEntryButtons[26];
 extern long nameIndex;
 extern long newGameFlag;
 extern long nextBiosPage;
 extern long nextEndingsPage;
-extern CSOUNDENTRY *ochar_sound_tables[104 / sizeof(CSOUNDENTRY)];
+extern CSOUNDENTRY *ochar_sound_tables[26];
 extern int opponentCharacter;
 extern long opponentFPS2;
 extern long opponentPerformedMercy;
@@ -749,7 +743,7 @@ extern float psp_scale;
 extern int randomKode;
 extern long restartConnectionFlag;
 extern long rsnd_choices[64 / sizeof(long)];
-extern long *rsnd_table[64 / sizeof(long)];
+extern long *rsnd_table[16];
 extern long sendInd;
 extern long sindelFlying;
 extern long socialConnectionAvailable;
@@ -810,12 +804,15 @@ extern void *BloodScene;
 extern void **BloodTextures;
 extern void *ButtonsTPage;
 extern float *CameraLookAt;
+extern int *Character1Ptr;
+extern int *ClassicSubZeroUnlockedPtr;
 extern int *CurrentTaskPtr;
 extern void *CyraxSelfDestructScene;
 extern const char **DestinyNamesLoss;
 extern const char **DestinyNamesWin;
 extern int *DoIntroPtr;
 extern long *EndingsText;
+extern int *ErmacUnlockedPtr;
 extern void **FBIconTexture;
 extern void **FBLoginTexture;
 extern void **FBLogoutTexture;
@@ -827,7 +824,7 @@ extern float *FE_FadeAddP;
 extern float *FE_HeightScaleP;
 extern float *FE_WidthScaleP;
 extern int *FrameCountPtr;
-extern long **FrameRemapTablePtr;
+extern long *FrameRemapTablePtr;
 extern GAMESTATE *G;
 extern void *GameFontP;
 extern void **GameFontSlot;
@@ -837,12 +834,14 @@ extern long *H;
 extern long **IdleLists;
 extern long *InGameLevelSelect;
 extern long **IntroLists;
+extern int *JadeUnlockedPtr;
 extern char **LevelInfoPtr;
 extern long *LevelSelectP;
 extern int *LevelSelectPtr;
 extern MKEVENTQUEUE *MKEventQueue;
 extern float **MatrixPalette2;
 extern void *MeshSet_FIGHT;
+extern int *MileenaUnlockedPtr;
 extern long *PLAYER2MODEL;
 extern void *PitDeathScene;
 extern long *Player2NumButtonsP;
@@ -866,6 +865,7 @@ extern long *SkipFrame86;
 extern void **SmokeTexture;
 extern float *StaticMeshAmbient;
 extern long *SurvivalStageP2;
+extern int *SurvivalStagePtr;
 extern void *SwatEffectScene;
 extern void *TrainDie1Scene;
 extern void *TrainDie2Scene;
@@ -3641,7 +3641,7 @@ char usprintfBuffer7[512];
 char usprintfBuffer8[512];
 char usprintfBuffer9[512];
 
-/* ---- 732 plain globals ---- */
+/* ---- 726 plain globals ---- */
 
 long AIOn = 1;  /* 0x0014e1f4 */
 long AboutPage;  /* 0x00101190 */
@@ -3660,32 +3660,32 @@ float BGSceneFrame[2];  /* 0x001abb20 */
 void *BGSceneHandle;  /* 0x001aba40 */
 void *BGSceneHandle2;  /* 0x001aba44 */
 long BGSceneLoops[2];  /* 0x001aba80 */
-BUTTONNEW BUTTON_1X1_1D;  /* 0x0010053c */
-BUTTONNEW BUTTON_1X2_1D;
-BUTTONNEW BUTTON_1X2_2D;
-BUTTONNEW BUTTON_1X3_1;  /* 0x001004d8 */
-BUTTONNEW BUTTON_1X3_2;  /* 0x001004ec */
-BUTTONNEW BUTTON_1X3_3;  /* 0x00100500 */
-BUTTONNEW BUTTON_BACK;  /* 0x001007bc */
-BUTTONNEW BUTTON_BOXLB;  /* 0x001004b0 */
-BUTTONNEW BUTTON_BOXLT;  /* 0x00100488 */
-BUTTONNEW BUTTON_BOXRB;  /* 0x001004c4 */
-BUTTONNEW BUTTON_BOXRT;  /* 0x0010049c */
-BUTTONNEW BUTTON_CANCEL;  /* 0x0010085c */
-BUTTONNEW BUTTON_DEL;  /* 0x00100794 */
-BUTTONNEW BUTTON_EXIT;  /* 0x00100834 */
-BUTTONNEW BUTTON_EXITBIG;  /* 0x001007d0 */
-BUTTONNEW BUTTON_MINI_1;  /* 0x00100550 */
-BUTTONNEW BUTTON_MINI_2;  /* 0x00100564 */
-BUTTONNEW BUTTON_MINI_3;  /* 0x00100578 */
-BUTTONNEW BUTTON_MP_NEXT;  /* 0x00100870 */
-BUTTONNEW BUTTON_MP_PREV;  /* 0x00100884 */
-BUTTONNEW BUTTON_NEXT;  /* 0x0010080c */
-BUTTONNEW BUTTON_NEXTSTATS;  /* 0x001007f8 */
-BUTTONNEW BUTTON_OK;  /* 0x001007a8 */
-BUTTONNEW BUTTON_PLAY;  /* 0x001007e4 */
-BUTTONNEW BUTTON_PREV;  /* 0x00100820 */
-BUTTONNEW BUTTON_SAVE;  /* 0x00100848 */
+BUTTONNEW BUTTON_1X1_1D = { 3, 0x00000148, 0x00000058, 11, 0, 0.0f };  /* 0x0010053c */
+BUTTONNEW BUTTON_1X2_1D = { 3, 0x00000148, 0x00000058, 11, 0, 0.0f };
+BUTTONNEW BUTTON_1X2_2D = { 3, 0x00000148, 0x00000058, 11, 0, 0.0f };
+BUTTONNEW BUTTON_1X3_1 = { 2, 0x0000010c, 0x00000030, 8, 0, 0.0f };  /* 0x001004d8 */
+BUTTONNEW BUTTON_1X3_2 = { 2, 0x0000010c, 0x00000030, 8, 0, 0.0f };  /* 0x001004ec */
+BUTTONNEW BUTTON_1X3_3 = { 2, 0x0000010c, 0x00000030, 8, 0, 0.0f };  /* 0x00100500 */
+BUTTONNEW BUTTON_BACK = { 8, 0x00000072, 0x00000020, 8, 0, 0.0f };  /* 0x001007bc */
+BUTTONNEW BUTTON_BOXLB = { 0, 0x0000008a, 0x00000072, 11, 0, 0.0f };  /* 0x001004b0 */
+BUTTONNEW BUTTON_BOXLT = { 0, 0x0000008a, 0x00000072, 11, 0, 0.0f };  /* 0x00100488 */
+BUTTONNEW BUTTON_BOXRB = { 0, 0x0000008a, 0x00000072, 11, 0, 0.0f };  /* 0x001004c4 */
+BUTTONNEW BUTTON_BOXRT = { 0, 0x0000008a, 0x00000072, 11, 0, 0.0f };  /* 0x0010049c */
+BUTTONNEW BUTTON_CANCEL = { 7, 0x0000004c, 0x00000020, 8, 0, 0.0f };  /* 0x0010085c */
+BUTTONNEW BUTTON_DEL = { 6, 0x0000002c, 0x00000020, 6, 0, 0.0f };  /* 0x00100794 */
+BUTTONNEW BUTTON_EXIT = { 7, 0x0000004c, 0x00000020, 8, 0, 0.0f };  /* 0x00100834 */
+BUTTONNEW BUTTON_EXITBIG = { 8, 0x00000072, 0x00000020, 8, 0, 0.0f };  /* 0x001007d0 */
+BUTTONNEW BUTTON_MINI_1 = { 4, 0x00000098, 0x00000020, 8, 0, 0.0f };  /* 0x00100550 */
+BUTTONNEW BUTTON_MINI_2 = { 4, 0x00000098, 0x00000020, 8, 0, 0.0f };  /* 0x00100564 */
+BUTTONNEW BUTTON_MINI_3 = { 4, 0x00000098, 0x00000020, 8, 0, 0.0f };  /* 0x00100578 */
+BUTTONNEW BUTTON_MP_NEXT = { 8, 0x00000072, 0x00000020, 8, 0, 0.0f };  /* 0x00100870 */
+BUTTONNEW BUTTON_MP_PREV = { 8, 0x00000072, 0x00000020, 8, 0, 0.0f };  /* 0x00100884 */
+BUTTONNEW BUTTON_NEXT = { 7, 0x0000004c, 0x00000020, 8, 0, 0.0f };  /* 0x0010080c */
+BUTTONNEW BUTTON_NEXTSTATS = { 8, 0x00000072, 0x00000020, 8, 0, 0.0f };  /* 0x001007f8 */
+BUTTONNEW BUTTON_OK = { 6, 0x0000002c, 0x00000020, 6, 0, 0.0f };  /* 0x001007a8 */
+BUTTONNEW BUTTON_PLAY = { 8, 0x00000072, 0x00000020, 8, 0, 0.0f };  /* 0x001007e4 */
+BUTTONNEW BUTTON_PREV = { 7, 0x0000004c, 0x00000020, 8, 0, 0.0f };  /* 0x00100820 */
+BUTTONNEW BUTTON_SAVE = { 7, 0x0000004c, 0x00000020, 8, 0, 0.0f };  /* 0x00100848 */
 float BabalityHeight[8];  /* 0x001f4124 */
 long BabalityMessage;  /* pointer slot -> 0x0014fb28 */
 float BabalityVel[8];  /* 0x001f4104 */
@@ -3782,7 +3782,6 @@ char CancelCustomButtonsPos5[0x78];
 char CancelCustomButtonsPos6[0x78];
 void *CancelTexture;
 long Character1 = 1;  /* 0x000ff988 */
-int *Character1Ptr;  /* slot -> 0x000ff988 */
 long Character2 = 1;  /* pointer slot -> 0x000ff98c */
 long Character2Override = 0xffffffff;  /* 0x00101798 */
 signed char CharacterAvailable[CHARACTER_SLOTS];  /* 0x0018ed5c */
@@ -3801,7 +3800,6 @@ void *CharacterVSTexture[26];  /* 0x00183d80 */
 void *CharacterVSTexture2[26];  /* 0x00183de8 */
 float Character_SelectWait;  /* 0x000ff8c8 -- a FLOAT. */
 long ClassicSubZeroUnlocked;  /* 0x000ff970 */
-int *ClassicSubZeroUnlockedPtr;  /* slot -> 0x000ff970 */
 int ClearedZBuffer;  /* 0x001f44c8 */
 long ClockSingles = 9;  /* pointer slot -> 0x0014fa54 */
 long ClockTens = 9;  /* pointer slot -> 0x0014fa50 */
@@ -4019,30 +4017,30 @@ char DEFAULT_CustomButtonsPos6[0x78] = {
 };  /* 0x001504ec */
 long DangerMessage[2];  /* 0x0014e23c */
 void *DangerTPage;
-const char *DestinationGrandMaster[44 / sizeof(const char)] = {
+const char *DestinationGrandMaster[11] = {
     "Opponent 1", "Opponent 2", "Opponent 3", "Opponent 4",
     "Opponent 5", "Opponent 6", "Opponent 7", "Endurance Match 1",
     "Endurance Match 2", "Motaro", "Shao Kahn",
 };  /* 0x00176bd8 */
-const char *DestinationMaster[184 / sizeof(const char)] = {
+const char *DestinationMaster[46] = {
     "Opponent 1", "Opponent 2", "Opponent 3", "Opponent 4",
     "Opponent 5", "Opponent 6", "Opponent 7", "Endurance Match 1",
     "Motaro", "Shao Kahn",
 };  /* 0x00176b20 */
-const char *DestinationNovice[144 / sizeof(const char)] = {
+const char *DestinationNovice[36] = {
     "Opponent 1", "Opponent 2", "Opponent 3", "Opponent 4",
     "Opponent 5", "Endurance Match 1", "Motaro", "Shao Kahn",
 };  /* 0x001769f0 */
-const char *DestinationWarrior[160 / sizeof(const char)] = {
+const char *DestinationWarrior[40] = {
     "Opponent 1", "Opponent 2", "Opponent 3", "Opponent 4",
     "Opponent 5", "Opponent 6", "Endurance Match 1", "Motaro",
     "Shao Kahn",
 };  /* 0x00176a80 */
 long Destiny = 0xffffffff;  /* pointer slot -> 0x0014e20c */
-const char *DestinyNames[0] = {
+const char *DestinyNames[27] = {
     "Novice", "Warrior", "Master", "Grand Master",
     "Grand Master",
-};  /* pointer slot -> 0x00176760 */
+};  /* 0x00176760, 108 bytes */
 long DestinyToSelect = 0xffffffff;  /* 0x0010175c */
 long DidIntroThisFrame;  /* 0x0010dec4 */
 long DifficultyList[176 / sizeof(long)] = {
@@ -4095,7 +4093,6 @@ long EnduranceTowerList[176 / sizeof(long)] = {
     1, 2,
 };  /* pointer slot -> 0x0014fb50 */
 int ErmacUnlocked;  /* 0x000ff974 */
-int *ErmacUnlockedPtr;  /* slot -> 0x000ff974 */
 long ExtraEffects = 1;  /* 0x0014e1e8 */
 float FECAMPOSX = 2.9000001f;  /* 0x00101710 */
 float FECAMPOSY = -6.5f;  /* 0x00101714 */
@@ -4165,7 +4162,7 @@ void (*FETaskFunctionList[265])(void) = {
     FE_Task_Select_Leaderboard,
     FE_Task_LeaderboardsSK,
 };  /* 0x0017d51c */
-const char *FETaskNames[204 / sizeof(const char)] = {
+const char *FETaskNames[51] = {
     "FE_Task_Main_Menu", "FE_Task_Play", "FE_Task_Single_Player", "FE_Task_Multiplayer",
     "FE_Task_Training", "FE_Task_Options", "FE_Task_Extras", "FE_Task_About",
     "FE_Task_Get_More_Games", "FE_Task_Settings", "FE_Task_Button_Config", "FE_Task_Manage_Profile",
@@ -17947,7 +17944,7 @@ long FriendshipMessage;  /* pointer slot -> 0x0014fb34 */
 long GI_LoadCount;  /* 0x00151088 */
 float GameCounter;  /* pointer slot */
 GAMEEVENT GameEvents[GAME_EVENT_SLOTS];  /* 0x00370e18 */
-GAMEFONT GameFont;  /* 0x001abb98 */
+char GameFont[98396 / sizeof(char)];  /* 0x001abb98 */
 long GameInitState;  /* 0x00150e84 */
 long GameMode;  /* pointer slot -> 0x0014faa4 */
 void **GameObjects;  /* 0x0014dfec, one per object */
@@ -18109,7 +18106,6 @@ float JINNERDIAL = 22.8500004f;  /* 0x00150594, read only here */
 float JOUTERDIAL = 112.0f;  /* 0x00150598 */
 float JSIZE = 64.0f;  /* 0x0014e1dc = 64.0 */
 int JadeUnlocked;  /* 0x000ff97c */
-int *JadeUnlockedPtr;  /* slot -> 0x000ff97c */
 long JaxBeingSquashed;  /* 0x0010dedc */
 int JaxGrowCounter;  /* 0x0010ded8 */
 long JaxSquashFlip;  /* 0x001ab030 */
@@ -18174,7 +18170,7 @@ long LastTouch_PlayMultiPlayer;  /* 0x00100e74 */
 long LastTouch_PlaySK;  /* 0x00100e7c */
 long LastTouch_PlaySurvival;  /* 0x00100e78 */
 float LevelBGPos[3];  /* 0x0015057c */
-void *LevelBGTexture[32 / sizeof(void)];  /* 0x001abb28 */
+void *LevelBGTexture[8];  /* 0x001abb28 */
 long LevelMusic[64 / sizeof(long)] = {
     1374228, 1374236, 1374248, 1374260, 1374268, 1374280, 1374288, 1374300,
     1374312, 1374324, 1374336, 1374348, 1374356, 1374368, 1374380, 1374392,
@@ -18768,7 +18764,6 @@ void *MeshSet_VORTEX5;
 void *MeshSet_VS_BRICK;
 void *MetalScreenTexture;  /* 0x00183f0c */
 long MileenaUnlocked;  /* 0x000ff978 */
-int *MileenaUnlockedPtr;  /* slot -> 0x000ff978 */
 void *MoveIconsTexture;  /* 0x001abb70 */
 long MoveListPage;  /* 0x00150eb4 */
 float MoveUpTower;  /* 0x00101758 */
@@ -18940,7 +18935,7 @@ long SoundListUniqueIds[UNSIZED_BYTES / sizeof(long)];  /* the ids, one word eac
 char SoundListUniqueNames[16384 / sizeof(char)];  /* 0x003878b0, stride 32 */
 float SpearEndPos[2][3];  /* 0x001ab624 */
 float SpearStartPos[2][3];  /* 0x001ab63c */
-void *SpearTexture[20 / sizeof(void)];  /* 0x001ab654 */
+void *SpearTexture[5];  /* 0x001ab654 */
 long SpearWhichTexture[2];  /* 0x0010def4 */
 long SpeedNormal = 1;  /* 0x0014e1f8 */
 long SplashCount = 0;  /* 0x00150cc8 */
@@ -18961,7 +18956,6 @@ long SurvivalCharacter1 = 1;  /* 0x000ff990 */
 long SurvivalHealth = 0x00000064;  /* pointer slot -> 0x000ff994 */
 long SurvivalStage;  /* 0x000ff980 */
 long *SurvivalStageP;
-int *SurvivalStagePtr;  /* slot -> 0x000ff980 */
 float SwapLayers = 1.0f;
 void *TPages[6];  /* 0x001f40ac */
 void (*TaskFunctionList[41])(void) = {
@@ -19066,7 +19060,7 @@ TRAININGMOVE TrainingData[83] = {
 };  /* 0x001782e8 */
 float TrainingGoodMessage;  /* 0x001780a0 */
 long TrainingMoveCount = 0;  /* 0x001780a8 */
-const char *TrainingNames[72 / sizeof(const char)] = {
+const char *TrainingNames[18] = {
     "Basic Moves", "Special Moves", "Finishers", "Finishers",
 };  /* pointer slot -> 0x00176718 */
 long TreasurePlayed;  /* 0x000ff8bc */
@@ -19078,7 +19072,7 @@ int VSAssetsLoaded;  /* 0x000ff9a8 */
 float VSScroll = 256.0f;  /* 0x000ff9a4 */
 void *VSTexture;  /* 0x00183f10 */
 float VSWait;  /* 0x000ff9a0 -- a FLOAT: FE_Task_VS_Screen */
-char *Versus_Names[640 / sizeof(char)] = {
+char *Versus_Names[160] = {
     "KANO_VERSUS.PNG", "SONYA_VERSUS.PNG", "JAXX_VERSUS.PNG", "NIGHTWOLF_VERSUS.PNG",
     "SUBZERO_HUMAN_VERSUS.PNG", "STRYKER_VERSUS.PNG", "SINDEL_VERSUS.PNG", "SEKTOR_VERSUS.PNG",
     "CYRAX_VERSUS.PNG", "KUNGLAO_VERSUS.PNG", "KABAL_VERSUS.PNG", "SHEEVA_VERSUS.PNG",
@@ -19087,7 +19081,7 @@ char *Versus_Names[640 / sizeof(char)] = {
     "ERMAC_VERSUS.PNG", "SUBZERO_VERSUS.PNG", "SMOKE_SECRET_VERSUS.PNG", "NOOBSAIBOT_VERSUS.PNG",
     "_VERSUS.PNG", "_VERSUS.PNG",
 };  /* 0x000ffbf4 */
-char *Versus_Names2[716 / sizeof(char)] = {
+char *Versus_Names2[179] = {
     "KANO_VERSUS2.PNG", "SONYA_2_VERSUS.PNG", "JAXX_VERSUS2.PNG", "NIGHTWOLF_VERSUS2.PNG",
     "SUBZERO_HUMAN_VERSUS2.PNG", "STRYKER_VERSUS2.PNG", "SINDEL_VERSUS2.PNG", "SEKTOR_VERSUS2.PNG",
     "CYRAX_VERSUS2.PNG", "KUNGLAO_VERSUS2.PNG", "KABAL_VERSUS2.PNG", "SHEEVA_VERSUS2.PNG",
@@ -19096,7 +19090,7 @@ char *Versus_Names2[716 / sizeof(char)] = {
     "ERMAC_VERSUS2.PNG", "SUBZERO_VERSUS2.PNG", "SMOKE_SECRET_VERSUS2.PNG", "NOOBSAIBOT_VERSUS2.PNG",
     "_VERSUS.PNG", "_VERSUS.PNG",
 };  /* 0x000ffe74 */
-char *Versus_Names2_LOW[104 / sizeof(char)] = {
+char *Versus_Names2_LOW[26] = {
     "KANO_VERSUS2_LOW.PNG", "SONYA_2_VERSUS_LOW.PNG", "JAXX_VERSUS2_LOW.PNG", "NIGHTWOLF_VERSUS2_LOW.PNG",
     "SUBZERO_HUMAN_VERSUS2_LOW.PNG", "STRYKER_VERSUS2_LOW.PNG", "SINDEL_VERSUS2_LOW.PNG", "SEKTOR_VERSUS2_LOW.PNG",
     "CYRAX_VERSUS2_LOW.PNG", "KUNGLAO_VERSUS2_LOW.PNG", "KABAL_VERSUS2_LOW.PNG", "SHEEVA_VERSUS2_LOW.PNG",
@@ -19105,7 +19099,7 @@ char *Versus_Names2_LOW[104 / sizeof(char)] = {
     "ERMAC_VERSUS2_LOW.PNG", "SUBZERO_VERSUS2_LOW.PNG", "SMOKE_SECRET_VERSUS2_LOW.PNG", "NOOBSAIBOT_VERSUS2_LOW.PNG",
     "_VERSUS.PNG", "_VERSUS.PNG",
 };  /* 0x00100420 */
-char *Versus_Names_LOW[736 / sizeof(char)] = {
+char *Versus_Names_LOW[184] = {
     "KANO_VERSUS_LOW.PNG", "SONYA_VERSUS_LOW.PNG", "JAXX_VERSUS_LOW.PNG", "NIGHTWOLF_VERSUS_LOW.PNG",
     "SUBZERO_HUMAN_VERSUS_LOW.PNG", "STRYKER_VERSUS_LOW.PNG", "SINDEL_VERSUS_LOW.PNG", "SEKTOR_VERSUS_LOW.PNG",
     "CYRAX_VERSUS_LOW.PNG", "KUNGLAO_VERSUS_LOW.PNG", "KABAL_VERSUS_LOW.PNG", "SHEEVA_VERSUS_LOW.PNG",
@@ -19892,7 +19886,7 @@ long group_choices[40 / sizeof(long)] = {
     2, 1, 2, 1, 1, 1, 3, 1,
     1, 1,
 };  /* 0x0017b2e0 */
-long *group_table[40 / sizeof(long)] = {
+long *group_table[10] = {
     (void *)&gs_attack, (void *)&gs_jump, (void *)&gs_wasted, (void *)&gs_grab,
     (void *)&gs_slam, (void *)&gs_tripped_voice, (void *)&gs_face_hit_voice, (void *)&gs_run,
     (void *)&gs_shook, (void *)&gs_death,
@@ -20130,12 +20124,39 @@ long mpLobbyCurrentPage;  /* 0x000ff8e0 */
 long mpOpponentJoystickInput[16 / sizeof(long)];  /* 0x001ab970, two words an entry */
 char mpSpriteList[0x140];  /* 0x001ab680 */
 float mxvelx = 0.5f;  /* 0x0014dfb0 */
-BUTTONNEW nameEntryButtons[520 / sizeof(BUTTONNEW)];  /* 0x0010058c, twenty bytes an entry */
+BUTTONNEW nameEntryButtons[26] = {
+    { 6, 0x0000002c, 0x00000020, 6, 0, 0.0f },
+    { 6, 0x0000002c, 0x00000020, 6, 0, 0.0f },
+    { 6, 0x0000002c, 0x00000020, 6, 0, 0.0f },
+    { 6, 0x0000002c, 0x00000020, 6, 0, 0.0f },
+    { 6, 0x0000002c, 0x00000020, 6, 0, 0.0f },
+    { 6, 0x0000002c, 0x00000020, 6, 0, 0.0f },
+    { 6, 0x0000002c, 0x00000020, 6, 0, 0.0f },
+    { 6, 0x0000002c, 0x00000020, 6, 0, 0.0f },
+    { 6, 0x0000002c, 0x00000020, 6, 0, 0.0f },
+    { 6, 0x0000002c, 0x00000020, 6, 0, 0.0f },
+    { 6, 0x0000002c, 0x00000020, 6, 0, 0.0f },
+    { 6, 0x0000002c, 0x00000020, 6, 0, 0.0f },
+    { 6, 0x0000002c, 0x00000020, 6, 0, 0.0f },
+    { 6, 0x0000002c, 0x00000020, 6, 0, 0.0f },
+    { 6, 0x0000002c, 0x00000020, 6, 0, 0.0f },
+    { 6, 0x0000002c, 0x00000020, 6, 0, 0.0f },
+    { 6, 0x0000002c, 0x00000020, 6, 0, 0.0f },
+    { 6, 0x0000002c, 0x00000020, 6, 0, 0.0f },
+    { 6, 0x0000002c, 0x00000020, 6, 0, 0.0f },
+    { 6, 0x0000002c, 0x00000020, 6, 0, 0.0f },
+    { 6, 0x0000002c, 0x00000020, 6, 0, 0.0f },
+    { 6, 0x0000002c, 0x00000020, 6, 0, 0.0f },
+    { 6, 0x0000002c, 0x00000020, 6, 0, 0.0f },
+    { 6, 0x0000002c, 0x00000020, 6, 0, 0.0f },
+    { 6, 0x0000002c, 0x00000020, 6, 0, 0.0f },
+    { 6, 0x0000002c, 0x00000020, 6, 0, 0.0f },
+};  /* 0x0010058c, twenty bytes an entry */
 long nameIndex;  /* 0x000ff9e4 */
 long newGameFlag;  /* 0x000ff850 */
 long nextBiosPage;  /* 0x00101084 */
 long nextEndingsPage;  /* 0x00101154 */
-CSOUNDENTRY *ochar_sound_tables[104 / sizeof(CSOUNDENTRY)] = {
+CSOUNDENTRY *ochar_sound_tables[26] = {
     (void *)&st_kano, (void *)&st_sonya, (void *)&st_jax, (void *)&st_indian,
     (void *)&st_subzero, (void *)&st_swat, (void *)&st_lia, (void *)&st_robo1,
     (void *)&st_robo1, (void *)&st_lao, (void *)&st_tusk, (void *)&st_sg,
@@ -20166,7 +20187,7 @@ long rsnd_choices[64 / sizeof(long)] = {
     3, 5, 3, 4, 4, 2, 2, 2,
     3, 2, 2, 5, 2, 4, 4, 2,
 };  /* 0x0017b370, one count per id */
-long *rsnd_table[64 / sizeof(long)] = {
+long *rsnd_table[16] = {
     (void *)&tab_rsnd_enemy_boom, (void *)&tab_rsnd_sk_bonus_win, (void *)&tab_rsnd_splish, (void *)&tab_rsnd_stab,
     (void *)&tab_rsnd_footstep, (void *)&tab_rsnd_big_block, (void *)&tab_rsnd_small_block, (void *)&tab_rsnd_smack,
     (void *)&tab_rsnd_med_smack, (void *)&tab_rsnd_klang, (void *)&tab_rsnd_big_smack, (void *)&tab_rsnd_rocks,
@@ -20750,7 +20771,7 @@ long winningStryk;  /* 0x0014dffc */
 long workingInd;  /* 0x000ff810 */
 float zoomedoutweight;  /* 0x001f44a4 */
 
-/* ---- 90 pointer slots: storage, then a pointer at it ---- */
+/* ---- 96 pointer slots: storage, then a pointer at it ---- */
 
 static void *BloodScene__store[1];
 void *BloodScene = BloodScene__store;
@@ -20760,6 +20781,8 @@ static void *ButtonsTPage__store[1];
 void *ButtonsTPage = ButtonsTPage__store;
 static float CameraLookAt__store[3];
 float *CameraLookAt = CameraLookAt__store;
+int *Character1Ptr = (int *)(void *)&Character1;  /* the slot holding &Character1 */
+int *ClassicSubZeroUnlockedPtr = (int *)(void *)&ClassicSubZeroUnlocked;  /* the slot holding &ClassicSubZeroUnlocked */
 int *CurrentTaskPtr = (int *)(void *)&CurrentTask;  /* the slot holding &CurrentTask */
 static void *CyraxSelfDestructScene__store[1];
 void *CyraxSelfDestructScene = CyraxSelfDestructScene__store;
@@ -20781,6 +20804,7 @@ static long EndingsText__store[26] = {
     -1, -1,
 };
 long *EndingsText = EndingsText__store;
+int *ErmacUnlockedPtr = (int *)(void *)&ErmacUnlocked;  /* the slot holding &ErmacUnlocked */
 static void *FBIconTexture__store[1];
 void **FBIconTexture = FBIconTexture__store;
 static void *FBLoginTexture__store[1];
@@ -20799,7 +20823,7 @@ float *FE_FadeAddP = (float *)(void *)&FE_FadeAdd;  /* the slot holding &FE_Fade
 float *FE_HeightScaleP = (float *)(void *)&FE_HeightScale;  /* the slot holding &FE_HeightScale */
 float *FE_WidthScaleP = (float *)(void *)&FE_WidthScale;  /* the slot holding &FE_WidthScale */
 int *FrameCountPtr = (int *)(void *)&FrameCount;  /* the slot holding &FrameCount */
-long **FrameRemapTablePtr = (long **)(void *)&FrameRemapTable;  /* the slot holding &FrameRemapTable */
+long *FrameRemapTablePtr = (long *)(void *)&FrameRemapTable;  /* the slot holding &FrameRemapTable */
 static unsigned char G__store[1144] __attribute__((aligned(16)));
 GAMESTATE *G = (GAMESTATE *)(void *)G__store;
 void *GameFontP = (void *)(void *)&GameFont;  /* the slot holding &GameFont */
@@ -20833,6 +20857,7 @@ static long *IntroLists__store[26] = {
     (void *)&MotaroIntroFrames, (void *)&SKIntroFrames,
 };
 long **IntroLists = IntroLists__store;
+int *JadeUnlockedPtr = (int *)(void *)&JadeUnlocked;  /* the slot holding &JadeUnlocked */
 char **LevelInfoPtr = (char **)(void *)&Level_Info;  /* the slot holding &Level_Info */
 long *LevelSelectP = (long *)(void *)&LevelSelect;  /* the slot holding &LevelSelect */
 int *LevelSelectPtr = (int *)(void *)&LevelSelect;  /* the slot holding &LevelSelect */
@@ -20842,6 +20867,7 @@ static float *MatrixPalette2__store[1800];
 float **MatrixPalette2 = MatrixPalette2__store;
 static void *MeshSet_FIGHT__store[1];
 void *MeshSet_FIGHT = MeshSet_FIGHT__store;
+int *MileenaUnlockedPtr = (int *)(void *)&MileenaUnlocked;  /* the slot holding &MileenaUnlocked */
 static long PLAYER2MODEL__store[1] = {
     5,
 };
@@ -20897,6 +20923,7 @@ void **SmokeTexture = SmokeTexture__store;
 static float StaticMeshAmbient__store[3];
 float *StaticMeshAmbient = StaticMeshAmbient__store;
 long *SurvivalStageP2 = (long *)(void *)&SurvivalStage;  /* the slot holding &SurvivalStage */
+int *SurvivalStagePtr = (int *)(void *)&SurvivalStage;  /* the slot holding &SurvivalStage */
 static void *SwatEffectScene__store[1];
 void *SwatEffectScene = SwatEffectScene__store;
 static void *TrainDie1Scene__store[1];
@@ -20996,7 +21023,7 @@ static long theKode__store[1] = {
 };
 long *theKode = theKode__store;
 
-/* 732 plain + 90 slots = 822 */
+/* 726 plain + 96 slots = 822 */
 /*
  * 3 of these are arrays the decomp declares as `T name[]` with no
  * extent, so each got UNSIZED_BYTES of slack rather than a known size.

@@ -312,6 +312,10 @@ STRUCT_BODY = re.compile(
     r"typedef\s+struct\s*(?:[A-Za-z_]\w*\s*)?\{(?P<body>[^{}]*)\}\s*"
     r"(?P<name>\w+)\s*;", re.S)
 
+STRUCT_TAG_BODY = re.compile(
+    r"(?<!typedef )\bstruct\s+(?P<name>[A-Za-z_]\w*)\s*\{(?P<body>[^{}]*)\}\s*;",
+    re.S)
+
 # `type stars name;` or `type stars name[n];` -- one field.
 FIELD = re.compile(
     r"^\s*(?P<type>(?:const\s+|unsigned\s+|signed\s+|struct\s+)*[A-Za-z_]\w*)\s+"
@@ -343,6 +347,10 @@ def struct_layouts(sources):
         # prose, so the struct silently lost its layout. A comment is not code.
         for m in STRUCT_BODY.finditer(_strip_comments(text)):
             bodies[m.group("name")] = m.group("body")
+        # `struct BUTTONNEW { ... };` with the typedef elsewhere (FrontEnd.c
+        # forward-declares it and gives the body later) is the same layout.
+        for m in STRUCT_TAG_BODY.finditer(_strip_comments(text)):
+            bodies.setdefault(m.group("name"), m.group("body"))
 
     out = {}
     for _ in range(len(bodies) + 1):
@@ -351,6 +359,7 @@ def struct_layouts(sources):
             if name in out:
                 continue
             fields, ok = [], True
+            pack, packed = [], 0        # sub-word fields filling one word
             for stmt in body.split(";"):
                 if not stmt.strip():
                     continue
@@ -366,6 +375,23 @@ def struct_layouts(sources):
                 except ValueError:
                     ok = False
                     break
+                if (not ptr and typ in SCALAR_SIZE and SCALAR_SIZE[typ] < 4
+                        and count == 1):
+                    # `BUTTONNEW` has `short thickness; short pad;` at 0x0c:
+                    # two halves of one word. Collect them until they fill
+                    # it; a struct where they do not is not understood.
+                    pack.append(typ)
+                    packed += SCALAR_SIZE[typ]
+                    if packed == 4:
+                        fields.append((("pack",) + tuple(pack), False))
+                        pack, packed = [], 0
+                    elif packed > 4:
+                        ok = False
+                        break
+                    continue
+                if packed:
+                    ok = False          # a partial word before a full one
+                    break
                 if ptr:
                     fields.extend([(typ, True)] * count)
                 elif typ in SCALAR_SIZE and SCALAR_SIZE[typ] == 4:
@@ -375,7 +401,7 @@ def struct_layouts(sources):
                 else:
                     ok = False          # sub-word field, or a struct not yet known
                     break
-            if ok and fields:
+            if ok and fields and not packed:
                 out[name] = fields
                 progress = True
         if not progress:
@@ -456,7 +482,11 @@ def initialiser(img, name, typ, stars, dims, layouts, warn, defs=None,
     if base in layouts:
         fields = layouts[base]
         stride = 4 * len(fields)
-        blank = "{ %s }" % ", ".join("NULL" if f[1] else "0" for f in fields)
+        blank = "{ %s }" % ", ".join(
+            "NULL" if f[1] else
+            (", ".join("0" for _ in f[0][1:]) if isinstance(f[0], tuple)
+             else "0")
+            for f in fields)
         entries = []
         for off in range(0, len(raw) - stride + 1, stride):
             chunk = struct.unpack("<%dI" % len(fields), raw[off:off + stride])
@@ -483,6 +513,16 @@ def initialiser(img, name, typ, stars, dims, layouts, warn, defs=None,
                         ended = True
                         break
                     cells.append(cell)
+                elif isinstance(ftype, tuple):
+                    # A packed word, low bytes first, as the image lays it out.
+                    shift = 0
+                    for part in ftype[1:]:
+                        bits = 8 * SCALAR_SIZE[part]
+                        v = (w >> shift) & ((1 << bits) - 1)
+                        if not part.startswith("unsigned") and v >> (bits - 1):
+                            v -= 1 << bits
+                        cells.append(str(v))
+                        shift += bits
                 elif ftype == "float":
                     cells.append(float_literal(w))
                 else:

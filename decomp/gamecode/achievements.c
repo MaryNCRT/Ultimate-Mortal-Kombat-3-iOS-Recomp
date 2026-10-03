@@ -577,11 +577,11 @@ void achievementsDraw(void)
         limeFillRect(0.0f, y, (float)*limeScreenWidthP,
                      32.0f * FE_HeightScale, 0.0f, 0.0f, 0.0f, 0.5f);
 
-        limeDrawFONT(*GameFontSlot, GameText(0x65),
+        limeDrawFONT(GameFontSlot, GameText(0x65),
                      4.0f * FE_WidthScale, y + 20.0f * FE_HeightScale,
                      0, 0.65f * FE_WidthScale, grey);
 
-        limeDrawFONT(*GameFontSlot, GameText(achievementsDescr[i].id),
+        limeDrawFONT(GameFontSlot, GameText(achievementsDescr[i].id),
                      14.0f * FE_WidthScale, y + 20.0f * FE_HeightScale,
                      0, 0.9f * FE_WidthScale, white);
 
@@ -607,7 +607,10 @@ void achievementsDraw(void)
 
 
 extern void *KodesTexture;             /* pointer slot -> 0x00183f1c */
-extern void  *GameFont;                 /* pointer slot -> 0x001abb98 */
+/* The font itself: _GameFont is 98,396 bytes of storage at 0x001abb98,
+ * reached through a slot whose content is its address. Declared as a
+ * pointer, its first word was passed as the font. */
+extern char   GameFont[];               /* 0x001abb98 */
 extern float *fontcolP;                 /* pointer slot -> 0x0014f9f0 */
 extern float *FE_WidthScaleP;           /* pointer slot -> 0x000ff9b8 */
 extern float *FE_HeightScaleP;          /* pointer slot -> 0x000ff9bc */

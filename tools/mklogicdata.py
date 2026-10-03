@@ -128,6 +128,17 @@ def logic_slots(size):
                and n not in VARIABLES)
 
 
+def names_in_logic():
+    """Every identifier the fight logic's CODE mentions -- not its comments."""
+    import glob
+    out = set()
+    for f in glob.glob(LOGIC_DIR + "/*.c") + glob.glob(LOGIC_DIR + "/*.h"):
+        text = open(f, encoding="utf-8", errors="replace").read()
+        text = re.sub(r"/\*.*?\*/", " ", text, flags=re.S)
+        out.update(re.findall(r"[A-Za-z_]\w*", text))
+    return out
+
+
 # Pointer variables whose symbol LOOKS wider than a word. `_txt_tie` holds the
 # address of the "tie" string; the gap to the next symbol is 468 bytes only
 # because the winner strings after it ("KANO WINS", ...) carry no symbol.
@@ -295,6 +306,7 @@ def main():
         return raw.decode("ascii").replace("\\", "\\\\").replace('"', '\\"')
 
     slots = logic_slots(size) - native
+    logic_names = names_in_logic()
 
     def cname(sym):
         """The C name a binary symbol's STORAGE has here."""
@@ -328,6 +340,21 @@ def main():
             emitted[name] = ("bytes", list(raw))
             order.append(name)
             continue
+        # Two halfwords can spell an address. `ochar_fatality_distances` is
+        # 0x004800a0 0x00e00080 ... -- (0xa0, 0x48), (0x80, 0xe0) -- and the
+        # first of those lands 0xee07c into DebugWindows; `sm_kano_hpc` has
+        # (0x1000, 0x20) = 0x00201000, which lands in FrameRemapTable. What
+        # gives them away is where they land: front-end storage, zero-filled
+        # buffers, constants -- nothing a fight table points into. A real
+        # pointer lands in fight data this file emits: `st_ani_data` points
+        # into itself across 0x00160000, so its own low halves are small too.
+        # And G, the one piece of shared state the tables do point at, sits at
+        # 0x0038c1fc, where no low half is small. So a word whose halves are
+        # both small, landing mid-symbol anywhere but the fight's own __data,
+        # is two numbers.
+        def pair(w):
+            return (w > 0xffff and (w & 0xffff) < 0x4000 and (w >> 16) < 0x1000
+                    and not (TEXT[0] <= w < TEXT[1] and (w & 1)))
         words = []
         for i in range(0, n, 4):
             w = int.from_bytes(raw[i:i + 4], "little")
@@ -360,6 +387,10 @@ def main():
                         syms[hit[0]][1] in ZERO_SECTIONS and all(
                             32 <= b < 127 or b == 0
                             for b in w.to_bytes(4, "little")))):
+                    hit = None
+                if (hit and hit[1] and pair(w)
+                        and (hit[0] in native
+                             or syms[hit[0]][1] != "__DATA,__data")):
                     hit = None
                 if hit:
                     tgt, off = hit
