@@ -162,9 +162,6 @@ int main(int argc, char **argv)
             continue;
 
         plat_size(&ww, &wh);
-        glViewport(0, 0, ww, wh);
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         /* The window is a scaled copy of the 480x320 the game believes in, so
          * a click has to come back the same way. The button is one finger,
@@ -214,6 +211,15 @@ int main(int argc, char **argv)
              * is what writes limeSidewaysMat, which LIMEDS_Set3dMode multiplies
              * into every 3D projection -- skip it and the matrix stays zero and
              * the main menu's vortex is never drawn. */
+            /* -[EAGLView drawView], 0x00061668, is one tick: glViewport,
+             * glClearColor(0, 0, 0, 1), glClear(0x4100) -- colour and depth
+             * -- then GameCodeMain. The clear belongs to the tick, not to the
+             * swap. Two ticks drawn over one clear leave the first one's depth
+             * behind, and the tower's bricks, drawn at the same depth again,
+             * fail GL_LESS and vanish behind the background fill. */
+            glViewport(0, 0, ww, wh);
+            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             lime_menu_advance_clock(1.0 / 60.0);
             limeBegin();
             Task_FEMain();
