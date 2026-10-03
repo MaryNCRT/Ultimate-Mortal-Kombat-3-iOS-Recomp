@@ -609,8 +609,8 @@ void achievementsDraw(void)
 extern void *KodesTexture;             /* pointer slot -> 0x00183f1c */
 extern void  *GameFont;                 /* pointer slot -> 0x001abb98 */
 extern float *fontcolP;                 /* pointer slot -> 0x0014f9f0 */
-extern float *FE_WidthScaleP;           /* pointer slot -> 0x000ff9b8 */
-extern float *FE_HeightScaleP;          /* pointer slot -> 0x000ff9bc */
+extern float FE_WidthScale;             /* 0x000ff9b8 */
+extern float FE_HeightScale;            /* 0x000ff9bc */
 typedef struct TEXTURE TEXTURE;
 
 void *limeLoadTexture(const char *name, long a, long b);
@@ -680,12 +680,12 @@ void drawKodeTip(long index)
     seq[5] = kodes[index].seq[5];
 
     limeDrawFONT(GameFont, GameText(0x363),
-                 240.0f * *FE_WidthScaleP, 116.0f * *FE_HeightScaleP,
-                 1, *FE_WidthScaleP, fontcolP);
+                 240.0f * FE_WidthScale, 116.0f * FE_HeightScale,
+                 1, FE_WidthScale, fontcolP);
 
     limeDrawFONT(GameFont, GameText(0x364),
-                 240.0f * *FE_WidthScaleP, 132.0f * *FE_HeightScaleP,
-                 1, *FE_WidthScaleP, fontcolP);
+                 240.0f * FE_WidthScale, 132.0f * FE_HeightScale,
+                 1, FE_WidthScale, fontcolP);
 
     /* reloaded every call, and the old handle is dropped -- see above */
     KodesTexture = limeLoadTexture("KOMBAT_KODES_TPAGE.PNG", 0, 0);
@@ -698,8 +698,8 @@ void drawKodeTip(long index)
         float y  = (i < 3) ? 160.0f : 160.0f + 116.0f;
 
         limeDrawSprite((TEXTURE *)KodesTexture,
-                       x * *FE_WidthScaleP, y * *FE_HeightScaleP,
-                       32.0f * *FE_WidthScaleP, 32.0f * *FE_HeightScaleP,
+                       x * FE_WidthScale, y * FE_HeightScale,
+                       32.0f * FE_WidthScale, 32.0f * FE_HeightScale,
                        (float)((double)(col * 48) * 0.00390625),   /* 1/256 */
                        (float)((double)(row * 48) * 0.0078125),    /* 1/128 */
                        0.1875f, 0.375f, (long *)white);

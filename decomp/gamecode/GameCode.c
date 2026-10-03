@@ -2539,8 +2539,8 @@ extern long  SplashCount;               /* 0x00150cc8 */
 extern int limeDeferredDeviceSideways;/* pointer slot */
 extern int limeDeviceSideways;        /* pointer slot */
 extern float  FE_YOffset;               /* pointer slot */
-extern float *FE_WidthScaleP;           /* pointer slot -- see below */
-extern float *FE_HeightScaleP;          /* pointer slot */
+extern float FE_WidthScale;             /* 0x000ff9b8 */
+extern float FE_HeightScale;            /* 0x000ff9bc */
 
 void SetupFEScale(void);
 void limeSetColourMask(long r, long g, long b, long a);
@@ -2655,8 +2655,8 @@ void Task_LoadSplashScreen(void)
     }
 
     limeDrawSprite(tex, 0.0f, FE_YOffset,
-                   480.0f * *FE_WidthScaleP,
-                   320.0f * *FE_HeightScaleP,
+                   480.0f * FE_WidthScale,
+                   320.0f * FE_HeightScale,
                    0.03125f, 0.1875f, 0.9375f, 0.625f,
                    colour);
 
@@ -3596,7 +3596,7 @@ void Task_MultiplayerSync(void)
     limeDrawFONT(GameFontP, limeUC(buf),
                  (float)(limeScreenWidth / 2),
                  (float)(limeScreenHeight / 2),
-                 1, *FE_WidthScaleP, fontcol);
+                 1, FE_WidthScale, fontcol);
 
     *readyToSync = 1;
 

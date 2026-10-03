@@ -306,10 +306,12 @@ void limeEnableDepthTest(void)  { glEnable(GL_DEPTH_TEST); }
 void limeDisableDepthTest(void) { glDisable(GL_DEPTH_TEST); }
 void limeClearDepthBuffer(void) { glClear(GL_DEPTH_BUFFER_BIT); }
 
-void limeSetColourMask(int on)
+void limeSetColourMask(long r, long g, long b, long a)
 {
-    GLboolean f = on ? GL_TRUE : GL_FALSE;
-    glColorMask(f, f, f, GL_TRUE);
+    glColorMask(r ? GL_TRUE : GL_FALSE,
+                g ? GL_TRUE : GL_FALSE,
+                b ? GL_TRUE : GL_FALSE,
+                a ? GL_TRUE : GL_FALSE);
 }
 
 
