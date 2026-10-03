@@ -26,7 +26,7 @@ and leave out the fight runtime and the 229 data tables (see below).
 | `gamecode` | **291 of 291** — the front end boots natively and takes input |
 | `gamecode/logic` (fight engine) | **2,172 of 2,172**, and behaviourally tested file by file by `tools/difftest/` (results table in PROGRESS.md) |
 | Native executables | `umk3-menu` (the real front end), `umk3-fight` (arenas and a skinned fighter), `umk3-test` (both) |
-| Platform layer | window, GL, textures, files, sound, music (Win32), save files, focus pause; SDL2 has no music yet; the fight's input is not wired |
+| Platform layer | window, GL, textures, files, sound, music (Win32 and SDL2), save files, focus pause; the fight's input is not wired |
 
 **The front is no longer decompilation.** It is integration, in this order:
 
@@ -43,8 +43,7 @@ and leave out the fight runtime and the 229 data tables (see below).
    time, never committed. PROGRESS.md, "The other axis", has the inventory
    and the three already done.
 3. **The rest of the platform layer:** the fight's keyboard and gamepad input
-   (the engine takes one ten-bit word per player, see `platform.h`), and MP3
-   music on SDL2.
+   (the engine takes one ten-bit word per player, see `platform.h`).
 
 `tools/difftest/` stays useful through all of it: any function touched while
 wiring the runtime can be re-run against the recompiled original in seconds.
