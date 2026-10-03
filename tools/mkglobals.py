@@ -124,6 +124,11 @@ SCALARS = {
 # Declarations we must NOT define here: the runtime owns them.
 SKIP_PREFIX = ("lime", "EASDK", "EASOC")
 
+# Globals of lime.m that the platform layer defines by name rather than by
+# prefix: `ratio` is the aspect LIMEDS_Set3dMode writes, and runtime/lime_menu.c
+# owns it with the rest of that file's state.
+RUNTIME_NAMES = ("ratio",)
+
 
 def is_runtime_symbol(name):
     """True for names the platform layer owns rather than the game.
@@ -132,7 +137,7 @@ def is_runtime_symbol(name):
     front-end global and a plain `startswith("gl")` silently swallowed it, which
     then showed up as one unexplained undefined symbol at link time.
     """
-    if name.startswith(SKIP_PREFIX):
+    if name.startswith(SKIP_PREFIX) or name in RUNTIME_NAMES:
         return True
     return len(name) > 2 and name[:2] == "gl" and name[2].isupper()
 
@@ -436,6 +441,31 @@ def undefined_symbols():
     return undef
 
 
+def assigned_names():
+    """The names the transcription assigns whole, and those it takes `&` of.
+
+    `X = ...` and `&X` are what a pointer VARIABLE gets; storage reached
+    through a slot is only ever read through. Comments are dropped first so a
+    line of prose that happens to contain `G = ...` does not count.
+    """
+    assigned, addressed = set(), set()
+    pat = re.compile(r"(?:(?<![\w.>])(\w+)\s*=(?!=))|&\s*(\w+)\b")
+    for d in DECOMP_DIRS + ["decomp/gamecode/logic"]:
+        for fn in sorted(os.listdir(d)):
+            if not fn.endswith(".c"):
+                continue
+            text = open(os.path.join(d, fn), encoding="utf-8",
+                        errors="replace").read()
+            text = re.sub(r"/\*.*?\*/", " ", text, flags=re.S)
+            text = re.sub(r"//[^\n]*", " ", text)
+            for a, b in pat.findall(text):
+                if a:
+                    assigned.add(a)
+                else:
+                    addressed.add(b)
+    return assigned, addressed
+
+
 def main():
     undef = undefined_symbols()
 
@@ -537,6 +567,7 @@ def main():
     print(" * translation unit defines. See the script for the pointer-slot rule.")
     print(" */")
     print()
+    print('#include <stddef.h>')
     print('#include "gamecode_globals.h"')
     print()
     print("#define SLOT_WORDS    %d" % SLOT_WORDS)
@@ -548,12 +579,38 @@ def main():
     # is a slot the code reads through as `col[i]`. The two need opposite
     # treatment, and the only thing that tells them apart is the comment the
     # transcription carries -- which is exactly what it is for.
+    #
+    # The comment is not always there. `GAMESTATE *G` carries only its address,
+    # and so do `TreasureGained`, `SizeofIntroLists` and the fight's mesh
+    # tables -- each of them storage in the image (G is 1,144 bytes of
+    # __common), each reached through a slot, and each defined here as a bare
+    # pointer that stayed NULL until something read through it. So the image
+    # is asked too: a pointer whose symbol is MORE than one word wide cannot be
+    # a pointer variable, unless the code treats it as one -- assigns it
+    # whole, or takes its address, the way `SelectBGTexture` (two words, an
+    # array the front end indexes as `(&SelectBGTexture)[i]`) is used.
+    extents = symbol_extents()
+    assigned, addressed = assigned_names()
+
+    # The third case is the one taking `&`. `HUDANIM_Render` passes
+    # `&Fight_MeshAndTexture` -- the address of a 264-byte table of
+    # (name, texture list) pairs -- and `(&SelectBGTexture)[i]` indexes two
+    # words. The declared `T *X` is the table's first element there, so the
+    # definition is the whole table under the image's own name: `X = v` still
+    # writes element 0 and `&X` is the table, exactly as in the image.
+    widened = {}
     plain, slots = [], []
     for name, (path, line, m) in sorted(seen.items()):
         is_slot = "pointer slot" in line and m.group("stars") and not m.group("dims")
+        wide = (m.group("stars") and not m.group("dims")
+                and not getattr(m, "fnptr", False)
+                and extents.get(name, 0) > 4)
+        if not is_slot and wide and name in addressed:
+            widened[name] = extents[name] // 4
+        elif not is_slot and wide and name not in assigned:
+            is_slot = True
         (slots if is_slot else plain).append((name, path, line, m))
 
-    extents = symbol_extents()
     guessed, measured = [], []
 
     # The initial VALUE of each global, read out of the image. Storage
@@ -592,14 +649,48 @@ def main():
         valued.append(name)
         return ' = %s;' % text
 
+    slot_names = set(n for n, _p, _l, _m in slots)
+
+    def store_shape(name, m):
+        """A slot's storage as (type, stars, count), or None if unsized.
+
+        The element count is the IMAGE's -- the measured bytes over the width
+        an element has there -- not the host's sizeof. `void` has no storage
+        of its own, so a `void *` slot backs onto pointer-sized words.
+        """
+        typ, stars = m.group("type"), m.group("stars")
+        inner = stars[:-1]
+        words = extents.get(name)
+        base = re.sub(r"^const\s+", "", typ).strip()
+        if typ == "void" and not inner:
+            inner = "*"
+        elem = 4 if inner else (mkdata.SCALAR_SIZE.get(base)
+                                or mkdata.image_stride(base, layouts))
+        if not words or not elem:
+            return None
+        return typ, inner, words // elem
+
+    def emit_shape(name, m):
+        """The (stars, dims) a global is DEFINED with, slot storage included."""
+        if name in slot_names:
+            st = store_shape(name, m)
+            if st:
+                return st[1], "[%d]" % st[2]
+            return None
+        if name in widened:
+            return m.group("stars"), "[%d]" % widened[name]
+        return m.group("stars"), m.group("dims")
+
     # A dry run first, purely to find out which unnamed symbols the tables
     # point at. Its output is thrown away; only the demands are kept, and they
     # join `known` before anything is printed, so the real pass can name them.
     scratch = {}
     for name, (path, line, m) in seen.items():
-        mkdata.initialiser(img, name, m.group("type"), m.group("stars"),
-                           m.group("dims"), layouts, scratch, defs, known,
-                           demand)
+        shp = emit_shape(name, m)
+        if shp is None:
+            continue
+        mkdata.initialiser(img, name, m.group("type"), shp[0], shp[1],
+                           layouts, scratch, defs, known, demand)
     for name, (path, line, m) in seen.items():
         if not getattr(m, "fnptr", False):
             continue
@@ -634,6 +725,8 @@ def main():
     shape = {}
     for name, path, line, m in plain:
         typ, dims = m.group("type"), m.group("dims")
+        if name in widened:
+            dims = "[%d]" % widened[name]
         if dims and "[]" in dims:
             if name in extents:
                 base = re.sub(r"^(?:const|unsigned|signed|struct)\s+", "",
@@ -733,16 +826,27 @@ def main():
     print()
     for name, path, line, m in slots:
         typ, stars = m.group("type"), m.group("stars")
-        inner = stars[:-1]                  # one fewer star: this is the storage
-        # `void` has no storage of its own; a `void *` slot backs onto words.
-        store_t = "void *" if (typ == "void" and not inner) else "%s %s" % (typ, inner)
-        # A pointer slot's backing wants the size of what the slot points AT,
-        # and the symbol table gives that the same way it gives an array's.
-        words = extents.get(name)
-        if words:
-            print("static %s%s__store[%d / sizeof(%s)];"
-                  % (store_t, name, words, typ))
+        # The storage starts with what the image holds. A zeroed backing for
+        # `darkcol` is a black colour and for `IntroLists` a table of null
+        # lists: the slot rule fixed the crash and kept the wrong value.
+        st = store_shape(name, m)
+        if st:
+            _t, inner, n = st
+            store_t = "%s %s" % (typ, inner)
+            init = init_for(name, typ, inner, "[%d]" % n)
+            print("static %s%s__store[%d]%s" % (store_t, name, n, init))
         else:
+            inner = stars[:-1]
+            store_t = "void *" if (typ == "void" and not inner) else "%s %s" % (typ, inner)
+            if extents.get(name):
+                # A type this file cannot size -- `limeVECTOR2` is only a
+                # name here -- still has a measured extent: give it that many
+                # bytes, aligned for anything, and point at them.
+                print("static unsigned char %s__store[%d] __attribute__((aligned(16)));"
+                      % (name, extents[name]))
+                print("%s %s%s = (%s %s)(void *)%s__store;"
+                      % (typ, stars, name, typ, stars, name))
+                continue
             print("static %s%s__store[SLOT_WORDS];" % (store_t, name))
         print("%s %s%s = %s__store;" % (typ, stars, name, name))
 
