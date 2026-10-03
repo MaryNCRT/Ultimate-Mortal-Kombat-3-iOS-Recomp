@@ -585,7 +585,12 @@ int getRandomLevel(void)
 }
 
 
-extern long **FrameRemapTablePtr;       /* pointer slot -> 0x002003d4 */
+/* The table itself. HaveFrameInList's `ldr ip, [r3]` reads the non-lazy
+ * pointer slot at 0x000f3474, whose contents are 0x002003d4 -- the symbol's own
+ * address. This was `long **FrameRemapTablePtr`, a name the binary does not
+ * have, and its host storage was a zeroed pointer: the first fighter the
+ * character select drew dereferenced NULL. */
+extern long FrameRemapTable[][2];       /* 0x002003d4 */
 typedef struct PLAYERDEF {
     long        id;             /* 0x00  0..25; the same as the index */
     float       scale;          /* 0x04  multiplied by PlayerSize */
@@ -629,7 +634,7 @@ int HaveFrameInList(const long *list, long frame)
     long i;
 
     for (i = 0; list[i] != -1; i++)
-        if ((*FrameRemapTablePtr)[list[i] * 2 + 1] == frame)
+        if (FrameRemapTable[list[i]][1] == frame)
             return 1;
     return 0;
 }
@@ -1794,7 +1799,12 @@ extern signed char CharacterAvailable[CHARACTER_SLOTS];  /* 0x0018ed5c */
 extern int  ErmacUnlocked;              /* 0x000ff974 */
 extern int  JadeUnlocked;               /* 0x000ff97c */
 extern int  GameMode;                   /* slot -> 0x0014faa4 */
-extern int *TreasureGained;             /* slot -> 0x00101164, see Reset_SaveData */
+/* An ARRAY at 0x00101164, not a pointer slot: SetupLockedCharacters builds the
+ * address PC-relative (`ldr r3, =0xfdfb6; add r3, pc`) and reads `[r3, #8]`
+ * straight off it, one load. Ten words, up to _TreasureSelectTime at 0x0010118c,
+ * all zero in __data. Declared `int *` it was a null pointer, and opening the
+ * character select segfaulted on its first read. */
+extern int  TreasureGained[10];         /* 0x00101164 */
 
 
 /* ------------------------------------------------------- SetupLockedCharacters

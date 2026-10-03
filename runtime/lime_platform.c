@@ -37,6 +37,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <malloc.h>
+#include <stdint.h>
 
 #include "arm_runtime.h"
 
@@ -222,6 +223,147 @@ static int heap_paranoid(void)
 
 long lime_heap_check(const char *where);
 
+
+/* ### Every block lives below 4 GB
+ *
+ * The binary is 32-bit, and the gamecode keeps its structures at the binary's
+ * layout: a front-end character is 0x668 bytes with its ANIMATEDCHARACTER
+ * pointer in the 4-byte word at +0x04 (`Load1Character`, armv7 0x0005ccec),
+ * and its texture in the word at +0x528. A 64-bit malloc pointer does not fit.
+ * Measured: `Load1Character` was handed 0x0000019461D16720 and the slot kept
+ * 0x61D16720, so the fighters on the select screen pointed at nothing.
+ *
+ * So the allocations come from one region reserved below 4 GB, and every
+ * pointer limeMalloc returns fits a 32-bit word exactly as it did on the
+ * device. The gamecode stays at the binary's layout and no slot has to learn
+ * about 64-bit hosts.
+ *
+ * The allocator is the simplest that frees: power-of-two size classes, one
+ * free list each, bump allocation from the region when a list is empty, pages
+ * committed as the bump pointer reaches them. The device had 128 MB; the
+ * region is up to 1 GB, so doubling every block still leaves room.
+ *
+ * A host that cannot reserve low memory falls back to malloc and says so once.
+ * Everything still runs; a slot that truncates a pointer is then the next
+ * thing to look at. */
+#ifdef _WIN32
+__declspec(dllimport) void *__stdcall VirtualAlloc(void *addr, size_t size,
+                                                    unsigned long type,
+                                                    unsigned long protect);
+#define LOW_MEM_COMMIT  0x00001000
+#define LOW_MEM_RESERVE 0x00002000
+#define LOW_PAGE_RW     0x04
+#else
+#include <sys/mman.h>
+#endif
+
+#define LOW_CLASSES   32
+#define LOW_MIN_SHIFT 6                 /* 64 bytes: the header plus guard */
+#define LOW_COMMIT    (4u << 20)
+
+static unsigned char *g_low_base, *g_low_top, *g_low_committed, *g_low_end;
+static void          *g_low_free[LOW_CLASSES];
+static int            g_low_state;      /* 0 untried, 1 low, -1 malloc */
+
+static void low_reserve(void)
+{
+    static const size_t sizes[] = { 1u << 30, 512u << 20, 256u << 20 };
+    size_t s;
+
+    g_low_state = -1;
+    for (s = 0; s < sizeof(sizes) / sizeof(sizes[0]); s++) {
+#ifdef _WIN32
+        uintptr_t at;
+        /* Above the first 256 MB, where the loader and the CRT sit, and
+         * wholly under 4 GB. */
+        for (at = 0x10000000u; at + sizes[s] <= 0xFFFF0000u; at += 0x4000000u) {
+            void *p = VirtualAlloc((void *)at, sizes[s], LOW_MEM_RESERVE,
+                                   LOW_PAGE_RW);
+            if (p) {
+                g_low_base = (unsigned char *)p;
+                break;
+            }
+        }
+#elif defined(MAP_32BIT)
+        {
+            void *p = mmap(NULL, sizes[s], PROT_READ | PROT_WRITE,
+                           MAP_PRIVATE | MAP_ANONYMOUS | MAP_32BIT, -1, 0);
+            if (p != MAP_FAILED)
+                g_low_base = (unsigned char *)p;
+        }
+#endif
+        if (g_low_base) {
+            g_low_top = g_low_committed = g_low_base;
+            g_low_end = g_low_base + sizes[s];
+            g_low_state = 1;
+            return;
+        }
+    }
+    fprintf(stderr, "lime_heap: no memory below 4 GB; pointers stored in "
+                    "32-bit slots will be truncated\n");
+}
+
+static int low_class(size_t total)
+{
+    int c = LOW_MIN_SHIFT;
+    while (c < LOW_CLASSES && ((size_t)1 << c) < total)
+        c++;
+    return c;
+}
+
+static void *low_alloc(size_t total)
+{
+    int c;
+    size_t size;
+    void *p;
+
+    if (g_low_state == 0)
+        low_reserve();
+    if (g_low_state < 0)
+        return malloc(total);
+
+    c = low_class(total);
+    if (c >= LOW_CLASSES)
+        return NULL;
+    if (g_low_free[c]) {
+        p = g_low_free[c];
+        g_low_free[c] = *(void **)p;
+        return p;
+    }
+
+    size = (size_t)1 << c;
+    if ((size_t)(g_low_end - g_low_top) < size)
+        return NULL;
+    while (g_low_committed < g_low_top + size) {
+#ifdef _WIN32
+        size_t step = (size_t)(g_low_end - g_low_committed);
+        if (step > LOW_COMMIT)
+            step = LOW_COMMIT;
+        if (!VirtualAlloc(g_low_committed, step, LOW_MEM_COMMIT, LOW_PAGE_RW))
+            return NULL;
+        g_low_committed += step;
+#else
+        g_low_committed = g_low_end;    /* mmap already backs the region */
+#endif
+    }
+    p = g_low_top;
+    g_low_top += size;
+    return p;
+}
+
+static void low_free(void *p, size_t total)
+{
+    if (g_low_state < 0) {
+        free(p);
+        return;
+    }
+    {
+        int c = low_class(total);
+        *(void **)p = g_low_free[c];
+        g_low_free[c] = p;
+    }
+}
+
 void *limeMalloc(const char *tag, size_t bytes)
 {
     lime_block *b;
@@ -229,7 +371,7 @@ void *limeMalloc(const char *tag, size_t bytes)
     if (heap_paranoid())
         lime_heap_check(tag);
 
-    b = malloc(sizeof(*b) + bytes + LIME_GUARD_BYTES);
+    b = low_alloc(sizeof(*b) + bytes + LIME_GUARD_BYTES);
 
     if (b == NULL)
         return NULL;
@@ -266,7 +408,7 @@ void limeFree(void *p)
     if (b->next) b->next->prev = b->prev;
     g_live--;
 
-    free(b);
+    low_free(b, sizeof(*b) + b->bytes + LIME_GUARD_BYTES);
 }
 
 /* Walk every live allocation. Returns the number that are damaged and names

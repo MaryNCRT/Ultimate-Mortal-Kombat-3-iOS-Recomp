@@ -1180,8 +1180,14 @@ void Preload1Character(EPLAYER who, FRONTEND_CHARACTER *fe, long a, long b)
 }
 
 
-extern long **IdleLists;                /* pointer slot -> 0x0014e0d8 */
-extern long  *SizeofIdleLists;          /* pointer slot -> 0x0014e140 */
+/* Both are ARRAYS in __data, 26 words each, not pointer slots. 0x0014e0d8 holds
+ * 26 distinct addresses -- _KanoIdleFrames, _ReptileIdleFrames and the rest,
+ * with 0 for character 23 -- and 0x0014e140 holds 26 byte counts (0xd4,
+ * 0xcc, ...). Declared as slots they were given zeroed storage, every list was
+ * NULL, AnimateFECharacters set every frame to -1 and RenderFECharacters drew
+ * nobody. */
+extern long *IdleLists[26];             /* 0x0014e0d8 */
+extern long  SizeofIdleLists[26];       /* 0x0014e140 */
 extern long   AnimSmoothWindowSize;     /* 0x00171368 */
 
 void PlayerAutoSmoothAnims(PLAYER *p);
