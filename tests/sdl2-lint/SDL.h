@@ -134,4 +134,29 @@ void   SDL_CloseAudioDevice(SDL_AudioDeviceID dev);
 int    SDL_QueueAudio(SDL_AudioDeviceID dev, const void *data, Uint32 len);
 Uint32 SDL_GetQueuedAudioSize(SDL_AudioDeviceID dev);
 
+/* SDL_messagebox.h -- plat_ask. */
+#define SDL_MESSAGEBOX_INFORMATION                0x40u
+#define SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT   0x1u
+#define SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT   0x2u
+
+typedef struct {
+    Uint32      flags;
+    int         buttonid;
+    const char *text;
+} SDL_MessageBoxButtonData;
+
+typedef struct SDL_MessageBoxColorScheme SDL_MessageBoxColorScheme;
+
+typedef struct {
+    Uint32                           flags;
+    SDL_Window                      *window;
+    const char                      *title;
+    const char                      *message;
+    int                              numbuttons;
+    const SDL_MessageBoxButtonData  *buttons;
+    const SDL_MessageBoxColorScheme *colorScheme;
+} SDL_MessageBoxData;
+
+int SDL_ShowMessageBox(const SDL_MessageBoxData *messageboxdata, int *buttonid);
+
 #endif /* UMK3_SDL2_LINT_FIXTURE_H */

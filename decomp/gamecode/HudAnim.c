@@ -11,6 +11,7 @@
  */
 
 #include <stdint.h>
+#include "lime_glapi.h"   /* the GL calls' calling convention */
 
 typedef struct TEXTURE TEXTURE;
 typedef struct TEXTURETOLOAD {
@@ -120,7 +121,7 @@ void HUDANIM_Init(void)
 }
 
 
-extern void **Scene_FIGHT;              /* pointer slot -> 0x00183d60 */
+extern void *Scene_FIGHT;               /* 0x00183d60, one word, via a slot */
 
 
 /* ------------------------------------------------------------ HUDANIM_Update
@@ -157,13 +158,13 @@ void HUDANIM_Update(void)
 
     TheHud.timer += 1.0f;
 
-    limit = (float)(((const long *)*Scene_FIGHT)[0x44 / 4] - 2);
+    limit = (float)(((const long *)Scene_FIGHT)[0x44 / 4] - 2);
     if (TheHud.timer >= limit)
         TheHud.anim = 0;
 }
 
 
-extern void **MeshSet_FIGHT;            /* pointer slot -> 0x00183d5c */
+extern void *MeshSet_FIGHT;             /* 0x00183d5c, one word, via a slot */
 extern long  *SceneRenderAlwaysTrans;   /* pointer slot -> 0x00171760 */
 extern float  finishsize;               /* 0x00175184 */
 
@@ -183,10 +184,10 @@ void limeDisableDepthTest(void);
 void limeDisableDepthWrites(void);
 void limeEnableDepthTest(void);
 void limeEnableDepthWrites(void);
-void glPushMatrix(void);
-void glPopMatrix(void);
-void glRotatef(float a, float x, float y, float z);
-void glScalef(float x, float y, float z);
+void LIME_GLAPI glPushMatrix(void);
+void LIME_GLAPI glPopMatrix(void);
+void LIME_GLAPI glRotatef(float a, float x, float y, float z);
+void LIME_GLAPI glScalef(float x, float y, float z);
 
 
 /* ------------------------------------------------------------ HUDANIM_Render
@@ -209,7 +210,7 @@ void glScalef(float x, float y, float z);
  * ### It answers who writes SceneRenderAlwaysTrans
  *
  *      SceneRenderAlwaysTrans = 1
- *      LIME_RenderSceneOverrideTextures(*Scene_FIGHT, HSceneTextures, timer)
+ *      LIME_RenderSceneOverrideTextures(Scene_FIGHT, HSceneTextures, timer)
  *      SceneRenderAlwaysTrans = 0
  *
  * That flag was an open question in decomp/lime/RenderScene.c -- the renderer
@@ -263,10 +264,10 @@ void HUDANIM_Render(void)
     s = finishsize;
     glScalef(s, s, s);
 
-    LIME_SetSceneTextures(*MeshSet_FIGHT, mesh, &HSceneTextures);
+    LIME_SetSceneTextures(MeshSet_FIGHT, mesh, &HSceneTextures);
 
     *SceneRenderAlwaysTrans = 1;
-    LIME_RenderSceneOverrideTextures(*Scene_FIGHT, &HSceneTextures,
+    LIME_RenderSceneOverrideTextures(Scene_FIGHT, &HSceneTextures,
                                      (long)TheHud.timer);
     *SceneRenderAlwaysTrans = 0;
 

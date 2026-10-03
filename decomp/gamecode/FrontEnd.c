@@ -10,6 +10,7 @@
  */
 
 #include <stdint.h>
+#include "lime_glapi.h"   /* the GL calls' calling convention */
 #include <string.h>
 
 /* Both live in the slice's data and both hold 1.0f as shipped. */
@@ -585,7 +586,7 @@ int getRandomLevel(void)
 }
 
 
-extern long **FrameRemapTablePtr;       /* pointer slot -> 0x002003d4 */
+extern long  *FrameRemapTablePtr;       /* pointer slot -> 0x002003d4 */
 typedef struct PLAYERDEF {
     long        id;             /* 0x00  0..25; the same as the index */
     float       scale;          /* 0x04  multiplied by PlayerSize */
@@ -623,13 +624,17 @@ typedef struct limeVECTOR3 { float x, y, z; } limeVECTOR3;
  * So the list holds remap-table INDICES, not frame numbers, and the frame
  * number is what the table's second word holds. Comparing the list entries
  * directly against `frame` would compile and would always be wrong.
+ *
+ * One load reaches the table: `ldr.w ip, [r3]` reads the slot, and what it
+ * holds is _FrameRemapTable itself -- 0xe260 bytes of storage, not a pointer
+ * to it. A second dereference read the table's first word as an address.
  */
 int HaveFrameInList(const long *list, long frame)
 {
     long i;
 
     for (i = 0; list[i] != -1; i++)
-        if ((*FrameRemapTablePtr)[list[i] * 2 + 1] == frame)
+        if (FrameRemapTablePtr[list[i] * 2 + 1] == frame)
             return 1;
     return 0;
 }
@@ -2846,12 +2851,14 @@ long CreateWrappedTextArrays(const char *text, char *out, long *lines,
     } else {
         const char *s = text + 1;       /* past the 0xFF; units are read at s+k */
 
-        for (i = 2; text[i] != 0; ) {
+        /* The string ends at a 16-bit NUL: both bytes zero (0x352c reads
+         * the low byte, 0x3478 the high one only when the low is 0). Every
+         * Latin character has a zero high byte, so stopping on that alone
+         * ended every label after its first letter -- ARCADE drew as
+         * nothing. */
+        for (i = 2; text[i] != 0 || s[i] != 0; ) {
             char *dst = &out[line * 256];
             long hi;
-
-            if (s[i] == 0)
-                break;
 
             dst[col]     = text[i];     /* the low byte  */
             dst[col + 1] = s[i];        /* and the high  */
@@ -2888,6 +2895,12 @@ long CreateWrappedTextArrays(const char *text, char *out, long *lines,
                 breakAt = -1;
                 col   = 0;
                 total = 0.0f;
+                /* `b 0x3528`: the break shares the loop's step. So a space
+                 * break resumes AFTER the space, a CJK break ON the breaking
+                 * character, and with no break point the character that
+                 * overflowed stays where it was written and the next one
+                 * starts the new line. */
+                i += 2;
                 continue;
             }
 
@@ -2998,8 +3011,8 @@ void limeEnableDepthWrites(void);
 void limeDisableDepthTest(void);
 void limeDisableDepthWrites(void);
 void limeEnableAlphaBlending_Basic(void);
-void glPushMatrix(void);
-void glScalef(float x, float y, float z);
+void LIME_GLAPI glPushMatrix(void);
+void LIME_GLAPI glScalef(float x, float y, float z);
 void SetToUseCamera(const float *eye);
 void limeEnableAlphaBlending_Additive(void);
 void RotMatrixY(float *m, float angle);
@@ -4636,9 +4649,9 @@ void LIME_Slider(int window, float *value, const char *label, float lo, float hi
 void LIME_PushMatrix(void);
 void LIME_PopMatrix(int count);
 void limeGetCurrentModelMatrix(float *out);
-void glMatrixMode(unsigned mode);
-void glLoadIdentity(void);
-void glRotatef(float angle, float x, float y, float z);
+void LIME_GLAPI glMatrixMode(unsigned mode);
+void LIME_GLAPI glLoadIdentity(void);
+void LIME_GLAPI glRotatef(float angle, float x, float y, float z);
 long RenderPlayer(void *player, long a, long b);
 
 void RenderFECharacters(long slot0, long slot1)
@@ -5125,7 +5138,7 @@ void FE_Task_Multiplayer_Summary(void)
  * nothing, as everywhere else in the front end.
  */
 extern float KontinueTime;              /* 0x000ff960 */
-extern const char *DestinyNames[0];       /* pointer slot -> 0x00176760 */
+extern const char *DestinyNames[];        /* 0x00176760, 108 bytes */
 
 int  sprintf(char *dst, const char *fmt, ...);
 
@@ -9249,7 +9262,7 @@ extern void  *MeshSet_LIGHTNING3;       /* 0x00183d50 */
 extern void  *MeshSet_LIGHTNING4;       /* 0x00183d54 */
 extern void  *MeshSet_LIGHTNING5;       /* 0x00183d58 */
 
-void glPopMatrix(void);
+void LIME_GLAPI glPopMatrix(void);
 
 void DrawTower3D(void)
 {

@@ -269,3 +269,27 @@ int plat_pad(int which)
 
     return bits;
 }
+
+
+/* MessageBoxW takes the game's UTF-16 as it is. It cannot relabel its
+ * buttons, so they read OK / Cancel in the system's language rather than the
+ * game's `ok` / `cancel` text; the question itself is the game's. */
+int plat_ask(const unsigned short *msg, const unsigned short *ok,
+             const unsigned short *cancel)
+{
+    int r;
+
+    (void)ok;
+    r = MessageBoxW(g_wnd, (const wchar_t *)msg, L"Ultimate Mortal Kombat 3",
+                    (cancel ? MB_OKCANCEL : MB_OK) | MB_TASKMODAL);
+    return (r == IDOK) ? 0 : 1;
+}
+
+void plat_language(char *out, int n)
+{
+    if (n <= 0)
+        return;
+    out[0] = 0;
+    GetLocaleInfoA(MAKELCID(GetUserDefaultUILanguage(), SORT_DEFAULT),
+                   LOCALE_SISO639LANGNAME, out, n);
+}

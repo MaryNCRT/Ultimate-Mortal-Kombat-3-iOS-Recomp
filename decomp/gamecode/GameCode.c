@@ -8,6 +8,7 @@
  */
 
 #include <stdint.h>
+#include "lime_glapi.h"   /* the GL calls' calling convention */
 #include <string.h>   /* memset, for clearSpriteListsAndEvents */
 
 /* TEXTURETOLOAD is the engine's {name, destination} pair — see decomp/lime,
@@ -639,7 +640,7 @@ void limeFinish(void);
 void limeStartLoadingAnim(void);
 void limeStopLoadingAnim(void);
 void heartbeatUpdate(void);
-void glDisable(unsigned cap);
+void LIME_GLAPI glDisable(unsigned cap);
 
 
 /* -------------------------------------------------------- LIME_KillAllLights
@@ -776,14 +777,18 @@ void *limeLoadSaveFile(const char *name);
  * neither citing the other.
  *
  * The source cursor advances with a pre-indexed `ldr r2, [r3, #0x20]!`, so the
- * file record is 0x20 bytes and its first word is never read.
+ * file record is 0x20 bytes and its first word is never read. The cursor is
+ * r3, a copy (`mov r3, r0`); the buffer freed at the end is r0, the address
+ * limeLoadFile returned. Freeing the advanced cursor instead hands limeFree a
+ * pointer 512 bytes into its own block.
  *
  * A missing file is silent: `cbz r0` returns without touching Level_Info, so
  * whatever it already held stays.
  */
 void LoadBGExtents(void)
 {
-    const long *src = (const long *)limeLoadFile("BGEXTENTS.BIN");
+    const long *file = (const long *)limeLoadFile("BGEXTENTS.BIN");
+    const long *src = file;             /* mov r3, r0: the cursor is a copy */
     int i;
 
     if (src == 0)
@@ -802,7 +807,7 @@ void LoadBGExtents(void)
         e[0x64 / 4] = src[8];
         src += 0x20 / 4;                /* the record, first word unread */
     }
-    limeFree((void *)src);
+    limeFree((void *)file);             /* r0, untouched by the loop */
 }
 
 
@@ -1049,7 +1054,7 @@ extern int *MileenaUnlockedPtr;         /* slot -> 0x000ff978 */
 extern int *JadeUnlockedPtr;            /* slot -> 0x000ff97c */
 extern int *SurvivalStagePtr;           /* slot -> 0x000ff980 */
 extern int *TreasureGained;             /* slot -> 0x00101164, 10 words */
-extern int *EndingsGained;              /* slot -> 0x00101088, 23 words */
+extern long  EndingsGained[23];         /* 0x00101088, the array itself */
 extern int  winStreak;                  /* 0x0014e1a8 */
 void Write_SaveData(void);
 
@@ -1492,9 +1497,10 @@ void drawLoadingBackground(void)
 }
 
 
-/* `_ButtonsTPage` -- 0x001f40d8, a pointer slot to the button atlas texture.
+/* `_ButtonsTPage` -- 0x001f40d8, one word: the button atlas texture,
+ * reached through a slot. FrontEnd.c assigns it from limeLoadTexture.
  * Eight buttons across: the U extent below is exactly 1/8. */
-extern TEXTURE **ButtonsTPage;
+extern TEXTURE *ButtonsTPage;
 
 /* These return FLOATS -- `vmul.f32` into s14 and `vmov r0, s14` on the way out,
  * see FrontEnd.c. They were declared `int` here, which made every `(float)`
@@ -1513,7 +1519,7 @@ float FE_H(float h);
  *
  * One 64x64 button from the atlas, positioned through the front-end scalers:
  *
- *      limeDrawSprite(*ButtonsTPage,
+ *      limeDrawSprite(ButtonsTPage,
  *                     FE_X(x), FE_Y(y), FE_W(64), FE_H(64),
  *                     0.0f, 0.5f, 0.125f, 0.25f, colour)
  *
@@ -1546,7 +1552,7 @@ void drawSingleButton(int x, int y, float alpha)
     colour[3].f = 1.0f;
     colour[4].f = alpha;
 
-    limeDrawSprite(*ButtonsTPage,
+    limeDrawSprite(ButtonsTPage,
                    FE_X((float)x), FE_Y((float)y),
                    FE_W(64.0f),    FE_H(64.0f),
                    0.0f, 0.5f, 0.125f, 0.25f, (const float *)&colour[0]);
@@ -1562,12 +1568,12 @@ typedef struct MESHSETINFO  MESHSETINFO;
 
 void LIMEDS_SetObjectOrientation(limeMATRIX44 *m, limeVECTOR3 *pos);
 void LIME_RenderMesh(MESHSETINFO *set, int index, TEXTURE *tex0, TEXTURE *tex1, long flags);
-void glPushMatrix(void);
-void glPopMatrix(void);
-void glScalef(float x, float y, float z);
-void glEnable(unsigned int cap);
-void glCullFace(unsigned int mode);
-void glColor4f(float r, float g, float b, float a);
+void LIME_GLAPI glPushMatrix(void);
+void LIME_GLAPI glPopMatrix(void);
+void LIME_GLAPI glScalef(float x, float y, float z);
+void LIME_GLAPI glEnable(unsigned int cap);
+void LIME_GLAPI glCullFace(unsigned int mode);
+void LIME_GLAPI glColor4f(float r, float g, float b, float a);
 
 #define GL_FRONT      0x0404
 #define GL_BACK       0x0405
@@ -2199,12 +2205,16 @@ long CheckLeftDial(int player)
 /* `TreasureGained` (10 words) and `EndingsGained` (23 words) are already
  * declared above with those same counts, derived there independently. */
 extern long  SaveData[];                /* 0x001f439c */
-extern long *ClassicSubZeroUnlocked;
-extern long *ErmacUnlocked;
-extern long *MileenaUnlocked;
-extern long *JadeUnlocked;
-extern long *SurvivalStage;
-extern long *SurvivalHealth;
+/* The variables themselves, each one word in the image (FrontEnd.c and
+ * Blood.c declare the same six the same way). These were declared as
+ * pointers and dereferenced, which read each flag's VALUE as an address --
+ * the first thing confirming a new arcade game did was fault on it. */
+extern long ClassicSubZeroUnlocked;     /* 0x000ff970 */
+extern long ErmacUnlocked;              /* 0x000ff974 */
+extern long MileenaUnlocked;            /* 0x000ff978 */
+extern long JadeUnlocked;               /* 0x000ff97c */
+extern long SurvivalStage;              /* 0x000ff980 */
+extern long SurvivalHealth;             /* 0x000ff994 */
 
 
 /* ------------------------------------------------------------- Write_SaveData
@@ -2252,10 +2262,10 @@ void Write_SaveData(void)
         SaveData[0x04 / 4] = Destiny;
         SaveData[0x08 / 4] = Stage;
         SaveData[0x0c / 4] = Character1;
-        SaveData[0x10 / 4] = *ClassicSubZeroUnlocked;
-        SaveData[0x14 / 4] = *ErmacUnlocked;
-        SaveData[0x18 / 4] = *MileenaUnlocked;
-        SaveData[0x1c / 4] = *JadeUnlocked;
+        SaveData[0x10 / 4] = ClassicSubZeroUnlocked;
+        SaveData[0x14 / 4] = ErmacUnlocked;
+        SaveData[0x18 / 4] = MileenaUnlocked;
+        SaveData[0x1c / 4] = JadeUnlocked;
         SaveData[0x48 / 4] = winStreak;
 
         sum = SaveData[0x00 / 4] + SaveData[0x04 / 4] + SaveData[0x08 / 4]
@@ -2279,9 +2289,9 @@ void Write_SaveData(void)
     if (GameMode == 4) {
         long survival[3];
 
-        survival[0] = *SurvivalStage;
+        survival[0] = SurvivalStage;
         survival[1] = Character1;
-        survival[2] = *SurvivalHealth;
+        survival[2] = SurvivalHealth;
         limeWriteFile("survival", survival, 0xc, 0);
     }
 }
@@ -2348,10 +2358,10 @@ void Load_SaveData(void)
     Destiny     = save[0x04 / 4];
     Stage       = save[0x08 / 4];
     Character1  = save[0x0c / 4];
-    *ClassicSubZeroUnlocked = save[0x10 / 4];
-    *ErmacUnlocked          = save[0x14 / 4];
-    *MileenaUnlocked        = save[0x18 / 4];
-    *JadeUnlocked           = save[0x1c / 4];
+    ClassicSubZeroUnlocked = save[0x10 / 4];
+    ErmacUnlocked          = save[0x14 / 4];
+    MileenaUnlocked        = save[0x18 / 4];
+    JadeUnlocked           = save[0x1c / 4];
     winStreak   = save[0x48 / 4];
 
     sum = save[0x00 / 4] + save[0x04 / 4] + save[0x08 / 4] + save[0x0c / 4]
@@ -2387,7 +2397,7 @@ void Load_SaveData(void)
     if (surv == 0)
         return;
 
-    *SurvivalStage = surv[0];
+    SurvivalStage = surv[0];
 
     v = surv[1];
     SurvivalCharacter1 = v;            /* written from Character1, read here */
@@ -2395,9 +2405,9 @@ void Load_SaveData(void)
         SurvivalCharacter1 = 1;
 
     v = surv[2];
-    *SurvivalHealth = v;
+    SurvivalHealth = v;
     if (v <= 0 || v > 100)
-        *SurvivalHealth = 100;
+        SurvivalHealth = 100;
 
     limeFree(surv);
 }
@@ -2958,8 +2968,8 @@ void LIME_RenderScene(long a, void *scene, long frameA, long frameB, float t,
                       long b, long c, long d, void *tex, long e, float *att);
 void limeDisableAlphaBlending(void);
 void limeEnableDepthWrites(void);
-void glMatrixMode(unsigned int m);
-void glMultMatrixf(const float *m);
+void LIME_GLAPI glMatrixMode(unsigned int m);
+void LIME_GLAPI glMultMatrixf(const float *m);
 #define GL_MODELVIEW 0x1700
 
 
@@ -4502,7 +4512,7 @@ void DrawControlsPreview(long originX, long originY)
 
         colour[3] = alpha;
 
-        limeDrawSprite((TEXTURE *)*ButtonsTPage, x, y, wh, wh,
+        limeDrawSprite((TEXTURE *)ButtonsTPage, x, y, wh, wh,
                        (float)((double)col * 0.125),
                        (float)((double)(glyph / 4) * 0.25),
                        0.125f, 0.25f, colour);
@@ -4529,8 +4539,10 @@ extern float  exitTimeout;              /* pointer slot -> 0x00182c80 -- also a
                                          * under it stored 600 and was wrong. */
 extern long   WaitForOpponent;          /* 0x0010df18 */
 extern long   FadeMusicOut;             /* 0x0010dee8 */
-/* Both are pointer slots to arrays of C strings. */
-extern const char **DestinyNames;
+/* DestinyNames is the array of C strings itself (108 bytes at 0x00176760,
+ * as Blood.c and FrontEnd.c declare it); DestinyNamesLoss is reached through
+ * a slot. */
+extern const char *DestinyNames[];
 extern const char **DestinyNamesLoss;
 extern long  *DisplaySurvivalStage, *SurvivalStageP;
 /* Two words, not two pointers. FrontEnd.c declares both as plain `int` at
@@ -4715,8 +4727,8 @@ extern float IntroPlayer1PosX;          /* 0x0014f930 */
 extern float IntroPlayer1PosZ;          /* 0x0014f934 */
 extern float PlayerSize;                /* 0x00150cc4 */
 
-void glTranslatef(float x, float y, float z);
-void glRotatef(float a, float x, float y, float z);
+void LIME_GLAPI glTranslatef(float x, float y, float z);
+void LIME_GLAPI glRotatef(float a, float x, float y, float z);
 
 
 /* --------------------------------------------------- RenderIntroCharacterPlayer
@@ -5848,7 +5860,7 @@ void Task_GameInit(void)
     DoSmokeEarthFatalSFX = 0;
 
     if (GameMode == 4)
-        Health[0] = *SurvivalHealth;
+        Health[0] = SurvivalHealth;
 
     ResetFightData();
 
@@ -6044,12 +6056,12 @@ void ResetFightData(void)
 
     if (GameMode == 4) {
         /* Survival: Health[0] is read BEFORE it is set -- the carry-over. */
-        *SurvivalHealth = Health[0];
+        SurvivalHealth = Health[0];
 
         if (*SurvivalStageP2 > 0 || Round != 0)
             G->healthBar1 = Health[0] * 166 / 100;
         else
-            *SurvivalHealth = Health[0] = 100;
+            SurvivalHealth = Health[0] = 100;
     } else {
         Health[0] = 100;
     }
@@ -6973,7 +6985,7 @@ long GameInit_LoadABit(long step)
 
     case 26:
         PauseBGTexture = limeLoadTexture("PAUSEBG.PNG", 0, 0);
-        *ButtonsTPage  = (TEXTURE *)limeLoadTexture("BUTTONS_TPAGE.PNG", 0, 0);
+        ButtonsTPage   = (TEXTURE *)limeLoadTexture("BUTTONS_TPAGE.PNG", 0, 0);
         return 0;
 
     case 27: {
@@ -8367,7 +8379,7 @@ static void DrawButtonRow(const long *pos, const long *states,
         u = (cell & 3) * 2 + (states[id] ? 0 : 1);
         v = cell / BUTTON_ATLAS_ROWS;
 
-        limeDrawSprite(*ButtonsTPage,
+        limeDrawSprite(ButtonsTPage,
                        (float)(e[0] - size / 2), (float)(e[1] - size / 2),
                        (float)size, (float)size,
                        (float)u / (float)BUTTON_ATLAS_COLS,
@@ -8382,12 +8394,12 @@ static void DrawButtonRow(const long *pos, const long *states,
 static void DrawJoystick(long x, long y, long state,
                          float *base, float *knob)
 {
-    limeDrawSprite(*ButtonsTPage,
+    limeDrawSprite(ButtonsTPage,
                    (float)x - JSIZE, (float)y - JSIZE,
                    JSIZE + JSIZE, JSIZE + JSIZE,
                    0.375f, 0.5f, 0.25f, 0.5f, base);
 
-    limeDrawSprite(*ButtonsTPage,
+    limeDrawSprite(ButtonsTPage,
                    (float)(x + JoyOffset[state][0]) - JSIZE * 0.5f,
                    (float)(y + JoyOffset[state][1]) - JSIZE * 0.5f,
                    JSIZE, JSIZE,
@@ -8634,7 +8646,7 @@ void Task_GameDestroy(void)
         limeDeleteTexture(TPages[i]);
 
     limeDeleteTexture(HUDTPage);
-    limeDeleteTexture(*ButtonsTPage);
+    limeDeleteTexture(ButtonsTPage);
 
     for (i = 0; i < GAMEDESTROY_BGTEX; i++)
         limeDeleteTexture(LevelBGTexture[i]);
@@ -10111,7 +10123,7 @@ long  mk3_who_in_front(void);
 long *HavePreloadedCharacter(long who);
 void  RenderDebugCube(void);
 void  RenderAxesLines(float x, float y, float z);
-void  glLoadIdentity(void);
+void LIME_GLAPI glLoadIdentity(void);
 void  limeGetCurrentModelMatrix(float *out);
 void  limeScaleMatrixXYZ(float *m, float sx, float sy, float sz);
 void  LIME_TriggerEventsFromSceneOffsetIfFollowing(long slot, long follow,
