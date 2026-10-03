@@ -41,6 +41,8 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
+#include <stdint.h>
 #include <string.h>
 
 #include "../decomp/lime/lime.h"
@@ -61,11 +63,16 @@ int  *limeScreenHeightP = &limeScreenHeight;
 
 int   limeDeviceSideways         = 1;
 int   limeDeferredDeviceSideways = 1;
+int   limeLastDeviceSideways     = 1;
 
 /* The physical panel, portrait, as the binary's __data has it: 0x00171ae4 and
- * 0x00171ae8 hold 320 and 480. `LIMEDS_Set3dMode` divides by the height. */
+ * 0x00171ae8 hold 320 and 480. limeBegin derives limeScreenWidth/Height from
+ * them every frame and `LIMEDS_Set3dMode` divides by the height. */
 int   limeDeviceWidth  = 320;
 int   limeDeviceHeight = 480;
+int   limeDeviceOffsetX;
+int   limeDeviceOffsetY;
+int   limeDeviceCanVibrate = 1;         /* 0x00171c08 */
 
 /* __common in the binary. `limeBegin` writes the sideways matrix every frame
  * and `LIMEDS_Set3dMode` the perspective one. */
@@ -73,8 +80,14 @@ float limePerspectiveMatrix[16];
 float limeSidewaysMat[16];
 float ratio = 1.666f;                   /* 0x0017146c; Set3dMode sets 0.6 */
 
+/* The port's way to ask for a surface other than 480x320. limeBegin rebuilds
+ * limeScreenWidth/Height from the panel every frame, as the binary does, so the
+ * request goes in as the panel -- turned portrait, because the game is held
+ * sideways -- and comes back out as (w, h). */
 void lime_menu_set_screen(int w, int h)
 {
+    limeDeviceWidth  = h;
+    limeDeviceHeight = w;
     limeScreenWidth  = w;
     limeScreenHeight = h;
 }
@@ -87,54 +100,152 @@ float  limeFPSScaleFactor  = 1.0f;
 float *limeFPSScaleFactorP = &limeFPSScaleFactor;
 long   limeRenderedPolyCount;
 
+/* `_currenttime` / `_lasttime`, doubles in __common. On the device limeBegin
+ * fills the first from CFAbsoluteTimeGetCurrent. The port's hosts tick at a
+ * fixed 60 Hz -- several ticks back to back after a slow frame -- so a wall
+ * clock would hand limeBegin a dt near zero and a scale factor in the
+ * thousands. The host advances this clock by the tick it is simulating
+ * instead, which is what the device's clock reads at a steady 60 fps. */
+double currenttime;
+double lasttime;
+static double g_clock;
+
+void lime_menu_advance_clock(double seconds)
+{
+    g_clock += seconds;
+}
+
 void lime_menu_set_fps_scale(float f)
 {
     /* Zero would divide by zero in every front-end timer at once, which reads
-     * as "the menus froze" rather than as a bad argument. */
+     * as "the menus froze" rather than as a bad argument. Overwritten by the
+     * next limeBegin; this is for hosts that do not call it. */
     limeFPSScaleFactor = (f > 0.0f) ? f : 1.0f;
 }
 
 
 /* ------------------------------------------------------------------- touch */
 
-/* The front end tests these two ways round, and both spellings are load-bearing:
- * most screens read `limeLastTouchScreenX[0] == -1` for "a release happened
- * this frame" and take the position from `limeTouchScreenX`, while
- * FE_Task_Multiplayer_Versus_Screen does the exact opposite. Four floats, so a
- * host can drive either convention. -1 in both means "nothing". */
-float limeTouchScreenX[4]     = { -1.0f, -1.0f, -1.0f, -1.0f };
-float limeTouchScreenY[4]     = { -1.0f, -1.0f, -1.0f, -1.0f };
-float limeLastTouchScreenX[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
-float limeLastTouchScreenY[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
+/* Ten slots each, 0x28 bytes apart in the binary's __data (0x00171af4 on),
+ * all -1 at boot. A host feeds them through the lime_touch_* calls below,
+ * which are EAGLView's touch handlers; limeFinish copies the live pair into
+ * the Last pair at the end of every frame. So for one finger:
+ *
+ *      frame      X[0]    Last[0]
+ *      press      pos     -1
+ *      held       pos     pos
+ *      release    -1      pos
+ *
+ * which is the shape both spellings of the front end's hit tests read. */
+float limeTouchScreenX[10]     = { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
+float limeTouchScreenY[10]     = { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
+float limeLastTouchScreenX[10] = { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
+float limeLastTouchScreenY[10] = { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
+float limeTouchScreenVelX[10];
+float limeTouchScreenVelY[10];
 
-int limePressed;
+/* 0x00171be8 and 0x00171bf8. Element 0 is the number of touches in the last
+ * touchesBegan event; limeFinish copies all four into the Last copy. */
+long limeDebugToggle[4]     = { 0, 1, 1, 0 };
+long limeLastDebugToggle[4];
 
-void lime_menu_touch(float x, float y, int down)
+/* A single 64-bit key mask that Task_GameMain reads (bit 8 is BLOCK). Nothing
+ * in the binary writes it, so nothing here does either. It used to be an int
+ * that touches set to 1 -- half the size GameCode.c reads, and the wrong
+ * meaning. */
+long limePressed[2];
+
+#define TOUCH_NEAR 24.0f                /* vmov.f32 s6, #24.0 in all three */
+
+static int touch_near(int i, float x, float y)
 {
-    if (down) {
-        limeTouchScreenX[0] = x;
-        limeTouchScreenY[0] = y;
-        limeLastTouchScreenX[0] = -1.0f;
-        limeLastTouchScreenY[0] = -1.0f;
-        limePressed = 1;
-    } else {
-        /* A release publishes the position through the Last pair and clears the
-         * live one. That is the shape every hit test in the front end reads. */
-        limeLastTouchScreenX[0] = limeTouchScreenX[0];
-        limeLastTouchScreenY[0] = limeTouchScreenY[0];
-        limeTouchScreenX[0] = -1.0f;
-        limeTouchScreenY[0] = -1.0f;
-        limePressed = 0;
+    return fabsf(limeTouchScreenY[i] - y) < TOUCH_NEAR
+        && fabsf(limeTouchScreenX[i] - x) < TOUCH_NEAR;
+}
+
+/* The handlers take game coordinates. The binary converts each UITouch with
+ * `X = y * limeContextScale, Y = limeDeviceWidth - x * limeContextScale` when
+ * sideways; that is a rotation, so the 24-unit tests below are the same in
+ * either frame and a host that already has game coordinates skips it. */
+
+/* -[EAGLView touchesBegan:withEvent:], 0x00062168. Each touch takes the first
+ * free slot of ten; a touch with no free slot is dropped. */
+void lime_touch_began(float x, float y)
+{
+    int i;
+
+    limeDebugToggle[0] = 0;
+    for (i = 0; i < 10; i++) {
+        if (limeTouchScreenX[i] == -1.0f) {
+            limeTouchScreenX[i] = x;
+            limeTouchScreenY[i] = y;
+            break;
+        }
+    }
+    limeDebugToggle[0]++;
+}
+
+/* -[EAGLView touchesMoved:withEvent:], 0x00061edc. Every live slot within 24
+ * units of where the touch is, or of where it was, moves to where it is. */
+void lime_touch_moved(float x, float y, float prev_x, float prev_y)
+{
+    int i;
+
+    for (i = 0; i < 10; i++) {
+        if (limeTouchScreenX[i] == -1.0f)
+            continue;
+        if (touch_near(i, x, y) || touch_near(i, prev_x, prev_y)) {
+            limeTouchScreenX[i] = x;
+            limeTouchScreenY[i] = y;
+        }
     }
 }
 
+/* -[EAGLView touchesEnded:withEvent:], 0x00061c3c, and touchesCancelled,
+ * 0x000619b0, which is the same instruction for instruction except for the
+ * fallback: when no slot was near the touch, Ended clears all ten and
+ * Cancelled only the first two. */
+static void touch_lift(float x, float y, float prev_x, float prev_y, int all)
+{
+    int i, hit = 0;
+
+    for (i = 0; i < 10; i++) {
+        if (limeTouchScreenX[i] == -1.0f)
+            continue;
+        if (touch_near(i, x, y) || touch_near(i, prev_x, prev_y)) {
+            limeTouchScreenX[i] = -1.0f;
+            limeTouchScreenY[i] = -1.0f;
+            hit = 1;
+        }
+    }
+    if (!hit) {
+        for (i = 0; i < (all ? 10 : 2); i++) {
+            limeTouchScreenX[i] = -1.0f;
+            limeTouchScreenY[i] = -1.0f;
+        }
+    }
+}
+
+void lime_touch_ended(float x, float y, float prev_x, float prev_y)
+{
+    touch_lift(x, y, prev_x, prev_y, 1);
+}
+
+void lime_touch_cancelled(float x, float y, float prev_x, float prev_y)
+{
+    touch_lift(x, y, prev_x, prev_y, 0);
+}
+
+/* For tests: everything back to the boot state. */
 void lime_menu_touch_idle(void)
 {
-    limeTouchScreenX[0] = -1.0f;
-    limeTouchScreenY[0] = -1.0f;
-    limeLastTouchScreenX[0] = -1.0f;
-    limeLastTouchScreenY[0] = -1.0f;
-    limePressed = 0;
+    int i;
+
+    for (i = 0; i < 10; i++) {
+        limeTouchScreenX[i] = limeTouchScreenY[i] = -1.0f;
+        limeLastTouchScreenX[i] = limeLastTouchScreenY[i] = -1.0f;
+        limeTouchScreenVelX[i] = limeTouchScreenVelY[i] = 0.0f;
+    }
 }
 
 
@@ -145,21 +256,77 @@ static int g_depth_test = 1;
 static int g_colour_mask = 1;
 static long g_fills;
 
-/* armv7 0x00066a74. Only the parts the port needs: the poly counter, and the
- * sideways matrix, which the binary rebuilds every frame --
- *
- *      sideways   RotMatrixZ(limeSidewaysMat, -pi/2)      0xbfc90fdb
- *      otherwise  RotMatrixZ(limeSidewaysMat, 0)          identity
- *
- * The binary also swaps limeScreenWidth/Height to the device's here; the port
- * sets those from the window instead (lime_menu_set_screen), so that part is
- * left out on purpose. */
+/* armv7 0x00066a74, transcribed whole. The one substitution is the clock:
+ * CFAbsoluteTimeGetCurrent becomes the host-advanced clock above. */
 void limeBegin(void)
 {
+    double dt;
+    int k;
+
+    limeDeviceSideways = limeDeferredDeviceSideways;
+
+    currenttime = g_clock;
+    dt = currenttime - lasttime;
+    if (dt > 0.0) {
+        limeFPSScaleFactor = (float)((1.0 / 60.0) / dt);
+        limeFPS = limeFPSScaleFactor * 60.0f;
+        if (limeFPSScaleFactor < 0.25f)
+            limeFPSScaleFactor = 0.25f;
+    } else {
+        limeFPSScaleFactor = 1.0f;
+        limeFPS = 60.0f;
+    }
+    lasttime = currenttime;
     limeRenderedPolyCount = 0;
-    RotMatrixZ(limeSidewaysMat, limeDeviceSideways ? -1.57079637f : 0.0f);
+
+    /* A turn of the device drops both live touches and both last ones. */
+    if (limeDeviceSideways != limeLastDeviceSideways) {
+        for (k = 0; k < 2; k++) {
+            limeTouchScreenX[k] = limeLastTouchScreenX[k] = -1.0f;
+            limeTouchScreenY[k] = limeLastTouchScreenY[k] = -1.0f;
+        }
+    }
+    limeLastDeviceSideways = limeDeviceSideways;
+
+    if (limeDeviceSideways == 0) {
+        limeScreenWidth  = limeDeviceWidth;
+        limeScreenHeight = limeDeviceHeight;
+        RotMatrixZ(limeSidewaysMat, 0.0f);
+    } else {
+        limeScreenWidth  = limeDeviceHeight;
+        limeScreenHeight = limeDeviceWidth;
+        RotMatrixZ(limeSidewaysMat, -1.57079637f);      /* 0xbfc90fdb */
+    }
+    limeDeviceOffsetX = (limeDeviceWidth  - limeScreenWidth)  / 2;
+    limeDeviceOffsetY = (limeDeviceHeight - limeScreenHeight) / 2;
+
+    /* Velocity of the first two touches, frame to frame -- zero unless both
+     * this frame's and last frame's positions are real. */
+    for (k = 0; k < 2; k++) {
+        if (limeTouchScreenX[k] == -1.0f || limeTouchScreenY[k] == -1.0f
+            || limeLastTouchScreenX[k] == -1.0f
+            || limeLastTouchScreenY[k] == -1.0f) {
+            limeTouchScreenVelX[k] = 0.0f;
+            limeTouchScreenVelY[k] = 0.0f;
+        } else {
+            limeTouchScreenVelX[k] = limeTouchScreenX[k] - limeLastTouchScreenX[k];
+            limeTouchScreenVelY[k] = limeTouchScreenY[k] - limeLastTouchScreenY[k];
+        }
+    }
 }
-void limeFinish(void) { }
+
+/* armv7 0x00065df0: the debug toggles and the first two touch slots roll into
+ * their Last copies, then depth writes go back on (glDepthMask(1), here through
+ * the function that issues it). */
+void limeFinish(void)
+{
+    memcpy(limeLastDebugToggle, limeDebugToggle, sizeof limeDebugToggle);
+    limeLastTouchScreenX[0] = limeTouchScreenX[0];
+    limeLastTouchScreenX[1] = limeTouchScreenX[1];
+    limeLastTouchScreenY[0] = limeTouchScreenY[0];
+    limeLastTouchScreenY[1] = limeTouchScreenY[1];
+    limeEnableDepthWrites();
+}
 
 #ifndef UMK3_REAL_GL   /* headless; see runtime/draw_gl.c for the windowed half */
 void limeSet2DDrawing(void)     { g_in_2d = 1; }
@@ -233,10 +400,14 @@ static float g_model[16] = {
     0, 0, 0, 1,
 };
 
+/* armv7 0x0006699c is glGetFloatv(GL_MODELVIEW_MATRIX, out); the windowed
+ * build does exactly that in draw_gl.c. */
+#ifndef UMK3_REAL_GL
 void limeGetCurrentModelMatrix(float *out)
 {
     memcpy(out, g_model, sizeof g_model);
 }
+#endif
 
 
 /* `lime_platform.c` covers the six GL entries the engine's mesh path needs;
@@ -498,7 +669,18 @@ const char *limeGetPropertyString(const char *key)
     return "";
 }
 
-long limeRand(void) { return rand(); }
+/* armv7 0x0006529c. Its own LCG, not the C library's: `_rand_seed` starts at
+ * 0x00089c84 in __data, nothing reseeds it, and the result is the signed
+ * `(seed / 65536) % 32768` the compiler's rounding sequence spells out -- the
+ * same generator as PIrand in Particles.c, on its own seed. The arithmetic is
+ * done unsigned and read back as int32 so it wraps the same on any host. */
+int32_t rand_seed = 0x00089c84;
+
+long limeRand(void)
+{
+    rand_seed = (int32_t)((uint32_t)rand_seed * 1103515245u + 12345u);
+    return (rand_seed / 0x10000) % 0x8000;
+}
 
 void limeMemoryReport(const char *tag) { (void)tag; }
 

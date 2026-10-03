@@ -302,6 +302,14 @@ void limePortDisplayRotation(void)
     glMultMatrixf(t);
 }
 
+/* armv7 0x00065e54 / 0x00065e60 / 0x0006699c. */
+void limeEnableDepthWrites(void)  { glDepthMask(GL_TRUE); }
+void limeDisableDepthWrites(void) { glDepthMask(GL_FALSE); }
+void limeGetCurrentModelMatrix(float *out)
+{
+    glGetFloatv(GL_MODELVIEW_MATRIX, out);
+}
+
 void limeEnableDepthTest(void)  { glEnable(GL_DEPTH_TEST); }
 void limeDisableDepthTest(void) { glDisable(GL_DEPTH_TEST); }
 void limeClearDepthBuffer(void) { glClear(GL_DEPTH_BUFFER_BIT); }
