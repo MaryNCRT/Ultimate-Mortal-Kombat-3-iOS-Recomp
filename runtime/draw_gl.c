@@ -163,6 +163,30 @@ static int load_rgba(const char *path, LimeImage *out)
     return 0;
 }
 
+/* armv7 0x000670a0 keeps the texture's own name in its first 0x40 bytes:
+ * sprintf("res/Textures/%s"), the last three characters replaced by "pvr"
+ * (the PNG branch puts "pvr" back before the copy too), then
+ *
+ *      tex->field50 = IsTextureFullBrightPath(tex)        0x67226
+ *
+ * which is the flag LIME_RenderMeshSingle reads to skip the vertex lighting.
+ * It used to stay 0, so every full-bright texture was lit. The binary's
+ * strcpy has no bound; this one stops at the field. */
+int IsTextureFullBrightPath(const char *path);       /* RenderMesh.c */
+
+static void tex_set_name(TEXTURE *t, const char *path)
+{
+    char buf[0x80];
+    size_t n;
+
+    snprintf(buf, sizeof buf, "res/Textures/%s", path);
+    n = strlen(buf);
+    if (n >= 3)
+        memcpy(buf + n - 3, "pvr", 3);
+    snprintf((char *)t->_pad00, sizeof t->_pad00, "%s", buf);
+    t->field50 = IsTextureFullBrightPath((const char *)t->_pad00);
+}
+
 TEXTURE *limeLoadTexture(const char *path, int a, int b)
 {
     TexEntry *e;
@@ -201,6 +225,7 @@ TEXTURE *limeLoadTexture(const char *path, int a, int b)
         return NULL;
     e->path = _strdup(path);
     e->tex.name = name;
+    tex_set_name(&e->tex, path);
     e->w = img.width;
     e->h = img.height;
     e->next = g_textures;
