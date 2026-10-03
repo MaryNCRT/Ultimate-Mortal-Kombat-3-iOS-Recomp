@@ -54,8 +54,10 @@ void limeBegin(void);
 void limeFinish(void);
 
 extern int   FE_CurrentTask;
-extern float limeTouchScreenX[], limeTouchScreenY[];
-extern float limeLastTouchScreenX[], limeLastTouchScreenY[];
+void  lime_menu_advance_clock(double seconds);
+void  lime_touch_began(float x, float y);
+void  lime_touch_moved(float x, float y, float prev_x, float prev_y);
+void  lime_touch_ended(float x, float y, float prev_x, float prev_y);
 
 void lime_platform_set_asset_root(const char *path);
 void lime_gl_set_screen(int w, int h);
@@ -116,21 +118,28 @@ static void menu_frame(int w, int h, int *was_down)
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    /* The window is a scaled copy of the 480x320 the game believes in, so a
-     * click has to come back the same way. Unchanged from menu_main.c. */
+    /* The window is a scaled copy of the 480x320 the game believes in, so
+     * a click has to come back the same way. The button is one finger,
+     * delivered as EAGLView's touch events on its edges -- began, moved,
+     * ended -- and limeFinish rolls the slots into their Last copies at the
+     * end of each tick. That is what makes a press, a hold and a release
+     * look different to the front end. */
     down = plat_mouse(&mx, &my);
-    if (down) {
-        limeTouchScreenX[0] = (float)mx * VIRT_W / (w ? w : 1);
-        limeTouchScreenY[0] = (float)my * VIRT_H / (h ? h : 1);
-        limeLastTouchScreenX[0] = limeTouchScreenX[0];
-        limeLastTouchScreenY[0] = limeTouchScreenY[0];
-    } else if (*was_down) {
-        /* The release frame: the live pair goes to -1 and the last pair stays,
-         * which is the pattern the button code recognises. */
-        limeTouchScreenX[0] = limeTouchScreenY[0] = -1.0f;
-    } else {
-        limeTouchScreenX[0] = limeTouchScreenY[0] = -1.0f;
-        limeLastTouchScreenX[0] = limeLastTouchScreenY[0] = -1.0f;
+    {
+        static float prev_tx = -1.0f, prev_ty = -1.0f;
+        float tx = (float)mx * VIRT_W / (w ? w : 1);
+        float ty = (float)my * VIRT_H / (h ? h : 1);
+
+        if (down && !*was_down)
+            lime_touch_began(tx, ty);
+        else if (down && (tx != prev_tx || ty != prev_ty))
+            lime_touch_moved(tx, ty, prev_tx, prev_ty);
+        else if (!down && *was_down)
+            lime_touch_ended(prev_tx, prev_ty, prev_tx, prev_ty);
+        if (down) {
+            prev_tx = tx;
+            prev_ty = ty;
+        }
     }
     *was_down = down;
 }
@@ -285,6 +294,7 @@ int main(int argc, char **argv)
 
             menu_frame(ww, wh, &was_down);
             while (acc >= 1.0 / 60.0) {
+                lime_menu_advance_clock(1.0 / 60.0);
                 limeBegin();            /* GameCodeMain's order; see menu_main.c */
                 Task_FEMain();
                 limeFinish();

@@ -372,8 +372,12 @@ static int g_depth_writes = 1;
 
 int lime_platform_depth_writes(void)        { return g_depth_writes; }
 
+/* armv7 0x00065e54 / 0x00065e60: glDepthMask(1) / glDepthMask(0). The
+ * windowed build issues them in draw_gl.c; this half records them. */
+#ifndef UMK3_REAL_GL   /* headless; see runtime/draw_gl.c for the windowed half */
 void limeEnableDepthWrites(void)            { g_depth_writes = 1; }
 void limeDisableDepthWrites(void)           { g_depth_writes = 0; }
+#endif  /* !UMK3_REAL_GL */
 
 
 /* ------------------------------------------------------------- sprites
