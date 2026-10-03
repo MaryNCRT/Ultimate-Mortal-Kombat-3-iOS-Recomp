@@ -777,14 +777,18 @@ void *limeLoadSaveFile(const char *name);
  * neither citing the other.
  *
  * The source cursor advances with a pre-indexed `ldr r2, [r3, #0x20]!`, so the
- * file record is 0x20 bytes and its first word is never read.
+ * file record is 0x20 bytes and its first word is never read. The cursor is
+ * r3, a copy (`mov r3, r0`); the buffer freed at the end is r0, the address
+ * limeLoadFile returned. Freeing the advanced cursor instead hands limeFree a
+ * pointer 512 bytes into its own block.
  *
  * A missing file is silent: `cbz r0` returns without touching Level_Info, so
  * whatever it already held stays.
  */
 void LoadBGExtents(void)
 {
-    const long *src = (const long *)limeLoadFile("BGEXTENTS.BIN");
+    const long *file = (const long *)limeLoadFile("BGEXTENTS.BIN");
+    const long *src = file;             /* mov r3, r0: the cursor is a copy */
     int i;
 
     if (src == 0)
@@ -803,7 +807,7 @@ void LoadBGExtents(void)
         e[0x64 / 4] = src[8];
         src += 0x20 / 4;                /* the record, first word unread */
     }
-    limeFree((void *)src);
+    limeFree((void *)file);             /* r0, untouched by the loop */
 }
 
 

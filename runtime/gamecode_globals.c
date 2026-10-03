@@ -61,6 +61,16 @@ void FE_Task_Training(void);
 void FE_Task_Treasure(void);
 void FE_Task_VS_Screen(void);
 void FE_Task_Wifi_Bluetooth(void);
+void Task_FEDestroy(void);
+void Task_FEInit(void);
+void Task_FEMain(void);
+void Task_GameDestroy(void);
+void Task_GameInit(void);
+void Task_GameMain(void);
+void Task_LoadGeneralData(void);
+void Task_LoadSplashScreen(void);
+void Task_LoadingScreen(void);
+void Task_MultiplayerSync(void);
 
 /* ---- every name, so an initialiser can reach any other ---- */
 
@@ -284,7 +294,7 @@ extern float GameTime;
 extern long Generic_Moves5[1088 / sizeof(long)];
 extern long Generic_Moves6[1088 / sizeof(long)];
 extern float GlassWindowPos[3];
-extern void *HSceneTextures;
+extern void *HSceneTextures[32];
 extern TEXTURETOLOAD HUDANIM_ttl[20];
 extern void *HUDFatalsTexture[10];
 extern void *HUDTPage;
@@ -548,7 +558,7 @@ extern long *SurvivalStageP;
 extern int *SurvivalStagePtr;
 extern float SwapLayers;
 extern void *TPages[6];
-extern void (*TaskFunctionList[UNSIZED_BYTES / sizeof(void)])(void);
+extern void (*TaskFunctionList[41])(void);
 extern float TestScale;
 extern char TheFECharacters[FE_CHARACTER_SLOTS][FE_CHARACTER_STRIDE];
 extern int TipToDisplay;
@@ -709,7 +719,7 @@ extern float m[64 / sizeof(float)];
 extern float mmfontcol[96 / sizeof(float)];
 extern float mpBlinker;
 extern char mpEventQueue[0x1b0];
-extern int mpLevelList[UNSIZED_BYTES / sizeof(int)];
+extern int mpLevelList[56 / sizeof(int)];
 extern long mpLobbyCurrentPage;
 extern long mpOpponentJoystickInput[16 / sizeof(long)];
 extern char mpSpriteList[0x140];
@@ -18019,7 +18029,7 @@ long Generic_Moves6[1088 / sizeof(long)] = {
 float GlassWindowPos[3] = {
     320.0f, 361.0f, 4.0f,
 };  /* 0x0014f9e4 */
-void *HSceneTextures;  /* 0x006bc0a0 */
+void *HSceneTextures[32];  /* 0x006bc0a0 */
 TEXTURETOLOAD HUDANIM_ttl[20];  /* 0x00174e4c */
 void *HUDFatalsTexture[10];
 void *HUDTPage;
@@ -18954,7 +18964,18 @@ long *SurvivalStageP;
 int *SurvivalStagePtr;  /* slot -> 0x000ff980 */
 float SwapLayers = 1.0f;
 void *TPages[6];  /* 0x001f40ac */
-void (*TaskFunctionList[UNSIZED_BYTES / sizeof(void)])(void);  /* 0x0017d940 */
+void (*TaskFunctionList[41])(void) = {
+    Task_LoadSplashScreen,
+    Task_LoadGeneralData,
+    Task_FEInit,
+    Task_FEMain,
+    Task_FEDestroy,
+    Task_GameInit,
+    Task_GameMain,
+    Task_GameDestroy,
+    Task_LoadingScreen,
+    Task_MultiplayerSync,
+};  /* 0x0017d940 */
 float TestScale = 0.00999999978f;  /* 0x0014e268 */
 char TheFECharacters[FE_CHARACTER_SLOTS][FE_CHARACTER_STRIDE];  /* 0x0020e634 */
 int TipToDisplay;  /* 0x001f44d0 */
@@ -20101,7 +20122,10 @@ float mmfontcol[96 / sizeof(float)] = {
 };  /* 0x000ff854, sixteen bytes an entry */
 float mpBlinker;  /* 0x00100eb0 */
 char mpEventQueue[0x1b0];  /* 0x001ab7c0 */
-int mpLevelList[UNSIZED_BYTES / sizeof(int)];  /* 0x000ddffc, file-local in the original */
+int mpLevelList[56 / sizeof(int)] = {
+    11, 10, 9, 8, 5, 4, 3, 2,
+    1, 0, 6, 12, 14, 15,
+};  /* 0x000ddffc, file-local in the original */
 long mpLobbyCurrentPage;  /* 0x000ff8e0 */
 long mpOpponentJoystickInput[16 / sizeof(long)];  /* 0x001ab970, two words an entry */
 char mpSpriteList[0x140];  /* 0x001ab680 */
@@ -20736,8 +20760,7 @@ static void *ButtonsTPage__store[1];
 void *ButtonsTPage = ButtonsTPage__store;
 static float CameraLookAt__store[3];
 float *CameraLookAt = CameraLookAt__store;
-static int CurrentTaskPtr__store[SLOT_WORDS];
-int *CurrentTaskPtr = CurrentTaskPtr__store;
+int *CurrentTaskPtr = (int *)(void *)&CurrentTask;  /* the slot holding &CurrentTask */
 static void *CyraxSelfDestructScene__store[1];
 void *CyraxSelfDestructScene = CyraxSelfDestructScene__store;
 static const char *DestinyNamesLoss__store[27] = {
@@ -20750,8 +20773,7 @@ static const char *DestinyNamesWin__store[5] = {
     "Grand Master - Win",
 };
 const char **DestinyNamesWin = DestinyNamesWin__store;
-static int DoIntroPtr__store[SLOT_WORDS];
-int *DoIntroPtr = DoIntroPtr__store;
+int *DoIntroPtr = (int *)(void *)&DoIntro;  /* the slot holding &DoIntro */
 static long EndingsText__store[26] = {
     46, 47, 48, 49, 50, 51, 52, 53,
     54, 55, 56, 57, 58, 59, 60, 61,
@@ -20773,24 +20795,16 @@ static void *FEBits2__store[1];
 void **FEBits2 = FEBits2__store;
 static void *FEBits3__store[1];
 void **FEBits3 = FEBits3__store;
-static float FE_FadeAddP__store[SLOT_WORDS];
-float *FE_FadeAddP = FE_FadeAddP__store;
-static float FE_HeightScaleP__store[SLOT_WORDS];
-float *FE_HeightScaleP = FE_HeightScaleP__store;
-static float FE_WidthScaleP__store[SLOT_WORDS];
-float *FE_WidthScaleP = FE_WidthScaleP__store;
-static int FrameCountPtr__store[SLOT_WORDS];
-int *FrameCountPtr = FrameCountPtr__store;
-static long *FrameRemapTablePtr__store[SLOT_WORDS];
-long **FrameRemapTablePtr = FrameRemapTablePtr__store;
+float *FE_FadeAddP = (float *)(void *)&FE_FadeAdd;  /* the slot holding &FE_FadeAdd */
+float *FE_HeightScaleP = (float *)(void *)&FE_HeightScale;  /* the slot holding &FE_HeightScale */
+float *FE_WidthScaleP = (float *)(void *)&FE_WidthScale;  /* the slot holding &FE_WidthScale */
+int *FrameCountPtr = (int *)(void *)&FrameCount;  /* the slot holding &FrameCount */
+long **FrameRemapTablePtr = (long **)(void *)&FrameRemapTable;  /* the slot holding &FrameRemapTable */
 static unsigned char G__store[1144] __attribute__((aligned(16)));
 GAMESTATE *G = (GAMESTATE *)(void *)G__store;
-static void *GameFontP__store[SLOT_WORDS];
-void *GameFontP = GameFontP__store;
-static void *GameFontSlot__store[SLOT_WORDS];
-void **GameFontSlot = GameFontSlot__store;
-static long GamePausedPtr__store[SLOT_WORDS];
-long *GamePausedPtr = GamePausedPtr__store;
+void *GameFontP = (void *)(void *)&GameFont;  /* the slot holding &GameFont */
+void **GameFontSlot = (void **)(void *)&GameFont;  /* the slot holding &GameFont */
+long *GamePausedPtr = (long *)(void *)&GamePaused;  /* the slot holding &GamePaused */
 static void *GreenFrameTexture__store[1];
 void **GreenFrameTexture = GreenFrameTexture__store;
 static long H__store[9];
@@ -20819,12 +20833,9 @@ static long *IntroLists__store[26] = {
     (void *)&MotaroIntroFrames, (void *)&SKIntroFrames,
 };
 long **IntroLists = IntroLists__store;
-static char *LevelInfoPtr__store[SLOT_WORDS];
-char **LevelInfoPtr = LevelInfoPtr__store;
-static long LevelSelectP__store[SLOT_WORDS];
-long *LevelSelectP = LevelSelectP__store;
-static int LevelSelectPtr__store[SLOT_WORDS];
-int *LevelSelectPtr = LevelSelectPtr__store;
+char **LevelInfoPtr = (char **)(void *)&Level_Info;  /* the slot holding &Level_Info */
+long *LevelSelectP = (long *)(void *)&LevelSelect;  /* the slot holding &LevelSelect */
+int *LevelSelectPtr = (int *)(void *)&LevelSelect;  /* the slot holding &LevelSelect */
 static unsigned char MKEventQueue__store[84] __attribute__((aligned(16)));
 MKEVENTQUEUE *MKEventQueue = (MKEVENTQUEUE *)(void *)MKEventQueue__store;
 static float *MatrixPalette2__store[1800];
@@ -20837,12 +20848,10 @@ static long PLAYER2MODEL__store[1] = {
 long *PLAYER2MODEL = PLAYER2MODEL__store;
 static void *PitDeathScene__store[1];
 void *PitDeathScene = PitDeathScene__store;
-static long Player2NumButtonsP__store[SLOT_WORDS];
-long *Player2NumButtonsP = Player2NumButtonsP__store;
-static float PlayerZPosPtr__store[SLOT_WORDS];
-float *PlayerZPosPtr = PlayerZPosPtr__store;
-static char PlayersP__store[SLOT_WORDS];
-char *PlayersP = PlayersP__store;
+long *Player2NumButtonsP = (long *)(void *)&Player2NumButtons;  /* the slot holding &Player2NumButtons */
+unsigned char PlayerZPos[4] __attribute__((aligned(4))) = { 174, 71, 225, 190 };
+float *PlayerZPosPtr = (float *)(void *)PlayerZPos;  /* the slot holding &PlayerZPos */
+char *PlayersP = (char *)(void *)&Players;  /* the slot holding &Players */
 static void *RedFrameTexture__store[1];
 void **RedFrameTexture = RedFrameTexture__store;
 static unsigned char RenderRGBs__store[15000];
@@ -20887,8 +20896,7 @@ static void *SmokeTexture__store[1];
 void **SmokeTexture = SmokeTexture__store;
 static float StaticMeshAmbient__store[3];
 float *StaticMeshAmbient = StaticMeshAmbient__store;
-static long SurvivalStageP2__store[SLOT_WORDS];
-long *SurvivalStageP2 = SurvivalStageP2__store;
+long *SurvivalStageP2 = (long *)(void *)&SurvivalStage;  /* the slot holding &SurvivalStage */
 static void *SwatEffectScene__store[1];
 void *SwatEffectScene = SwatEffectScene__store;
 static void *TrainDie1Scene__store[1];
@@ -20897,8 +20905,7 @@ static void *TrainDie2Scene__store[1];
 void *TrainDie2Scene = TrainDie2Scene__store;
 static void *TrainScene__store[1];
 void *TrainScene = TrainScene__store;
-static long TrainingCatagoryP__store[SLOT_WORDS];
-long *TrainingCatagoryP = TrainingCatagoryP__store;
+long *TrainingCatagoryP = (long *)(void *)&TrainingCatagory;  /* the slot holding &TrainingCatagory */
 static int TreasureGained__store[10];
 int *TreasureGained = TreasureGained__store;
 static long UpperLowerTxt__store[2] = {
@@ -20921,12 +20928,11 @@ static long endurancerand1__store[1];
 long *endurancerand1 = endurancerand1__store;
 static long endurancerand2__store[1];
 long *endurancerand2 = endurancerand2__store;
-static float fontcolP__store[SLOT_WORDS];
-float *fontcolP = fontcolP__store;
-static int incomingQueueLenPtr__store[SLOT_WORDS];
-int *incomingQueueLenPtr = incomingQueueLenPtr__store;
-static int incomingQueueStartPtr__store[SLOT_WORDS];
-int *incomingQueueStartPtr = incomingQueueStartPtr__store;
+float *fontcolP = (float *)(void *)&fontcol;  /* the slot holding &fontcol */
+unsigned char incomingQueueLen[4] __attribute__((aligned(4))) = { 1, 0, 0, 0 };
+int *incomingQueueLenPtr = (int *)(void *)incomingQueueLen;  /* the slot holding &incomingQueueLen */
+unsigned char incomingQueueStart[4] __attribute__((aligned(4)));
+int *incomingQueueStartPtr = (int *)(void *)incomingQueueStart;  /* the slot holding &incomingQueueStart */
 static const char *kodeNames__store[22] = {
     "KODE_BLOCKING_DISABLED", "KODE_DARK_KOMBAT", "KODE_INFINITE_RUN", "KODE_PLAY_IN_THE_TEMPLE",
     "KODE_PLAY_IN_THE_SOUL_CHAMBER", "KODE_PLAY_ON_BALCONY", "KODE_PLAY_ON_SUBWAY", "KODE_PLAY_ON_THE_BELLTOWER",
@@ -20942,8 +20948,7 @@ static float midcol__store[4] = {
     0.5f, 0.5f, 0.5f, 1.0f,
 };
 float *midcol = midcol__store;
-static long opponentCharacterP__store[SLOT_WORDS];
-long *opponentCharacterP = opponentCharacterP__store;
+long *opponentCharacterP = (long *)(void *)&opponentCharacter;  /* the slot holding &opponentCharacter */
 static long readyToSync__store[1];
 long *readyToSync = readyToSync__store;
 static long requestedLevel__store[1];
@@ -20983,8 +20988,7 @@ static void *spotlight_SpriteDef__store[288];
 void **spotlight_SpriteDef = spotlight_SpriteDef__store;
 static long startTime__store[1];
 long *startTime = startTime__store;
-static char strBuf__store[SLOT_WORDS];
-char *strBuf = strBuf__store;
+char *strBuf = (char *)(void *)&str;  /* the slot holding &str */
 static long syncState__store[1];
 long *syncState = syncState__store;
 static long theKode__store[1] = {
@@ -20994,11 +20998,10 @@ long *theKode = theKode__store;
 
 /* 732 plain + 90 slots = 822 */
 /*
- * 5 of these are arrays the decomp declares as `T name[]` with no
+ * 3 of these are arrays the decomp declares as `T name[]` with no
  * extent, so each got UNSIZED_BYTES of slack rather than a known size.
  * A crash indexing one of them is a size to look up and add to
  * EXTENTS in tools/mkglobals.py, not a size to raise here:
  *
- *   SoundListUniqueIds      Stats_                  TaskFunctionList        TowerData
- *   mpLevelList
+ *   SoundListUniqueIds      Stats_                  TowerData
  */
