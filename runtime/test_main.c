@@ -21,10 +21,11 @@
  * `Task_FEMain` has to know that we edited it.
  *
  * So the front end below runs **exactly** as it does in `umk3-menu`: the same
- * boot, the same fixed 60 Hz tick, the same mouse-as-finger. This file watches
- * it from outside and owns the mode. That is also how a finished port would
- * bridge the two -- `Task_GameInit` is the real front end's own door to the
- * fight, and when it is decompiled this shell is where it gets hooked up.
+ * splash/init/menu boot, the same fixed tick rates, the same mouse-as-finger.
+ * This file watches it from outside and owns the mode. That is also how a
+ * finished port would bridge the two -- `Task_GameInit` is the real front
+ * end's own door to the fight, and when it is decompiled this shell is where
+ * it gets hooked up.
  *
  * ## Two things share one window
  *
@@ -48,12 +49,14 @@
 
 /* The front end, from decomp/gamecode. */
 void Task_LoadGeneralData(void);
-int  FEInit_LoadABit(long step);
+void Task_LoadSplashScreen(void);
+void Task_FEInit(void);
 void Task_FEMain(void);
 void limeBegin(void);
 void limeFinish(void);
 
 extern int   FE_CurrentTask;
+extern int   CurrentTask;
 extern float limeTouchScreenX[], limeTouchScreenY[];
 extern float limeLastTouchScreenX[], limeLastTouchScreenY[];
 
@@ -140,11 +143,12 @@ void lime_app_become_active(void);
 
 int main(int argc, char **argv)
 {
+    enum { BOOT_SPLASH, BOOT_FE_INIT, BOOT_MENU };
     const char *res = NULL;
     const char *chr = "SCORPION_STANDARD";
     int    i, pos = 0, stage = 0;
     int    ww = 1280, wh = 720, was_down = 0, was_test = 0, was_menu_key = 0;
-    long   step;
+    int    boot = BOOT_SPLASH;
     double acc = 0.0, last;
     int    focused = 1;
 
@@ -208,12 +212,6 @@ int main(int argc, char **argv)
 
     printf("loading the front end from %s\n", res);
     Task_LoadGeneralData();
-    for (step = 0; step < 200; step++)
-        if (FEInit_LoadABit(step))
-            break;
-    printf("front end ready at step %ld\n", step);
-    printf("\n  F2  the test scene      F3  back to the menu\n");
-    printf("  In the scene: F1 stage selector, F5 reset, ESC quit\n\n");
 
     last = plat_time();
 
@@ -245,7 +243,7 @@ int main(int argc, char **argv)
         /* F2 enters the scene, loading its assets the first time. F3 leaves
          * it. Both edge-triggered: a held key is not a new press. */
         k = plat_key(PK_TEST);
-        if (k && !was_test && mode == MODE_MENU) {
+        if (k && !was_test && mode == MODE_MENU && boot == BOOT_MENU) {
             if (!fight_ready) {
                 printf("loading the test scene...\n");
                 fight_ready = fight_setup(res, chr, stage);
@@ -268,11 +266,41 @@ int main(int argc, char **argv)
                 acc = 0.0;
                 last = plat_time();
             }
+        } else if (boot != BOOT_MENU) {
+            double tick = 1.0 / 30.0;
+
+            acc += plat_time() - last;
+            last = plat_time();
+            if (acc > 0.25)
+                acc = 0.25;
+
+            if (acc >= tick) {
+                glViewport(0, 0, ww, wh);
+                glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+                while (acc >= tick) {
+                    limeBegin();
+                    if (boot == BOOT_SPLASH) {
+                        Task_LoadSplashScreen();
+                        if (CurrentTask != 8)
+                            boot = BOOT_FE_INIT;
+                    } else {
+                        Task_FEInit();
+                        if (CurrentTask == 3) {
+                            boot = BOOT_MENU;
+                            printf("front end ready\n"
+                                   "\n  F2  the test scene      F3  back to the menu\n"
+                                   "  In the scene: F1 stage selector, F5 reset, ESC quit\n\n");
+                        }
+                    }
+                    limeFinish();
+                    acc -= tick;
+                }
+            }
+            plat_audio_update();
         } else {
-            /* A fixed 60 Hz tick, not one per displayed frame: the front end
-             * counts its animations in ticks. `AnimateBG` adds a hardcoded 1.0
-             * with no frame-rate scaling anywhere near it, so this loop's rate
-             * IS the animation's rate. Unchanged from menu_main.c. */
+            /* Menu ticks are fixed at 60 Hz, not tied to display refresh.
+             * The splash and FE init screens use their original 30 Hz cadence. */
             acc += plat_time() - last;
             last = plat_time();
             if (acc > 0.25)

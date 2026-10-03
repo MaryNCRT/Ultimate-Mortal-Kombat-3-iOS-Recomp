@@ -309,7 +309,7 @@ long lime_heap_overruns(void) { return g_overruns; }
  * failure branch and make a passing test meaningless.
  */
 #ifndef UMK3_REAL_GL   /* headless; see runtime/draw_gl.c for the windowed half */
-static int g_texture_sentinel;
+static TEXTURE g_texture_sentinel;
 
 TEXTURE *limeLoadTexture(const char *path, int a, int b)
 {

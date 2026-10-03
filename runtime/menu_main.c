@@ -9,9 +9,9 @@
  *       -lopengl32 -lgdi32 -lm
  *   ./umk3-menu <path to the extracted UMK3.app/res>
  *
- * The same boot as `tests/test_menu_boot.c` -- general data, the front-end
- * loader, then `Task_FEMain` every frame -- with `runtime/draw_gl.c` in place
- * of the counters, and the mouse standing in for a finger.
+ * The native startup follows the transcribed task sequence: general data,
+ * publisher splash screens, Task_FEInit, then Task_FEMain. `runtime/draw_gl.c`
+ * supplies the renderer, and the mouse stands in for a finger.
  *
  * ## The touch model
  *
@@ -43,7 +43,8 @@ long  lime_platform_sprite_count(void);
 long  lime_gl_fill_count(void);
 
 void  Task_LoadGeneralData(void);
-int   FEInit_LoadABit(long step);
+void  Task_LoadSplashScreen(void);
+void  Task_FEInit(void);
 void  Task_FEMain(void);
 void  limeBegin(void);
 void  limeFinish(void);
@@ -51,6 +52,7 @@ void  limeFinish(void);
 extern float limeTouchScreenX[], limeTouchScreenY[];
 extern float limeLastTouchScreenX[], limeLastTouchScreenY[];
 extern int   FE_CurrentTask;
+extern int   CurrentTask;
 
 /* win32_gl.c owns the window; the pointer state comes from it. */
 int  plat_mouse(int *x, int *y);        /* returns 1 while a button is down */
@@ -86,12 +88,13 @@ void lime_app_become_active(void);
 
 int main(int argc, char **argv)
 {
+    enum { BOOT_SPLASH, BOOT_FE_INIT, BOOT_MENU };
     int focused = 1;
     const char *root = (argc > 1) ? argv[1] : ".";
     const char *shot = getenv("UMK3_SHOT");
     int   shot_at = shot ? atoi(shot) : 0;
     int   frames = 0;
-    long  step;
+    int   boot = BOOT_SPLASH;
     int   was_down = 0;
     double t0;
     double last, acc = 0.0;
@@ -113,10 +116,10 @@ int main(int argc, char **argv)
 
     printf("loading...\n");
     Task_LoadGeneralData();
-    for (step = 0; step < 200; step++)
-        if (FEInit_LoadABit(step))
-            break;
-    printf("loaded at step %ld\n", step);
+    if (shot_at > 0) {
+        /* Capture mode measures menu frames, so it skips the publisher logos. */
+        boot = BOOT_FE_INIT;
+    }
 
     t0 = plat_time();
     last = t0;
@@ -146,7 +149,7 @@ int main(int argc, char **argv)
             }
         }
 
-        /* Is a tick due? `Task_FEMain` both advances the menu and draws it,
+        /* Is a tick due? Each task advances and draws its screen,
          * so a pass with no tick has nothing to put on the screen. Clearing
          * and swapping anyway is a black frame between good ones -- which on
          * a display faster than 60 Hz is most of them. */
@@ -154,7 +157,7 @@ int main(int argc, char **argv)
         last = plat_time();
         if (acc > 0.25)                 /* a stall is not repaid all at once */
             acc = 0.25;
-        if (acc < 1.0 / 60.0)
+        if (acc < ((boot == BOOT_MENU) ? 1.0 / 60.0 : 1.0 / 30.0))
             continue;
 
         plat_size(&ww, &wh);
@@ -162,25 +165,30 @@ int main(int argc, char **argv)
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        /* The window is a scaled copy of the 480x320 the game believes in, so
-         * a click has to come back the same way. */
-        down = plat_mouse(&mx, &my);
-        if (down) {
-            limeTouchScreenX[0] = (float)mx * VIRT_W / (ww ? ww : 1);
-            limeTouchScreenY[0] = (float)my * VIRT_H / (wh ? wh : 1);
-            limeLastTouchScreenX[0] = limeTouchScreenX[0];
-            limeLastTouchScreenY[0] = limeTouchScreenY[0];
-        } else if (was_down) {
-            /* The release frame: the live pair goes to -1 and the last pair
-             * stays, which is the pattern the button code recognises. */
-            limeTouchScreenX[0] = limeTouchScreenY[0] = -1.0f;
+        if (boot == BOOT_MENU) {
+            /* The window is a scaled copy of the 480x320 the game believes in,
+             * so a click has to come back the same way. */
+            down = plat_mouse(&mx, &my);
+            if (down) {
+                limeTouchScreenX[0] = (float)mx * VIRT_W / (ww ? ww : 1);
+                limeTouchScreenY[0] = (float)my * VIRT_H / (wh ? wh : 1);
+                limeLastTouchScreenX[0] = limeTouchScreenX[0];
+                limeLastTouchScreenY[0] = limeTouchScreenY[0];
+            } else if (was_down) {
+                /* The release frame leaves the last position for hit tests. */
+                limeTouchScreenX[0] = limeTouchScreenY[0] = -1.0f;
+            } else {
+                limeTouchScreenX[0] = limeTouchScreenY[0] = -1.0f;
+                limeLastTouchScreenX[0] = limeLastTouchScreenY[0] = -1.0f;
+            }
+            was_down = down;
         } else {
             limeTouchScreenX[0] = limeTouchScreenY[0] = -1.0f;
             limeLastTouchScreenX[0] = limeLastTouchScreenY[0] = -1.0f;
+            was_down = 0;
         }
-        was_down = down;
 
-        /* **A fixed 60 Hz tick, not one tick per displayed frame.**
+        /* The splash and front-end loader run at 30 Hz; the menu runs at 60.
          *
          * The animations are counted in ticks, not seconds: `AnimateBG`
          * advances the background with `BGSceneFrame[i] += 1.0f`, and the
@@ -188,7 +196,7 @@ int main(int argc, char **argv)
          * `vadd.f32` -- with no frame-rate scaling anywhere near it. So the
          * background runs at exactly the rate this loop calls it.
          *
-         * The original called it sixty times a second. `lime.m` holds one
+         * The menu original called it sixty times a second. `lime.m` holds one
          * `1.0/60.0` double, in limeBegin's literal pool, and the binary has
          * `setAnimationInterval:` to pass it to. Ticking once per swap instead
          * runs at whatever the display does: right at 60 Hz, and nearly two
@@ -198,16 +206,30 @@ int main(int argc, char **argv)
          *
          * A shot needs the ticks to have happened, so it counts them rather
          * than swaps. */
-        while (acc >= 1.0 / 60.0) {
-            /* GameCodeMain's order: limeBegin, the task, limeFinish. limeBegin
-             * is what writes limeSidewaysMat, which LIMEDS_Set3dMode multiplies
-             * into every 3D projection -- skip it and the matrix stays zero and
-             * the main menu's vortex is never drawn. */
+        for (;;) {
+            double tick = (boot == BOOT_MENU) ? 1.0 / 60.0 : 1.0 / 30.0;
+
+            if (acc < tick)
+                break;
+
+            /* GameCodeMain's order: limeBegin, task, limeFinish. */
             limeBegin();
-            Task_FEMain();
+            if (boot == BOOT_SPLASH) {
+                Task_LoadSplashScreen();
+                if (CurrentTask != 8)
+                    boot = BOOT_FE_INIT;
+            } else if (boot == BOOT_FE_INIT) {
+                Task_FEInit();
+                if (CurrentTask == 3) {
+                    boot = BOOT_MENU;
+                    printf("front end ready\n");
+                }
+            } else {
+                Task_FEMain();
+                frames++;
+            }
             limeFinish();
-            acc -= 1.0 / 60.0;
-            frames++;
+            acc -= tick;
         }
         plat_audio_update();            /* the clicks and the menu tune */
 
