@@ -840,10 +840,55 @@ long limeWriteFile(const char *name, const void *data, long size)
 /* Modals, the spinner, vibration and the App Store link. All of them were UIKit
  * on the device and none has a host equivalent worth inventing. The two modals
  * answer "no", which is the branch that does not navigate anywhere. */
-long limeModalAreYouSure(const char *msg)  { (void)msg; return 0; }
-long limeModalNoInternet(const char *msg)  { (void)msg; return 0; }
+
+/* The two system dialogs. Both are blocking in the binary: they hand the
+ * question to +[modalAlert askFull:textOK:textCANCEL:] / infoFull:textOK:
+ * (gamecode/modalAlert.m), which spins a CFRunLoop until
+ * -[modalAlertDelegate alertView:clickedButtonAtIndex:] records the button and
+ * stops it; askFull/infoFull return 1 for button 0 and 0 otherwise. Neither
+ * function reads an argument -- the texts are fixed GameText ids, joined
+ * with the "%@\n%@" CFString at 0x0017e424:
+ *
+ *   limeModalAreYouSure  0x000655e4  GameText 0x3bc + 0x11b, OK 0xc, CANCEL 0x58
+ *   limeModalNoInternet  0x00065744  GameText 0x3b5 + 0x3b6, OK 0xc
+ *
+ * GameText is UTF-16 (strLenUnicode counts two-byte units). A headless build
+ * has no one to ask, and answers no. */
+const char *GameTextNoHeader(long id);
+
+#ifdef UMK3_REAL_GL
+static long ask(long a, long b, long ok, long cancel)
+{
+    unsigned short msg[1024];
+    const unsigned short *p;
+    size_t n = 0;
+
+    for (p = (const unsigned short *)GameTextNoHeader(a); p && *p && n < 1000; )
+        msg[n++] = *p++;
+    msg[n++] = '\n';
+    for (p = (const unsigned short *)GameTextNoHeader(b); p && *p && n < 1022; )
+        msg[n++] = *p++;
+    msg[n] = 0;
+
+    return plat_ask(msg, (const unsigned short *)GameTextNoHeader(ok),
+                    cancel ? (const unsigned short *)GameTextNoHeader(cancel)
+                           : NULL) == 0;
+}
+
+long limeModalAreYouSure(void) { return ask(0x3bc, 0x11b, 0xc, 0x58); }
+long limeModalNoInternet(void) { return ask(0x3b5, 0x3b6, 0xc, 0); }
+#else
+long limeModalAreYouSure(void) { return 0; }
+long limeModalNoInternet(void) { return 0; }
+#endif
 void limeStartLoadingAnim(void)            { }
 void limeStopLoadingAnim(void)             { }
 void limeSetVibrate(long on)               { (void)on; }
 void limeLoadURLInternal(const char *url)  { (void)url; }
-void limeInit(void)                        { }
+/* armv7 0x000669ec: the PVR texture array, TextureDups cleared, and both
+ * frame clocks set to now so the first limeBegin sees no elapsed time. The
+ * texture bookkeeping lives in draw_gl.c / lime_platform.c. */
+void limeInit(void)
+{
+    currenttime = lasttime = g_clock;
+}

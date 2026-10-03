@@ -45,6 +45,14 @@ double plat_time(void);
  * edges of this (runtime/lime_app.c). */
 bool plat_focused(void);
 
+/* A blocking question, the PC's UIAlertView. `msg`, `ok` and `cancel` are the
+ * game's own UTF-16 strings (GameTextNoHeader); `cancel` NULL means a single
+ * button. Returns the index of the button pressed: 0 for `ok`, 1 for
+ * `cancel` -- the index -[modalAlertDelegate alertView:clickedButtonAtIndex:]
+ * records. */
+int plat_ask(const unsigned short *msg, const unsigned short *ok,
+             const unsigned short *cancel);
+
 /* ------------------------------------------------------------------ input
  *
  * The fight engine takes ONE TEN-BIT WORD PER PLAYER and nothing else -- see
