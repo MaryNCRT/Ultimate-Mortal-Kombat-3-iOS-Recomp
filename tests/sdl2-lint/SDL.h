@@ -44,12 +44,17 @@ typedef uint8_t  Uint8;
 typedef uint32_t Uint32;
 typedef uint64_t Uint64;
 typedef int32_t  Sint32;
+typedef int16_t  Sint16;
+typedef Sint32   SDL_JoystickID;
 
 typedef struct SDL_Window SDL_Window;
+typedef struct SDL_GameController SDL_GameController;
+typedef struct SDL_Joystick SDL_Joystick;
 typedef void *SDL_GLContext;
 
 /* placeholder values -- see the header comment */
 #define SDL_INIT_VIDEO            0x1u
+#define SDL_INIT_GAMECONTROLLER   0x2u
 #define SDL_WINDOWPOS_CENTERED    0x2
 #define SDL_WINDOW_OPENGL         0x4u
 #define SDL_WINDOW_RESIZABLE      0x8u
@@ -70,8 +75,36 @@ typedef enum {
     SDL_WINDOWEVENT_FOCUS_LOST   = 13,
     SDL_WINDOWEVENT_CLOSE        = 14
 } SDL_WindowEventID;
+typedef enum {
+    SDL_CONTROLLERDEVICEADDED = 0x400,
+    SDL_CONTROLLERDEVICEREMOVED
+} SDL_ControllerEventType;
+typedef enum {
+    SDL_SCANCODE_W, SDL_SCANCODE_S, SDL_SCANCODE_A, SDL_SCANCODE_D,
+    SDL_SCANCODE_U, SDL_SCANCODE_I, SDL_SCANCODE_O, SDL_SCANCODE_J,
+    SDL_SCANCODE_K, SDL_SCANCODE_L, SDL_SCANCODE_UP, SDL_SCANCODE_DOWN,
+    SDL_SCANCODE_LEFT, SDL_SCANCODE_RIGHT, SDL_SCANCODE_KP_7,
+    SDL_SCANCODE_KP_8, SDL_SCANCODE_KP_9, SDL_SCANCODE_KP_4,
+    SDL_SCANCODE_KP_5, SDL_SCANCODE_KP_6, SDL_SCANCODE_F5,
+    SDL_SCANCODE_F1, SDL_SCANCODE_RETURN, SDL_SCANCODE_F3,
+    SDL_SCANCODE_F2, SDL_SCANCODE_BACKSPACE
+} SDL_Scancode;
+
+typedef enum {
+    SDL_CONTROLLER_AXIS_LEFTX, SDL_CONTROLLER_AXIS_LEFTY,
+    SDL_CONTROLLER_AXIS_TRIGGERRIGHT
+} SDL_GameControllerAxis;
+typedef enum {
+    SDL_CONTROLLER_BUTTON_A, SDL_CONTROLLER_BUTTON_B,
+    SDL_CONTROLLER_BUTTON_X, SDL_CONTROLLER_BUTTON_Y,
+    SDL_CONTROLLER_BUTTON_LEFTSHOULDER,
+    SDL_CONTROLLER_BUTTON_RIGHTSHOULDER,
+    SDL_CONTROLLER_BUTTON_DPAD_UP, SDL_CONTROLLER_BUTTON_DPAD_DOWN,
+    SDL_CONTROLLER_BUTTON_DPAD_LEFT, SDL_CONTROLLER_BUTTON_DPAD_RIGHT
+} SDL_GameControllerButton;
 
 typedef struct { Sint32 sym; } SDL_Keysym;
+typedef struct { Uint32 type; Uint32 timestamp; Sint32 which; } SDL_ControllerDeviceEvent;
 typedef struct { Uint32 type; SDL_Keysym keysym; } SDL_KeyboardEvent;
 typedef struct { Uint32 type; Uint8 event; Sint32 data1, data2; } SDL_WindowEvent;
 
@@ -79,6 +112,7 @@ typedef union SDL_Event {
     Uint32            type;
     SDL_KeyboardEvent key;
     SDL_WindowEvent   window;
+    SDL_ControllerDeviceEvent cdevice;
 } SDL_Event;
 
 int         SDL_Init(Uint32 flags);
@@ -96,10 +130,30 @@ int           SDL_GL_MakeCurrent(SDL_Window *window, SDL_GLContext context);
 int           SDL_GL_SetSwapInterval(int interval);
 void          SDL_GL_SwapWindow(SDL_Window *window);
 void          SDL_GL_GetDrawableSize(SDL_Window *window, int *w, int *h);
+void          SDL_GetWindowSize(SDL_Window *window, int *w, int *h);
+Uint32        SDL_GetMouseState(int *x, int *y);
+
+#define SDL_BUTTON_LEFT 1
+#define SDL_BUTTON(X) (1u << ((X) - 1))
+#define SDL_BUTTON_LMASK SDL_BUTTON(SDL_BUTTON_LEFT)
 
 Uint64 SDL_GetPerformanceCounter(void);
 Uint64 SDL_GetPerformanceFrequency(void);
 int    SDL_PollEvent(SDL_Event *event);
+const Uint8 *SDL_GetKeyboardState(int *numkeys);
+
+int                SDL_InitSubSystem(Uint32 flags);
+int                SDL_NumJoysticks(void);
+int                SDL_IsGameController(int joystick_index);
+SDL_GameController *SDL_GameControllerOpen(int joystick_index);
+void               SDL_GameControllerClose(SDL_GameController *gamecontroller);
+SDL_Joystick       *SDL_GameControllerGetJoystick(SDL_GameController *gamecontroller);
+SDL_JoystickID      SDL_JoystickInstanceID(SDL_Joystick *joystick);
+int                SDL_GameControllerGetAttached(SDL_GameController *gamecontroller);
+Uint8              SDL_GameControllerGetButton(SDL_GameController *gamecontroller,
+                                                SDL_GameControllerButton button);
+Sint16             SDL_GameControllerGetAxis(SDL_GameController *gamecontroller,
+                                             SDL_GameControllerAxis axis);
 
 /* ---- audio: what runtime/platform/sdl_audio.c uses, from the documented
  *      SDL2 API (SDL_audio.h). Same caveat as everything above. */
@@ -124,7 +178,6 @@ typedef struct SDL_AudioSpec {
 #define AUDIO_S16SYS    0x8010
 
 Uint32 SDL_WasInit(Uint32 flags);
-int    SDL_InitSubSystem(Uint32 flags);
 SDL_AudioDeviceID SDL_OpenAudioDevice(const char *device, int iscapture,
                                       const SDL_AudioSpec *desired,
                                       SDL_AudioSpec *obtained,

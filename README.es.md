@@ -440,7 +440,6 @@ cmake --build build
 build/umk3-menu  ruta/a/Payload/UMK3.app/res
 
 # La escena de prueba de arena y luchador: umk3-fight <res> [personaje] [escenario]
-# (de momento solo con el backend de Windows, igual que umk3-test)
 build/umk3-fight ruta/a/Payload/UMK3.app/res
 
 # Los dos en un programa: F2 entra en la escena de prueba, F3 vuelve al menú.

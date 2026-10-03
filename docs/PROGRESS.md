@@ -2,10 +2,10 @@
 
 Current state of the project. Written so that someone can pick it up with no prior context.
 
-**Last updated:** 2026-10-02 — see [HANDOFF.md](HANDOFF.md) for the route and
+**Last updated:** 2026-10-03 — see [HANDOFF.md](HANDOFF.md) for the route and
 [ENCARGO.md](ENCARGO.md) for the next task.
 
-> Latest (2026-10-02): **the decompilation is complete and behaviourally
+> Decompilation status (2026-10-02): **the decompilation is complete and behaviourally
 > tested.** All 2,572 functions -- 109 engine core, 291 game logic, 2,172
 > fight engine -- have hand-written C, and the fight engine has been run file
 > by file against the recompiled original by `tools/difftest/`, which found
@@ -24,6 +24,16 @@ Current state of the project. Written so that someone can pick it up with no pri
 >
 > Before that: **all 18 arenas render, textured, with their effects and an
 > animated fighter standing in them.**
+
+> **Platform update (2026-10-03):** the SDL2 backend now implements pointer
+> input with drawable-pixel scaling and the four SDL game-controller slots,
+> including device hotplug. The SDL2 lint fixture covers those APIs. This does
+> not change the 22% estimate for the 161-function iOS rewrite: that estimate
+> tracks the 49 `lime.m` C entry points, not the SDL host adapter. SDL2 MP3
+> music remains unimplemented. The menu still uses the original touch-driven
+> front end; no keyboard-driven cursor is added. SDL2 is not installed here,
+> so this backend has only been checked against the reduced lint fixture, not
+> real SDL2 headers or a running SDL2 window.
 
 `tests/test_menu_boot.c` still exits 0 headless, and that is the transcription
 test: it runs `Task_LoadGeneralData`, the 88-step front-end loader and sixty
@@ -345,7 +355,7 @@ rewritten one by one.
 | 2 — Verification oracle | ✅ complete and proven |
 | 3 — Ghidra automation | ✅ headless pipeline working |
 | 4 — Decompile `lime/common` | ✅ **complete — 109/109, every file verified** |
-| 5 — Native PC platform layer | 🔄 started — window, GL, textures, files, sound, music (Windows), saves, focus pause; SDL2 music and the fight's input remain |
+| 5 — Native PC platform layer | 🔄 started — window, GL, textures, files, sound, music (Windows), saves, focus pause; SDL2 MP3 music remains, and the fight runtime is not connected |
 | 6 — EA SDK stubs | ✅ complete — the 27 entry points the game calls, plus `LocaleManager`, in `runtime/gamecode_stubs.c` |
 | 7 — Decompile `gamecode` | ✅ 291/291 |
 | 8 — Decompile fight logic | ✅ 2,172/2,172 — behavioural triage done (see the results table) |

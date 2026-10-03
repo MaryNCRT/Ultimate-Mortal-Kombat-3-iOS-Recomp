@@ -135,8 +135,16 @@ elseif(UMK3_BACKEND STREQUAL "sdl2")
     target_sources(umk3 PRIVATE runtime/platform/sdl_gl.c)
     target_sources(umk3-menu PRIVATE runtime/platform/sdl_gl.c
                                     runtime/platform/sdl_audio.c)
+    target_sources(umk3-fight PRIVATE runtime/platform/sdl_gl.c
+                                     runtime/platform/sdl_audio.c)
+    target_sources(umk3-test PRIVATE runtime/platform/sdl_gl.c
+                                    runtime/platform/sdl_audio.c)
     target_include_directories(umk3-menu PRIVATE ${SDL2_INCLUDE_DIRS})
+    target_include_directories(umk3-fight PRIVATE ${SDL2_INCLUDE_DIRS})
+    target_include_directories(umk3-test PRIVATE ${SDL2_INCLUDE_DIRS})
     target_link_libraries(umk3-menu PRIVATE ${SDL2_LIBRARIES} OpenGL::GL m)
+    target_link_libraries(umk3-fight PRIVATE ${SDL2_LIBRARIES} OpenGL::GL m)
+    target_link_libraries(umk3-test PRIVATE ${SDL2_LIBRARIES} OpenGL::GL m)
     # SDL2_INCLUDE_DIRS is the spelling the Debian/Ubuntu config module uses;
     # the imported target covers the rest.
     target_include_directories(umk3 PRIVATE ${SDL2_INCLUDE_DIRS})
