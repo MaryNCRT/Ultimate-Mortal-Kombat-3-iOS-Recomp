@@ -522,7 +522,6 @@ cmake --build build
 build/umk3-menu  path/to/Payload/UMK3.app/res
 
 # The arena and fighter test scene: umk3-fight <res> [character] [stage]
-# (Windows backend only for now, like umk3-test)
 build/umk3-fight path/to/Payload/UMK3.app/res
 
 # Both in one program: F2 enters the test scene, F3 returns to the menu.
@@ -546,7 +545,7 @@ The decompilation is finished, so the open work has changed shape. Where help is
 
 - **The fight runtime** — running the decompiled fight engine frame by frame: its thread scheduler, the per-frame logic and the bridge from `Task_GameInit`.
 - **The 229 data tables** — measuring and extracting the `sm_*`, `ochar_*`, `a_*` and single tables from the user's own copy at build time ([docs/PROGRESS.md](docs/PROGRESS.md#the-other-axis-229-data-tables-nobody-has-counted)).
-- **The platform layer** — MP3 music on the SDL2 backend, the fight's keyboard and gamepad input.
+- **The platform layer** — MP3 music on the SDL2 backend; the fight runtime still needs to connect its input loop.
 - **Port decisions already written down** in the open issues: widescreen ([#22](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/issues/22), [#24](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/issues/24)), frame rate ([#23](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/issues/23)), mods ([#29](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/issues/29)).
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the working rules, and [docs/PROGRESS.md](docs/PROGRESS.md) for the detail.

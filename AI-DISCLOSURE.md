@@ -23,6 +23,7 @@ Claude appears in the commit history as a co-author, using the standard `Co-Auth
 | Test harnesses and differential tests | AI |
 | The touchHLE compatibility patch and its diagnosis | AI |
 | Documentation | AI |
+| SDL2 mouse/controller adapter (native host code, not decompilation) | GitHub Copilot |
 | Verification that any of it is *correct* | **Machines, not opinions** — see below |
 
 ## Why we think this is defensible anyway
@@ -74,6 +75,11 @@ which confirmed they pass outside the machine they were written on.
 **Devin** (Cognition) joined the relay on 2026-08-20 and wrote the SDL2 backend
 for the vertical slice, which is hand-written port code rather than anything
 derived from the binary.
+
+**GitHub Copilot** added SDL2 mouse-coordinate scaling and standard game
+controller input/hotplug handling, plus wired that backend into the fight
+targets. This is native host-platform code based on `platform.h`'s input
+contract; it is not a decompilation or a claim about retail game behavior.
 
 That research was audited against the binary before any of it was adopted:
 258 symbol/address pairs checked, **223 correct, 15 wrong, 20 referring to

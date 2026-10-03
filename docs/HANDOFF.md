@@ -1,6 +1,6 @@
 # Handoff
 
-> **The status section below was rewritten on 2026-10-02.** Most of the rest
+> **The status section below was rewritten on 2026-10-03.** Most of the rest
 > of this file is a dated diary of what each finished module settled; it is
 > kept because the facts in it are still true, but its counts ("1,752 of
 > 2,172" and the like) are history. The live numbers are in
@@ -11,7 +11,7 @@ Read this, then [METHODOLOGY.md](METHODOLOGY.md). Everything else is reference.
 
 ---
 
-## Where the project actually stands (2026-10-02)
+## Where the project actually stands (2026-10-03)
 
 **Re-run `python tools/progress.py` before trusting a number here.**
 
@@ -26,7 +26,7 @@ and leave out the fight runtime and the 229 data tables (see below).
 | `gamecode` | **291 of 291** — the front end boots natively and takes input |
 | `gamecode/logic` (fight engine) | **2,172 of 2,172**, and behaviourally tested file by file by `tools/difftest/` (results table in PROGRESS.md) |
 | Native executables | `umk3-menu` (the real front end), `umk3-fight` (arenas and a skinned fighter), `umk3-test` (both) |
-| Platform layer | window, GL, textures, files, sound, music (Win32), save files, focus pause; SDL2 has no music yet; the fight's input is not wired |
+| Platform layer | window, GL, textures, files, sound, music (Win32), save files, focus pause; SDL2 pointer/controller input implemented but not tested against installed SDL2; SDL2 has no music; fight runtime not connected |
 
 **The front is no longer decompilation.** It is integration, in this order:
 
@@ -42,9 +42,9 @@ and leave out the fight runtime and the 229 data tables (see below).
    as `reaction_table`. They are extracted from the user's own copy at build
    time, never committed. PROGRESS.md, "The other axis", has the inventory
    and the three already done.
-3. **The rest of the platform layer:** the fight's keyboard and gamepad input
-   (the engine takes one ten-bit word per player, see `platform.h`), and MP3
-   music on SDL2.
+3. **The remaining platform work:** MP3 music on SDL2. The native backends
+   expose keyboard and gamepad input as the ten-bit words the fight engine
+   expects, but the fight runtime does not yet connect that input to the game.
 
 `tools/difftest/` stays useful through all of it: any function touched while
 wiring the runtime can be re-run against the recompiled original in seconds.
