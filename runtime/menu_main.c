@@ -51,6 +51,8 @@ void  limeFinish(void);
 extern float limeTouchScreenX[], limeTouchScreenY[];
 extern float limeLastTouchScreenX[], limeLastTouchScreenY[];
 extern int   FE_CurrentTask;
+extern int   CharacterSelected;
+void  PushFETask(int task);
 
 /* win32_gl.c owns the window; the pointer state comes from it. */
 int  plat_mouse(int *x, int *y);        /* returns 1 while a button is down */
@@ -117,6 +119,15 @@ int main(int argc, char **argv)
         if (FEInit_LoadABit(step))
             break;
     printf("loaded at step %ld\n", step);
+
+    /* UMK3_TASK=<n> opens front-end screen n straight away, so a screen deep in
+     * the menus can be shot unattended: UMK3_TASK=0x1b is the character
+     * select. UMK3_SEL=<id> then puts the finger on fighter id, which is what
+     * makes the select screen draw a model at all. */
+    if (getenv("UMK3_TASK"))
+        PushFETask((int)strtol(getenv("UMK3_TASK"), NULL, 0));
+    if (getenv("UMK3_SEL"))
+        CharacterSelected = atoi(getenv("UMK3_SEL"));
 
     t0 = plat_time();
     last = t0;

@@ -60,10 +60,10 @@ int              g_transpMeshCount;
  * The window array LIME_InitDebugWindow walks and ClearDebugWindow indexes,
  * with -1 meaning "no window". Sliders occupy slots 10 through 15.
  */
-/* A POINTER in the binary, not the array: ClearDebugWindow does
- * `ldr r1, [r3]` and indexes through the result. The storage is
- * allocated elsewhere; this is the handle. */
-DEBUGWINDOW     *DebugWindows;
+/* The array itself, 0x3e windows at 0x00392024 in __common. The `ldr r1, [r3]`
+ * in ClearDebugWindow reads the non-lazy pointer slot, not a variable; see
+ * lime.h. */
+DEBUGWINDOW      DebugWindows[DEBUG_WINDOWS];
 int              DS_DebugWindowOn;
 
 /* RenderDebugCube's lazily loaded scene, and the flag that gates it. */
