@@ -3572,7 +3572,7 @@ void ground_ochar(MK3OBJ *obj)
  * eight, second word -- and the duplication is the original's, not this
  * transcription's.
  */
-extern MK3THREAD *mytc;                 /* pointer slot -> 0x0038ef3c */
+extern MK3THREAD mytc[];                 /* 0x0038ef3c, reached through a slot */
 
 void *my_func(MK3OBJ *obj)
 {
