@@ -663,6 +663,7 @@ extern long currentLeaderboard;
 extern long currentMPJoystickData;
 extern long currentMPSpriteList;
 extern long currentPeriod;
+extern float darkcol[4];
 extern long defeatedBySK;
 extern long displayTicker;
 extern float distzoomedin;
@@ -715,6 +716,7 @@ extern TOKEN listOfTokens[192 / sizeof(TOKEN)];
 extern long lobbyInfoFade;
 extern long lobbyInfoTxt;
 extern float m[64 / sizeof(float)];
+extern float midcol[4];
 extern float mmfontcol[96 / sizeof(float)];
 extern float mpBlinker;
 extern char mpEventQueue[0x1b0];
@@ -749,6 +751,8 @@ extern int randomKode;
 extern long restartConnectionFlag;
 extern long rsnd_choices[64 / sizeof(long)];
 extern long *rsnd_table[64 / sizeof(long)];
+extern float semicol[4];
+extern float semidarkcol[4];
 extern long sendInd;
 extern long sindelFlying;
 extern long socialConnectionAvailable;
@@ -863,7 +867,6 @@ extern void *TrainScene;
 extern long *TrainingCatagoryP;
 extern long *WantDoingFatalFrames;
 extern void *XeroxScene;
-extern float *darkcol;
 extern float *endingsOffsetY;
 extern long *endurancerand1;
 extern long *endurancerand2;
@@ -872,12 +875,9 @@ extern int *incomingQueueLenPtr;
 extern int *incomingQueueStartPtr;
 extern const char **kodeNames;
 extern long *lastTimestamp;
-extern float *midcol;
 extern long *opponentCharacterP;
 extern long *readyToSync;
 extern long *requestedLevel;
-extern float *semicol;
-extern float *semidarkcol;
 extern long *spotlight_Anim;
 extern void **spotlight_SpriteDef;
 extern long *startTime;
@@ -2706,7 +2706,7 @@ char usprintfBuffer7[512];
 char usprintfBuffer8[512];
 char usprintfBuffer9[512];
 
-/* ---- 742 plain globals ---- */
+/* ---- 746 plain globals ---- */
 
 long AIOn = 1;  /* 0x0014e1f4 */
 long AboutPage;  /* 0x00101190 */
@@ -18339,6 +18339,9 @@ long currentLeaderboard;  /* 0x00100fd4 */
 long currentMPJoystickData;  /* 0x0014e26c */
 long currentMPSpriteList;  /* 0x0014e270 */
 long currentPeriod;  /* 0x000ff8e4 */
+float darkcol[4] = {
+    0.100000001f, 0.100000001f, 0.100000001f, 1.0f,
+};  /* 0x0014fa20, RGBA 0.1 0.1 0.1 1 */
 long defeatedBySK;  /* pointer slot */
 long displayTicker;  /* 0x001008a0 */
 float distzoomedin = 0.699999988f;  /* 0x0014dfbc */
@@ -19189,6 +19192,9 @@ TOKEN listOfTokens[192 / sizeof(TOKEN)];  /* 0x003877f0 */
 long lobbyInfoFade;  /* 0x000ff808 */
 long lobbyInfoTxt;  /* 0x000ff80c */
 float m[64 / sizeof(float)];  /* 0x00370dd8, the scratch matrix */
+float midcol[4] = {
+    0.5f, 0.5f, 0.5f, 1.0f,
+};  /* 0x0014fa10, RGBA 0.5 0.5 0.5 1 */
 float mmfontcol[96 / sizeof(float)] = {
     1.0f, 1.0f, 1.0f, 0.200000003f,
     1.0f, 1.0f, 1.0f, 1.0f,
@@ -19246,6 +19252,12 @@ long *rsnd_table[64 / sizeof(long)] = {
     (void *)&tab_rsnd_med_smack, (void *)&tab_rsnd_klang, (void *)&tab_rsnd_big_smack, (void *)&tab_rsnd_rocks,
     (void *)&tab_rsnd_body_hit, (void *)&tab_rsnd_ground, (void *)&tab_rsnd_whoosh, (void *)&tab_rsnd_big_whoosh,
 };  /* 0x0017b330, one row array per id */
+float semicol[4] = {
+    1.0f, 1.0f, 1.0f, 0.400000006f,
+};  /* 0x0014fa30, RGBA */
+float semidarkcol[4] = {
+    0.100000001f, 0.100000001f, 0.100000001f, 0.400000006f,
+};  /* 0x0014fa40, RGBA */
 long sendInd;  /* 0x00100ebc */
 long sindelFlying;  /* 0x0014dff8 */
 long socialConnectionAvailable = 0xffffffff;  /* 0x00100e2c */
@@ -19824,7 +19836,7 @@ long winningStryk;  /* 0x0014dffc */
 long workingInd;  /* 0x000ff810 */
 float zoomedoutweight;  /* 0x001f44a4 */
 
-/* ---- 79 pointer slots: storage, then a pointer at it ---- */
+/* ---- 75 pointer slots: storage, then a pointer at it ---- */
 
 static void *BloodScene__store[4 / sizeof(void)];
 void *BloodScene = BloodScene__store;
@@ -19942,8 +19954,6 @@ static long WantDoingFatalFrames__store[4 / sizeof(long)];
 long *WantDoingFatalFrames = WantDoingFatalFrames__store;
 static void *XeroxScene__store[4 / sizeof(void)];
 void *XeroxScene = XeroxScene__store;
-static float darkcol__store[16 / sizeof(float)];
-float *darkcol = darkcol__store;
 static float endingsOffsetY__store[4 / sizeof(float)];
 float *endingsOffsetY = endingsOffsetY__store;
 static long endurancerand1__store[4 / sizeof(long)];
@@ -19960,18 +19970,12 @@ static const char *kodeNames__store[88 / sizeof(const char)];
 const char **kodeNames = kodeNames__store;
 static long lastTimestamp__store[4 / sizeof(long)];
 long *lastTimestamp = lastTimestamp__store;
-static float midcol__store[16 / sizeof(float)];
-float *midcol = midcol__store;
 static long opponentCharacterP__store[SLOT_WORDS];
 long *opponentCharacterP = opponentCharacterP__store;
 static long readyToSync__store[4 / sizeof(long)];
 long *readyToSync = readyToSync__store;
 static long requestedLevel__store[4 / sizeof(long)];
 long *requestedLevel = requestedLevel__store;
-static float semicol__store[16 / sizeof(float)];
-float *semicol = semicol__store;
-static float semidarkcol__store[16 / sizeof(float)];
-float *semidarkcol = semidarkcol__store;
 static long spotlight_Anim__store[636 / sizeof(long)];
 long *spotlight_Anim = spotlight_Anim__store;
 static void *spotlight_SpriteDef__store[1152 / sizeof(void)];
@@ -19985,7 +19989,7 @@ long *syncState = syncState__store;
 static long theKode__store[4 / sizeof(long)];
 long *theKode = theKode__store;
 
-/* 742 plain + 79 slots = 821 */
+/* 746 plain + 75 slots = 821 */
 /*
  * 5 of these are arrays the decomp declares as `T name[]` with no
  * extent, so each got UNSIZED_BYTES of slack rather than a known size.
