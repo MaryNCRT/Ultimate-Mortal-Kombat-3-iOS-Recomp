@@ -637,6 +637,10 @@ const char *lime_platform_asset_root(void);
 
 static char *g_plist;
 
+#ifdef _WIN32
+static int lime_real_dir(const char *dir, char *out, unsigned long n);
+#endif
+
 static void plist_load(void)
 {
     static int tried;
@@ -656,6 +660,18 @@ static void plist_load(void)
     snprintf(path, sizeof(path), "%s/../Info.plist", root);
 
     f = fopen(path, "rb");
+#ifdef _WIN32
+    /* Windows folds "res/.." lexically, so when res is a junction into the
+     * extracted bundle (the game folder's layout) the path above names the
+     * folder holding the junction. Ask for the junction's target instead. */
+    if (f == NULL) {
+        char real[1024];
+        if (lime_real_dir(root, real, sizeof(real))) {
+            snprintf(path, sizeof(path), "%s/../Info.plist", real);
+            f = fopen(path, "rb");
+        }
+    }
+#endif
     if (f == NULL)
         return;
     fseek(f, 0, SEEK_END);
@@ -753,6 +769,25 @@ void limeMemoryReport(const char *tag) { (void)tag; }
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #define lime_mkdir(p) _mkdir(p)
+
+/* The final path of a directory, junctions and links resolved. */
+static int lime_real_dir(const char *dir, char *out, unsigned long n)
+{
+    HANDLE h = CreateFileA(dir, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+                           OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+    DWORD len;
+
+    if (h == INVALID_HANDLE_VALUE)
+        return 0;
+    len = GetFinalPathNameByHandleA(h, out, n, FILE_NAME_NORMALIZED);
+    CloseHandle(h);
+    if (len == 0 || len >= n)
+        return 0;
+    /* A "\\?\" prefix turns off the ".." folding the caller relies on. */
+    if (strncmp(out, "\\\\?\\", 4) == 0)
+        memmove(out, out + 4, len - 4 + 1);
+    return 1;
+}
 #else
 #include <sys/stat.h>
 #define lime_mkdir(p) mkdir((p), 0755)
