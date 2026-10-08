@@ -64,6 +64,30 @@ and leave out the fight runtime and the 229 data tables (see below).
    **Next blocker:** confirming a fighter and a tower reaches
    `CurrentTask = 4` (`Task_FEDestroy`) by the real path, and the process then
    ends with a heap-corruption fast-fail (0xC0000374) before `Task_GameInit`.
+   **Update (2026-10-08, branch `claude/combat-system-scenarios-ec4c82`):**
+   the real path now runs `Task_GameInit` to the end (GameInit_LoadABit
+   returns 1, `CurrentTask` becomes 6) and enters `Task_GameMain`. Fixed on
+   the way, each against the armv7 binary: `LIME_FreeSkin` freed +0x18 twice
+   and skipped the `next` block (0x6038c; the 0xC0000374 heap fast-fail);
+   `Level_Info`'s scene/layer names point into anonymous `__data` strings
+   0x14e2a0..0x14e8d4 that were never emitted (`tools/level_info.py`
+   extracts and relocates them at build time); `triple_sndtab` is a
+   SOUNDENTRY list, not `long[][2]`; `LoadSoundList`'s sentinel is
+   "end_of_list" (literal 0x178be8), not ""; `FrameID_GetBBoxPtr` was the
+   non-lazy slot 0xf33f8 -> `_FrameID_GetBBox`, so `mk3_init` now gets the
+   real bbox callback; `LevelMusic` is a table of names.
+   **Next blocker:** `GetReal6ButtonJoyBits` (0x1e3cc) dereferences
+   `*GameObjects` (0x14dfec) after Task_GameInit set it to 0 -- check in the
+   disassembly what `_GameObjects` really holds and who fills it.
+   **Seen by Mary in the build (2026-10-08):** the arena shows black and
+   the game crashes before the fight starts (the crash above, which comes
+   before anything draws the arena); fighters whose hair or hat is a
+   separate part (ponytails, Kung Lao's hat) are not drawn correctly in
+   character select -- not investigated; trace it in the binary's skinned
+   draw (extra meshes / bones), do not guess.
+   **Noted for later (Mary, not now):** the arena should be chosen at
+   random; sometimes every fighter in the tower is Jade; the tower's
+   descent animation does not display correctly.
 2. **The 229 data tables** the fight engine reads: `sm_*` special-move lists,
    `ochar_*` per-character tables, `a_*` animation scripts, and singles such
    as `reaction_table`. They are extracted from the user's own copy at build

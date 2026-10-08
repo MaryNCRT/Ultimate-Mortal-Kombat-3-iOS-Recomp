@@ -257,6 +257,19 @@ if(UMK3_BINARY)
                     ${UMK3_BINARY}
             COMMENT "Extracting the fight engine's data tables from ${UMK3_BINARY}")
 
+        # The arena names Level_Info points at (tools/level_info.py): game
+        # data, generated here like the logic tables, linked into umk3-game.
+        set(UMK3_LEVEL_INFO ${CMAKE_BINARY_DIR}/level_info.c)
+        add_custom_command(
+            OUTPUT ${UMK3_LEVEL_INFO}
+            COMMAND Python3::Interpreter ${CMAKE_SOURCE_DIR}/tools/level_info.py
+                    ${UMK3_BINARY} ${UMK3_LEVEL_INFO}
+            DEPENDS ${CMAKE_SOURCE_DIR}/tools/level_info.py
+                    ${CMAKE_SOURCE_DIR}/tools/logic_tables.py
+                    ${CMAKE_SOURCE_DIR}/tools/macho.py
+                    ${UMK3_BINARY}
+            COMMENT "Extracting Level_Info's arena names from ${UMK3_BINARY}")
+
         file(GLOB UMK3_LOGIC_SOURCES ${CMAKE_SOURCE_DIR}/decomp/gamecode/logic/*.c)
         add_executable(umk3-fight-headless
             runtime/fight_headless.c
@@ -309,7 +322,8 @@ if(UMK3_BINARY)
             ${UMK3_GAME_LIME}
             ${UMK3_GAME_RUNLIME}
             ${UMK3_LOGIC_SOURCES}
-            ${UMK3_LOGIC_TABLES})
+            ${UMK3_LOGIC_TABLES}
+            ${UMK3_LEVEL_INFO})
         set_target_properties(umk3-game PROPERTIES C_STANDARD 11 C_EXTENSIONS ON)
         target_include_directories(umk3-game PRIVATE
             runtime decomp/lime decomp/gamecode/logic)
