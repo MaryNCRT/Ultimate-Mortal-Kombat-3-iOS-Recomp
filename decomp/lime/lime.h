@@ -83,7 +83,8 @@ typedef struct MESHINFO {
     int         field48;        /* 0x48  FlushTranspMeshList: nonzero means
                                   *       use the CALLER{}s texture, zero means
                                   *       use this mesh own at +0x44 */
-    uint8_t     _pad4c[4];       /* 0x4c */
+    int         field4c;         /* 0x4c  LIME_RenderScene: nonzero means
+                                  *       the caller's second texture */
     int         fullBright;      /* 0x50  IsTextureFullBright(textureName) */
     int         visible;         /* 0x54  LIME_FreeNonVisibleMeshes tests == 0 */
 } MESHINFO;
@@ -525,6 +526,9 @@ struct SCENEINFO;
 extern struct SCENEINFO *g_sceneList;
 
 extern TRANSPMESH       g_transpMeshList[TRANSPMESH_MAX];
+extern float            SceneTint[3];
+extern float            m44[16];
+extern int              SceneRenderAlwaysTrans, SkipFrame86;
 extern int              g_transpMeshCount;
 
 /* The binary's own names: _DebugWindows is the ARRAY, and _DS_DebugWindowOn is
@@ -804,7 +808,7 @@ void   LIME_PopMatrix(int count);
  * earlier in the function -- so this name stands in for it, the same way
  * LIGHT_SCALE stands in for an unresolved literal. */
 extern uint8_t *g_vertexColourScratch;
-extern limeVECTOR3 g_fadeOffset;
+extern float StaticMeshAmbient[3];     /* 0x002bfe74 */
 
 void   LIME_RenderMesh(MESHSETINFO *set, int index, TEXTURE *tex0, TEXTURE *tex1, long flags);
 void   ConvertQSTMatrixtoPCMatrix(const QSTMATRIX *src, float *dst);
@@ -921,6 +925,8 @@ extern float  ShadowOffset;             /* 0x0014dfc8 */
 #define GL_MODULATE             0x2100
 #define GL_REPLACE              0x1E01
 #define GL_CULL_FACE            0x0B44
+#define GL_ALPHA_TEST           0x0BC0
+#define GL_GREATER              0x0204
 #endif
 
 /* The GL entry points the engine calls, spelled with plain C types because
@@ -930,6 +936,7 @@ extern float  ShadowOffset;             /* 0x0014dfc8 */
  * `void glDepthMask(GLboolean)` is a conflict, not a duplicate. */
 #ifndef UMK3_REAL_GL
 void LIME_GLAPI glEnable(unsigned cap);
+void LIME_GLAPI glAlphaFunc(unsigned func, float ref);
 void LIME_GLAPI glDisable(unsigned cap);
 void LIME_GLAPI glEnableClientState(unsigned array);
 void LIME_GLAPI glDisableClientState(unsigned array);

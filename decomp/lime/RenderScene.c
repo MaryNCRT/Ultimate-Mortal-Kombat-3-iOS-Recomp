@@ -669,96 +669,88 @@ void AddToTranspMeshList(MESHSETINFO *meshset, const SCENENODE *node,
  * change what is drawn, and the body below leaves them out rather than guess
  * their order.
  */
-/* The colour the deferred meshes are tinted with. A real global at
- * `0x00112088 + pc`, zero in the loaded slice; the ALPHA that goes with it
- * comes from the item, which is how a scene's per-key alpha reaches GL. */
-float g_transpColor[3];
 
+int SceneRenderAlwaysTrans;             /* 0x00171760 */
+int SkipFrame86;                        /* 0x00171774 */
+float SceneTint[3] = { 1.0f, 1.0f, 1.0f };  /* 0x00171764 */
+float m44[16];                          /* 0x002c3e88, the scratch matrix */
+
+static int name_is(const char *s, const char *prefix)
+{
+    while (*prefix)
+        if (*s++ != *prefix++)
+            return 0;
+    return 1;
+}
+
+/* The bone path shared by both renderers (0x5fc86 and 0x5f704): bone `b`
+ * of a skin's 3x4 palette, widened to 4x4 around an identity, multiplied
+ * onto m44. This is how a scene mesh rides a fighter's bone -- Kung Lao's
+ * hat, a ponytail. */
+static void scene_attach_to_bone(const SKINMATRIX43 *bones, int b)
+{
+    const float *s = (const float *)((const char *)bones + b * 48);
+    float t[16], out[16];
+
+    limeMatrixLoadIdentity(t);
+    t[0] = s[0];  t[1] = s[1];  t[2] = s[2];
+    t[4] = s[3];  t[5] = s[4];  t[6] = s[5];
+    t[8] = s[6];  t[9] = s[7];  t[10] = s[8];
+    t[12] = s[9]; t[13] = s[10]; t[14] = s[11];
+    limeMatrixMult(m44, t, out);
+    memcpy(m44, out, sizeof(out));
+}
+
+/* armv7 0x0005f640, transcribed whole.
+ *
+ * The tint is `_SceneTint` (0x00171764, 1.0f 1.0f 1.0f in the image); the
+ * earlier body used a stand-in array nothing wrote, so every translucent
+ * mesh was drawn black. And the field05 path -- a mesh carried by a bone of
+ * the skin it is drawn with, `matrix[field05]` multiplied onto the key's
+ * matrix -- was not written; it is now.
+ *
+ * It does not clear the list: LIME_RenderScene does that on entry when it
+ * is the flushing call (0x5fc80). The ClearTranspMeshList at the end is
+ * kept from the earlier body, where an oracle run showed the list empty
+ * after a flush; with every flush preceded by that clear it changes
+ * nothing. */
 void FlushTranspMeshList(TEXTURE *texture, const SKINMATRIX43 *matrix)
 {
-    float m[16];
     int i;
 
-    limeEnableAlphaBlending_Additive();  /* commutative -- hence no sort */
-    limeDisableDepthWrites();            /* testing stays on, writing does not */
+    limeEnableAlphaBlending_Additive();
+    limeDisableDepthWrites();
 
     for (i = 0; i < g_transpMeshCount; i++) {
         TRANSPMESH  *item = &g_transpMeshList[i];
         MESHSETINFO *set  = (MESHSETINFO *)item->meshset;
         MESHINFO    *mesh;
-        TEXTURE     *tex;
 
         LIME_PushMatrix();
+        ConvertQSTMatrixtoPCMatrix(&item->qst, m44);
+        if (item->field05 != 0)
+            scene_attach_to_bone(matrix, item->field05);
 
-        /* read back from item + 8, the offset AddToTranspMeshList writes to */
-        ConvertQSTMatrixtoPCMatrix(&item->qst, m);
+        /* The translation goes through glTranslatef and is zeroed before
+         * the multiply: 0x5f6be..0x5f6d2. */
+        glTranslatef(m44[12], m44[13], m44[14]);
+        m44[12] = m44[13] = m44[14] = 0.0f;
+        glMultMatrixf(m44);
 
-        if (item->field05 != 0) {
-            /* 0x5f704: a matrix-palette path. It scales the byte by 48
-             * (`lsl #4` and `lsl #6` subtracted), indexes the SKINMATRIX43
-             * argument with it, calls limeMatrixLoadIdentity and copies nine
-             * floats into a 4x4 at stride 4. It is NOT transcribed, because it
-             * was never reached by any input driven here and a body nobody has
-             * executed is the thing this file already got wrong once.
-             *
-             * The test knows: tests/test_renderscene_gl_diff.c keeps every
-             * field05 at zero and says so, rather than pretending the case is
-             * covered. */
-            (void)matrix;
-            LIME_PopMatrix(1);
-            continue;
-        }
-
-        /* **The translation is split out of the matrix and applied first.**
-         *
-         *      0x5f6b2  bl  _ConvertQSTMatrixtoPCMatrix   ; writes into r5
-         *      0x5f6be  ldr r1, [r4, #0x34]               ; r4 == r5
-         *      0x5f6c4  blx _glTranslatef
-         *      0x5f6cc  str r3, [r4, #0x30]               ; then zeroed
-         *      0x5f6d2  blx _glMultMatrixf
-         *
-         * r4 and r5 resolve to the SAME address, so `[r4, #0x30..0x38]` is
-         * `m[12..14]` of the matrix just converted -- the translation row.
-         *
-         * An earlier draft read this as a one-shot "pending translation"
-         * global that something upstream armed. It is nothing of the kind, and
-         * the giveaway was that the values changed with the blend factor: a
-         * global would not. Two PC-relative loads landing on one buffer looked
-         * like two different globals until the arithmetic was done. */
-        glTranslatef(m[12], m[13], m[14]);
-        m[12] = 0.0f;
-        m[13] = 0.0f;
-        m[14] = 0.0f;
-
-        glMultMatrixf(m);                /* now rotation and scale only */
-
-        /* the key's alpha, arriving as vertex colour rather than as a uniform */
-        glColor4f(g_transpColor[0], g_transpColor[1], g_transpColor[2],
-                  item->alpha);
-
+        glColor4f(SceneTint[0], SceneTint[1], SceneTint[2], item->alpha);
         limeDisableDepthWrites();
 
-        /* +0x2c is the mesh INDEX. An earlier body passed a literal 0 here,
-         * which drew mesh zero for every deferred entry. */
         mesh = set->meshes[item->meshIndex];
+        if (mesh->field48 != 0)
+            LIME_RenderMesh(set, (int)item->meshIndex, texture, NULL, 0);
+        else
+            LIME_RenderMesh(set, (int)item->meshIndex, mesh->texture, NULL, 0);
 
-        /* 0x5f6f4: the mesh chooses whose texture wins. */
-        tex = (mesh->field48 != 0) ? texture : mesh->texture;
-
-        LIME_RenderMesh(set, (int)item->meshIndex, tex, NULL, 0);
-
-        LIME_PopMatrix(1);               /* one push, one pop, always balanced */
+        LIME_PopMatrix(1);
     }
 
     limeDisableAlphaBlending();
     limeEnableDepthWrites();
-
-    /* And it EMPTIES the list. Measured rather than read: driving the oracle
-     * over a sequence of scenes, a flush that follows an earlier flush draws
-     * only what was deferred since -- while a version that left the list
-     * standing redrew every mesh ever added, which is how this was found (62
-     * GL calls against the oracle's 8). A drain that does not drain would grow
-     * without bound and hit the 255-entry ceiling that hangs the game. */
     ClearTranspMeshList();
 }
 
@@ -815,170 +807,172 @@ void FlushTranspMeshList(TEXTURE *texture, const SKINMATRIX43 *matrix)
  * branch a flag selects is how the previous attempt at this file's other
  * renderer went wrong.
  */
+/* armv7 0x0005f7a4, transcribed whole. The earlier body (from armv6) wrote
+ * only the transparent deferral and left the opaque draw "described, not
+ * written" -- which is why every arena, and every attachment (hair, hats),
+ * drew nothing.
+ *
+ * Per node, on frame `fa` (and `fb`, blended by `blend`):
+ *
+ *   - no keys, a hidden frame, node 1 while _SkipFrame86 is set, or a mesh
+ *     named EVENT...: nothing drawn, opaque state restored;
+ *   - alpha >= 0.97 and not the flushing call (arg8 == 0): DRAWN HERE --
+ *     the key's matrix (blended when `blend` is nonzero, and multiplied by
+ *     a bone of `flushMatrix` when the key's byte 5 names one), the
+ *     material rules of the mesh's name (ALPHA..., ATST...), the scene
+ *     tint with the key's alpha, back-face culling, and one of three
+ *     textures: `flushTexture` when the mesh's +0x48 says so, `arg10` when
+ *     its +0x4c does and one is given, else its own;
+ *   - alpha < 0.97 on the flushing call (arg8 == 1): deferred to the
+ *     transparent list, drawn by FlushTranspMeshList at the end.
+ *
+ * A stream entry of 0xffff on frame `fb` makes `fb` equal `fa` from that
+ * node on (0x5f934: the register is overwritten, not a copy). */
 void LIME_RenderScene(long arg1, SCENEINFO *scene,
                       long frameA, long frameB, float blend,
                       long arg6, long arg7,
                       long flush, TEXTURE *flushTexture, long arg10,
                       const SKINMATRIX43 *flushMatrix)
 {
-    long node, fa, fb;
+    MESHSETINFO *set;
+    long node, fa, fb, n;
 
-    /* arg1 goes straight to LIME_printf, which is an eight-byte no-op in this
-     * build (`push {r1,r2,r3}; add sp,#0xc; bx lr`). LIME_RenderEvents passes
-     * the literal 26, so it is a word and not a pointer, and nothing else about
-     * it is established. arg6, arg7 and arg10 are never read. */
-    (void)arg1; (void)arg6; (void)arg7; (void)arg10;
+    (void)arg6; (void)arg7;
 
     if (scene == NULL)
-        return;                         /* cmp r1, #0 -- the ONLY entry guard */
-
-    /* The original divides without checking count2, so a zero would trap in
-     * __modsi3. This guard is ours; the case is not exercised, because the
-     * original cannot survive it either. */
-    if (scene->count2 == 0)
         return;
 
-    fa = frameA % scene->count2;                    /* __modsi3 */
-    if (fa < 0) fa = 0;                             /* bic r0, r0, r0, asr #31 */
-    if (fa >= scene->count2) fa = scene->count2;    /* it ge; movge r0, r4 */
-
+    set = scene->meshset;
+    n = scene->count2;
+    fa = frameA % n;
+    if (fa < 0) fa = 0;
+    if (fa >= n) fa = n;
     glScalef(scene->scale, scene->scale, scene->scale);
+    if (flush == 1)
+        ClearTranspMeshList();
+    LIME_printf((int)arg1, "", scene, fa, scene->nodeCount);
 
     if (scene->nodeCount != 0) {
-        fb = frameB % scene->count2;
+        fb = frameB % n;
         if (fb < 0) fb = 0;
-        if (fb >= scene->count2) fb = scene->count2;
+        if (fb >= n) fb = n;
 
         for (node = 0; node < scene->nodeCount; node++) {
             SCENENODEKEY *keys = scene->nodeKeys[node];
             uint16_t     *strm = scene->nodeStream[node];
             SCENENODEKEY *ka, *kb;
-            MESHINFO *mesh;
+            MESHINFO     *mesh;
+            const char   *name;
+            int           mi;
 
-            if (keys == NULL)
-                continue;
-
+            if (keys == NULL) {
+                LIME_printf((int)arg1, "", node);
+                goto restore;
+            }
+            if (strm[fb] == SCENE_NODE_HIDDEN)
+                fb = fa;
             if (strm[fa] == SCENE_NODE_HIDDEN)
                 goto restore;
 
             ka = &keys[strm[fa]];
-            mesh = scene->meshset->meshes[ka->meshIndex];
+            mi = ka->meshIndex;
+            mesh = set->meshes[mi];
+            name = mesh->meshName;
+            if (node == 1 && SkipFrame86 != 0)
+                goto restore;
+            if (name_is(name, "EVENT")) {
+                LIME_printf((int)arg1, "", node);
+                goto restore;
+            }
+            kb = &keys[strm[fb]];
+            LIME_printf((int)arg1, "", node, name, (double)ka->alpha);
 
-            if (mesh->meshName[0] == 'E' && mesh->meshName[1] == 'V' &&
-                mesh->meshName[2] == 'E' && mesh->meshName[3] == 'N' &&
-                mesh->meshName[4] == 'T')
-                goto restore;           /* a marker, not geometry */
+            if (ka->alpha >= SCENE_OPAQUE_ALPHA && flush == 0) {
+                limeDisableAlphaBlending();
+                limeEnableDepthWrites();
+                if (SceneRenderAlwaysTrans != 0)
+                    limeEnableAlphaBlending_Basic();
+                LIME_printf((int)arg1, "", mesh->texture);
+                LIME_PushMatrix();
 
-            /* **What this function does NOT do: draw opaque geometry.**
-             *
-             * There is a draw path in the original at 0x5f9b8 -- LIME_PushMatrix,
-             * ConvertQSTMatrixtoPCMatrix, glMultMatrixf, LIME_RenderMesh -- and
-             * driving the oracle never reaches it. Measured over the full grid
-             * of alpha against flush:
-             *
-             *      alpha \ flush   -1     0     1     2     3
-             *      1.0000           1     1     6     1     1
-             *      0.9700           1     1     6     1     1
-             *      0.9699           1     1    42     1     1
-             *      0.5000           1     1    42     1     1
-             *      EVENT            3     3     8     3     3
-             *
-             * The single call in every non-flush column is the glScalef above:
-             * an opaque node contributes NOTHING. The 42 is the deferred mesh
-             * being drawn later by FlushTranspMeshList, not drawn here.
-             *
-             * So the opaque branch is gated by something none of these inputs
-             * satisfies. **The global now has a name: `_SceneRenderAlwaysTrans`,
-             * at 0x00171760.**
-             *
-             *      0x5f994  ldr.w r3, [pc, #0x18c]      ; 0x00111dc4 + pc
-             *      0x5f998  add   r3, pc                ; _SceneRenderAlwaysTrans
-             *      0x5f99a  ldr   r3, [r3]
-             *      0x5f99c  cmp   r3, #0
-             *      0x5f99e  bne.w #0x5fc02               ; -> the transparent list
-             *
-             * Zero falls through into the opaque draw. Transcribing a draw that
-             * was never observed to happen is the exact failure this file made
-             * once, so the branch is still described rather than written -- but
-             * what it CONTAINS is now established, because a stage cannot be
-             * rendered without it:
-             *
-             * ## The material rules are a naming convention
-             *
-             * Just past `glMultMatrixf`, the original tests the leading letters
-             * of the MESH's name and picks a different GL state for each
-             * (0x0005fa0e onward):
-             *
-             *      "ALPHA"   0x5fc08, cmp 0x50 'P', 0x48 'H', 0x41 'A'
-             *          _limeEnableAlphaBlending_Basic
-             *          _limeDisableDepthWrites
-             *
-             *      "ATST"    0x5fc4a, cmp 0x54 'T', 0x53 'S', 0x54 'T'
-             *          _limeDisableAlphaBlending
-             *          glAlphaFunc(0x204, 0x3f666666)   ; GL_GREATER, 0.9f
-             *          glEnable(0xbc0)                  ; GL_ALPHA_TEST
-             *
-             *      "EVENT"   not drawn at all
-             *
-             * `ATST` is `A`lpha `T`e`ST`. That glAlphaFunc is the ONLY call to
-             * it in the armv7 slice -- established by decoding every Thumb BL
-             * and BLX in the binary and matching the target against the import
-             * stub, which turned up exactly one caller, here.
-             *
-             * It is not a curiosity. Graveyard's cutout foliage is named
-             * ATST_tree003..009 and ATST_Grass..003, and their textures are 62%
-             * and 71% transparent; without the rule they draw opaque and put
-             * white cards across the middle of the stage. runtime/demo.c
-             * applies both rules and says so.
-             *
-             * The threshold itself IS established, by bisection rather than by
-             * reading the literal: 0.9700 behaves as opaque and 0.9699 does
-             * not. `flush` matters only as `== 1`; -1, 0, 2 and 3 are alike.
-             */
-            if (ka->alpha < SCENE_OPAQUE_ALPHA && flush == 1) {
-                QSTMATRIX q;
-                uint8_t   tmp[8];
-                float     alpha = ka->alpha;
-
-                kb = &keys[strm[fb]];
-
-                /* The temporary handed to AddToTranspMeshList is built on the
-                 * stack at sp+0x3c and only two things are written into it:
-                 * the alpha at +0x00 and key->field05 at +0x05. It is stack
-                 * scratch rather than a filled-in SCENENODE, so it is spelled
-                 * as bytes rather than given a struct it does not populate. */
-                memset(tmp, 0, sizeof(tmp));
-                memcpy(tmp, &alpha, sizeof(alpha));
-                tmp[5] = ka->field05;
-
-                if (blend != 0.0f) {
+                if (blend == 0.0f) {
+                    ConvertQSTMatrixtoPCMatrix((const QSTMATRIX *)
+                        GetMatrixFromPalette(ka->paletteIndex, scene), m44);
+                } else {
+                    QSTMATRIX q;
                     LerpQSTMatrix(GetMatrixFromPalette(ka->paletteIndex, scene),
                                   GetMatrixFromPalette(kb->paletteIndex, scene),
                                   blend, &q);
+                    ConvertQSTMatrixtoPCMatrix(&q, m44);
+                }
+                if (ka->field05 != 0)
+                    scene_attach_to_bone(flushMatrix, ka->field05);
+
+                glTranslatef(m44[12], m44[13], m44[14]);
+                m44[12] = m44[13] = m44[14] = 0.0f;
+                glMultMatrixf(m44);
+
+                if (name_is(name, "ALPHA")) {
+                    limeEnableAlphaBlending_Basic();
+                    limeDisableDepthWrites();
                 } else {
-                    /* blend == 0 takes a shorter path that never touches the
-                     * second key -- 0x5f8ba `vcmp.f32 s16, #0` then 0x5fabe. */
-                    memcpy(&q, GetMatrixFromPalette(ka->paletteIndex, scene),
-                           sizeof(q));
+                    limeDisableAlphaBlending();
+                    if (name_is(name, "ATST")) {
+                        limeDisableAlphaBlending();
+                        glAlphaFunc(GL_GREATER, 0.9f);  /* 0x3f666666 */
+                        glEnable(GL_ALPHA_TEST);
+                    }
+                }
+                glColor4f(SceneTint[0], SceneTint[1], SceneTint[2], ka->alpha);
+                glEnable(GL_CULL_FACE);
+
+                {
+                    float lit;
+                    TEXTURE *tex;
+                    memcpy(&lit, &scene->field70, 4);
+                    if (mesh->field48 != 0)
+                        tex = flushTexture;
+                    else if (arg10 != 0 && mesh->field4c != 0)
+                        tex = (TEXTURE *)(uintptr_t)arg10;
+                    else
+                        tex = mesh->texture;
+                    LIME_RenderMesh(set, mi, tex, NULL, (long)(int)lit);
                 }
 
-                AddToTranspMeshList(scene->meshset, (const SCENENODE *)tmp, &q,
-                                    fa, ka->meshIndex);
+                limeEnableDepthWrites();
+                glDisable(GL_ALPHA_TEST);
+                LIME_PopMatrix(1);
+                continue;
+            }
+
+            if (ka->alpha < SCENE_OPAQUE_ALPHA && flush == 1) {
+                if (blend == 0.0f) {
+                    AddToTranspMeshList(set, (const SCENENODE *)ka,
+                        (const QSTMATRIX *)GetMatrixFromPalette(ka->paletteIndex,
+                                                                scene),
+                        fa, mi);
+                } else {
+                    QSTMATRIX q;
+                    uint8_t   tmp[8];
+                    float     alpha = ka->alpha;
+
+                    memset(tmp, 0, sizeof(tmp));
+                    memcpy(tmp, &alpha, sizeof(alpha));
+                    tmp[5] = ka->field05;
+                    LerpQSTMatrix(GetMatrixFromPalette(ka->paletteIndex, scene),
+                                  GetMatrixFromPalette(kb->paletteIndex, scene),
+                                  blend, &q);
+                    AddToTranspMeshList(set, (const SCENENODE *)tmp, &q, fa, mi);
+                }
             }
             continue;
 
         restore:
-            /* Only the two SKIP paths reach this. It is not a per-node restore
-             * at the bottom of the loop -- a node that is neither hidden nor an
-             * EVENT marker emits no GL at all, which is what makes the 1 in the
-             * table above a 1 and the 3 a 3. */
             limeDisableAlphaBlending();
             limeEnableDepthWrites();
         }
     }
 
-    /* 0x5fa9e: `cmp r4, #1` on argument 8, then the drain. This is where a
-     * scene's translucent meshes actually reach the screen. */
     if (flush == 1)
         FlushTranspMeshList(flushTexture, flushMatrix);
 }
