@@ -220,3 +220,71 @@ endif()
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(umk3 PRIVATE -Wall -Wextra)
 endif()
+
+# The fight engine, with its data tables extracted from the user's own binary
+# at build time (tools/logic_tables.py) and verified against it
+# (tools/check_logic_tables.py). The tables are game data: they are generated
+# into the build directory and never committed.
+#
+#   cmake -B build32 -G Ninja -DCMAKE_C_COMPILER=i686-w64-mingw32-gcc #         -DUMK3_BINARY=<OUTPUT/armv7/UMK3.armv7 or Payload/UMK3.app/UMK3>
+#   cmake --build build32 --target umk3-fight-headless
+#   ctest --test-dir build32 -R logic
+#
+# 32-bit only: the engine's structs and tables hold 32-bit addresses, and the
+# generated file refuses to compile anywhere else.
+set(UMK3_BINARY "" CACHE FILEPATH
+    "The user's UMK3 binary: OUTPUT/armv7/UMK3.armv7 or Payload/UMK3.app/UMK3")
+if(UMK3_BINARY)
+    if(NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
+        message(STATUS "umk3-fight-headless needs a 32-bit compiler "
+                       "(i686 or wasm32); not built with this one.")
+    else()
+        find_package(Python3 COMPONENTS Interpreter REQUIRED)
+        set(UMK3_LOGIC_TABLES ${CMAKE_BINARY_DIR}/logic_tables.c)
+        add_custom_command(
+            OUTPUT ${UMK3_LOGIC_TABLES}
+            COMMAND Python3::Interpreter ${CMAKE_SOURCE_DIR}/tools/logic_tables.py
+                    ${UMK3_BINARY} ${UMK3_LOGIC_TABLES}
+                    --report ${CMAKE_BINARY_DIR}/logic_tables_report.txt
+            DEPENDS ${CMAKE_SOURCE_DIR}/tools/logic_tables.py
+                    ${CMAKE_SOURCE_DIR}/tools/logic_tables.map
+                    ${CMAKE_SOURCE_DIR}/tools/macho.py
+                    ${UMK3_BINARY}
+            COMMENT "Extracting the fight engine's data tables from ${UMK3_BINARY}")
+
+        file(GLOB UMK3_LOGIC_SOURCES ${CMAKE_SOURCE_DIR}/decomp/gamecode/logic/*.c)
+        add_executable(umk3-fight-headless
+            runtime/fight_headless.c
+            runtime/fight_runtime.c
+            ${UMK3_LOGIC_SOURCES}
+            ${UMK3_LOGIC_TABLES})
+        set_target_properties(umk3-fight-headless PROPERTIES
+            C_STANDARD 11 C_EXTENSIONS ON)
+        target_include_directories(umk3-fight-headless PRIVATE
+            runtime decomp/gamecode/logic decomp/lime)
+        if(NOT MSVC)
+            target_link_libraries(umk3-fight-headless PRIVATE m)
+        endif()
+        # The symbol table of the linked program, for the layout check.
+        if(CMAKE_NM)
+            add_custom_command(TARGET umk3-fight-headless POST_BUILD
+                COMMAND ${CMAKE_NM} $<TARGET_FILE:umk3-fight-headless>
+                        > ${CMAKE_BINARY_DIR}/umk3-fight-headless.nm
+                VERBATIM)
+        endif()
+
+        enable_testing()
+        add_test(NAME logic_tables
+            COMMAND Python3::Interpreter
+                    ${CMAKE_SOURCE_DIR}/tools/check_logic_tables.py ${UMK3_BINARY})
+        if(CMAKE_NM)
+            add_test(NAME logic_tables_layout
+                COMMAND Python3::Interpreter
+                        ${CMAKE_SOURCE_DIR}/tools/check_logic_tables.py ${UMK3_BINARY}
+                        --nm ${CMAKE_BINARY_DIR}/umk3-fight-headless.nm)
+        endif()
+        add_test(NAME logic_headless_runs COMMAND umk3-fight-headless)
+        set_tests_properties(logic_headless_runs PROPERTIES
+            FAIL_REGULAR_EXPRESSION "abort|ABORT|FAIL")
+    endif()
+endif()
