@@ -411,7 +411,7 @@ rewritten one by one.
 | Something renders on a PC screen | ✅ done — the menu and all 18 arenas |
 | **Every game function is decompiled** | ✅ **done — 2,572 of 2,572** (2026-10-01), behaviourally tested (2026-10-02) |
 | The game boots natively | 🔄 the front end boots, takes input, plays sound and music and saves; the fight has no runtime |
-| The game is playable natively | ⬜ next: the fight runtime and the 229 data tables |
+| The game is playable natively | 🔄 in review: tables extracted and engine linked headless ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46)), game booted to character select ([#43](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/43)); no fight reached yet |
 
 ---
 

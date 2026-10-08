@@ -1,6 +1,7 @@
 # Handoff
 
-> **The status section below was rewritten on 2026-10-02.** Most of the rest
+> **The status section below was rewritten on 2026-10-02 and updated on
+> 2026-10-07.** Most of the rest
 > of this file is a dated diary of what each finished module settled; it is
 > kept because the facts in it are still true, but its counts ("1,752 of
 > 2,172" and the like) are history. The live numbers are in
@@ -11,11 +12,13 @@ Read this, then [METHODOLOGY.md](METHODOLOGY.md). Everything else is reference.
 
 ---
 
-## Where the project actually stands (2026-10-02)
+## Where the project actually stands (2026-10-07)
 
 **Re-run `python tools/progress.py` before trusting a number here.**
 
-**The decompilation is finished. Nothing is playable.** 86.74% of the
+**The decompilation is finished. Nothing is playable.** The two blockers
+below have work in review that is not merged, and both of those branches
+build 32-bit (i686) while `main` builds 64-bit; that choice is still open. 86.74% of the
 estimated effort by the README's weights, which count functions and formats
 and leave out the fight runtime and the 229 data tables (see below).
 
@@ -37,11 +40,23 @@ and leave out the fight runtime and the 229 data tables (see below).
    runs them frame by frame in the native executable and hands them input.
    `runtime/test_main.c` is where the bridge belongs (its header says why the
    front end itself is not edited).
+   **In review, not merged (2026-10-07):** [#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46) runs the engine
+   headless (`runtime/fight_headless.c`: `mk3_init`, then `mk3_update` every
+   frame, fighters cycling their stances; its bbox callback is fake).
+   [#43](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/43) adds `umk3-game`, which boots the whole game through
+   `GameCodeMain` up to character select, built i686. Neither hands the front
+   end over to `Task_GameInit` yet.
 2. **The 229 data tables** the fight engine reads: `sm_*` special-move lists,
    `ochar_*` per-character tables, `a_*` animation scripts, and singles such
    as `reaction_table`. They are extracted from the user's own copy at build
    time, never committed. PROGRESS.md, "The other axis", has the inventory
    and the three already done.
+   **In review, not merged (2026-10-07):** [#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46)'s
+   `tools/logic_tables.py` extracts all of them -- 1,118 objects, 4,292
+   relocated words -- and `decomp/gamecode/logic` links with zero undefined
+   symbols (re-checked against `OUTPUT/armv7/UMK3.armv7`). Left: choose
+   between it and [#43](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/43)'s `tools/mklogicdata.py`, run the generator
+   from CMake, and add the un-relocate-and-compare test.
 3. **The rest of the platform layer:** the fight's keyboard and gamepad input
    (the engine takes one ten-bit word per player, see `platform.h`).
 
