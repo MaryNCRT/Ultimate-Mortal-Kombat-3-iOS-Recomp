@@ -225,9 +225,13 @@ TEXTURE *limeLoadTexture(const char *path, int a, int b)
                  GL_RGBA, GL_UNSIGNED_BYTE, img.rgba);
     free(img.rgba);
 
-    e = (TexEntry *)calloc(1, sizeof(*e));
+    /* From limeMalloc, so below 4 GB: the TEXTURE handed back is stored in
+     * 32-bit words of the binary's layout -- a fighter's skin at +0x528. Never
+     * freed; see limeDeleteTexture. */
+    e = (TexEntry *)limeMalloc("texentry", sizeof(*e));
     if (e == NULL)
         return NULL;
+    memset(e, 0, sizeof(*e));
     e->path = _strdup(path);
     e->tex.name = name;
     tex_set_name(&e->tex, path);
