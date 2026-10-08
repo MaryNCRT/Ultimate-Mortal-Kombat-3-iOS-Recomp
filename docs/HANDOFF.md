@@ -47,6 +47,10 @@ and leave out the fight runtime and the 229 data tables (see below).
    [#43](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/43) adds `umk3-game`, which boots the whole game through
    `GameCodeMain` up to character select, built i686. Neither hands the front
    end over to `Task_GameInit` yet.
+   **#43 is still open** (2026-10-08); [#50](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/50) carries its commits plus
+   the Arcade crash fix, and [#44](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/44) gets the select screen open but
+   the 3D fighter still crashes in `IsAFrameVisible`. See PROGRESS.md, "Open
+   pull requests".
 2. **The 229 data tables** the fight engine reads: `sm_*` special-move lists,
    `ochar_*` per-character tables, `a_*` animation scripts, and singles such
    as `reaction_table`. They are extracted from the user's own copy at build
