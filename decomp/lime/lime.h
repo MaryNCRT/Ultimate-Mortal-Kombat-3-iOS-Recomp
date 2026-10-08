@@ -340,10 +340,14 @@ typedef struct TRANSPMESH {
  *      0x18 + 50 * 0x420 = 0xCF18, and the record is 0xCF20.
  *
  * A line being 1,056 bytes is worth pausing on: this is a debug overlay that
- * reserves 53 KB per window and sixteen of them. It was never in a shipped
- * frame -- LIME_printf compiles to nothing -- and the memory was reserved
- * anyway. */
-#define DEBUG_WINDOWS      16
+ * reserves 53 KB per window and sixty-two of them, 3.2 MB. It was never in a
+ * shipped frame -- LIME_printf compiles to nothing -- and the memory was
+ * reserved anyway.
+ *
+ * **Sixty-two, measured.** LIME_InitDebugWindow (armv7 0x000a7d88) loops to
+ * `cmp r5, #0x3e`, and `_DebugWindows` at 0x00392024 runs to `_UpdateIndex` at
+ * 0x006b49e4: 0x3229c0 bytes, which is 0x3e * 0xcf20 exactly. This said 16. */
+#define DEBUG_WINDOWS      0x3e
 #define DEBUG_LINES        0x31          /* 49 is the last valid index */
 #define DEBUG_LINE_STRIDE  0x420         /* 1,056 bytes per line */
 #define DEBUG_WINDOW_SIZE  0xCF20        /* 53,024 bytes per window */
@@ -506,12 +510,17 @@ extern struct SCENEINFO *g_sceneList;
 extern TRANSPMESH       g_transpMeshList[TRANSPMESH_MAX];
 extern int              g_transpMeshCount;
 
-/* The binary's own names: _DebugWindows is the window array (reached
- * through a slot, so it is declared as the pointer the slot holds -- see
- * lime_globals.c), and _DS_DebugWindowOn is the enable flag. An earlier pass called them
- * g_debugWindows and g_debugWindowEnabled, which were inventions sitting
- * next to a symbol table that had both. */
-extern DEBUGWINDOW     *DebugWindows;
+/* The binary's own names: _DebugWindows is the ARRAY, and _DS_DebugWindowOn is
+ * the enable flag. An earlier pass called them g_debugWindows and
+ * g_debugWindowEnabled, which were inventions sitting next to a symbol table
+ * that had both.
+ *
+ * It was also declared a pointer, read from ClearDebugWindow's `ldr r1, [r3]`.
+ * That load is the non-lazy pointer slot at 0x00178bd4, whose contents are
+ * 0x00392024 -- the symbol's own address, in __DATA,__common. There is no
+ * second indirection. As a pointer nothing ever set it, and the first
+ * ClearDebugWindow the character select makes segfaulted on NULL. */
+extern DEBUGWINDOW      DebugWindows[DEBUG_WINDOWS];
 extern int              DS_DebugWindowOn;
 
 /* Lighting: two directional lights, monochrome, no ambient. See LIGHTING.md.
@@ -524,26 +533,31 @@ extern float            g_lightDir0[3], g_lightDir1[3];
  * than a guessed number. */
 extern const float      LIGHT_SCALE;
 
-/* Skinning cursors. CreateMatrixPaletteRecurse2 walks the skeleton depth-first
- * and consumes these as it goes -- one animation frame per bone in tree order,
- * one 48-byte matrix written per bone. The traversal is stateful rather than
- * parameterised, so these are genuinely globals and not locals hoisted out. */
-extern const uint8_t   *g_animFrameCursor;
-extern const uint8_t   *g_animFrameCursor2;
-extern SKINMATRIX43    *g_paletteCursor;
-extern SKINMATRIX43    *g_matrixPalette;
-extern int              g_boneCounter;
-extern float            g_rootPosition[3];
+/* Skinning state, under the binary's names; see lime_globals.c for where each
+ * lives and RenderSkinned.c for who writes it. */
+extern SKINMATRIX43     MatrixPalette2[150];
+extern unsigned char    SkinnedVerts[360000];
+extern uint16_t         RenderIndexes[10000];
+extern BONEANIMFRAME    DecompAnimFrames0[150];
+extern BONEANIMFRAME    DecompAnimFrames1[150];
+extern limeVECTOR3      Root_Trans0, Root_Trans1;
+extern BONEANIMFRAME   *MatrixSource0;
+extern BONEANIMFRAME   *MatrixSource1;
+extern long             MatrixSourceCount;
+extern SKINMATRIX43    *MatrixDst2;
+extern unsigned char    TempRGBS[32000];
+extern float            VertScale;
 
-/* The blended root position and the per-bone blended rotations
- * CreateMatrixPaletteForGeneratingMesh produces and
- * CreateMatrixPaletteRecurse2 then consumes. MAX_BONES is not a constant the
- * binary states -- the arrays are sized from BONESINFO.numBones there -- so it
- * is a bound for the host build rather than a recovered figure, chosen well
- * above the largest skeleton in the shipped data. */
-#define MAX_BONES 128
-extern limeVECTOR3      g_rootPositionV;
-extern BONEANIMFRAME    g_animBlended[MAX_BONES];
+long   DrawSkinnedMesh2(SKININFO *skin, unsigned a, unsigned b, long flags,
+                        limeVECTOR3 *outPos, limeVECTOR2 *outUV,
+                        unsigned char *outCol, long uvCount, long keepFloats);
+void   GenerateMatrices(char *data, BONESINFO *bones, long frameA,
+                        long frameB, float t, long stride);
+void   CreateMatrixPaletteForGeneratingMesh(char *data, long stride,
+                                            long frameA, long frameB,
+                                            float t, BONESINFO *bones);
+void   LIME_RenderMeshSingleIndexed(void *rec, TEXTURE *tex, float alpha,
+                                    const limeVECTOR3 *fade, long second);
 
 void   UnpackAnimFrame(const uint8_t *src, BONEANIMFRAME *out,
                        limeVECTOR3 *pos, long numBones);
@@ -644,11 +658,11 @@ typedef struct FULLBRIGHTINFO {
 extern FULLBRIGHTINFO TheFullBrightInfo;
 extern int            FullBrightLoaded;
 
-/* RenderMesh.cpp: the fade lookup table CreateFadedLookupTable builds, one row
- * of 256 bytes per fade level. */
-extern int      g_fadeTableBuilt;
-extern uint8_t *g_fadeTable;
-#define FADE_LEVELS 256
+/* RenderMesh.cpp: the fade lookup table CreateFadedLookupTable builds, 512
+ * rows of 256 bytes, and the flag that says it exists. */
+extern int      HaveFadeTable;
+extern uint8_t  ScaleTable[0x200 * 256];
+void CreateFadedLookupTable(void);
 
 /* The debug overlay switch and the lazily loaded debug cube (RenderDebugCube). */
 extern int   g_debugEnabled;

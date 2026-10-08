@@ -108,7 +108,11 @@ STUB(RaiseTurboBars)
 char *Plyr, *Pp, *GrObj, *mo, *Playback;
 long  blood[2];
 void *TList, *TList_Free;
-char  mytc[30 * 268];
+/* mk3.c and the rest of the fight declare `MK3THREAD *mytc` -- the slot at
+ * 0x0016566c, whose contents are 0x0038ef3c -- so this is a pointer to the
+ * storage, as runtime/fight_runtime.c has it, not the storage itself. */
+static char mytc_store[30 * 268];
+void *mytc = mytc_store;
 void (*mk3_getbbox_cb)(long, int *, int *, int *, int *);
 
 #ifndef UMK3_SHELL

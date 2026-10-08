@@ -2819,6 +2819,74 @@ gaps entry 7: it's this project's first call to an imported library function
 (`"seq_lookup( %d, %d, %d );\n"`), and the asm-side call reader only matches
 resolved-address calls, not stub imports. Nothing left to do in this file.
 
+## Character select: the screen opens; the fighter model does not draw yet
+
+The select screen (front-end task 0x1b) segfaulted on entry and no fighter
+model was ever shown. Traced one crash at a time, each checked against the
+binary. Six fixes, then a stop at a layout question that needs real work.
+
+1. **64-bit pointers in 32-bit slots.** `Load1Character` stores the
+   ANIMATEDCHARACTER in the word at +0x04 of a 0x668-byte front-end slot; the
+   host pointer was 0x0000019461D16720 and the slot kept 0x61D16720. Same for
+   the texture at +0x528. Fixed in the runtime, not the decomp: `limeMalloc`
+   now allocates from one region reserved below 4 GB (`runtime/lime_platform.c`,
+   power-of-two free lists over a bump arena; malloc fallback with a warning if
+   no low memory can be reserved), and `draw_gl.c`'s texture entries come from
+   `limeMalloc`. All 26 slots now hold usable models (366 meshes, diffuse, skin,
+   bones for slot 0).
+2. **`TreasureGained` is an array**, 10 words at 0x00101164 (to
+   `_TreasureSelectTime`), read PC-relative by `SetupLockedCharacters` with one
+   load. It was declared `int *` and was NULL.
+3. **`DebugWindows` is an array** of 0x3e windows at 0x00392024 (to
+   `_UpdateIndex` at 0x006b49e4, exactly 0x3e * 0xcf20). The `ldr` that made it
+   look like a pointer reads the non-lazy slot 0x00178bd4. `DEBUG_WINDOWS` was
+   16; `LIME_InitDebugWindow` loops to `#0x3e`. `test_dsdebugwin_diff` adapted:
+   58 cases, 0 divergences.
+4. **`FrameRemapTablePtr` does not exist.** `HaveFrameInList` reads slot
+   0x000f3474, which holds 0x002003d4 = `_FrameRemapTable`. Now
+   `FrameRemapTable[list[i]][1]`.
+5. **`IdleLists` / `SizeofIdleLists` are 26-word arrays in __data**, not slots:
+   0x0014e0d8 holds 26 list addresses (`_KanoIdleFrames`, ...; 0 for 23),
+   0x0014e140 the byte sizes. Declared as slots they were zeroed, every idle
+   frame was -1 and `RenderFECharacters` skipped every fighter.
+   `mkglobals.py` now emits them with their lists from the image
+   (`KanoIdleFrames[53]` = 0xd4 bytes, matching `SizeofIdleLists[1]`).
+
+6. **The "?" cards were invisible.** Locked fighters (16 and 17 while
+   `TreasureGained` is clear) draw `HIDDENPORTRAIT.PNG` in `midcol`, which was
+   declared a pointer slot and got zeroed storage: colour (0, 0, 0, 0). In the
+   image `_midcol` at 0x0014fa10 is four floats, 0.5 0.5 0.5 1, like `col`
+   just before it (already fixed as an array). `darkcol`, `semicol` and
+   `semidarkcol` (0x0014fa20..0x0014fa40) had the same fault; all four are now
+   `float x[4]` with their values from the image.
+
+`runtime/gamecode_globals.c` was regenerated, minus `ratio`: the generator
+emits it because it does not see `runtime/lime_menu.c`, which already defines
+it. That drift predates this work.
+
+**Verified:** `tools/check.sh` 0 errors / 186 warnings, same as before.
+`test_menu_screens` over all 66 tasks: identical to the base commit except
+tasks 27 and 42, which crashed before and now pass. `test_rendermesh_diff`
+with the new allocator: 590 files, 7,327 meshes, 0 divergences. `umk3-menu`
+with `UMK3_TASK=0x1b` draws the full grid.
+
+**Where it stops.** With a fighter selected (`UMK3_TASK=0x1b UMK3_SEL=4`) the
+chain now reaches `RenderPlayer` -> `IsFrameVisible` -> `IsAFrameVisible` and
+segfaults there. `IsAFrameVisible` and `RenderAnimatedCharacter`
+(`decomp/gamecode/Players.c`) read the ANIMATEDCHARACTER through image offsets
+(`a[1]`, `a[2]`, `a[0x30/4]`, stride 88), which do not match the host struct.
+Rewriting them by field name is not enough, because the 0x58-byte mesh record
+has **two contradictory readings in the tree**: `MESHREC` in `Players.c` calls
++0x18 the `hasCols` flag (`== 1` means visible), and `MESHINFO` in `lime.h`,
+which `LIME_RenderMeshSingleIndexed` receives, calls +0x18 the `verts`
+pointer. One of them is wrong, and only the binary can say which. Next step:
+disassemble `LoadAnimatedCharacter`'s per-mesh loop (0x0005c348) and
+`LIME_RenderMeshSingleIndexed` and settle the record.
+
+Also noticed: the gcc lines in the headers of `tests/test_menu_boot.c` and
+`tests/test_menu_screens.c` no longer link; they need `runtime/wav.c
+runtime/platform/win32_audio.c -lwinmm` since the audio work.
+
 ## Fight data tables: how they were verified (2026-10-08)
 
 `tools/logic_tables.py` (from PR #46) decides which table words are pointers by

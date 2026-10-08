@@ -18,8 +18,9 @@ Read this, then [METHODOLOGY.md](METHODOLOGY.md). Everything else is reference.
 
 **The decompilation is finished. Nothing is playable yet.** The fight's data
 tables are extracted and verified ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48)); the fight runtime is the
-remaining blocker. The fight builds 32-bit (i686) while the menu tools on
-`main` build 64-bit; that choice is still open. 86.74% of the
+remaining blocker. **Decided (2026-10-08): the game executable, `umk3-game`,
+is i686** -- the fight stores addresses in 32-bit words. Python tools and the
+menu viewers may stay 64-bit. 86.74% of the
 estimated effort by the README's weights, which count functions and formats
 and leave out the fight runtime and the 229 data tables (see below).
 
@@ -47,10 +48,22 @@ and leave out the fight runtime and the 229 data tables (see below).
    [#43](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/43) adds `umk3-game`, which boots the whole game through
    `GameCodeMain` up to character select, built i686. Neither hands the front
    end over to `Task_GameInit` yet.
-   **#43 is still open** (2026-10-08); [#50](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/50) carries its commits plus
-   the Arcade crash fix, and [#44](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/44) gets the select screen open but
-   the 3D fighter still crashes in `IsAFrameVisible`. See PROGRESS.md, "Open
-   pull requests".
+   **Merged (2026-10-08):** [#50](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/50) (with #43's commits), [#49](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/49)
+   and [#42](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/42); #45 closed as superseded. Arcade was re-tested from
+   `E:\MK3 PROJECT\GAME`: Play -> Arcade reaches character select.
+   **Character select draws and animates the 3D fighter** (branch
+   `claude/first-fight-select`, which carries #44). The `IsAFrameVisible`
+   crash was not one bug: MESHREC (the 88-byte frame record
+   LoadAnimatedCharacter builds, +0x18 a flag) and MESHINFO (+0x18 a vertex
+   pointer) are different records, and the lime C read the first as the
+   second. The skinning chain (`DrawSkinnedMesh2`, the matrix palette,
+   `LIME_RenderMeshSingleIndexed`, `CreateFadedRGBS`) and
+   LoadAnimatedCharacter's frame loop were transcribed from armv7; the pure
+   ones pass `tests/test_skinning_armv7_diff.c` and
+   `tests/test_rendermesh_indexed_gl_diff.c` with zero divergences.
+   **Next blocker:** confirming a fighter and a tower reaches
+   `CurrentTask = 4` (`Task_FEDestroy`) by the real path, and the process then
+   ends with a heap-corruption fast-fail (0xC0000374) before `Task_GameInit`.
 2. **The 229 data tables** the fight engine reads: `sm_*` special-move lists,
    `ochar_*` per-character tables, `a_*` animation scripts, and singles such
    as `reaction_table`. They are extracted from the user's own copy at build

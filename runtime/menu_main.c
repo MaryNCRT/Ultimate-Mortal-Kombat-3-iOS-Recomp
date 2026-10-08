@@ -55,6 +55,8 @@ void  lime_touch_began(float x, float y);
 void  lime_touch_moved(float x, float y, float prev_x, float prev_y);
 void  lime_touch_ended(float x, float y, float prev_x, float prev_y);
 extern int   FE_CurrentTask;
+extern int   CharacterSelected;
+void  PushFETask(int task);
 
 /* win32_gl.c owns the window; the pointer state comes from it. */
 int  plat_mouse(int *x, int *y);        /* returns 1 while a button is down */
@@ -130,6 +132,14 @@ int main(int argc, char **argv)
      * so a shot can show a screen that would otherwise need clicks to reach. */
     if (screen)
         FE_CurrentTask = atoi(screen);
+    /* UMK3_TASK=<n> opens front-end screen n straight away, so a screen deep in
+     * the menus can be shot unattended: UMK3_TASK=0x1b is the character
+     * select. UMK3_SEL=<id> then puts the finger on fighter id, which is what
+     * makes the select screen draw a model at all. */
+    if (getenv("UMK3_TASK"))
+        PushFETask((int)strtol(getenv("UMK3_TASK"), NULL, 0));
+    if (getenv("UMK3_SEL"))
+        CharacterSelected = atoi(getenv("UMK3_SEL"));
 
     t0 = plat_time();
     last = t0;

@@ -110,7 +110,7 @@ void q_am_i_cornered(MK3OBJ *obj);
 extern void (*xfer_types_table[])(MK3OBJ *obj, MK3OBJ *other);
 extern uint32_t scom_robo_zap1[];        /* 0x0016a278 */
 extern uint32_t scom_robo_zap2[];        /* 0x0016a2ac */
-extern MK3THREAD mytc[];                  /* 0x0038ef3c, reached through a slot */
+extern MK3THREAD *mytc;  /* slot 0x0016566c -> 0x0038ef3c; the host variable holds the slot's contents, as in mk3.c */
 void *GetThreadFunc(MK3THREAD *thread);
 long t_fatality_wait(MK3THREAD *thread);
 extern long *RoundParam;                 /* pointer slot -> 0x0038ed04 */

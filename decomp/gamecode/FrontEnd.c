@@ -586,7 +586,10 @@ int getRandomLevel(void)
 }
 
 
-extern long  *FrameRemapTablePtr;       /* pointer slot -> 0x002003d4 */
+/* `_FrameRemapTable` 0x002003d4, eight bytes an entry. HaveFrameInList's
+ * `ldr ip, [r3]` reads the non-lazy pointer slot at 0x000f3474, whose
+ * contents are the symbol's own address: the table, not a pointer to it. */
+extern long   FrameRemapTable[];          /* 0x002003d4 */
 typedef struct PLAYERDEF {
     long        id;             /* 0x00  0..25; the same as the index */
     float       scale;          /* 0x04  multiplied by PlayerSize */
@@ -634,7 +637,7 @@ int HaveFrameInList(const long *list, long frame)
     long i;
 
     for (i = 0; list[i] != -1; i++)
-        if (FrameRemapTablePtr[list[i] * 2 + 1] == frame)
+        if (FrameRemapTable[list[i] * 2 + 1] == frame)
             return 1;
     return 0;
 }
@@ -872,7 +875,12 @@ void Load_Stats(void)
 #define LEVEL_INFO_STRIDE  244
 #define LEVEL_SLOTS         16
 
-extern char **LevelInfoPtr;             /* pointer slot -> 0x0014e8d4 */
+/* `_Level_Info` 0x0014e8d4. GetNextLevel loads the non-lazy slot at 0x000f35c8
+ * once (`ldr r1, [r3]` at 0x00002d60) and the slot holds the table's own
+ * address, so that load yields the table. This was `*LevelInfoPtr`, one
+ * dereference more than the binary makes: it read Level_Info's first word as
+ * a pointer and the tower crashed on the way into the match. */
+extern char Level_Info[];
 
 
 /* -------------------------------------------------------------- GetNextLevel
@@ -902,7 +910,7 @@ extern char **LevelInfoPtr;             /* pointer slot -> 0x0014e8d4 */
  */
 int GetNextLevel(int cur)
 {
-    const char *info = *LevelInfoPtr;
+    const char *info = Level_Info;
 
     cur++;
     if (cur > LEVEL_SLOTS - 1)
@@ -1799,7 +1807,12 @@ extern signed char CharacterAvailable[CHARACTER_SLOTS];  /* 0x0018ed5c */
 extern int  ErmacUnlocked;              /* 0x000ff974 */
 extern int  JadeUnlocked;               /* 0x000ff97c */
 extern int  GameMode;                   /* slot -> 0x0014faa4 */
-extern int *TreasureGained;             /* slot -> 0x00101164, see Reset_SaveData */
+/* An ARRAY at 0x00101164, not a pointer slot: SetupLockedCharacters builds the
+ * address PC-relative (`ldr r3, =0xfdfb6; add r3, pc`) and reads `[r3, #8]`
+ * straight off it, one load. Ten words, up to _TreasureSelectTime at 0x0010118c,
+ * all zero in __data. Declared `int *` it was a null pointer, and opening the
+ * character select segfaulted on its first read. */
+extern int  TreasureGained[10];         /* 0x00101164 */
 
 
 /* ------------------------------------------------------- SetupLockedCharacters
@@ -3195,7 +3208,7 @@ void DrawMainMenu(int c1, int c2, int c3, int c4, int c5)
 }
 
 
-extern float *darkcol;                  /* pointer slot */
+extern float  darkcol[4];               /* 0x0014fa20, RGBA 0.1 0.1 0.1 1 */
 
 float limeGetStringWidth(void *font, const char *text);
 
@@ -5434,7 +5447,7 @@ void FE_Task_Main_Menu(void)
         if (LevelSelect > LEVEL_SLOTS - 1)
             LevelSelect = 0;
 
-        info = *LevelInfoPtr;
+        info = Level_Info;
         cur  = LevelSelect;
 
         while (*(const long *)(info + cur * LEVEL_INFO_STRIDE + 0x70) != 0) {
@@ -10333,8 +10346,8 @@ void FE_Task_VS_Screen(void)
 #define TREASURE_PART_MOVE 24.0f
 #define TREASURE_FADE_STEP -0.033333335f
 
-extern float *semicol;                  /* pointer slot -> 0x0014fa30 */
-extern float *semidarkcol;              /* pointer slot -> 0x0014fa40 */
+extern float  semicol[4];               /* 0x0014fa30, RGBA */
+extern float  semidarkcol[4];           /* 0x0014fa40, RGBA */
 extern long   TreasurePlayed;           /* 0x000ff8bc */
 extern long  *endurancerand1;           /* pointer slot -> 0x0014e218 */
 extern long  *endurancerand2;           /* pointer slot -> 0x0014e21c */
@@ -11244,7 +11257,11 @@ void FE_Task_Multiplayer(void)
 
 extern long  CS_Layout[CS_ROWS][CS_COLS];   /* 0x00101630 */
 extern long  CS_Layout2[CS_ROWS][CS_COLS];  /* 0x001016a0 */
-extern float *midcol;                       /* pointer slot -> 0x0014fa10 */
+/* Four floats in __data, like `col` sixteen bytes before it -- not a pointer
+ * slot. Declared `float *` it got zeroed storage, and every locked character's
+ * "?" card was drawn in (0, 0, 0, 0): invisible. The binary has 0.5 0.5 0.5 1.
+ * darkcol, semicol and semidarkcol, the next three, had the same fault. */
+extern float  midcol[4];                    /* 0x0014fa10, RGBA 0.5 0.5 0.5 1 */
 extern long  lastopponentCharacter;         /* 0x0010171c */
 extern long  PlayerSelectToggle;            /* 0x00101720 */
 extern float SmokeCounter;                  /* 0x00101724 */
