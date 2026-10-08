@@ -744,12 +744,14 @@ void limeMemoryReport(const char *tag) { (void)tag; }
  * NULL is the "no save yet" path the game handles -- Reset_SaveData runs and
  * the tower starts empty.
  *
- * `Documents/` becomes UMK3_SAVE_DIR if set, else %APPDATA%/UMK3 on Windows
- * and $XDG_DATA_HOME/umk3 (~/.local/share/umk3) elsewhere. The directory is
- * made on the first write.
+ * `Documents/` becomes UMK3_SAVE_DIR if set, else `save/` beside the exe on
+ * Windows and $XDG_DATA_HOME/umk3 (~/.local/share/umk3) elsewhere. The
+ * directory is made on the first write.
  */
 #ifdef _WIN32
 #include <direct.h>
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
 #define lime_mkdir(p) _mkdir(p)
 #else
 #include <sys/stat.h>
@@ -781,8 +783,17 @@ static void save_dir(char *out, size_t n)
         return;
     }
 #ifdef _WIN32
-    e = getenv("APPDATA");
-    snprintf(out, n, "%s/UMK3", (e && *e) ? e : ".");
+    /* Beside the exe, in `save/`: the game folder holds the build, its `res`
+     * and its saves, and nothing lands in %APPDATA%. */
+    {
+        DWORD len = GetModuleFileNameA(NULL, out, (DWORD)n);
+        char *slash = (len > 0 && len < n) ? strrchr(out, '\\') : NULL;
+
+        if (slash == NULL)
+            snprintf(out, n, "save");
+        else
+            snprintf(slash + 1, n - (size_t)(slash + 1 - out), "save");
+    }
 #else
     e = getenv("XDG_DATA_HOME");
     if (e && *e)
