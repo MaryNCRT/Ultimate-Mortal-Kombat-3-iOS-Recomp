@@ -38,12 +38,16 @@
 #error "tests/sdl2-lint/SDL.h is a lint fixture, not SDL2. Install SDL2 to build."
 #endif
 
+#include <stddef.h>
 #include <stdint.h>
 
 typedef uint8_t  Uint8;
+typedef int16_t  Sint16;
 typedef uint32_t Uint32;
 typedef uint64_t Uint64;
 typedef int32_t  Sint32;
+
+typedef enum { SDL_FALSE = 0, SDL_TRUE = 1 } SDL_bool;
 
 typedef struct SDL_Window SDL_Window;
 typedef void *SDL_GLContext;
@@ -74,11 +78,17 @@ typedef enum {
 typedef struct { Sint32 sym; } SDL_Keysym;
 typedef struct { Uint32 type; SDL_Keysym keysym; } SDL_KeyboardEvent;
 typedef struct { Uint32 type; Uint8 event; Sint32 data1, data2; } SDL_WindowEvent;
+typedef struct {
+    Uint32 type;
+    Uint32 timestamp;
+    Sint32 which;
+} SDL_ControllerDeviceEvent;
 
 typedef union SDL_Event {
-    Uint32            type;
-    SDL_KeyboardEvent key;
-    SDL_WindowEvent   window;
+    Uint32                    type;
+    SDL_KeyboardEvent         key;
+    SDL_WindowEvent           window;
+    SDL_ControllerDeviceEvent cdevice;
 } SDL_Event;
 
 int         SDL_Init(Uint32 flags);
@@ -101,6 +111,83 @@ Uint64 SDL_GetPerformanceCounter(void);
 Uint64 SDL_GetPerformanceFrequency(void);
 int    SDL_PollEvent(SDL_Event *event);
 
+/* ---- window, mouse, keyboard and game controller: what sdl_gl.c's input
+ *      code uses, from the documented SDL2 API (SDL_video.h, SDL_mouse.h,
+ *      SDL_keyboard.h, SDL_scancode.h, SDL_joystick.h, SDL_gamecontroller.h).
+ *      Same caveat as everything above. */
+#define SDL_INIT_GAMECONTROLLER     0x2000u
+#define SDL_CONTROLLERDEVICEADDED   0x653
+#define SDL_CONTROLLERDEVICEREMOVED 0x654
+
+void SDL_GetWindowSize(SDL_Window *window, int *w, int *h);
+
+#define SDL_BUTTON(X)   (1 << ((X) - 1))
+#define SDL_BUTTON_LEFT 1
+Uint32 SDL_GetMouseState(int *x, int *y);
+
+/* SDL2 numbers scancodes by USB HID usage ID; only the ones used are listed */
+typedef enum {
+    SDL_SCANCODE_A = 4,  SDL_SCANCODE_D = 7,  SDL_SCANCODE_I = 12,
+    SDL_SCANCODE_J = 13, SDL_SCANCODE_K = 14, SDL_SCANCODE_L = 15,
+    SDL_SCANCODE_O = 18, SDL_SCANCODE_S = 22, SDL_SCANCODE_U = 24,
+    SDL_SCANCODE_W = 26,
+    SDL_SCANCODE_RETURN = 40,
+    SDL_SCANCODE_F1 = 58, SDL_SCANCODE_F2 = 59, SDL_SCANCODE_F3 = 60,
+    SDL_SCANCODE_F5 = 62,
+    SDL_SCANCODE_RIGHT = 79, SDL_SCANCODE_LEFT = 80,
+    SDL_SCANCODE_DOWN = 81,  SDL_SCANCODE_UP = 82,
+    SDL_SCANCODE_KP_4 = 92, SDL_SCANCODE_KP_5 = 93, SDL_SCANCODE_KP_6 = 94,
+    SDL_SCANCODE_KP_7 = 95, SDL_SCANCODE_KP_8 = 96, SDL_SCANCODE_KP_9 = 97,
+    SDL_NUM_SCANCODES = 512
+} SDL_Scancode;
+const Uint8 *SDL_GetKeyboardState(int *numkeys);
+
+typedef struct _SDL_Joystick SDL_Joystick;
+typedef Sint32 SDL_JoystickID;
+int            SDL_NumJoysticks(void);
+SDL_JoystickID SDL_JoystickInstanceID(SDL_Joystick *joystick);
+
+typedef struct _SDL_GameController SDL_GameController;
+typedef enum {
+    SDL_CONTROLLER_AXIS_INVALID = -1,
+    SDL_CONTROLLER_AXIS_LEFTX,
+    SDL_CONTROLLER_AXIS_LEFTY,
+    SDL_CONTROLLER_AXIS_RIGHTX,
+    SDL_CONTROLLER_AXIS_RIGHTY,
+    SDL_CONTROLLER_AXIS_TRIGGERLEFT,
+    SDL_CONTROLLER_AXIS_TRIGGERRIGHT,
+    SDL_CONTROLLER_AXIS_MAX
+} SDL_GameControllerAxis;
+/* SDL 2.0.14 appends MISC1, PADDLE1-4 and TOUCHPAD after DPAD_RIGHT */
+typedef enum {
+    SDL_CONTROLLER_BUTTON_INVALID = -1,
+    SDL_CONTROLLER_BUTTON_A,
+    SDL_CONTROLLER_BUTTON_B,
+    SDL_CONTROLLER_BUTTON_X,
+    SDL_CONTROLLER_BUTTON_Y,
+    SDL_CONTROLLER_BUTTON_BACK,
+    SDL_CONTROLLER_BUTTON_GUIDE,
+    SDL_CONTROLLER_BUTTON_START,
+    SDL_CONTROLLER_BUTTON_LEFTSTICK,
+    SDL_CONTROLLER_BUTTON_RIGHTSTICK,
+    SDL_CONTROLLER_BUTTON_LEFTSHOULDER,
+    SDL_CONTROLLER_BUTTON_RIGHTSHOULDER,
+    SDL_CONTROLLER_BUTTON_DPAD_UP,
+    SDL_CONTROLLER_BUTTON_DPAD_DOWN,
+    SDL_CONTROLLER_BUTTON_DPAD_LEFT,
+    SDL_CONTROLLER_BUTTON_DPAD_RIGHT
+} SDL_GameControllerButton;
+
+SDL_bool            SDL_IsGameController(int joystick_index);
+SDL_GameController *SDL_GameControllerOpen(int joystick_index);
+void                SDL_GameControllerClose(SDL_GameController *gamecontroller);
+SDL_bool            SDL_GameControllerGetAttached(SDL_GameController *gamecontroller);
+SDL_Joystick       *SDL_GameControllerGetJoystick(SDL_GameController *gamecontroller);
+Sint16              SDL_GameControllerGetAxis(SDL_GameController *gamecontroller,
+                                              SDL_GameControllerAxis axis);
+Uint8               SDL_GameControllerGetButton(SDL_GameController *gamecontroller,
+                                                SDL_GameControllerButton button);
+
 /* ---- audio: what runtime/platform/sdl_audio.c uses, from the documented
  *      SDL2 API (SDL_audio.h). Same caveat as everything above. */
 typedef uint16_t Uint16;
@@ -121,7 +208,35 @@ typedef struct SDL_AudioSpec {
 } SDL_AudioSpec;
 
 #define SDL_INIT_AUDIO  0x10u
+#define AUDIO_U8        0x0008
 #define AUDIO_S16SYS    0x8010
+
+/* rate/format conversion: sdl_audio.c turns the game's u8 mono into the
+ * mixer's format with these before handing it to SDL_mixer */
+struct SDL_AudioCVT;
+typedef void (*SDL_AudioFilter)(struct SDL_AudioCVT *cvt, SDL_AudioFormat format);
+#define SDL_AUDIOCVT_MAX_FILTERS 9
+typedef struct SDL_AudioCVT {
+    int             needed;
+    SDL_AudioFormat src_format;
+    SDL_AudioFormat dst_format;
+    double          rate_incr;
+    Uint8          *buf;
+    int             len;
+    int             len_cvt;
+    int             len_mult;
+    double          len_ratio;
+    SDL_AudioFilter filters[SDL_AUDIOCVT_MAX_FILTERS + 1];
+    int             filter_index;
+} SDL_AudioCVT;
+
+int SDL_BuildAudioCVT(SDL_AudioCVT *cvt,
+                      SDL_AudioFormat src_format, Uint8 src_channels, int src_rate,
+                      SDL_AudioFormat dst_format, Uint8 dst_channels, int dst_rate);
+int SDL_ConvertAudio(SDL_AudioCVT *cvt);
+
+void *SDL_malloc(size_t size);
+void  SDL_free(void *mem);
 
 Uint32 SDL_WasInit(Uint32 flags);
 int    SDL_InitSubSystem(Uint32 flags);
