@@ -5,7 +5,19 @@ Current state of the project. Written so that someone can pick it up with no pri
 **Last updated:** 2026-10-08 — see [HANDOFF.md](HANDOFF.md) for the route;
 "What is next" below is the current task ([ENCARGO.md](ENCARGO.md) is superseded).
 
-> Latest (2026-10-02): **the decompilation is complete and behaviourally
+> Latest (2026-10-08, [#54](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/54)): **Arcade goes from the tower into the
+> real fight load.** `Task_GameInit` runs to the end and the game enters
+> `Task_GameMain`, after fixing `LIME_FreeSkin` (0x6038c), the arena-name
+> table (`tools/level_info.py`), the sound table and its `"end_of_list"`
+> sentinel, the real `FrameID_GetBBox` for `mk3_init`, and `LevelMusic`.
+> **What the player sees:** the arena is black and the game crashes before
+> the fight starts (`GetReal6ButtonJoyBits` 0x1e3cc reads `*GameObjects`
+> after it was zeroed). Fighters with separate hair or hats are not drawn
+> correctly in character select (not investigated). Also open: all-Jade
+> towers, the tower descent animation, random arena choice. Details in
+> HANDOFF.md, "Where the project actually stands".
+>
+> Earlier (2026-10-02): **the decompilation is complete and behaviourally
 > tested.** All 2,572 functions -- 109 engine core, 291 game logic, 2,172
 > fight engine -- have hand-written C, and the fight engine has been run file
 > by file against the recompiled original by `tools/difftest/`, which found
