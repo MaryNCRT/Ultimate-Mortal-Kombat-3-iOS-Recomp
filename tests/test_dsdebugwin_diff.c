@@ -25,9 +25,9 @@
  * The whole window, byte for byte, on both sides. There is no float in this
  * module and no data file — the state is the test.
  *
- * The guest's `_DebugWindows` is a POINTER, not the array, so the test points
- * it at an arena it controls and reads back through the same offsets. The clean
- * side gets its own allocation. Neither can see the other's.
+ * The guest reaches `_DebugWindows` through its non-lazy pointer slot, so the
+ * test points that slot at an arena it controls and reads back through the same
+ * offsets. The clean side is the array itself. Neither can see the other's.
  */
 
 #include "arm_runtime.h"
@@ -142,32 +142,26 @@ static void test_newline(int start_line)
 
 /* --------------------------------------------------------- LIME_KillSliders
  *
- * Six unrolled ClearDebugWindow calls on slots 10 to 15. With only four windows
- * allocated that would run off the end, so this one gets its own arena sized to
- * sixteen -- which is also a check that the slider slots really are 10..15 and
- * not something the earlier reading rounded.
+ * Six unrolled ClearDebugWindow calls on slots 10 to 15. The other tests
+ * compare four windows; this one compares sixteen -- which is also a check that
+ * the slider slots really are 10..15 and not something the earlier reading
+ * rounded.
  */
 static void test_killsliders(void)
 {
-    const size_t bytes = (size_t)DEBUG_WINDOWS * DEBUG_WINDOW_SIZE;
-    DEBUGWINDOW *big = malloc(bytes);
-    DEBUGWINDOW *saved = g_clean;
+    /* Slots 10..15 are all that is touched; sixteen windows cover them. */
+    const size_t bytes = (size_t)16 * DEBUG_WINDOW_SIZE;
     const uint8_t *clean;
     uint32_t a;
 
-    if (big == NULL)
-        return;
-
-    memset(big, 0xA5, bytes);
+    memset(DebugWindows, 0xA5, bytes);
     for (a = 0; a < (uint32_t)bytes; a += 4u)
         MEM_ST32(ARENA + a, 0xA5A5A5A5u);
 
-    g_clean = big;
-    DebugWindows = big;
     LIME_KillSliders();
     call0(func_000a7ce8_LIME_KillSliders);
 
-    clean = (const uint8_t *)big;
+    clean = (const uint8_t *)DebugWindows;
     g_cases++;
     for (a = 0; a < (uint32_t)bytes; a++) {
         if (clean[a] != MEM_LD8(ARENA + a)) {
@@ -178,9 +172,6 @@ static void test_killsliders(void)
         }
     }
 
-    free(big);
-    g_clean = saved;
-    DebugWindows = saved;
 }
 
 
@@ -189,11 +180,7 @@ int main(void)
     setvbuf(stdout, NULL, _IONBF, 0);
     arm_mem_init(RAM_SIZE);
 
-    g_clean = malloc((size_t)WINDOWS * DEBUG_WINDOW_SIZE);
-    if (g_clean == NULL)
-        return 2;
-
-    DebugWindows = g_clean;             /* the clean side's array */
+    g_clean = DebugWindows;             /* the clean side's array */
     MEM_ST32(WINPTR, ARENA);            /* the guest's pointer to its own */
 
     printf("=== clean DS_DebugWin.c vs the recompiled original ===\n");
@@ -216,7 +203,6 @@ int main(void)
     printf("%s\n", g_fail ? "RESULT: FAIL"
                           : "RESULT: the clean debug overlay matches the original");
 
-    free(g_clean);
     arm_mem_free();
     return g_fail ? 1 : 0;
 }
