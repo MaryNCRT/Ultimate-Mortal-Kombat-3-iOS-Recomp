@@ -18091,8 +18091,8 @@ float IntroLook[4][3] = {
 };  /* 0x0014f974 */
 float IntroPlayer1PosX = 4.30000019f;  /* 0x0014f930 */
 float IntroPlayer1PosZ = -0.600000024f;  /* 0x0014f934 */
-float IntroPlayer2PosX = 4.30000019f;  /* 0x0014f938 */
-float IntroPlayer2PosZ = -0.600000024f;  /* 0x0014f93c */
+float IntroPlayer2PosX = 4.30000019f;  /* 0x0014f938, 0x0014f93c */
+float IntroPlayer2PosZ = -0.600000024f;  /* 0x0014f938, 0x0014f93c */
 float IntroPos[4][3] = {
     { 2.29999995f, -3.0999999f, 1.60000002f },
     { 4.30000019f, -4.5f, 1.60000002f },
