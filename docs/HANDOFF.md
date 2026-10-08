@@ -76,6 +76,15 @@ and leave out the fight runtime and the 229 data tables (see below).
    "end_of_list" (literal 0x178be8), not ""; `FrameID_GetBBoxPtr` was the
    non-lazy slot 0xf33f8 -> `_FrameID_GetBBox`, so `mk3_init` now gets the
    real bbox callback; `LevelMusic` is a table of names.
+   **Update (2026-10-08 evening, branch `claude/fight-arena-draw`):** the
+   blocker below is fixed (`GameObjects` was read twice; `mk3_update` is
+   handed `&GameObjects`, 0x222a2) and the fight now RUNS and DRAWS: arena,
+   both fighters, HUD, touch controls. See PROGRESS.md "Latest" for the
+   list of functions transcribed. Use `umk3-game --fight <p1> <p2> [stage]`
+   to skip the menus. Next, in order: keyboard -> player 1 (bits as
+   GetReal6ButtonJoyBits builds them; 0x400 is the one-button special);
+   Kitana black in the fight; HUD font letters; touch buttons mirrored and
+   not animating; camera; clean exit through Task_GameDestroy.
    **Next blocker:** `GetReal6ButtonJoyBits` (0x1e3cc) dereferences
    `*GameObjects` (0x14dfec) after Task_GameInit set it to 0 -- check in the
    disassembly what `_GameObjects` really holds and who fills it.

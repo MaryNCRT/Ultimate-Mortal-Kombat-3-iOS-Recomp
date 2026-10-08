@@ -26,29 +26,48 @@ You need a legally obtained copy of *Ultimate Mortal Kombat 3* for iOS (version 
 
 ---
 
-## Where the project stands — 8 October 2026
+## Where the project stands — 8 October 2026 (evening)
 
 | | |
 |---|---|
 | **Decompiled** | ✅ **All of it.** 2,572 of 2,572 game functions have hand-written C: the LIME engine core (109), the game logic (291) and the fight engine (2,172). Nothing is left to transcribe. |
 | **Verified** | ✅ The engine core passes differential tests against the recompiled original with zero divergences. The fight engine passes a behavioural differential test file by file, with the exceptions listed in [Verification](#how-much-of-it-is-verified) — every one of them a known limit of the test harness, not a known bug. |
 | **Runs natively** | 🔄 The real front end boots in an OpenGL window: menus, text, sounds, music and save files on Windows and Linux. Arcade reaches character select, which draws the 3D fighter with its idle animation ([#53](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/53)), and plays the tower. |
-| **Fight load** | 🔄 After the tower the game runs the real `Task_GameInit` to the end — arena scenes, sounds, music, both fighters — and enters the fight loop `Task_GameMain` ([#54](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/54)). |
-| **Playable** | ❌ **Not yet.** The fight crashes on its first frame (see *Known problems* below). The 229 data tables the fight engine reads are extracted from the user's own binary at build time and verified against it ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48)). |
+| **Fight** | 🔄 **The first fight runs by the real path.** After the tower (or straight from the menu with `--fight`, below) the game runs `Task_GameInit` and `Task_GameMain`: the arena draws, both fighters fight with the CPU playing, with the HUD and touch controls, for thousands of frames without a crash ([#54](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/54), [#56](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/56)). |
+| **Playable** | ❌ **Not yet.** Player 1 has no keyboard control and several things draw wrong (see *Known problems*). The 229 data tables the fight engine reads are extracted from the user's own binary at build time and verified against it ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48)). |
+
+### Debug: straight into a fight
+
+```
+umk3-game.exe --fight kitana kunglao 0
+```
+
+skips the menus: two fighters by name (as in the select screen, case and
+spaces ignored) or number 0-25, and an arena 0-15. `UMK3_FIGHT=kitana,kunglao,0`
+does the same. The game folder carries `pelea-rapida.bat` for a double-click.
+
+Every session started by double-click writes `logs/umk3-<date>-<time>.log`
+beside the exe: task changes, loading steps and, on a crash, the addresses to
+symbolise. A log is deleted once the error it shows is fixed.
 
 ### Known problems (8 October 2026)
 
-What a player sees today, and what is known about each. None is fixed yet.
+What a player sees today, and what is known about each.
 
 | Symptom | What is known |
 |---|---|
-| **The arena is black and the game crashes before the fight starts.** | The arena is now loaded by the real path, but nothing has drawn it yet: the crash comes first. `GetReal6ButtonJoyBits` (armv7 0x1e3cc) reads `*GameObjects` (0x14dfec) on the first frame of `Task_GameMain`, after `Task_GameInit` has set it to 0. Next step: read in the disassembly what `_GameObjects` holds and who fills it. |
-| **Fighters with separate hair or hats (e.g. ponytails, Kung Lao's hat) are not drawn correctly.** | Seen in character select. Cause not yet investigated; the separate parts are likely extra meshes or bones the skinned draw does not handle yet. To be traced against the binary, not guessed. |
-| **Sometimes every fighter in the tower is Jade.** | Not investigated. |
+| **Player 1 cannot be moved from the keyboard.** | Not wired yet; the touch controls are the only input. |
+| **The on-screen buttons are mirrored and do not animate.** | Not investigated. |
+| **Kitana draws as a black silhouette in the fight** (Kung Lao draws correctly). | Not investigated: her texture or her lighting. |
+| **The HUD names and texts are missing letters.** | Not investigated: the HUD font. |
+| **The camera and the fighters' positions look wrong.** | Not investigated. |
+| **Sindel's hair draws white.** | She has her own hair texture (`ANIMATEDCHARACTER+0x20`); not investigated. |
+| **Sometimes every fighter in the tower is Jade.** | Probably the tower ladder (`OpponentTowerList`, built by `PopulateTower`): a `--fight` without `Character2Override` loaded Jade. Not investigated further. |
 | **The tower's descent animation does not display correctly.** | Not investigated. |
-| **The arena is always the same.** | The original picks it at random; that path is not wired yet. |
+| **The arena is always the same in Arcade.** | The original picks it at random; that path is not wired yet. |
 
-Still to do for the first fight: keyboard input for player 1, drawing the arena and both fighters during the fight, a 600-frame run, and a clean exit through `Task_GameDestroy`.
+Fixed on 8 October: the black arena and the crash before the fight; the
+missing hats and attachments (Kung Lao's hat draws in the fight).
 
 **What "decompiled" does and does not mean here.** It means every function the
 game runs has a body that was written against the disassembly and checked
