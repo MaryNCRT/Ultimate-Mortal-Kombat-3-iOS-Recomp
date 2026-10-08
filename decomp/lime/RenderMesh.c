@@ -57,19 +57,19 @@ void LIME_FreeMeshSet(MESHSETINFO *set)
                 continue;
             }
             /* Same order the original frees in. */
-            free(m->meshName);
-            free(m->textureName);
-            free(m->verts);
-            free(m->indices);
+            limeFree(m->meshName);
+            limeFree(m->textureName);
+            limeFree(m->verts);
+            limeFree(m->indices);
             if (m->vertLight) {
-                free(m->vertLight);
+                limeFree(m->vertLight);
             }
-            free(m);
+            limeFree(m);
             set->meshes[i] = NULL;
         }
-        free(set->meshes);
+        limeFree(set->meshes);
     }
-    free(set);
+    limeFree(set);
 }
 
 /*
@@ -136,7 +136,14 @@ MESHSETINFO *LIME_LoadMeshSet(const char *filename, int useLighting)
         return NULL;
     }
 
-    MESHSETINFO *set = (MESHSETINFO *)calloc(1, sizeof(MESHSETINFO));
+    /* Every block below comes from limeMalloc, as in the original: they are
+     * released by LIME_FreeSingleMesh / LIME_FreeMeshSet with limeFree
+     * (0x5e86c, 0x5e7f4). A host malloc here made the first scene load that
+     * dropped an unused mesh free a block limeFree had never seen. */
+    MESHSETINFO *set = (MESHSETINFO *)limeMalloc("meshsethandle",
+                                                 sizeof(MESHSETINFO));
+    if (set)
+        memset(set, 0, sizeof(MESHSETINFO));
     if (!set) {
         limeFree(data);
         limeFree(light);
@@ -149,10 +156,14 @@ MESHSETINFO *LIME_LoadMeshSet(const char *filename, int useLighting)
     int32_t count;
     memcpy(&count, data, 4);
     set->numMeshes = count;
-    set->meshes = (MESHINFO **)calloc((size_t)(count > 0 ? count : 1),
-                                      sizeof(MESHINFO *));
+    set->meshes = (MESHINFO **)limeMalloc("meshset_meshes",
+                                          (size_t)(count > 0 ? count : 1) *
+                                          sizeof(MESHINFO *));
+    if (set->meshes)
+        memset(set->meshes, 0, (size_t)(count > 0 ? count : 1) *
+                               sizeof(MESHINFO *));
     if (!set->meshes) {
-        free(set);
+        limeFree(set);
         limeFree(data);
         limeFree(light);
         return NULL;
@@ -162,14 +173,16 @@ MESHSETINFO *LIME_LoadMeshSet(const char *filename, int useLighting)
     const uint8_t *light_cursor = light;
 
     for (int i = 0; i < count; i++) {
-        MESHINFO *m = (MESHINFO *)calloc(1, sizeof(MESHINFO));
+        MESHINFO *m = (MESHINFO *)limeMalloc("mesh", sizeof(MESHINFO));
+        if (m)
+            memset(m, 0, sizeof(MESHINFO));
         if (!m) {
             break;
         }
         set->meshes[i] = m;
 
-        m->meshName = (char *)malloc(65);
-        m->textureName = (char *)malloc(65);
+        m->meshName = (char *)limeMalloc("meshname", 65);
+        m->textureName = (char *)limeMalloc("texturename", 65);
         if (!m->meshName || !m->textureName) {
             break;
         }
@@ -185,16 +198,18 @@ MESHSETINFO *LIME_LoadMeshSet(const char *filename, int useLighting)
 
         /* Indices are copied verbatim: 6 bytes per triangle. */
         size_t index_bytes = (size_t)m->numFaces * FACE_STRIDE;
-        m->indices = (uint16_t *)malloc(index_bytes ? index_bytes : 1);
+        m->indices = (uint16_t *)limeMalloc("meshindices",
+                                            index_bytes ? index_bytes : 1);
         if (!m->indices) {
             break;
         }
         memcpy(m->indices, p, index_bytes);
         p += index_bytes;
 
-        m->verts = (LIMEVERTEX *)malloc(sizeof(LIMEVERTEX) *
+        m->verts = (LIMEVERTEX *)limeMalloc("meshverts", sizeof(LIMEVERTEX) *
                                         (size_t)(m->numVerts ? m->numVerts : 1));
-        m->vertLight = (uint8_t *)malloc((size_t)(m->numVerts ? m->numVerts : 1));
+        m->vertLight = (uint8_t *)limeMalloc("meshlight",
+                                       (size_t)(m->numVerts ? m->numVerts : 1));
         if (!m->verts || !m->vertLight) {
             break;
         }
@@ -424,6 +439,7 @@ void LIME_FreeSingleMesh(MESHSETINFO *set, int index)
         limeFree(set->meshes[index]->vertLight);
 
     limeFree(set->meshes[index]);
+    set->meshes[index] = NULL;          /* 0x5e8d8: str r3(=0), [meshes, i, lsl #2] */
 }
 
 

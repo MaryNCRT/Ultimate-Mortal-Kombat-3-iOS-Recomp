@@ -343,15 +343,32 @@ void LIME_FreeScene(SCENEINFO *scene)
  * here and every other caller passes 0. Declared `int`, the pointer was
  * truncated to 32 bits at every call -- harmless only for as long as
  * nothing in here reads it, which is not a property to depend on. */
+/* Two file names built in globals, not on the stack (0x002c3ec8, 0x002c3f08:
+ * `ldr r10, =_OffsetsFilename` / `=_LightsFilename`), and a running total of
+ * node-frames loaded (0x00171778, `mla r3, nodes, frames, r3`). Nothing in
+ * this tree reads the total; it is kept because the original keeps it. */
+char OffsetsFilename[0x40];
+char LightsFilename[0x40];
+long NumTotalNodes;
+
+/* 0x0005f464: a frame whose track value is not above this is not a key. */
+#define SCENE_KEY_THRESHOLD 0.03f
+
 SCENEINFO *LIME_LoadScene(const char *filename, int arg1,
                           const char *arg2, int arg3)
 {
+    /* arg3 is a per-frame byte mask (`ldrsb r3, [frame, r8]`; a zero byte
+     * skips the frame), handed on to LIME_LoadEvents with arg2. arg1 is never
+     * read: r1 is overwritten for the "loading %s" print before any use. */
+    const signed char *mask = (const signed char *)(uintptr_t)(unsigned)arg3;
     SCENEINFO *scene;
-    char meshsetName[0x40];
-    char eventsName[0x40];
-    char offsetsName[0x40];
-    const uint8_t *data;
+    char meshsetName[0x40];             /* sp+0x34 */
+    char eventsName[0x40];              /* sp+0x74 */
+    const uint8_t *data, *obj;
+    const long *side;
     size_t stem;
+    long nodes, frames, node, k, nkeys, count3;
+    (void)arg1;
 
     scene = LIME_GetSceneFromFilename(filename);
     if (scene != NULL) {
@@ -359,29 +376,178 @@ SCENEINFO *LIME_LoadScene(const char *filename, int arg1,
         return scene;
     }
 
+    /* 0x5f0dc: a print of "loading %s" (0x001715f8); a no-op in retail. */
     stem = strlen(filename) - 6;        /* drop ".scene" */
 
     strcpy(eventsName, filename);
     memcpy(eventsName + stem, ".events", 8);
-
     strcpy(meshsetName, filename);
     memcpy(meshsetName + stem, ".meshset", 9);
+    strcpy(OffsetsFilename, filename);
+    memcpy(OffsetsFilename + stem, ".offsets", 9);
+    sprintf(LightsFilename, "STATICLIGHTING/%s", filename);
+    memcpy(LightsFilename + strlen(LightsFilename) - 6, ".lights", 8);
 
-    strcpy(offsetsName, filename);
-    memcpy(offsetsName + stem, ".offsets", 9);
-
-    data = limeLoadFile(filename);
+    data = (const uint8_t *)limeLoadFile(filename);
     if (data == NULL)
         return NULL;
-
     scene = AddScene(filename);
+    if (scene == NULL)
+        return NULL;
 
-    /* sibling headers are read into the +0x54 and +0x64 groups, each buffer
-     * freed immediately after its words are copied out */
+    /* 0x5f172..0x5f194: the defaults, before either sibling file. */
+    scene->posX = scene->posY = scene->posZ = 0.0f;     /* +0x54..+0x5c */
+    scene->field68 = scene->field6c = scene->field70 = 0;
+    scene->events = NULL;                               /* +0x84 */
+    scene->refCount = 1;                                /* +0x40 */
+    {
+        float m180 = -180.0f;           /* 0xc3340000, literal 0x5f48c */
+        memcpy(&scene->field64, &m180, 4);
+    }
+    scene->field74 = NULL;
+    scene->field78 = 1;
+    scene->scale = 1.0f;                                /* +0x60 */
 
-    scene->meshset = LIME_LoadMeshSet(meshsetName, 0);   /* +0x80 */
-    scene->events  = LIME_LoadEvents(eventsName, 0, 0);  /* +0x84 */
+    /* `.offsets`: three words, the scene origin. */
+    side = (const long *)limeLoadFile(OffsetsFilename);
+    if (side != NULL) {
+        memcpy(&scene->posX, &side[0], 4);
+        memcpy(&scene->posY, &side[1], 4);
+        memcpy(&scene->posZ, &side[2], 4);
+        limeFree((void *)side);
+    }
+    /* `STATICLIGHTING/<name>.lights`: four words at +0x64..+0x70. */
+    side = (const long *)limeLoadFile(LightsFilename);
+    if (side != NULL) {
+        scene->field64 = side[0];
+        scene->field68 = side[1];
+        scene->field6c = side[2];
+        scene->field70 = side[3];
+        limeFree((void *)side);
+    }
 
+    /* `vldr s14, [r4, #0x70]; vcvt.s32.f32`: +0x70 is a float, and its
+     * integer part is LIME_LoadMeshSet's lighting argument. */
+    {
+        float lit;
+        memcpy(&lit, &scene->field70, 4);
+        scene->meshset = LIME_LoadMeshSet(meshsetName, (int)lit);
+    }
+    /* A scene without its meshset or events does not return: the original
+     * branches to itself (`b .` at 0x5f202 and 0x5f200), as AddToTranspMeshList
+     * does. The message is ours, so the session log says why it stopped. */
+    if (scene->meshset == NULL) {
+        fprintf(stderr, "LIME_LoadScene: no %s -- the original hangs here\n",
+                meshsetName);
+        for (;;) { }
+    }
+    scene->events = LIME_LoadEvents(eventsName, (long)(uintptr_t)arg2, arg3);
+    if (scene->events == NULL) {
+        fprintf(stderr, "LIME_LoadScene: no %s -- the original hangs here\n",
+                eventsName);
+        for (;;) { }
+    }
+
+    /* The header: node count, then frame count. */
+    nodes  = ((const long *)data)[0];
+    frames = ((const long *)data)[1];
+    scene->nodeCount = nodes;                           /* +0x48 */
+    scene->count2    = (int)frames;                     /* +0x44 */
+
+    scene->field4c = limeMalloc("scene_names", nodes << 6);
+    if (scene->field4c == NULL)
+        return NULL;
+    scene->nodeKeys   = (SCENENODEKEY **)limeMalloc("scene_nodes", nodes << 2);
+    scene->nodeStream = (uint16_t **)limeMalloc("crunchedI_container",
+                                                nodes << 2);
+    NumTotalNodes += nodes * frames;
+
+    /* Each object: a 64-byte name, then one 12-byte track a frame --
+     * +0 the value (alpha), +4 a word narrowed to key+5, +8 the palette
+     * index. Only frames whose value is above 0.03 (and that the mask lets
+     * through) become keys; every other frame's stream entry stays 0xffff. */
+    obj = data + 8;
+    for (node = 0; node < nodes; node++) {
+        char *name = (char *)scene->field4c + (node << 6);
+        const uint8_t *trk = obj + 0x40;
+        SCENENODEKEY *key;
+        uint16_t *strm;
+
+        memcpy(name, obj, 0x40);
+
+        nkeys = 0;
+        for (k = 0; k < frames; k++) {
+            float v;
+            memcpy(&v, trk + k * 12, 4);
+            if (mask != NULL && mask[k] == 0)
+                continue;
+            if (v > SCENE_KEY_THRESHOLD)
+                nkeys++;
+        }
+
+        scene->nodeStream[node] = (uint16_t *)limeMalloc("scenenode_find",
+                                                         frames << 1);
+        scene->nodeKeys[node] = (SCENENODEKEY *)limeMalloc("scenenodes_i",
+                                                           nkeys << 3);
+        key = scene->nodeKeys[node];
+        if (key == NULL)
+            return NULL;
+        strm = scene->nodeStream[node];
+
+        nkeys = 0;
+        for (k = 0; k < frames; k++, trk += 12) {
+            float v;
+            int mesh;
+
+            memcpy(&v, trk, 4);
+            strm[k] = 0xffff;
+            if (mask != NULL && mask[k] == 0)
+                continue;
+            if (!(v > SCENE_KEY_THRESHOLD))
+                continue;
+
+            key->alpha = v;
+            mesh = LIME_FindMeshByName(scene->meshset, name);
+            key->meshIndex = (uint8_t)mesh;
+            /* `meshes[(uint8_t)mesh]->visible = 1`, so that
+             * LIME_FreeNonVisibleMeshes below keeps it. The original does
+             * not check for a miss (-1 becomes index 255); the bound is ours. */
+            if ((uint8_t)mesh < scene->meshset->numMeshes)
+                scene->meshset->meshes[(uint8_t)mesh]->visible = 1;
+            key->field05 = (uint8_t)*(const long *)(trk + 4);
+            memcpy(&key->paletteIndex, trk + 8, 2);
+            key++;
+            strm[k] = (uint16_t)nkeys++;
+        }
+        obj += 0x40 + frames * 12;
+    }
+
+    /* The palette: a count, then 40-byte records. The rotation's four floats
+     * are scaled by 32767.0 (literal 0x5f468) and truncated to int16; the six
+     * words after them are copied as they are. 32 bytes each in memory. */
+    count3 = *(const long *)obj;
+    scene->tail = limeMalloc("SceneMtxPalette", count3 << 5);
+    if (scene->tail == NULL)
+        return NULL;
+    {
+        const uint8_t *r = obj;
+        uint8_t *d = (uint8_t *)scene->tail;
+        long i;
+        for (i = 0; i < count3; i++, r += 40, d += 32) {
+            int q;
+            for (q = 0; q < 4; q++) {
+                float f;
+                int16_t s;
+                memcpy(&f, r + 4 + q * 4, 4);
+                s = (int16_t)(int)(f * 32767.0f);
+                memcpy(d + q * 2, &s, 2);
+            }
+            memcpy(d + 8, r + 0x14, 24);
+        }
+    }
+
+    limeFree((void *)data);
+    LIME_FreeNonVisibleMeshes(scene->meshset);
     return scene;
 }
 
