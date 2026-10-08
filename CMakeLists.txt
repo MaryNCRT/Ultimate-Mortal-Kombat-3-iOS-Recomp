@@ -270,12 +270,26 @@ if(UMK3_BINARY)
                     ${UMK3_BINARY}
             COMMENT "Extracting Level_Info's arena names from ${UMK3_BINARY}")
 
+        # The special-move playback scripts seq_lookup points at
+        # (tools/seq_data.py): game data, generated here like the above.
+        set(UMK3_SEQ_DATA ${CMAKE_BINARY_DIR}/seq_data.c)
+        add_custom_command(
+            OUTPUT ${UMK3_SEQ_DATA}
+            COMMAND Python3::Interpreter ${CMAKE_SOURCE_DIR}/tools/seq_data.py
+                    ${UMK3_BINARY} ${UMK3_SEQ_DATA}
+            DEPENDS ${CMAKE_SOURCE_DIR}/tools/seq_data.py
+                    ${CMAKE_SOURCE_DIR}/tools/logic_tables.py
+                    ${CMAKE_SOURCE_DIR}/tools/macho.py
+                    ${UMK3_BINARY}
+            COMMENT "Extracting the playback scripts from ${UMK3_BINARY}")
+
         file(GLOB UMK3_LOGIC_SOURCES ${CMAKE_SOURCE_DIR}/decomp/gamecode/logic/*.c)
         add_executable(umk3-fight-headless
             runtime/fight_headless.c
             runtime/fight_runtime.c
             ${UMK3_LOGIC_SOURCES}
-            ${UMK3_LOGIC_TABLES})
+            ${UMK3_LOGIC_TABLES}
+            ${UMK3_SEQ_DATA})
         set_target_properties(umk3-fight-headless PROPERTIES
             C_STANDARD 11 C_EXTENSIONS ON)
         target_include_directories(umk3-fight-headless PRIVATE
@@ -323,7 +337,8 @@ if(UMK3_BINARY)
             ${UMK3_GAME_RUNLIME}
             ${UMK3_LOGIC_SOURCES}
             ${UMK3_LOGIC_TABLES}
-            ${UMK3_LEVEL_INFO})
+            ${UMK3_LEVEL_INFO}
+            ${UMK3_SEQ_DATA})
         set_target_properties(umk3-game PROPERTIES C_STANDARD 11 C_EXTENSIONS ON)
         target_include_directories(umk3-game PRIVATE
             runtime decomp/lime decomp/gamecode/logic)
