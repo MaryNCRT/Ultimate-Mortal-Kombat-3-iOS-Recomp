@@ -3528,7 +3528,7 @@ void TogglePauseMenu(void)
 extern float *startTime;                /* pointer slot */
 extern float  FrameCount;               /* 0x0014fa60 */
 extern long  *readyToSync;              /* pointer slot */
-extern long   LevelMusic[];             /* 0x0014f8c8 */
+extern const char *LevelMusic[];         /* 0x0014f8c8: names inside Level_Info's tail */
 extern void  *GameFontP;                /* pointer slot -> 0x001abb98 */
 extern float *limeFPSScaleFactorP;      /* pointer slot */
 
@@ -3627,8 +3627,7 @@ void Task_MultiplayerSync(void)
             limeDeleteTexture(LoadingTexture);
 
         if (Settings[2] != 0)
-            limePlayTune((const char *)(uintptr_t)(unsigned long)
-                             LevelMusic[*LevelSelectPtr],
+            limePlayTune(LevelMusic[*LevelSelectPtr],
                          (long)MusicVol[Settings[2]], 1);
     }
 
@@ -5836,7 +5835,7 @@ void Task_GameInit(void)
         CurrentTask = 6 + 8;            /* 14 */
         syncGame(1);
     } else if (Settings[2] != 0) {
-        limePlayTune((const char *)(uintptr_t)LevelMusic[*LevelSelectP],
+        limePlayTune(LevelMusic[*LevelSelectP],
                      (long)MusicVol[Settings[2]], 1);
     }
 
@@ -6872,7 +6871,12 @@ void  preprocessPreloadKode(void);
 /* The slot at 0x000f33f8 holds 0x0001c675 -- FrameID_GetBBox with the Thumb
  * bit set. mk3_init is handed the bounding-box lookup rather than calling it;
  * see decomp/gamecode/training.c, which found the same slot. */
-extern void (*FrameID_GetBBoxPtr)(void);
+/* The binary loads FrameID_GetBBox's address through the non-lazy pointer
+ * 0x000f33f8 (__nl_symbol_ptr, contents 0x0001c675 = _FrameID_GetBBox|1).
+ * That slot is the compiler's way to take a function's address, not a
+ * variable: modelled as a global it was generated NULL and mk3_init installed
+ * a null bbox callback, which ani2_ob (0x584d4) then called. */
+#define FrameID_GetBBoxPtr ((void (*)(void))FrameID_GetBBox)
 
 void *LIME_LoadScene(const char *name, long a, long b, long c);
 void *LIME_LoadSceneWithTextures(const char *name, long a);
@@ -7971,8 +7975,7 @@ void DrawHUD(void)
             MercyMessage        = 0;
             /* the banner ducked the music; put it back */
             if (Settings[2] != 0)
-                limePlayTune((const char *)(uintptr_t)(unsigned long)
-                                 LevelMusic[*LevelSelectPtr],
+                limePlayTune(LevelMusic[*LevelSelectPtr],
                              (long)MusicVol[Settings[2]], 1);
         }
     }
@@ -11182,8 +11185,7 @@ void UpdateInGamePauseMenu(void)
         } else {
             switch (Settings[2]) {
             case 3: limeStopTune(); break;
-            case 0: limePlayTune((const char *)(uintptr_t)
-                                 LevelMusic[*LevelSelectPtr],
+            case 0: limePlayTune(LevelMusic[*LevelSelectPtr],
                                  (long)MusicVol[1], 1); break;
             case 1: limeSetTuneVol((long)MusicVol[2]); break;
             case 2: limeSetTuneVol((long)MusicVol[3]); break;
