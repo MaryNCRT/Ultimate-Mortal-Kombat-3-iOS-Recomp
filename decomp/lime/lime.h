@@ -218,7 +218,8 @@ typedef struct SKININFO {
  * that, walked off the end of a 192-slot array, and segfaulted with no output
  * because stdout was still buffered. Index the array and let the compiler size
  * the step. */
-#define EVENT_KILL_VALUE 0.0f    /* written into +0xa4 and +0xe4 on a kill */
+#define EVENT_KILL_VALUE 100.0f  /* +0xa4 and +0xe4 on a kill: 0x42c80000, the
+                                  * literal at 0xa4354 and 0xa446c */
 
 typedef struct SCENEEVENTTRACK SCENEEVENTTRACK;
 
@@ -230,42 +231,58 @@ typedef struct EVENT {
     struct SCENEINFO *scene;     /* 0x10  `ldr ip, [r4, #0x10]` then
                                   *       `ldr r3, [ip, #0x44]` for count2 */
     SCENEEVENTTRACK *track;      /* 0x14 */
-    uint8_t          _pad18[0x0c];
-    float            step;       /* 0x28  added to the cursor each frame */
-    int              repeat;     /* 0x2c  -1 loops forever */
-    int              repeat2;    /* 0x30  a second counter, tried after +0x2c */
-    uint8_t          _pad34[4];
-    int              delay;      /* 0x38  ticks down before the event starts */
+    float            color[4];   /* 0x18  track +0x08..+0x14, RGBA */
+    float            step;       /* 0x28  added to the cursor each frame;
+                                  *       track +0xc4 */
+    int              repeat;     /* 0x2c  -1 loops forever; track +0x70 */
+    int              repeat2;    /* 0x30  a second counter; track +0x1c */
+    int              field34;    /* 0x34  track +0x20 */
+    int              delay;      /* 0x38  ticks down before the event starts;
+                                  *       track +0x6c */
     /* int32_t, not long. The binary's field is 4 bytes; `long` is 4 on MinGW
      * and 8 on Linux, so writing `long` here would give the struct a different
      * field order on the two hosts for no reason. `long` stays in the SIGNATURE
      * of KillAlleventsWithGroup, where the mangled name (...Groupl) demands it. */
-    int32_t          group;      /* 0x3c */
-    int              field40;    /* 0x40  passed to LIME_TriggerEventsFromScene,
-                                  *       and gates the scene translate */
-    int              field44;    /* 0x44  gates glCullFace */
-    uint8_t          _pad48[4];
-    int              field48;    /* 0x48  a gate in LIME_RenderEvents */
-    int              field4c;    /* 0x4c  compared against 1: a mode */
+    int32_t          group;      /* 0x3c  track +0x7c */
+    int              field40;    /* 0x40  trigger argument 5; passed to
+                                  *       LIME_TriggerEventsFromScene, and gates
+                                  *       the scene translate */
+    int              field44;    /* 0x44  trigger argument 11; gates glCullFace */
+    int              field48;    /* 0x48  trigger argument 8; a gate in
+                                  *       LIME_RenderEvents */
+    int              field4c;    /* 0x4c  track +0x24, zeroed for a shadow;
+                                  *       compared against 1: a mode */
     float            offX;       /* 0x50  the event's own offset, applied */
-    float            offY;       /* 0x54  after the scene's position */
-    float            offZ;       /* 0x58 */
-    uint8_t          _pad40[0x64];
-    float            fadeA;      /* 0xa4 */
-    uint8_t          _pada8[0x3c];
-    float            fadeB;      /* 0xe4 */
+    float            offY;       /* 0x54  after the scene's position -- from */
+    float            offZ;       /* 0x58  MasterEventOffsets, or zero */
+    int              offsetId;   /* 0x5c  track +0xc0, a MasterEventOffsets row */
+    int              offsetId2;  /* 0x60  trigger argument 6, a second row
+                                  *       added in, -1 for none */
+    float           *follow;     /* 0x64  trigger argument 3, the matrix the
+                                  *       event follows */
+    float            world[16];  /* 0x68  limeMatrixMult(m2, m1); its last
+                                  *       element, +0xa4, is set on a kill */
+    float            local[16];  /* 0xa8  a copy of m2; last element +0xe4 */
     /* Both handed to LIME_RenderScene, and the call site names them: +0xe8
      * lands in argument 9, which FlushTranspMeshList takes as its TEXTURE *,
-     * and +0xec lands in argument 10, which nothing reads. Typing +0xe8 as a
-     * pointer rather than long also keeps it from truncating on a 64-bit host,
-     * the same trap Events.c hit once already. */
-    TEXTURE         *flushTexture; /* 0xe8 */
-    long             fieldEC;      /* 0xec  passed on, never read */
+     * and +0xec lands in argument 10, which nothing reads. */
+    TEXTURE         *flushTexture; /* 0xe8  trigger argument 9 */
+    long             fieldEC;      /* 0xec  trigger argument 10 */
     int              isWhirlwind; /* 0xf0  IsWhirlwindScene(scene), decided once
-                                   *       at spawn -- KillIllegalWhirlwinds and
-                                   *       IsOnWWFrame are the consumers */
-    uint8_t          _padf4[EVENT_STRIDE - 0xf4];
+                                   *       at spawn */
+    void            *obj;        /* 0xf4  LastGObj at spawn: the fight object
+                                  *       KillIllegalWhirlwinds tests */
 } EVENT;
+
+/* The layout above is the binary's, offset for offset, on a 32-bit host --
+ * which is the only host the fight runs on (see runtime/game_main.c). The
+ * earlier version had a 0x64-byte pad where 0x48 belonged, so every field
+ * past +0x58 sat 28 bytes late and the pool stepped 276 bytes a slot. */
+#if UINTPTR_MAX == 0xffffffffu
+typedef char event_layout_0xa4[offsetof(EVENT, world) + 60 == 0xa4 ? 1 : -1];
+typedef char event_layout_0xf4[offsetof(EVENT, obj) == 0xf4 ? 1 : -1];
+typedef char event_size_0xf8[sizeof(EVENT) == EVENT_STRIDE ? 1 : -1];
+#endif
 
 /* A track loaded from a .events file: 216 bytes, spelled out by LIME_LoadEvents
  * as count*32 - count*8 = count*24, times 8, plus the 24. Names are uppercased
@@ -497,11 +514,11 @@ typedef struct FONT {
 extern EVENT            SceneEvents[EVENT_SLOTS];
 extern SCENEEVENTTRACK  g_fbxScratchTrack;   /* reused every LIME_PlayFBXAtPos */
 extern limeMATRIX44     g_fbxScratchMatrix;
-/* Walked as raw bytes by FindIdInMasterOffsets, which strcmps at a fixed stride.
- * Typed as bytes rather than as a struct array because the record layout is not
- * established. */
-extern const char      *g_masterOffsets;
-extern int              g_masterOffsetCount;
+/* 80-byte rows: a 64-byte name, then x, y, z at +0x40, and a spare word.
+ * The file holds them at 76 bytes a row (LIME_LoadMasterEventOffsets). */
+extern char            *MasterEventOffsets;     /* 0x00177818 */
+extern int              NumMasterEventOffsets;  /* 0x00177814 */
+extern const char      *MasterOffsetsFilename;  /* 0x00177830 */
 /* Declared with the struct tag: the full SCENEINFO definition lives further
  * down, after MESHSETINFO, and this block precedes it. */
 struct SCENEINFO;
@@ -635,10 +652,6 @@ void         LIME_FreeMeshSetTextures(MESHSETINFO *set);
  * see the note on _IsTextureFullBrightPath in RenderMesh.c. */
 #define NOLIGHT_FILE "nolight.txt"
 
-/* The master effect-offset registry LIME_LoadMasterEventOffsets reads and
- * FindIdInMasterOffsets searches. The literal is in a pool this pass did not
- * resolve, so the name stands in for it. */
-#define MASTER_OFFSETS_FILE "masteroffsets"
 
 /* _TheFullBrightInfo occupies 4100 bytes in __DATA,__common -- the distance to
  * the next symbol, _NumTranspMeshes. That is exactly 4 + 64 * 64, so the table
@@ -862,8 +875,25 @@ int    CountEventsMatching(SCENEEVENTTRACK *track, limeMATRIX44 *matrix);
 int    LIME_TriggerEventFromSceneH(struct SCENEINFO *scene,
                                    SCENEEVENTTRACK *track,
                                    limeMATRIX44 *m1, limeMATRIX44 *m2,
-                                   long a4, long a5, long a6, long a7,
-                                   TEXTURE *tex0, TEXTURE *tex1, long a10);
+                                   long a4, long offsetId2, long zeroOffset,
+                                   long a7, TEXTURE *tex0, TEXTURE *tex1,
+                                   long a10);
+int    AddNewID(const char *name);
+int    LIME_TriggerEvent(SCENEEVENTTRACK *track, limeMATRIX44 *m1,
+                         limeMATRIX44 *m2, long a4, long offsetId2, long a7,
+                         TEXTURE *tex0, TEXTURE *tex1, long a10);
+void   LIME_TriggerEventsFromScene(struct SCENEINFO *scene, int frame,
+                                   limeMATRIX44 *m, long a4, long offsetId2,
+                                   long a7, TEXTURE *tex0, TEXTURE *tex1);
+long   LIME_TriggerEventsFromSceneOffsetIfFollowing(long player, long printed,
+                                   struct SCENEINFO *scene, long frame,
+                                   limeMATRIX44 *m, limeMATRIX44 *mFollow,
+                                   long a4, long a7, TEXTURE *tex0,
+                                   TEXTURE *tex1, long a10);
+/* Gamecode globals the event spawner reads (LIME_TriggerEventFromSceneH
+ * 0xa4c44 and 0xa4d92, both through non-lazy slots). */
+extern void  *LastGObj;                 /* 0x00150eb0 */
+extern float  ShadowOffset;             /* 0x0014dfc8 */
 
 
 /* GL ES 1.1 fixed function. Declared here rather than pulled from a GL header so

@@ -33,10 +33,12 @@ EVENT            SceneEvents[EVENT_SLOTS];
 SCENEEVENTTRACK  g_fbxScratchTrack;
 limeMATRIX44     g_fbxScratchMatrix;
 
-/* Walked as raw bytes by FindIdInMasterOffsets. The record layout is not
- * established, so this is a byte pointer rather than a typed array. */
-const char      *g_masterOffsets;
-int              g_masterOffsetCount;
+/* The master offsets: 80-byte rows, a 64-byte name then x, y, z (and a
+ * spare word) -- LIME_LoadMasterEventOffsets 0xa45d4, AddNewID 0xa452c. */
+char            *MasterEventOffsets;     /* 0x00177818 */
+int              NumMasterEventOffsets;  /* 0x00177814 */
+/* 0x00177830, a pointer to the literal at 0x0017781c. */
+const char      *MasterOffsetsFilename = "MASTER.eventoffsets";
 
 /* The scene cache. AddScene and LIME_GetSceneFromFilename both walk it through
  * SCENEINFO+0x90, so it is a singly linked list with this as its head. */
