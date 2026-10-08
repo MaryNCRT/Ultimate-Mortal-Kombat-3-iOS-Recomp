@@ -177,6 +177,11 @@ elseif(UMK3_BACKEND STREQUAL "win32")
         message(FATAL_ERROR "The win32 backend only builds on Windows. "
                             "Configure with -DUMK3_BACKEND=sdl2.")
     endif()
+    # win32_gl_cdecl.c is empty on 64-bit; on i686 it forwards the cdecl GL
+    # declarations to opengl32's __stdcall exports (see lime_glapi.h).
+    foreach(t umk3 umk3-menu umk3-fight umk3-test)
+        target_sources(${t} PRIVATE runtime/platform/win32_gl_cdecl.c)
+    endforeach()
     target_sources(umk3 PRIVATE runtime/platform/win32_gl.c)
     target_link_libraries(umk3 PRIVATE opengl32 gdi32)
     target_sources(umk3-menu PRIVATE runtime/platform/win32_gl.c
