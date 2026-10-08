@@ -4764,7 +4764,9 @@ void LIME_GLAPI glRotatef(float a, float x, float y, float z);
  * fighter-to-stage ratio, and the 90-degree X rotation is the same one
  * `HUDANIM_Render` applies -- the Z-up world meeting a Y-up mesh.
  *
- * ### Character 24 is drawn mirrored
+ * ### Character 24 is drawn mirrored -- for player one
+ *
+ * (Player two is the reverse: mirrored unless it is 24. See the body.)
  *
  *      if (anim->characterId == 24) {
  *          glScalef(-scale, scale, scale);
@@ -4877,16 +4879,25 @@ void RenderIntroCharacterPlayer(void)
         glTranslatef(IntroPlayer2PosX / PlayerSize,
                      IntroPlayer2PosZ / PlayerSize, 0.0f);
 
+        /* Player two is the MIRROR of player one (0x21822..0x218f4): every
+         * character but 24 is drawn with x negated and front faces culled,
+         * so the two fighters face each other; 24, already mirrored in its
+         * data, is the one drawn straight. glEnable(GL_CULL_FACE) comes
+         * first, at 0x21800. */
+        glEnable(GL_CULL_FACE);
         if (anim[2] == 24) {
-            glScalef(-s, s, s);
-            glCullFace(GL_FRONT);
-        } else {
-            glScalef(s, s, s);
             glCullFace(GL_BACK);
+            glScalef(s, s, s);
+        } else {
+            glCullFace(GL_FRONT);
+            glScalef(-s, s, s);
         }
 
+        /* The alternate costume (+0x530) when one is loaded, else the
+         * character's own sheet (0x21846..0x2190e). Player one has no such
+         * test. */
         p1[0x534 / 4] = 0;
-        p1[0x528 / 4] = anim[0x14 / 4];
+        p1[0x528 / 4] = (p1[0x530 / 4] != 0) ? p1[0x530 / 4] : anim[0x14 / 4];
 
         RenderAnimatedCharacter(0, (ANIMATEDCHARACTER *)anim,
                                 p1[0x51c / 4], p1[0x520 / 4],
