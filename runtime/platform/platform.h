@@ -103,7 +103,7 @@ int plat_pad(int which);
  * silently does nothing. A machine with no sound card still plays the game.
  */
 
-/* Open the mixer at the sample rate the assets use. */
+/* Open audio output; `rate` is the default source rate for sound effects. */
 int  plat_audio_open(int rate);
 void plat_audio_close(void);
 
@@ -123,12 +123,11 @@ int  plat_audio_play(const unsigned char *pcm, int frames, float gain);
 int  plat_audio_play_at(const unsigned char *pcm, int frames, int rate,
                         float gain);
 
-/* Feed the device. Call once a frame. */
+/* Reclaim finished one-shot sound buffers. Call once a frame. */
 void plat_audio_update(void);
 
-/* Background music, straight from a file. MP3 in this game's case, which is
- * why it goes to the OS rather than through the mixer above: writing an MP3
- * decoder to play a menu loop would be absurd. */
+/* Background music, straight from a file. SDL backends stream the game's MP3
+ * tunes with SDL2_mixer; Win32 uses MCI. */
 void plat_music_play(const char *path, int loop);
 void plat_music_stop(void);
 

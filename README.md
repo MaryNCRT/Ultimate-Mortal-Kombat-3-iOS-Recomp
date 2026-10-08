@@ -6,7 +6,7 @@
 
 **A complete decompilation of the 2011 iOS release of Ultimate Mortal Kombat 3 — every one of the game's 2,572 functions is now readable C — and a native PC port for Windows and Linux that is still in progress.**
 
-[Getting started](docs/GETTING-STARTED.md) · [Methodology](docs/METHODOLOGY.md) · [LIME engine](docs/LIME-ENGINE.md) · [Asset formats](docs/X-TABLES.md) · [Mesh viewer](docs/MESH-VIEWER.md) · [Game bugs](docs/GAME-BUGS.md) · [Hidden content](docs/HIDDEN-CONTENT.md) · [Stages](docs/STAGES.md) · [Roster](docs/ROSTER.md) · [Move tables](docs/MOVES-TABLES.md) · [Lighting](docs/LIGHTING.md) · [Font format](docs/FONT-FORMAT.md) · [Scene format](docs/SCENE-FORMAT.md) · [PVR format](docs/PVR-FORMAT.md) · [Frame lists](docs/FRAMELISTS.md) · [MAME reference](docs/MAME-ARCADE.md) · [iPad build](docs/IPAD-BUILD.md) · [Architecture](docs/ARCHITECTURE.md) · [Progress](docs/PROGRESS.md) · [Handoff](docs/HANDOFF.md) · [Next task](docs/ENCARGO.md) · [AI disclosure](AI-DISCLOSURE.md) · [Español](README.es.md)
+[Getting started](docs/GETTING-STARTED.md) · [Browser experiment](web/README.md) · [Methodology](docs/METHODOLOGY.md) · [LIME engine](docs/LIME-ENGINE.md) · [Asset formats](docs/X-TABLES.md) · [Mesh viewer](docs/MESH-VIEWER.md) · [Game bugs](docs/GAME-BUGS.md) · [Hidden content](docs/HIDDEN-CONTENT.md) · [Stages](docs/STAGES.md) · [Roster](docs/ROSTER.md) · [Move tables](docs/MOVES-TABLES.md) · [Lighting](docs/LIGHTING.md) · [Font format](docs/FONT-FORMAT.md) · [Scene format](docs/SCENE-FORMAT.md) · [PVR format](docs/PVR-FORMAT.md) · [Frame lists](docs/FRAMELISTS.md) · [MAME reference](docs/MAME-ARCADE.md) · [iPad build](docs/IPAD-BUILD.md) · [Architecture](docs/ARCHITECTURE.md) · [Progress](docs/PROGRESS.md) · [Handoff](docs/HANDOFF.md) · [Next task](docs/ENCARGO.md) · [AI disclosure](AI-DISCLOSURE.md) · [Español](README.es.md)
 
 **Companion project:** [**UMK3 — Godot Remake**](https://github.com/MaryNCRT/UMK3-IOS-GODOT-REMAKE) — a playable remake built on what this repository measures. [How the two fit together](#the-companion-repository).
 
@@ -32,7 +32,7 @@ You need a legally obtained copy of *Ultimate Mortal Kombat 3* for iOS (version 
 |---|---|
 | **Decompiled** | ✅ **All of it.** 2,572 of 2,572 game functions have hand-written C: the LIME engine core (109), the game logic (291) and the fight engine (2,172). Nothing is left to transcribe. |
 | **Verified** | ✅ The engine core passes differential tests against the recompiled original with zero divergences. The fight engine passes a behavioural differential test file by file, with the exceptions listed in [Verification](#how-much-of-it-is-verified) — every one of them a known limit of the test harness, not a known bug. |
-| **Runs natively** | 🔄 The real front end boots in an OpenGL window: menus, text, sounds, music and save files on Windows. Linux runs it through SDL2 (its new audio backend is not build-tested yet, and plays no music). All 18 arenas render with an animated fighter in them. |
+| **Runs natively** | 🔄 The real front end boots in an OpenGL window: menus, text, sounds, music and save files on Windows and Linux. All 18 arenas render with an animated fighter in them. |
 | **Playable** | ❌ **Not yet.** The fight engine is decompiled but has no runtime to run in, and the 229 data tables it reads (special-move lists, animation scripts, reaction tables) are not extracted yet. Those two are the road to the first fight. |
 
 **What "decompiled" does and does not mean here.** It means every function the
@@ -72,7 +72,7 @@ The long-term goals, in order:
 |---|---|
 | Understand the binary and its file formats | ✅ done — every LIME asset format is specified |
 | Recover readable C source, function by function | ✅ **done** — 2,572 of 2,572, behaviourally tested |
-| Replace the iOS platform layer with a native PC one | 🔄 started — window, GL, textures, files, sound, music (Windows), saves and focus pause run natively; the fight's input waits for the fight runtime |
+| Replace the iOS platform layer with a native PC one | 🔄 started — window, GL, textures, files, sound, music, saves and focus pause run natively; the fight's input waits for the fight runtime |
 | Run the fight: engine runtime and its 229 data tables | ⬜ **next** — the step that makes the game playable |
 | Widescreen, gamepad support, modding | ⬜ planned |
 | **Local two-player on one machine** | ⬜ planned — [the iPad build has it](docs/IPAD-BUILD.md) |
@@ -514,7 +514,8 @@ Everything derived from the binary lands in `work/`, which is git-ignored. Set
 ### Build and run the native port
 
 ```bash
-# Windows (MinGW-w64 + Ninja) builds the win32 backend; Linux uses SDL2.
+# Windows (MinGW-w64 + Ninja) uses Win32; Linux uses SDL2 and SDL2_mixer.
+# On Ubuntu/Debian: sudo apt install libsdl2-dev libsdl2-mixer-dev libgl-dev
 cmake -S . -B build -G Ninja
 cmake --build build
 
@@ -530,9 +531,8 @@ build/umk3-test  path/to/Payload/UMK3.app/res
 ```
 
 The mouse stands in for a finger. Save files go to `%APPDATA%/UMK3` on Windows
-and `~/.local/share/umk3` on Linux (`UMK3_SAVE_DIR` overrides both); music needs
-the Windows backend for now. `UMK3_SHOT=<n>` runs n frames, writes a screenshot
-and quits.
+and `~/.local/share/umk3` on Linux (`UMK3_SAVE_DIR` overrides both).
+`UMK3_SHOT=<n>` runs n frames, writes a screenshot and quits.
 
 ---
 

@@ -28,6 +28,7 @@ file(GLOB UMK3_MENU_RUNLIME  runtime/lime/*.c)
 
 add_executable(umk3-menu
     runtime/menu_main.c
+    runtime/menu_splash.c
     runtime/draw_gl.c
     runtime/gamecode_globals.c
     runtime/gamecode_stubs.c
@@ -77,6 +78,7 @@ target_include_directories(umk3-fight PRIVATE runtime decomp/lime)
 # two is running. UMK3_SHELL tells fight_scene.c to leave out its own main.
 add_executable(umk3-test
     runtime/test_main.c
+    runtime/menu_splash.c
     runtime/fight_scene.c
     runtime/fight_render.c
     runtime/fight_audio.c
@@ -108,12 +110,69 @@ target_compile_definitions(umk3-test PRIVATE UMK3_REAL_GL UMK3_SHELL UMK3_HAVE_M
 # sdl2 is the portable path. Both implement platform.h and nothing else.
 if(WIN32)
     set(UMK3_BACKEND "win32" CACHE STRING "Platform backend: win32 or sdl2")
+elseif(EMSCRIPTEN)
+    set(UMK3_BACKEND "sdl2" CACHE STRING "Platform backend: sdl2")
 else()
     set(UMK3_BACKEND "sdl2" CACHE STRING "Platform backend: win32 or sdl2")
 endif()
 set_property(CACHE UMK3_BACKEND PROPERTY STRINGS win32 sdl2)
 
-if(UMK3_BACKEND STREQUAL "win32")
+if(EMSCRIPTEN)
+    if(NOT UMK3_BACKEND STREQUAL "sdl2")
+        message(FATAL_ERROR "Emscripten requires UMK3_BACKEND=sdl2.")
+    endif()
+    configure_file(web/ipa.js ipa.js COPYONLY)
+    configure_file(web/ipa_store.js ipa_store.js COPYONLY)
+    configure_file(web/index.html index.html COPYONLY)
+    target_sources(umk3 PRIVATE runtime/platform/sdl_gl.c)
+    target_sources(umk3-menu PRIVATE runtime/platform/sdl_gl.c
+                                    runtime/platform/sdl_audio.c)
+    target_sources(umk3-fight PRIVATE runtime/platform/sdl_gl.c
+                                     runtime/platform/sdl_audio.c)
+    target_sources(umk3-test PRIVATE runtime/platform/sdl_gl.c
+                                    runtime/platform/sdl_audio.c)
+    target_sources(umk3-test PRIVATE runtime/emscripten_entry.c)
+    foreach(target umk3 umk3-menu umk3-fight umk3-test)
+        target_compile_options(${target} PRIVATE "-sUSE_SDL=2")
+        target_compile_options(${target} PRIVATE "-sUSE_SDL_MIXER=2"
+                                                  "-sSDL2_MIXER_FORMATS=mp3")
+        target_compile_options(${target} PRIVATE -include stddef.h)
+        target_compile_definitions(${target} PRIVATE
+            _snprintf=snprintf
+            _strdup=strdup
+        )
+        target_link_options(${target} PRIVATE
+            "-sUSE_SDL=2"
+            "-sUSE_SDL_MIXER=2"
+            "-sSDL2_MIXER_FORMATS=mp3"
+            "-sLEGACY_GL_EMULATION=1"
+            "-sGL_UNSAFE_OPTS=0"
+            "-sGL_FFP_ONLY=1"
+            "-sASYNCIFY=1"
+            "-sINVOKE_RUN=1"
+            "-sALLOW_MEMORY_GROWTH=1"
+            "-sMAXIMUM_MEMORY=4294967296"
+            "-sFORCE_FILESYSTEM=1"
+        )
+    endforeach()
+    target_link_options(umk3-test PRIVATE
+        "--shell-file=${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html"
+        "--pre-js=${CMAKE_CURRENT_SOURCE_DIR}/web/asset_mount.js")
+    set_property(TARGET umk3-test APPEND PROPERTY LINK_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html"
+        "${CMAKE_CURRENT_SOURCE_DIR}/web/asset_mount.js"
+        "${CMAKE_CURRENT_SOURCE_DIR}/web/cache_bust.cmake"
+        "${CMAKE_CURRENT_SOURCE_DIR}/web/index.html")
+    set_target_properties(umk3-test PROPERTIES
+        SUFFIX ".html"
+        OUTPUT_NAME "umk3-browser-v6")
+    add_custom_command(TARGET umk3-test POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+            "-DHTML_FILE=$<TARGET_FILE:umk3-test>"
+            "-DJS_VERSION=20261003-9"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/web/cache_bust.cmake"
+        VERBATIM)
+elseif(UMK3_BACKEND STREQUAL "win32")
     if(NOT WIN32)
         message(FATAL_ERROR "The win32 backend only builds on Windows. "
                             "Configure with -DUMK3_BACKEND=sdl2.")
@@ -132,15 +191,28 @@ if(UMK3_BACKEND STREQUAL "win32")
 elseif(UMK3_BACKEND STREQUAL "sdl2")
     find_package(SDL2 REQUIRED)
     find_package(OpenGL REQUIRED)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(SDL2_MIXER REQUIRED IMPORTED_TARGET SDL2_mixer)
     target_sources(umk3 PRIVATE runtime/platform/sdl_gl.c)
     target_sources(umk3-menu PRIVATE runtime/platform/sdl_gl.c
                                     runtime/platform/sdl_audio.c)
-    target_include_directories(umk3-menu PRIVATE ${SDL2_INCLUDE_DIRS})
-    target_link_libraries(umk3-menu PRIVATE ${SDL2_LIBRARIES} OpenGL::GL m)
+    target_sources(umk3-fight PRIVATE runtime/platform/sdl_gl.c
+                                     runtime/platform/sdl_audio.c)
+    target_sources(umk3-test PRIVATE runtime/platform/sdl_gl.c
+                                    runtime/platform/sdl_audio.c)
     # SDL2_INCLUDE_DIRS is the spelling the Debian/Ubuntu config module uses;
     # the imported target covers the rest.
-    target_include_directories(umk3 PRIVATE ${SDL2_INCLUDE_DIRS})
-    target_link_libraries(umk3 PRIVATE ${SDL2_LIBRARIES} OpenGL::GL m)
+    foreach(target umk3 umk3-menu umk3-fight umk3-test)
+        target_include_directories(${target} PRIVATE ${SDL2_INCLUDE_DIRS})
+        target_compile_options(${target} PRIVATE -include stddef.h)
+        target_compile_definitions(${target} PRIVATE
+            _snprintf=snprintf
+            _strdup=strdup
+        )
+        target_link_libraries(${target} PRIVATE ${SDL2_LIBRARIES}
+                                                PkgConfig::SDL2_MIXER
+                                                OpenGL::GL m)
+    endforeach()
 else()
     message(FATAL_ERROR "Unknown UMK3_BACKEND '${UMK3_BACKEND}'.")
 endif()

@@ -46,6 +46,7 @@ long  lime_gl_fill_count(void);
 void  Task_LoadGeneralData(void);
 int   FEInit_LoadABit(long step);
 void  Task_FEMain(void);
+int   menu_play_splash(void);
 void  limeBegin(void);
 void  limeFinish(void);
 
@@ -108,6 +109,14 @@ int main(int argc, char **argv)
     }
     lime_platform_set_asset_root(root);
     lime_gl_set_screen(VIRT_W, VIRT_H);
+
+    printf("showing publisher logos\n");
+    if (!menu_play_splash()) {
+        plat_close();
+        return 0;
+    }
+    printf("publisher logos complete\n");
+
 
     printf("loading...\n");
     Task_LoadGeneralData();
