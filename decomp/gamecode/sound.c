@@ -41,7 +41,17 @@ uint32_t get_csound(long index, long character)
 }
 
 
-extern long triple_sndtab[][2];         /* 0x001790b8, stride 8 */
+typedef struct SOUNDENTRY {             /* 8 bytes: the walk advances by 8 */
+    const char *name;                   /* 0x00 */
+    long        id;                     /* 0x04, -1 when not loaded */
+} SOUNDENTRY;
+
+/* `_triple_sndtab` 0x001790b8 is a SOUNDENTRY list: LoadAllSounds (0xa82d4)
+ * passes it to LoadSoundList like the other 43, whose `ldr r0,[list]` /
+ * `strcmp` reads word 0 as a name. Its first word, 0x00178c04, is a
+ * __cstring address. Declared `long[][2]`, the generated definition kept
+ * those addresses as integers and the first strcmp on the host faulted. */
+extern SOUNDENTRY triple_sndtab[];
 int printf(const char *fmt, ...);
 
 
@@ -64,7 +74,7 @@ int printf(const char *fmt, ...);
 long get_tsound(long id)
 {
     printf("Tsound 0x%x %d\n", (unsigned)id, (int)id);
-    return triple_sndtab[id][1];
+    return triple_sndtab[id].id;
 }
 
 
@@ -131,11 +141,6 @@ long get_gsound(long group, long variant, long seed)
 
 
 #define SOUND_UNIQUE_NAME_STRIDE 32
-
-typedef struct SOUNDENTRY {             /* 8 bytes: the walk advances by 8 */
-    const char *name;                   /* 0x00 */
-    long        id;                     /* 0x04, -1 when not loaded */
-} SOUNDENTRY;
 
 extern long  SoundListUniqueCounter;    /* 0x0017b3b0 */
 extern long  SoundListUniqueIds[];      /* the ids, one word each */
@@ -241,7 +246,10 @@ void LoadSoundList(SOUNDENTRY *list)
         const char *name = list->name;
         long i;
 
-        if (strcmp(name, "") == 0)      /* the sentinel string */
+        /* 0xa821a-0xa822a: the literal is 0x00178be8, "end_of_list" -- the
+         * same sentinel UnLoadSoundList stops at. Read as "", every list
+         * stopped at its first unused entry or ran off its end. */
+        if (strcmp(name, "end_of_list") == 0)
             return;
 
         if (name[0] != 0) {
@@ -271,8 +279,6 @@ void LoadSoundList(SOUNDENTRY *list)
 /* The forty-four sound tables, **in the order both functions walk them** --
  * `LoadAllSounds` and `UnLoadAllSounds` use exactly the same sequence. Twenty-
  * seven generic effect tables, then seventeen per-character voice tables. */
-/* `triple_sndtab` is declared above as long[][2] -- the same eight bytes a
- * SOUNDENTRY has, reached there by index and here as a list. */
 extern SOUNDENTRY gs_death[];
 extern SOUNDENTRY gs_shook[];
 extern SOUNDENTRY gs_run[];
@@ -352,7 +358,7 @@ void LoadAllSounds(void)
         SoundListUniqueHandle[i] = -1;
     }
 
-    LoadSoundList((SOUNDENTRY *)triple_sndtab);
+    LoadSoundList(triple_sndtab);
     LoadSoundList(gs_death);
     LoadSoundList(gs_shook);
     LoadSoundList(gs_run);
@@ -422,7 +428,7 @@ void UnLoadAllSounds(void)
 {
     long i;
 
-    UnLoadSoundList((SOUNDENTRY *)triple_sndtab);
+    UnLoadSoundList(triple_sndtab);
     UnLoadSoundList(gs_death);
     UnLoadSoundList(gs_shook);
     UnLoadSoundList(gs_run);

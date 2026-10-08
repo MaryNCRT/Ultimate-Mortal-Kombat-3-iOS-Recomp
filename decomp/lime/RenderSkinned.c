@@ -564,17 +564,38 @@ void GenerateMatrices(char *data, BONESINFO *bones, long frameA, long frameB,
  * statement about the struct than any single reader could make, because a
  * missed field would leak and a phantom one would crash.
  */
+/*
+ * armv7 0x0006038c: after the six arrays it loads `[r5]` (`next`, 0x603b8)
+ * and, when non-NULL, frees the same six arrays of that second block and the
+ * block itself (0x603bc-0x603e2) -- one level, not a recursion -- and only
+ * then the struct (0x603e8). The second free is `+0x1c` (0x6039a); freeing
+ * `+0x18` twice was a double free that corrupted the heap (0xC0000374) when
+ * Task_FEDestroy released the select-screen fighters.
+ */
 void LIME_FreeSkin(SKININFO *skin)
 {
+    SKININFO *next;
+
     if (skin == NULL)
         return;
 
     limeFree(skin->vertExtra);      /* +0x18 */
-    limeFree(skin->vertExtra);       /* +0x1c */
+    limeFree(skin->uvs);            /* +0x1c */
     limeFree(skin->matricesA);      /* +0x14 */
     limeFree(skin->weights);        /* +0x24 */
     limeFree(skin->indexes);        /* +0x20 */
     limeFree(skin->matricesB);      /* +0x28 */
+
+    next = skin->next;              /* +0x00 */
+    if (next != NULL) {
+        limeFree(next->vertExtra);
+        limeFree(next->uvs);
+        limeFree(next->matricesA);
+        limeFree(next->weights);
+        limeFree(next->indexes);
+        limeFree(next->matricesB);
+        limeFree(next);
+    }
     limeFree(skin);
 }
 

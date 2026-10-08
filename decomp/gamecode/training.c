@@ -79,7 +79,10 @@ long mk3_init(long p1model, long p2model,
 void mk3_dizzy(void);
 void LIME_KillAllEvents(void);
 
-extern void (*FrameID_GetBBoxPtr)(void);        /* slot 0x000f33f8 */
+/* slot 0x000f33f8 is the non-lazy pointer to _FrameID_GetBBox (0x1c675):
+ * the function's address, not a variable. */
+void FrameID_GetBBox(long fid, long *x0, long *y0, long *x1, long *y1);
+#define FrameID_GetBBoxPtr ((void (*)(void))FrameID_GetBBox)
 
 
 /* ---------------------------------------------------------- TrainingMessages
