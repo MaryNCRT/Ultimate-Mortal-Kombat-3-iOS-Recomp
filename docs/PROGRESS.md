@@ -2,8 +2,8 @@
 
 Current state of the project. Written so that someone can pick it up with no prior context.
 
-**Last updated:** 2026-10-03 — see [HANDOFF.md](HANDOFF.md) for the route and
-[ENCARGO.md](ENCARGO.md) for the next task.
+**Last updated:** 2026-10-08 — see [HANDOFF.md](HANDOFF.md) for the route;
+"What is next" below is the current task ([ENCARGO.md](ENCARGO.md) is superseded).
 
 > Latest (2026-10-02): **the decompilation is complete and behaviourally
 > tested.** All 2,572 functions -- 109 engine core, 291 game logic, 2,172
@@ -18,9 +18,12 @@ Current state of the project. Written so that someone can pick it up with no pri
 > `build/umk3-menu.exe <res>` opens it, the mouse stands in for a finger, and
 > `UMK3_SHOT=<n>` ticks n frames, writes `umk3-menu.ppm` and quits.
 >
-> **Not playable yet.** The fight engine has no runtime, and the 229 data
-> tables it reads are not extracted -- see "The other axis" below. Those two
-> are the road to the first fight.
+> **Not playable yet.** The 229 data tables the fight engine reads are
+> extracted and verified ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48), 2026-10-08), and the
+> engine runs headless. What is missing on main is the runtime inside the
+> windowed game: the hand-over from the front end to `Task_GameInit`, and the
+> fight's input. See "Open pull requests" below for work that is written but
+> not merged.
 >
 > Before that: **all 18 arenas render, textured, with their effects and an
 > animated fighter standing in them.**
@@ -409,6 +412,25 @@ used only by the fight's particles -- and the ~180 Objective-C methods (views,
 controllers, renderers, Finch) are replaced by the SDL2/GL backend rather than
 rewritten one by one.
 
+### Open pull requests (2026-10-08)
+
+Written, not on main. Nothing below counts toward any figure in this file
+until it is merged.
+
+| PR | What it does | State |
+|---|---|---|
+| [#42](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/42) | Platform layer: `limeBegin`, `limeFinish` and more of `lime.m`/`EAGLView` read off the binary | open |
+| [#43](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/43) | `umk3-game`: boots the whole game through `GameCodeMain` up to character select, i686 | open; its commits are carried by #50 |
+| [#44](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/44) | Character select: opens without crashing, the `?` cards draw, `IdleLists` filled from the image, a below-4 GB `limeMalloc` | open. **The fighter model still does not draw**: rendering crashes in `IsAFrameVisible` because `MESHREC` (Players.c) and `MESHINFO` (lime.h) disagree on the mesh record's `+0x18`; to be settled from `LoadAnimatedCharacter` (0x5c348) |
+| [#45](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/45) | "Maryncrt abrir menu umk3", no description | open, not reviewed |
+| [#49](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/49) | `tests/sdl2-lint/` declares what the browser port's SDL code uses, so `tools/check.sh` is back to 0 errors | open |
+| [#50](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/50) | First fight: `umk3-game` 32-bit target, Arcade crash fix (MP3 through ACM/`waveOut`), `Load_Tower` frees the right pointer, game folder with `res` and `save/` beside the exe; removes `tools/mklogicdata.py` | open; Arcade entry not re-tested with this exact build |
+
+**The character select screen draws a 3D fighter**, not only portraits:
+`Load1Character` loads an ANIMATEDCHARACTER per slot and the idle frame comes
+from `IdleLists`. So "fighters in the select screen" depends on #44's open
+mesh-record question, not only on the fight runtime.
+
 ### Milestones
 
 | Milestone | Status |
@@ -423,7 +445,7 @@ rewritten one by one.
 | **Every game function is decompiled** | ✅ **done — 2,572 of 2,572** (2026-10-01), behaviourally tested (2026-10-02) |
 | The game boots natively | 🔄 the front end boots, takes input, plays sound and music and saves; the fight has no runtime |
 | The fight's 229 data tables are extracted and verified | ✅ done ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48), 2026-10-08) — 1,118 objects, byte-exact, `ctest -R logic` |
-| The game is playable natively | 🔄 next: the hand-over from the front end to `Task_GameInit` — engine runs headless ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46)), game boots to character select ([#43](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/43)) |
+| The game is playable natively | 🔄 next: the hand-over from the front end to `Task_GameInit` — engine runs headless ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46)), booting to character select is in open PR [#43](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/43)/[#50](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/50) |
 
 ---
 
