@@ -26,14 +26,29 @@ You need a legally obtained copy of *Ultimate Mortal Kombat 3* for iOS (version 
 
 ---
 
-## Where the project stands — 2 October 2026
+## Where the project stands — 8 October 2026
 
 | | |
 |---|---|
 | **Decompiled** | ✅ **All of it.** 2,572 of 2,572 game functions have hand-written C: the LIME engine core (109), the game logic (291) and the fight engine (2,172). Nothing is left to transcribe. |
 | **Verified** | ✅ The engine core passes differential tests against the recompiled original with zero divergences. The fight engine passes a behavioural differential test file by file, with the exceptions listed in [Verification](#how-much-of-it-is-verified) — every one of them a known limit of the test harness, not a known bug. |
-| **Runs natively** | 🔄 The real front end boots in an OpenGL window: menus, text, sounds, music and save files on Windows and Linux. All 18 arenas render with an animated fighter in them. |
-| **Playable** | ❌ **Not yet — but the fight's data is done.** All 229 data tables the fight engine reads, and the 889 objects they point to, are extracted from the user's own binary at build time and **verified against it** ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48)): byte-exact, every pointer checked, one fault found and fixed. The engine links whole and runs headless. Booting the game to character select is in an open pull request ([#43](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/43), carried forward by [#50](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/50)), not yet on main. What is left for the first fight is the hand-over from the front end to `Task_GameInit`. |
+| **Runs natively** | 🔄 The real front end boots in an OpenGL window: menus, text, sounds, music and save files on Windows and Linux. Arcade reaches character select, which draws the 3D fighter with its idle animation ([#53](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/53)), and plays the tower. |
+| **Fight load** | 🔄 After the tower the game runs the real `Task_GameInit` to the end — arena scenes, sounds, music, both fighters — and enters the fight loop `Task_GameMain` ([#54](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/54)). |
+| **Playable** | ❌ **Not yet.** The fight crashes on its first frame (see *Known problems* below). The 229 data tables the fight engine reads are extracted from the user's own binary at build time and verified against it ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48)). |
+
+### Known problems (8 October 2026)
+
+What a player sees today, and what is known about each. None is fixed yet.
+
+| Symptom | What is known |
+|---|---|
+| **The arena is black and the game crashes before the fight starts.** | The arena is now loaded by the real path, but nothing has drawn it yet: the crash comes first. `GetReal6ButtonJoyBits` (armv7 0x1e3cc) reads `*GameObjects` (0x14dfec) on the first frame of `Task_GameMain`, after `Task_GameInit` has set it to 0. Next step: read in the disassembly what `_GameObjects` holds and who fills it. |
+| **Fighters with separate hair or hats (e.g. ponytails, Kung Lao's hat) are not drawn correctly.** | Seen in character select. Cause not yet investigated; the separate parts are likely extra meshes or bones the skinned draw does not handle yet. To be traced against the binary, not guessed. |
+| **Sometimes every fighter in the tower is Jade.** | Not investigated. |
+| **The tower's descent animation does not display correctly.** | Not investigated. |
+| **The arena is always the same.** | The original picks it at random; that path is not wired yet. |
+
+Still to do for the first fight: keyboard input for player 1, drawing the arena and both fighters during the fight, a 600-frame run, and a clean exit through `Task_GameDestroy`.
 
 **What "decompiled" does and does not mean here.** It means every function the
 game runs has a body that was written against the disassembly and checked

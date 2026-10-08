@@ -154,6 +154,8 @@ static void parse_taps(const char *s)
     }
 }
 
+void umk3_relocate_level_info(void);   /* build/level_info.c */
+
 int main(int argc, char **argv)
 {
     const char *root = (argc > 1) ? argv[1] : "res";
@@ -193,6 +195,9 @@ int main(int argc, char **argv)
      * one G, H, MKEventQueue and RoundParam -- the storage the fight's tables
      * point into -- before anything is written through them. */
     fight_runtime_init();
+    /* Level_Info's scene and layer names are iOS addresses until this runs
+     * (tools/level_info.py); GameInit_LoadABit reads them at steps 27-29. */
+    umk3_relocate_level_info();
     GameCodeInit();
 
     last = plat_time();

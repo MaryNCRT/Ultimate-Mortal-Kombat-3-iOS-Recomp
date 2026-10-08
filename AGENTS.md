@@ -104,6 +104,18 @@ When you run out of context, leave behind:
 
 Do not leave uncommitted work in the tree.
 
+**Golden rule: commit and update at both ends of every session.**
+
+- **When a session starts:** commit and push anything left in the tree, pull
+  in `main`, and read README.md, docs/PROGRESS.md and docs/HANDOFF.md, so the
+  work starts from the current state.
+- **When a session ends:** commit and push all work, and update every place
+  that describes the project's state: README.md (its status table and known
+  problems), docs/PROGRESS.md, docs/HANDOFF.md, and anything else the work
+  changed. Record what the user saw in the build, even if it is not fixed yet.
+  Then get it onto `main`. An open pull request is not the same as updated
+  docs.
+
 ---
 
 ## 5. Staging
