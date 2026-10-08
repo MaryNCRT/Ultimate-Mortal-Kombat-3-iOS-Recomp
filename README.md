@@ -34,7 +34,7 @@ You need a legally obtained copy of *Ultimate Mortal Kombat 3* for iOS (version 
 | **Verified** | ✅ The engine core passes differential tests against the recompiled original with zero divergences. The fight engine passes a behavioural differential test file by file, with the exceptions listed in [Verification](#how-much-of-it-is-verified) — every one of them a known limit of the test harness, not a known bug. |
 | **Runs natively** | 🔄 The real front end boots in an OpenGL window: menus, text, sounds, music and save files on Windows and Linux. Arcade reaches character select, which draws the 3D fighter with its idle animation ([#53](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/53)), and plays the tower. |
 | **Fight** | 🔄 **The first fight runs by the real path.** After the tower (or straight from the menu with `--fight`, below) the game runs `Task_GameInit` and `Task_GameMain`: the arena draws, both fighters fight with the CPU playing, with the HUD and touch controls, for thousands of frames without a crash ([#54](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/54), [#57](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/57)). |
-| **Playable** | ❌ **Not yet.** Player 1 has no keyboard control and several things draw wrong (see *Known problems*). The 229 data tables the fight engine reads are extracted from the user's own binary at build time and verified against it ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48)). |
+| **Playable** | 🔄 **A first fight can be played** from the keyboard (W A S D or arrows; U I O J K L) or the touch controls, with the HUD, the FIGHT overlay and the CPU opponent. Not yet complete: see *Known problems*. The 229 data tables the fight engine reads are extracted from the user's own binary at build time and verified against it ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48)). |
 
 ### Debug: straight into a fight
 
@@ -56,18 +56,22 @@ What a player sees today, and what is known about each.
 
 | Symptom | What is known |
 |---|---|
-| **Player 1 cannot be moved from the keyboard.** | Not wired yet; the touch controls are the only input. |
-| **The on-screen buttons are mirrored and do not animate.** | Not investigated. |
-| **Kitana draws as a black silhouette in the fight** (Kung Lao draws correctly). | Not investigated: her texture or her lighting. |
-| **The HUD names and texts are missing letters.** | Not investigated: the HUD font. |
-| **The camera and the fighters' positions look wrong.** | Not investigated. |
+| **The camera angles in the fight look wrong.** | Not investigated yet (next). |
+| **The on-screen joystick does not animate.** | Not investigated. |
+| **Kitana sometimes draws black.** | Mechanism found, cause not: the object's flag nibble 4 selects `ANIMATEDCHARACTER+0x1c`, the green sheet only Jade loads (`RenderLevelPlayers` 0x240ac, `LightPlayers`); something sets that nibble on her. |
 | **Sindel's hair draws white.** | She has her own hair texture (`ANIMATEDCHARACTER+0x20`); not investigated. |
+| **Sounds play at the wrong moments.** | Reported; not investigated. |
 | **Sometimes every fighter in the tower is Jade.** | Probably the tower ladder (`OpponentTowerList`, built by `PopulateTower`): a `--fight` without `Character2Override` loaded Jade. Not investigated further. |
 | **The tower's descent animation does not display correctly.** | Not investigated. |
 | **The arena is always the same in Arcade.** | The original picks it at random; that path is not wired yet. |
 
-Fixed on 8 October: the black arena and the crash before the fight; the
-missing hats and attachments (Kung Lao's hat draws in the fight).
+Fixed on 8 October, each against the armv7 binary: the black arena and the
+crash before the fight (scene loader, scene renderer, events module); hats
+and attachments and their textures; player two's intro (placed and mirrored);
+the HUD text (limeDrawFONT reads ASCII); the FIGHT overlay's texture and
+alpha; "ROUND 1" staying up; mirrored diagonals (the dial's up/down); the
+keyboard for player 1 (W A S D or arrows, U I O J K L); several fight-logic
+crashes (button handlers' second argument, `t_rup3`, `seq_lookup`).
 
 **What "decompiled" does and does not mean here.** It means every function the
 game runs has a body that was written against the disassembly and checked

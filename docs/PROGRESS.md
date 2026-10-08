@@ -19,9 +19,17 @@ Current state of the project. Written so that someone can pick it up with no pri
 > limeMalloc; the vertex-colour scratch is `_TempRGBS`; the tint is
 > `_SceneTint`; `seq_lookup`'s scripts are extracted (`tools/seq_data.py`).
 > Each double-clicked session writes `logs/umk3-*.log`.
-> **Open:** keyboard for player 1; mirrored, unanimated touch buttons; Kitana
-> black in the fight; HUD letters missing; camera/positions; Sindel's hair;
-> all-Jade towers; tower descent; random arena. README, "Known problems".
+> Later the same day: player two's intro (two translates, mirrored), the HUD
+> text (`limeDrawFONT` 0x7e5b8 reads ASCII), the FIGHT overlay
+> (`LIME_SetSceneTextures` 0x5f07c walks a table; `LIME_RenderSceneOverrideTextures`
+> 0x5f4d4), the round banner (`RoundSummary` cleared at 0x29f00), the dial's
+> up/down (0x261f4), `LIME_LoadMeshSetTextures` (0x5ed34), the button
+> handlers' second argument (`DoSwitchJump` 0x55f60), `t_rup3`'s slot; the
+> keyboard drives player 1; `tools/mkdata.py` reaches symbols by interior
+> pointers (the blood textures had 1 of 12).
+> **Open:** camera angles; joystick animation; Kitana occasionally black;
+> Sindel's hair; sounds; all-Jade towers; tower descent; random arena.
+> README, "Known problems".
 >
 > Earlier (2026-10-08, [#54](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/54)): **Arcade goes from the tower into the
 > real fight load.** `Task_GameInit` runs to the end and the game enters
