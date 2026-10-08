@@ -165,7 +165,7 @@ void HUDANIM_Update(void)
 
 
 extern void *MeshSet_FIGHT;             /* 0x00183d5c, one word, via a slot */
-extern long  *SceneRenderAlwaysTrans;   /* pointer slot -> 0x00171760 */
+extern int   SceneRenderAlwaysTrans;    /* 0x00171760, defined in RenderScene.c */
 extern float  finishsize;               /* 0x00175184 */
 
 extern void *Fight_MeshAndTexture;      /* 0x00174eec */
@@ -266,10 +266,10 @@ void HUDANIM_Render(void)
 
     LIME_SetSceneTextures(MeshSet_FIGHT, mesh, &HSceneTextures);
 
-    *SceneRenderAlwaysTrans = 1;
+    SceneRenderAlwaysTrans = 1;
     LIME_RenderSceneOverrideTextures(Scene_FIGHT, &HSceneTextures,
                                      (long)TheHud.timer);
-    *SceneRenderAlwaysTrans = 0;
+    SceneRenderAlwaysTrans = 0;
 
     glPopMatrix();
     limeEnableDepthTest();

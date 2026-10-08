@@ -1126,11 +1126,13 @@ void LIME_RenderMeshSingle(MESHINFO *mesh, TEXTURE *t0, TEXTURE *t1,
     if (flags != 0 && mesh->vertLight != NULL && mesh->fullBright == 0 &&
         texNotFullBright) {
         glEnableClientState(GL_COLOR_ARRAY);
+        limeVECTOR3 amb;
+        memcpy(&amb, StaticMeshAmbient, sizeof(amb));   /* 0x5e770 ldm */
         CreateFadedRGBS(mesh->vertLight,        /* +0x24, the SOURCE */
                         g_vertexColourScratch,
                         1.0f,                   /* a literal, not `alpha` */
                         mesh->numVerts,
-                        g_fadeOffset);
+                        amb);
         glColorPointer(4, GL_UNSIGNED_BYTE, 0, g_vertexColourScratch);
     } else {
         glDisableClientState(GL_COLOR_ARRAY);

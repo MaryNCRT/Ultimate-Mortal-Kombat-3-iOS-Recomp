@@ -4076,7 +4076,7 @@ void SetToUseCamera(const float *arg)
 }
 
 
-extern float *StaticMeshAmbient;        /* pointer slot -> 0x002bfe74 */
+extern float StaticMeshAmbient[3];      /* 0x002bfe74, defined in lime_globals.c */
 extern void  *WhiteTexture;             /* 0x001ab998 */
 
 float fabsf(float x);
@@ -10134,7 +10134,7 @@ void Task_GameMain(void)
 #define RLP_SCENE_BASE       6          /* LIME_RenderScene's first argument */
 
 extern void  *LastGObj;                 /* 0x00150eb0 */
-extern long  *SkipFrame86;              /* pointer slot -> 0x00171774 */
+extern int   SkipFrame86;               /* 0x00171774, defined in RenderScene.c */
 /* Not a pointer slot -- 0x00218cc4 IS the array, a 470,860-byte
  * `__DATA,__common` object. The extent and the evidence are on the declaration
  * in Players.c, which spelled the same symbol `char *` and crashed on it. */
@@ -10481,15 +10481,15 @@ void RenderLevelPlayers(void)
                 glCullFace(w[0x540 / 4] ? GL_FRONT : GL_BACK);
 
                 if (slot <= 1) {
-                    *SkipFrame86 = 0;
+                    SkipFrame86 = 0;
                     if (oi[GOBJ_FRAME / 2] == FRAME_SKIP86)
-                        *SkipFrame86 = 1;
+                        SkipFrame86 = 1;
                     LIME_RenderScene(slot + RLP_SCENE_BASE,
                                      RLP_PTR(RLP_PTR(owner[4 / 4])[0x10 / 4]),
                                      w[0x51c / 4], w[0x520 / 4], pf[0x524 / 4],
                                      0, 0, pass,
                                      RLP_PTR(w[0x528 / 4]), w[0x52c / 4], att);
-                    *SkipFrame86 = 0;
+                    SkipFrame86 = 0;
                 } else if (flags100 == 0) {
                     LIME_RenderScene(slot + RLP_SCENE_BASE,
                                      RLP_PTR(RLP_PTR(owner[4 / 4])[0x10 / 4]),
