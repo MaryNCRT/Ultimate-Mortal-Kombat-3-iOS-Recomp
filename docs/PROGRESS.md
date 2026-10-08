@@ -318,6 +318,17 @@ The menu is drawn. What is left, in order:
 
 ## The other axis: 229 data tables nobody has counted
 
+> **Status 2026-10-08: extracted and verified.** `tools/logic_tables.py`
+> generates all of them at build time from the user's binary -- 1,118 objects
+> (the 229 the code names plus everything they point to), 37,802 words, 4,291
+> relocations -- and `tools/check_logic_tables.py` verifies the result against
+> the binary. Both `OUTPUT/armv7/UMK3.armv7` and the IPA's fat `UMK3` give
+> byte-identical output. `cmake -DUMK3_BINARY=...` with a 32-bit compiler
+> builds `umk3-fight-headless`, and `ctest -R logic` runs three tests: the
+> tables, their layout in the linked program, and the engine running. See
+> "Fight data tables: how they were verified" below. The section that follows
+> is the original inventory, kept as written.
+
 Every percentage in this document counts **functions**. Linking the fight
 engine for the first time showed that is only part of the work.
 
@@ -2784,6 +2795,67 @@ gaps entry 7: it's this project's first call to an imported library function
 (`printf`) whose format string happens to spell the function's own name
 (`"seq_lookup( %d, %d, %d );\n"`), and the asm-side call reader only matches
 resolved-address calls, not stub imports. Nothing left to do in this file.
+
+## Fight data tables: how they were verified (2026-10-08)
+
+`tools/logic_tables.py` (from PR #46) decides which table words are pointers by
+a narrow rule: a Thumb start of a fight function, or a word that falls inside a
+fight data object. Everything else is copied as a number. That rule was checked
+four ways, and three things were fixed.
+
+**1. Round trip.** Every emitted word, turned back into the value the binary
+holds, matches the image byte for byte: 151,312 bytes over 1,118 objects, zero
+differences.
+
+**2. A second, independent generator.** `tools/mklogicdata.py` (fight-runtime
+branch, PR #43) was written separately with a broader rule. On the 35,577 words
+both emit they disagree on 53, and each was settled by the code that reads it:
+
+| words | where | read as | right |
+|---|---|---|---|
+| 39 | `sm_*` +0x04 of each 0x48 entry (`0x00100000`, ...) | `pair[1]` for `illegal_button_check`: a button mask | logic_tables (number) |
+| 11 | `ochar_flesh_lineups` | `int16_t` (mkfatal.c) | logic_tables (number) |
+| 1 | `ochar_skeleton_adj` | 16.16 adjustments (0, 0x80000, 0x100000) | logic_tables (number) |
+| 1 | `lao_ani_data+0x14a8` = 0x55fd | a frame id in a run 0x55ec..0x55fd | logic_tables (number) |
+| 1 | `ochar_headrip_lineups+0x8` = 0x000e0030 | `int16_t` pair (0x30, 0x0e) | **mklogicdata** (number) |
+
+
+**3. Where every relocation goes.** 2,612 go from __DATA to __DATA, 66 into
+__common (`G`, `H` ...), and exactly one went into __TEXT,__const: the
+headrip pair above. The 278 numbers that land in the middle of front-end
+storage (`DebugWindows`, `Versus_Names2`, `Players`) were read one by one:
+halfword pairs, switch masks and ASCII. None is a pointer. No number equals a
+function, string or data-symbol start except the frame id above.
+
+**4. Layout.** In the image 1,123 pairs of fight objects touch. Built as
+before, 23 of those pairs no longer touched on the host: all-zero tables went
+to .bss, and halfword tables of 50, 30, 10 and 6 bytes were padded to whole
+words. `ochar_slam_damage` (25 int16, indexed by character) sits directly in
+front of `ochar_slammed_anis`, so a read of entry 25 would have seen padding
+instead of the next table.
+
+**Fixed:**
+
+- `logic_tables.map` gained `int <symbol> <offset>` (a word that must stay a
+  number; the generator refuses an entry that is not a relocation candidate)
+  and `number <symbol> <offset>` (a number the checker would flag, with the
+  read that settles it). `ochar_headrip_lineups+0x8` is the one `int`;
+  `lao_ani_data+0x14a8` is the one `number`.
+- The generator emits every object in binary order into one section, zero
+  tables included, and objects whose address or size is not a multiple of
+  four as bytes at their exact size. All 1,123 touching pairs now touch on
+  the host at the same distance.
+- `tools/check_logic_tables.py` repeats checks 1, 3 and 4 (and the
+  declared-type rule: an `int16_t` table holds no relocation) on every run,
+  and fails if it checked fewer objects or relocations than the generator
+  wrote. It catches both faults above when they are put back.
+
+The headless run (`mk3_init`, then `mk3_update` every frame) prints the same
+output before and after these changes.
+
+**Still not proven by this:** that a number landing mid-object in fight data
+is never a pointer is the rule's own claim; the two generators agree on it for
+every shared word, and no reader found contradicts it.
 
 ## Toolchain
 

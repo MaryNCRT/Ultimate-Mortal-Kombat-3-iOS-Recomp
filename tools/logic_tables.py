@@ -44,12 +44,34 @@ A word is relocated when, and only when:
   * it falls inside one of the emitted logic data objects; or
   * it falls inside an object `logic_tables.map` maps to native storage.
 
+and it is not listed as `int` in `logic_tables.map`.
+
 Anything else is an integer and is copied as is. That rule is deliberately
 narrow: the special-move lists hold switch masks such as 0x00200000 that land
 inside front-end objects, and fixed-point constants such as 0x00050000 land in
 the middle of functions. Neither is a pointer, and the rule does not take
 them for one. Every relocation and every rejected near-miss is written to the
 report so the classification can be audited.
+
+## `int` entries: words checked to be numbers
+
+A value can land inside a logic object by accident. `ochar_headrip_lineups`
+is read as `int16_t` pairs by mkfatal.c, and its pair (0x0030, 0x000e) spells
+0x000e0030, which is inside `seq_mileena_groundroll`. The map lists each such
+word, by symbol and offset, with the read that settles it. A listed word is
+never relocated, and the generator refuses a listed word that would not have
+been relocated anyway, so a stale entry cannot hide.
+
+## Layout
+
+Every object is emitted in binary address order into one section, zero-filled
+ones included (a zero array would otherwise go to .bss and leave the order).
+Objects whose address or size is not a multiple of four are emitted as bytes,
+at their exact size and alignment; one of those holding a relocation is an
+error. So two objects that touch in the image touch on the host, and a read
+past the end of one sees the next, as it does on the device:
+`ochar_slam_damage` is 25 int16 indexed by character, and sits directly in
+front of `ochar_slammed_anis`.
 
 ## Pointer width
 
@@ -98,9 +120,22 @@ def read_map(path):
                 alias[int(line[2], 16)] = line[1]
             elif line[0] == "object" and len(line) == 2:
                 objects.add(line[1])
+            elif line[0] in ("int", "number") and len(line) == 3:
+                pass                    # read_ints / check_logic_tables.py
             else:
                 raise SystemExit("%s: bad line %r" % (path, " ".join(line)))
     return native, alias, objects
+
+
+def read_ints(path):
+    """`int <binary symbol> <offset>` lines -> [(symbol, offset)]."""
+    out = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.split("#", 1)[0].split()
+            if line and line[0] == "int":
+                out.append((line[1], int(line[2], 16)))
+    return out
 
 
 def c_name(binary_name):
@@ -152,6 +187,13 @@ def main(argv):
                     end = min(end, real[j][0])
                 break
         return end - a
+
+    forced_int = {}
+    for bname, off in read_ints(mappath):
+        hit = [r[0] for r in real if r[1] == bname]
+        if not hit:
+            raise SystemExit("logic_tables.map: int %s: not in the binary" % bname)
+        forced_int[hit[0] + off] = "%s+0x%x" % (bname, off)
 
     thumb_funcs = {}
     for a, name, s, desc in real:
@@ -226,8 +268,21 @@ def main(argv):
         raw = read(a, size) + b"\0" * (-size % 4)
         words = struct.unpack("<%dI" % (len(raw) // 4), raw)
         items = []
+        orel = 0
         for k, v in enumerate(words):
             t = target(v)
+            if a + k * 4 in forced_int:
+                if t is None:
+                    raise SystemExit("logic_tables.map: int %s is not a "
+                                     "relocation candidate; drop the entry"
+                                     % forced_int.pop(a + k * 4))
+                forced_int.pop(a + k * 4)
+                if report:
+                    rep.append("int!  %-28s +0x%04x %08x  (map: a number, "
+                               "not %s+0x%x)" % (cname, k * 4, v, t[1], t[2]))
+                t = None
+                items.append("0x%x" % v)
+                continue
             if t is None:
                 items.append("0x%x" % v)
                 miss = near_miss(v) if v >= 0x1000 else None
@@ -237,6 +292,7 @@ def main(argv):
                 continue
             kind, tname, off = t
             nrel += 1
+            orel += 1
             if kind == "fn":
                 fn_refs.add(tname)
                 items.append("(uintptr_t)%s" % tname)
@@ -248,7 +304,15 @@ def main(argv):
                 rep.append("%-5s %-28s +0x%04x %08x -> %s%s"
                            % (kind, cname, k * 4, v, tname,
                               "+0x%x" % off if off else ""))
-        data_defs.append((cname, bname, a, s, items))
+        exact = a % 4 == 0 and size % 4 == 0
+        if not exact and orel:
+            raise SystemExit("%s at 0x%x is not word-aligned and holds %d "
+                             "relocation(s)" % (bname, a, orel))
+        data_defs.append((cname, bname, a, s, items, size,
+                          None if exact else read(a, size)))
+    if forced_int:
+        raise SystemExit("logic_tables.map: int %s is in no emitted object"
+                         % ", ".join(sorted(forced_int.values())))
 
     out.append("/* GENERATED by tools/logic_tables.py -- do not edit, do not commit.")
     out.append(" *")
@@ -260,24 +324,49 @@ def main(argv):
     out.append("typedef char umk3_logic_tables_need_32bit_pointers"
                "[sizeof(void *) == 4 ? 1 : -1];")
     out.append("")
+    out.append("/* One section, binary order: see Layout in tools/logic_tables.py. */")
+    out.append("#if defined(__APPLE__)")
+    out.append("#define UMK3_LOGIC __attribute__((section(\"__DATA,__umk3logic\")))")
+    out.append("#elif defined(__wasm__)")
+    out.append("#define UMK3_LOGIC  /* no named sections: order is not guaranteed */")
+    out.append("#else")
+    out.append("#define UMK3_LOGIC __attribute__((section(\".data.umk3logic\")))")
+    out.append("#endif")
+    out.append("")
     for f in sorted(fn_refs):
         out.append("extern char %s[];" % f)
     for t in sorted(native_targets):
         out.append("extern char %s[];" % t)
-    for cname, *_ in data_defs:
-        out.append("extern uintptr_t %s[];" % cname)
-    out.append("")
-    out.append("/* Runtime state: zero, owned through the slot pointers. */")
+    for cname, bname, a, s, items, size, raw in data_defs:
+        out.append("extern %s %s[];" % ("unsigned char" if raw else "uintptr_t",
+                                        cname))
     for a, size, cname, bname, s, zf in common:
-        out.append("uintptr_t %s[%d];  /* %s 0x%08x, %d bytes */"
-                   % (cname, (size + 3) // 4, bname, a, size))
+        out.append("extern %s %s[];" % ("uintptr_t" if a % 4 == 0 and size % 4 == 0
+                                        else "unsigned char", cname))
     out.append("")
-    for cname, bname, a, s, items in data_defs:
+    for cname, bname, a, s, items, size, raw in data_defs:
         out.append("/* %s  0x%08x  %s,%s */" % (bname, a, s.segname, s.sectname))
-        out.append("uintptr_t %s[%d] = {" % (cname, len(items)))
-        for k in range(0, len(items), 6):
-            out.append("    " + ", ".join(items[k:k + 6]) + ",")
+        if raw is not None:
+            align = a & -a if a & 3 else 4
+            out.append("unsigned char %s[%d] UMK3_LOGIC __attribute__((aligned(%d))) = {"
+                       % (cname, size, min(align, 4)))
+            for k in range(0, len(raw), 16):
+                out.append("    " + ", ".join(str(b) for b in raw[k:k + 16]) + ",")
+        else:
+            out.append("uintptr_t %s[%d] UMK3_LOGIC = {" % (cname, len(items)))
+            for k in range(0, len(items), 6):
+                out.append("    " + ", ".join(items[k:k + 6]) + ",")
         out.append("};")
+    out.append("")
+    out.append("/* Runtime state: zero, owned through the slot pointers. Zero-filled")
+    out.append(" * on the device too, but kept in the section so it stays in order. */")
+    for a, size, cname, bname, s, zf in common:
+        if a % 4 == 0 and size % 4 == 0:
+            out.append("uintptr_t %s[%d] UMK3_LOGIC = {0};  /* %s 0x%08x, %d bytes */"
+                       % (cname, size // 4, bname, a, size))
+        else:
+            out.append("unsigned char %s[%d] UMK3_LOGIC = {0};  /* %s 0x%08x, %d bytes */"
+                       % (cname, size, bname, a, size))
     with open(outpath, "w", encoding="utf-8", newline="\n") as f:
         f.write("\n".join(out) + "\n")
     if report:
