@@ -37,6 +37,14 @@
  *                     the mouse is ignored while a script runs
  *   UMK3_LOG_TASKS=1  print every change of CurrentTask and FE_CurrentTask
  *
+ * Debug, to skip the menus:
+ *   umk3-game --fight <p1> <p2> [stage]     (or UMK3_FIGHT="p1,p2,stage")
+ * goes straight from the main menu into a fight. A fighter is a name from
+ * CharacterNames ("kitana", "kunglao", "sub-zero") or its number 0..25; the
+ * stage is a Level_Info row, 0..15 (default 0). It sets what the select
+ * screen would -- PLAYER1MODEL, PLAYER2MODEL, Character1/2, LevelSelect --
+ * and hands the front end to Task_FEDestroy the way the tower does.
+ *
  * A game started by double-click (stdout not redirected) writes everything it
  * prints -- task changes, loading steps, a crash's addresses -- to
  * logs/umk3-<date>-<time>.log beside the exe, one file per session. A log is
@@ -74,6 +82,49 @@ void  lime_app_become_active(void);
 extern char Language[10];
 extern int  CurrentTask;
 extern int  FE_CurrentTask;
+extern long PLAYER1MODEL, PLAYER2MODEL, Character1, Character2, LevelSelect,
+            Character2Override;
+extern const char *CharacterNames[26];
+
+/* --fight: -1 until parsed. */
+static long g_fight_p1 = -1, g_fight_p2 = -1, g_fight_stage = 0;
+
+/* A fighter by number or by name, ignoring case, spaces and hyphens. */
+static long fighter_id(const char *s)
+{
+    long i;
+    char *end;
+
+    i = strtol(s, &end, 10);
+    if (*s && *end == 0)
+        return (i >= 0 && i < 26) ? i : -1;
+    for (i = 0; i < 26; i++) {
+        const char *a = CharacterNames[i], *b = s;
+        for (;;) {
+            while (*a == ' ' || *a == '-') a++;
+            while (*b == ' ' || *b == '-' || *b == '_') b++;
+            if (!*a || !*b || (*a | 0x20) != (*b | 0x20))
+                break;
+            a++, b++;
+        }
+        if (!*a && !*b)
+            return i;
+    }
+    return -1;
+}
+
+static void parse_fight(const char *p1, const char *p2, const char *stage)
+{
+    g_fight_p1 = fighter_id(p1);
+    g_fight_p2 = fighter_id(p2);
+    g_fight_stage = stage ? atol(stage) : 0;
+    if (g_fight_p1 < 0 || g_fight_p2 < 0 || g_fight_stage < 0
+        || g_fight_stage > 15) {
+        fprintf(stderr, "--fight: unknown fighter or stage (%s %s %s)\n",
+                p1, p2, stage ? stage : "0");
+        g_fight_p1 = g_fight_p2 = -1;
+    }
+}
 
 static void save_shot(int w, int h)
 {
@@ -196,7 +247,7 @@ void umk3_relocate_level_info(void);   /* build/level_info.c */
 
 int main(int argc, char **argv)
 {
-    const char *root = (argc > 1) ? argv[1] : "res";
+    const char *root = (argc > 1 && argv[1][0] != '-') ? argv[1] : "res";
     const char *shot = getenv("UMK3_SHOT");
     int    shot_at = shot ? atoi(shot) : 0;
     int    log_tasks = getenv("UMK3_LOG_TASKS") != NULL;
@@ -209,7 +260,7 @@ int main(int argc, char **argv)
     /* No argument: `res` beside the exe, wherever it was started from, so a
      * double-click in the game folder just works. */
     static char exe_res[MAX_PATH + 8];
-    if (argc <= 1) {
+    if (argc <= 1 || argv[1][0] == '-') {
         DWORD len = GetModuleFileNameA(NULL, exe_res, MAX_PATH);
         char *slash = (len > 0 && len < MAX_PATH) ? strrchr(exe_res, '\\') : NULL;
         if (slash) {
@@ -222,6 +273,28 @@ int main(int argc, char **argv)
         log_tasks = 1;
 #endif
     parse_taps(getenv("UMK3_TAPS"));
+    {
+        int i;
+        for (i = 1; i < argc; i++)
+            if (strcmp(argv[i], "--fight") == 0 && i + 2 < argc) {
+                parse_fight(argv[i + 1], argv[i + 2],
+                            i + 3 < argc ? argv[i + 3] : NULL);
+                break;
+            }
+        if (g_fight_p1 < 0 && getenv("UMK3_FIGHT")) {
+            char buf[128], *a, *b, *c;
+            snprintf(buf, sizeof buf, "%s", getenv("UMK3_FIGHT"));
+            a = buf;
+            b = strchr(a, ',');
+            if (b) {
+                *b++ = 0;
+                c = strchr(b, ',');
+                if (c)
+                    *c++ = 0;
+                parse_fight(a, b, c);
+            }
+        }
+    }
 
     if (!plat_open("Ultimate Mortal Kombat 3", VIRT_W * SCALE, VIRT_H * SCALE)) {
         fprintf(stderr, "could not open a window\n");
@@ -312,6 +385,19 @@ int main(int argc, char **argv)
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             lime_menu_advance_clock(1.0 / 60.0);
             GameCodeMain();
+
+            /* --fight: once the main menu is up, do what the select screen
+             * and the tower would, and leave the front end. */
+            if (g_fight_p1 >= 0 && CurrentTask == 3 && FE_CurrentTask != 0) {
+                PLAYER1MODEL = Character1 = g_fight_p1;
+                PLAYER2MODEL = Character2 = Character2Override = g_fight_p2;
+                LevelSelect = g_fight_stage;
+                printf("--fight: %s vs %s, stage %ld\n",
+                       CharacterNames[g_fight_p1], CharacterNames[g_fight_p2],
+                       g_fight_stage);
+                CurrentTask = 4;                /* Task_FEDestroy */
+                g_fight_p1 = -1;
+            }
 
             if (log_tasks && (CurrentTask != last_task
                               || FE_CurrentTask != last_fe)) {
