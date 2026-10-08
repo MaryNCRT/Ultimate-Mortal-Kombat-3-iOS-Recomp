@@ -1058,7 +1058,7 @@ extern int *ErmacUnlockedPtr;           /* slot -> 0x000ff974 */
 extern int *MileenaUnlockedPtr;         /* slot -> 0x000ff978 */
 extern int *JadeUnlockedPtr;            /* slot -> 0x000ff97c */
 extern int *SurvivalStagePtr;           /* slot -> 0x000ff980 */
-extern int *TreasureGained;             /* slot -> 0x00101164, 10 words */
+extern int  TreasureGained[10];        /* 0x00101164, the array itself (as FrontEnd.c) */
 extern long  EndingsGained[23];         /* 0x00101088, the array itself */
 extern int  winStreak;                  /* 0x0014e1a8 */
 void Write_SaveData(void);
