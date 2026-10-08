@@ -96,7 +96,11 @@ typedef struct GAMEFONT {
      * so a font can make unknown characters wider than the plain fallback
      * without touching the fallback itself. */
     int       extraUnknown;      /* 0x3c */
-    uint8_t   _pad3c[12];
+    /* limeDrawFONT (armv7 0x7e5b8): at the +0x44-th character not in the
+     * table, +0x40 more is added. Both are zeroed by every call that is not
+     * alignment 3. The earlier 12-byte pad here put `codes` at 0x4c. */
+    int       extraAtCount;      /* 0x40 */
+    int       countForExtra;     /* 0x44 */
     uint8_t  *codes;             /* 0x48  one byte per glyph */
     int16_t  *codesW;            /* 0x4c  the same codes widened to 16 bits */
     TEXTURE  *texture0;          /* 0x50 */
@@ -2136,8 +2140,7 @@ float  sqrtf(float x);
  * wrap to a byte, and take the top three bits. The `& 0xFF` is what makes the
  * wrap free, so sector 7 and sector 0 meet without a special case.
  *
- * `dy` is computed as `centre - touch` and `dx` as `touch - centre` -- opposite
- * senses, which is what puts screen-down and angle-up the same way round.
+ * `dx` and `dy` are both `touch - centre` (see the note in the body).
  */
 long CheckLeftDial(int player)
 {
@@ -2168,7 +2171,13 @@ long CheckLeftDial(int player)
             continue;                   /* empty slot */
 
         dx = limeTouchScreenX[i] - cx;
-        dy = cy - limeTouchScreenY[i];  /* note the opposite sense */
+        /* touch minus centre on BOTH axes: 0x261e6 `vsub d8, d6, d7` and
+         * 0x261f4 `vsub d5, d7, d6` with s14 = the touch's y. An earlier
+         * reading had dy = centre - touch, which swapped up and down -- the
+         * diagonal attacks came out mirrored. With screen y growing down, a
+         * touch straight up gives acos(-1), t = 1, sector 0: JoystickState 1,
+         * which GetReal6ButtonJoyBits reads as up. */
+        dy = limeTouchScreenY[i] - cy;
         d2 = dx * dx + dy * dy;
 
         if (d2 > outer2)
@@ -4076,7 +4085,7 @@ void SetToUseCamera(const float *arg)
 }
 
 
-extern float *StaticMeshAmbient;        /* pointer slot -> 0x002bfe74 */
+extern float StaticMeshAmbient[3];      /* 0x002bfe74, defined in lime_globals.c */
 extern void  *WhiteTexture;             /* 0x001ab998 */
 
 float fabsf(float x);
@@ -4759,7 +4768,9 @@ void LIME_GLAPI glRotatef(float a, float x, float y, float z);
  * fighter-to-stage ratio, and the 90-degree X rotation is the same one
  * `HUDANIM_Render` applies -- the Z-up world meeting a Y-up mesh.
  *
- * ### Character 24 is drawn mirrored
+ * ### Character 24 is drawn mirrored -- for player one
+ *
+ * (Player two is the reverse: mirrored unless it is 24. See the body.)
  *
  *      if (anim->characterId == 24) {
  *          glScalef(-scale, scale, scale);
@@ -4806,6 +4817,8 @@ void LIME_GLAPI glRotatef(float a, float x, float y, float z);
  * `p[0x534]` is cleared before each draw, and `p[0x528]` is set from
  * `anim[0x14]`, overriding whatever `LightPlayers` chose.
  */
+extern float IntroPlayer2PosX, IntroPlayer2PosZ;  /* 0x0014f938, 0x0014f93c */
+
 void RenderIntroCharacterPlayer(void)
 {
     long *p0 = (long *)Players;
@@ -4860,20 +4873,35 @@ void RenderIntroCharacterPlayer(void)
         const PLAYERDEF *def = &PlayerDefs[p1[0]];
         float s = def->scale;
 
-        /* pre-divided: PlayerSize is already on the matrix */
+        /* pre-divided: PlayerSize is already on the matrix. Two translates,
+         * not one: undo player one's offset (0x217ce), then apply player
+         * two's own (0x217d2..0x217f8, IntroPlayer2PosX/Z over PlayerSize).
+         * With only the first, player two stood at the origin -- out of
+         * the shot the intro camera frames for him. */
         glTranslatef(-IntroPlayer1PosX / PlayerSize,
                      -IntroPlayer1PosZ / PlayerSize, 0.0f);
+        glTranslatef(IntroPlayer2PosX / PlayerSize,
+                     IntroPlayer2PosZ / PlayerSize, 0.0f);
 
+        /* Player two is the MIRROR of player one (0x21822..0x218f4): every
+         * character but 24 is drawn with x negated and front faces culled,
+         * so the two fighters face each other; 24, already mirrored in its
+         * data, is the one drawn straight. glEnable(GL_CULL_FACE) comes
+         * first, at 0x21800. */
+        glEnable(GL_CULL_FACE);
         if (anim[2] == 24) {
-            glScalef(-s, s, s);
-            glCullFace(GL_FRONT);
-        } else {
-            glScalef(s, s, s);
             glCullFace(GL_BACK);
+            glScalef(s, s, s);
+        } else {
+            glCullFace(GL_FRONT);
+            glScalef(-s, s, s);
         }
 
+        /* The alternate costume (+0x530) when one is loaded, else the
+         * character's own sheet (0x21846..0x2190e). Player one has no such
+         * test. */
         p1[0x534 / 4] = 0;
-        p1[0x528 / 4] = anim[0x14 / 4];
+        p1[0x528 / 4] = (p1[0x530 / 4] != 0) ? p1[0x530 / 4] : anim[0x14 / 4];
 
         RenderAnimatedCharacter(0, (ANIMATEDCHARACTER *)anim,
                                 p1[0x51c / 4], p1[0x520 / 4],
@@ -8121,6 +8149,11 @@ void DrawHUD(void)
         if (FightMessage) {
             FightMessageTimer += 1.0f / limeFPSScaleFactor;
             if (FightMessageTimer > 180.0f) {
+                /* 0x29f00..0x29f08: THREE stores. RoundSummary goes back to 0
+                 * with the other two; without it the banner below came back
+                 * the moment "FIGHT" ended, and "ROUND 1" stayed up for the
+                 * whole round. */
+                RoundSummary      = 0;
                 FightMessage      = 0;
                 FightMessageTimer = 0.0f;
             }
@@ -8702,8 +8735,8 @@ void Task_GameDestroy(void)
     FreeSceneHandle(&SLDie2Scene);
 
     /* these two are freed but not zeroed */
-    LIME_FreeMeshSet(*(void **)MeshSet_FIGHT);
-    LIME_FreeScene(*(void **)Scene_FIGHT);
+    LIME_FreeMeshSet(MeshSet_FIGHT);       /* the value, as stored at step 31 */
+    LIME_FreeScene(Scene_FIGHT);           /* and at step 32 */
 
     /* ---- where next ---- */
     if (GameMode == 1) {
@@ -10134,7 +10167,7 @@ void Task_GameMain(void)
 #define RLP_SCENE_BASE       6          /* LIME_RenderScene's first argument */
 
 extern void  *LastGObj;                 /* 0x00150eb0 */
-extern long  *SkipFrame86;              /* pointer slot -> 0x00171774 */
+extern int   SkipFrame86;               /* 0x00171774, defined in RenderScene.c */
 /* Not a pointer slot -- 0x00218cc4 IS the array, a 470,860-byte
  * `__DATA,__common` object. The extent and the evidence are on the declaration
  * in Players.c, which spelled the same symbol `char *` and crashed on it. */
@@ -10481,15 +10514,15 @@ void RenderLevelPlayers(void)
                 glCullFace(w[0x540 / 4] ? GL_FRONT : GL_BACK);
 
                 if (slot <= 1) {
-                    *SkipFrame86 = 0;
+                    SkipFrame86 = 0;
                     if (oi[GOBJ_FRAME / 2] == FRAME_SKIP86)
-                        *SkipFrame86 = 1;
+                        SkipFrame86 = 1;
                     LIME_RenderScene(slot + RLP_SCENE_BASE,
                                      RLP_PTR(RLP_PTR(owner[4 / 4])[0x10 / 4]),
                                      w[0x51c / 4], w[0x520 / 4], pf[0x524 / 4],
                                      0, 0, pass,
                                      RLP_PTR(w[0x528 / 4]), w[0x52c / 4], att);
-                    *SkipFrame86 = 0;
+                    SkipFrame86 = 0;
                 } else if (flags100 == 0) {
                     LIME_RenderScene(slot + RLP_SCENE_BASE,
                                      RLP_PTR(RLP_PTR(owner[4 / 4])[0x10 / 4]),

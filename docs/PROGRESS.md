@@ -5,7 +5,34 @@ Current state of the project. Written so that someone can pick it up with no pri
 **Last updated:** 2026-10-08 — see [HANDOFF.md](HANDOFF.md) for the route;
 "What is next" below is the current task ([ENCARGO.md](ENCARGO.md) is superseded).
 
-> Latest (2026-10-08, [#54](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/54)): **Arcade goes from the tower into the
+> Latest (2026-10-08 evening, branch `claude/fight-arena-draw`): **the first
+> fight runs and draws.** `--fight kitana kunglao 0` (or the tower) reaches
+> `Task_GameMain`, which runs thousands of frames with the arena, both
+> fighters (the CPU fighting), the HUD and the touch controls. Transcribed
+> from armv7 to get there: `LIME_LoadScene` (0x5f0ac), `LIME_RenderScene`
+> (0x5f7a4) and `FlushTranspMeshList` (0x5f640); the whole events module
+> (`LIME_LoadEvents`, the four trigger functions, `LIME_UpdateEvents`, the
+> master offsets, `IsOnWWFrame`, `KillIllegalWhirlwinds`; `EVENT` re-laid,
+> it was 28 bytes off past +0x58). Data and wiring fixed: `GameObjects` is
+> read once and filled by `mk3_update(joy, &GameObjects)`; `PLAYER2MODEL`
+> is a plain long; `CharacterNames` had 0 entries; meshsets allocate with
+> limeMalloc; the vertex-colour scratch is `_TempRGBS`; the tint is
+> `_SceneTint`; `seq_lookup`'s scripts are extracted (`tools/seq_data.py`).
+> Each double-clicked session writes `logs/umk3-*.log`.
+> Later the same day: player two's intro (two translates, mirrored), the HUD
+> text (`limeDrawFONT` 0x7e5b8 reads ASCII), the FIGHT overlay
+> (`LIME_SetSceneTextures` 0x5f07c walks a table; `LIME_RenderSceneOverrideTextures`
+> 0x5f4d4), the round banner (`RoundSummary` cleared at 0x29f00), the dial's
+> up/down (0x261f4), `LIME_LoadMeshSetTextures` (0x5ed34), the button
+> handlers' second argument (`DoSwitchJump` 0x55f60), `t_rup3`'s slot; the
+> keyboard drives player 1; `tools/mkdata.py` reaches symbols by interior
+> pointers (the blood textures had 1 of 12).
+> **Open:** camera angles; joystick animation; Sindel's hair; sounds; all-Jade towers; tower descent; random arena.
+> README, "Known problems". Kitana drawing black no longer happens
+> (the user's report, 2026-10-08), after the GameObjects and texture-table
+> fixes; the flag-nibble cause was never pinned down.
+>
+> Earlier (2026-10-08, [#54](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/54)): **Arcade goes from the tower into the
 > real fight load.** `Task_GameInit` runs to the end and the game enters
 > `Task_GameMain`, after fixing `LIME_FreeSkin` (0x6038c), the arena-name
 > table (`tools/level_info.py`), the sound table and its `"end_of_list"`
