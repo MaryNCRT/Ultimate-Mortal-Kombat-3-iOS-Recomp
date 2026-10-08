@@ -1294,29 +1294,13 @@ extern float  ShadowHeightFromGround;   /* 0x00171364 */
 extern limeVECTOR3 *RenderVerts;        /* pointer slot */
 
 /* The two skinning generators are defined above. */
-/* **This prototype and RenderMesh.c's definition disagree, and MEASUREMENT SAYS
- * NEITHER IS RIGHT.** Left as an open finding rather than guessed at.
- *
- * RenderMesh.c read the armv6 slice (0x00080a7c) and has
- * `(MESHINFO *, TEXTURE *, TEXTURE *, float, long)`; this call site was read
- * independently and has the float one position earlier.
- *
- * The armv7 slice (0x0005e358) settles that both are short a parameter. Its
- * prologue uses r0, r1, r2 and r3, AND reads a fifth argument from
- * `[sp, #0x4c]` -- which is the first stack slot once the 76 bytes of
- * `push`/`vpush`/`sub sp` are accounted for. **And s0 is never read anywhere in
- * the 628 bytes.** Under the armv7 hard-float ABI a `float` parameter arrives
- * in s0 and consumes no core register, so a five-parameter signature with one
- * float would put everything in r0-r3 and nothing on the stack.
- *
- * So armv7 takes **five core-register arguments plus an unread float**: six
- * parameters, not five. The armv6 slice passes floats in core registers, which
- * is why the two readings drifted.
- *
- * Fixing it properly means reading both slices and this call site together.
- * `tools/protos.py` reports the disagreement and should keep reporting it. */
-void LIME_RenderMeshSingleIndexed(void *frame, void *tex, float grey,
-                                  void *arg, long flag);
+/* armv7 0x0005e358, five parameters: the frame record, the texture, the grey
+ * level, the fade vector and which half of the record. The binary is
+ * soft-float, so `grey` travels in r2 and the fifth argument is the first
+ * stack word -- the "sixth parameter" an earlier note inferred came from
+ * reading it as hard-float. The definition is in lime/RenderMesh.c. */
+void LIME_RenderMeshSingleIndexed(void *frame, TEXTURE *tex, float grey,
+                                  const limeVECTOR3 *fade, long second);
 void LIME_printf(int window, const char *fmt, ...);
 void LIME_GLAPI glColor4f(float r, float g, float b, float a);
 void LIME_GLAPI glTranslatef(float x, float y, float z);
@@ -1762,23 +1746,31 @@ void *LIME_LoadScene(const char *path, long a, const char *tex, long b);
 void  LIME_LoadMeshSetTextures(void *meshset, const char *tex);
 void *LIME_SceneMeshSet(void *scene);
 
-/* One 88-byte mesh record. Only the fields this function writes are named. */
+/* One 88-byte frame record (`animatedcharacter_meshbase`), two halves: the
+ * body and the second skin. LIME_RenderMeshSingleIndexed (0x5e358) reads
+ * +0x00/+0x04/+0x1c/+0x20/+0x24 for half 0 and +0x08/+0x0c/+0x2c/+0x30/+0x34
+ * for half 1; IsAFrameVisible (0x5b9dc) reads the two flags. This is NOT a
+ * MESHINFO, though both are 88 bytes: MESHINFO's +0x18 is a vertex pointer,
+ * this one's is a flag. */
 typedef struct MESHREC {
-    long   colsSize;                    /* 0x00 */
-    long   field04;                     /* 0x04  from the skin */
-    long   cols2Size;                   /* 0x08 */
-    long   field0c;                     /* 0x0c  from skin[0] */
+    long   colsSize;                    /* 0x00  vertices, half 0 */
+    long   field04;                     /* 0x04  faces, half 0 (skin +8) */
+    long   cols2Size;                   /* 0x08  vertices, half 1 */
+    long   field0c;                     /* 0x0c  faces, half 1 (skin2 +8) */
     uint8_t _pad10[8];                  /* 0x10 */
-    long   hasCols;                     /* 0x18 */
-    long   field1c;                     /* 0x1c  copied from mesh 0 */
-    long   field20;                     /* 0x20  copied from mesh 0 */
+    long   hasCols;                     /* 0x18  half 0 drawn */
+    void  *indexes;                     /* 0x1c  animatedcharacter_indexes */
+    void  *uvs;                         /* 0x20  animatedcharacter_UV */
     void  *cols;                        /* 0x24  animatedcharacter_cols */
-    long   hasCols2;                    /* 0x28 */
-    long   field2c;                     /* 0x2c  copied from mesh 0 */
-    long   field30;                     /* 0x30  copied from mesh 0 */
+    long   hasCols2;                    /* 0x28  half 1 drawn */
+    void  *indexes2;                    /* 0x2c */
+    void  *uvs2;                        /* 0x30 */
     void  *cols2;                       /* 0x34  animatedcharacter_cols2 */
     uint8_t _pad38[MESHREC_BYTES - 0x38];
 } MESHREC;
+
+extern uint16_t RenderIndexes[];        /* 0x0036a820, slot 0x000f3244 */
+int WantThisFrame(long frame);
 
 ANIMATEDCHARACTER *LoadAnimatedCharacter(char *scene, char *skinFile,
                                          char *bonesFile, char *lightingName,
@@ -1864,6 +1856,11 @@ ANIMATEDCHARACTER *LoadAnimatedCharacter(char *scene, char *skinFile,
              * offset it handed LIME_LoadMeshSetTextures the characters of
              * "KUNGLAO_" as an address. */
             LIME_LoadMeshSetTextures(LIME_SceneMeshSet(c->scene), texBase);
+    } else {
+        /* 0x5c9f8: `str r3, [r4, #0x10]` with r3 == 0. limeMalloc does not
+         * clear, so without this the front end's fighters (no scene) handed
+         * RenderPlayer's attach pass whatever the heap held. */
+        c->scene = NULL;
     }
 
     /* ---- the meshbase file: a header then one block a mesh ---- */
@@ -1891,67 +1888,153 @@ ANIMATEDCHARACTER *LoadAnimatedCharacter(char *scene, char *skinFile,
 
         lighting = limeLoadFile(lightingPath);
 
-        /* ---- one record a mesh ---- */
-        for (i = 0; i < meshCount; i++) {
-            MESHREC *m    = &((MESHREC *)((void **)c)[1])[i];
-            MESHREC *m0   = &((MESHREC *)((void **)c)[1])[0];
-            void   **skin = (void **)c->skin;
-            long     first = (i == 0);
-            const float *meshbase =
-                (const float *)((char *)c->meshTable
-                                + i * (long)(uintptr_t)
-                                      c->meshNames);
+        /* SKININFO is opaque here: +0x00 is the second skin, +0x08 the
+         * face count (lime.h names it numVerts). */
+#define SKIN_NEXT(s)  (*(SKININFO **)(void *)(s))
+#define SKIN_FACES(s) (((const int *)(const void *)(s))[2])
+        /* ---- one record a frame (armv7 0x5c530..0x5c78a) ----
+         *
+         * The loop runs to meshCount - 1, not meshCount, and not at all when
+         * the count is 1 (0x5c530). Frame i's anim header is
+         * meshTable + meshNames * i (the data and the stride GenerateMatrices
+         * is given); its first float decides whether the frame is lit.
+         *
+         * A frame is built when it is wanted -- WantThisFrame(i) for a
+         * front-end character, WantFrames[i] otherwise -- and, for the latter,
+         * when it is frame 0 or its header float is above 0.5. Character 6's
+         * frame 365 is always built. Frame 0 also measures the two vertex
+         * counts with DrawSkinnedMesh2 and keeps the UVs and indexes it
+         * produced; every later frame shares frame 0's.
+         *
+         * The version this replaces skipped every frame of a character with
+         * no second skin, never kept the UVs and indexes, and so left the
+         * flag at +0x18 zero on every frame: nothing was ever drawn. */
+        if (meshCount != 1) {
+            SKININFO *skin = (SKININFO *)c->skin;
+            MESHREC  *m0   = &((MESHREC *)c->meshes)[0];
+            long      six  = (who == 6);
 
-            m->field04 = ((long *)skin)[2];
-            if (skin[0] == NULL)
-                continue;
-            m->field0c = ((long **)skin)[0][2];
+            for (i = 0; i != meshCount - 1; i++) {
+                MESHREC *m = &((MESHREC *)c->meshes)[i];
+                SKININFO *s2;
+                const float *mb =
+                    (const float *)((const char *)c->meshTable
+                                    + (long)(uintptr_t)c->meshNames * i);
+                long first   = (i == 0);
+                long special = six && i == 0x16d;
+                long want;
+                const char *src;
 
-            /* the two sizes are measured once, on mesh 0, and reused */
-            if (first) {
-                size2 = DrawSkinnedMesh2((SKININFO *)skin[0], 0, 0, 0,
-                                         RenderVerts, RenderUVs, RenderRGBs,
-                                         0, 1);
-                size1 = DrawSkinnedMesh2((SKININFO *)skin, 0, 0, 0,
-                                         RenderVerts, RenderUVs, RenderRGBs,
-                                         0, 1);
-            }
+                m->field04 = SKIN_FACES(skin);
+                s2 = SKIN_NEXT(skin);
+                m->field0c = s2 ? SKIN_FACES(s2) : 0;
 
-            m->cols = limeMalloc("animatedcharacter_cols", size1);
-            memcpy(m->cols, (char *)lighting + i * (size1 + size2), size1);
+                if (special)
+                    want = 1;
+                else
+                    want = first || mb[0] > 0.5f;
 
-            m->cols2 = limeMalloc("animatedcharacter_cols2", size2);
-            memcpy(m->cols2, (char *)lighting + i * (size1 + size2) + size1,
-                   size2);
+                if (fe != NULL && WantThisFrame(i)) {
+                    m->cols  = NULL;
+                    m->cols2 = NULL;
+                } else {
+                    if (fe != NULL || WantFrames[i] == 0)
+                        want = 0;
+                    m->cols  = NULL;
+                    m->cols2 = NULL;
+                    if (!(first || want)) {
+                        m->hasCols  = 0;
+                        m->uvs      = NULL;
+                        m->indexes  = NULL;
+                        m->cols     = NULL;
+                        m->hasCols2 = 0;
+                        m->uvs2     = NULL;
+                        m->indexes2 = NULL;
+                        m->cols2    = NULL;
+                        goto dim;
+                    }
+                }
 
-            m->hasCols   = 1;
-            m->hasCols2  = 1;
-            m->colsSize  = size1;
-            m->cols2Size = size2;
+                /* flags = 1 and keepFloats = 1: `movs r3, #1` at 0x5c5f6 and
+                 * 0x5c626 is stored as the fifth stack word AND left in r3. */
+                if (first) {
+                    s2 = SKIN_NEXT(skin);
+                    size2 = s2 ? DrawSkinnedMesh2(s2, 0, 0, 1, RenderVerts,
+                                                  RenderUVs, RenderRGBs, 0, 1)
+                               : 0;
+                    size1 = DrawSkinnedMesh2(skin, 0, 0, 1, RenderVerts,
+                                             RenderUVs, RenderRGBs, 0, 1);
+                }
 
-            if (i != 0) {
-                m->field1c = m0->field1c;
-                m->field20 = m0->field20;
-                m->field2c = m0->field2c;
-                m->field30 = m0->field30;
+                m->cols = limeMalloc("animatedcharacter_cols", size1);
+                src = (const char *)lighting + i * (size2 + size1);
+                memcpy(m->cols, src, size1);
 
-                /* a dim mesh gives up its per-vertex colour */
-                if (*meshbase <= 0.5f && i != 0x16d) {
+                if (first) {
+                    m->uvs = limeMalloc("animatedcharacter_UV", size1 * 8);
+                    memcpy(m->uvs, RenderUVs, size1 * 8);
+                    m->indexes = limeMalloc("animatedcharacter_indexes",
+                                            SKIN_FACES(skin) * 6);
+                    memcpy(m->indexes, RenderIndexes, SKIN_FACES(skin) * 6);
+                }
+
+                s2 = SKIN_NEXT(skin);
+                if (s2 == NULL) {
+                    m->uvs2     = NULL;
+                    m->indexes2 = NULL;
+                    m->cols2    = NULL;
+                } else {
+                    if (first) {
+                        /* measured again, so RenderUVs and RenderIndexes
+                         * hold the second skin's (0x5c9de) */
+                        size2 = DrawSkinnedMesh2(s2, 0, 0, 1, RenderVerts,
+                                                 RenderUVs, RenderRGBs, 0, 1);
+                        src = (const char *)lighting + i * (size2 + size1);
+                    }
+                    m->cols2 = limeMalloc("animatedcharacter_cols2", size2);
+                    memcpy(m->cols2, src + size1, size2);
+                    if (first) {
+                        m->uvs2 = limeMalloc("animatedcharacter_UV", size2 * 8);
+                        memcpy(m->uvs2, RenderUVs, size2 * 8);
+                        m->indexes2 = limeMalloc("animatedcharacter_indexes",
+                                                 SKIN_FACES(s2) * 6);
+                        memcpy(m->indexes2, RenderIndexes, SKIN_FACES(s2) * 6);
+                    }
+                }
+
+                m->hasCols   = 1;
+                m->hasCols2  = 1;
+                m->colsSize  = size1;
+                m->cols2Size = size2;
+
+                if (i == 0)
+                    continue;
+
+                m->indexes  = m0->indexes;
+                m->uvs      = m0->uvs;
+                m->indexes2 = m0->indexes2;
+                m->uvs2     = m0->uvs2;
+
+            dim:
+                /* a dim frame gives up its colours (0x5c6f8) */
+                if (mb[0] <= 0.5f && i != 0 && !special) {
                     m->hasCols = 0;
-                    m->field20 = 0;
-                    m->field1c = 0;
+                    m->uvs     = NULL;
+                    m->indexes = NULL;
                     if (m->cols)
                         limeFree(m->cols);
                     m->cols     = NULL;
                     m->hasCols2 = 0;
-                    m->field30  = 0;
-                    m->field2c  = 0;
+                    m->uvs2     = NULL;
+                    m->indexes2 = NULL;
                     if (m->cols2)
                         limeFree(m->cols2);
                     m->cols2 = NULL;
                 }
             }
         }
+#undef SKIN_NEXT
+#undef SKIN_FACES
 
         c->meshbase = base;   /* the meshbase file is kept */
         limeFree(lighting);                    /* the lighting file is not */

@@ -2964,7 +2964,11 @@ void RenderAnimatedCharacter(char *name, ANIMATEDCHARACTER *c,
                              float y, float grey, limeVECTOR3 *pos,
                              void *tex, long visible);
 extern float AttachTransforms[];        /* 0x0018ee00 */
-extern float **MatrixPalette2;          /* pointer slot */
+/* `_MatrixPalette2` 0x002c3f48, 150 matrices of 48 bytes. RenderPlayer's
+ * memcpy source is one load of the slot at 0x000f34ac, whose contents are
+ * the table's own address (0x00023d72): the table, not a pointer in it.
+ * Defined in lime/lime_globals.c, where DrawSkinnedMesh2 reads it. */
+extern char  MatrixPalette2[];
 
 void LIME_PushMatrix(void);
 void LIME_PopMatrix(int count);
@@ -3019,7 +3023,7 @@ void LIME_GLAPI glMultMatrixf(const float *m);
  *
  * ### The attachment pass copies the whole palette first
  *
- *      memcpy(AttachTransforms, *MatrixPalette2, 0x1c20)
+ *      memcpy(AttachTransforms, MatrixPalette2, 0x1c20)
  *      LIME_RenderScene(6, anim->[0x10], frameA, frameB, t, 0, 0, 0,
  *                       skin, +0x52c, AttachTransforms)
  *
@@ -3082,7 +3086,7 @@ long RenderPlayer(PLAYER *p, long attach, long flag)
         }
 
         if (attach != 0) {
-            memcpy(AttachTransforms, *MatrixPalette2, 0x1c20);
+            memcpy(AttachTransforms, MatrixPalette2, 0x1c20);
             LIME_RenderScene(6,
                              c->scene,
                              w[0x51c / 4], w[0x520 / 4],
@@ -4790,7 +4794,7 @@ void LIME_GLAPI glRotatef(float a, float x, float y, float z);
  * the other way.
  *
  * Each fighter is followed by the same attachment pass `RenderPlayer` uses --
- * `memcpy(AttachTransforms, *MatrixPalette2, 0x1c20)` then
+ * `memcpy(AttachTransforms, MatrixPalette2, 0x1c20)` then
  * `LIME_RenderScene(6, ...)` -- so the attachment is posed against a snapshot
  * taken after the body was drawn.
  *
@@ -4837,7 +4841,7 @@ void RenderIntroCharacterPlayer(void)
                                 (void *)(uintptr_t)(unsigned long)
                                     p0[0x528 / 4], 1);
 
-        memcpy(AttachTransforms, *MatrixPalette2, 0x1c20);
+        memcpy(AttachTransforms, MatrixPalette2, 0x1c20);
         LIME_RenderScene(6,
                          (void *)(uintptr_t)(unsigned long) anim[0x10 / 4],
                          p0[0x51c / 4], p0[0x520 / 4],
@@ -4874,7 +4878,7 @@ void RenderIntroCharacterPlayer(void)
                                 (void *)(uintptr_t)(unsigned long)
                                     p1[0x528 / 4], 1);
 
-        memcpy(AttachTransforms, *MatrixPalette2, 0x1c20);
+        memcpy(AttachTransforms, MatrixPalette2, 0x1c20);
         LIME_RenderScene(6,
                          (void *)(uintptr_t)(unsigned long) anim[0x10 / 4],
                          p1[0x51c / 4], p1[0x520 / 4],
@@ -10412,7 +10416,7 @@ void RenderLevelPlayers(void)
             if (axes == 0) {
                 if (pass == 0) {
                     RenderPlayer((PLAYER *)w, 0, 1);
-                    memcpy(att, *MatrixPalette2, ATTACH_STRIDE);
+                    memcpy(att, MatrixPalette2, ATTACH_STRIDE);
                 }
             } else if (w[0x14 / 4] == -1) {
                 /* both of these are empty in the retail binary, so nothing at
@@ -10434,7 +10438,7 @@ void RenderLevelPlayers(void)
                     w[4 / 4] = (long)(uintptr_t)ovr;
                 if (pass == 0) {
                     RenderPlayer((PLAYER *)w, 0, 0);
-                    memcpy(att, *MatrixPalette2, ATTACH_STRIDE);
+                    memcpy(att, MatrixPalette2, ATTACH_STRIDE);
                 }
                 if (ovrActive)
                     w[4 / 4] = saved;

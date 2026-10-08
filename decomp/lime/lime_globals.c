@@ -95,17 +95,30 @@ const float      LIGHT_SCALE = 255.0f;
 
 /* --------------------------------------------------------------- skinning
  *
- * CreateMatrixPaletteRecurse2 walks the skeleton depth-first and consumes these
- * as it goes: one animation frame per bone in tree order, one 48-byte matrix
- * written per bone. The traversal is stateful rather than parameterised, so
- * these are genuinely globals and not locals hoisted out by the compiler.
+ * The binary's own names and extents (__DATA,__common, sized by the distance
+ * to the next symbol). CreateMatrixPaletteForGeneratingMesh (0x60278) unpacks
+ * two frames into DecompAnimFrames0/1 and Root_Trans0/1, blends them into the
+ * 0 side, points MatrixSource0 at DecompAnimFrames0, zeroes MatrixSourceCount
+ * and aims MatrixDst2 at MatrixPalette2; CreateMatrixPaletteRecurse2 (0x60048)
+ * then consumes the cursors one bone at a time. DrawSkinnedMesh2 (0x608d8)
+ * reads the palette and writes SkinnedVerts and RenderIndexes.
  */
-const uint8_t   *g_animFrameCursor;
-const uint8_t   *g_animFrameCursor2;
-SKINMATRIX43    *g_paletteCursor;
-SKINMATRIX43    *g_matrixPalette;
-int              g_boneCounter;
-float            g_rootPosition[3];
+SKINMATRIX43     MatrixPalette2[150];       /* 0x002c3f48, 7,200 bytes */
+unsigned char    SkinnedVerts[360000];      /* 0x002c5b68, 24 bytes a vertex */
+uint16_t         RenderIndexes[10000];      /* 0x0036a820, 20,000 bytes */
+BONEANIMFRAME    DecompAnimFrames0[150];    /* 0x0036f640, 3,000 bytes */
+BONEANIMFRAME    DecompAnimFrames1[150];    /* 0x003701f8, 3,000 bytes */
+limeVECTOR3      Root_Trans0;               /* 0x00370db0 */
+limeVECTOR3      Root_Trans1;               /* 0x00370dbc */
+BONEANIMFRAME   *MatrixSource0;             /* 0x00370dc8 */
+BONEANIMFRAME   *MatrixSource1;             /* 0x00370dcc */
+long             MatrixSourceCount;         /* 0x00370dd0 */
+SKINMATRIX43    *MatrixDst2;                /* 0x00370dd4 */
+
+/* LIME_RenderMeshSingleIndexed (0x5e358): the colour scratch it hands
+ * glColorPointer, and the int16 position scale it divides by. */
+unsigned char    TempRGBS[32000];           /* 0x00298174 */
+float            VertScale = 54.61333465576172f; /* 0x00171844, 0x425a740e */
 
 
 /* ----------------------------------------------------------- full-bright
@@ -117,9 +130,9 @@ float            g_rootPosition[3];
 FULLBRIGHTINFO   TheFullBrightInfo;
 int              FullBrightLoaded;
 
-/* CreateFadedLookupTable's [levels][256] byte table and its one-time flag. */
-int              g_fadeTableBuilt;
-uint8_t         *g_fadeTable;
+/* CreateFadedLookupTable's [512][256] byte table and its one-time flag. */
+int              HaveFadeTable;             /* 0x001715d0 */
+uint8_t          ScaleTable[0x200 * 256];   /* 0x0029fe74, 0x20000 bytes */
 
 
 /* -------------------------------------------------------- gamecode bridge
@@ -131,12 +144,6 @@ uint8_t         *g_fadeTable;
 int             *g_stateA;
 int             *g_stateB;
 int              g_whirlwindFirstFrame;
-
-/* Produced by CreateMatrixPaletteForGeneratingMesh, consumed by
- * CreateMatrixPaletteRecurse2. Held here rather than passed because the
- * traversal is stateful, like the cursors above. */
-limeVECTOR3      g_rootPositionV;
-BONEANIMFRAME    g_animBlended[MAX_BONES];
 
 /* Filled by CreateFadedRGBS and handed to glColorPointer in the same breath.
  * The symbol name was not resolved; see the note in lime.h. */
