@@ -8730,8 +8730,8 @@ void Task_GameDestroy(void)
     FreeSceneHandle(&SLDie2Scene);
 
     /* these two are freed but not zeroed */
-    LIME_FreeMeshSet(*(void **)MeshSet_FIGHT);
-    LIME_FreeScene(*(void **)Scene_FIGHT);
+    LIME_FreeMeshSet(MeshSet_FIGHT);       /* the value, as stored at step 31 */
+    LIME_FreeScene(Scene_FIGHT);           /* and at step 32 */
 
     /* ---- where next ---- */
     if (GameMode == 1) {

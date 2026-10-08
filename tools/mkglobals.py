@@ -403,6 +403,7 @@ def emit_header(needed, blocks, path, opaque=(), decl_texts=()):
 
 
 DEFINED = set()   # everything the decomp defines; filled below
+POINTED_AT = set()  # data symbols some initialised word points at; filled below
 
 
 def undefined_symbols():
@@ -525,8 +526,30 @@ def assigned_names():
     return assigned, addressed
 
 
+def pointed_at(img):
+    """Every symbol some word of initialised data points at, at its start or
+    inside it -- the names a table can reach without any code naming them."""
+    import struct
+    out = set()
+    for name in img.addr:
+        if not img.initialised(name):
+            continue
+        raw = img.bytes_of(name)
+        if not raw:
+            continue
+        for i in range(0, len(raw) - 3, 4):
+            w = struct.unpack_from("<I", raw, i)[0]
+            if not (mkdata.VM_BIAS <= w < img.sym_end):
+                continue
+            t = img.name_at.get(w) or img.containing(w)[0]
+            if t:
+                out.add(t)
+    return out
+
+
 def main():
     undef = undefined_symbols()
+    POINTED_AT.update(pointed_at(mkdata.Image(BINARY, SYMBOLS)))
 
     # The same global is often declared several different ways across the tree,
     # because each transcription wrote it the way ITS function reached it.
@@ -550,7 +573,12 @@ def main():
         # `nm -u` is per object: GameCode.o lists MatrixPalette2 as undefined
         # even though lime_globals.o defines it. A name the tree defines is
         # never emitted again -- that is a duplicate symbol at link time.
-        if name not in undef or name in DEFINED or is_runtime_symbol(name):
+        # A name declared but never used in code is still emitted when a table
+        # points at it: `HUDTextures` is reached only through HUDANIM_ttl and
+        # the *_MeshAndTexture tables, and without it those came out empty.
+        if name in DEFINED or is_runtime_symbol(name):
+            continue
+        if name not in undef and name not in POINTED_AT:
             continue
         if name in seen:
             conflicts.setdefault(name, 1)
