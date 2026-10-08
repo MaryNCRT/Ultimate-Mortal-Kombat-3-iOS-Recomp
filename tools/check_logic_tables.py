@@ -39,7 +39,7 @@ lands in the middle of some unrelated object is not a pointer. Those are the
 generator report's near misses; 278 of them were read by hand on 2026-10-08
 (packed halfword pairs, switch masks and ASCII landing in front-end storage)
 and none is a pointer. A second, independently written generator
-(tools/mklogicdata.py on the fight-runtime branch) agreed on every one of the
+(tools/mklogicdata.py, PR #43, since removed in favour of this one) agreed on every one of the
 35,577 words both emit except 53; all 53 were settled by their readers, and
 the only one this generator had wrong is the `int` entry in the map.
 """

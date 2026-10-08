@@ -181,13 +181,13 @@ elseif(UMK3_BACKEND STREQUAL "win32")
     target_link_libraries(umk3 PRIVATE opengl32 gdi32)
     target_sources(umk3-menu PRIVATE runtime/platform/win32_gl.c
                                     runtime/platform/win32_audio.c)
-    target_link_libraries(umk3-menu PRIVATE opengl32 gdi32 winmm)
+    target_link_libraries(umk3-menu PRIVATE opengl32 gdi32 winmm msacm32)
     target_sources(umk3-fight PRIVATE runtime/platform/win32_gl.c
                                      runtime/platform/win32_audio.c)
-    target_link_libraries(umk3-fight PRIVATE opengl32 gdi32 winmm)
+    target_link_libraries(umk3-fight PRIVATE opengl32 gdi32 winmm msacm32)
     target_sources(umk3-test PRIVATE runtime/platform/win32_gl.c
                                     runtime/platform/win32_audio.c)
-    target_link_libraries(umk3-test PRIVATE opengl32 gdi32 winmm m)
+    target_link_libraries(umk3-test PRIVATE opengl32 gdi32 winmm msacm32 m)
 elseif(UMK3_BACKEND STREQUAL "sdl2")
     find_package(SDL2 REQUIRED)
     find_package(OpenGL REQUIRED)
@@ -283,6 +283,44 @@ if(UMK3_BINARY)
                         ${CMAKE_SOURCE_DIR}/tools/check_logic_tables.py ${UMK3_BINARY}
                         --nm ${CMAKE_BINARY_DIR}/umk3-fight-headless.nm)
         endif()
+        # The whole game: the device's boot (game_main.c: startAppWithOptions,
+        # GameCodeInit, then GameCodeMain every tick) with the front end AND
+        # the fight engine linked, so TaskFunctionList can hand the menus over
+        # to Task_GameInit / Task_GameMain.
+        file(GLOB UMK3_GAME_GAMECODE ${CMAKE_SOURCE_DIR}/decomp/gamecode/*.c)
+        file(GLOB UMK3_GAME_LIME     ${CMAKE_SOURCE_DIR}/decomp/lime/*.c)
+        file(GLOB UMK3_GAME_RUNLIME  ${CMAKE_SOURCE_DIR}/runtime/lime/*.c)
+        add_executable(umk3-game
+            runtime/game_main.c
+            runtime/draw_gl.c
+            runtime/gamecode_globals.c
+            runtime/gamecode_stubs.c
+            runtime/lime_menu.c
+            runtime/lime_platform.c
+            runtime/lime_app.c
+            runtime/wav.c
+            runtime/fight_runtime.c
+            ${UMK3_GAME_GAMECODE}
+            ${UMK3_GAME_LIME}
+            ${UMK3_GAME_RUNLIME}
+            ${UMK3_LOGIC_SOURCES}
+            ${UMK3_LOGIC_TABLES})
+        set_target_properties(umk3-game PROPERTIES C_STANDARD 11 C_EXTENSIONS ON)
+        target_include_directories(umk3-game PRIVATE
+            runtime decomp/lime decomp/gamecode/logic)
+        target_compile_definitions(umk3-game PRIVATE
+            UMK3_REAL_GL UMK3_SHELL UMK3_HAVE_MK3)
+        if(WIN32)
+            target_sources(umk3-game PRIVATE
+                runtime/platform/win32_gl.c
+                runtime/platform/win32_gl_cdecl.c
+                runtime/platform/win32_audio.c)
+            target_link_libraries(umk3-game PRIVATE opengl32 gdi32 winmm msacm32)
+        endif()
+        if(NOT MSVC)
+            target_link_libraries(umk3-game PRIVATE m)
+        endif()
+
         add_test(NAME logic_headless_runs COMMAND umk3-fight-headless)
         set_tests_properties(logic_headless_runs PROPERTIES
             FAIL_REGULAR_EXPRESSION "abort|ABORT|FAIL")
