@@ -32,3 +32,27 @@ object _TList
 object _TList_Free
 object _blood
 object _mk3_getbbox_cb
+
+# int <binary symbol> <offset>
+#
+# Words that land inside a logic object and are nevertheless numbers. Each one
+# is settled by how the decompiled code reads it, not by what the value looks
+# like.
+#
+# ochar_headrip_lineups is read as int16_t pairs (mkfatal.c,
+# `p = &ochar_headrip_lineups[obj->field08->field24 * 2]`). The pair at +0x8 is
+# (0x0030, 0x000e), which spells 0x000e0030 and lands in seq_mileena_groundroll
+# (__TEXT,__const) -- the only __DATA -> __TEXT relocation the rule produced.
+int _ochar_headrip_lineups 0x8
+
+# number <binary symbol> <offset>
+#
+# Words left as numbers that tools/check_logic_tables.py would otherwise flag,
+# because their value happens to equal a function, string or data symbol start.
+#
+# lao_ani_data+0x14a8 is 0x55fd, which is getRandomLevel+1. It is the last of
+# a run of frame ids 0x55ec 0x55ee 0x55f0 0x55f2 0x55f4 0x55f7 0x55fa 0x55fd,
+# closed by 0x1 and a pointer to the next list (0x0015668c), the same shape as
+# the list after it (0xd, 0x149 0x14a ...). No gamecode/logic file names
+# getRandomLevel, a front-end function.
+number _lao_ani_data 0x14a8
