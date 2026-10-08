@@ -1,3 +1,4 @@
+#include <stdio.h>
 /*
  * other.c — src/gamecode/logic/other.c (process scheduler)
  *
@@ -6914,7 +6915,7 @@ void DoSwitchJump(long flag, uint32_t player, uint32_t index)
     void **row = (void **)table[index];
     SWITCHFRAME frame;
     uint32_t c;
-    void (*fn)(SWITCHFRAME *);
+    void (*fn)(SWITCHFRAME *, char *);
 
     if (row == NULL)
         return;
@@ -6925,11 +6926,17 @@ void DoSwitchJump(long flag, uint32_t player, uint32_t index)
     c = *(const uint32_t *)
         (*(char **)(Plyr + player * PLYR_STRIDE + 8) + 0x24);
 
-    fn = (void (*)(SWITCHFRAME *))row[c];
+    fn = (void (*)(SWITCHFRAME *, char *))row[c];
     if (fn == NULL)
         return;
 
-    fn(&frame);
+    /* TWO arguments: at the `blx r2` (0x55f60) r1 still holds
+     * &Plyr[player], computed for the character index two instructions
+     * earlier, and the handlers read it -- secret_move_search hands it to
+     * stick_look_lr as the "other" whose proc names the opponent. Called
+     * with the frame alone, the second argument was whatever the register
+     * held, and the first close-range button of a fight crashed. */
+    fn(&frame, Plyr + player * PLYR_STRIDE);
 }
 
 
