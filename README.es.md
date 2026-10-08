@@ -32,7 +32,7 @@ Necesitas una copia obtenida legalmente de *Ultimate Mortal Kombat 3* para iOS (
 |---|---|
 | **Decompilado** | ✅ **Todo.** Las 2.572 funciones del juego tienen C escrito a mano: el núcleo del motor LIME (109), la lógica de juego (291) y el motor de combate (2.172). No queda nada por transcribir. |
 | **Verificado** | ✅ El núcleo del motor pasa tests diferenciales contra el original recompilado con cero divergencias. El motor de combate pasa un test diferencial de comportamiento fichero a fichero, con las excepciones listadas en [Verificación](#cuánto-está-verificado): todas son límites conocidos de la herramienta de test, no bugs conocidos. |
-| **Funciona en nativo** | 🔄 El front end real arranca en una ventana OpenGL: menús, textos, sonidos, música y partidas guardadas en Windows. Linux lo ejecuta mediante SDL2 (su nuevo backend de audio aún no se ha compilado de prueba y no reproduce música). Los 18 escenarios se dibujan con un luchador animado. |
+| **Funciona en nativo** | 🔄 El front end real arranca en una ventana OpenGL: menús, textos, sonidos, música y partidas guardadas en Windows y Linux. Los 18 escenarios se dibujan con un luchador animado. |
 | **Jugable** | ❌ **Todavía no.** El motor de combate está decompilado pero no tiene un runtime en el que ejecutarse, y las 229 tablas de datos que lee (listas de golpes especiales, scripts de animación, tablas de reacciones) aún no se extraen. Esas dos cosas son el camino al primer combate. |
 
 **Qué significa aquí «decompilado» y qué no.** Significa que cada función que
@@ -72,7 +72,7 @@ Los objetivos a largo plazo, en orden:
 |---|---|
 | Entender el binario y sus formatos de archivo | ✅ hecho — todos los formatos de assets de LIME están especificados |
 | Recuperar C legible, función a función | ✅ **hecho** — 2.572 de 2.572, con test de comportamiento |
-| Sustituir la capa de plataforma iOS por una nativa de PC | 🔄 empezada — ventana, GL, texturas, ficheros, sonido, música (Windows), partidas guardadas y pausa al perder el foco funcionan en nativo; el control del combate espera al runtime de combate |
+| Sustituir la capa de plataforma iOS por una nativa de PC | 🔄 empezada — ventana, GL, texturas, ficheros, sonido, música, partidas guardadas y pausa al perder el foco funcionan en nativo; el control del combate espera al runtime de combate |
 | Hacer funcionar el combate: runtime del motor y sus 229 tablas de datos | ⬜ **lo siguiente** — el paso que hace el juego jugable |
 | Widescreen, soporte de mando, mods | ⬜ planeado |
 | **Dos jugadores locales en una máquina** | ⬜ planeado — [la build de iPad lo trae](docs/IPAD-BUILD.md) |
@@ -432,7 +432,8 @@ Todo lo derivado del binario acaba en `work/`, que está ignorado por git. Usa `
 ### Compilar y ejecutar el port nativo
 
 ```bash
-# Windows (MinGW-w64 + Ninja) compila el backend win32; Linux usa SDL2.
+# Windows (MinGW-w64 + Ninja) usa Win32; Linux usa SDL2 y SDL2_mixer.
+# En Ubuntu/Debian: sudo apt install libsdl2-dev libsdl2-mixer-dev libgl-dev
 cmake -S . -B build -G Ninja
 cmake --build build
 
@@ -448,9 +449,8 @@ build/umk3-test  ruta/a/Payload/UMK3.app/res
 ```
 
 El ratón hace de dedo. Las partidas se guardan en `%APPDATA%/UMK3` en Windows y
-en `~/.local/share/umk3` en Linux (`UMK3_SAVE_DIR` cambia las dos); la música, de
-momento, necesita el backend de Windows. `UMK3_SHOT=<n>` ejecuta n frames, guarda
-una captura y sale.
+en `~/.local/share/umk3` en Linux (`UMK3_SAVE_DIR` cambia las dos).
+`UMK3_SHOT=<n>` ejecuta n frames, guarda una captura y sale.
 
 ---
 

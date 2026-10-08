@@ -50,6 +50,7 @@
 void Task_LoadGeneralData(void);
 int  FEInit_LoadABit(long step);
 void Task_FEMain(void);
+int  menu_play_splash(void);
 void limeBegin(void);
 void limeFinish(void);
 
@@ -143,7 +144,11 @@ static void menu_frame(int w, int h, int *was_down)
 void lime_app_resign_active(void);
 void lime_app_become_active(void);
 
+#ifdef __EMSCRIPTEN__
+int umk3_test_main(int argc, char **argv)
+#else
 int main(int argc, char **argv)
+#endif
 {
     const char *res = NULL;
     const char *chr = "SCORPION_STANDARD";
@@ -202,20 +207,33 @@ int main(int argc, char **argv)
         return 2;
     }
 
+    printf("opening the WebGL window\n");
     if (!plat_open("UMK3", ww, wh)) {
         fprintf(stderr, "could not open a window\n");
         return 1;
     }
+    printf("WebGL context ready\n");
 
     G = g_gamestate;
     lime_platform_set_asset_root(res);
     lime_gl_set_screen(VIRT_W, VIRT_H);
 
+    printf("showing publisher logos\n");
+    if (!menu_play_splash()) {
+        plat_close();
+        return 0;
+    }
+    printf("publisher logos complete\n");
+
     printf("loading the front end from %s\n", res);
+    printf("loading general game data\n");
     Task_LoadGeneralData();
-    for (step = 0; step < 200; step++)
+    printf("general game data ready\n");
+    for (step = 0; step < 200; step++) {
+        printf("loading menu assets %ld\n", step);
         if (FEInit_LoadABit(step))
             break;
+    }
     printf("front end ready at step %ld\n", step);
     printf("\n  F2  the test scene      F3  back to the menu\n");
     printf("  In the scene: F1 stage selector, F5 reset, ESC quit\n\n");

@@ -449,7 +449,8 @@ void glRotatef(float angle, float x, float y, float z)
  *   limeSetTuneVol     gain vol / 100.
  *   limeStopTune       close and release the tune.
  *
- * The mixer under it is platform.h's: silent, not broken, without a device.
+ * The SDL mixer streams MP3 tunes separately from the queued sound-effect
+ * voices. Both paths are safe when the host has no audio output.
  */
 
 void lime_platform_resolve(const char *rel, char *out, size_t n);
@@ -735,7 +736,7 @@ void limeMemoryReport(const char *tag) { (void)tag; }
  *                            failed: %s" and return NULL; else malloc(length),
  *                            getBytes:, log "*** Loaded %s, of size %d bytes"
  *                            and return the copy (the caller limeFree()s it).
- *   limeWriteFile(name, data, size)
+ *   limeWriteFile(name, data, size, flags)
  *                            dataWithBytes:length: then writeToFile:atomically:
  *                            YES; returns that BOOL. No caller reads it.
  *
@@ -841,12 +842,13 @@ void *limeLoadSaveFile(const char *name)
     return buf;
 }
 
-long limeWriteFile(const char *name, const void *data, long size)
+int limeWriteFile(const char *name, const void *data, long size, long flags)
 {
     char dir[600], path[800], tmp[820];
     FILE *f;
     int ok;
 
+    (void)flags;
     save_dir(dir, sizeof dir);
     make_dirs(dir);
     snprintf(path, sizeof path, "%s/%s", dir, name);
@@ -913,14 +915,14 @@ static long ask(long a, long b, long ok, long cancel)
 }
 
 long limeModalAreYouSure(void) { return ask(0x3bc, 0x11b, 0xc, 0x58); }
-long limeModalNoInternet(void) { return ask(0x3b5, 0x3b6, 0xc, 0); }
+void limeModalNoInternet(void) { (void)ask(0x3b5, 0x3b6, 0xc, 0); }
 #else
 long limeModalAreYouSure(void) { return 0; }
-long limeModalNoInternet(void) { return 0; }
+void limeModalNoInternet(void) { }
 #endif
 void limeStartLoadingAnim(void)            { }
 void limeStopLoadingAnim(void)             { }
-void limeSetVibrate(long on)               { (void)on; }
+void limeSetVibrate(void)                   { }
 void limeLoadURLInternal(const char *url)  { (void)url; }
 /* armv7 0x000669ec: the PVR texture array, TextureDups cleared, and both
  * frame clocks set to now so the first limeBegin sees no elapsed time. The
