@@ -1208,7 +1208,7 @@ void PlayerAutoSmoothAnims(PLAYER *p);
  *      else {
  *          if (list[(long)cursor] == -1) cursor = 0.0f      <- end marker
  *          while ((float)(SizeofIdleLists[who] / 4) <= cursor)
- *              cursor -= dt * speed * 0.5f                  <- back it off
+ *              cursor -= SizeofIdleLists[who] / 4           <- wrap
  *          frame = list[(long)cursor]
  *      }
  *      p->[0x14] = frame
@@ -1221,13 +1221,14 @@ void PlayerAutoSmoothAnims(PLAYER *p);
  * hardcoded halving of every front-end idle -- the menus run their characters
  * at half the rate their own speed field asks for.
  *
- * ### The clamp is a loop, not a modulo
+ * ### The wrap is a loop
  *
- * When the cursor runs past the end of the list it does not wrap and it does
- * not clamp: it **subtracts the same step repeatedly** until it is back in
- * range. With a small step that is one iteration; with a large `dt` it is
- * several. Rewriting it as `fmod` changes nothing observable and rewriting it
- * as a single subtract does, so it is transcribed as the loop it is.
+ * When the cursor runs past the end of the list it is brought back by
+ * subtracting the LIST LENGTH until it is in range: `vsub.f32 d6, d6, d7` at
+ * 0x5be54, where s14 is the entry count just converted at 0x5be70. The idle
+ * lists in the image carry no -1 end marker, so this is what loops them. An
+ * earlier reading subtracted the step instead, which parked every fighter on
+ * the last frame of its idle after one pass.
  *
  * The bound is `SizeofIdleLists[who] / 4` -- a byte size turned into an entry
  * count, with the signed-division rounding the compiler emits (`n + 3` when
@@ -1272,7 +1273,7 @@ void AnimateFECharacters(float dt)
             n >>= 2;
 
             while ((float)n <= *cursor)
-                *cursor -= step;        /* back it off, one step at a time */
+                *cursor -= (float)n;    /* wrap by the list length (0x5be54) */
 
             *(long *)(fc + 0x664) = list[(long)*cursor];
         }
