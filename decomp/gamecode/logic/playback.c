@@ -324,6 +324,8 @@ static void *const SEQ_TABLE[23][20] = {
     { (void*)0xe033c, NULL, (void*)0xe0362, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, (void*)0xe03dc, (void*)0xde244, (void*)0xe038c, NULL, NULL, (void*)0xe03b2, NULL },  /* set 22 */
 };
 
+const unsigned char *umk3_seq_addr(unsigned long ios_address);
+
 void *seq_lookup(long set, long idx, long mode)
 {
     void *base;
@@ -340,6 +342,10 @@ void *seq_lookup(long set, long idx, long mode)
     if (base == NULL)
         return NULL;
 
-    return (char *)base + mode * 20;
+    /* The table holds the binary's addresses; the bytes they name are
+     * extracted at build time (tools/seq_data.py), and this is the one
+     * place an address becomes a pointer. Handed back raw, the first
+     * special move of a fight read script words from 0x000decbc. */
+    return (void *)umk3_seq_addr((unsigned long)(uintptr_t)base + mode * 20);
 }
 

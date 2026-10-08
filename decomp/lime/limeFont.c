@@ -613,101 +613,118 @@ float limeGetStringWidth(const FONT *font, const char *text)
 void limeDrawFONT(FONT *font, const char *text, float x, float y,
                   long alignment, float scale, const float *colour)
 {
-    const float half = 0.5f;    /* half a texel, added inside the divide */
-    const char *p;
-    float advance;
+    /* armv7 0x0007e5b8, transcribed whole. The earlier body (from armv6)
+     * read every string as UTF-16; the armv7 function reads ASCII unless the
+     * string starts with the FF FE byte-order mark, and the HUD hands it
+     * ASCII -- CharacterNames[model] straight (0x28658) -- so every fighter's
+     * name came out as stray letters. Also from the binary: no half-texel
+     * on the UVs (the literal added is 0.0f, 0x7e9cc).
+     *
+     * With `colour` NULL the original does not draw: it appends each glyph's
+     * quad to a batch inside the font (+0x58 onward, counted at +0x18058).
+     * That batch is not part of FONT here, and no caller in this tree passes
+     * NULL, so that path is left out and draws nothing. */
+    const unsigned char *t = (const unsigned char *)text;
+    float k, w;
+    size_t len, end, step, at;
+    int unicode = 0;
+    int unknown = 0;
 
-    if (font == NULL || text == NULL || font->codesW == NULL)
+    if (text == NULL)
         return;
 
-    /* Alignment shifts the pen before the first glyph. The measure function is
-     * the one the front end itself uses to centre a label, so using it here
-     * keeps the two in step.
-     *
-     * NOT TRANSCRIBED: the three cases are read off the call sites -- every
-     * one passes 0, 1 or 2 -- and not off the disassembly. If a label sits
-     * half a word out, this is the line to check. */
+    w = limeGetStringWidth(font, text);
+    k = scale * font->field14;                  /* d9 */
+
+    len = strlen(text);
+    if (len > 1 && t[0] == 0xff && t[1] == 0xfe) {
+        t += 2;
+        unicode = 1;
+    }
+
     if (alignment == 1)
-        x -= limeGetStringWidth(font, text) * scale * 0.5f;
+        x += -0.5f * (w * scale);
     else if (alignment == 2)
-        x -= limeGetStringWidth(font, text) * scale;
+        x -= w * scale;
+    if (alignment != 3) {
+        font->extraUnknown = 0;                 /* +0x3c */
+        font->extraAtCount = 0;                 /* +0x40 */
+    }
 
-    /* The text is UTF-16, two bytes a character, and `limeUC` hands it over
-     * with a byte-order mark. Step over it: the game is little-endian on both
-     * the device and here, and the search below compares raw byte pairs. */
-    p = text;
-    if ((uint8_t)p[0] == 0xff && (uint8_t)p[1] == 0xfe)
-        p += 2;
+    if (!unicode) {
+        end = strlen((const char *)t);
+        step = 1;
+    } else {
+        for (end = 0; t[end] != 0 || t[end + 1] != 0; end += 2)
+            ;
+        step = 2;
+    }
 
-    while (p[0] != '\0' || p[1] != '\0') {
-        int index = -1;
-        int i;
+    for (at = 0; at < end; at += step) {
+        int8_t lo = (int8_t)t[at];
+        uint8_t hi = unicode ? t[at + 1] : 0;
+        int n = font->numGlyphs, i, idx = -1;
 
-        /* A space draws nothing and advances by the fallback, exactly as
-         * limeGetStringWidthUCNoHeader measures it. */
-        if ((uint8_t)p[0] == 0x20 && p[1] == '\0') {
-            x += (float)(font->spacing + font->fallbackAdvance
-                         + font->extraUnknown) * font->field14 * scale;
-            p += 2;
-            continue;
-        }
-
-        for (i = 0; i < font->numGlyphs; i++) {
-            if ((uint8_t)((const uint8_t *)font->codesW)[i * 2]     == (uint8_t)p[0] &&
-                (uint8_t)((const uint8_t *)font->codesW)[i * 2 + 1] == (uint8_t)p[1]) {
-                index = i;
-                break;
+        for (i = 0; i < n; i++) {
+            if (!unicode) {
+                if ((int8_t)font->codes[i] == lo) {
+                    idx = (lo == 0x20) ? -1 : i;
+                    break;
+                }
+            } else {
+                const uint8_t *cw = (const uint8_t *)&font->codesW[i];
+                if ((int8_t)cw[0] == lo && cw[1] == hi) {
+                    idx = i;
+                    if ((lo == (int8_t)0xa0 || lo == 0x20) && hi == 0)
+                        idx = -1;               /* a space, plain or hard */
+                    break;
+                }
             }
         }
 
-        if (index < 0) {
-            /* Not in the table: no glyph to draw, and the pen still moves. */
-            x += (float)(font->spacing + font->fallbackAdvance
-                         + font->extraUnknown) * font->field14 * scale;
-            p += 2;
+        if (idx < 0) {
+            /* not drawn: the fallback advance, then the extras */
+            x += (float)(font->spacing + font->fallbackAdvance) * k;
+            x += (float)font->extraUnknown * k;
+            unknown++;
+            if (font->countForExtra == unknown)
+                x += (float)font->extraAtCount * k;
             continue;
         }
 
-        i = index;
         {
-        /* The half is a half-TEXEL and belongs inside the division: adding it
-         * after divides puts the sample half an atlas away, which on a 1024
-         * sheet is 512 texels and drew fragments of the wrong glyphs. It is
-         * the standard offset to the centre of a texel, so that a linear
-         * filter reads the texel meant rather than the seam between two. */
-        float u  = ((float)font->atlasU[i] + half) / font->atlasWidth;
-        float v  = ((float)font->atlasV[i] + half) / font->atlasHeight;
-        float du = (float)font->glyphWidth[i] / font->atlasWidth;
-        float dv = (float)font->glyphHeight   / font->atlasHeight;
+            int   gw;
+            float pu, pv;
 
-        /* past the bottom of the first atlas means the glyph is on the second */
-        TEXTURE *page = ((float)font->atlasV[i] < font->atlasHeight)
-                        ? font->texture0        /* +0x50 */
-                        : font->texture1;       /* +0x54 */
+            if (font->simple != 0) {            /* +0x04: a fixed-width strip */
+                gw = font->defaultAdvance;
+                pu = (float)(gw * idx);
+                pv = 0.0f;
+            } else {
+                gw = font->glyphWidth[idx];
+                pu = (float)font->atlasU[idx];
+                pv = (float)font->atlasV[idx];
+            }
 
-        /* `field14` is the font's own scale -- the last argument of
-         * limeCreateFONT, 0.325 for GameFont -- and it belongs on the drawn
-         * size as well as on the advance. Left off the size, every glyph was
-         * drawn about three times the width the pen then moved, so the letters
-         * of every label sat on top of each other. */
-        advance = (float)font->glyphWidth[i] * font->field14 * scale;
+            if (colour != NULL) {
+                float gh = (float)font->glyphHeight;
+                TEXTURE *page = (font->atlasHeight > pv) ? font->texture0
+                                                          : font->texture1;
+                limeDrawSprite(page, x, y, (float)gw * k, gh * k,
+                               pu / font->atlasWidth + 0.0f,
+                               pv / font->atlasHeight + 0.0f,
+                               (float)gw / font->atlasWidth,
+                               gh / font->atlasHeight, colour);
+            }
 
-        limeDrawSprite(page, x, y, advance,
-                       (float)font->glyphHeight * font->field14 * scale,
-                       u, v, du, dv, colour);
-
-        /* The pen moves by what the measure function counts for this glyph:
-         * spacing plus the glyph's own width, plus kerning when the font
-         * carries a table, and `defaultAdvance` instead of the width when the
-         * font is a simple one. */
-        x += (float)(font->spacing
-                     + (font->simple
-                        ? font->defaultAdvance
-                        : font->glyphWidth[i]
-                          + (font->kerning ? font->kerning[i] : 0)))
-             * font->field14 * scale;
+            if (font->simple != 0) {
+                x += (float)(font->spacing + font->defaultAdvance) * k;
+            } else {
+                x += (float)(font->glyphWidth[idx] + font->spacing) * k;
+                if (font->kerning != NULL)
+                    x += (float)font->kerning[idx] * k;
+            }
         }
-        p += 2;
     }
 }
 
