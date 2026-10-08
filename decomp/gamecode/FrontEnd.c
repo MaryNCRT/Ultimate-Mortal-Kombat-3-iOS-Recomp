@@ -340,7 +340,7 @@ extern int   VSAssetsLoaded;            /* 0x000ff9a8 */
 extern int   PendingPop;                /* 0x001008b4, -1 when idle */
 extern float FE_FadeAdd;                /* 0x0010089c */
 extern char  Stats[];                   /* 0x00183c84 */
-void limeWriteFile(const char *name, const void *data, long size, long flags);
+int limeWriteFile(const char *name, const void *data, long size, long flags);
 
 
 /* ---------------------------------------------------------- FE_Task_Kode_List
@@ -12487,7 +12487,7 @@ extern char  *Versus_Names_LOW[];       /* 0x00100140 */
 extern char  *Versus_Names2_LOW[];      /* 0x00100420 */
 
 void  LoadFrontEndCharacters(long which);
-void *LIME_LoadMeshSet(const char *name);
+void *LIME_LoadMeshSet(const char *name, int useLighting);
 void *limeLoadTexture(const char *name, long a, long b);
 long  limeLoadSound(const char *name);
 void  limePlayTune(const char *name, long volume, long loop);
@@ -12788,36 +12788,36 @@ int FEInit_LoadABit(long step)
         FireLogo[9] = limeLoadTexture("UMK_LOGOONFIRE_009.PNG", 0, 0);
         return 0;
     case 77:
-        MeshSet_VS_BRICK    = LIME_LoadMeshSet("VS_BRICK.meshset");
-        MeshSet_SINGLEBRICK = LIME_LoadMeshSet("SINGLEBRICK.meshset");
+        MeshSet_VS_BRICK    = LIME_LoadMeshSet("VS_BRICK.meshset", 0);
+        MeshSet_SINGLEBRICK = LIME_LoadMeshSet("SINGLEBRICK.meshset", 0);
         return 0;
     case 78:
-        MeshSet_PLAYERFACE   = LIME_LoadMeshSet("PLAYERFACE.meshset");
-        MeshSet_OPPONENTFACE = LIME_LoadMeshSet("OPPONENTFACE.meshset");
+        MeshSet_PLAYERFACE   = LIME_LoadMeshSet("PLAYERFACE.meshset", 0);
+        MeshSet_OPPONENTFACE = LIME_LoadMeshSet("OPPONENTFACE.meshset", 0);
         return 0;
     case 79:
-        MeshSet_FLOOR   = LIME_LoadMeshSet("FLOOR.meshset");
-        MeshSet_VORTEX1 = LIME_LoadMeshSet("VORTEX1.meshset");
+        MeshSet_FLOOR   = LIME_LoadMeshSet("FLOOR.meshset", 0);
+        MeshSet_VORTEX1 = LIME_LoadMeshSet("VORTEX1.meshset", 0);
         return 0;
     case 80:
-        MeshSet_VORTEX2 = LIME_LoadMeshSet("VORTEX2.meshset");
-        MeshSet_VORTEX3 = LIME_LoadMeshSet("VORTEX3.meshset");
+        MeshSet_VORTEX2 = LIME_LoadMeshSet("VORTEX2.meshset", 0);
+        MeshSet_VORTEX3 = LIME_LoadMeshSet("VORTEX3.meshset", 0);
         return 0;
     case 81:
-        MeshSet_VORTEX4 = LIME_LoadMeshSet("VORTEX4.meshset");
-        MeshSet_VORTEX5 = LIME_LoadMeshSet("VORTEX5.meshset");
+        MeshSet_VORTEX4 = LIME_LoadMeshSet("VORTEX4.meshset", 0);
+        MeshSet_VORTEX5 = LIME_LoadMeshSet("VORTEX5.meshset", 0);
         return 0;
     case 82:
-        MeshSet_SPIRAL     = LIME_LoadMeshSet("SPIRAL.meshset");
-        MeshSet_LIGHTNING1 = LIME_LoadMeshSet("LIGHTNING1.meshset");
+        MeshSet_SPIRAL     = LIME_LoadMeshSet("SPIRAL.meshset", 0);
+        MeshSet_LIGHTNING1 = LIME_LoadMeshSet("LIGHTNING1.meshset", 0);
         return 0;
     case 83:
-        MeshSet_LIGHTNING2 = LIME_LoadMeshSet("LIGHTNING2.meshset");
-        MeshSet_LIGHTNING3 = LIME_LoadMeshSet("LIGHTNING3.meshset");
+        MeshSet_LIGHTNING2 = LIME_LoadMeshSet("LIGHTNING2.meshset", 0);
+        MeshSet_LIGHTNING3 = LIME_LoadMeshSet("LIGHTNING3.meshset", 0);
         return 0;
     case 84:
-        MeshSet_LIGHTNING4 = LIME_LoadMeshSet("LIGHTNING4.meshset");
-        MeshSet_LIGHTNING5 = LIME_LoadMeshSet("LIGHTNING5.meshset");
+        MeshSet_LIGHTNING4 = LIME_LoadMeshSet("LIGHTNING4.meshset", 0);
+        MeshSet_LIGHTNING5 = LIME_LoadMeshSet("LIGHTNING5.meshset", 0);
         return 0;
 
     case 85:

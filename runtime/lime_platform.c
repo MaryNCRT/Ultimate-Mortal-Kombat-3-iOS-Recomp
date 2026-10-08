@@ -36,7 +36,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
 #include <malloc.h>
+#endif
 #include <stdint.h>
 
 #include "arm_runtime.h"
@@ -419,14 +421,16 @@ long lime_heap_check(const char *where)
     const lime_block *b;
     long bad = 0;
 
-    /* The CRT's own heap, not just ours. A wild pointer can land in a block
-     * malloc handed to fopen or sprintf, which no guard of ours protects, and
-     * _heapchk is the only thing that sees those. */
+    /* The Windows CRT can check allocations outside our guarded allocator.
+     * Other platforms have no portable equivalent, so their checks below
+     * cover the allocations owned by this layer. */
+#ifdef _WIN32
     if (_heapchk() != _HEAPOK) {
         fprintf(stderr, "lime_heap: %s: the CRT heap is damaged\n",
                 where ? where : "check");
         bad++;
     }
+#endif
 
     for (b = g_blocks; b; b = b->next) {
         if (!block_intact(b)) {

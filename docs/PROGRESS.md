@@ -2,7 +2,7 @@
 
 Current state of the project. Written so that someone can pick it up with no prior context.
 
-**Last updated:** 2026-10-02 — see [HANDOFF.md](HANDOFF.md) for the route and
+**Last updated:** 2026-10-03 — see [HANDOFF.md](HANDOFF.md) for the route and
 [ENCARGO.md](ENCARGO.md) for the next task.
 
 > Latest (2026-10-02): **the decompilation is complete and behaviourally
@@ -24,6 +24,85 @@ Current state of the project. Written so that someone can pick it up with no pri
 >
 > Before that: **all 18 arenas render, textured, with their effects and an
 > animated fighter standing in them.**
+
+**Browser port (experimental):** `web/` contains an Emscripten/SDL2 build and
+a page that reads either the user's IPA or extracted app/resources directory
+locally. `build-web/umk3-browser-v6.html` is the latest build output; the
+browser page is being served on port 8000 in the current workspace. Web asset
+mounting must use the global Emscripten `FS`
+from the same generated module: the FS API is only present when
+`-sFORCE_FILESYSTEM=1` is enabled. The current mount keeps IPA resource paths
+and decompressed bytes unchanged in the virtual filesystem. Startup now reports
+progress through WebGL creation, general data, and each front-end asset step to
+pinpoint browser hangs. The Emscripten 3.1.6 build lowers a C function named
+`main` to `__main_argc_argv`, which its generated browser runtime does not
+recognize as the entry point; `runtime/emscripten_entry.c` exports a wrapper
+under the expected `main` symbol. Build output now includes `callMain(args)`
+and exports `main`, but the page has not yet been exercised in a browser. The
+renderer still uses the project's fixed-function OpenGL path through
+`LEGACY_GL_EMULATION`; the emulation warning alone does not establish that it
+causes the black screen. Get browser startup and GL error evidence before
+deciding whether to replace it with a shader-based renderer. The WebAssembly
+front-end meshset calls in steps 77-84 now pass `useLighting = 0`, matching the
+argument setup at the corresponding ARM call sites; the `LIME_LoadMeshSet`
+signature warning is gone. The link still reports mismatches for
+`LIME_LoadSceneWithTextures` and `LIME_RenderMeshSingleIndexed`; resolve those
+against the iOS binary before relying on the affected paths. F2 reaches the
+existing experimental fight scene, not a verified retail fight runtime.
+The page streams extracted assets into the virtual filesystem and has a button
+below the log to copy the complete accumulated output.
+SDL2 music now uses SDL2_mixer with its MP3 decoder enabled for Emscripten and
+native SDL builds; Linux menu and test targets compile with the new backend.
+The SDL backend now opens the music mixer independently of the queued
+sound-effects device, so an effects-device failure does not prevent menu music.
+The browser asset-mount readiness promise now resolves a plain API object rather
+than the Emscripten `Module` object, avoiding thenable assimilation that made
+`await umk3AssetMountReady` return `undefined`. The generated script URL is
+versioned after linking to prevent the browser from reusing a stale pre-fix
+runtime. IndexedDB persistence itself was already succeeding in the reported
+case; restoration was failing at the undefined mount API.
+
+The page now caches each validated IPA resource in IndexedDB while extracting.
+It marks the cache complete only after every listed file has been saved and
+verified, restores a complete resource cache before consulting the saved IPA,
+and falls back to the IPA if a cached-resource restore fails. Interrupted or
+quota-limited cache writes remain incomplete and therefore are never treated as
+a valid copy; the saved IPA remains the fallback.
+The Emscripten build allows heap growth up to the 4 GiB WebAssembly32 address
+limit so larger asset sets can grow beyond the compiler's default cap.
+
+The runtime now follows the binary's startup task table for the publisher
+intro: index 0 is `Task_LoadSplashScreen`, index 1 is
+`Task_LoadGeneralData`, index 2 is `Task_FEInit`, and index 3 is
+`Task_FEMain` (confirmed from `__ZL16TaskFunctionList` at
+`0x0017d940`). Both the native menu and browser shell now run the verified
+SPLASH1/SPLASH2 timeline before loading general data. The main-menu task already
+routes its internal entries in the decompilation: Play -> task 1, Options ->
+task 5, Help & About -> task 7, Extras -> task 6; More Games is an external EA
+store call rather than an in-game submenu. Its menu logo is a separate texture,
+loaded at front-end asset step 69 and drawn by `FE_Task_Main_Menu`.
+
+The browser shell now reflects the splash start/end messages in its status line.
+The initial splash was invisible because `FE_WidthScaleP` and
+`FE_HeightScaleP` resolve to zero-filled pointer-slot backing stores in the
+native runtime, while `SetupFEScale` writes the actual `FE_WidthScale` and
+`FE_HeightScale` globals. GDB at the first splash frame showed both slot values
+as zero and both scale globals as 1; `limeDrawSprite` therefore received a
+0-by-0 rectangle. The splash and every other use of these same aliases in
+`GameCode.c` and `achievements.c` now read the actual scale globals. A traced
+native startup loads both 1024x1024 splash textures, and GDB confirms the first
+draw receives dimensions 480x320. A captured 960x640 native frame contains
+182,237 nonblack pixels in the logo area, confirming the first splash is
+visible. Browser pixels have not yet been independently captured. The splash
+helper's old accumulator
+required 16.67 ms between ticks while Emscripten's event poll yields for 16 ms;
+it could therefore skip a presentation iteration, then process multiple ticks
+before the next swap. The browser splash path now advances and swaps exactly
+once per poll, avoiding skipped/uneven splash presentations. Native startup
+keeps its 60 Hz accumulator. The browser cache version is `20261003-9`; visual
+confirmation in a real browser is still outstanding. A separate headless
+navigation attempt stops during later asset loading with `LAC: meshbase out of
+ram`, before it can test the menu transitions.
 
 `tests/test_menu_boot.c` still exits 0 headless, and that is the transcription
 test: it runs `Task_LoadGeneralData`, the 88-step front-end loader and sixty
@@ -239,6 +318,17 @@ The menu is drawn. What is left, in order:
 
 ## The other axis: 229 data tables nobody has counted
 
+> **Status 2026-10-08: extracted and verified.** `tools/logic_tables.py`
+> generates all of them at build time from the user's binary -- 1,118 objects
+> (the 229 the code names plus everything they point to), 37,802 words, 4,291
+> relocations -- and `tools/check_logic_tables.py` verifies the result against
+> the binary. Both `OUTPUT/armv7/UMK3.armv7` and the IPA's fat `UMK3` give
+> byte-identical output. `cmake -DUMK3_BINARY=...` with a 32-bit compiler
+> builds `umk3-fight-headless`, and `ctest -R logic` runs three tests: the
+> tables, their layout in the linked program, and the engine running. See
+> "Fight data tables: how they were verified" below. The section that follows
+> is the original inventory, kept as written.
+
 Every percentage in this document counts **functions**. Linking the fight
 engine for the first time showed that is only part of the work.
 
@@ -313,7 +403,7 @@ all 49 have a native definition in `runtime/`, and about 36 of those do real wor
 language query, and since 2026-10-02 sound, music, save files and the log --
 each one
 transcribed from what the binary does, see `runtime/lime_menu.c`). Music plays
-on the Win32 backend only (MCI decodes the MP3s; SDL2's core cannot). The
+on Win32 (MCI) and SDL2 via SDL2_mixer with MP3 decoding. The
 face-me sprites are still empty bodies -- 672 bytes of NEON per entry point,
 used only by the fight's particles -- and the ~180 Objective-C methods (views,
 controllers, renderers, Finch) are replaced by the SDL2/GL backend rather than
@@ -332,7 +422,8 @@ rewritten one by one.
 | Something renders on a PC screen | ✅ done — the menu and all 18 arenas |
 | **Every game function is decompiled** | ✅ **done — 2,572 of 2,572** (2026-10-01), behaviourally tested (2026-10-02) |
 | The game boots natively | 🔄 the front end boots, takes input, plays sound and music and saves; the fight has no runtime |
-| The game is playable natively | ⬜ next: the fight runtime and the 229 data tables |
+| The fight's 229 data tables are extracted and verified | ✅ done ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48), 2026-10-08) — 1,118 objects, byte-exact, `ctest -R logic` |
+| The game is playable natively | 🔄 next: the hand-over from the front end to `Task_GameInit` — engine runs headless ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46)), game boots to character select ([#43](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/43)) |
 
 ---
 
@@ -345,7 +436,7 @@ rewritten one by one.
 | 2 — Verification oracle | ✅ complete and proven |
 | 3 — Ghidra automation | ✅ headless pipeline working |
 | 4 — Decompile `lime/common` | ✅ **complete — 109/109, every file verified** |
-| 5 — Native PC platform layer | 🔄 started — window, GL, textures, files, sound, music (Windows), saves, focus pause; SDL2 music and the fight's input remain |
+| 5 — Native PC platform layer | 🔄 started — window, GL, textures, files, sound, music, saves and focus pause; the fight's input remains |
 | 6 — EA SDK stubs | ✅ complete — the 27 entry points the game calls, plus `LocaleManager`, in `runtime/gamecode_stubs.c` |
 | 7 — Decompile `gamecode` | ✅ 291/291 |
 | 8 — Decompile fight logic | ✅ 2,172/2,172 — behavioural triage done (see the results table) |
@@ -2773,6 +2864,67 @@ disassemble `LoadAnimatedCharacter`'s per-mesh loop (0x0005c348) and
 Also noticed: the gcc lines in the headers of `tests/test_menu_boot.c` and
 `tests/test_menu_screens.c` no longer link; they need `runtime/wav.c
 runtime/platform/win32_audio.c -lwinmm` since the audio work.
+
+## Fight data tables: how they were verified (2026-10-08)
+
+`tools/logic_tables.py` (from PR #46) decides which table words are pointers by
+a narrow rule: a Thumb start of a fight function, or a word that falls inside a
+fight data object. Everything else is copied as a number. That rule was checked
+four ways, and three things were fixed.
+
+**1. Round trip.** Every emitted word, turned back into the value the binary
+holds, matches the image byte for byte: 151,312 bytes over 1,118 objects, zero
+differences.
+
+**2. A second, independent generator.** `tools/mklogicdata.py` (fight-runtime
+branch, PR #43) was written separately with a broader rule. On the 35,577 words
+both emit they disagree on 53, and each was settled by the code that reads it:
+
+| words | where | read as | right |
+|---|---|---|---|
+| 39 | `sm_*` +0x04 of each 0x48 entry (`0x00100000`, ...) | `pair[1]` for `illegal_button_check`: a button mask | logic_tables (number) |
+| 11 | `ochar_flesh_lineups` | `int16_t` (mkfatal.c) | logic_tables (number) |
+| 1 | `ochar_skeleton_adj` | 16.16 adjustments (0, 0x80000, 0x100000) | logic_tables (number) |
+| 1 | `lao_ani_data+0x14a8` = 0x55fd | a frame id in a run 0x55ec..0x55fd | logic_tables (number) |
+| 1 | `ochar_headrip_lineups+0x8` = 0x000e0030 | `int16_t` pair (0x30, 0x0e) | **mklogicdata** (number) |
+
+
+**3. Where every relocation goes.** 2,612 go from __DATA to __DATA, 66 into
+__common (`G`, `H` ...), and exactly one went into __TEXT,__const: the
+headrip pair above. The 278 numbers that land in the middle of front-end
+storage (`DebugWindows`, `Versus_Names2`, `Players`) were read one by one:
+halfword pairs, switch masks and ASCII. None is a pointer. No number equals a
+function, string or data-symbol start except the frame id above.
+
+**4. Layout.** In the image 1,123 pairs of fight objects touch. Built as
+before, 23 of those pairs no longer touched on the host: all-zero tables went
+to .bss, and halfword tables of 50, 30, 10 and 6 bytes were padded to whole
+words. `ochar_slam_damage` (25 int16, indexed by character) sits directly in
+front of `ochar_slammed_anis`, so a read of entry 25 would have seen padding
+instead of the next table.
+
+**Fixed:**
+
+- `logic_tables.map` gained `int <symbol> <offset>` (a word that must stay a
+  number; the generator refuses an entry that is not a relocation candidate)
+  and `number <symbol> <offset>` (a number the checker would flag, with the
+  read that settles it). `ochar_headrip_lineups+0x8` is the one `int`;
+  `lao_ani_data+0x14a8` is the one `number`.
+- The generator emits every object in binary order into one section, zero
+  tables included, and objects whose address or size is not a multiple of
+  four as bytes at their exact size. All 1,123 touching pairs now touch on
+  the host at the same distance.
+- `tools/check_logic_tables.py` repeats checks 1, 3 and 4 (and the
+  declared-type rule: an `int16_t` table holds no relocation) on every run,
+  and fails if it checked fewer objects or relocations than the generator
+  wrote. It catches both faults above when they are put back.
+
+The headless run (`mk3_init`, then `mk3_update` every frame) prints the same
+output before and after these changes.
+
+**Still not proven by this:** that a number landing mid-object in fight data
+is never a pointer is the rule's own claim; the two generators agree on it for
+every shared word, and no reader found contradicts it.
 
 ## Toolchain
 

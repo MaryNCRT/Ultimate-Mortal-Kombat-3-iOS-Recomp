@@ -83,6 +83,7 @@ Thumbs.db
 # build directories
 build/
 build_*/
+build-web/
 dist/
 
 # Raw disassembly / transcripts of the retail binary (derivative work).

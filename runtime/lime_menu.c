@@ -142,7 +142,7 @@ void lime_menu_touch_idle(void)
 
 static int g_in_2d;
 static int g_depth_test = 1;
-static int g_colour_mask = 1;
+static int g_colour_mask = 0x0f;
 static long g_fills;
 
 /* armv7 0x00066a74. Only the parts the port needs: the poly counter, and the
@@ -167,7 +167,11 @@ void limeEnableDepthTest(void)  { g_depth_test = 1; }
 void limeDisableDepthTest(void) { g_depth_test = 0; }
 void limeClearDepthBuffer(void) { }
 void limePortDisplayRotation(void) { }
-void limeSetColourMask(int on)  { g_colour_mask = on; }
+void limeSetColourMask(long r, long g, long b, long a)
+{
+    g_colour_mask = (r ? 1 : 0) | (g ? 2 : 0) |
+                    (b ? 4 : 0) | (a ? 8 : 0);
+}
 
 #endif  /* !UMK3_REAL_GL */
 int  lime_menu_in_2d(void)      { return g_in_2d; }
@@ -273,7 +277,8 @@ void glRotatef(float angle, float x, float y, float z)
  *   limeSetTuneVol     gain vol / 100.
  *   limeStopTune       close and release the tune.
  *
- * The mixer under it is platform.h's: silent, not broken, without a device.
+ * The SDL mixer streams MP3 tunes separately from the queued sound-effect
+ * voices. Both paths are safe when the host has no audio output.
  */
 
 void lime_platform_resolve(const char *rel, char *out, size_t n);
@@ -511,7 +516,7 @@ void limeMemoryReport(const char *tag) { (void)tag; }
  *                            failed: %s" and return NULL; else malloc(length),
  *                            getBytes:, log "*** Loaded %s, of size %d bytes"
  *                            and return the copy (the caller limeFree()s it).
- *   limeWriteFile(name, data, size)
+ *   limeWriteFile(name, data, size, flags)
  *                            dataWithBytes:length: then writeToFile:atomically:
  *                            YES; returns that BOOL. No caller reads it.
  *
@@ -617,12 +622,13 @@ void *limeLoadSaveFile(const char *name)
     return buf;
 }
 
-long limeWriteFile(const char *name, const void *data, long size)
+int limeWriteFile(const char *name, const void *data, long size, long flags)
 {
     char dir[600], path[800], tmp[820];
     FILE *f;
     int ok;
 
+    (void)flags;
     save_dir(dir, sizeof dir);
     make_dirs(dir);
     snprintf(path, sizeof path, "%s/%s", dir, name);
@@ -653,10 +659,10 @@ long limeWriteFile(const char *name, const void *data, long size)
 /* Modals, the spinner, vibration and the App Store link. All of them were UIKit
  * on the device and none has a host equivalent worth inventing. The two modals
  * answer "no", which is the branch that does not navigate anywhere. */
-long limeModalAreYouSure(const char *msg)  { (void)msg; return 0; }
-long limeModalNoInternet(const char *msg)  { (void)msg; return 0; }
+long limeModalAreYouSure(void)             { return 0; }
+void limeModalNoInternet(void)             { }
 void limeStartLoadingAnim(void)            { }
 void limeStopLoadingAnim(void)             { }
-void limeSetVibrate(long on)               { (void)on; }
+void limeSetVibrate(void)                   { }
 void limeLoadURLInternal(const char *url)  { (void)url; }
 void limeInit(void)                        { }
