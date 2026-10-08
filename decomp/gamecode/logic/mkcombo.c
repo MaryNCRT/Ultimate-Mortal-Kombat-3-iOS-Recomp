@@ -586,7 +586,7 @@ long t_comb0(MK3THREAD *thread)
  * used as scratch throughout and are left holding whatever the last step put
  * there -- on a match, either the count less one or the base address, which is
  * the one place two exits disagree about what 0x1c means. */
-extern uint32_t *last_switch_ram;          /* pointer slot -> 0x0016f50c */
+extern uint32_t last_switch_ram[];         /* pointer slot -> 0x0016f50c */
 
 long combo_scan_a11(MK3OBJ *obj)
 {
@@ -932,7 +932,7 @@ long t_do_elbow(MK3THREAD *thread)
  * so unlike the ochar_* tables above it is defined in another translation
  * unit. */
 long strike_check(MK3OBJ *obj);
-extern uint32_t *combo_strike_table;      /* pointer slot -> 0x00167694 */
+extern uint32_t combo_strike_table[];     /* pointer slot -> 0x00167694 */
 
 long t_comba(MK3THREAD *thread)
 {

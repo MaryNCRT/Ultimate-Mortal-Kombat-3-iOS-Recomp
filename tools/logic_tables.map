@@ -1,0 +1,34 @@
+# logic_tables.map -- the facts tools/logic_tables.py cannot read from the STABs.
+#
+# Addresses only. Nothing here is game data.
+
+# alias <C name> <address>
+#
+# Function-local statics whose binary name is `funcs.NNNN`, named by what the
+# decompiled code does with them. The address is the one in the extern's
+# comment in decomp/gamecode/logic/mkboss.c, checked against the symbol table.
+alias funcs_boss1               0x0017b9d4
+alias funcs_boss_close_attack   0x0017b9b0
+alias funcs_mc_flipkp           0x0017b924
+alias funcs_motaro_comboed      0x0017b91c
+alias funcs_motaro_far_easy     0x0017b9bc
+alias funcs_motaro_far_hard     0x0017b9c4
+alias funcs_motaro_far_med      0x0017b9cc
+alias funcs_sk_stalk_close      0x0017b9a0
+alias funcs_sk_stalk_far        0x0017b96c
+alias funcs_sk_stalk_last       0x0017b940
+alias funcs_sk_stalk_mid        0x0017b990
+alias funcs_sk_stalk_near       0x0017b95c
+alias funcs_sk_stupid           0x0017b92c
+
+# object <binary symbol>
+#
+# Zero-filled objects the decompiled code names AS THE OBJECT rather than
+# through a slot pointer: `TList = t`, `blood[0] = -1`, `mk3_getbbox_cb = cb`.
+# They are emitted under their own C name. The rest of __common (G, H, Plyr,
+# Pp, GrObj, mo, mytc, Playback, MKEventQueue, RoundParam) is reached through
+# slot pointers and is emitted as umk3_common_<name>.
+object _TList
+object _TList_Free
+object _blood
+object _mk3_getbbox_cb

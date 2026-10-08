@@ -10114,7 +10114,7 @@ long t_one_on_one(MK3THREAD *thread)
  * only when `Pp[who].field7e` is zero. That is a fifth place a handler comes
  * out of data.
  */
-extern uint16_t **last_switch_ram;      /* 0x0016f50c */
+extern uint16_t *last_switch_ram[];     /* 0x0016f50c */
 long t_do_shake(MK3THREAD *thread);
 long t_do_fatality_1(MK3THREAD *thread);
 long t_do_fatality_2(MK3THREAD *thread);
@@ -11268,7 +11268,7 @@ long do_next_a9_frame_pxob(MK3OBJ *obj, MK3OBJ *ref, MK3OBJ *other)
  * The four `*_mpart_ob` calls run before the box is assembled, so what they
  * write is what `intersect` compares.
  */
-extern uint32_t *block_xfers;           /* through the slot at 0x000f3208 */
+extern uint32_t block_xfers[];          /* through the slot at 0x000f3208 */
 
 long strike_check_regs(MK3OBJ *obj, const uint32_t *p)
 {
