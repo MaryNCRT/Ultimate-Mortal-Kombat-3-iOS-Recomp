@@ -767,16 +767,18 @@ long t_sk_laugh(MK3THREAD *thread)
  *
  * mkboss.c's own private copies of the answer helpers `moves.c` also
  * defines -- the same two instructions each (`field5c = 1` / `= 0`), at
- * this file's own addresses. Written without `static` because
- * tools/factdiff.py does not parse the keyword; nothing links the
- * decomp files together, so the duplicate name costs nothing.
+ * this file's own addresses. Their symbols are local in the binary
+ * (no N_EXT), so they are `static` here: the fight runtime links every
+ * logic file into one program, and three files define these two names.
+ * The global pair -- the one mkanimal.c, mkzap.c and mkprop.c call -- is
+ * mkdrone.c's, at 0x00067524 / 0x0006752c.
  */
-void q_yes(MK3OBJ *obj)
+static void q_yes(MK3OBJ *obj)
 {
     obj->field5c = 1;
 }
 
-void q_no(MK3OBJ *obj)
+static void q_no(MK3OBJ *obj)
 {
     obj->field5c = 0;
 }
