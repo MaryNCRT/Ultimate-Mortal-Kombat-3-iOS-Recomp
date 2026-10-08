@@ -96,7 +96,11 @@ typedef struct GAMEFONT {
      * so a font can make unknown characters wider than the plain fallback
      * without touching the fallback itself. */
     int       extraUnknown;      /* 0x3c */
-    uint8_t   _pad3c[12];
+    /* limeDrawFONT (armv7 0x7e5b8): at the +0x44-th character not in the
+     * table, +0x40 more is added. Both are zeroed by every call that is not
+     * alignment 3. The earlier 12-byte pad here put `codes` at 0x4c. */
+    int       extraAtCount;      /* 0x40 */
+    int       countForExtra;     /* 0x44 */
     uint8_t  *codes;             /* 0x48  one byte per glyph */
     int16_t  *codesW;            /* 0x4c  the same codes widened to 16 bits */
     TEXTURE  *texture0;          /* 0x50 */
