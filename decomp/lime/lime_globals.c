@@ -135,15 +135,6 @@ int              HaveFadeTable;             /* 0x001715d0 */
 uint8_t          ScaleTable[0x200 * 256];   /* 0x0029fe74, 0x20000 bytes */
 
 
-/* -------------------------------------------------------- gamecode bridge
- *
- * KillIllegalWhirlwinds dereferences these (`*g_stateA`), so they are pointers
- * into state that lives in gamecode rather than in the engine. lime/common only
- * reads through them; nothing here owns the storage.
- */
-int             *g_stateA;
-int             *g_stateB;
-int              g_whirlwindFirstFrame;
 
 /* Filled by CreateFadedRGBS and handed to glColorPointer in the same breath.
  * The symbol name was not resolved; see the note in lime.h. */

@@ -53,7 +53,7 @@ extern long  TrainingCatagory;          /* 0x0017809c, the binary's spelling */
 extern int   Settings[10];              /* pointer slot -> 0x00100e34 */
 extern long  Character1;                /* pointer slot */
 extern long  PLAYER1MODEL;              /* pointer slot */
-extern long *PLAYER2MODEL;              /* pointer slot */
+extern long PLAYER2MODEL;              /* 0x0014e1b8, a plain long */
 extern int   limeScreenWidth;           /* pointer slot */
 extern float  limeFPSScaleFactor;       /* pointer slot */
 extern float  fontcol[];                  /* pointer slot -> 0x0014f9f0 */
@@ -175,7 +175,7 @@ void TrainingMessages(void)
             if (m->name == 0)
                 TrainingMoveCount = 0;
 
-            mk3_init(PLAYER1MODEL, *PLAYER2MODEL, FrameID_GetBBoxPtr,
+            mk3_init(PLAYER1MODEL, PLAYER2MODEL, FrameID_GetBBoxPtr,
                      (long)(uintptr_t)m->name);
 
             if (cat == 2)
@@ -202,7 +202,7 @@ void TrainingMessages(void)
         if (TrainingBadMessage <= 0.0f) {
             TrainingBadMessage = 0.0f;
 
-            mk3_init(PLAYER1MODEL, *PLAYER2MODEL, FrameID_GetBBoxPtr, 0);
+            mk3_init(PLAYER1MODEL, PLAYER2MODEL, FrameID_GetBBoxPtr, 0);
 
             if (cat == 2)
                 mk3_dizzy();

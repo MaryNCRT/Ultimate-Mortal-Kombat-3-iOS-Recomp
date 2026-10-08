@@ -106,6 +106,9 @@ Do not leave uncommitted work in the tree.
 
 **Golden rule: commit and update at both ends of every session.**
 
+Work that exists only on a local disk does not count. At the start and at the end of
+every session, push it to the GitHub repository.
+
 - **When a session starts:** commit and push anything left in the tree, pull
   in `main`, and read README.md, docs/PROGRESS.md and docs/HANDOFF.md, so the
   work starts from the current state.
