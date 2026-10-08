@@ -8584,7 +8584,7 @@ long t_lia_forward_proc(MK3THREAD *thread)
  *                                        0x153c, 0x1578, 0x1564, 0x1550,
  *                                        0x1550 }[bucket]
  */
-extern uint32_t *robo_ani_data;    /* pointer slot 0x000f33c0 -> 0x0015b1d0 */
+extern uint32_t robo_ani_data[];   /* pointer slot 0x000f33c0 -> 0x0015b1d0 */
 double atan2(double y, double x);
 
 void point_rocket(MK3OBJ *obj)
