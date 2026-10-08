@@ -53,7 +53,7 @@ void randu(MK3OBJ *obj);
 void xfer_otherguy(MK3OBJ *obj);
 void player_swpal(MK3OBJ *obj, uint32_t frozen);
 
-extern MK3THREAD *mytc;                                   /* pointer slot -> 0x0038ef3c */
+extern MK3THREAD mytc[];                                   /* 0x0038ef3c, reached through a slot */
 
 /* t_new_smoke_spear_proc -- armv7 0x00074d3c, 64 bytes.  **Complete.**
  *

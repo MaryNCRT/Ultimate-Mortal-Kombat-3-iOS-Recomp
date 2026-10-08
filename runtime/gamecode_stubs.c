@@ -243,16 +243,12 @@ void _ZN13LocaleManagerC1Ev(void *self)
 }
 
 
-/* ------------------------------------------------- two odd declarations ---- */
+/* -------------------------------------------------- an odd declaration ---- */
 
-/* `extern union { float f; long w; } PlayerZPos;` -- an anonymous union, which
- * the generator cannot name a type for. Written out here rather than taught to
- * the generator: it is the only one in the tree.
- *
- * The union is not decoration. RenderLevelPlayers reads the same 32 bits as a
- * float for the world position and as a word for the compare, which is why the
- * transcription kept it. */
-union { float f; long w; } PlayerZPos;
+/* `PlayerZPos` used to be defined here, as a zeroed anonymous union. The image
+ * holds 0xbee147ae there -- -0.44 -- and tools/mkglobals.py now defines it with
+ * those bytes, because the only declaration that names it in full is the slot
+ * FrontEnd.c reads it through. */
 
 /* `TheHud` is a HUD, and HUD embeds a `HUDANIM anim` by value whose layout is
  * not established anywhere in the decomp. Its size is unknown, so the generator

@@ -6,6 +6,7 @@
  */
 
 #include <stdint.h>
+#include "lime_glapi.h"   /* the GL calls' calling convention */
 
 /* The pool is 0x6000 bytes of 0x30-byte records -- 512 of them -- and this
  * function touches exactly one word in each. Only that word is named; nothing
@@ -518,7 +519,7 @@ void limeEnableDepthWrites(void);
 void limeEnableDepthTest(void);
 void limeEnableAlphaBlending_Basic(void);
 void limeDisableAlphaBlending(void);
-void glTexEnvf(unsigned target, unsigned pname, float param);
+void LIME_GLAPI glTexEnvf(unsigned target, unsigned pname, float param);
 void limeDrawFaceMeSprite(void *tex, const float *m, float x, float y, float z,
                           float u0, float v0, float u1, float v1, float size,
                           float r, float g, float b, float a);

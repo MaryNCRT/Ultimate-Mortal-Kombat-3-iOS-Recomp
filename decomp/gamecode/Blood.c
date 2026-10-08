@@ -546,7 +546,7 @@ extern long   opponentPerformedMercy;   /* pointer slot -> 0x0010dea4 */
 extern long   GameMode;                 /* pointer slot -> 0x0014faa4 */
 extern long   Character2;               /* pointer slot -> 0x000ff98c */
 extern long   Destiny;                  /* pointer slot -> 0x0014e20c */
-extern const char *DestinyNames[0];       /* pointer slot -> 0x00176760 */
+extern const char *DestinyNames[];        /* 0x00176760, 108 bytes */
 extern const char *CharacterNames[0];     /* pointer slot -> 0x0014fe54 */
 extern long   Health[];                   /* pointer slot -> 0x0014fa64 */
 extern long   RunBar[];                   /* pointer slot -> 0x0014fa6c */

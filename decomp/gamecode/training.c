@@ -57,7 +57,7 @@ extern long *PLAYER2MODEL;              /* pointer slot */
 extern int   limeScreenWidth;           /* pointer slot */
 extern float  limeFPSScaleFactor;       /* pointer slot */
 extern float  fontcol[];                  /* pointer slot -> 0x0014f9f0 */
-extern void  *GameFont;                 /* pointer slot -> 0x001abb98 */
+extern char   GameFont[];               /* 0x001abb98, the font itself */
 
 extern long  BabalityMessage;           /* pointer slot */
 extern long  FriendshipMessage;         /* pointer slot */
