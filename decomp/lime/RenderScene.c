@@ -1030,88 +1030,69 @@ void LIME_RenderScene(long arg1, SCENEINFO *scene,
  * alpha test here is against **1.0f** where LIME_RenderScene uses 0.97.
  * Neither is transcribed further, because neither was followed.
  */
-/* A global at `0x0011208a + pc` (guest 0x00171766-ish; the test seeds the
- * neighbouring one) gates an extra blending enable. Zero in every run driven
- * here, so the branch is written but never taken by the test -- said plainly
- * rather than dropped. */
-int g_overrideBlendFlag;
+/* armv7 0x0005f4d4, transcribed whole. What the armv6 reading had left
+ * open:
+ *
+ *   - the gate at 0x5f53e is _SceneRenderAlwaysTrans: when it is set (the
+ *     FIGHT / FINISH HIM overlay sets it around this one call), every node
+ *     is drawn with basic alpha blending -- the texture's own alpha;
+ *   - a node whose key alpha is 0 is skipped, one at exactly 1.0 restores the
+ *     opaque state first; nothing calls glColor4f;
+ *   - the mesh is found BY NAME (LIME_FindMeshByName on the key's mesh's
+ *     name), and the texture is textures[that index];
+ *   - a node with no keys is skipped without restoring state. */
+int g_overrideBlendFlag;                /* kept for the differential tests */
 
 void LIME_RenderSceneOverrideTextures(SCENEINFO *scene, TEXTURE **textures,
                                       long frame)
 {
-    long node, f;
+    MESHSETINFO *set = scene->meshset;              /* +0x80 */
+    long n = scene->count2, f, node;
 
-    if (scene == NULL)
-        return;
-    if (scene->count2 == 0)
-        return;                         /* ours, as in LIME_RenderScene */
-
-    f = frame % scene->count2;
+    f = frame % n;
     if (f < 0) f = 0;
-    if (f >= scene->count2) f = scene->count2;
+    if (f > n) f = n;
 
     glScalef(scene->scale, scene->scale, scene->scale);
-
-    if (scene->nodeCount == 0)
-        return;
 
     for (node = 0; node < scene->nodeCount; node++) {
         SCENENODEKEY *keys = scene->nodeKeys[node];
         uint16_t     *strm = scene->nodeStream[node];
         SCENENODEKEY *key;
-        MESHINFO *mesh;
+        const char   *name;
         float m[16];
         int index;
 
         if (keys == NULL)
             continue;
-
         if (strm[f] == SCENE_NODE_HIDDEN)
             goto restore;
 
         key  = &keys[strm[f]];
-        mesh = scene->meshset->meshes[key->meshIndex];
+        name = set->meshes[key->meshIndex]->meshName;
+        if (name[0] == 'E' && name[1] == 'V' && name[2] == 'E' &&
+            name[3] == 'N' && name[4] == 'T')
+            goto restore;
 
-        if (mesh->meshName[0] == 'E' && mesh->meshName[1] == 'V' &&
-            mesh->meshName[2] == 'E' && mesh->meshName[3] == 'N' &&
-            mesh->meshName[4] == 'T')
-            goto restore;               /* 0x5f5fe tests 'T' then b 0x5f5d8 */
-
-        /* **alpha == 1.0 does NOT skip the draw.**
-         *
-         *      0x5f52a  vmov.f32 s12, #1.0
-         *      0x5f536  beq #0x5f622
-         *      0x5f622  bl _limeDisableAlphaBlending
-         *      0x5f626  bl _limeEnableDepthWrites
-         *      0x5f62a  b  #0x5f538          <- back into the draw
-         *
-         * An earlier body here read that branch as a skip and wrote
-         * `if (key->alpha == 1.0f) continue;`. Driving it says the opposite:
-         * a fully opaque node emits TWO MORE calls than a translucent one
-         * (36 against 34), because it turns blending off and depth writes on
-         * and then draws anyway.
-         *
-         * Note also that the threshold here is 1.0, where LIME_RenderScene
-         * uses 0.97. The two renderers do not share it. */
+        index = LIME_FindMeshByName(set, name);
+        if (key->alpha == 0.0f)
+            goto restore;
         if (key->alpha == 1.0f) {
             limeDisableAlphaBlending();
             limeEnableDepthWrites();
         }
-
-        if (g_overrideBlendFlag != 0)   /* 0x5f53e; zero in every run so far */
+        if (SceneRenderAlwaysTrans != 0)
             limeEnableAlphaBlending_Basic();
-
-        index = (int)key->meshIndex;
-        if (index == -1)                /* cmp.w r6, #-1 */
+        if (index == -1) {
+            printf("Can't find mesh match on %s.\n", name);  /* 0x001716a8 */
             continue;
+        }
 
         LIME_PushMatrix();
-        /* the palette index comes from the KEY (`ldrh r0, [r5, #6]`), not from
-         * the frame -- see docs/RENDERSCENE-SIGNATURE.md */
-        ConvertQSTMatrixtoPCMatrix(GetMatrixFromPalette(key->paletteIndex, scene),
-                                   m);
-        glMultMatrixf(m);               /* untransposed: QST arrives GL-ready */
-        LIME_RenderMesh(scene->meshset, index, textures[index], NULL, 0);
+        ConvertQSTMatrixtoPCMatrix(
+            (const QSTMATRIX *)GetMatrixFromPalette(key->paletteIndex, scene), m);
+        glMultMatrixf(m);
+        LIME_RenderMesh(set, index, textures[index], NULL, 0);
         LIME_PopMatrix(1);
         continue;
 
