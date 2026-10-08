@@ -149,8 +149,8 @@ void KillAlleventsWithGroup(long group)
     for (i = 0; i < EVENT_SLOTS; i++) {
         if (SceneEvents[i].state > 0 && SceneEvents[i].group == group) {
             SceneEvents[i].state = -2;
-            SceneEvents[i].fadeA = EVENT_KILL_VALUE;    /* +0xa4 */
-            SceneEvents[i].fadeB = EVENT_KILL_VALUE;    /* +0xe4 */
+            SceneEvents[i].world[15] = EVENT_KILL_VALUE;    /* +0xa4 */
+            SceneEvents[i].local[15] = EVENT_KILL_VALUE;    /* +0xe4 */
         }
     }
 }
@@ -215,17 +215,17 @@ void FindEventOffsets(SCENEEVENTS *events)
  * the per-frame path never compares a string. A linear scan is fine precisely
  * because it happens once.
  */
+/* armv7 0x000a46f8: a name not in the table is ADDED, and its new row
+ * returned -- the earlier body returned -1, which then indexed the table. */
 int FindIdInMasterOffsets(const char *name)
 {
-    const char *entry = g_masterOffsets;
+    const char *row = MasterEventOffsets;
     int i;
 
-    for (i = 0; i < g_masterOffsetCount; i++) {
-        if (strcmp(entry, name) == 0)
+    for (i = 0; i < NumMasterEventOffsets; i++, row += 0x50)
+        if (strcmp(row, name) == 0)
             return i;
-        entry += 0x50;
-    }
-    return -1;
+    return AddNewID(name);
 }
 
 
@@ -240,12 +240,29 @@ int FindIdInMasterOffsets(const char *name)
  * not the format string. Since `LIME_printf` is compiled away the call does
  * nothing in the retail binary, but the argument order is still visible here.
  */
-void AddNewID(const char *name)
+/* armv7 0x000a452c: grows the table by one 80-byte row -- a new block,
+ * the old rows copied in, the old block freed -- then writes the name and
+ * zeroes x, y, z. Returns the new row's index. */
+int AddNewID(const char *name)
 {
-    LIME_printf(0x1d, "...", name);
+    char *old = MasterEventOffsets;
+    char *row;
 
-    g_masterOffsetCount++;
-    /* the new record is written at the end of the 0x50-stride table */
+    LIME_printf(0x1d, "", name);
+    MasterEventOffsets = (char *)limeMalloc("newID",
+                                            (NumMasterEventOffsets + 1) * 0x50);
+    if (old != NULL) {
+        memcpy(MasterEventOffsets, old, NumMasterEventOffsets * 0x50);
+        limeFree(old);
+    }
+    row = MasterEventOffsets + NumMasterEventOffsets * 0x50;
+    memcpy(row, name, 0x40);
+    *(int32_t *)(row + 0x40) = 0;
+    *(int32_t *)(row + 0x44) = 0;
+    *(int32_t *)(row + 0x48) = 0;
+    NumMasterEventOffsets++;
+    LIME_printf(0x1d, "");
+    return NumMasterEventOffsets - 1;
 }
 
 
@@ -401,22 +418,50 @@ void LIME_FreeEvents(SCENEEVENTS *events)
  * the interface and every caller pushes them. Two call sites agree, which is
  * what makes this the signature rather than one caller's mistake.
  */
+/* armv7 0x000a4fc0. Every key of every track that sits on this frame
+ * (the frame taken modulo the scene's length, clamped to [0, count2]) fires
+ * one event, placed by the key's DS-format matrix. Each prints a line to
+ * stdout -- `printf`, not the compiled-away LIME_printf. */
 void LIME_TriggerEventsFromScene(SCENEINFO *scene, int frame,
-                                 limeMATRIX44 *m, long flags,
-                                 long a4, long a5, long a6, long a7)
+                                 limeMATRIX44 *m, long a4,
+                                 long offsetId2, long a7,
+                                 TEXTURE *tex0, TEXTURE *tex1)
 {
-    int index;
+    const EVENTSINFO *events;
+    long f, i, k;
 
     if (scene == NULL)
         return;
+    f = frame % scene->count2;
+    if (f < 0)
+        f = 0;                          /* bic r0, r0, r0, asr #31 */
+    if (f > scene->count2)
+        f = scene->count2;
 
-    index = frame % scene->count2;      /* +0x44, wraps the track */
-    if (index < 0)
-        index = 0;                      /* bic rN, rN, rN, asr #31 */
+    events = (const EVENTSINFO *)scene->events;
+    for (i = 0; i < events->count; i++) {
+        SCENEEVENTTRACK *track = (SCENEEVENTTRACK *)
+            ((char *)events->tracks + i * SCENEEVENTTRACK_STRIDE);
+        const char *t = (const char *)track;
+        const char *key = *(char *const *)(t + 0xd4);
 
-    /* the per-track dispatch runs off scene->events (+0x84) */
-    (void)m; (void)flags;
-    (void)a4; (void)a5; (void)a6; (void)a7;     /* passed, never loaded */
+        for (k = 0; k < *(const int32_t *)t; k++, key += 0x44) {
+            float mtx[16];
+            float spd;
+
+            if (*(const int32_t *)key != f)
+                continue;
+            memcpy(&spd, t + 0xc4, 4);
+            printf("     - EVENT %s (fr %d) triggered event %s "
+                   "(FromGround %d, spd %02.02f...\n ",
+                   scene->name, (int)f,
+                   track->scene ? track->scene->name : "(null)",
+                   *(const int32_t *)(t + 0x78), (double)spd);
+            ConvertDSMatrixtoPCMatrix((const int32_t *)(key + 8), mtx);
+            LIME_TriggerEvent(track, m, (limeMATRIX44 *)mtx, a4, offsetId2,
+                              a7, tex0, tex1, 0);
+        }
+    }
 }
 
 
@@ -498,85 +543,70 @@ void LIME_TriggerEventsFromScene(SCENEINFO *scene, int frame,
  * rather than transcribed. Both are visible in the disassembly and neither was
  * traced to a confident conclusion.
  */
+/* armv7 0x000a5098, transcribed whole. Per live slot, once a frame:
+ *
+ *   - dying (state < 0): count up toward 0, the slot frees itself;
+ *   - delayed: count +0x38 down, start on the tick it reaches 0;
+ *   - the frame is the integer part of the cursor; on a NEW frame the
+ *     event's scene fires its own events (nested effects);
+ *   - before the last frame: advance the cursor by +0x28;
+ *   - on the last frame: if +0x2c (repeat) is set, hold on the last frame
+ *     and count it down (-1 holds forever); else if +0x30 (repeat2) is set,
+ *     wrap back one length and count it down (-1 loops forever); else kill
+ *     the event (state -2, +0xa4 and +0xe4 to 100.0f). */
 void LIME_UpdateEvents(void)
 {
     int i;
 
     for (i = 0; i < EVENT_SLOTS; i++) {
         EVENT *ev = &SceneEvents[i];
-        SCENEINFO *scene;
-        int frame;
+        long n, f;
 
         if (ev->state == 0)
-            continue;                   /* free */
-
+            continue;
         if (ev->state < 0) {
-            ev->state++;                /* dying: count up toward zero */
+            ev->state++;
             continue;
         }
-
-        if (ev->delay != 0) {           /* +0x38 */
+        if (ev->delay != 0) {
             ev->delay--;
             if (ev->delay < 0)
                 ev->delay = 0;
-            if (ev->delay > 0)
-                continue;               /* still waiting to start */
+            else if (ev->delay != 0)
+                continue;
         }
 
-        frame = (int)ev->cursor;        /* +0x04 truncated */
-        ev->frameA = frame;             /* +0x08 */
-
-        /* r2 is `add r2, r4, #0x68` -- the event's own matrix, which is what
-         * the existing signature already types the third argument as. Four more
-         * fields go on the stack (+0x60, +0x48, +0xe8, +0xec) and are not
-         * broken out. */
-        if (ev->state != 0 && frame != ev->frameB)      /* +0x0c */
-            /* Eight arguments, four of them past the registers -- the
-             * binary stores +0x60, +0x48, +0xe8 and +0xec to [sp], [sp+4],
-             * [sp+8] and [sp+0xc] before the call. +0x48 is the same group
-             * number LIME_RenderEvents filters on, so the update path hands
-             * the trigger the group the render path will ask for.
-             * +0x60 has no name yet; it falls inside the unnamed run. */
-            LIME_TriggerEventsFromScene(ev->scene, frame,
-                                        (limeMATRIX44 *)((char *)ev + 0x68),
-                                        ev->field40,
-                                        *(const int *)((const char *)ev + 0x60),
-                                        ev->field48,
-                                        (long)(uintptr_t)ev->flushTexture,
-                                        ev->fieldEC);
-
-        scene = ev->scene;              /* +0x10 */
+        f = (long)ev->cursor;                       /* vcvt.s32.f32 */
+        ev->frameA = (int)f;
+        if (f != ev->frameB)
+            LIME_TriggerEventsFromScene(ev->scene, (int)f,
+                                        (limeMATRIX44 *)ev->world,
+                                        ev->field40, ev->offsetId2,
+                                        ev->field48, ev->flushTexture,
+                                        (TEXTURE *)(uintptr_t)ev->fieldEC);
         ev->frameB = ev->frameA;
+        n = ev->scene->count2;
 
-        if (frame < scene->count2 - 1) {
-            ev->cursor += ev->step;     /* +0x28 */
-            continue;
-        }
-
-        /* the event has run its length */
-        if (ev->repeat != 0) {                          /* +0x2c */
-            ev->cursor = (float)scene->count2 - 1.0f;
-            ev->frameA = scene->count2 - 1;
-            ev->frameB = scene->count2 - 1;
-            if (ev->repeat != -1)       /* -1 loops forever */
-                ev->repeat--;
-            continue;
-        }
-
-        if (ev->repeat2 != 0) {                         /* +0x30 */
-            ev->cursor -= (float)frame;
+        if (ev->frameA < n - 1) {
             ev->cursor += ev->step;
-            ev->frameA = frame - scene->count2;
+        } else if (ev->repeat != 0) {
+            ev->cursor = (float)n - 1.0f;
+            ev->frameA = (int)(n - 1);
+            ev->frameB = (int)(n - 1);
+            if (ev->repeat != -1)
+                ev->repeat--;
+        } else if (ev->repeat2 == 0) {
+            ev->state = -2;
+            ev->world[15] = EVENT_KILL_VALUE;       /* +0xa4 */
+            ev->local[15] = EVENT_KILL_VALUE;       /* +0xe4 */
+            ev->cursor += ev->step;
+        } else {
+            ev->cursor -= (float)n;
+            ev->frameA = (int)(ev->frameA - n);
             if (ev->repeat2 > 0)
                 ev->repeat2--;
-            continue;
+            ev->cursor += ev->step;
         }
-
-        /* both counters spent: the same kill KillAlleventsWithGroup performs */
-        ev->state = -2;
-        ev->fadeA = EVENT_KILL_VALUE;   /* +0xa4 */
-        ev->fadeB = EVENT_KILL_VALUE;   /* +0xe4 */
-        ev->cursor += ev->step;
     }
 }
 
@@ -738,44 +768,96 @@ void LIME_PlayFBXAtPos(limeMATRIX44 *m, long arg1, SCENEINFO *scene, long arg3)
  * function would be naming them from a single sighting, which is not the
  * standard used here.
  */
+/* armv7 0x000a4be4, transcribed whole. The earlier body (from armv6) set
+ * five fields and left the rest of the slot as the heap had it.
+ *
+ *      scene, track   the scene the event plays and its track
+ *      m1             the matrix the event follows (kept at +0x64)
+ *      m2             its local placement; +0x68 = m2 * m1, +0xa8 = m2
+ *      a4             +0x40
+ *      offsetId2      +0x60, a second MasterEventOffsets row, -1 for none
+ *      zeroOffset     nonzero: no offset at all
+ *      a7             +0x48
+ *      tex0, tex1     +0xe8, +0xec
+ *      a10            +0x44
+ *
+ * Returns what r0 last held, as the original does: the pool-full -1, the
+ * count when the track is at its cap, the slot's address when the track is
+ * a shadow and 0 otherwise. No caller in this tree reads it. */
 int LIME_TriggerEventFromSceneH(SCENEINFO *scene, SCENEEVENTTRACK *track,
                                 limeMATRIX44 *m1, limeMATRIX44 *m2,
-                                long a4, long a5, long a6, long a7,
-                                TEXTURE *tex0, TEXTURE *tex1, long a10)
+                                long a4, long offsetId2, long zeroOffset,
+                                long a7, TEXTURE *tex0, TEXTURE *tex1, long a10)
 {
-    int slot;
+    const char *t = (const char *)track;
+    float tmp[16];
+    int slot, n;
     EVENT *ev;
-
-    (void)scene; (void)m1; (void)m2; (void)a5; (void)a7;
-    (void)tex0; (void)tex1;
 
     slot = GetFreeEvent();
     if (slot == -1)
-        return -1;                      /* pool full: silently nothing */
-
-    if (track->maxInstances != -1) {    /* +0xd0, -1 disables the cap */
-        if (CountEventsMatching(track, m1) >= track->maxInstances)
-            return -1;                  /* at the cap: silently nothing */
-    }
-
-    if (track->flag7c != 0)             /* +0x7c diverts early */
         return -1;
 
-    ev = &SceneEvents[slot];            /* index * 256 - index * 8 */
+    if (*(const int32_t *)(t + 0xd0) != -1) {        /* the instance cap */
+        n = CountEventsMatching(track, m1);
+        if (n >= *(const int32_t *)(t + 0xd0))
+            return n;
+    }
+    if (*(const int32_t *)(t + 0x7c) != 0)           /* a grouped track */
+        KillAlleventsWithGroup(*(const int32_t *)(t + 0x7c));
 
-    ev->scene  = track->scene;          /* +0x10 */
-    ev->track  = track;                 /* +0x14 */
-    ev->group  = (int32_t)a4;           /* +0x3c */
-    ev->repeat = (int)a6;               /* +0x2c */
+    ev = &SceneEvents[slot];
+    ev->isWhirlwind  = IsWhirlwindScene(scene);
+    ev->obj          = LastGObj;
+    ev->flushTexture = tex0;
+    ev->fieldEC      = (long)(uintptr_t)tex1;
+    ev->field48      = (int)a7;
+    ev->field40      = (int)a4;
+    ev->field44      = (int)a10;
+    ev->group        = *(const int32_t *)(t + 0x7c);
+    ev->state        = 1;
+    memcpy(ev->color, t + 0x08, 16);
+    memcpy(&ev->repeat2, t + 0x1c, 4);
+    memcpy(&ev->delay,   t + 0x6c, 4);
+    memcpy(&ev->field34, t + 0x20, 4);
+    ev->frameB  = -1;
+    ev->frameA  = 0;
+    ev->cursor  = 0.0f;                             /* str r10(=0), [r4, #4] */
+    ev->scene   = scene;
+    memcpy(&ev->field4c, t + 0x24, 4);
+    memcpy(&ev->step,    t + 0xc4, 4);
+    ev->track   = track;
+    memcpy(&ev->repeat,  t + 0x70, 4);
 
-    /* +0xf0 records whether this scene is a whirlwind, decided once at spawn */
-    ev->isWhirlwind = IsWhirlwindScene(ev->scene);
+    limeMatrixMult(*m2, *m1, tmp);
+    memcpy(ev->world, tmp, 64);
+    memcpy(ev->local, *m2, 64);
+    ev->follow = *m1;
 
-    /* the remaining writes -- +0x0c, +0x28..+0x38, +0x40..+0x64, +0xe8..+0xf4 --
-     * distribute the caller's arguments across the slot; see the map above */
-    (void)a10;
+    ev->offsetId  = *(const int32_t *)(t + 0xc0);
+    ev->offsetId2 = (int)offsetId2;
 
-    return slot;
+    if (zeroOffset != 0) {
+        ev->offX = ev->offY = ev->offZ = 0.0f;
+    } else if (offsetId2 == -1) {
+        memcpy(&ev->offX, MasterEventOffsets + ev->offsetId * 0x50 + 0x40, 12);
+    } else {
+        const float *a = (const float *)(MasterEventOffsets
+                                         + ev->offsetId * 0x50 + 0x40);
+        const float *b = (const float *)(MasterEventOffsets
+                                         + offsetId2 * 0x50 + 0x40);
+        ev->offX = a[0] + b[0];
+        ev->offY = a[1] + b[1];
+        ev->offZ = a[2] + b[2];
+    }
+
+    /* +0x78: a shadow. It plays at ShadowOffset with a step of 1. */
+    if (*(const int32_t *)(t + 0x78) == 0)
+        return 0;
+    ev->field4c = 0;
+    memcpy((char *)ev + 0xa0, &ShadowOffset, 4);
+    ev->step = 1.0f;
+    return (int)(uintptr_t)ev;
 }
 
 
@@ -884,88 +966,130 @@ int LIME_TriggerEventFromSceneH(SCENEINFO *scene, SCENEEVENTTRACK *track,
  * The names are copied ahead of this and uppercased in place, as described
  * above.
  */
+/* armv7 0x000a477c, transcribed whole. The earlier body (from armv6) read
+ * the names and stopped: no colours, counters, keys or scenes, so every
+ * track's key list at +0xd4 was heap garbage.
+ *
+ * The file: a track count, then per track a 0x10c-byte header and its keys.
+ *
+ *      +0x00  64 bytes  the scene name, without ".scene"
+ *      +0x40  7 words   -> track +0x08..+0x20 (colour RGBA, then +0x18..+0x20)
+ *      +0x5c  4 words   -> +0x6c, +0xc8, +0xcc, +0x68
+ *      +0x6c            -> +0x24
+ *      +0x70  64 bytes  -> +0x28
+ *      +0xb0  6 words   -> +0xc4 (step), +0x70, +0xd0 (cap), +0x74, +0x78,
+ *                          +0x7c (group)
+ *      +0xc8  64 bytes  -> +0x80, the offset name FindEventOffsets looks up
+ *      +0x108           the key count -> +0x00
+ *      +0x10c           keys, 0x38 bytes each: frame, a word, then a 48-byte
+ *                       DS matrix; 0x44 bytes each in memory
+ *
+ * The scene is loaded only if one of its keys falls on a frame the mask
+ * (arg2) lets through -- or always, without a mask -- and the original
+ * hangs (`b .` at 0xa4a1e) if it cannot be loaded. */
 EVENTSINFO *LIME_LoadEvents(const char *filename, long arg1, long arg2)
 {
-    const uint8_t *data;
-    const uint8_t *base;        /* data before the loop moves it */
+    const signed char *mask = (const signed char *)(uintptr_t)(unsigned long)arg2;
+    const uint8_t *data, *src;
     EVENTSINFO *info;
-    char *tracks;
-    int32_t n;
-    int i;
+    int32_t n, i, k;
 
-    (void)arg1; (void)arg2;
-
-    LIME_printf(8, "");                 /* compiled away, window 8 */
-
-    data = limeLoadFile(filename);
+    LIME_printf(8, "Events file %s", filename);
+    data = (const uint8_t *)limeLoadFile(filename);
     if (data == NULL)
         return NULL;
-
-    info = limeMalloc("events", sizeof(EVENTSINFO));  /* 8 in the image */
+    info = (EVENTSINFO *)limeMalloc("sceneevents_container", 8);
     if (info == NULL)
         return NULL;
 
     n = *(const int32_t *)data;
+    LIME_printf(8, " has %d event tracks.\n", n);
     info->count = n;
-    /* Past the count: it is the file's header, not the first four bytes of the
-     * first track's name. Without this the loop reads every record four bytes
-     * early and every name begins with the count's bytes. */
-    base = data;
-    data += 4;
-    LIME_printf(8, "");
-
     /* An empty file is NOT the same as an absent one: 0xa47dc..0xa47ea frees
-     * the file, stores the zero count as `tracks` and returns the info. This
-     * used to return NULL, and LIME_LoadScene hangs (`b .` at 0x5f200) on a
-     * NULL -- FIGHT.events is such a file, four bytes of zero. */
+     * the file, stores the zero count as `tracks` and returns the info.
+     * LIME_LoadScene hangs (`b .` at 0x5f200) on a NULL -- FIGHT.events is
+     * such a file, four bytes of zero. */
     if (n == 0) {
-        limeFree((void *)base);
-        info->tracks = NULL;            /* str r3, [r10, #4] with r3 == 0 */
+        limeFree((void *)data);
+        info->tracks = NULL;
         return info;
     }
-
-    /* n*32 - n*8 = n*24, times 8 is n*192, plus the 24 -> n*216 */
-    info->tracks = limeMalloc("events", (size_t)n * SCENEEVENTTRACK_STRIDE);
+    info->tracks = (SCENEEVENTTRACK *)limeMalloc("sceneevents_tracks",
+                                                 (size_t)n * 216);
     if (info->tracks == NULL)
         return NULL;
 
-    tracks = (char *)info->tracks;
-
+    src = data + 4;
     for (i = 0; i < n; i++) {
-        char *dst = tracks + (size_t)i * SCENEEVENTTRACK_STRIDE;
-        const uint8_t *rec;             /* the 44-byte disk record */
-        int k;
+        char *t = (char *)info->tracks + (size_t)i * 216;
+        char name[0x40], sceneName[0x40];
+        int32_t nkeys;
+        char *keys;
+        int want = 0;
+        size_t len;
 
-        /* the name: 64 bytes, then uppercased in place */
-        memcpy(dst + 0x80, data, 64);
-        for (k = 0; k < 64; k++) {
-            uint8_t c = (uint8_t)dst[0x80 + k];
-            if ((uint8_t)(c - 'a') <= 25u)
-                dst[0x80 + k] = (char)(c - 0x20);
+        memcpy(name, src, 0x40);
+        len = strlen(name);
+        strcpy(sceneName, name);
+        for (k = 0; k < 0x40; k++) {
+            uint8_t c = (uint8_t)sceneName[k];
+            if ((uint8_t)(c - 'a') <= 25)
+                sceneName[k] = (char)(c - 0x20);
+        }
+        memcpy(sceneName + len, ".scene", 7);
+
+        memcpy(t + 0x08, src + 0x40, 28);           /* +0x08..+0x20 */
+        memcpy(t + 0x6c, src + 0x5c, 4);
+        memcpy(t + 0xc8, src + 0x60, 4);
+        memcpy(t + 0xcc, src + 0x64, 4);
+        memcpy(t + 0x68, src + 0x68, 4);
+        memcpy(t + 0x24, src + 0x6c, 4);
+        memcpy(t + 0x28, src + 0x70, 0x40);
+        memcpy(t + 0xc4, src + 0xb0, 4);
+        memcpy(t + 0x70, src + 0xb4, 4);
+        memcpy(t + 0xd0, src + 0xb8, 4);
+        memcpy(t + 0x74, src + 0xbc, 4);
+        memcpy(t + 0x78, src + 0xc0, 4);
+        memcpy(t + 0x7c, src + 0xc4, 4);
+        memcpy(t + 0x80, src + 0xc8, 0x40);
+
+        nkeys = *(const int32_t *)(src + 0x108);
+        keys = (char *)limeMalloc("sceneevents_events", (size_t)nkeys * 0x44);
+        *(char **)(t + 0xd4) = keys;
+        *(int32_t *)t = nkeys;
+        if (keys == NULL)
+            return NULL;
+
+        src += 0x10c;
+        for (k = 0; k < nkeys; k++, src += 0x38) {
+            char *key = keys + k * 0x44;
+            int32_t frame = *(const int32_t *)src;
+
+            *(int32_t *)key = frame;
+            if (mask == NULL || mask[frame] != 0)
+                want = 1;
+            memcpy(key + 4, src + 4, 4);
+            memcpy(key + 8, src + 8, 0x30);
+            LIME_printf(9, "");
         }
 
-        rec = data;                     /* the record follows */
-
-        *(int32_t *)(dst + 0x08) = *(const int32_t *)(rec + 0x00);
-        *(int32_t *)(dst + 0x0c) = *(const int32_t *)(rec + 0x00);
-        *(int32_t *)(dst + 0x10) = *(const int32_t *)(rec + 0x04);
-        *(int32_t *)(dst + 0x14) = *(const int32_t *)(rec + 0x08);
-        *(int32_t *)(dst + 0x18) = *(const int32_t *)(rec + 0x0c);
-        *(int32_t *)(dst + 0x1c) = *(const int32_t *)(rec + 0x10);
-        *(int32_t *)(dst + 0x20) = *(const int32_t *)(rec + 0x14);
-        *(int32_t *)(dst + 0x6c) = *(const int32_t *)(rec + 0x18);
-        *(int32_t *)(dst + 0xc8) = *(const int32_t *)(rec + 0x1c);
-        *(int32_t *)(dst + 0xcc) = *(const int32_t *)(rec + 0x20);
-        *(int32_t *)(dst + 0x68) = *(const int32_t *)(rec + 0x24);
-        *(int32_t *)(dst + 0x24) = *(const int32_t *)(rec + 0x28);
-
-        data += 0x2c;                   /* 44 bytes per record */
+        *(SCENEINFO **)(t + 4) = NULL;
+        if (want) {
+            SCENEINFO *sc = LIME_LoadScene(sceneName, 1,
+                                           (const char *)(uintptr_t)arg1, 0);
+            if (sc == NULL) {
+                fprintf(stderr, "LIME_LoadEvents: no %s -- the original "
+                        "hangs here\n", sceneName);
+                for (;;) { }
+            }
+            *(SCENEINFO **)(t + 4) = sc;
+            LIME_LoadMeshSetTextures(sc->meshset,
+                                     (const char *)(uintptr_t)arg1);
+        }
     }
 
-    /* `base`, not `data`: the loop above left `data` at the end of the last
-     * record, and an allocation can only be released at the address it was
-     * handed out at. */
-    limeFree((void *)base);
+    limeFree((void *)data);
+    FindEventOffsets((SCENEEVENTS *)info);
     return info;
 }
 
@@ -1169,39 +1293,41 @@ void LIME_RenderEvents(long group)
  * does with them was not traced, and the table is already usable without it --
  * FindIdInMasterOffsets only needs the name and the index.
  */
+/* armv7 0x000a45d4. The file is a count and then 76-byte rows (a 64-byte
+ * name and three floats); in memory each row is 80 bytes. The earlier body
+ * copied count * 80 bytes straight across, so every row after the first
+ * was shifted and read past the end of the file. */
 void LIME_LoadMasterEventOffsets(void)
 {
-    const uint8_t *data;
-    int32_t count;
+    const uint8_t *data, *src;
+    char *dst;
+    int i;
 
-    LIME_printf(0x1d, "");              /* compiled away, window 0x1d */
-
-    g_masterOffsetCount = 0;
-
-    data = limeLoadFile(MASTER_OFFSETS_FILE);
-    if (data == NULL)
-        return;
-
-    count = *(const int32_t *)data;
-    g_masterOffsetCount = count;
     LIME_printf(0x1d, "");
+    NumMasterEventOffsets = 0;
 
-    if (count == 0) {
+    data = (const uint8_t *)limeLoadFile(MasterOffsetsFilename);
+    if (data == NULL) {
+        LIME_printf(0x1d, "");
+        return;
+    }
+    NumMasterEventOffsets = *(const int32_t *)data;
+    LIME_printf(0x1d, "", NumMasterEventOffsets);
+    if (NumMasterEventOffsets == 0) {
         limeFree((void *)data);
         return;
     }
 
-    /* count * 16 + count * 64 -- one multiply as two shifts and an add */
-    g_masterOffsets = limeMalloc("events", count * 80);
-    if (g_masterOffsets == NULL) {
-        limeFree((void *)data);
-        return;
+    MasterEventOffsets = (char *)limeMalloc("mastereventoffsets",
+                                            NumMasterEventOffsets * 0x50);
+    dst = MasterEventOffsets;
+    src = data + 4;
+    for (i = 0; i < NumMasterEventOffsets; i++, src += 0x4c, dst += 0x50) {
+        memcpy(dst, src, 0x40);
+        memcpy(dst + 0x40, src + 0x40, 12);   /* x, y, z */
     }
-
-    /* copied wholesale: on-disk and in-memory layouts are identical here */
-    memcpy((void *)g_masterOffsets, data + 4, (size_t)count * 80);
-
     limeFree((void *)data);
+    LIME_printf(0x1d, "");
 }
 
 
@@ -1232,15 +1358,13 @@ void LIME_LoadMasterEventOffsets(void)
  * anything through. Whatever that parameter selects, this path always takes its
  * zero case.
  */
+/* armv7 0x000a4e68: the track's own scene, and a zero for "zeroOffset". */
 int LIME_TriggerEvent(SCENEEVENTTRACK *track, limeMATRIX44 *m1,
-                      limeMATRIX44 *m2, long a3, long a4, long a5,
-                      TEXTURE *tex0, TEXTURE *tex1, long a8)
+                      limeMATRIX44 *m2, long a4, long offsetId2, long a7,
+                      TEXTURE *tex0, TEXTURE *tex1, long a10)
 {
-    return LIME_TriggerEventFromSceneH(track->scene,          /* +0x04 */
-                                       track, m1, m2,
-                                       a3, a4,
-                                       0,                    /* always zero */
-                                       a5, tex0, tex1, a8);
+    return LIME_TriggerEventFromSceneH(track->scene, track, m1, m2,
+                                       a4, offsetId2, 0, a7, tex0, tex1, a10);
 }
 
 
@@ -1299,41 +1423,55 @@ int LIME_TriggerEvent(SCENEEVENTTRACK *track, limeMATRIX44 *m1,
  * The body below still only models the first four. The rest are named so the
  * interface is right and marked unused so it is obvious which half is read.
  */
-void LIME_TriggerEventsFromSceneOffsetIfFollowing(long slot, long follow,
+/* armv7 0x000a4ea0. The same walk for a fighter's scene, with the frame
+ * matched exactly (no modulus). A track whose +0x24 is 1 follows the
+ * fighter -- its events are placed against `mFollow` -- and every other
+ * track against `m`. Returns how many events it fired.
+ *
+ * `printed` starts the "printed the header line" flag: the caller passes 0
+ * on the first call of a frame and 1 after. Frame 0x116 also prints
+ * "got ya" (`puts`, 0xa4fa6). */
+long LIME_TriggerEventsFromSceneOffsetIfFollowing(long player, long printed,
                                                   SCENEINFO *scene, long frame,
-                                                  const float *m,
-                                                  const float *m2,
-                                                  long mirror, long one,
-                                                  void *skin, long e,
-                                                  long inToggleRange)
+                                                  limeMATRIX44 *m,
+                                                  limeMATRIX44 *mFollow,
+                                                  long a4, long a7,
+                                                  TEXTURE *tex0,
+                                                  TEXTURE *tex1, long a10)
 {
-    SCENEEVENTS *events;
-    long i;
-
-    (void)m; (void)m2; (void)mirror; (void)one;
-    (void)skin; (void)e; (void)inToggleRange;
+    const EVENTSINFO *events;
+    long fired = 0, i, k;
 
     if (scene == NULL)
-        return;
+        return 0;
+    events = (const EVENTSINFO *)scene->events;
+    for (i = 0; i < events->count; i++) {
+        SCENEEVENTTRACK *track = (SCENEEVENTTRACK *)
+            ((char *)events->tracks + i * SCENEEVENTTRACK_STRIDE);
+        const char *t = (const char *)track;
+        const char *key = *(char *const *)(t + 0xd4);
 
-    events = (SCENEEVENTS *)scene->events;      /* +0x84 */
-    if (events == NULL || events->numTracks == 0)
-        return;
+        for (k = 0; k < *(const int32_t *)t; k++, key += 0x44) {
+            float mtx[16];
 
-    for (i = 0; i < events->numTracks; i++) {
-        char *track = (char *)events->tracks + i * SCENEEVENTTRACK_STRIDE;
-        float m[16];
-
-        /* the offset is stored in the Nintendo DS 1.3.12 fixed point and
-         * converted at frame rate -- see LIMEDS_Misc.c. The result is ROW-MAJOR
-         * and needs transposing for GL, unlike the QST path. */
-        ConvertDSMatrixtoPCMatrix((const int32_t *)(track + 0xd4), m);
-
-        if (*(const int *)(track + 0x24) == 1)
-            LIME_TriggerEvent((SCENEEVENTTRACK *)track, (limeMATRIX44 *)m,
-                              NULL, slot, follow, frame, NULL, NULL, 0);
-        else
-            LIME_TriggerEvent((SCENEEVENTTRACK *)track, (limeMATRIX44 *)m,
-                              NULL, slot, follow, frame, NULL, NULL, 0);
+            if (*(const int32_t *)key != frame)
+                continue;
+            ConvertDSMatrixtoPCMatrix((const int32_t *)(key + 8), mtx);
+            fired++;
+            if (!printed) {
+                LIME_printf(5, "\n");
+                printed = 1;
+            }
+            printf("     - player %d (fr %d-%s) triggered event %s...\n ",
+                   (int)player, (int)frame, scene->name,
+                   track->scene ? track->scene->name : "(null)");
+            if (frame == 0x116)
+                puts("got ya");
+            LIME_TriggerEvent(track,
+                              *(const int32_t *)(t + 0x24) == 1 ? mFollow : m,
+                              (limeMATRIX44 *)mtx, a4, -1, a7,
+                              tex0, tex1, a10);
+        }
     }
+    return fired;
 }
