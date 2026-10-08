@@ -58,7 +58,6 @@ What a player sees today, and what is known about each.
 |---|---|
 | **The camera angles in the fight look wrong.** | Not investigated yet (next). |
 | **The on-screen joystick does not animate.** | Not investigated. |
-| **Kitana sometimes draws black.** | Mechanism found, cause not: the object's flag nibble 4 selects `ANIMATEDCHARACTER+0x1c`, the green sheet only Jade loads (`RenderLevelPlayers` 0x240ac, `LightPlayers`); something sets that nibble on her. |
 | **Sindel's hair draws white.** | She has her own hair texture (`ANIMATEDCHARACTER+0x20`); not investigated. |
 | **Sounds play at the wrong moments.** | Reported; not investigated. |
 | **Sometimes every fighter in the tower is Jade.** | Probably the tower ladder (`OpponentTowerList`, built by `PopulateTower`): a `--fight` without `Character2Override` loaded Jade. Not investigated further. |

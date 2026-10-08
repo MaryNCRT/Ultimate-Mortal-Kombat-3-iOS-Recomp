@@ -27,9 +27,10 @@ Current state of the project. Written so that someone can pick it up with no pri
 > handlers' second argument (`DoSwitchJump` 0x55f60), `t_rup3`'s slot; the
 > keyboard drives player 1; `tools/mkdata.py` reaches symbols by interior
 > pointers (the blood textures had 1 of 12).
-> **Open:** camera angles; joystick animation; Kitana occasionally black;
-> Sindel's hair; sounds; all-Jade towers; tower descent; random arena.
-> README, "Known problems".
+> **Open:** camera angles; joystick animation; Sindel's hair; sounds; all-Jade towers; tower descent; random arena.
+> README, "Known problems". Kitana drawing black no longer happens
+> (the user's report, 2026-10-08), after the GameObjects and texture-table
+> fixes; the flag-nibble cause was never pinned down.
 >
 > Earlier (2026-10-08, [#54](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/54)): **Arcade goes from the tower into the
 > real fight load.** `Task_GameInit` runs to the end and the game enters
