@@ -2136,8 +2136,7 @@ float  sqrtf(float x);
  * wrap to a byte, and take the top three bits. The `& 0xFF` is what makes the
  * wrap free, so sector 7 and sector 0 meet without a special case.
  *
- * `dy` is computed as `centre - touch` and `dx` as `touch - centre` -- opposite
- * senses, which is what puts screen-down and angle-up the same way round.
+ * `dx` and `dy` are both `touch - centre` (see the note in the body).
  */
 long CheckLeftDial(int player)
 {
@@ -2168,7 +2167,13 @@ long CheckLeftDial(int player)
             continue;                   /* empty slot */
 
         dx = limeTouchScreenX[i] - cx;
-        dy = cy - limeTouchScreenY[i];  /* note the opposite sense */
+        /* touch minus centre on BOTH axes: 0x261e6 `vsub d8, d6, d7` and
+         * 0x261f4 `vsub d5, d7, d6` with s14 = the touch's y. An earlier
+         * reading had dy = centre - touch, which swapped up and down -- the
+         * diagonal attacks came out mirrored. With screen y growing down, a
+         * touch straight up gives acos(-1), t = 1, sector 0: JoystickState 1,
+         * which GetReal6ButtonJoyBits reads as up. */
+        dy = limeTouchScreenY[i] - cy;
         d2 = dx * dx + dy * dy;
 
         if (d2 > outer2)
@@ -4806,6 +4811,8 @@ void LIME_GLAPI glRotatef(float a, float x, float y, float z);
  * `p[0x534]` is cleared before each draw, and `p[0x528]` is set from
  * `anim[0x14]`, overriding whatever `LightPlayers` chose.
  */
+extern float IntroPlayer2PosX, IntroPlayer2PosZ;  /* 0x0014f938, 0x0014f93c */
+
 void RenderIntroCharacterPlayer(void)
 {
     long *p0 = (long *)Players;
@@ -4860,9 +4867,15 @@ void RenderIntroCharacterPlayer(void)
         const PLAYERDEF *def = &PlayerDefs[p1[0]];
         float s = def->scale;
 
-        /* pre-divided: PlayerSize is already on the matrix */
+        /* pre-divided: PlayerSize is already on the matrix. Two translates,
+         * not one: undo player one's offset (0x217ce), then apply player
+         * two's own (0x217d2..0x217f8, IntroPlayer2PosX/Z over PlayerSize).
+         * With only the first, player two stood at the origin -- out of
+         * the shot the intro camera frames for him. */
         glTranslatef(-IntroPlayer1PosX / PlayerSize,
                      -IntroPlayer1PosZ / PlayerSize, 0.0f);
+        glTranslatef(IntroPlayer2PosX / PlayerSize,
+                     IntroPlayer2PosZ / PlayerSize, 0.0f);
 
         if (anim[2] == 24) {
             glScalef(-s, s, s);

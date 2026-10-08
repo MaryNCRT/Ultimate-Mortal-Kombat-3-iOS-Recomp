@@ -37,6 +37,14 @@
  *                     the mouse is ignored while a script runs
  *   UMK3_LOG_TASKS=1  print every change of CurrentTask and FE_CurrentTask
  *
+ * Keyboard, player 1, during a fight (runtime/platform's defaults):
+ *   W A S D or the arrows   the joystick
+ *   U  high punch   I  low punch   O  block
+ *   J  high kick    K  low kick    L  run
+ * Each key held is a synthetic touch on the real control -- the dial or the
+ * on-screen button -- so it goes through ReadControls and CheckLeftDial
+ * exactly as a finger does, and the button lights as if pressed.
+ *
  * Debug, to skip the menus:
  *   umk3-game --fight <p1> <p2> [stage]     (or UMK3_FIGHT="p1,p2,stage")
  * goes straight from the main menu into a fight. A fighter is a name from
@@ -85,6 +93,57 @@ extern int  FE_CurrentTask;
 extern long PLAYER1MODEL, PLAYER2MODEL, Character1, Character2, LevelSelect,
             Character2Override;
 extern const char *CharacterNames[26];
+
+extern float limeTouchScreenX[10], limeTouchScreenY[10];
+extern long  ButtonsPos[];              /* 6 x { x, y, ?, ?, button index } */
+extern long  JoystickStatePosX, JoystickStatePosY;
+
+/* Keyboard -> player 1, as touches. Slot 9 is the dial and slots 3..8 the
+ * six buttons; the mouse takes the first free slot, from 0 up. */
+static void keyboard_touches(void)
+{
+    static const int keys[6][2] = {     /* button index 0..5, two keys each */
+        { PK_HP, PK_P2_HP }, { PK_LP, PK_P2_LP }, { PK_BL, PK_P2_BL },
+        { PK_HK, PK_P2_HK }, { PK_LK, PK_P2_LK }, { PK_RUN, PK_P2_RUN },
+    };
+    static int owned[10];
+    int dx, dy, b, i;
+
+    dx = (plat_key(PK_RIGHT) || plat_key(PK_P2_RIGHT))
+       - (plat_key(PK_LEFT) || plat_key(PK_P2_LEFT));
+    dy = (plat_key(PK_DOWN) || plat_key(PK_P2_DOWN))
+       - (plat_key(PK_UP) || plat_key(PK_P2_UP));
+    if (CurrentTask != 6)
+        dx = dy = 0;
+    if (dx || dy) {
+        /* between JINNERDIAL (22.85) and the outer ring (80) */
+        float len = (dx && dy) ? 0.7071f : 1.0f;
+        limeTouchScreenX[9] = (float)JoystickStatePosX + dx * len * 45.0f;
+        limeTouchScreenY[9] = (float)JoystickStatePosY + dy * len * 45.0f;
+        owned[9] = 1;
+    } else if (owned[9]) {
+        limeTouchScreenX[9] = limeTouchScreenY[9] = -1.0f;
+        owned[9] = 0;
+    }
+
+    for (b = 0; b < 6; b++) {
+        int slot = 3 + b, down = 0;
+
+        if (CurrentTask == 6 && (plat_key(keys[b][0]) || plat_key(keys[b][1])))
+            for (i = 0; i < 6; i++)
+                if (ButtonsPos[i * 5 + 4] == b) {
+                    limeTouchScreenX[slot] = (float)ButtonsPos[i * 5];
+                    limeTouchScreenY[slot] = (float)ButtonsPos[i * 5 + 1];
+                    down = 1;
+                }
+        if (down)
+            owned[slot] = 1;
+        else if (owned[slot]) {
+            limeTouchScreenX[slot] = limeTouchScreenY[slot] = -1.0f;
+            owned[slot] = 0;
+        }
+    }
+}
 
 /* --fight: -1 until parsed. */
 static long g_fight_p1 = -1, g_fight_p2 = -1, g_fight_stage = 0;
@@ -384,11 +443,18 @@ int main(int argc, char **argv)
             glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             lime_menu_advance_clock(1.0 / 60.0);
+            keyboard_touches();
             GameCodeMain();
 
             /* --fight: once the main menu is up, do what the select screen
              * and the tower would, and leave the front end. */
-            if (g_fight_p1 >= 0 && CurrentTask == 3 && FE_CurrentTask != 0) {
+            {
+                static long in_fe;
+                in_fe = (CurrentTask == 3) ? in_fe + 1 : 0;
+                if (g_fight_p1 >= 0 && in_fe < 30)
+                    goto no_fight_yet;  /* the front end's first frames */
+            }
+            if (g_fight_p1 >= 0 && CurrentTask == 3) {
                 PLAYER1MODEL = Character1 = g_fight_p1;
                 PLAYER2MODEL = Character2 = Character2Override = g_fight_p2;
                 LevelSelect = g_fight_stage;
@@ -398,6 +464,7 @@ int main(int argc, char **argv)
                 CurrentTask = 4;                /* Task_FEDestroy */
                 g_fight_p1 = -1;
             }
+        no_fight_yet:
 
             if (log_tasks && (CurrentTask != last_task
                               || FE_CurrentTask != last_fe)) {
