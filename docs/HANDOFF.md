@@ -79,6 +79,12 @@ and leave out the fight runtime and the 229 data tables (see below).
    **Next blocker:** `GetReal6ButtonJoyBits` (0x1e3cc) dereferences
    `*GameObjects` (0x14dfec) after Task_GameInit set it to 0 -- check in the
    disassembly what `_GameObjects` really holds and who fills it.
+   **Seen by Diego in the build (2026-10-08):** the arena shows black and
+   the game crashes before the fight starts (the crash above, which comes
+   before anything draws the arena); fighters whose hair or hat is a
+   separate part (ponytails, Kung Lao's hat) are not drawn correctly in
+   character select -- not investigated; trace it in the binary's skinned
+   draw (extra meshes / bones), do not guess.
    **Noted for later (Diego, not now):** the arena should be chosen at
    random; sometimes every fighter in the tower is Jade; the tower's
    descent animation does not display correctly.
