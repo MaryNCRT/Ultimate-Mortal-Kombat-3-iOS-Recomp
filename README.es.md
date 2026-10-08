@@ -33,7 +33,7 @@ Necesitas una copia obtenida legalmente de *Ultimate Mortal Kombat 3* para iOS (
 | **Decompilado** | ✅ **Todo.** Las 2.572 funciones del juego tienen C escrito a mano: el núcleo del motor LIME (109), la lógica de juego (291) y el motor de combate (2.172). No queda nada por transcribir. |
 | **Verificado** | ✅ El núcleo del motor pasa tests diferenciales contra el original recompilado con cero divergencias. El motor de combate pasa un test diferencial de comportamiento fichero a fichero, con las excepciones listadas en [Verificación](#cuánto-está-verificado): todas son límites conocidos de la herramienta de test, no bugs conocidos. |
 | **Funciona en nativo** | 🔄 El front end real arranca en una ventana OpenGL: menús, textos, sonidos, música y partidas guardadas en Windows y Linux. Los 18 escenarios se dibujan con un luchador animado. |
-| **Jugable** | ❌ **Todavía no.** El motor de combate está decompilado pero no tiene un runtime en el que ejecutarse, y las 229 tablas de datos que lee (listas de golpes especiales, scripts de animación, tablas de reacciones) aún no se extraen. Esas dos cosas son el camino al primer combate. |
+| **Jugable** | ❌ **Todavía no.** Las tablas de datos están resueltas en revisión: [#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46) extrae del binario del usuario, al compilar, los 1.118 objetos que lee el motor de combate (las 229 que nombra y todo lo que apuntan), y con eso el motor enlaza entero y corre sin ventana. [#43](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/43) arranca el juego entero desde la decompilación hasta la selección de personaje. Ninguna está fusionada y ninguna build llega todavía a un combate: falta que el menú pase el control a `Task_GameInit`. |
 
 **Qué significa aquí «decompilado» y qué no.** Significa que cada función que
 ejecuta el juego tiene un cuerpo escrito contra el disassembly y comprobado
@@ -73,7 +73,7 @@ Los objetivos a largo plazo, en orden:
 | Entender el binario y sus formatos de archivo | ✅ hecho — todos los formatos de assets de LIME están especificados |
 | Recuperar C legible, función a función | ✅ **hecho** — 2.572 de 2.572, con test de comportamiento |
 | Sustituir la capa de plataforma iOS por una nativa de PC | 🔄 empezada — ventana, GL, texturas, ficheros, sonido, música, partidas guardadas y pausa al perder el foco funcionan en nativo; el control del combate espera al runtime de combate |
-| Hacer funcionar el combate: runtime del motor y sus 229 tablas de datos | ⬜ **lo siguiente** — el paso que hace el juego jugable |
+| Hacer funcionar el combate: runtime del motor y sus 229 tablas de datos | 🔄 **en revisión** — tablas extraídas y motor enlazado ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46)), juego arrancado hasta la selección de personaje ([#43](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/43)); lo siguiente es pasar al combate |
 | Widescreen, soporte de mando, mods | ⬜ planeado |
 | **Dos jugadores locales en una máquina** | ⬜ planeado — [la build de iPad lo trae](docs/IPAD-BUILD.md) |
 | Restaurar contenido oculto e inalcanzable | ⬜ tras tener build jugable |
@@ -212,7 +212,8 @@ original recompilado.
 **Todas las funciones tienen cuerpo.** Las 2.172 funciones del motor de
 combate están escritas, incluido `mkdrone.c` (el oponente controlado por la
 máquina, 394 funciones), el último fichero en cerrarse. Lo que queda ya no es
-decompilación: el runtime del combate, las 229 tablas de arriba y la capa de
+decompilación: el runtime del combate, las 229 tablas de arriba (ambos en
+revisión en [#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46) y [#43](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/43), sin fusionar) y la capa de
 plataforma. Los stubs del EA SDK ya están: el juego solo llama a 27 funciones
 del SDK (más el constructor de `LocaleManager`), todas en
 `runtime/gamecode_stubs.c`; las ~1.385 restantes son internas del SDK y no se
@@ -462,8 +463,8 @@ Las contribuciones son bienvenidas, y el proyecto está estructurado para que se
 
 La decompilación está terminada, así que el trabajo abierto ha cambiado de forma. Donde más ayuda hace falta ahora:
 
-- **El runtime del combate** — hacer correr frame a frame el motor de combate decompilado: su planificador de hilos, la lógica por frame y el puente desde `Task_GameInit`.
-- **Las 229 tablas de datos** — medir y extraer las tablas `sm_*`, `ochar_*`, `a_*` y las sueltas desde la copia del usuario al compilar ([docs/PROGRESS.md](docs/PROGRESS.md#the-other-axis-229-data-tables-nobody-has-counted)).
+- **El runtime del combate** — hacer correr frame a frame el motor de combate decompilado: su planificador de hilos, la lógica por frame y el puente desde `Task_GameInit`. En [#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46) ya lo ejecuta un driver sin ventana, y [#43](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/43) arranca el juego hasta la selección de personaje. Falta el paso del menú a `Task_GameInit`/`Task_GameMain`.
+- **Las 229 tablas de datos** — extraídas en [#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46) (1.118 objetos, 4.292 palabras reubicadas, cero símbolos sin definir al enlazar). Para cerrarlo: quedarse con un solo generador ([#43](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/43) trae otro, `mklogicdata.py`), ejecutarlo desde CMake y añadir el test que deshace cada reubicación y la compara con el binario ([docs/PROGRESS.md](docs/PROGRESS.md#the-other-axis-229-data-tables-nobody-has-counted)).
 - **La capa de plataforma** — música MP3 en el backend SDL2, y el control del combate con teclado y mando.
 - **Decisiones de port ya documentadas** en las issues abiertas: widescreen ([#22](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/issues/22), [#24](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/issues/24)), frame rate ([#23](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/issues/23)), mods ([#29](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/issues/29)).
 
