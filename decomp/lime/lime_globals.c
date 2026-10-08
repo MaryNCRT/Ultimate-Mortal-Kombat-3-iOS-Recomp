@@ -140,10 +140,9 @@ uint8_t          ScaleTable[0x200 * 256];   /* 0x0029fe74, 0x20000 bytes */
 
 /* Filled by CreateFadedRGBS and handed to glColorPointer in the same breath:
  * `_TempRGBS` (0x00298174, 32,000 bytes up to _ScaleTable -- 8,000 vertices
- * of RGBA), literal 0x5e7cc in LIME_RenderMeshSingle. The pointer used to be
+ * of RGBA, defined above), literal 0x5e7cc in LIME_RenderMeshSingle. The pointer used to be
  * left NULL, and the first lit mesh drawn wrote through it. It stays a
  * pointer so the differential tests can hand in their own buffer. */
-uint8_t      TempRGBS[0x7d00];
 uint8_t     *g_vertexColourScratch = TempRGBS;
 /* `_StaticMeshAmbient` (0x002bfe74), CreateFadedRGBS's offset: the arena's
  * ambient light times 255, written by the gamecode at level load. */

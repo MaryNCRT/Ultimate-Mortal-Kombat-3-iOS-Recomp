@@ -753,33 +753,72 @@ void RenderDebugCube(void)
  * constants it could not pin down -- so the body composes the candidates
  * through a helper whose contents are left for whoever resolves them.
  */
+/* armv7 0x0005ed34, transcribed whole. The earlier body loaded nothing when
+ * given a suffix -- "three candidate filenames are composed" was described
+ * and not written -- so a fighter's scene meshes (Kung Lao's hat) had no
+ * texture at all.
+ *
+ * The suffix is the fighter's texture base. The three names it builds are
+ * searched for INSIDE each mesh's texture name (strstr), and only set flags:
+ *
+ *      "<suffix>_DIFF"      -> +0x48: draw with the fighter's own skin texture
+ *      "<suffix>BABY"       -> +0x4c: draw with the caller's second texture
+ *      "<suffix>BABILITY"   -> +0x4c
+ *
+ * Every mesh, suffix or not, then loads its own texture -- the "_LOW"
+ * variant first when UseLOWAssets is set (the name up to its first '.',
+ * then "_LOW.???"), the plain name if that fails. A set already loaded
+ * prints "skipping textures for %s" and does nothing. */
+extern long UseLOWAssets;               /* 0x0010df10, via slot 0xf362c */
+
 void LIME_LoadMeshSetTextures(MESHSETINFO *meshset, const char *suffix)
 {
+    char diff[0x80], baby[0x80], bability[0x80], low[0x80];
     int i;
 
     if (meshset == NULL)
         return;
-
-    if (meshset->texturesLoaded != 0)   /* +0x40 -- resolved once, not per use */
+    if (meshset->texturesLoaded != 0) {         /* +0x40 */
+        printf("skipping textures for %s", meshset->name);
         return;
-
-    if (meshset->numMeshes == 0)        /* +0x44 */
-        return;
+    }
+    if (suffix != NULL) {
+        sprintf(diff, "%s_DIFF", suffix);
+        sprintf(baby, "%sBABY", suffix);
+        sprintf(bability, "%sBABILITY", suffix);
+    }
 
     for (i = 0; i < meshset->numMeshes; i++) {
         MESHINFO *mesh = meshset->meshes[i];    /* +0x48 */
+        const char *name;
 
         if (mesh == NULL)
-            continue;                   /* holes in the table are legal */
+            continue;                   /* freed by LIME_FreeNonVisibleMeshes */
+        mesh->field48 = 0;
+        mesh->field4c = 0;
+        name = mesh->textureName;
+        if (suffix != NULL) {
+            if (strstr(name, diff))
+                mesh->field48 = 1;
+            if (strstr(name, baby))
+                mesh->field4c = 1;
+            if (strstr(name, bability))
+                mesh->field4c = 1;
+        }
 
-        mesh->texture = NULL;           /* cleared before it is filled */
-
-        /* With a suffix, three candidate filenames are composed into three
-         * 0x80-byte buffers and tried; without one, the mesh's own
-         * textureName is used directly. */
-        if (suffix == NULL)
-            mesh->texture = limeLoadTexture(mesh->textureName, 0, 1);
+        if (UseLOWAssets != 0) {
+            char *p;
+            strcpy(low, name);
+            for (p = low; *p != 0 && *p != '.'; p++)
+                ;
+            memcpy(p, "_LOW.???", 9);
+            mesh->texture = limeLoadTexture(low, 0, 0);
+            if (mesh->texture != NULL)
+                continue;
+        }
+        mesh->texture = limeLoadTexture(name, 0, 0);
     }
+    meshset->texturesLoaded = 1;
 }
 
 
