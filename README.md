@@ -6,7 +6,7 @@
 
 **A complete decompilation of the 2011 iOS release of Ultimate Mortal Kombat 3 — every one of the game's 2,572 functions is now readable C — and a native PC port for Windows and Linux that is still in progress.**
 
-[Getting started](docs/GETTING-STARTED.md) · [Methodology](docs/METHODOLOGY.md) · [LIME engine](docs/LIME-ENGINE.md) · [Asset formats](docs/X-TABLES.md) · [Mesh viewer](docs/MESH-VIEWER.md) · [Game bugs](docs/GAME-BUGS.md) · [Hidden content](docs/HIDDEN-CONTENT.md) · [Stages](docs/STAGES.md) · [Roster](docs/ROSTER.md) · [Move tables](docs/MOVES-TABLES.md) · [Lighting](docs/LIGHTING.md) · [Font format](docs/FONT-FORMAT.md) · [Scene format](docs/SCENE-FORMAT.md) · [PVR format](docs/PVR-FORMAT.md) · [Frame lists](docs/FRAMELISTS.md) · [MAME reference](docs/MAME-ARCADE.md) · [iPad build](docs/IPAD-BUILD.md) · [Architecture](docs/ARCHITECTURE.md) · [Progress](docs/PROGRESS.md) · [Handoff](docs/HANDOFF.md) · [Next task](docs/ENCARGO.md) · [AI disclosure](AI-DISCLOSURE.md) · [Español](README.es.md)
+[Getting started](docs/GETTING-STARTED.md) · [Browser experiment](web/README.md) · [Methodology](docs/METHODOLOGY.md) · [LIME engine](docs/LIME-ENGINE.md) · [Asset formats](docs/X-TABLES.md) · [Mesh viewer](docs/MESH-VIEWER.md) · [Game bugs](docs/GAME-BUGS.md) · [Hidden content](docs/HIDDEN-CONTENT.md) · [Stages](docs/STAGES.md) · [Roster](docs/ROSTER.md) · [Move tables](docs/MOVES-TABLES.md) · [Lighting](docs/LIGHTING.md) · [Font format](docs/FONT-FORMAT.md) · [Scene format](docs/SCENE-FORMAT.md) · [PVR format](docs/PVR-FORMAT.md) · [Frame lists](docs/FRAMELISTS.md) · [MAME reference](docs/MAME-ARCADE.md) · [iPad build](docs/IPAD-BUILD.md) · [Architecture](docs/ARCHITECTURE.md) · [Progress](docs/PROGRESS.md) · [Handoff](docs/HANDOFF.md) · [Next task](docs/ENCARGO.md) · [AI disclosure](AI-DISCLOSURE.md) · [Español](README.es.md)
 
 **Companion project:** [**UMK3 — Godot Remake**](https://github.com/MaryNCRT/UMK3-IOS-GODOT-REMAKE) — a playable remake built on what this repository measures. [How the two fit together](#the-companion-repository).
 
@@ -32,8 +32,8 @@ You need a legally obtained copy of *Ultimate Mortal Kombat 3* for iOS (version 
 |---|---|
 | **Decompiled** | ✅ **All of it.** 2,572 of 2,572 game functions have hand-written C: the LIME engine core (109), the game logic (291) and the fight engine (2,172). Nothing is left to transcribe. |
 | **Verified** | ✅ The engine core passes differential tests against the recompiled original with zero divergences. The fight engine passes a behavioural differential test file by file, with the exceptions listed in [Verification](#how-much-of-it-is-verified) — every one of them a known limit of the test harness, not a known bug. |
-| **Runs natively** | 🔄 The real front end boots in an OpenGL window: menus, text, sounds, music and save files on Windows. Linux runs it through SDL2 (its new audio backend is not build-tested yet, and plays no music). All 18 arenas render with an animated fighter in them. |
-| **Playable** | ❌ **Not yet.** The fight engine is decompiled but has no runtime to run in, and the 229 data tables it reads (special-move lists, animation scripts, reaction tables) are not extracted yet. Those two are the road to the first fight. |
+| **Runs natively** | 🔄 The real front end boots in an OpenGL window: menus, text, sounds, music and save files on Windows and Linux. All 18 arenas render with an animated fighter in them. |
+| **Playable** | ❌ **Not yet — but the fight's data is done.** All 229 data tables the fight engine reads, and the 889 objects they point to, are extracted from the user's own binary at build time and **verified against it** ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48)): byte-exact, every pointer checked, one fault found and fixed. The engine links whole and runs headless; [#43](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/43) boots the game to character select. What is left for the first fight is the hand-over from the front end to `Task_GameInit`. |
 
 **What "decompiled" does and does not mean here.** It means every function the
 game runs has a body that was written against the disassembly and checked
@@ -72,8 +72,9 @@ The long-term goals, in order:
 |---|---|
 | Understand the binary and its file formats | ✅ done — every LIME asset format is specified |
 | Recover readable C source, function by function | ✅ **done** — 2,572 of 2,572, behaviourally tested |
-| Replace the iOS platform layer with a native PC one | 🔄 started — window, GL, textures, files, sound, music (Windows), saves and focus pause run natively; the fight's input waits for the fight runtime |
-| Run the fight: engine runtime and its 229 data tables | ⬜ **next** — the step that makes the game playable |
+| Replace the iOS platform layer with a native PC one | 🔄 started — window, GL, textures, files, sound, music, saves and focus pause run natively; the fight's input waits for the fight runtime |
+| Fight data: the 229 tables | ✅ **extracted and verified** ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48)) — 1,118 objects, byte-exact, checked by `ctest` on every build |
+| Run the fight: the hand-over from the front end to the engine | 🔄 **next** — engine runs headless ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46)), game boots to character select ([#43](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/43)) |
 | Widescreen, gamepad support, modding | ⬜ planned |
 | **Local two-player on one machine** | ⬜ planned — [the iPad build has it](docs/IPAD-BUILD.md) |
 | Restore hidden and unreachable content | ⬜ after a playable build |
@@ -254,7 +255,9 @@ body; all nine of its files are also verified against the recompiled original.
 **Every function has a body.** All 2,172 functions of the fight engine are
 written, including `mkdrone.c` (the AI opponent, 394 functions), the last file
 to close. What is left is not decompilation: it is the fight runtime, the 229
-data tables above, and the platform layer.
+data tables above, and the platform layer. The tables are now extracted and
+verified ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48)); the runtime runs headless and boots to character select
+([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#43](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/43)).
 
 **The EA SDK row is at 100% because of what the game calls, not because of
 the SDK's size.** Of the ~1,412 SDK functions, the game reaches exactly 27
@@ -514,7 +517,8 @@ Everything derived from the binary lands in `work/`, which is git-ignored. Set
 ### Build and run the native port
 
 ```bash
-# Windows (MinGW-w64 + Ninja) builds the win32 backend; Linux uses SDL2.
+# Windows (MinGW-w64 + Ninja) uses Win32; Linux uses SDL2 and SDL2_mixer.
+# On Ubuntu/Debian: sudo apt install libsdl2-dev libsdl2-mixer-dev libgl-dev
 cmake -S . -B build -G Ninja
 cmake --build build
 
@@ -530,9 +534,8 @@ build/umk3-test  path/to/Payload/UMK3.app/res
 ```
 
 The mouse stands in for a finger. Save files go to `%APPDATA%/UMK3` on Windows
-and `~/.local/share/umk3` on Linux (`UMK3_SAVE_DIR` overrides both); music needs
-the Windows backend for now. `UMK3_SHOT=<n>` runs n frames, writes a screenshot
-and quits.
+and `~/.local/share/umk3` on Linux (`UMK3_SAVE_DIR` overrides both).
+`UMK3_SHOT=<n>` runs n frames, writes a screenshot and quits.
 
 ---
 
@@ -544,8 +547,8 @@ Contributions are welcome, and the project is structured so that people can work
 
 The decompilation is finished, so the open work has changed shape. Where help is most useful now:
 
-- **The fight runtime** — running the decompiled fight engine frame by frame: its thread scheduler, the per-frame logic and the bridge from `Task_GameInit`.
-- **The 229 data tables** — measuring and extracting the `sm_*`, `ochar_*`, `a_*` and single tables from the user's own copy at build time ([docs/PROGRESS.md](docs/PROGRESS.md#the-other-axis-229-data-tables-nobody-has-counted)).
+- **The fight runtime** — running the decompiled fight engine frame by frame: its thread scheduler, the per-frame logic and the bridge from `Task_GameInit`. A headless driver runs it in [#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46); [#43](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/43) boots the game to character select. Still missing: the hand-over from the front end to `Task_GameInit`/`Task_GameMain`.
+- **The 229 data tables** — ✅ done in [#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46) and [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48). `tools/logic_tables.py` extracts 1,118 objects (4,291 relocated words) from the user's binary at build time; `tools/check_logic_tables.py` checks them against it: byte-exact round trip, every relocation's target, no pointer in an `int16_t` table, no missed pointer, and the image's layout kept in the linked program. A second, independently written generator agreed on every shared word but 53, all settled by the code that reads them. `cmake -DUMK3_BINARY=...` + `ctest -R logic` runs it ([docs/PROGRESS.md](docs/PROGRESS.md#fight-data-tables-how-they-were-verified-2026-10-08)).
 - **The platform layer** — MP3 music on the SDL2 backend, the fight's keyboard and gamepad input.
 - **Port decisions already written down** in the open issues: widescreen ([#22](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/issues/22), [#24](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/issues/24)), frame rate ([#23](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/issues/23)), mods ([#29](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/issues/29)).
 

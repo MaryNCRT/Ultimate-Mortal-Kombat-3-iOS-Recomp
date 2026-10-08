@@ -430,7 +430,7 @@ static void fighter_reset(fighter *f, int which)
 
 static void scene_reset(void)
 {
-    memset(g_state, 0, sizeof g_state);
+    memset(g_state, 0, 0x478);
 
     /* What SetupLevelLimits would have written, from mk3_init_game's defaults. */
     G_L(0xb0) = ROUNDPARAM_LEFT;

@@ -38,6 +38,9 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
+
+#include "../decomp/gamecode/logic/mk3logic.h"
 
 static void missing(const char *who)
 {
@@ -55,18 +58,39 @@ static void missing(const char *who)
 /* still to be decompiled -- joy.c */
 STUB_L(plyrthread)
 /* other.c, mkdrone.c: the thread loop */
-STUB(StartThreadAt)
+void StartThreadAt(MK3THREAD *thread, MK3THREADFUNC func)
+{
+    (void)thread; (void)func;
+    missing("StartThreadAt");
+}
 STUB_L(t_one_on_one)
 STUB_L(t_drone_begin)
 STUB_L(t_dizzy_dude)
-STUB(init_players)
+void init_players(uint32_t a, uint32_t b)
+{
+    (void)a; (void)b;
+    missing("init_players");
+}
 STUB_L(random32)
 /* playback.c: the special-move decoder, 7,608 bytes of seq_lookup alone */
-STUB_L(seq_lookup)
-STUB(Playback_Init)
-STUB(Playback_Begin)
-STUB(Playback_Update)
-STUB(DoSpecial)
+long seq_lookup(long a, long b, long c)
+{
+    (void)a; (void)b; (void)c;
+    missing("seq_lookup");
+    return 0;
+}
+void Playback_Init(void *playback) { (void)playback; missing("Playback_Init"); }
+void Playback_Begin(void *playback, long seq, long flip)
+{
+    (void)playback; (void)seq; (void)flip;
+    missing("Playback_Begin");
+}
+void Playback_Update(void *playback)
+{
+    (void)playback;
+    missing("Playback_Update");
+}
+void DoSpecial(void *obj) { (void)obj; missing("DoSpecial"); }
 /* other.c: the switch scanner and the bars */
 STUB(swscan)
 STUB(UnstackSwitches)

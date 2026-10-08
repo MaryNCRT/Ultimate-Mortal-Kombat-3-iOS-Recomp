@@ -65,7 +65,7 @@ typedef struct MKEVENTQUEUE {
 extern MKEVENTQUEUE *MKEventQueue;         /* slot 0x00165664 -> 0x0038cf80 */
 extern MK3THREAD    *TList;                /* slot 0x00165684 -> 0x0038ed48 */
 extern MK3THREAD    *TList_Free;           /* slot 0x00165674 -> 0x0038ed4c */
-extern MK3THREAD     mytc[];               /* slot 0x0016566c -> 0x0038ef3c */
+extern MK3THREAD    *mytc;                 /* slot 0x0016566c -> 0x0038ef3c */
 
 /* `Plyr` and `Pp` are declared in mk3logic.h as `char *` with their strides as
  * macros, because that is how the other twenty files in this directory reach
