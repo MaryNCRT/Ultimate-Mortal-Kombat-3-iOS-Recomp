@@ -614,6 +614,7 @@ void CreatePerspectiveMatrix(float *m, float fov, float aspect,
 /* ------------------------------------------------------------------ */
 
 MESHSETINFO *LIME_LoadMeshSet(const char *filename, int useLighting);
+void         LIME_FreeNonVisibleMeshes(MESHSETINFO *set);
 void         LIME_FreeMeshSet(MESHSETINFO *set);
 
 /* Returns the INDEX of the first mesh whose name CONTAINS `name`, or -1.
@@ -864,10 +865,6 @@ int    LIME_TriggerEventFromSceneH(struct SCENEINFO *scene,
                                    long a4, long a5, long a6, long a7,
                                    TEXTURE *tex0, TEXTURE *tex1, long a10);
 
-/* The two state words KillIllegalWhirlwinds tests are dereferenced (`*g_stateA`),
- * so they are pointers into gamecode state rather than plain ints. */
-extern int *g_stateA, *g_stateB;
-extern int  g_whirlwindFirstFrame;
 
 /* GL ES 1.1 fixed function. Declared here rather than pulled from a GL header so
  * the decompiled engine builds standalone; runtime/ supplies the real ones. */

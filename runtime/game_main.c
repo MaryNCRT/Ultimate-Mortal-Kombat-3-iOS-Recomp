@@ -36,6 +36,11 @@
  *                     coordinates (480x320), each a press held for 3 ticks;
  *                     the mouse is ignored while a script runs
  *   UMK3_LOG_TASKS=1  print every change of CurrentTask and FE_CurrentTask
+ *
+ * A game started by double-click (stdout not redirected) writes everything it
+ * prints -- task changes, loading steps, a crash's addresses -- to
+ * logs/umk3-<date>-<time>.log beside the exe, one file per session. A log is
+ * deleted once the error it shows has been found and fixed.
  */
 
 #include <stdio.h>
@@ -111,6 +116,7 @@ static void start_app(void)
  * names the function. Bringing up a fight engine of two thousand functions
  * crashes in places no log line was planned for; this is the log line. */
 #include <windows.h>
+#include <io.h>
 
 static LONG WINAPI on_crash(EXCEPTION_POINTERS *ep)
 {
@@ -133,6 +139,38 @@ static LONG WINAPI on_crash(EXCEPTION_POINTERS *ep)
 #endif
     fflush(stderr);
     return EXCEPTION_EXECUTE_HANDLER;
+}
+
+/* stdout and stderr into logs/umk3-<date>-<time>.log beside the exe, unless
+ * they already go to a file or pipe (a scripted run's `> x.log`). Returns
+ * whether it did, so task changes are logged in every session. */
+static int open_session_log(void)
+{
+    static char path[MAX_PATH + 64];
+    DWORD type = GetFileType(GetStdHandle(STD_OUTPUT_HANDLE));
+    DWORD len;
+    char *slash;
+    SYSTEMTIME t;
+
+    if (type == FILE_TYPE_DISK || type == FILE_TYPE_PIPE)
+        return 0;
+    len = GetModuleFileNameA(NULL, path, MAX_PATH);
+    slash = (len > 0 && len < MAX_PATH) ? strrchr(path, '\\') : NULL;
+    if (!slash)
+        return 0;
+    strcpy(slash + 1, "logs");
+    CreateDirectoryA(path, NULL);
+    GetLocalTime(&t);
+    sprintf(slash + 1, "logs\\umk3-%04d%02d%02d-%02d%02d%02d.log",
+            t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
+    if (!freopen(path, "w", stdout))
+        return 0;
+    setvbuf(stdout, NULL, _IONBF, 0);
+    if (_dup2(_fileno(stdout), _fileno(stderr)) == 0)
+        setvbuf(stderr, NULL, _IONBF, 0);
+    printf("session log %04d-%02d-%02d %02d:%02d:%02d\n",
+           t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
+    return 1;
 }
 #endif
 
@@ -180,6 +218,8 @@ int main(int argc, char **argv)
         }
     }
     SetUnhandledExceptionFilter(on_crash);
+    if (open_session_log())
+        log_tasks = 1;
 #endif
     parse_taps(getenv("UMK3_TAPS"));
 

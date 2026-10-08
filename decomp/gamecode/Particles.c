@@ -168,7 +168,7 @@ void DoSmokesSmoke(long id1, long id2)
         if (DoIntro != 0) {
             pos = Player1Pos;
         } else {
-            const short *obj = (const short *)GameObjects[0];
+            const short *obj = (const short *)(void *)GameObjects;
             if (obj != 0) {
                 long fid = obj[4];              /* +0x08, int16 */
                 if (fid != 20000 && fid != 6830)
@@ -200,7 +200,7 @@ void DoSmokesSmoke(long id1, long id2)
         if (DoIntro != 0) {
             pos = Player2Pos;
         } else {
-            const short *obj = (const short *)GameObjects[0];
+            const short *obj = (const short *)(void *)GameObjects;
             if (obj != 0) {
                 long fid = obj[0x18 / 2];       /* +0x18, int16 */
                 if (fid != 20000 && fid != 6830)
