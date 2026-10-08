@@ -7215,7 +7215,9 @@ long t_rup3(MK3THREAD *thread)
     obj->field1c = 0x20000;                      /* 2.0 in 16.16 */
 
     {
-        unsigned char *ptr = *(unsigned char **)(uintptr_t)0x000f3534;
+        /* Slot 0x000f3534 holds &_RoundParam (0x0038ed04). Read as the raw
+         * iOS address it was, the first uppercut of a fight crashed. */
+        unsigned char *ptr = (unsigned char *)RoundParam;
         uint32_t field08 = *(uint32_t *)(ptr + 8);
         int8_t field30 = *(int8_t *)(ptr + 0x30);
 
