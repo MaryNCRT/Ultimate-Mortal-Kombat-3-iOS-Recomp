@@ -6,6 +6,7 @@
  */
 
 #include <stdint.h>
+#include "lime_glapi.h"   /* the GL calls' calling convention */
 #include <string.h>   /* memcpy, strcmp, strcpy */
 #include <stdio.h>    /* sprintf */
 
@@ -1311,12 +1312,12 @@ extern limeVECTOR3 *RenderVerts;        /* pointer slot */
 void LIME_RenderMeshSingleIndexed(void *frame, void *tex, float grey,
                                   void *arg, long flag);
 void LIME_printf(int window, const char *fmt, ...);
-void glColor4f(float r, float g, float b, float a);
-void glTranslatef(float x, float y, float z);
-void glScalef(float x, float y, float z);
-void glEnable(unsigned int cap);
-void glPushMatrix(void);
-void glPopMatrix(void);
+void LIME_GLAPI glColor4f(float r, float g, float b, float a);
+void LIME_GLAPI glTranslatef(float x, float y, float z);
+void LIME_GLAPI glScalef(float x, float y, float z);
+void LIME_GLAPI glEnable(unsigned int cap);
+void LIME_GLAPI glPushMatrix(void);
+void LIME_GLAPI glPopMatrix(void);
 #define GL_DEPTH_TEST 0x0B71
 
 

@@ -60,10 +60,15 @@ int              g_transpMeshCount;
  * The window array LIME_InitDebugWindow walks and ClearDebugWindow indexes,
  * with -1 meaning "no window". Sliders occupy slots 10 through 15.
  */
-/* A POINTER in the binary, not the array: ClearDebugWindow does
- * `ldr r1, [r3]` and indexes through the result. The storage is
- * allocated elsewhere; this is the handle. */
-DEBUGWINDOW     *DebugWindows;
+/* Storage in the binary, reached through a slot. ClearDebugWindow's
+ * `ldr r1, [r3]` loads the SLOT -- r3 is the pc-relative address of a word
+ * that holds &_DebugWindows -- and _DebugWindows itself is 0x3229c0 bytes of
+ * __common, 62 windows of 0xcf20. Read as a pointer to storage allocated
+ * elsewhere, it was a NULL nobody allocated, and the character select's
+ * ClearDebugWindow(1) wrote through it. The handle keeps its pointer type,
+ * which is what the transcription reads it as; it points at the windows. */
+static DEBUGWINDOW DebugWindows_store[0x3229c0 / 0xcf20];
+DEBUGWINDOW     *DebugWindows = DebugWindows_store;
 int              DS_DebugWindowOn;
 
 /* RenderDebugCube's lazily loaded scene, and the flag that gates it. */
