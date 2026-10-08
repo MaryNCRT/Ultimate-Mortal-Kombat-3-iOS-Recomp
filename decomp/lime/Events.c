@@ -266,14 +266,28 @@ void AddNewID(const char *name)
  * `lime/common` reaches up into the fight engine rather than the other way
  * round.
  */
+/* armv7 0x000a4358 -- the body above described an armv6 reading with a
+ * `g_whirlwindFirstFrame` global; the armv7 code has no such global. The
+ * frames are constants:
+ *
+ *      0xeb3..0xeb7                        any object
+ *      and when the signed byte at +0x0c is 9 (one character):
+ *      0x149..0x14c, 0x14e, 0x150,
+ *      0x15ec, 0x15ee, 0x15f0, 0x15f2, 0x15f4, 0x15f7, 0x15fa, 0x15fd
+ */
 int IsOnWWFrame(Mk3Obj_t *obj)
 {
-    int frame = (int16_t)obj->frame;     /* +0x08, uint16 sign-extended */
-    int base = g_whirlwindFirstFrame;
+    unsigned raw = obj->frame;                      /* ldrh [r0, #8] */
+    int f = (int16_t)raw;                           /* sxth */
 
-    return frame == base     || frame == base + 1 ||
-           frame == base + 2 || frame == base + 3 ||
-           frame == base + 4;
+    if (f >= 0xeb3 && f <= 0xeb7)
+        return 1;
+    if (((const int8_t *)obj)[0x0c] != 9)           /* ldrsb [r2, #0xc] */
+        return 0;
+    if ((uint16_t)(raw - 0x149) <= 3 || f == 0x14e || f == 0x150)
+        return 1;
+    return f == 0x15ec || f == 0x15ee || f == 0x15f0 || f == 0x15f2 ||
+           f == 0x15f4 || f == 0x15f7 || f == 0x15fa || f == 0x15fd;
 }
 
 
@@ -292,15 +306,38 @@ int IsOnWWFrame(Mk3Obj_t *obj)
  * than fix the cause the engine sweeps for them. That is worth knowing before
  * reproducing the behaviour: the sweep is load-bearing, not defensive.
  */
+/* armv7 0x000a43f8. The gate is PLAYER1MODEL or PLAYER2MODEL being 10
+ * (both read through their non-lazy slots, 0xf3668 -> 0x14e1b4 and
+ * 0xf30a4 -> 0x14e1b8); the earlier body dereferenced two pointers nothing
+ * ever set, and crashed on the first fight frame.
+ *
+ * For each of the 192 SceneEvents slots: a live one (state > 0) that follows
+ * an object (+0xf0 nonzero) whose object (+0xf4) is no longer on a whirlwind
+ * frame is killed -- state = -2 (`mvn r3, #1`) and the two floats at +0xa4
+ * and +0xe4 set to 100.0f (literal 0x42c80000 at 0xa446c). */
+extern long PLAYER1MODEL, PLAYER2MODEL;
+
 void KillIllegalWhirlwinds(void)
 {
     int i;
 
-    if (*g_stateA != 10 && *g_stateB != 10)
+    if (PLAYER1MODEL != 10 && PLAYER2MODEL != 10)
         return;
 
     for (i = 0; i < EVENT_SLOTS; i++) {
-        /* the per-slot test is not yet broken out */
+        char *ev = (char *)&SceneEvents[i];
+        Mk3Obj_t *obj;
+
+        if (*(int32_t *)ev <= 0)                     /* ble: free or dying */
+            continue;
+        if (*(int32_t *)(ev + 0xf0) == 0)
+            continue;
+        obj = (Mk3Obj_t *)(uintptr_t)*(uint32_t *)(ev + 0xf4);
+        if (IsOnWWFrame(obj))
+            continue;
+        *(int32_t *)ev = -2;
+        *(float *)(ev + 0xa4) = 100.0f;
+        *(float *)(ev + 0xe4) = 100.0f;
     }
 }
 
@@ -877,9 +914,14 @@ EVENTSINFO *LIME_LoadEvents(const char *filename, long arg1, long arg2)
     data += 4;
     LIME_printf(8, "");
 
-    if (n == 0) {                       /* empty reads the same as absent */
+    /* An empty file is NOT the same as an absent one: 0xa47dc..0xa47ea frees
+     * the file, stores the zero count as `tracks` and returns the info. This
+     * used to return NULL, and LIME_LoadScene hangs (`b .` at 0x5f200) on a
+     * NULL -- FIGHT.events is such a file, four bytes of zero. */
+    if (n == 0) {
         limeFree((void *)base);
-        return NULL;
+        info->tracks = NULL;            /* str r3, [r10, #4] with r3 == 0 */
+        return info;
     }
 
     /* n*32 - n*8 = n*24, times 8 is n*192, plus the 24 -> n*216 */

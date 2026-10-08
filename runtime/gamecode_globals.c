@@ -163,7 +163,7 @@ extern long Character2;
 extern long Character2Override;
 extern signed char CharacterAvailable[CHARACTER_SLOTS];
 extern int CharacterConfirmed;
-extern const char *CharacterNames[0];
+extern const char *CharacterNames[26];
 extern int CharacterSelected;
 extern void *CharacterVSTexture[26];
 extern void *CharacterVSTexture2[26];
@@ -464,6 +464,7 @@ extern long P2Controls;
 extern float PGrav;
 extern long PIrand_seed;
 extern long PLAYER1MODEL;
+extern long PLAYER2MODEL;
 extern float PScale[3];
 extern float PSize;
 extern PARTICLE Particles[PARTICLE_COUNT];
@@ -842,7 +843,6 @@ extern int *LevelSelectPtr;
 extern MKEVENTQUEUE *MKEventQueue;
 extern void *MeshSet_FIGHT;
 extern int *MileenaUnlockedPtr;
-extern long *PLAYER2MODEL;
 extern void *PitDeathScene;
 extern long *Player2NumButtonsP;
 extern float *PlayerZPosPtr;
@@ -3635,7 +3635,7 @@ char usprintfBuffer7[512];
 char usprintfBuffer8[512];
 char usprintfBuffer9[512];
 
-/* ---- 732 plain globals ---- */
+/* ---- 733 plain globals ---- */
 
 long AIOn = 1;  /* 0x0014e1f4 */
 long AboutPage;  /* 0x00101190 */
@@ -3780,7 +3780,7 @@ long Character2 = 1;  /* pointer slot -> 0x000ff98c */
 long Character2Override = 0xffffffff;  /* 0x00101798 */
 signed char CharacterAvailable[CHARACTER_SLOTS];  /* 0x0018ed5c */
 int CharacterConfirmed = 0xffffffff;  /* 0x000ff8cc */
-const char *CharacterNames[0] = {
+const char *CharacterNames[26] = {
     "KANO", "SONYA", "JAX", "NIGHTWOLF",
     "SUB-ZERO", "STRYKER", "SINDEL", "SEKTOR",
     "CYRAX", "KUNG LAO", "KABAL", "SHEEVA",
@@ -18833,6 +18833,7 @@ long P2Controls;  /* pointer slot */
 float PGrav = -0.00150000001f;  /* 0x0016f764 -- negative in the data */
 long PIrand_seed = 0x00089c84;  /* 0x0016f740 */
 long PLAYER1MODEL = 1;  /* pointer slot -> 0x0014e1b4 */
+long PLAYER2MODEL = 5;
 float PScale[3] = {
     0.0500000007f, 0.0199999996f, 0.150000006f,
 };  /* 0x0016f768 */
@@ -20782,7 +20783,7 @@ long winningStryk;  /* 0x0014dffc */
 long workingInd;  /* 0x000ff810 */
 float zoomedoutweight;  /* 0x001f44a4 */
 
-/* ---- 84 pointer slots: storage, then a pointer at it ---- */
+/* ---- 83 pointer slots: storage, then a pointer at it ---- */
 
 static void *BloodScene__store[1];
 void *BloodScene = BloodScene__store;
@@ -20863,10 +20864,6 @@ MKEVENTQUEUE *MKEventQueue = (MKEVENTQUEUE *)(void *)MKEventQueue__store;
 static void *MeshSet_FIGHT__store[1];
 void *MeshSet_FIGHT = MeshSet_FIGHT__store;
 int *MileenaUnlockedPtr = (int *)(void *)&MileenaUnlocked;  /* the slot holding &MileenaUnlocked */
-static long PLAYER2MODEL__store[1] = {
-    5,
-};
-long *PLAYER2MODEL = PLAYER2MODEL__store;
 static void *PitDeathScene__store[1];
 void *PitDeathScene = PitDeathScene__store;
 long *Player2NumButtonsP = (long *)(void *)&Player2NumButtons;  /* the slot holding &Player2NumButtons */
@@ -20993,7 +20990,7 @@ static long theKode__store[1] = {
 };
 long *theKode = theKode__store;
 
-/* 732 plain + 84 slots = 816 */
+/* 733 plain + 83 slots = 816 */
 /*
  * 3 of these are arrays the decomp declares as `T name[]` with no
  * extent, so each got UNSIZED_BYTES of slack rather than a known size.

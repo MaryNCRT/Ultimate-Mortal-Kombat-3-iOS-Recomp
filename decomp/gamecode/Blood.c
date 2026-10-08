@@ -193,7 +193,7 @@ extern float MusicVol[];                /* 0x000ff830 -- an ARRAY, same correcti
                                          * `add r1,pc` puts the array address in r1
                                          * and the volume is `[r1 + idx*4]`. */
 extern long   PLAYER1MODEL;             /* pointer slot -> 0x0014e1b4 */
-extern long  *PLAYER2MODEL;             /* pointer slot */
+extern long  PLAYER2MODEL;              /* 0x0014e1b8, a plain long */
 
 typedef struct Mk3Obj_t Mk3Obj_t;
 
@@ -327,7 +327,7 @@ void RunGameEvents(void)
                 goto expire;            /* the event still ages */
 
             model = (((const signed char *)obj)[0xd] == 0)
-                    ? PLAYER1MODEL : *PLAYER2MODEL;
+                    ? PLAYER1MODEL : PLAYER2MODEL;
 
             if (model == 14 || (unsigned long)(model - 7) <= 1)
                 DoBlackBlood(pos[0], pos[1], pos[2] + 1.5f, dir);
@@ -547,7 +547,7 @@ extern long   GameMode;                 /* pointer slot -> 0x0014faa4 */
 extern long   Character2;               /* pointer slot -> 0x000ff98c */
 extern long   Destiny;                  /* pointer slot -> 0x0014e20c */
 extern const char *DestinyNames[];        /* 0x00176760, 108 bytes */
-extern const char *CharacterNames[0];     /* pointer slot -> 0x0014fe54 */
+extern const char *CharacterNames[];     /* pointer slot -> 0x0014fe54 */
 extern long   Health[];                   /* pointer slot -> 0x0014fa64 */
 extern long   RunBar[];                   /* pointer slot -> 0x0014fa6c */
 extern long   SurvivalHealth;           /* pointer slot -> 0x000ff994 */
@@ -699,7 +699,7 @@ void AddNewGameEvents(void)
                 break;
             {
                 GAMEEVENT *ge  = GetNewEvent(ev->subtype);
-                Mk3Obj_t  *obj = (Mk3Obj_t *)((char *)GameObjects[0] + p * 16);
+                Mk3Obj_t  *obj = (Mk3Obj_t *)((char *)GameObjects + p * 16);
 
                 *(Mk3Obj_t **)((char *)ge + 8)  = obj;
                 ArcadePosTo3dPos(obj, (float *)((char *)ge + 0xc), 0);
@@ -820,10 +820,10 @@ void AddNewGameEvents(void)
                 DoBlood(Player2Pos[0], Player2Pos[1], Player2Pos[2], -1);
                 DoBlood(Player2Pos[0], Player2Pos[1], Player2Pos[2], -1);
 
-                *PLAYER2MODEL = EnduranceCharacters[EnduranceChange];
+                PLAYER2MODEL = EnduranceCharacters[EnduranceChange];
                 DumpAltCostume(Players + PLAYER_STRIDE);
                 LoadGameCharacterCheckCache(Players + PLAYER_STRIDE,
-                                            &PlayerDefs[*PLAYER2MODEL], 0);
+                                            &PlayerDefs[PLAYER2MODEL], 0);
                 (EnduranceChange)++;
                 DangerMessage[1] = 0;
                 break;
@@ -1008,7 +1008,7 @@ void AddNewGameEvents(void)
                 /* classic Sub-Zero has no friendship, on either side */
                 if (Health[1] == 0 && PLAYER1MODEL == CLASSIC_SUBZERO)
                     break;
-                if (Health[0] == 0 && *PLAYER2MODEL == CLASSIC_SUBZERO)
+                if (Health[0] == 0 && PLAYER2MODEL == CLASSIC_SUBZERO)
                     break;
                 if (Health[1] == 0) {
                     if (GameMode == 0) {
@@ -1039,7 +1039,7 @@ void AddNewGameEvents(void)
                                            - groundoffsets[PLAYER1MODEL];
                 } else {
                     blast_player_height = BLAST_GROUND
-                                           - groundoffsets[*PLAYER2MODEL];
+                                           - groundoffsets[PLAYER2MODEL];
                     if (GameMode != 1 && GameMode != 6)
                         achievementsUnlock(4);
                 }

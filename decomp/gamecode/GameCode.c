@@ -546,6 +546,12 @@ void GameCodeInit(void)
 
 extern int JaxGrowCounter;              /* 0x0010ded8 */
 extern void **GameObjects;              /* 0x0014dfec */
+/* GameObjects' VALUE is the base of the fighters' 16-byte object records:
+ * every reader loads the word at 0x14dfec once and indexes from it
+ * (RunJaxGrowCounters 0x1c3d0 `ldr r2,[r3]; ldrh r3,[r2,#8]`,
+ * GetReal6ButtonJoyBits 0x1e478/0x1e48a). It is never `GameObjects[0]`:
+ * reading it twice faulted on the first fight frame after Task_GameInit
+ * zeroed it. Declared `void **` only because the generated globals are. */
 
 
 /* -------------------------------------------------------- RunJaxGrowCounters
@@ -575,7 +581,7 @@ extern void **GameObjects;              /* 0x0014dfec */
  */
 void RunJaxGrowCounters(void)
 {
-    const unsigned short *o = (const unsigned short *)GameObjects[0];
+    const unsigned short *o = (const unsigned short *)(void *)GameObjects;
 
     if (o == 0)
         return;
@@ -2431,7 +2437,7 @@ extern long  EnduranceTowerList[];      /* 0x0014fb50, eleven words a row */
 extern long  TreasurePlayed;            /* pointer slot */
 extern long  girlrand, girlrand2;       /* 0x0010de74, 0x0010de78 */
 extern long  boyrand,  boyrand2;        /* 0x0010de6c, 0x0010de70 */
-extern long *PLAYER2MODEL;              /* pointer slot -> 0x0014e1b8 */
+extern long PLAYER2MODEL;              /* 0x0014e1b8, a plain long like PLAYER1MODEL */
 
 
 /* --------------------------------------------------------- InitEnduranceMatch
@@ -2481,7 +2487,7 @@ void InitEnduranceMatch(void)
     EnduranceChange = 0;
 
     Character2    = EnduranceMatchTable2[d * 2];
-    *PLAYER2MODEL = EnduranceMatchTable2[d * 2];
+    PLAYER2MODEL = EnduranceMatchTable2[d * 2];
     EnduranceCharacters[0]  = EnduranceMatchTable2[d * 2 + 1];
     LastEnduranceCharacter  = EnduranceMatchTable2[d * 2 + 1];
     ROUNDPARAM_B[0x18] = (char)EnduranceMatchTable2[d * 2 + 1];
@@ -2491,7 +2497,7 @@ void InitEnduranceMatch(void)
     v = EnduranceTowerList[Stage + 11 * d];
     if (v == 2) {
         Character2    = v + 0x10;       /* 18, derived from the 2 */
-        *PLAYER2MODEL = v + 0x10;
+        PLAYER2MODEL = v + 0x10;
         ROUNDPARAM_B[0x18] = 5;
         ROUNDPARAM_B[0x19] = (char)(v + 0x10 - 3);        /* 15 */
         ROUNDPARAM_B[0x1a] = (char)-1;
@@ -2511,7 +2517,7 @@ void InitEnduranceMatch(void)
         long c = EnduranceMatchTreasure7[r + ((girlrand2 + 2) & 3)];
 
         Character2    = a;
-        *PLAYER2MODEL = a;
+        PLAYER2MODEL = a;
         ROUNDPARAM_B[0x18] = (char)b;
         ROUNDPARAM_B[0x19] = (char)c;
         ROUNDPARAM_B[0x1a] = (char)-1;
@@ -2526,7 +2532,7 @@ void InitEnduranceMatch(void)
         long c = EnduranceMatchTreasure8[r + ((boyrand2 + 2) & 3)];
 
         Character2    = a;
-        *PLAYER2MODEL = a;
+        PLAYER2MODEL = a;
         ROUNDPARAM_B[0x18] = (char)b;
         ROUNDPARAM_B[0x19] = (char)c;
         ROUNDPARAM_B[0x1a] = (char)-1;
@@ -2536,7 +2542,7 @@ void InitEnduranceMatch(void)
         LastEnduranceCharacter = c;
     } else if (TreasurePlayed == 9) {
         Character2    = 11;
-        *PLAYER2MODEL = 11;
+        PLAYER2MODEL = 11;
         ROUNDPARAM_B[0x18] = 24;          /* the two ladder bosses */
         ROUNDPARAM_B[0x19] = 25;
         ROUNDPARAM_B[0x1a] = (char)-1;
@@ -2886,7 +2892,7 @@ void GetReal6ButtonJoyBits(int dir, const int *buttons, Mk3Obj_t *unused,
 
     p = isParentBasedOnSpeed() ? (which != 0) : (GameMode == 1);
 
-    obj = (const unsigned short *)*GameObjects;
+    obj = (const unsigned short *)(void *)GameObjects;
     if (obj != 0) {
         long facing = obj[(p * 16 + 0x0a) / 2] & 0x10;
 
@@ -2902,7 +2908,7 @@ void GetReal6ButtonJoyBits(int dir, const int *buttons, Mk3Obj_t *unused,
         *out |= 0x400;                          /* the rising edge only */
     LastSpecialButton[p] = buttons[6];           /* stored either way */
 
-    obj = (const unsigned short *)*GameObjects;
+    obj = (const unsigned short *)(void *)GameObjects;
     if (obj == 0)
         return;
 
@@ -4706,7 +4712,7 @@ void QuitAsLose(void)
         break;
 
     default:                            /* arcade */
-        if (*PLAYER2MODEL == 25) {
+        if (PLAYER2MODEL == 25) {
             defeatedBySK++;
             if (defeatedBySK > 2)
                 achievementsUnlock(15);
@@ -7095,20 +7101,20 @@ long GameInit_LoadABit(long step)
             long who = ((const long *)OpponentTowerList)[Destiny * 11 + Stage];
 
             Character2   = who;
-            *PLAYER2MODEL = who;
+            PLAYER2MODEL = who;
         }
 
         if (Character2Override != -1) {
             Character2   = Character2Override;
-            *PLAYER2MODEL = Character2Override;
+            PLAYER2MODEL = Character2Override;
         }
-        *PLAYER2MODEL = Character2;
+        PLAYER2MODEL = Character2;
 
         HUDANIM_Init();
 
-        if (PLAYER1MODEL == 8  || *PLAYER2MODEL == 8
-            || PLAYER1MODEL == 0  || *PLAYER2MODEL == 0
-            || PLAYER1MODEL == 11 || *PLAYER2MODEL == 11)
+        if (PLAYER1MODEL == 8  || PLAYER2MODEL == 8
+            || PLAYER1MODEL == 0  || PLAYER2MODEL == 0
+            || PLAYER1MODEL == 11 || PLAYER2MODEL == 11)
             CyraxSelfDestructScene =
                 LIME_LoadSceneWithTextures("PURPLEHAZEDEATH.scene", 0);
         else
@@ -7187,7 +7193,7 @@ long GameInit_LoadABit(long step)
 
     case 48:
         puts("########## TASK_GAME_INIT: 7");
-        LoadLevelCharacters(PLAYER1MODEL, *PLAYER2MODEL);
+        LoadLevelCharacters(PLAYER1MODEL, PLAYER2MODEL);
         return 0;
 
     case 49:
@@ -7199,7 +7205,7 @@ long GameInit_LoadABit(long step)
 
     case 50:
         puts("########## TASK_GAME_INIT: 7.1");
-        if (PLAYER1MODEL != 5 && *PLAYER2MODEL != 5)
+        if (PLAYER1MODEL != 5 && PLAYER2MODEL != 5)
             return 0;
         /* Stryker's moves reference Jax, Nightwolf and Liu Kang. */
         StrykerCharacters[0] = 2;
@@ -7296,13 +7302,13 @@ long GameInit_LoadABit(long step)
 
         /* Bit 7 of a model index is "this side is the CPU". */
         if (AIOn == 2)
-            mk3_init(PLAYER1MODEL | 0x80, *PLAYER2MODEL | 0x80,
+            mk3_init(PLAYER1MODEL | 0x80, PLAYER2MODEL | 0x80,
                      FrameID_GetBBoxPtr, 1);
         else if (AIOn == 1)
-            mk3_init(PLAYER1MODEL, *PLAYER2MODEL | 0x80,
+            mk3_init(PLAYER1MODEL, PLAYER2MODEL | 0x80,
                      FrameID_GetBBoxPtr, 1);
         else
-            mk3_init(PLAYER1MODEL, *PLAYER2MODEL, FrameID_GetBBoxPtr, 1);
+            mk3_init(PLAYER1MODEL, PLAYER2MODEL, FrameID_GetBBoxPtr, 1);
 
         Player1NumButtons = Settings[4];
         mk3_set_four_button(0, Player1NumButtons != 6);
@@ -7529,7 +7535,7 @@ void MovesList(void)
 
     /* On the guest of a network game the local player is player 2. */
     if (GameMode == 1 && !isParentBasedOnSpeed())
-        character = *PLAYER2MODEL;
+        character = PLAYER2MODEL;
 
     page   = MoveListPage;
     header = (page == 3 || page == 4 || page == 8 || page == 9) ? 0xef : 0xee;
@@ -7767,7 +7773,7 @@ static void DrawPlayerPlate(long p)
     float s    = HUD_Scale;
     float edge = p ? (float)limeScreenWidth : 0.0f;
     float dir  = p ? -1.0f : 1.0f;
-    long  model = p ? *PLAYER2MODEL : PLAYER1MODEL;
+    long  model = p ? PLAYER2MODEL : PLAYER1MODEL;
 
     limeDrawSprite(HUDTPage, edge + dir * 18.0f * s, 24.0f * s,
                    dir * HUD_PLATE_W * s, HUD_PLATE_H * s,
@@ -8097,9 +8103,9 @@ void DrawHUD(void)
 
     /* The last two of the tower. The indices are Motaro and Shao Kahn. */
     if (GameMode == 0 && RoundWins[0] == WinsNeeded) {
-        if (*PLAYER2MODEL == 0x18) {
+        if (PLAYER2MODEL == 0x18) {
             achievementsUnlock(0xe);
-        } else if (*PLAYER2MODEL == 0x19) {
+        } else if (PLAYER2MODEL == 0x19) {
             achievementsUnlock(0x10);
             if (!towerFinishedAndLogged) {
                 towerFinishedAndLogged = 1;
@@ -8222,10 +8228,10 @@ static void RoundSummaryUpdate(void)
 
     if (IsEndurance) {
         InitEnduranceMatch();
-        if (*PLAYER2MODEL != PLAYER1MODEL)
+        if (PLAYER2MODEL != PLAYER1MODEL)
             DumpAltCostume(Players + 0x5f0);
         LoadGameCharacterCheckCache(Players + 0x5f0,
-                                    &PlayerDefs[*PLAYER2MODEL],
+                                    &PlayerDefs[PLAYER2MODEL],
                                     Stats);
     } else {
         ((signed char *)RoundParam)[0x18] = -1;
@@ -8234,14 +8240,14 @@ static void RoundSummaryUpdate(void)
     /* The fourth argument is AIOn, not 1 -- see the header. */
     switch (AIOn) {
     case 2:
-        mk3_init(PLAYER1MODEL | 0x80, *PLAYER2MODEL | 0x80,
+        mk3_init(PLAYER1MODEL | 0x80, PLAYER2MODEL | 0x80,
                  (void (*)(void))FrameID_GetBBox, AIOn);
         break;
     case 1:
-        mk3_init(PLAYER1MODEL, *PLAYER2MODEL | 0x80, (void (*)(void))FrameID_GetBBox, AIOn);
+        mk3_init(PLAYER1MODEL, PLAYER2MODEL | 0x80, (void (*)(void))FrameID_GetBBox, AIOn);
         break;
     default:
-        mk3_init(PLAYER1MODEL, *PLAYER2MODEL, (void (*)(void))FrameID_GetBBox, AIOn);
+        mk3_init(PLAYER1MODEL, PLAYER2MODEL, (void (*)(void))FrameID_GetBBox, AIOn);
         break;
     }
 
@@ -8753,7 +8759,7 @@ void Task_GameDestroy(void)
  *
  * ### `ToggleDebug` freezes the engine and nothing else
  *
- *      if (!ToggleDebug) mk3_update(joy, GameObjects);
+ *      if (!ToggleDebug) mk3_update(joy, &GameObjects);
  *
  * Everything after it -- the events, the HUD animation, the positions, the
  * camera -- runs either way. So the debug freeze holds the fighters still while
@@ -8944,7 +8950,10 @@ void UpdateArcadeCode(int *joy1, int *joy2)
             stepped = 0;
         } else if (GameMode != 1 && !isParentBasedOnSpeed()) {
             /* the caller's pair goes straight through */
-            mk3_update((const long *)joy1, GameObjects);
+            /* `&GameObjects`: 0x222a2 loads the ADDRESS 0x14dfec into r1, and
+             * mk3_update stores the frame's object list through it. This is
+             * the only writer GameObjects has besides Task_GameInit's zero. */
+            mk3_update((const long *)joy1, (void **)&GameObjects);
         } else {
             long k = currentMPJoystickData;
 
@@ -8953,7 +8962,7 @@ void UpdateArcadeCode(int *joy1, int *joy2)
             opponentFPS2 = mpOpponentJoystickInput[k * 2 + 1];
 
             if (!ToggleDebug)
-                mk3_update(joy, GameObjects);
+                mk3_update(joy, (void **)&GameObjects);   /* 0x2238c, the same */
         }
 
         if (stepped) {
@@ -8990,7 +8999,7 @@ void UpdateArcadeCode(int *joy1, int *joy2)
         RunJaxGrowCounters();
 
         {
-            const unsigned short *o = (const unsigned short *)GameObjects[0];
+            const unsigned short *o = (const unsigned short *)(void *)GameObjects;
 
             if (o[8 / 2] >= JAX_SQUASH_FRAME_LO
                 && o[8 / 2] <= JAX_SQUASH_FRAME_HI)
@@ -9529,7 +9538,7 @@ void IntroRender(void)
         MaintainLevelScenes();
         RenderLevelBG();
         RenderIntroCharacterPlayer();
-        DoSmokesSmoke(PLAYER1MODEL, *PLAYER2MODEL);
+        DoSmokesSmoke(PLAYER1MODEL, PLAYER2MODEL);
         MaintainParticles();
     }
 
@@ -10592,7 +10601,7 @@ void RenderLevelPlayers(void)
         if (((const float *)RLP_PLAYER(i))[0x584 / 4] == RLP_UNSET)
             RLP_PLAYER(i)[0x5ec / 4] = -1;
 
-    DoSmokesSmoke(PLAYER1MODEL, *PLAYER2MODEL);
+    DoSmokesSmoke(PLAYER1MODEL, PLAYER2MODEL);
 }
 
 
