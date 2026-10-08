@@ -343,6 +343,11 @@ typedef struct GAMEFONT {
     TEXTURE  *texture1;          /* 0x54 */
 } GAMEFONT;
 
+typedef struct MESHANDTEXTURE {
+    const char *mesh;                   /* 0x00 */
+    TEXTURE   **texture;                /* 0x04 */
+} MESHANDTEXTURE;
+
 typedef struct {
     MOVESSECTION section[2];
     long         rows3;                 /* section 3 -- never displayed */

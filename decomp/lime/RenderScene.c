@@ -189,16 +189,27 @@ SCENEINFO *AddScene(const char *name)
  * texture and reports nothing, which is the same class of silent coupling as
  * IsWhirlwindScene matching a filename substring.
  */
-void LIME_SetSceneTextures(const char *name, MESHSETINFO *set, TEXTURE **out)
+/* armv7 0x0005f07c, 46 bytes. The armv6 reading above took one name; the
+ * armv7 function takes a TABLE -- { mesh name, TEXTURE ** } pairs ended by
+ * a NULL name -- and for every name the set holds, stores the texture that
+ * entry points at:
+ *
+ *      for (e = table; e->name; e++)
+ *          if ((i = LIME_FindMeshByName(set, e->name)) != -1)
+ *              out[i] = *e->texture;
+ *
+ * HUDANIM_Render calls it with FIGHT.meshset and one of the
+ * *_MeshAndTexture tables; with the one-name body the overlay's textures
+ * were never set and "FIGHT" drew white. */
+void LIME_SetSceneTextures(MESHSETINFO *set, const void *table, TEXTURE **out)
 {
-    int index;
+    const uint32_t *e = (const uint32_t *)table;    /* 8 bytes an entry */
 
-    if (set->numMeshes == 0)
-        return;
-
-    index = LIME_FindMeshByName(set, name);   /* (set, name), not (name, set) */
-    if (index != -1)
-        out[index] = set->meshes[0]->texture;
+    for (; e[0] != 0; e += 2) {
+        int index = LIME_FindMeshByName(set, (const char *)(uintptr_t)e[0]);
+        if (index != -1)
+            out[index] = *(TEXTURE **)(uintptr_t)e[1];
+    }
 }
 
 

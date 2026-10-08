@@ -168,17 +168,31 @@ extern void *MeshSet_FIGHT;             /* 0x00183d5c, one word, via a slot */
 extern int   SceneRenderAlwaysTrans;    /* 0x00171760, defined in RenderScene.c */
 extern float  finishsize;               /* 0x00175184 */
 
-extern void *Fight_MeshAndTexture;      /* 0x00174eec */
-extern void *Finishher_MeshAndTexture;  /* 0x00174ff4 */
-extern void *Finishim_MeshAndTexture;   /* 0x001750fc */
-extern void *HSceneTextures;            /* 0x006bc0a0 */
+/* Mesh name -> the TEXTURE * variable to draw it with, ended by a NULL name
+ * (LIME_SetSceneTextures 0x5f07c walks it 8 bytes a step). All three tables
+ * name the sixteen meshes Fight01..Fight16 of FIGHT.meshset and point every
+ * one at the same entry of HUDTextures: [0] FIGHT, [1] FINISH HER, [2]
+ * FINISH HIM -- the order HUDANIM_ttl loads them in. */
+typedef struct MESHANDTEXTURE {
+    const char *mesh;                   /* 0x00 */
+    TEXTURE   **texture;                /* 0x04 */
+} MESHANDTEXTURE;
+
+extern MESHANDTEXTURE Fight_MeshAndTexture[];      /* 0x00174eec */
+extern MESHANDTEXTURE Finishher_MeshAndTexture[];  /* 0x00174ff4 */
+extern MESHANDTEXTURE Finishim_MeshAndTexture[];   /* 0x001750fc */
+/* 0x00371464 in __common: FIGHT, FINISH HER, FINISH HIM, filled by
+ * LoadSomeTextures(HUDANIM_ttl). Only the tables name it. */
+extern TEXTURE *HUDTextures[];
+extern TEXTURE *HSceneTextures[];       /* 0x006bc0a0, one per FIGHT mesh */
 
 extern long GameMode;                   /* 0x0014faa4 */
 
 void LIMEDS_SetCameraOrientation(float ex, float ey, float ez,
                                  float tx, float ty, float tz,
                                  float ux, float uy, float uz);
-void LIME_SetSceneTextures(void *meshset, void *src, void *dst);
+void LIME_SetSceneTextures(void *meshset, const MESHANDTEXTURE *table,
+                           TEXTURE **out);
 void LIME_RenderSceneOverrideTextures(void *scene, void *textures, long frame);
 void limeDisableDepthTest(void);
 void limeDisableDepthWrites(void);
@@ -236,7 +250,7 @@ void LIME_GLAPI glScalef(float x, float y, float z);
  */
 void HUDANIM_Render(void)
 {
-    void *mesh = 0;                     /* the original leaves this unset */
+    const MESHANDTEXTURE *mesh = 0;     /* the original leaves this unset */
     float s;
 
     LIMEDS_SetCameraOrientation(0.0f, -5.0f, 0.0f,   /* eye    */
@@ -249,11 +263,11 @@ void HUDANIM_Render(void)
         return;
 
     if (TheHud.anim == 2)
-        mesh = &Finishim_MeshAndTexture;
+        mesh = Finishim_MeshAndTexture;
     else if (TheHud.anim == 3)
-        mesh = &Finishher_MeshAndTexture;
+        mesh = Finishher_MeshAndTexture;
     else if (TheHud.anim == 1)
-        mesh = &Fight_MeshAndTexture;
+        mesh = Fight_MeshAndTexture;
     /* no default -- see above */
 
     glPushMatrix();
@@ -264,10 +278,10 @@ void HUDANIM_Render(void)
     s = finishsize;
     glScalef(s, s, s);
 
-    LIME_SetSceneTextures(MeshSet_FIGHT, mesh, &HSceneTextures);
+    LIME_SetSceneTextures(MeshSet_FIGHT, mesh, HSceneTextures);
 
     SceneRenderAlwaysTrans = 1;
-    LIME_RenderSceneOverrideTextures(Scene_FIGHT, &HSceneTextures,
+    LIME_RenderSceneOverrideTextures(Scene_FIGHT, HSceneTextures,
                                      (long)TheHud.timer);
     SceneRenderAlwaysTrans = 0;
 

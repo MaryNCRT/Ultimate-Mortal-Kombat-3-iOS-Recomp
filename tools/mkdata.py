@@ -110,6 +110,28 @@ class Image(object):
                             for a, ns in by_addr.items())
 
         self.extent = self._extents()
+        self._sorted = sorted(self.name_at.items())
+        # __common is zero-fill: its symbols lie past the end of the file, so
+        # is_address() says no to them. Pointers INTO a symbol are judged by
+        # the symbol table's own range instead.
+        self.sym_end = max(a + self.extent.get(n, 0) for a, n in self._sorted)
+
+    def containing(self, word):
+        """The symbol whose extent holds `word` past its start, and the offset.
+
+        `HUDANIM_ttl` points its second and third entries at `HUDTextures + 4`
+        and `+ 8`, and `BloodTexturesToLoad` walks `BloodTextures` the same
+        way. Neither address starts a symbol, so the table used to stop at
+        the first of them and the rest came out zero."""
+        import bisect
+        i = bisect.bisect_right(self._sorted, (word, "￿")) - 1
+        if i < 0:
+            return None, 0
+        a, name = self._sorted[i]
+        off = word - a
+        if 0 < off < self.extent.get(name, 0):
+            return name, off
+        return None, 0
 
     def _extents(self):
         """Each data symbol's size: the gap to the next symbol in its section."""
@@ -240,6 +262,13 @@ def word_literal(img, word, want_pointer, warn, owner, quiet=False,
             s = img.cstring_at(word)
             if s is not None:
                 return c_string(s)
+        # Inside a known symbol, past its start: a pointer to an element.
+        # Tried after text, because anonymous strings in __data sit inside
+        # whatever symbol precedes them.
+        if target is None and VM_BIAS <= word < img.sym_end:
+            inner, off = img.containing(word)
+            if inner and (known is None or inner in known):
+                return "(void *)((char *)&%s + %d)" % (inner, off)
         # An address with no symbol and no string: emitting a number here would
         # be a pointer to nothing on the host, so say so instead.
         if quiet:
