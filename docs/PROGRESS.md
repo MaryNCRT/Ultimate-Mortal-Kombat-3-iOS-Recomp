@@ -422,7 +422,8 @@ rewritten one by one.
 | Something renders on a PC screen | ✅ done — the menu and all 18 arenas |
 | **Every game function is decompiled** | ✅ **done — 2,572 of 2,572** (2026-10-01), behaviourally tested (2026-10-02) |
 | The game boots natively | 🔄 the front end boots, takes input, plays sound and music and saves; the fight has no runtime |
-| The game is playable natively | ⬜ next: the fight runtime and the 229 data tables |
+| The fight's 229 data tables are extracted and verified | ✅ done ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48), 2026-10-08) — 1,118 objects, byte-exact, `ctest -R logic` |
+| The game is playable natively | 🔄 next: the hand-over from the front end to `Task_GameInit` — engine runs headless ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46)), game boots to character select ([#43](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/43)) |
 
 ---
 
