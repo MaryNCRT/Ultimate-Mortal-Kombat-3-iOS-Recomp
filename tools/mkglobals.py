@@ -547,7 +547,10 @@ def main():
     seen, conflicts = {}, {}
     for path, line, m in decl_lines():
         name = m.group("name")
-        if name not in undef or is_runtime_symbol(name):
+        # `nm -u` is per object: GameCode.o lists MatrixPalette2 as undefined
+        # even though lime_globals.o defines it. A name the tree defines is
+        # never emitted again -- that is a duplicate symbol at link time.
+        if name not in undef or name in DEFINED or is_runtime_symbol(name):
             continue
         if name in seen:
             conflicts.setdefault(name, 1)

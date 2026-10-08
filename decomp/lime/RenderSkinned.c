@@ -129,208 +129,270 @@ void GetMFromQuat2(const BONEANIMFRAME *q, SKINMATRIX43 *out)
 
 /* -------------------------------------------- CreateMatrixPaletteRecurse2
  *
- * armv6 0x00083240, 356 bytes.
+ * armv7 0x00060048, 228 bytes.
  * __Z27CreateMatrixPaletteRecurse2P4BONEP12SKINMATRIX43
  *
- * Walks the bone tree depth-first, composing each bone with its parent and
- * emitting the result into a flat matrix palette. This is the function that
- * turns a hierarchy into the array Xform2 indexes.
+ * One bone of the pose, then its children, depth first. The state it walks is
+ * global and set up by CreateMatrixPaletteForGeneratingMesh:
  *
- * It runs on three global cursors rather than parameters, which is why the
- * signature looks smaller than the work it does:
+ *      MatrixSource0      the next blended frame, 20 bytes a bone
+ *      MatrixSource1      advanced in step and never read here
+ *      MatrixSourceCount  bones visited; the first one is the root
+ *      MatrixDst2         where the next 48-byte matrix goes
  *
- *   - an **animation frame cursor**, advanced 20 bytes per bone. Each step
- *     yields one BONEANIMFRAME. The frames are therefore laid out in the same
- *     depth-first order as the bones.
- *   - a **second cursor** advanced by the same 20 bytes in lockstep.
- *   - a **palette write cursor**, advanced 48 bytes per bone -- one
- *     SKINMATRIX43 each.
+ *      frame = *MatrixSource0                  (0x6005a, five words)
+ *      GetMFromQuat2(&frame, &local)
+ *      local.t = bone->x, y, z                 (+4, +8, +0xc)
+ *      if (MatrixSourceCount == 0) local.t = Root_Trans0
+ *      MatrixSource0 += 20; MatrixSource1 += 20; MatrixSourceCount++
+ *      MatrixMul2(&local, parent, &result)
+ *      *MatrixDst2++ = result
+ *      for each of bone->numChildren slots at +0x14: recurse if non-NULL
  *
- * The order of operations per bone:
+ * The count is reloaded from the bone every pass (0x60100), as here.
  *
- *   1. copy 20 bytes from the frame cursor into a local BONEANIMFRAME
- *   2. GetMFromQuat2 -> the 3x3 rotation of a local matrix
- *   3. write bone->x, bone->y, bone->z into that matrix's translation
- *   4. if a global counter is still zero, replace that translation with three
- *      floats from a global instead. This fires once, on the first bone
- *      visited, and the counter is incremented immediately after -- so **the
- *      root bone takes its position from a global rather than from the file**.
- *      That global is where the character's world position enters the skeleton.
- *   5. MatrixMul2(local, parent, result)
- *   6. copy the 48-byte result to the palette cursor and advance it
- *   7. loop over the nine child slots, recursing into each non-NULL one
- *
- * Step 4 is the part worth remembering: a .bones file's root translation is
- * not what gets used at runtime.
+ * An earlier pass had this shape under invented globals that nothing ever
+ * initialised, so the palette was written through a stale pointer.
  */
 void CreateMatrixPaletteRecurse2(BONE *bone, SKINMATRIX43 *parent)
 {
     BONEANIMFRAME frame;
-    SKINMATRIX43 local, result;
-    int i;
+    SKINMATRIX43  local, result;
+    long count, i;
 
-    /* 1-2: one frame per bone, in tree order */
-    frame = *(const BONEANIMFRAME *)g_animFrameCursor;
+    frame = *MatrixSource0;
     GetMFromQuat2(&frame, &local);
 
-    /* 3: the bone's own offset becomes the translation */
     local.t[0] = bone->x;
     local.t[1] = bone->y;
     local.t[2] = bone->z;
 
-    /* 4: the first bone visited is the root, and it is placed by the caller */
-    if (g_boneCounter == 0) {
-        local.t[0] = g_rootPosition[0];
-        local.t[1] = g_rootPosition[1];
-        local.t[2] = g_rootPosition[2];
+    count = MatrixSourceCount;
+    if (count == 0) {
+        local.t[0] = Root_Trans0.x;
+        local.t[1] = Root_Trans0.y;
+        local.t[2] = Root_Trans0.z;
     }
 
-    g_animFrameCursor += 20;
-    g_animFrameCursor2 += 20;
-    g_boneCounter++;
+    MatrixSource0++;
+    MatrixSource1++;
+    MatrixSourceCount = count + 1;
 
-    /* 5-6: compose with the parent and emit */
     MatrixMul2(&local, parent, &result);
-    *(SKINMATRIX43 *)g_paletteCursor = result;
-    g_paletteCursor += 48;
+    *MatrixDst2 = result;
+    MatrixDst2++;
 
-    /* 7: depth first */
-    /* **A loop, not one child.** The disassembly reads the child pointer at
-     * +0x14, recurses when it is non-NULL, then does `add r4, r4, #4` and comes
-     * back -- walking the nine slots, bounded by the count at +0x00 which it
-     * reloads every iteration.
-     *
-     * An earlier pass wrote this as a single `bone->child`, which follows only
-     * the first branch. Every humanoid skeleton branches at the spine, so that
-     * version poses one arm and leaves the other at its bind pose. */
-    for (i = 0; i < bone->numChildren; i++) {
+    for (i = 0; i < bone->numChildren; i++)
         if (bone->children[i] != NULL)
             CreateMatrixPaletteRecurse2(bone->children[i], &result);
-    }
-
-    /* the sibling walk continues past the excerpt disassembled so far */
 }
 
 
 /* ------------------------------------------------------- DrawSkinnedMesh2
  *
- * armv6 0x00083d10, 2152 bytes.
+ * armv7 0x000608d8, 1,876 bytes.
  * __Z16DrawSkinnedMesh2P8SKININFOjjlP11limeVECTOR3P11limeVECTOR2Phll
  *
- * The whole skinning loop: one iteration per vertex, four bone influences each,
- * producing a position, a normal and a lit vertex colour.
+ * Transcribed from the armv7 slice. The version this replaces was read from
+ * armv6 and did something else: it wrote float positions, never touched
+ * SkinnedVerts or RenderIndexes, and returned the input count. On armv7 the
+ * function skins every vertex into SkinnedVerts and then UNWELDS the mesh by
+ * texture coordinate, so the count it returns is the number of output
+ * vertices, which can exceed the input.
  *
- * This function is what settles the .skin format's remaining unknowns, so the
- * findings are worth stating before the code.
+ * Arguments (soft-float AAPCS: every one is in a core register or on the
+ * stack): skin, two unused words, `flags`, then outPos, outUV, outCol,
+ * `uvCount` (0 means 5000, 0x608ea) and `keepFloats`.
  *
- *  - **`indexes` is four packed bytes, not an integer.** The loop does
- *    `ldrb r3,[r6]`, `ldrb r3,[r6,#1]`, `[r6,#2]`, `[r6,#3]` and advances r6 by
- *    4 per vertex. Each byte is a bone index and **0xFF means "slot unused"**.
- *    The docs recorded these values as mysteriously negative; they were never
- *    signed -- an unused fourth slot puts 0xFF in the top byte, which sets the
- *    sign bit of the word.
+ * ## Pass 1: one entry per skin vertex
  *
- *  - **`matricesA` is positions and `matricesB` is normals.** A is read at
- *    +0,+4,+8 then +0xc,+0x10,+0x14 and so on -- four vec3s, one per influence
- *    -- and feeds the position path. B feeds Xform2 and the result is passed
- *    straight to Normalise. An earlier note guessed this from B[0] being unit
- *    length and A[0] looking like a coordinate; the code confirms it.
+ * Each skin vertex has four influences: four packed bone bytes at +0x20
+ * (0xFF = unused), four weights at +0x24, four pre-weighted vec3 at +0x14 and
+ * four at +0x28, 0x30 bytes a vertex. SkinnedVerts is 24 bytes a vertex.
  *
- *  - **The vectors are pre-multiplied by their weight.** That is why the
- *    rotation needs no weight (it is already in A and B) while the translation
- *    term is explicitly `w * m[9..11]`. It also explains Xform2 ignoring its
- *    weight argument beyond the zero test.
+ *  - flags == 0 (the per-frame path): the position is summed inline,
+ *        acc += ((A.x*m0 + A.y*m3) + A.z*m6) + w*m9      (and y, z)
+ *    in exactly that association (0x60aba..0x60e38). With keepFloats == 0 it
+ *    is multiplied by VertScale and stored as three int16 at SkinnedVerts +
+ *    6*i (0x60e42: vcvt.s32.f32, strh); otherwise the three floats are copied
+ *    to SkinnedVerts + 24*i.
+ *  - flags != 0 (the lit path): NormaliseLDirs runs once first and, with
+ *    keepFloats == 0, the original then spins forever (`b .` at 0x61018), kept
+ *    here. Per vertex the four influences go through Xform2, the normal is
+ *    normalised and lit, and lv.x * 255 becomes a grey byte at SkinnedVerts +
+ *    24*i + 0x14..0x16 with 0xFF at +0x17. No position is stored.
  *
- *  - **`num_matrices` is a vertex count.** The loop terminates on SKININFO+4
- *    and advances one entry per iteration: indexes +4, weights +0x10,
- *    matricesA +0x30.
+ * ## Pass 2: one entry per triangle corner
  *
- * The position path is inlined rather than calling Xform2, because unlike the
- * normal it needs the translation row:
- *
- *      out.x = SUM over i of ( A[i].x*m[0] + A[i].y*m[3] + A[i].z*m[6]
- *                              + w[i]*m[9]  )
- *
- * and likewise y with m[1],m[4],m[7],m[10] and z with m[2],m[5],m[8],m[11].
- *
- * The normal path is the same rotation with no translation, via Xform2, then
- * Normalise, then LightVert -- whose result is scaled, clamped, narrowed to a
- * byte and written as R=G=B with alpha 0xFF. So **vertex colour is the lit
- * skinned normal**, which is what gives these characters their shading with no
- * per-pixel lighting anywhere.
- *
- * Output strides, from the cursor arithmetic at the loop tail: 24 bytes per
- * vertex on one cursor, 48 on another, 6 on the third.
- *
- * **It returns a count**, which this was first written without. The epilogue
- * is `mov r0, r4` and then the pops, so whatever r4 accumulated is the answer.
- * `Players.c` had always used it -- `size2 = DrawSkinnedMesh2(..., 0, 1)`,
- * measured once on mesh 0 and reused -- and the two readings disagreed until
- * `tools/protos.py` put them side by side.
+ * outUV is cleared for uvCount entries. For each corner, with v its skin vertex
+ * (int16 list at +0x18) and uv its texture coordinate (8 bytes a corner at
+ * +0x1c): if outUV[v] is still (0, 0) or already equals uv, the corner keeps
+ * v; otherwise it gets a new vertex, numbered from the running count. Either
+ * way RenderIndexes[corner] is that number, outUV[it] = uv, and the vertex
+ * data is copied from skin vertex v: int16 x, y, z into outPos (6-byte stride),
+ * or 12 bytes of float with keepFloats, or with flags the grey byte into
+ * outCol (one byte a vertex).
  */
+static unsigned char dsm2_byte(float s)
+{
+    /* vcvt.u32.f32 then uxtb: negatives were sent to zero by the caller,
+     * NaN converts to 0, and anything past 2^32 saturates. */
+    uint32_t u;
+
+    if (s != s)
+        u = 0;
+    else if (s >= 4294967296.0f)
+        u = 0xFFFFFFFFu;
+    else
+        u = (uint32_t)s;
+    return (unsigned char)u;
+}
+
+static int16_t dsm2_short(float s)
+{
+    /* vcvt.s32.f32 (toward zero, saturating, NaN -> 0) then strh. */
+    int32_t v;
+
+    if (s != s)
+        v = 0;
+    else if (s >= 2147483648.0f)
+        v = 0x7FFFFFFF;
+    else if (s < -2147483648.0f)
+        v = (int32_t)0x80000000u;
+    else
+        v = (int32_t)s;
+    return (int16_t)(uint16_t)(uint32_t)v;
+}
+
 long DrawSkinnedMesh2(SKININFO *skin, unsigned a, unsigned b, long flags,
                       limeVECTOR3 *outPos, limeVECTOR2 *outUV,
-                      unsigned char *outCol, long e, long f)
+                      unsigned char *outCol, long uvCount, long keepFloats)
 {
-    /* Casts, not sloppiness. docs/SKIN-FORMAT.md types +0x20 as `int32 *` and
-     * +0x14 / +0x28 as matrix arrays, which is what the LOADER allocates. This
-     * consumer reads the same memory differently: the index array byte by byte
-     * -- four bone indices packed per word, matching the four floats per vertex
-     * at +0x24 -- and the matrices as flat vectors. Keeping the declared types
-     * honest and casting here records both views instead of blurring one. */
-    const unsigned char *idx  = (const unsigned char *)skin->indexes;   /* +0x20 */
-    const float         *wgt  = skin->weights;                          /* +0x24 */
-    const limeVECTOR3   *A    = (const limeVECTOR3 *)skin->matricesA;   /* +0x14 */
-    const limeVECTOR3   *B    = (const limeVECTOR3 *)skin->matricesB;   /* +0x28 */
-    long i, k;
+    const char          *A    = (const char *)skin->matricesA;  /* +0x14 */
+    const char          *B    = (const char *)skin->matricesB;  /* +0x28 */
+    const unsigned char *idx  = (const unsigned char *)skin->indexes; /* +0x20 */
+    const float         *wgt  = skin->weights;                  /* +0x24 */
+    const uint16_t      *tri  = (const uint16_t *)skin->vertExtra; /* +0x18 */
+    const float         *uv   = (const float *)skin->uvs;       /* +0x1c */
+    long nfaces = skin->numVerts;                               /* +0x08 */
+    long lit = 0;
+    long count, i, k, f, c;
 
-    for (i = 0; i < skin->numVerts; i++) {
-        limeVECTOR3 pos = { 0.0f, 0.0f, 0.0f };
-        limeVECTOR3 nrm = { 0.0f, 0.0f, 0.0f };
-        limeVECTOR3 lit;
+    (void)a;
+    (void)b;
 
-        for (k = 0; k < 4; k++) {
-            unsigned bone = idx[k];
-            const SKINMATRIX43 *m;
+    if (uvCount == 0)
+        uvCount = 5000;
 
-            if (bone == 0xFF)               /* empty influence slot */
-                continue;
-
-            m = &g_matrixPalette[bone];     /* 48-byte stride */
-
-            /* position: rotation from the pre-weighted vector, translation
-             * scaled by the weight itself */
-            pos.x += A[k].x*m->m[0] + A[k].y*m->m[3] + A[k].z*m->m[6]
-                     + wgt[k]*m->t[0];
-            pos.y += A[k].x*m->m[1] + A[k].y*m->m[4] + A[k].z*m->m[7]
-                     + wgt[k]*m->t[1];
-            pos.z += A[k].x*m->m[2] + A[k].y*m->m[5] + A[k].z*m->m[8]
-                     + wgt[k]*m->t[2];
-
-            /* normal: same rotation, no translation */
-            Xform2(&A[k], &B[k], NULL, &nrm, m, wgt[k]);
-        }
-
-        Normalise(&nrm);
-        LightVert(&nrm, (float *)&lit);
-
-        /* lit value -> one grey byte, alpha forced opaque */
-        {
-            float s = lit.x * LIGHT_SCALE;
-            unsigned char c = (s < 0.0f) ? 0 : (unsigned char)s;
-            outCol[0] = c;
-            outCol[1] = c;
-            outCol[2] = c;
-            outCol[3] = 0xFF;
-        }
-
-        *outPos++ = pos;
-        outCol += 4;
-        idx += 4;                           /* four packed bone indices */
-        wgt += 4;                           /* four floats */
-        A   += 4;                           /* four vec3s = 48 bytes */
-        B   += 4;
+    if (flags != 0) {
+        NormaliseLDirs();
+        if (keepFloats == 0)
+            for (;;) {
+            }                           /* 0x61018: b . */
+        lit = 1;
     }
+
+    count = skin->numMatrices;                                  /* +0x04 */
+    for (i = 0; i < count; i++) {
+        const char  *Ai = A + i * 0x30;
+        const float *w  = wgt + i * 4;
+        const unsigned char *bi = idx + i * 4;
+        float acc[3] = { 0.0f, 0.0f, 0.0f };
+
+        if (lit) {
+            const char *Bi = B + i * 0x30;
+            float nrm[3] = { 0.0f, 0.0f, 0.0f };
+            float lv[3];
+            float s;
+            unsigned char g;
+            unsigned char *dst = SkinnedVerts + i * 24;
+
+            for (k = 0; k < 4; k++)
+                if (bi[k] != 0xFF)
+                    Xform2((const limeVECTOR3 *)(Ai + k * 12),
+                           (const limeVECTOR3 *)(Bi + k * 12),
+                           (const limeVECTOR3 *)acc, (limeVECTOR3 *)nrm,
+                           &MatrixPalette2[bi[k]], w[k]);
+
+            Normalise((limeVECTOR3 *)nrm);
+            LightVert((const limeVECTOR3 *)nrm, lv);
+
+            s = lv[0] * 255.0f;
+            g = (s < 0.0f) ? 0 : dsm2_byte(s);
+            dst[0x14] = g;
+            dst[0x15] = g;
+            dst[0x16] = g;
+            dst[0x17] = 0xFF;
+        } else {
+            for (k = 0; k < 4; k++) {
+                const float *v = (const float *)(Ai + k * 12);
+                const float *m;
+
+                if (bi[k] == 0xFF)
+                    continue;
+                m = (const float *)&MatrixPalette2[bi[k]];
+
+                acc[0] = acc[0] + (((v[0] * m[0] + v[1] * m[3]) + v[2] * m[6])
+                                   + w[k] * m[9]);
+                acc[1] = acc[1] + (((v[0] * m[1] + v[1] * m[4]) + v[2] * m[7])
+                                   + w[k] * m[10]);
+                acc[2] = acc[2] + (((v[0] * m[2] + v[1] * m[5]) + v[2] * m[8])
+                                   + w[k] * m[11]);
+            }
+        }
+
+        if (flags == 0) {
+            if (keepFloats == 0) {
+                int16_t *p = (int16_t *)(SkinnedVerts + i * 6);
+                float s = VertScale;
+
+                p[0] = dsm2_short(acc[0] * s);
+                p[1] = dsm2_short(acc[1] * s);
+                p[2] = dsm2_short(acc[2] * s);
+            } else {
+                memcpy(SkinnedVerts + i * 24, acc, 12);
+            }
+        }
+
+        count = skin->numMatrices;      /* reloaded every pass (0x60a82) */
+    }
+
+    memset(outUV, 0, (size_t)uvCount * 8);
+
+    for (f = 0; f < nfaces; f++) {
+        for (c = 0; c < 3; c++) {
+            long v = tri[f * 3 + c];
+            const float *src = uv + (f * 3 + c) * 2;
+            float *dst = (float *)&outUV[v];
+            long o = v;
+
+            if (!((dst[0] == 0.0f && dst[1] == 0.0f)
+                  || (dst[0] == src[0] && src[1] == dst[1]))) {
+                o = (uint16_t)count;
+                dst = (float *)&outUV[o];
+                count++;
+            }
+            RenderIndexes[f * 3 + c] = (uint16_t)o;
+
+            if (flags != 0) {
+                memcpy(dst, src, 8);
+                outCol[o] = SkinnedVerts[v * 24 + 0x14];
+            } else if (keepFloats != 0) {
+                memcpy((char *)outPos + o * 12, SkinnedVerts + v * 24, 12);
+                memcpy(dst, src, 8);
+            } else {
+                int16_t       *p = (int16_t *)((char *)outPos + o * 6);
+                const int16_t *q = (const int16_t *)(SkinnedVerts + v * 6);
+
+                p[0] = q[0];
+                p[1] = q[1];
+                p[2] = q[2];
+                memcpy(dst, src, 8);
+            }
+        }
+    }
+
+    return count;
 }
 
 
@@ -465,17 +527,21 @@ void LIME_FreeBones(BONESINFO *info)
 
 /* ------------------------------------------------------- GenerateMatrices
  *
- * armv6 0x00083634, 28 bytes.
+ * armv7 0x00060358, 28 bytes.  __Z16GenerateMatricesPcP9BONESINFOllfl
  *
- * Swaps two arguments and tail-calls
- * CreateMatrixPaletteForGeneratingMesh. Nothing else. The two functions differ
- * only in the order they take their parameters, which usually means one of
- * them is the older signature kept for callers that were never updated.
+ *      CreateMatrixPaletteForGeneratingMesh(data, stride, frameA, frameB,
+ *                                           t, bones)
+ *
+ * A reshuffle: the stride arrives last and leaves second (0x60364 loads it
+ * into r1), the skeleton arrives second and leaves last. An earlier version
+ * passed (data, frameA, frameB, stride, ...) -- the frame number as the
+ * stride -- which is one of the reasons no fighter was ever posed.
  */
-void GenerateMatrices(char *dst, BONESINFO *bones, long a, long b,
-                      float t, long flags)
+void GenerateMatrices(char *data, BONESINFO *bones, long frameA, long frameB,
+                      float t, long stride)
 {
-    CreateMatrixPaletteForGeneratingMesh(dst, a, b, flags, t, bones);
+    CreateMatrixPaletteForGeneratingMesh(data, stride, frameA, frameB, t,
+                                         bones);
 }
 
 
@@ -1007,80 +1073,53 @@ void LIME_LoadSkin1(const char *data, SKININFO *skin)
 
 /* ------------------------------------- CreateMatrixPaletteForGeneratingMesh
  *
- * armv6 0x000834e8, 332 bytes.  **Complete.**
+ * armv7 0x00060278, 224 bytes.
+ * __Z36CreateMatrixPaletteForGeneratingMeshPclllfP9BONESINFO
  *
- * The top of the animation pipeline: two keyframes and a blend factor go in, a
- * posed skeleton comes out. Every function it calls is already recovered, and
- * four of the five have been verified against the original, which is why this
- * one can be written out in full rather than described.
+ *      UnpackAnimFrame(data + stride*frameA, DecompAnimFrames0, &Root_Trans0, n)
+ *      UnpackAnimFrame(data + stride*frameB, DecompAnimFrames1, &Root_Trans1, n)
+ *      LerpVector3(&Root_Trans1, &Root_Trans0, t, &Root_Trans0)
+ *      for i < n: GetSlerpedQ(&DecompAnimFrames0[i], &DecompAnimFrames1[i], t,
+ *                             &DecompAnimFrames0[i])
+ *      MatrixSource0 = DecompAnimFrames0; MatrixSourceCount = 0
+ *      MatrixDst2 = MatrixPalette2
+ *      MatrixIdentity2(&root)
+ *      CreateMatrixPaletteRecurse2(bones->bones, &root)
  *
- * ## The whole pose, in five calls
+ * Both blends land on the frame-A side, in place (0x602e8 passes r0 as both
+ * the first argument and the output). The root position is t*B + (1-t)*A:
+ * LerpVector3 weights its FIRST argument by t, and that is Root_Trans1.
  *
- *      UnpackAnimFrame(data + stride * frameA, ...)
- *      UnpackAnimFrame(data + stride * frameB, ...)
- *      LerpVector3(a, b, t, out)          ; the root position
- *      GetSlerpedQ(...)                   ; per bone, the rotation
- *      MatrixIdentity2(root)
- *      CreateMatrixPaletteRecurse2(bones, root)
+ * MatrixSource1 is not reset here; nothing in the recursion reads it.
+ * `bones->numBones` is reloaded on every pass of the slerp loop (0x602ee).
  *
- * The two frame pointers come from `mla r0, r1, r2, r0` -- `data + stride *
- * index`, a multiply-accumulate in one instruction. So the animation is a flat
- * array of fixed-size records and a frame is reached by index, with no table
- * and no seeking.
- *
- * ## BONEANIMFRAME is 20 bytes, and the loop says so
- *
- *      lsl r2, r4, #4      ; i * 16
- *      lsl r3, r4, #2      ; i * 4
- *      add r3, r3, r2      ; i * 20
- *
- * The same shift-and-add trick used for 216 and 80 elsewhere, and it confirms
- * the struct: four quaternion floats plus the field at +0x10 that GetSlerpedQ
- * writes 1.0f into. Nothing is padded.
- *
- * ## The root is special, twice over
- *
- * The root position is blended with `LerpVector3` -- which runs backwards from
- * its argument order, so `t = 0` yields the SECOND frame. Then
- * `MatrixIdentity2` supplies the root's parent transform, because the root has
- * no parent. And CreateMatrixPaletteRecurse2 then overrides the root's own
- * translation with `g_rootPosition` rather than using the one in the file.
- *
- * That last part is worth restating because it is counter-intuitive: **a
- * `.bones` file's root translation is not what gets used at runtime.** The
- * caller places the character; the file only describes the shape.
- *
- * ## Why the rotation loop is per bone but the position is not
- *
- * One `LerpVector3` for the whole pose and one `GetSlerpedQ` per bone. The
- * skeleton carries a single root translation and a rotation at every joint --
- * which is the standard way to store a skeletal animation, and it is why
- * `GetSlerpedQ` being a lerp rather than a slerp matters at every joint while
- * the position blend only matters once.
+ * The version this replaces unpacked into locals and blended into globals
+ * nothing read, and never set the three cursors, so
+ * CreateMatrixPaletteRecurse2 walked from wherever they had been left.
  */
 void CreateMatrixPaletteForGeneratingMesh(char *data, long stride,
                                           long frameA, long frameB,
                                           float t, BONESINFO *bones)
 {
-    BONEANIMFRAME framesA[MAX_BONES];
-    BONEANIMFRAME framesB[MAX_BONES];
-    limeVECTOR3 posA, posB;
     SKINMATRIX43 root;
-    int i;
+    BONE *top = bones->bones;
+    long i;
 
-    UnpackAnimFrame((uint8_t *)(data + stride * frameA), framesA, &posA,
-                    bones->numBones);
-    UnpackAnimFrame((uint8_t *)(data + stride * frameB), framesB, &posB,
-                    bones->numBones);
+    UnpackAnimFrame((const uint8_t *)(data + stride * frameA),
+                    DecompAnimFrames0, &Root_Trans0, bones->numBones);
+    UnpackAnimFrame((const uint8_t *)(data + stride * frameB),
+                    DecompAnimFrames1, &Root_Trans1, bones->numBones);
 
-    /* one root position for the whole pose -- and LerpVector3 runs backwards */
-    LerpVector3(&posA, &posB, t, &g_rootPositionV);
+    LerpVector3(&Root_Trans1, &Root_Trans0, t, &Root_Trans0);
 
-    if (bones->numBones != 0) {
-        for (i = 0; i < bones->numBones; i++)   /* stride 20, as i*16 + i*4 */
-            GetSlerpedQ(&framesA[i], &framesB[i], t, &g_animBlended[i]);
-    }
+    for (i = 0; i < bones->numBones; i++)
+        GetSlerpedQ(&DecompAnimFrames0[i], &DecompAnimFrames1[i], t,
+                    &DecompAnimFrames0[i]);
 
-    MatrixIdentity2(&root);                     /* the root has no parent */
-    CreateMatrixPaletteRecurse2(bones->bones, &root);
+    MatrixSource0     = DecompAnimFrames0;
+    MatrixSourceCount = 0;
+    MatrixDst2        = MatrixPalette2;
+
+    MatrixIdentity2(&root);
+    CreateMatrixPaletteRecurse2(top, &root);
 }

@@ -482,32 +482,37 @@ const char *GetNextLine(const char *src, char *dst)
 
 /* --------------------------------------------------- CreateFadedLookupTable
  *
- * armv6 0x000807a8, 76 bytes.  **Structurally complete.**
+ * armv7 0x0005e14c, 68 bytes.  __Z22CreateFadedLookupTablev
  *
- * Builds the fade ramp the renderer uses instead of computing a blend per
- * pixel.
+ *      HaveFadeTable = 1
+ *      for level in 0..511:
+ *          ScaleTable[level][0] = 0
+ *          for j in 1..255:  ScaleTable[level][j] = (level * j) >> 8
  *
- * The row stride is `lsl r3, ip, #8` -- **256 bytes per row** -- and each row is
- * filled a byte at a time with an incrementing value. So it is a
- * `[levels][256]` byte table: one row per fade step, indexed by the source
- * value.
+ * Row `level` scales a byte by level/256, so rows past 256 brighten and the
+ * table spans 0 to almost 2x. The running product is accumulated (`add r2,
+ * ip` at 0x5e180) and shifted arithmetically; it never exceeds 511 * 255, so
+ * the byte store keeps the value whole for every row below 257 and wraps
+ * above it, as on the device.
  *
- * A lookup table rather than arithmetic is the right shape for a 2011 phone,
- * and it is worth knowing that a port reproducing this with a multiply will not
- * match exactly -- the table quantises, the same way LerpQSTMatrix does.
- *
- * The flag set on entry is the "table is built" guard; this runs once.
+ * The version this replaces wrote `dst[i] = i` into 256 rows of a table under
+ * an invented name that nothing allocated.
  */
 void CreateFadedLookupTable(void)
 {
-    int row, i;
+    long level, j;
 
-    g_fadeTableBuilt = 1;
+    HaveFadeTable = 1;
 
-    for (row = 0; row < FADE_LEVELS; row++) {
-        uint8_t *dst = g_fadeTable + row * 256;
-        for (i = 0; i < 256; i++)
-            dst[i] = (uint8_t)i;        /* scaled per row */
+    for (level = 0; level < 0x200; level++) {
+        uint8_t *row = ScaleTable + level * 256;
+        long acc = level;
+
+        row[0] = 0;
+        for (j = 1; j < 0x100; j++) {
+            row[j] = (uint8_t)(acc >> 8);
+            acc += level;
+        }
     }
 }
 
@@ -764,223 +769,189 @@ void LIME_LoadMeshSetTextures(MESHSETINFO *meshset, const char *suffix)
 
 /* ---------------------------------------------------------- CreateFadedRGBS
  *
- * armv6 0x00080814, 296 bytes.  **Structurally complete.**
+ * armv7 0x0005e198, 210 bytes.
+ * __Z15CreateFadedRGBSPhPcfl11limeVECTOR3
  *
- * Builds a faded copy of an RGB byte array -- the per-vertex colour path for
- * effects that tint or wash out geometry.
+ *      if (!HaveFadeTable) CreateFadedLookupTable()
+ *      row = (int)(level * 255)            vcvt.s32.f32: toward zero
+ *      row <  0     -> 0
+ *      row >= 0x200 -> 0x1ff               (literal 0x1ff00 = row 511 * 256)
+ *      for each vertex i:
+ *          v = (float)src[i]               ONE light byte a vertex
+ *          r = min((int)(v + offset.x), 255)
+ *          g = min((int)(v + offset.y), 255)
+ *          b = min((int)(v + offset.z), 255)
+ *          dst[4i..4i+3] = ScaleTable[row][r], [g], [b], 0xFF
  *
- * ## It is an ADD, not a multiply
+ * The output is RGBA, four bytes a vertex, which is what glColorPointer(4,
+ * GL_UNSIGNED_BYTE) then reads. There is no low clamp on the channel: an
+ * offset that takes a channel negative indexes before the start of the row,
+ * exactly as the original does.
  *
- * Each source byte is widened to float, and a per-channel float is **added**
- * before it is converted back:
- *
- *      ldrb     r3, [r5], #1
- *      vcvt.f32.s32 s15, s14
- *      vadd.f32 s14, s16, s15      ; red   + offset.x
- *      vadd.f32 s14, s17, s15      ; green + offset.y
- *      vadd.f32 s14, s18, s15      ; blue  + offset.z
- *
- * The `limeVECTOR3` argument is therefore a **signed per-channel offset**, not
- * a tint colour and not a scale. A port that multiplies -- the obvious reading
- * of "faded" -- washes out dark pixels and leaves bright ones alone, which is
- * the opposite of what an additive offset does.
- *
- * ## The float argument indexes a 512-entry table
- *
- *      vmul.f32     s15, s19, s15   ; scale the float argument
- *      vcvt.s32.f32 s15, s15
- *      cmp      r2, #0
- *      movlt    r2, #0              ; clamp low
- *      cmp      r2, #0x200          ; 512
- *
- * Clamped at both ends, and `0x200` is the same order of magnitude as the
- * `[levels][256]` table `CreateFadedLookupTable` builds elsewhere in this
- * file. The two are almost certainly the producer and the consumer of the same
- * structure, but the address arithmetic that would prove it runs through a
- * literal pool this pass could not resolve, so they are noted as related and
- * not asserted to be the same table.
- *
- * The whole function is gated on a global being non-zero -- a feature switch,
- * checked before any work.
- *
- * The table lookup the clamped index feeds is not written out: the address
- * arithmetic runs through a literal pool this pass could not resolve, so the
- * body applies the per-channel offset -- which IS established, instruction by
- * instruction -- and stops there.
+ * The version this replaces was read from armv6: it read three source bytes a
+ * vertex, wrote three, skipped the table, and returned early when the table
+ * did not exist instead of building it.
  */
-/* **The first argument is the SOURCE.** `mov r5, r0` then `ldrb r3, [r5], #1`
- * reads through it; the faded result goes to the second. An earlier version of
- * this file had them the other way round, which the call site settles:
- * LIME_RenderMeshSingle passes `mesh->vertLight` first and then hands the
- * SECOND buffer to glColorPointer. Reading and drawing from the same pointer
- * would have been the giveaway. */
+static int cfrgbs_s32(float s)
+{
+    /* vcvt.s32.f32: toward zero, saturating, NaN -> 0 */
+    if (s != s)
+        return 0;
+    if (s >= 2147483648.0f)
+        return 0x7FFFFFFF;
+    if (s < -2147483648.0f)
+        return (int)0x80000000u;
+    return (int)s;
+}
+
 void CreateFadedRGBS(const uint8_t *src, uint8_t *dst, float level, long count,
                      limeVECTOR3 offset)
 {
+    const uint8_t *row;
     long i;
-    int index;
+    int  n;
 
-    if (!g_fadeTableBuilt)
-        return;                         /* the feature switch */
+    if (HaveFadeTable == 0)
+        CreateFadedLookupTable();
 
-    index = (int)(level * 255.0f);
-    if (index < 0)
-        index = 0;                      /* clamped low */
-    if (index >= 0x200)
-        index = 0x200 - 1;              /* and high: 512 entries */
+    n = cfrgbs_s32(level * 255.0f);
+    if (n < 0)
+        n = 0;
+    if (n >= 0x200)
+        n = 0x1ff;
+    row = ScaleTable + n * 256;
 
     for (i = 0; i < count; i++) {
-        /* widened to float, offset ADDED per channel, narrowed back */
-        float r = (float)src[i * 3 + 0] + offset.x;
-        float g = (float)src[i * 3 + 1] + offset.y;
-        float b = (float)src[i * 3 + 2] + offset.z;
+        float v = (float)(int)src[i];
+        int r = cfrgbs_s32(offset.x + v);
+        int g = cfrgbs_s32(offset.y + v);
+        int b = cfrgbs_s32(offset.z + v);
 
-        dst[i * 3 + 0] = (uint8_t)r;
-        dst[i * 3 + 1] = (uint8_t)g;
-        dst[i * 3 + 2] = (uint8_t)b;
+        if (r >= 0xff) r = 0xff;
+        if (g >= 0xff) g = 0xff;
+        if (b >= 0xff) b = 0xff;
+
+        dst[0] = row[r];
+        dst[1] = row[g];
+        dst[2] = row[b];
+        dst[3] = 0xFF;
+        dst += 4;
     }
 }
 
 
 /* ------------------------------------------------- LIME_RenderMeshSingleIndexed
  *
- * armv6 0x00080a7c, 808 bytes.  **Structurally complete.**
+ * armv7 0x0005e358, 628 bytes.
+ * _LIME_RenderMeshSingleIndexed (unmangled in the symbol table).
  *
- * The indexed draw path -- the function that actually puts triangles on screen.
- * Readable only after `tools/stubs.py`; before the imports were resolved this
- * was 808 bytes of `bl #0x127xxx`.
+ * Draws one skinned frame of a character. Transcribed from the armv7 slice;
+ * the body this replaces was read from armv6 and took a MESHINFO, so it fed
+ * `MESHINFO.verts` (+0x18) to glVertexPointer. The argument is not a
+ * MESHINFO: it is the 88-byte frame record LoadAnimatedCharacter builds
+ * (`animatedcharacter_meshbase`, MESHREC in Players.c), whose +0x18 is the
+ * flag IsAFrameVisible tests. This function never reads +0x18.
  *
- * ## Shading is FLAT
+ * The record holds two halves, chosen by the fifth argument ([sp, #0x4c],
+ * 0x5e376) -- the body and the second skin:
  *
- * The first GL call in the function is `glShadeModel`, and the constant loaded
- * for it is `0x1d01` -- **`GL_FLAT`**, not `GL_SMOOTH`.
+ *      half 0:  +0x00 verts  +0x04 faces  +0x1c indices  +0x20 uvs  +0x24 light
+ *      half 1:  +0x08 verts  +0x0c faces  +0x2c indices  +0x30 uvs  +0x34 light
  *
- * That is worth stopping on, because it interacts with everything in
- * docs/LIGHTING.md. Lighting is computed per vertex on the CPU and handed to GL
- * as vertex colour, and then GL is told **not to interpolate it**: each triangle
- * takes the colour of its provoking vertex. So the lighting is per-vertex in
- * how it is computed and per-face in how it appears.
+ * Positions are not in the record at all: they are RenderVerts, the int16
+ * triples DrawSkinnedMesh2 just wrote, scaled back by 1 / VertScale.
  *
- * A port that leaves the default `GL_SMOOTH` in place gets softer, rounder
- * shading than the original everywhere -- which looks better in a screenshot and
- * is wrong.
+ * Soft-float AAPCS: `alpha` arrives in r2 and goes to CreateFadedRGBS in r2
+ * untouched. `fade` (r3) is scaled by 255 into a by-value limeVECTOR3.
  *
- * ## Three texture units, reconfigured per draw
- *
- * `glClientActiveTexture` and `glActiveTexture` appear in **three separate
- * groups**, each followed by its own `glBindTexture`, `glTexEnvf`, and
- * enable/disable pair. This is the multi-texture path the engine is documented
- * to use, here in full.
- *
- * Every unit is torn down and rebuilt inside this one function -- there is no
- * state cache. On the original hardware that is a lot of redundant GL traffic;
- * on a desktop driver it is worse, because each redundant `glBindTexture` still
- * costs a validation. **This is the single most obvious optimisation target in
- * the render path**, and also the most dangerous one to take early, because the
- * teardown order is what leaves the units in a known state for the next draw.
- *
- * ## Client array state
- *
- * The vertex, normal, colour and texture-coordinate arrays are enabled and
- * disabled explicitly around the draw, with `glVertexPointer`,
- * `glTexCoordPointer` and `glColorPointer` supplying them, and a
- * `glDrawElements` in the middle.
- *
- * ## CreateFadedRGBS feeds glColorPointer
- *
- * This connects two functions that looked unrelated:
- *
- *      bl   __Z15CreateFadedRGBSPhPcfl11limeVECTOR3
- *      ...
- *      bl   _glColorPointer
- *
- * So the faded-RGB routine documented above is **the per-vertex colour path**:
- * it builds the colour array that this draw then hands to GL. Its signed
- * per-channel offset is applied to vertex colours, not to texels -- which
- * settles what "faded" means and confirms, from the consumer side, that adding
- * rather than multiplying is correct.
- *
- * The body is not transcribed instruction by instruction. The three texture-unit
- * groups differ in which constants they load and which branches they take, and a
- * paraphrase would either lose that or invent it; the sequence above is what is
- * established. The exact GL enum for each call is deliberately not listed --
- * several are loaded from literal pools that resolve to addresses rather than
- * values in this pass, and the project does not state constants it could not
- * pin down.
- *
- * ## The three groups are three passes over two units
- *
- * Unit 0 is set up and drawn from, unit 1 is set up and immediately disabled,
- * and then unit 0 is configured again -- and **that third group is the only one
- * that ends with `glEnable`**. The two before it end with `glDisable`, and a
- * `glDisable(0x1702)` -- `GL_TEXTURE` read as a matrix mode -- sits between
- * them.
- *
- * So the function does not leave the pipeline off. It leaves unit 0 bound,
- * enabled and pointing at the colour array it just computed, which is the state
- * the next draw expects. Tearing everything down at the end, which is the
- * obvious thing for a port to do, breaks the draw that follows.
- *
+ * The untextured branch (the shadow pass) draws black with GL_REPLACE and
+ * texturing off. `glActiveTexture(0x1702)` at 0x5e466 is in the original --
+ * GL_TEXTURE, an invalid enum there, which GL ignores -- and is kept.
  */
-void LIME_RenderMeshSingleIndexed(MESHINFO *mesh, TEXTURE *tex0, TEXTURE *tex1,
-                                  float alpha, long flags)
+extern long limeRenderedPolyCount;
+extern limeVECTOR3 *RenderVerts;
+
+void LIME_RenderMeshSingleIndexed(void *rec, TEXTURE *tex, float alpha,
+                                  const limeVECTOR3 *fade, long second)
 {
-    (void)flags;
+    const char *r = (const char *)rec;
+    long  nverts, nfaces;
+    const void *indices, *uvs;
+    const uint8_t *light;
+    float s;
 
-    if (mesh == NULL)
-        return;
+    glShadeModel(0x1d01);               /* GL_SMOOTH, before the fifth argument */
 
-    glShadeModel(GL_FLAT);              /* 0x1d01 -- per face, not per vertex */
+    if (second == 0) {
+        light   = *(const uint8_t * const *)(r + 0x24);
+        uvs     = *(const void * const *)(r + 0x20);
+        nfaces  = *(const long *)(r + 0x04);
+        nverts  = *(const long *)(r + 0x00);
+        indices = *(const void * const *)(r + 0x1c);
+    } else {
+        light   = *(const uint8_t * const *)(r + 0x34);
+        uvs     = *(const void * const *)(r + 0x30);
+        nfaces  = *(const long *)(r + 0x0c);
+        nverts  = *(const long *)(r + 0x08);
+        indices = *(const void * const *)(r + 0x2c);
+    }
 
-    /* ---- unit 0: the base texture ---- */
+    limeRenderedPolyCount += nfaces;
+
     glClientActiveTexture(GL_TEXTURE0);
     glActiveTexture(GL_TEXTURE0);
     glDisableClientState(GL_NORMAL_ARRAY);
-    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-    glScalef(1.0f, 1.0f, 1.0f);
-    if (tex0 != NULL)
-        glBindTexture(GL_TEXTURE_2D, tex0->name);
-    glVertexPointer(3, GL_FLOAT, 0, mesh->verts);
-    glColor4f(1.0f, 1.0f, 1.0f, alpha);
-    glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-    glDisable(GL_TEXTURE_2D);
-    glDrawElements(GL_TRIANGLES, mesh->numFaces * 3,
-                   GL_UNSIGNED_SHORT, mesh->indices);
+    glEnableClientState(GL_VERTEX_ARRAY);
 
-    /* ---- unit 1: the second texture, then disabled ---- */
+    s = 1.0f / VertScale;
+    glScalef(s, s, s);
+
+    if (tex == NULL) {
+        glBindTexture(GL_TEXTURE_2D, 0);
+        glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+        glDisableClientState(GL_COLOR_ARRAY);
+        glVertexPointer(3, GL_SHORT, 0, RenderVerts);
+        glColor4f(0.0f, 0.0f, 0.0f, 1.0f);
+        glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, (float)GL_REPLACE);
+        glDisable(GL_TEXTURE_2D);
+    } else {
+        limeVECTOR3 f;
+
+        glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+        glTexCoordPointer(2, GL_FLOAT, 0, uvs);
+        glBindTexture(GL_TEXTURE_2D, tex->name);      /* TEXTURE+0x40 */
+        glEnableClientState(GL_COLOR_ARRAY);
+
+        f.x = fade->x * 255.0f;
+        f.y = fade->y * 255.0f;
+        f.z = fade->z * 255.0f;
+        CreateFadedRGBS(light, TempRGBS, alpha, nverts, f);
+        glColorPointer(4, GL_UNSIGNED_BYTE, 0, TempRGBS);
+
+        glVertexPointer(3, GL_SHORT, 0, RenderVerts);
+        glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, (float)GL_MODULATE);
+        glEnable(GL_TEXTURE_2D);
+    }
+
+    glDrawElements(GL_TRIANGLES, nfaces * 3, GL_UNSIGNED_SHORT, indices);
+
     glClientActiveTexture(GL_TEXTURE1);
-    glActiveTexture(GL_TEXTURE1);
-    glColor4f(1.0f, 1.0f, 1.0f, alpha);
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+    glActiveTexture(0x1702);            /* sic -- see the header */
     glDisableClientState(GL_TEXTURE_COORD_ARRAY);
-    if (tex1 != NULL)
-        glBindTexture(GL_TEXTURE_2D, tex1->name);
-    glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, (float)GL_REPLACE);
     glDisable(GL_TEXTURE_2D);
 
-    /* ---- back to unit 0, and this is the one left ENABLED ---- */
     glClientActiveTexture(GL_TEXTURE0);
     glActiveTexture(GL_TEXTURE0);
     glDisableClientState(GL_TEXTURE_COORD_ARRAY);
     glBindTexture(GL_TEXTURE_2D, 0);
-    glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, (float)GL_REPLACE);
     glEnable(GL_TEXTURE_2D);
-    glDisableClientState(GL_NORMAL_ARRAY);
+    glDisable(GL_CULL_FACE);
+    glDisableClientState(GL_VERTEX_ARRAY);
     glDisableClientState(GL_COLOR_ARRAY);
-
-    /* ---- the vertex colours, computed rather than reused ---- */
-    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-    glTexCoordPointer(2, GL_FLOAT, 0, mesh->verts);
-    if (tex0 != NULL)
-        glBindTexture(GL_TEXTURE_2D, tex0->name);
-    glEnableClientState(GL_COLOR_ARRAY);
-
-    CreateFadedRGBS(mesh->vertLight, g_vertexColourScratch,
-                    alpha, mesh->numVerts, g_fadeOffset);
-    glColorPointer(4, GL_UNSIGNED_BYTE, 0, g_vertexColourScratch);
-
-    glVertexPointer(3, GL_FLOAT, 0, mesh->verts);
-    glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-    glEnable(GL_TEXTURE_2D);
 }
 
 
