@@ -1,8 +1,8 @@
 /*
  * win32_audio.c -- the Win32 half of platform.h's audio.
  *
- * `waveOut` and nothing else: no XAudio2, no DirectSound, no dependency that
- * has to be installed. The same reasoning as `win32_gl.c` -- the port should
+ * `waveOut`, plus Windows' own ACM codec for the MP3 music: no XAudio2, no
+ * DirectSound, no dependency that has to be installed. The same reasoning as `win32_gl.c` -- the port should
  * build with the toolchain that is already here.
  *
  * ## How it works
@@ -40,8 +40,11 @@
 
 #include <windows.h>
 #include <mmsystem.h>
+#include <mmreg.h>
+#include <msacm.h>
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define VOICES      16          /* one-shot sounds at once */
@@ -215,10 +218,13 @@ static void fill(short *out)
     }
 }
 
+static void music_update(void);
+
 void plat_audio_update(void)
 {
     int spun = 0;
 
+    music_update();
     if (!g_open)
         return;
 
@@ -244,55 +250,270 @@ void plat_audio_update(void)
 
 /* ------------------------------------------------------------------- music
  *
- * Through MCI, which decodes MP3 itself. The alternative is an MP3 decoder in
- * this repository to play a stage loop, which would be a great deal of code
- * for no recovered knowledge.
+ * **Decoded with the ACM MP3 codec and streamed through a second waveOut.**
+ *
+ * This used to go through MCI (`open ... type mpegvideo`), which decodes MP3
+ * itself. In a 32-bit process that crashes the second time a tune is opened:
+ * the first `open` plays, and the next one -- after `close` or not, the same
+ * file or another -- takes the process down from inside msmpeg2adec.dll
+ * (fail-fast 0xc0000602). Reproduced outside the game with a 30-line program
+ * that only opens MainMenu.mp3 and then CharacterSelect.mp3; the 64-bit build
+ * of the same program is fine. The game switches tunes on the way into the
+ * character select, so every 32-bit build died at "Arcade".
+ *
+ * ACM's MP3 decoder ships with Windows in both widths, needs no install, and
+ * survives any number of switches. A tune is decoded whole when it starts --
+ * the 28 tunes are all MPEG-1 Layer III at 44.1 kHz, the longest about two
+ * minutes, so that is a few MB and well under a frame's worth of a stall --
+ * and fed to its own device a buffer at a time from plat_audio_update, the
+ * same no-callback discipline the sound effects use.
+ *
+ * The volume is applied as the buffers are filled, so a change takes effect
+ * within one buffer (about 90 ms).
  */
+#define MBUFFERS       4
+#define MBUF_FRAMES 4096
+
+static HWAVEOUT g_mdev;
+static WAVEHDR  g_mhdr[MBUFFERS];
+static short    g_mbuf[MBUFFERS][MBUF_FRAMES * 2];
+static int      g_mnext;
+static short   *g_mpcm;         /* the whole tune, interleaved */
+static long     g_mframes, g_mpos;
+static int      g_mch, g_mloop;
+
+/* MP3 bytes -> 16-bit PCM. NULL if the codec or the stream is not usable. */
+static short *mp3_decode(const unsigned char *d, long n, int *rate, int *ch,
+                         long *frames)
+{
+    static const int kbps_tab[16] = { 0, 32, 40, 48, 56, 64, 80, 96, 112,
+                                      128, 160, 192, 224, 256, 320, 0 };
+    static const int rate_tab[4] = { 44100, 48000, 32000, 0 };
+    MPEGLAYER3WAVEFORMAT mf;
+    WAVEFORMATEX pf;
+    HACMSTREAM s;
+    ACMSTREAMHEADER h;
+    DWORD chunk = 8192, out_max = 0;
+    unsigned char *src, *dst, *all;
+    long o = 0, pos, len = 0, cap;
+    int kbps, sr, nch;
+
+    /* an ID3v2 tag first, then the first frame header */
+    if (n > 10 && memcmp(d, "ID3", 3) == 0)
+        o = 10 + ((d[6] & 0x7f) << 21 | (d[7] & 0x7f) << 14 |
+                  (d[8] & 0x7f) << 7 | (d[9] & 0x7f));
+    while (o + 4 < n && !(d[o] == 0xff && (d[o + 1] & 0xe0) == 0xe0))
+        o++;
+    if (o + 4 >= n)
+        return NULL;
+    kbps = kbps_tab[d[o + 2] >> 4];
+    sr   = rate_tab[(d[o + 2] >> 2) & 3];
+    nch  = (d[o + 3] >> 6) == 3 ? 1 : 2;
+    if (kbps == 0 || sr == 0)
+        return NULL;
+
+    memset(&mf, 0, sizeof mf);
+    mf.wfx.wFormatTag      = WAVE_FORMAT_MPEGLAYER3;
+    mf.wfx.nChannels       = (WORD)nch;
+    mf.wfx.nSamplesPerSec  = (DWORD)sr;
+    mf.wfx.nAvgBytesPerSec = (DWORD)(kbps * 1000 / 8);
+    mf.wfx.nBlockAlign     = 1;
+    mf.wfx.cbSize          = MPEGLAYER3_WFX_EXTRA_BYTES;
+    mf.wID                 = MPEGLAYER3_ID_MPEG;
+    mf.fdwFlags            = MPEGLAYER3_FLAG_PADDING_OFF;
+    mf.nBlockSize          = (WORD)(144 * kbps * 1000 / sr);
+    mf.nFramesPerBlock     = 1;
+    mf.nCodecDelay         = 1393;
+
+    memset(&pf, 0, sizeof pf);
+    pf.wFormatTag      = WAVE_FORMAT_PCM;
+    pf.nChannels       = (WORD)nch;
+    pf.nSamplesPerSec  = (DWORD)sr;
+    pf.wBitsPerSample  = 16;
+    pf.nBlockAlign     = (WORD)(nch * 2);
+    pf.nAvgBytesPerSec = (DWORD)sr * pf.nBlockAlign;
+
+    if (acmStreamOpen(&s, NULL, (LPWAVEFORMATEX)&mf, &pf, NULL, 0, 0, 0) != 0)
+        return NULL;
+    acmStreamSize(s, chunk, &out_max, ACM_STREAMSIZEF_SOURCE);
+
+    src = (unsigned char *)malloc(chunk);
+    dst = (unsigned char *)malloc(out_max);
+    cap = (long)((double)(n - o) * 8.0 / (kbps * 1000.0) * sr * pf.nBlockAlign)
+          + 4 * (long)out_max;
+    all = (unsigned char *)malloc((size_t)cap);
+    if (!src || !dst || !all) {
+        free(src); free(dst); free(all);
+        acmStreamClose(s, 0);
+        return NULL;
+    }
+
+    memset(&h, 0, sizeof h);
+    h.cbStruct    = sizeof h;
+    h.pbSrc       = src;
+    h.cbSrcLength = chunk;
+    h.pbDst       = dst;
+    h.cbDstLength = out_max;
+    acmStreamPrepareHeader(s, &h, 0);
+    for (pos = o; pos < n; ) {
+        DWORD take = (DWORD)(n - pos < (long)chunk ? n - pos : (long)chunk);
+
+        memcpy(src, d + pos, take);
+        h.cbSrcLength = take;
+        if (acmStreamConvert(s, &h, ACM_STREAMCONVERTF_BLOCKALIGN) != 0)
+            break;
+        if (h.cbSrcLengthUsed == 0 && h.cbDstLengthUsed == 0)
+            break;
+        pos += (long)h.cbSrcLengthUsed;
+        if (len + (long)h.cbDstLengthUsed > cap) {
+            unsigned char *more = (unsigned char *)realloc(all, (size_t)cap * 2);
+            if (!more)
+                break;
+            all = more;
+            cap *= 2;
+        }
+        memcpy(all + len, dst, h.cbDstLengthUsed);
+        len += (long)h.cbDstLengthUsed;
+    }
+    h.cbSrcLength = chunk;
+    acmStreamUnprepareHeader(s, &h, 0);
+    acmStreamClose(s, 0);
+    free(src);
+    free(dst);
+
+    if (len == 0) {
+        free(all);
+        return NULL;
+    }
+    *rate   = sr;
+    *ch     = nch;
+    *frames = len / pf.nBlockAlign;
+    return (short *)all;
+}
+
+static void music_fill(short *out)
+{
+    long i, n = (long)MBUF_FRAMES * g_mch;
+    long at = g_mpos * g_mch;
+    long end = g_mframes * g_mch;
+
+    for (i = 0; i < n; i++) {
+        if (at >= end) {
+            if (!g_mloop) {
+                out[i] = 0;
+                continue;
+            }
+            at = 0;
+        }
+        out[i] = (short)((float)g_mpcm[at++] * g_music_gain);
+    }
+    g_mpos = at / g_mch;
+}
+
+static void music_update(void)
+{
+    int spun = 0;
+
+    if (!g_music)
+        return;
+    while (spun < MBUFFERS) {
+        WAVEHDR *h = &g_mhdr[g_mnext];
+
+        if (!(h->dwFlags & WHDR_DONE))
+            break;
+        music_fill((short *)h->lpData);
+        h->dwFlags &= ~WHDR_DONE;
+        if (waveOutWrite(g_mdev, h, sizeof *h) != MMSYSERR_NOERROR) {
+            h->dwFlags |= WHDR_DONE;
+            break;
+        }
+        g_mnext = (g_mnext + 1) % MBUFFERS;
+        spun++;
+    }
+}
+
 void plat_music_play(const char *path, int loop)
 {
-    char cmd[1024];
+    FILE *f;
+    long n;
+    unsigned char *mp3;
+    int rate, ch, i;
+    WAVEFORMATEX wf;
 
     plat_music_stop();
 
-    _snprintf(cmd, sizeof cmd, "open \"%s\" type mpegvideo alias umk3bgm", path);
-    cmd[sizeof cmd - 1] = 0;
-    {
-        MCIERROR e = mciSendStringA(cmd, NULL, 0, NULL);
-        if (e != 0) {                   /* no decoder, or no such file */
-            char msg[256];
-            if (!mciGetErrorStringA(e, msg, sizeof msg))
-                msg[0] = 0;
-            fprintf(stderr, "music: cannot open %s: %s\n", path, msg);
-            return;
-        }
+    f = fopen(path, "rb");
+    if (!f) {
+        fprintf(stderr, "music: cannot open %s\n", path);
+        return;
+    }
+    fseek(f, 0, SEEK_END);
+    n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    mp3 = n > 0 ? (unsigned char *)malloc((size_t)n) : NULL;
+    if (!mp3 || fread(mp3, 1, (size_t)n, f) != (size_t)n) {
+        fclose(f);
+        free(mp3);
+        return;
+    }
+    fclose(f);
+
+    g_mpcm = mp3_decode(mp3, n, &rate, &ch, &g_mframes);
+    free(mp3);
+    if (!g_mpcm) {
+        fprintf(stderr, "music: cannot decode %s\n", path);
+        return;
     }
 
+    memset(&wf, 0, sizeof wf);
+    wf.wFormatTag      = WAVE_FORMAT_PCM;
+    wf.nChannels       = (WORD)ch;
+    wf.nSamplesPerSec  = (DWORD)rate;
+    wf.wBitsPerSample  = 16;
+    wf.nBlockAlign     = (WORD)(ch * 2);
+    wf.nAvgBytesPerSec = (DWORD)rate * wf.nBlockAlign;
+    if (waveOutOpen(&g_mdev, WAVE_MAPPER, &wf, 0, 0, CALLBACK_NULL) != MMSYSERR_NOERROR) {
+        free(g_mpcm);
+        g_mpcm = NULL;
+        return;                         /* silent, as with no sound device */
+    }
+
+    memset(g_mhdr, 0, sizeof g_mhdr);
+    for (i = 0; i < MBUFFERS; i++) {
+        g_mhdr[i].lpData         = (LPSTR)g_mbuf[i];
+        g_mhdr[i].dwBufferLength = (DWORD)(MBUF_FRAMES * ch * sizeof(short));
+        waveOutPrepareHeader(g_mdev, &g_mhdr[i], sizeof g_mhdr[i]);
+        g_mhdr[i].dwFlags |= WHDR_DONE;
+    }
+    g_mch   = ch;
+    g_mpos  = 0;
+    g_mloop = loop;
+    g_mnext = 0;
     g_music = 1;
-    plat_music_volume(g_music_gain);
-    mciSendStringA(loop ? "play umk3bgm repeat" : "play umk3bgm", NULL, 0, NULL);
+    music_update();                     /* start now, not a frame later */
 }
 
-/* MCI's scale is 0..1000. Kept across tracks, as GBMusicTrack's gain is set
- * once by limePlayTune and then only by limeSetTuneVol. */
+/* Kept across tracks, as GBMusicTrack's gain is set once by limePlayTune and
+ * then only by limeSetTuneVol. */
 void plat_music_volume(float gain)
 {
-    char cmd[96];
-
     if (gain < 0.0f) gain = 0.0f;
     if (gain > 1.0f) gain = 1.0f;
     g_music_gain = gain;
-    if (!g_music)
-        return;
-    _snprintf(cmd, sizeof cmd, "setaudio umk3bgm volume to %d", (int)(gain * 1000.0f + 0.5f));
-    cmd[sizeof cmd - 1] = 0;
-    mciSendStringA(cmd, NULL, 0, NULL);
 }
 
 void plat_music_stop(void)
 {
+    int i;
+
     if (!g_music)
         return;
-    mciSendStringA("stop umk3bgm", NULL, 0, NULL);
-    mciSendStringA("close umk3bgm", NULL, 0, NULL);
+    waveOutReset(g_mdev);
+    for (i = 0; i < MBUFFERS; i++)
+        waveOutUnprepareHeader(g_mdev, &g_mhdr[i], sizeof g_mhdr[i]);
+    waveOutClose(g_mdev);
+    g_mdev = NULL;
+    free(g_mpcm);
+    g_mpcm = NULL;
     g_music = 0;
 }

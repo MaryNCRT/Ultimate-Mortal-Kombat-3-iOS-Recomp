@@ -533,7 +533,7 @@ build/umk3-fight path/to/Payload/UMK3.app/res
 build/umk3-test  path/to/Payload/UMK3.app/res
 ```
 
-The mouse stands in for a finger. Save files go to `%APPDATA%/UMK3` on Windows
+The mouse stands in for a finger. Save files go to `save/` beside the exe on Windows
 and `~/.local/share/umk3` on Linux (`UMK3_SAVE_DIR` overrides both).
 `UMK3_SHOT=<n>` runs n frames, writes a screenshot and quits.
 

@@ -450,7 +450,7 @@ build/umk3-fight ruta/a/Payload/UMK3.app/res
 build/umk3-test  ruta/a/Payload/UMK3.app/res
 ```
 
-El ratón hace de dedo. Las partidas se guardan en `%APPDATA%/UMK3` en Windows y
+El ratón hace de dedo. Las partidas se guardan en `save/` junto al exe en Windows y
 en `~/.local/share/umk3` en Linux (`UMK3_SAVE_DIR` cambia las dos).
 `UMK3_SHOT=<n>` ejecuta n frames, guarda una captura y sale.
 
