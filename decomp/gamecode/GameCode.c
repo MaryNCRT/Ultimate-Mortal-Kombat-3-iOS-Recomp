@@ -8149,6 +8149,11 @@ void DrawHUD(void)
         if (FightMessage) {
             FightMessageTimer += 1.0f / limeFPSScaleFactor;
             if (FightMessageTimer > 180.0f) {
+                /* 0x29f00..0x29f08: THREE stores. RoundSummary goes back to 0
+                 * with the other two; without it the banner below came back
+                 * the moment "FIGHT" ended, and "ROUND 1" stayed up for the
+                 * whole round. */
+                RoundSummary      = 0;
                 FightMessage      = 0;
                 FightMessageTimer = 0.0f;
             }
