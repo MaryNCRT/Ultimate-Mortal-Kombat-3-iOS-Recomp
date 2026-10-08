@@ -151,7 +151,7 @@ void slide_check(MK3OBJ *obj, MK3OBJ *other);
  *
  *      obj->field5c = 1
  */
-void q_yes(MK3OBJ *obj)
+static void q_yes(MK3OBJ *obj)
 {
     obj->field5c = 1;
 }
@@ -160,7 +160,7 @@ void q_yes(MK3OBJ *obj)
  *
  *      obj->field5c = 0
  */
-void q_no(MK3OBJ *obj)
+static void q_no(MK3OBJ *obj)
 {
     obj->field5c = 0;
 }
