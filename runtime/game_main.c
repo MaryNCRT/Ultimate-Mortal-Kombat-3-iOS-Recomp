@@ -156,7 +156,7 @@ static void parse_taps(const char *s)
 
 int main(int argc, char **argv)
 {
-    const char *root = (argc > 1) ? argv[1] : ".";
+    const char *root = (argc > 1) ? argv[1] : "res";
     const char *shot = getenv("UMK3_SHOT");
     int    shot_at = shot ? atoi(shot) : 0;
     int    log_tasks = getenv("UMK3_LOG_TASKS") != NULL;
@@ -166,6 +166,17 @@ int main(int argc, char **argv)
 
     setvbuf(stdout, NULL, _IONBF, 0);
 #ifdef _WIN32
+    /* No argument: `res` beside the exe, wherever it was started from, so a
+     * double-click in the game folder just works. */
+    static char exe_res[MAX_PATH + 8];
+    if (argc <= 1) {
+        DWORD len = GetModuleFileNameA(NULL, exe_res, MAX_PATH);
+        char *slash = (len > 0 && len < MAX_PATH) ? strrchr(exe_res, '\\') : NULL;
+        if (slash) {
+            strcpy(slash + 1, "res");
+            root = exe_res;
+        }
+    }
     SetUnhandledExceptionFilter(on_crash);
 #endif
     parse_taps(getenv("UMK3_TAPS"));
