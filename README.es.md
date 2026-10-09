@@ -141,10 +141,17 @@ Cada arreglo se leyó del binario armv7 original y Mary lo comprobó en el juego
 
 12. No se ve la muerte de Shao Kahn al terminar el Arcade.
 13. ~~Al terminar el Arcade no lleva a la pantalla de desbloqueables~~ -- arreglado: la pantalla crasheaba (datos de los focos vacíos, `DrawAnimAsSprite` con la textura, el módulo y el tamaño mal) y el fondo salía blanco (ahora se carga el `.pvr` primero, como en el iPhone).
-14. Los logros salen mal, con texto superpuesto.
+14. ~~Los logros salen mal, con texto superpuesto~~ -- arreglado (coordenadas cruzadas en `achievementsDraw`).
 15. En la pantalla de carga los iconos están mal puestos.
-16. En la lista de combos los iconos siguen mal puestos.
-17. Contra Motaro, Kitana se cubría todo el tiempo y actuaba raro.
+16. ~~En la lista de combos los iconos siguen mal puestos~~ -- arreglado (las filas alternan de lado, nombre e iconos juntos).
+17. ~~Contra Motaro, Kitana se cubría todo el tiempo y actuaba raro~~ -- arreglado.
+18. ~~Fundido a negro lento al empezar y acabar rounds~~ -- arreglado: un logro guardado en la posición 21 hacía que el juego creyera que había un aviso en pantalla y los fundidos iban 10 veces más lentos.
+19. ~~FINISH HER para personajes hombres~~ -- arreglado (la voz era correcta; el letrero era siempre HER).
+20. Los personajes congelados salen totalmente blancos.
+21. El fatality de Sonya no se ve bien.
+22. Crasheos aleatorios (hacen falta logs).
+23. Mantener pulsado el retrato de Smoke para elegir a Human Smoke.
+24. En el menú debug, ganar/perder round a veces da el round a los dos o saca de la pelea.
 
 - El launcher es solo para Windows (Linux/macOS: compilar desde el código con CMake).
 

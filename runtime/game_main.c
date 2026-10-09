@@ -38,6 +38,7 @@
  *   UMK3_LOG_TASKS=1  print every change of CurrentTask and FE_CurrentTask
  *   UMK3_SCREEN=<n|name>  open that front-end screen once the menu is up
  *   UMK3_DBG_OPEN=<n> open the debug menu at tick n (with debug_keys)
+ *   UMK3_DBG_KEY=<tick:k;...>  press F9+k at that tick (with debug_keys)
  *
  * Keyboard, player 1, during a fight (runtime/platform's defaults):
  *   W A S D or the arrows   the joystick
@@ -70,6 +71,12 @@
 #include "platform/platform.h"
 #include "platform/gl.h"
 #include "debug_menu.h"
+
+/* A scripted run (UMK3_SHOT) ignores the real keyboard, as it ignores the
+ * mouse: a test window takes the focus when it opens, and whoever is typing
+ * in another window would otherwise be pressing keys in the test. */
+static int g_keys_off;
+#define plat_key(code) (g_keys_off ? 0 : (plat_key)(code))
 
 #define VIRT_W 480
 #define VIRT_H 320
@@ -482,7 +489,8 @@ static void debug_keys(void)
 extern const char *FETaskNames[DBG_SCREENS];
 extern int   PendingPush, FE_TaskStackPointer;
 extern float FE_FadeAdd;
-extern long  DontQuitAfterFade;
+extern long  DontQuitAfterFade, RoundSummary;
+extern float FE_Fade;
 void PushFETaskDeferred(int task);
 
 static int g_screen_jump = -1;          /* --screen: the screen to open */
@@ -637,6 +645,7 @@ int main(int argc, char **argv)
 #endif
     if (getenv("UMK3_DEBUG_KEYS"))
         g_cfg_debug_keys = 1;
+    g_keys_off = shot_at != 0;
     if (getenv("UMK3_SCREEN"))
         g_screen_jump = parse_screen(getenv("UMK3_SCREEN"));
     parse_taps(getenv("UMK3_TAPS"));
@@ -746,6 +755,17 @@ int main(int argc, char **argv)
             if (g_cfg_debug_keys && getenv("UMK3_DBG_OPEN")
                 && ticks == atol(getenv("UMK3_DBG_OPEN")))
                 dbg_menu_toggle();      /* a test opens the menu by script */
+            if (g_cfg_debug_keys && getenv("UMK3_DBG_KEY")) {
+                /* "tick:k;tick:k" -- F9..F12 (k = 0..3) pressed by script */
+                const char *q = getenv("UMK3_DBG_KEY");
+                while (q && *q) {
+                    if (atol(q) == ticks && strchr(q, ':'))
+                        fight_key(atoi(strchr(q, ':') + 1));
+                    q = strchr(q, ';');
+                    if (q)
+                        q++;
+                }
+            }
             if (g_cfg_debug_keys) {
                 static int was_f2, was_f3;
                 int f2 = plat_key(PK_TEST), f3 = plat_key(PK_BACK);
@@ -835,6 +855,18 @@ int main(int argc, char **argv)
                 }
             }
 
+            /* UMK3_LOG_FADE=1: every start of a screen fade, for finding
+             * who starts one. FE_FadeAdd < 0 fades out, > 0 back in. */
+            if (getenv("UMK3_LOG_FADE")) {
+                static float last_add;
+                static long  last_dq = -1;
+                if (FE_FadeAdd != last_add || DontQuitAfterFade != last_dq)
+                    printf("tick %ld: fade add %+.4f fade %.3f dontquit %ld task %d round summary %ld\n",
+                           ticks, FE_FadeAdd, FE_Fade, DontQuitAfterFade,
+                           CurrentTask, RoundSummary);
+                last_add = FE_FadeAdd;
+                last_dq = DontQuitAfterFade;
+            }
             if (log_tasks && (CurrentTask != last_task
                               || FE_CurrentTask != last_fe)) {
                 printf("tick %ld: task %d, front-end task %d\n",
