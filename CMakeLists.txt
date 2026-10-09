@@ -237,6 +237,17 @@ endif()
 #
 # 32-bit only: the engine's structs and tables hold 32-bit addresses, and the
 # generated file refuses to compile anywhere else.
+# The launcher: settings, the build from the player's .ipa (launcher/
+# build_game.ps1), and Play. Holds no game data, so it builds without one.
+if(WIN32)
+    add_executable(umk3-launcher WIN32 launcher/launcher.c)
+    set_target_properties(umk3-launcher PROPERTIES OUTPUT_NAME UMK3-Launcher)
+    target_link_libraries(umk3-launcher PRIVATE comdlg32)
+    if(NOT MSVC)
+        target_link_options(umk3-launcher PRIVATE -municode)
+    endif()
+endif()
+
 set(UMK3_BINARY "" CACHE FILEPATH
     "The user's UMK3 binary: OUTPUT/armv7/UMK3.armv7 or Payload/UMK3.app/UMK3")
 if(UMK3_BINARY)

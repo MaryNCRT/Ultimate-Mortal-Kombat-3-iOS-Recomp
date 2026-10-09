@@ -128,8 +128,9 @@ static int try_one(const char *full, LimeImage *out)
 static int load_rgba(const char *path, LimeImage *out)
 {
     /* Where the bundle keeps sheets, in the order that finds them soonest:
-     * Textures/ holds 1,620 of them and res/ itself almost none. */
-    static const char *const dirs[] = { "Textures/", "", "../" };
+     * Textures/ holds 1,620 of them and res/ itself almost none. Nothing is
+     * looked for outside res/. */
+    static const char *const dirs[] = { "Textures/", "" };
     /* The name as asked, then the same stem under each real extension. The
      * data says ".PNG" for files that are .pvr on disk -- the exporter wrote
      * one extension and the device supplied another. */

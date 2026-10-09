@@ -55,8 +55,7 @@ long  lime_heap_check(const char *where);
  * point the two at different trees to prove neither is reading the other's. */
 static char g_lime_asset_root[512] = "";
 
-/* The bundle's own files -- Info.plist among them -- sit beside res/, so the
- * root has to be readable, not just usable through resolve(). */
+/* The root is readable too: Info.plist is opened from it directly. */
 const char *lime_platform_asset_root(void)
 {
     return g_lime_asset_root;
@@ -67,26 +66,20 @@ void lime_platform_set_asset_root(const char *path)
     snprintf(g_lime_asset_root, sizeof(g_lime_asset_root), "%s", path);
 }
 
-/* An iOS bundle is one flat directory: the game asks for "mkunicode.txt" and
- * the bundle finds it wherever it sits. The extracted tree keeps most assets
- * under res/ and a few -- mkunicode.txt, Info.plist -- beside it, so a path
- * that is not under res/ is tried against the bundle before giving up. */
+/* The port reads its own `res` folder and nothing outside it. The engine asks
+ * for most files by bare name ("FLOOR.meshset") and a few with the bundle's
+ * "res/" in front ("res/audio/x.wav"); that prefix is the root itself. The
+ * bundle files the game needs from beside res/ on device -- Info.plist -- are
+ * copied into res/ when the game folder is set up (launcher/setup_res.ps1). */
 static void resolve(const char *rel, char *out, size_t n)
 {
-    FILE *probe;
-
     if (g_lime_asset_root[0] == '\0') {
         snprintf(out, n, "%s", rel);
         return;
     }
-
+    if (strncmp(rel, "res/", 4) == 0 || strncmp(rel, "res\\", 4) == 0)
+        rel += 4;
     snprintf(out, n, "%s/%s", g_lime_asset_root, rel);
-    probe = fopen(out, "rb");
-    if (probe) {
-        fclose(probe);
-        return;
-    }
-    snprintf(out, n, "%s/../%s", g_lime_asset_root, rel);
 }
 
 /* For the rest of the platform layer (lime_menu.c's sounds and saves). */

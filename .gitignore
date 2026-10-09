@@ -93,3 +93,13 @@ dist/
 /easdk/
 /transcript/
 /easdk_stubs.c
+
+# The launcher's output in a release or repository root: built from the
+# player's own .ipa, never committed.
+/umk3-game.exe
+/umk3.ini
+/res/
+/save/
+/logs/
+/toolchain/
+/build-game/
