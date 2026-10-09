@@ -26,7 +26,7 @@ Necesitas una copia obtenida legalmente de *Ultimate Mortal Kombat 3* para iOS (
 
 ---
 
-## Dónde está el proyecto — 8 de octubre de 2026 (noche)
+## Dónde está el proyecto — 8 de octubre de 2026 (noche, alpha 0.0.3)
 
 | | |
 |---|---|
@@ -34,7 +34,7 @@ Necesitas una copia obtenida legalmente de *Ultimate Mortal Kombat 3* para iOS (
 | **Verificado** | ✅ El núcleo del motor pasa tests diferenciales contra el original recompilado con cero divergencias. El motor de combate pasa un test diferencial de comportamiento fichero a fichero, con las excepciones listadas en [Verificación](#cuánto-está-verificado): todas son límites conocidos de la herramienta de test, no bugs conocidos. |
 | **Funciona en nativo** | 🔄 El front end real arranca en una ventana OpenGL: menús, textos, sonidos, música y partidas guardadas en Windows y Linux. Arcade llega a la selección de personaje, que dibuja al luchador en 3D con su animación, y recorre la torre. |
 | **Combate** | ✅ **Las peleas se juegan de principio a fin por el camino real.** `Task_GameInit` → `Task_GameMain` → round 1, round 2, fin del combate, `Task_GameDestroy`, pantalla de Continue y siguiente pelea, con la cámara siguiendo a los dos luchadores, voces y efectos de sonido. |
-| **Jugable** | 🔄 **Alpha 0.0.2**: se puede jugar con el teclado (W A S D o flechas; U I O J K L) o con los controles táctiles, contra la CPU. Aún incompleto: ver *Problemas conocidos*. Las 229 tablas de datos del motor de combate se extraen del binario del propio usuario al compilar y están verificadas contra él ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48)). |
+| **Jugable** | 🔄 **Alpha 0.0.3**: se puede jugar con el teclado (W A S D o flechas; U I O J K L; P pausa, M combos; teclas configurables en el launcher) o con los controles táctiles, contra la CPU. Aún incompleto: ver *Problemas conocidos*. Las 229 tablas de datos del motor de combate se extraen del binario del propio usuario al compilar y están verificadas contra él ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48)). |
 
 **Qué significa aquí «decompilado» y qué no.** Significa que cada función que
 ejecuta el juego tiene un cuerpo escrito contra el disassembly y comprobado
@@ -45,9 +45,9 @@ La [sección de progreso](#progreso-general) pone números y dice qué dejan fue
 
 ---
 
-## Cómo jugar (alpha 0.0.2, Windows)
+## Cómo jugar (alpha 0.0.3, Windows)
 
-Notas de versión: [0.0.2](docs/RELEASE-0.0.2-alpha.md) · [0.0.1](docs/RELEASE-0.0.1-alpha.md).
+Notas de versión: [0.0.3](docs/RELEASE-0.0.3-alpha.md) · [0.0.2](docs/RELEASE-0.0.2-alpha.md) · [0.0.1](docs/RELEASE-0.0.1-alpha.md).
 Descargas en [Releases](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/releases).
 
 1. Descarga este repositorio (o la release alpha) y deja la carpeta completa.
@@ -66,8 +66,10 @@ ningún dato ni ejecutable del juego: el exe existe solo después de compilar el
 
 **Teclas de combate:** W A S D o flechas para moverse (dos a la vez para las
 diagonales); U puñetazo alto, I puñetazo bajo, O bloqueo, J patada alta,
-K patada baja, L correr (o el teclado numérico 7 8 9 / 4 5 6). Esc sale.
-El ratón es el dedo.
+K patada baja, L correr (o el teclado numérico 7 8 9 / 4 5 6). **P** abre la
+pausa (otra vez: continuar) y **M** la lista de movimientos. Esc ya no cierra
+el juego. El ratón es el dedo. Las teclas del jugador 1 se cambian en el
+launcher, en «3. Controles del jugador 1» (se guardan en `umk3.ini`).
 
 **Teclas de prueba:** con `debug_keys=1` en `umk3.ini`, F9 / F10 terminan el
 round (KO del jugador 2 / del jugador 1) y F11 / F12 ganan / pierden la pelea
@@ -75,6 +77,19 @@ entera. Para pruebas; apagadas por defecto.
 
 **Directo a una pelea:** `umk3-game.exe --fight kitana kunglao 0` (dos
 luchadores por nombre o número 0-25 y un escenario 0-15).
+
+### Arreglado en la 0.0.3 (8 de octubre, noche)
+
+Cada arreglo se leyó del binario armv7 original.
+
+| Problema | Causa encontrada |
+|---|---|
+| **Todos los rivales de la torre salían como Jade** | `Load_Tower` (0x23314) cargaba la escalera guardada en una tabla `TowerData` que nada leía; el binario escribe directamente en `OpponentTowerList` (0x14fcb4). La torre se quedaba con el valor por defecto de la imagen (16, Jade) en todos los peldaños. Comprobado por Mary en el juego. |
+| **La animación de la torre** | `FE_Task_Tower` (0x8310): los estados 2 y 4 desplazaban la cámara por `Stage` en vez de por `Destiny`; el estado 2 nunca terminaba solo (el binario pasa a la pelea al llegar, 0x8c56); el 4 no tenía la espera de 360 (0x8f6e); la entrada a la subida no colocaba la cámara ni ponía `MoveUpTower = JustWon ? 0 : 1` (0x8d98); supervivencia elige `TowerRand[abs(rand) % 22]` y los jefes fuerzan su escenario (0x932e). Comprobado por Mary. |
+| **Opciones del menú de pausa invisibles** | `processString` (el motor de `usprintf`, 0xa7600) solo escribía el valor de un `%s`/`%d` cuando NO había token; en el binario los dos caminos comparten la cola de 0xa7650, que lo emite. Cada texto hecho con plantilla perdía sus valores (« : »). Arregla también los títulos de la lista de movimientos y «N/A». |
+| **Lista de movimientos: páginas repetidas y nombres duplicados** | Las páginas genéricas usan la fila absoluta (`row << 6`, 0x1efb0) y pasan leyenda NULL (`movs r2, #0`); el C usaba el contador de y (repetía la página 1) y pasaba el nombre como leyenda. |
+| **No se veían los botones «i» y pausa del HUD** | `DrawHUD` dibuja los dos botones en todos los modos cuando no hay pausa (0x28910, 0x2a170); el C solo lo hacía con `GameMode > 1` y dibujaba la pausa solo en un frame del pulso. El pulso del «i» es un segundo icono que crece y se desvanece (0x2ab2a). |
+| **Teclas** | P = pausa, M = lista de movimientos (pulsan los botones de las esquinas como un dedo). Esc ya no cierra el juego. Las teclas del jugador 1 se configuran en el launcher (`key_*` en `umk3.ini`). |
 
 ### Arreglado en la 0.0.2 (8 de octubre)
 
@@ -89,15 +104,13 @@ Cada arreglo se leyó del binario armv7 original y Mary lo comprobó en el juego
 | **A Sindel le faltaba la melena** | `LIME_LoadSkin` descartaba el segundo bloque de los `.skin` que tienen dos; ese segundo skin es el pelo. |
 | **La palanca en pantalla no se movía** | La tabla `JoyOffset` (un `static` de función, `_JoyOffset.11128`) se generaba a ceros. |
 
-### Problemas conocidos (alpha 0.0.2)
+### Problemas conocidos (alpha 0.0.3)
 
 - **El menú no está completo**, y **algunas secciones del menú todavía provocan un crash**.
-- **Siguen apareciendo varios errores de texturas**, aunque muchos otros se arreglaron en esta versión.
-- El texto del ganador («X WINS») no aparece, aunque el narrador sí lo dice.
+- **Siguen apareciendo varios errores de texturas.**
+- El texto del ganador («X WINS») se construye con `usprintf`, arreglado en la 0.0.3: puede que ya aparezca, sin confirmar.
 - El juego todavía puede cerrarse en otros sitios: abre un Issue con el archivo de `logs\`.
-- A veces todos los rivales de la torre son Jade.
-- La animación de descenso de la torre no se ve bien.
-- En Arcade el escenario es siempre el mismo (el original lo elige al azar).
+- En Arcade el escenario es siempre el mismo, salvo los jefes.
 - El launcher es solo para Windows (Linux/macOS: compilar desde el código con CMake).
 
 ## Qué es este proyecto

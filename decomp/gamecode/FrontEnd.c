@@ -12889,10 +12889,12 @@ int FEInit_LoadABit(long step)
  *          unless Stage is non-zero, which jumps straight to the climb.
  *       0  the difficulty picker: four torches, four labels, four touch bands
  *       1  fly in to TowerSelect1TopPos, biased by Destiny
- *       2  fly down to TowerSelect1BottomPos, biased by Stage - 1
+ *       2  fly down to TowerSelect1BottomPos (x by Destiny, z by Stage - 1);
+ *          arriving starts the fade
  *       3  wait for the fade to finish, then hand over to the match
- *       4  the climb: TowerSelect1BottomPos biased by Stage - 2, with
- *          MoveUpTower walking 0 -> 1 at 1/120 a frame
+ *       4  the climb: x by Destiny, z by Stage - 2, with
+ *          MoveUpTower walking 0 -> 1 at 1/120 a frame, then the fade
+ *          after 360 units of TowerWait
  *
  * States 1, 2 and 4 all end the same way: any release above the bottom
  * `64 * FE_HeightScale` sets `TowerState = 3`, `FadeMusicOut = 1` and
@@ -12942,6 +12944,7 @@ int FEInit_LoadABit(long step)
 #define TOWER_Z_BIAS     0.1
 #define TOWER_ENTRY_WAIT 60.0f
 #define TOWER_CLIMB_RATE 0.008333333f  /* 1/120 */
+#define TOWER_CLIMB_WAIT 360.0f
 #define TOWER_FIRE_RATE  0.25f
 #define TOWER_FIRE_FRAMES 10
 #define TOWER_FADE_STEP  -0.033333335f
@@ -12978,12 +12981,23 @@ static void Tower_Approach(const float *target, double xBias, double zBias,
                           * TOWER_SMOOTH_R);
 }
 
-static long Tower_Settled(const float *target, double xBias)
+/* x, then y, then z: all three within 0.001 (0x8ac0, 0x8c5a, 0x8fb2). */
+static long Tower_Settled(const float *target, double xBias, double zBias)
 {
     if (fabs((double)FECamPos[0] - ((double)target[0] + xBias)) >= TOWER_SETTLED)
         return 0;
+    if (fabs((double)(float)(FECamPos[1] - target[1])) >= TOWER_SETTLED)
+        return 0;
 
-    return fabs((double)(float)(FECamPos[1] - target[1])) < TOWER_SETTLED;
+    return fabs((double)FECamPos[2] - ((double)target[2] + zBias)) < TOWER_SETTLED;
+}
+
+/* The three ways into the fade all write the same three globals. */
+static void Tower_StartFade(void)
+{
+    TowerState   = 3;
+    FadeMusicOut = 1;
+    FE_FadeAdd   = TOWER_FADE_STEP;
 }
 
 /* Any release above the bottom strip drops straight into the fade. */
@@ -13139,26 +13153,31 @@ void FE_Task_Tower(void)
                        (double)Destiny * TOWER_Z_BIAS, k);
 
         if (Tower_Settled(TowerSelect1TopPos,
-                          (double)Destiny * TOWER_X_BIAS))
+                          (double)Destiny * TOWER_X_BIAS,
+                          (double)Destiny * TOWER_Z_BIAS))
             TowerState = 2;
 
-        if (Tower_TappedToSkip()) {
-            TowerState   = 3;
-            FadeMusicOut = 1;
-            FE_FadeAdd   = TOWER_FADE_STEP;
-        }
+        if (Tower_TappedToSkip())
+            Tower_StartFade();
         return;
 
     case 2:
+        /* x stays on the Destiny column; only z walks down the rungs
+         * (0x8b76: Destiny from slot 0xf3624, Stage - 1 from 0xf3654). */
         Tower_Approach(TowerSelect1BottomPos,
-                       (double)(Stage - 1) * TOWER_X_BIAS,
+                       (double)Destiny * TOWER_X_BIAS,
                        (double)(Stage - 1) * TOWER_Z_BIAS, k);
 
         if (Tower_TappedToSkip()) {
-            TowerState   = 3;
-            FadeMusicOut = 1;
-            FE_FadeAdd   = TOWER_FADE_STEP;
+            Tower_StartFade();
+            return;
         }
+
+        /* Arriving at the rung starts the fight on its own (0x8c56). */
+        if (Tower_Settled(TowerSelect1BottomPos,
+                          (double)Destiny * TOWER_X_BIAS,
+                          (double)(Stage - 1) * TOWER_Z_BIAS))
+            Tower_StartFade();
         return;
 
     case 3:
@@ -13168,10 +13187,14 @@ void FE_Task_Tower(void)
         GameStarted = 1;
         TowerState  = -1;
 
-        if (GameMode == 4)
-            break;                      /* survival: handled below */
+        if (GameMode == 4) {
+            /* survival: any opponent from the first TowerRand row (0x9342) */
+            long r = limeRand();
 
-        if (GameMode != 1) {
+            if (r < 0)
+                r = -r;
+            Character2 = TowerRand[r % TOWERRAND_ROW];
+        } else if (GameMode != 1) {
             /* the tower's own opponent for this rung */
             Character2 = OpponentTowerList[Destiny * 11 + Stage];
         }
@@ -13180,15 +13203,20 @@ void FE_Task_Tower(void)
         preprocessPreloadKode();
         LevelSelect = GetNextLevel(LevelSelect);
 
-        if (Character2 != 0x18 && Character2 != 0x19)
-            VSWait = 0.0f;
+        /* The two bosses have their own arenas (0x932e, 0x9336). */
+        if (Character2 == 0x18)
+            LevelSelect = 0;
+        else if (Character2 == 0x19)
+            LevelSelect = 3;
 
+        VSWait = 0.0f;
         Write_SaveData();
         return;
 
     case 4:
+    climb:
         Tower_Approach(TowerSelect1BottomPos,
-                       (double)(Stage - 2) * TOWER_X_BIAS,
+                       (double)Destiny * TOWER_X_BIAS,
                        (double)(Stage - 2) * TOWER_Z_BIAS, k);
 
         MoveUpTower += TOWER_CLIMB_RATE / limeFPSScaleFactor;
@@ -13196,10 +13224,15 @@ void FE_Task_Tower(void)
         if (MoveUpTower > 1.0f)
             MoveUpTower = 1.0f;
 
-        if (Tower_TappedToSkip()) {
-            TowerState   = 3;
-            FadeMusicOut = 1;
-            FE_FadeAdd   = TOWER_FADE_STEP;
+        if (Tower_TappedToSkip())
+            Tower_StartFade();
+
+        /* ...and with no tap, the climb holds for 360 units and then fades
+         * into the fight by itself (0x8f6e). */
+        TowerWait += k;
+        if (TowerWait > TOWER_CLIMB_WAIT) {
+            TowerWait = 0.0f;
+            Tower_StartFade();
         }
         return;
 
@@ -13207,9 +13240,28 @@ void FE_Task_Tower(void)
         return;
     }
 
-    /* ---- Stage != 0 on entry, or survival on hand-over: go to the climb ---- */
-    MoveUpTower = 0.0f;
+    /* ---- Stage != 0 on entry: go to the climb ----
+     *
+     * 0x8d98. The camera snaps to the rung below -- x on the Destiny column,
+     * z at max(Stage - 3, -1) -- so the climb starts already at the tower.
+     * MoveUpTower starts at 0 only after a win (JustWon), which is what
+     * animates the portrait up one rung; otherwise it sits at 1. */
+    {
+        long below = Stage - 3;
+
+        if (below < 0)
+            below = -1;                 /* orr ip, ip, ip, asr #31 */
+
+        FECamPos[0] = (float)((double)TowerSelect1BottomPos[0]
+                              + (double)Destiny * TOWER_X_BIAS);
+        FECamPos[1] = TowerSelect1BottomPos[1];
+        FECamPos[2] = (float)((double)TowerSelect1BottomPos[2]
+                              + (double)below * TOWER_Z_BIAS);
+    }
     TowerState  = 4;
+    TowerWait   = 0.0f;
+    MoveUpTower = JustWon ? 0.0f : 1.0f;
+    goto climb;
 }
 
 
