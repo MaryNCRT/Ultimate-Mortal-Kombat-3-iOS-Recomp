@@ -6042,7 +6042,7 @@ extern long  FlawlessMessage;           /* 0x0014fb4c */
 extern long  DangerMessage[2];          /* 0x0014e23c */
 extern long  RoundMessage;              /* 0x0014e250 */
 extern float lightsOn;                  /* 0x0010decc */
-extern uint8_t WinnerMessage[2];        /* 0x0014faa8, two BYTES */
+extern uint8_t WinnerMessage[0x80];     /* 0x0014faa8..0x0014fb28, the next symbol (_BabalityMessage) */
 extern long  RoundHasEnded;             /* 0x0014e248 */
 extern long  FinishHimHer;              /* 0x0014e24c */
 extern long  RoundHasEndedStatsUpdated; /* 0x0014e244 */
@@ -6310,6 +6310,18 @@ void ResetFightData(void)
 extern void **MeshSetLayers[8];         /* 0x0014f910 -- each entry points AT
                                          * a meshset handle, so the draw needs
                                          * two dereferences */
+/* The eight handles MeshSetLayers points at, 0x001aba20..0x001aba3c in
+ * __common. Declared so tools/mkglobals.py can spell MeshSetLayers'
+ * initialiser: undeclared, it stopped at the first word and left the table
+ * NULL, and stage 1 (the only one with a layer, TEMPLEWINDOW.meshset) wrote
+ * through MeshSetLayers[1] at GameInit_LoadABit step 30 and crashed. */
+extern void  *MeshSet_LEVEL_00;         /* 0x001aba20 */
+extern void  *MeshSet_LEVEL_02;         /* 0x001aba28 */
+extern void  *MeshSet_LEVEL_03;         /* 0x001aba2c */
+extern void  *MeshSet_LEVEL_04;         /* 0x001aba30 */
+extern void  *MeshSet_LEVEL_05;         /* 0x001aba34 */
+extern void  *MeshSet_LEVEL_06;         /* 0x001aba38 */
+extern void  *MeshSet_LEVEL_07;         /* 0x001aba3c */
 extern void  *LevelBGTexture[];         /* 0x001abb28 */
 extern float  LevelBGPos[3];            /* 0x0015057c */
 extern float  GlassWindowPos[3];        /* 0x0014f9e4 */
@@ -8190,9 +8202,14 @@ static void RoundSummaryUpdate(void)
     if (GameMode == 4 && RoundWins[0] == WinsNeeded && survivalWinStreak > 0x13)
         achievementsUnlock(0x13);
 
-    if (WinnerMessage[0] || WinnerMessage[1] || IsInFinishing)
-        return;
-
+    /* No early return on WinnerMessage or IsInFinishing. With the winner
+     * banner up the binary goes 0x29a64 -> 0x29c9c (draw it, then the
+     * fatality/babality banners) -> back to 0x29a7c, and with IsInFinishing
+     * set 0x29a86 -> 0x2a2d6 adds the same 1.25 and rejoins at 0x29aba. The
+     * timer always runs; IsInFinishing only blocks the tap below. Returning
+     * here froze the summary forever: WinnerMessage is cleared only by
+     * ResetFightData (0x227ca), which runs at the end of this function --
+     * the round-1 softlock of 0.0.1. */
     RoundSummaryTime += 1.25f / limeFPSScaleFactor;
 
     /* A tap above the bottom band skips the rest of the wait. */
@@ -8248,7 +8265,10 @@ static void RoundSummaryUpdate(void)
         return;
     }
 
-    InfoScaleAdd      = 1.0f / 30.0f;
+    /* 0x2abaa-0x2abb6: the 1/30 goes through the slot 0xf3540, which holds
+     * 0x10089c, _FE_FadeAdd -- the fade back in. Written to InfoScaleAdd,
+     * FE_Fade stayed at 0 and round 2 played on a black screen. */
+    FE_FadeAdd        = 1.0f / 30.0f;
     DontQuitAfterFade = 0;
     RoundSummary      = 2;
 
