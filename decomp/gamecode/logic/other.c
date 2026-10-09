@@ -3826,9 +3826,12 @@ long get_rough_hypotenuse_of(MK3OBJ *obj, int32_t dx, int32_t dy)
  * none -- the test is signed and the whole call is skipped. So the table is
  * sparse by sign rather than by a sentinel value.
  *
- * The group is shifted by four and added to the slot, which is the same
- * pack-two-things-in-a-word shape as `ochar_sound`, with sixteen sounds a group
- * instead of two hundred and fifty-six a character.
+ * The group is shifted by four and added to 0x1c, the same
+ * pack-two-things-in-a-word shape as `ochar_sound`. The consumer,
+ * AddNewGameEvents (0x7368a-0x73696), unpacks it as
+ * `get_gsound(arg & 0xf, arg >> 4, limeRand())`: the low nibble (0x1c) picks
+ * the kind of sound -- the `group_table` row, attack/jump/grab/... -- and the
+ * voice group picks this character's block of takes inside that row.
  *
  * `_ochar_voice_groups` is the sixth named table this file reaches.
  */
