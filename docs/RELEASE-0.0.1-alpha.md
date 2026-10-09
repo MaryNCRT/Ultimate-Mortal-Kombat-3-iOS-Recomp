@@ -10,9 +10,28 @@ First public build. **No game data and no game executable are included**: you co
 
 Requisitos: Windows 10/11 64 bits, internet la primera vez, ~1,5 GB libres. El `.ipa` de iPad 1.2.56 no sirve.
 
-Controles: ratón = dedo (menús y controles táctiles); jugador 1: W A S D o flechas, golpes U I O J K L.
+### Controles
+Ratón = dedo (menús y controles táctiles en pantalla). En la pelea:
+
+| Tecla | Acción |
+|---|---|
+| W / ↑ | Saltar |
+| S / ↓ | Agacharse |
+| A / ← | Izquierda |
+| D / → | Derecha |
+| Dos direcciones a la vez | Diagonal (p. ej. W+D salta hacia delante) |
+| U (num. 7) | Puñetazo alto (HP) |
+| I (num. 8) | Puñetazo bajo (LP) |
+| O (num. 9) | Bloqueo (BL) |
+| J (num. 4) | Patada alta (HK) |
+| K (num. 5) | Patada baja (LK) |
+| L (num. 6) | Correr (RUN) |
+| Esc | Cierra el juego al instante |
 
 ### Errores conocidos (0.0.1)
+- **Ninguna pelea pasa del round 1**: el juego se queda bloqueado (softlock) al terminar el primer round.
+- **El juego puede crashear con facilidad.**
+- **Varios errores de texturas.**
 - Los ángulos de cámara en la pelea se ven mal.
 - El joystick en pantalla no se anima.
 - El pelo de Sindel sale blanco.
