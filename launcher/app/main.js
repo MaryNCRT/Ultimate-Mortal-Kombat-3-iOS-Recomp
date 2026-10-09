@@ -1,0 +1,336 @@
+/* UMK3-Launcher (Electron) main process.
+ *
+ * A compact, frameless arcade window that can be resized freely (corner-grip
+ * scale, or maximize).  Any existing umk3.ini beside the game is read at
+ * start and every change is written to it immediately, exactly like the old
+ * launcher.c.  The renderer is a plain HTML/CSS/JS page; it talks to this
+ * process over contextBridge (no nodeIntegration).
+ *
+ * Packaged as a portable single .exe (npm run portable -> dist/UMK3-Launcher.exe).
+ */
+'use strict';
+
+const { app, BrowserWindow, ipcMain, dialog, nativeImage } = require('electron');
+const path = require('path');
+const fs = require('fs');
+const ini = require('./lib/ini');
+const rootm = require('./lib/root');
+const bld = require('./lib/build');
+
+let g_win = null;
+let g_root = null;
+let g_cfg = null;
+
+/* bring up the packaged build's errors to the surface (UMK3_LAUNCHER_SHOT;
+ * not UMK3_SHOT, which the game itself reads and would inherit); the
+ * portable wrapper detaches, so nothing would otherwise reach the console. */
+function dbg(msg) {
+    const where = process.env.UMK3_LAUNCHER_SHOT;
+    if (!where)
+        return;
+    try {
+        require('fs').appendFileSync(where.replace(/\.png[^.]*$/i, '.main.log'),
+            new Date().toISOString() + ' ' + msg + '\n');
+    } catch (err) { /* ignore */ }
+}
+
+process.on('uncaughtException', err => {
+    dbg('uncaughtException: ' + (err && err.stack || err));
+});
+process.on('unhandledRejection', err => {
+    dbg('unhandledRejection: ' + (err && err.stack || err));
+});
+
+function findRoot() {
+    const exeDir = path.dirname(process.execPath);
+    return rootm.findRoot([
+        process.env.UMK3_ROOT || null,
+        process.cwd(),
+        exeDir,
+    ]);
+}
+
+/* The portable .exe extracts to a temp folder at every run, so its location
+ * says nothing about where the game lives.  The player keeps the launcher
+ * inside the game folder (or runs it from there); when the heuristics above
+ * still fail -- e.g. launched from a shortcut or the search box -- remember
+ * the folder chosen / found once, in the roaming profile. */
+function savedRoot() {
+    const f = path.join(app.getPath('appData'), 'umk3-launcher', 'root.json');
+    try {
+        const r = JSON.parse(fs.readFileSync(f, 'utf8'));
+        return r && typeof r.root === 'string' && r.root ? r.root : null;
+    } catch (err) {
+        return null;
+    }
+}
+
+function saveRoot(root) {
+    const f = path.join(app.getPath('appData'), 'umk3-launcher', 'root.json');
+    try {
+        fs.mkdirSync(path.dirname(f), { recursive: true });
+        fs.writeFileSync(f, JSON.stringify({ root }));
+    } catch (err) { /* non-fatal */ }
+}
+
+async function resolveRoot() {
+    let r = findRoot();
+    if (!r && savedRoot() && rootm.looksLikeRoot(savedRoot()))
+        r = savedRoot();
+    if (!r) {
+        const picked = await dialog.showOpenDialog({
+            title: 'UMK3 Launcher: elige la carpeta del juego',
+            properties: ['openDirectory'],
+            message: 'Selecciona la carpeta que contiene launcher\\build_game.ps1 / umk3-game.exe (la carpeta del juego).',
+        });
+        r = picked.canceled ? null : picked.filePaths[0];
+        if (r && !rootm.looksLikeRoot(r)) {
+            dialog.showMessageBox({
+                type: 'error',
+                message: 'Esa carpeta no parece una instalación del port (falta launcher\\build_game.ps1 o umk3-game.exe).',
+            });
+            r = null;
+        }
+    }
+    if (r)
+        saveRoot(r);
+    return r;
+}
+
+function send(channel, data) {
+    if (g_win && !g_win.isDestroyed())
+        g_win.webContents.send(channel, data);
+}
+
+function createWindow() {
+    g_win = new BrowserWindow({
+        /* 4:3 by default; the page scales with the window (styles.css --u),
+         * any size or fullscreen (F11). UMK3_LAUNCHER_SIZE=WxH: dev aid. */
+        width: Number((process.env.UMK3_LAUNCHER_SIZE || '').split('x')[0]) || 1024,
+        height: Number((process.env.UMK3_LAUNCHER_SIZE || '').split('x')[1]) || 768,
+        minWidth: 640,
+        minHeight: 480,
+        useContentSize: true,
+        resizable: true,
+        maximizable: true,
+        fullscreenable: true,
+        frame: false,
+        backgroundColor: '#050505',
+        icon: path.join(__dirname, 'build', 'icon.ico'),
+        show: false,
+        webPreferences: {
+            preload: path.join(__dirname, 'preload.js'),
+            contextIsolation: true,
+            nodeIntegration: false,
+        },
+    });
+    g_win.setMenu(null);
+    /* The window and taskbar icon: icon.png in the game folder if the player
+     * put one there, else the game's own icon from their .ipa (res/Icon.png);
+     * the release ships only the drawn build/icon.ico. */
+    for (const f of ['icon.png', path.join('res', 'Icon.png')]) {
+        const p = g_root ? path.join(g_root, f) : null;
+        if (p && fs.existsSync(p)) {
+            g_win.setIcon(nativeImage.createFromPath(p));
+            break;
+        }
+    }
+    g_win.webContents.on('did-fail-load', (_e, code, desc) =>
+        dbg('did-fail-load ' + code + ' ' + desc));
+    g_win.webContents.on('render-process-gone', (_e, d) =>
+        dbg('render-process-gone ' + d.reason));
+    g_win.webContents.on('console-message', (_e, level, message) => {
+        if (level >= 2)
+            dbg('console<' + level + '>: ' + message);
+    });
+    /* UMK3_LAUNCHER_SEC=<section>: open on that page (with the shot aid) */
+    g_win.loadFile(path.join(__dirname, 'renderer', 'index.html'),
+                   { query: { sec: process.env.UMK3_LAUNCHER_SEC || '' } });
+    g_win.webContents.once('did-finish-load', () => dbg('did-finish-load'));
+    g_win.once('ready-to-show', () => g_win.show());
+    g_win.on('closed', () => { g_win = null; });
+}
+
+/* ------------------------------------------------------------- ipc ---- */
+
+/* The title logo: logo.png in the game folder, if the player put one there
+ * (the launcher ships no game art); null, and the drawn title stays. */
+ipcMain.handle('logo:get', () => {
+    try {
+        const p = path.join(g_root, 'logo.png');
+        return 'data:image/png;base64,' + fs.readFileSync(p).toString('base64');
+    } catch (err) {
+        return null;
+    }
+});
+
+ipcMain.handle('root:get', () =>
+    ({ root: g_root, ready: ini.gameReady(g_root),
+       builtAt: ini.gameBuiltAt(g_root) }));
+
+ipcMain.handle('config:load', () => {
+    g_cfg = ini.load(path.join(g_root, 'umk3.ini'));
+    return JSON.parse(JSON.stringify(g_cfg));
+});
+
+ipcMain.handle('config:save', (_ev, delta) => {
+    if (!g_cfg || typeof delta !== 'object')
+        return g_cfg;
+    g_cfg = ini.load(path.join(g_root, 'umk3.ini'));
+    /* a delta names only the keys that changed: merge them, never replace
+     * the whole set (that wrote "undefined" for every other key) */
+    const { keys, keys5, ...rest } = delta;
+    Object.assign(g_cfg, rest);
+    if (keys)
+        Object.assign(g_cfg.keys, keys);
+    if (keys5)
+        Object.assign(g_cfg.keys5, keys5);
+    ini.save(path.join(g_root, 'umk3.ini'), g_cfg);
+    return JSON.parse(JSON.stringify(g_cfg));
+});
+
+ipcMain.handle('window:close', () => {
+    if (g_win)
+        g_win.close();
+    return true;
+});
+
+ipcMain.handle('window:minimize', () => {
+    if (g_win)
+        g_win.minimize();
+    return true;
+});
+
+ipcMain.handle('window:maximize', () => {
+    if (!g_win)
+        return false;
+    if (g_win.isMaximized())
+        g_win.unmaximize();
+    else
+        g_win.maximize();
+    return g_win.isMaximized();
+});
+
+ipcMain.handle('window:fullscreen', () => {
+    if (!g_win)
+        return false;
+    g_win.setFullScreen(!g_win.isFullScreen());
+    return g_win.isFullScreen();
+});
+
+ipcMain.handle('ipa:browse', async () => {
+    if (!g_win)
+        return null;
+    const r = await dialog.showOpenDialog(g_win, {
+        title: 'Elige tu UMK3 .ipa',
+        properties: ['openFile'],
+        filters: [
+            { name: 'UMK3 .ipa', extensions: ['ipa'] },
+            { name: 'Todos los archivos', extensions: ['*'] },
+        ],
+        defaultPath: g_cfg && g_cfg.ipa ? g_cfg.ipa : undefined,
+    });
+    if (r.canceled || r.filePaths.length === 0)
+        return null;
+    return r.filePaths[0];
+});
+
+/* The picture behind the bars in fullscreen: any PNG the player owns. */
+ipcMain.handle('frame:browse', async () => {
+    if (!g_win)
+        return null;
+    const r = await dialog.showOpenDialog(g_win, {
+        title: 'Imagen para el marco / Frame picture',
+        properties: ['openFile'],
+        filters: [{ name: 'PNG', extensions: ['png'] }],
+    });
+    if (r.canceled || r.filePaths.length === 0)
+        return null;
+    return r.filePaths[0];
+});
+
+ipcMain.handle('build:start', async (_ev, ipa) => {
+    if (!ipa || typeof ipa !== 'string')
+        return { ok: false, code: -2 };
+    if (!fs.existsSync(ipa))
+        return { ok: false, code: -3 };
+    const code = await bld.build(g_root, ipa, msg => send('build:data', msg));
+    const ok = code === 0 && ini.gameReady(g_root);
+    return { ok, code };
+});
+
+ipcMain.handle('build:cancel', () => bld.cancelBuild());
+
+ipcMain.handle('play', () => {
+    if (!ini.gameReady(g_root))
+        return { ok: false };
+    bld.play(g_root);
+    return { ok: true };
+});
+
+/* ------------------------------------------------------------- splash -- */
+
+/* A development aid: UMK3_LAUNCHER_SHOT=<png> starts, waits for the renderer's
+ * "shot:ready" handshake, captures a PNG and exits.  Used to eyeball the
+ * design without a real .ipa. */
+ipcMain.handle('shot:capture', async () => {
+    const where = process.env.UMK3_LAUNCHER_SHOT;
+    if (!where || !g_win)
+        return false;
+    try {
+        await new Promise(r => setTimeout(r, 1200));
+        const img = await g_win.webContents.capturePage();
+        require('fs').writeFileSync(where, img.toPNG());
+        dbg('captured ok');
+        app.quit();
+        return true;
+    } catch (err) {
+        dbg('capture failed: ' + err.message);
+        app.quit();
+        return false;
+    }
+});
+
+/* Development aid together with UMK3_SHOT: dumps the renderer's geometry so
+ * the layout can be validated without looking at the PNG. */
+ipcMain.handle('debug:layout', (_ev, payload) => {
+    const where = process.env.UMK3_LAUNCHER_SHOT;
+    if (!where || !payload)
+        return false;
+    const json = where.replace(/\.png[^.]*$/i, '.json');
+    require('fs').writeFileSync(json, JSON.stringify(payload, null, 2));
+    return true;
+});
+
+/* -------------------------------------------------------------- app ---- */
+
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+    app.quit();
+} else {
+    app.on('second-instance', () => {
+        if (g_win) {
+            if (g_win.isMinimized())
+                g_win.restore();
+            g_win.focus();
+        }
+    });
+    app.whenReady().then(async () => {
+        g_root = await resolveRoot();
+        if (!g_root) {
+            app.quit();
+            return;                     /* nothing below may run without a root */
+        }
+        g_cfg = ini.load(path.join(g_root, 'umk3.ini'));
+        dbg('ready root=' + g_root);
+        createWindow();
+        app.on('activate', () => {
+            if (BrowserWindow.getAllWindows().length === 0)
+                createWindow();
+        });
+    });
+    app.on('window-all-closed', () => {
+        if (process.platform !== 'darwin')
+            app.quit();
+    });
+}

@@ -1,4 +1,4 @@
-ULTIMATE MORTAL KOMBAT 3 - PORT DE PC - 0.0.5 ALPHA
+ULTIMATE MORTAL KOMBAT 3 - PORT DE PC - 0.0.6 ALPHA
 ====================================================
 
 Port nativo para Windows de la version de iOS (1.2.59), hecho por
@@ -14,9 +14,11 @@ REQUISITOS
 - Unos 1,5 GB libres.
 
 COMO JUGAR
-1. Abre UMK3-Launcher.exe.
-2. En "1. Tu .ipa" pulsa Buscar..., elige tu .ipa y pulsa Compilar.
-   Se abre una consola que:
+1. Abre UMK3-Launcher.exe (el launcher nuevo de 0.0.6). Se maneja con el
+   raton o con las flechas y Enter; F11 o el boton de arriba lo pone en
+   pantalla completa, y la ventana se puede agrandar libremente.
+2. En "COMPILAR TU .IPA" elige tu .ipa y pulsa Compilar.
+   El launcher muestra el progreso mientras:
      - descarga llvm-mingw 20260616 (GitHub, SHA-256 comprobado) y
        Python 3.12.10 (python.org) en la carpeta toolchain\
      - comprueba que tu binario es el correcto
@@ -24,12 +26,14 @@ COMO JUGAR
      - compila umk3-game.exe
      - copia la carpeta res\ desde tu .ipa
    Tarda menos de un minuto despues de la descarga.
-3. Elige resolucion 3D, pantalla completa e idioma. Se guardan solos
-   en umk3.ini en cuanto los cambias.
-   En "3. Controles del jugador 1" puedes cambiar las teclas: haz clic en
-   una accion y pulsa la tecla nueva (Esc cancela). Restablecer vuelve a
-   las de siempre.
-4. Pulsa JUGAR.
+3. En "GRAFICOS" elige resolucion 3D, pantalla completa, idioma del
+   juego, modo debug y, si quieres, un marco (una imagen tuya) para los
+   lados en pantalla completa. Se guardan solos en umk3.ini.
+   En "CONTROLES" eliges el esquema de 6 o de 5 botones (el juego empieza
+   con el que elijas) y cambias las teclas de cada uno por separado: haz
+   clic en una accion y pulsa la tecla nueva (Esc cancela). Restablecer
+   vuelve a las de siempre.
+4. En "JUGAR" pulsa el boton grande JUGAR.
 
 El boton de arriba a la derecha (English / Espanol) cambia el idioma del
 launcher; tambien se guarda en umk3.ini.
@@ -51,6 +55,8 @@ CONTROLES
     J  (o 4 del num.) ......... patada alta    (HK)
     K  (o 5 del num.) ......... patada baja    (LK)
     L  (o 6 del num.) ......... correr         (RUN)
+    Esquema de 5 botones: U puño (P), O bloqueo (B), J patada (K),
+    L correr (R), H especial (S).
     P ......................... menu de pausa (otra vez: continuar)
     M ......................... lista de movimientos / combos
 - Esc ya NO cierra el juego (cierralo con la X de la ventana).
@@ -64,6 +70,22 @@ CONTROLES
     F9 / F10   terminar el round (KO jugador 2 / jugador 1)
     F11 / F12  ganar / perder la pelea entera (F11 la salta)
   F3 y F6-F12 son las teclas directas; el menu F2 las apaga.
+
+NUEVO EN 0.0.6
+- Launcher nuevo: ventana libre (4:3 por defecto) y pantalla completa,
+  logo y menu de arcade; el boton JUGAR del menu solo abre la seccion.
+- Controles: pestaña para elegir 5 o 6 botones, con teclas propias para
+  cada esquema; el juego empieza con el esquema elegido.
+- La muerte de Shao Kahn al final del Arcade se ve completa (Shao Kahn
+  en luz verde con los rayos), y despues "<luchador> VENCE", "ES EL FIN
+  DE SHAO KAHN", "ERES EL CAMPEON DE ULTIMATE MK3".
+- Los efectos de los escenarios aparecen donde deben (la luna del
+  cementerio, el fondo del puente con pinchos...).
+- El muelle ya tiene suelo (antes negro).
+- Elegir una recompensa en la pantalla de tesoros ya no se queda
+  bloqueado.
+- Con un marco propio en pantalla completa, el marco ya no se ve a
+  traves de los huecos del escenario.
 
 NUEVO EN 0.0.5
 - El Arcade se puede completar y Shao Kahn ya no crashea.
@@ -108,20 +130,17 @@ ARREGLADO EN 0.0.2
 - La melena de Sindel aparece, con su textura.
 - El joystick en pantalla se mueve.
 
-ERRORES CONOCIDOS EN 0.0.5
-- La muerte de Shao Kahn al final del Arcade: no se ven su modelo ni sus
-  efectos y el sonido se repite.
-- Personajes congelados en blanco; el fatality de Sonya no se ve bien.
-- Un escenario (el puente con pinchos) sin fondo; iconos de la pantalla de
-  carga mal puestos; al pausar a veces la pelea se ve encogida.
-- El menu no esta completo y faltan modos.
-- Siguen apareciendo errores de texturas en algunos escenarios y menus.
-- El nombre del ganador ("X WINS") no aparece.
+ERRORES CONOCIDOS EN 0.0.6
+- Personajes congelados por Sub-Zero salen en blanco.
+- Faltan animaciones en algunos fatalities (el de Sonya no se ve bien).
+- Siguen apareciendo errores de texturas en algunos escenarios y
+  personajes (partes del sombrero de Kung Lao salen negras).
+- Algunos modos aparte del Arcade pueden cerrarse; el menu no esta
+  completo y faltan modos.
+- En un finisher contra Reptile, el rival mareado camina hacia ti.
+- Iconos mal puestos en la pantalla de carga; al pausar a veces la pelea
+  se ve encogida.
 - Algunos ataques especiales (sobre todo proyectiles) no tienen sonido.
-- No se ve la muerte de Shao Kahn al terminar el Arcade; los logros salen
-  con texto superpuesto; iconos mal puestos en la carga y en los combos.
-- El juego todavia puede cerrarse en otros sitios.
-- En Arcade el escenario es siempre el mismo (salvo los jefes).
 - Solo Windows. Linux y macOS todavia no tienen launcher.
 - Si el juego falla, mira logs\ junto a umk3-game.exe y reportalo
   con ese archivo en GitHub (Issues).
@@ -138,7 +157,11 @@ the top right switches the launcher between English and Spanish.
 Fight keys: W A S D or arrows to move (two at once for diagonals);
 U high punch, I low punch, O block, J high kick, K low kick, L run
 (or numpad 7 8 9 / 4 5 6). P pause, M moves list; Esc no longer quits.
-Player 1 keys can be changed in the launcher (box 3). New in 0.0.5: Arcade can be completed, menu buttons as in the original,
+Player 1 keys can be changed in the launcher (CONTROLS), for the 6- and
+the 5-button layout separately. New in 0.0.6: a new launcher (resizable,
+fullscreen, layout tab), Shao Kahn's death and the closing texts at the
+end of Arcade, stage effects placed correctly, the Waterfront floor, the
+treasure-screen softlock fixed. New in 0.0.5: Arcade can be completed, menu buttons as in the original,
 no slow fades, FINISH HIM for men, moves-list layout, Motaro and Human
 Smoke fixed. New in 0.0.4: debug mode (launcher box, F2 menu in game: any fight,
 bosses included, any screen), audio no longer dies after two fights, the

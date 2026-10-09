@@ -530,7 +530,7 @@ struct SCENEINFO;
 extern struct SCENEINFO *g_sceneList;
 
 extern TRANSPMESH       g_transpMeshList[TRANSPMESH_MAX];
-extern float            SceneTint[3];
+extern float            SceneTint[4];   /* 16 bytes: LIME_RenderEvents copies an RGBA in */
 extern float            m44[16];
 extern int              SceneRenderAlwaysTrans, SkipFrame86;
 extern int              g_transpMeshCount;

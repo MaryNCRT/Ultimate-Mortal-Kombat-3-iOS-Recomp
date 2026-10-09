@@ -86,6 +86,11 @@ enum {
     PK_PAUSE, PK_MOVES,
     /* debug mode, front end: previous / next screen, back to the main menu */
     PK_DBG_SCR_PREV, PK_DBG_SCR_NEXT, PK_DBG_SCR_MENU,
+    /* the special button (index 6): the S of the five-button layout */
+    PK_SPECIAL, PK_P2_SPECIAL,
+    /* player one's keys for the five-button layout: P B K R (S is
+     * PK_SPECIAL); the six-button layout uses PK_HP .. PK_RUN */
+    PK_5_P, PK_5_B, PK_5_K, PK_5_R,
     PK_COUNT
 };
 

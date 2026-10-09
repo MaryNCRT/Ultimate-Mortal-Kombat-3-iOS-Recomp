@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:">
+<title>UMK3 Launcher</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- The backdrop: a nebula, the big segmented ring and the title, after the
+     arcade-collection menu of the console release. Drawn here; no game art. -->
+<div id="space" aria-hidden="true"></div>
+<svg id="ring" viewBox="0 0 1000 1000" aria-hidden="true">
+  <defs>
+    <linearGradient id="metal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#9fb3c8"/>
+      <stop offset=".45" stop-color="#2a3442"/>
+      <stop offset="1" stop-color="#0c1016"/>
+    </linearGradient>
+    <radialGradient id="hole" cx=".5" cy=".5" r=".5">
+      <stop offset=".72" stop-color="#05070c" stop-opacity=".0"/>
+      <stop offset="1" stop-color="#05070c" stop-opacity=".85"/>
+    </radialGradient>
+  </defs>
+  <circle cx="500" cy="500" r="468" class="seg seg-outer"/>
+  <circle cx="500" cy="500" r="430" class="seg seg-blue"/>
+  <circle cx="500" cy="500" r="392" class="seg seg-red"/>
+  <circle cx="500" cy="500" r="356" class="seg seg-inner"/>
+  <circle cx="500" cy="500" r="340" fill="url(#hole)"/>
+</svg>
+
+<header id="titlebar">
+  <div class="drag"></div>
+  <div class="tb-btns">
+    <button id="langSw" class="tb" title="Idioma / Language"></button>
+    <button id="minBtn" class="tb" title="—">&#8212;</button>
+    <button id="maxBtn" class="tb" title="□">&#9633;</button>
+    <button id="fullBtn" class="tb" title="F11">&#9974;</button>
+    <button id="closeBtn" class="tb x" title="×">&#215;</button>
+  </div>
+</header>
+
+<div id="logo" aria-label="Ultimate Mortal Kombat 3">
+  <img id="logoImg" class="hidden" alt="Ultimate Mortal Kombat 3">
+  <div class="l-ultimate">ULTIMATE</div>
+  <div class="l-mk">MORTAL <span class="l-3">3</span> KOMBAT</div>
+  <div class="l-sub"><span data-t="ttlSub">PORT DE PC</span> &middot; <span id="ttl-ver">0.0.6 alpha</span></div>
+</div>
+
+<nav id="menu">
+  <button class="mi active" data-sec="build"><i class="orb"></i><span data-t="mBuild">COMPILAR TU .IPA</span></button>
+  <button class="mi" data-sec="video"><i class="orb"></i><span data-t="mVideo">GRÁFICOS</span></button>
+  <button class="mi" data-sec="controls"><i class="orb"></i><span data-t="mControls">CONTROLES</span></button>
+  <button class="mi" data-sec="play"><i class="orb"></i><span data-t="mPlay">JUGAR</span></button>
+  <button class="mi" data-sec="quit"><i class="orb"></i><span data-t="mQuit">SALIR</span></button>
+</nav>
+
+<main id="stage">
+
+  <!-- 1. Compile -->
+  <section class="sec active" data-sec="build">
+    <h2 data-t="hBuild">COMPILAR TU .IPA</h2>
+    <div id="buildstate" class="state"></div>
+    <label class="lbl" data-t="ipaLbl">TU .IPA DE UMK3 (IPHONE 1.2.59)</label>
+    <div class="row">
+      <input id="ipa" class="edt" readonly spellcheck="false" placeholder="UMK3.ipa">
+      <button id="browse" class="btn" data-t="browse">BUSCAR…</button>
+    </div>
+    <div class="row">
+      <button id="build" class="btn hot" data-t="build">COMPILAR</button>
+      <button id="cancel" class="btn danger hidden" data-t="cancel">CANCELAR</button>
+      <div id="buildwrap" class="hidden">
+        <div id="buildbar" class="bar"></div>
+        <span id="buildlabel"></span>
+      </div>
+    </div>
+    <pre id="console" class="hidden"></pre>
+  </section>
+
+  <!-- 2. Graphics -->
+  <section class="sec" data-sec="video">
+    <h2 data-t="hVideo">GRÁFICOS</h2>
+    <div class="fields">
+      <div class="field">
+        <label class="lbl" for="res" data-t="res">RESOLUCIÓN</label>
+        <select id="res" class="sel"></select>
+      </div>
+      <div class="field">
+        <label class="lbl" for="lang" data-t="lang">IDIOMA DEL JUEGO</label>
+        <select id="lang" class="sel"></select>
+      </div>
+      <label class="chk"><input type="checkbox" id="full"><span data-t="full">PANTALLA COMPLETA</span></label>
+      <label class="chk"><input type="checkbox" id="dbg"><span data-t="dbg">MODO DEBUG (MENÚ CON F2)</span></label>
+      <div class="field wide">
+        <label class="lbl" data-t="frame">MARCO (PANTALLA COMPLETA)</label>
+        <div class="row">
+          <input id="marco" class="edt" readonly spellcheck="false">
+          <button id="marcoBtn" class="btn" data-t="browse">BUSCAR…</button>
+          <button id="marcoClr" class="btn" data-t="clear">QUITAR</button>
+        </div>
+      </div>
+    </div>
+    <p class="note" data-t="wsNote">PANTALLA ANCHA (16:9): EN DESARROLLO.</p>
+  </section>
+
+  <!-- 3. Controls -->
+  <section class="sec" data-sec="controls">
+    <h2 data-t="hControls">CONTROLES DEL JUGADOR 1</h2>
+    <div class="tabs">
+      <button class="tab" data-b="6" data-t="tab6">6 BOTONES</button>
+      <button class="tab" data-b="5" data-t="tab5">5 BOTONES</button>
+      <button id="reskeys" class="btn" data-t="reskey">RESTABLECER</button>
+    </div>
+    <div class="kgroups">
+      <div class="kg"><h3 data-t="gMove">MOVIMIENTO</h3><div id="k-move" class="keys"></div></div>
+      <div class="kg"><h3 data-t="gButtons">BOTONES</h3><div id="k-buttons" class="keys"></div></div>
+      <div class="kg"><h3 data-t="gSystem">SISTEMA</h3><div id="k-system" class="keys"></div><p class="hint" id="keyhint"></p></div>
+    </div>
+    <p class="note" data-t="schemes"></p>
+  </section>
+
+  <!-- 4. Play -->
+  <section class="sec" data-sec="play">
+    <h2 data-t="hPlay">JUGAR</h2>
+    <div id="playstate" class="state"></div>
+    <button id="play" class="btn hot big" data-t="play">JUGAR</button>
+  </section>
+
+</main>
+
+<div id="desc"></div>
+
+<footer id="cmdbar">
+  <span class="pad a">&#9166;</span><span data-t="cSelect">SELECCIONAR</span>
+  <span class="pad b">ESC</span><span data-t="cBack">ATRÁS</span>
+  <span class="pad y">F11</span><span data-t="cFull">PANTALLA COMPLETA</span>
+  <span id="status"></span>
+</footer>
+
+<script src="renderer.js"></script>
+</body>
+</html>

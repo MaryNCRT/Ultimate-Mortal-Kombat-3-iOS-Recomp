@@ -8184,11 +8184,27 @@ void DrawHUD(void)
                              + FE_HeightScale * 320.0f * SKDeathMessageOffset,
                          1, FE_WidthScale, fontcol);
 
-        /* Shao Kahn's death slides the banner up off the screen. */
+        /* Shao Kahn's death slides the banner up into place; once it is
+         * there (0x29d46, `bls`, so a NaN counts too) the three lines of the
+         * ending come up under it every frame (0x2a5e0):
+         *      0x39c  SHAO KAHN IS NO MORE     y 112
+         *      0x39d  YOU ARE THE              y 144
+         *      0x39e  ULTIMATE MK3 CHAMPION    y 176
+         * They were missing here. */
         if (DoingSKDeath) {
-            SKDeathMessageOffset -= (1.0f / 60.0f) / limeFPSScaleFactor;
-            if (SKDeathMessageOffset <= 0.0f)
+            SKDeathMessageOffset += -0.016666668f / limeFPSScaleFactor;
+            if (!(SKDeathMessageOffset > 0.0f)) {
                 SKDeathMessageOffset = 0.0f;
+                limeDrawFONT(&GameFont, GameText(0x39c),
+                             (float)(limeScreenWidth / 2),
+                             FE_HeightScale * 112.0f, 1, FE_WidthScale, fontcol);
+                limeDrawFONT(&GameFont, GameText(0x39d),
+                             (float)(limeScreenWidth / 2),
+                             FE_HeightScale * 144.0f, 1, FE_WidthScale, fontcol);
+                limeDrawFONT(&GameFont, GameText(0x39e),
+                             (float)(limeScreenWidth / 2),
+                             FE_HeightScale * 176.0f, 1, FE_WidthScale, fontcol);
+            }
         }
     }
 

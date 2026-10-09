@@ -4,7 +4,7 @@ Current state of the project. Written so that someone can pick it up with no pri
 
 **Last updated:** 2026-10-09 -- see [HANDOFF.md](HANDOFF.md) for the route.
 
-## Current state (alpha 0.0.5, 2026-10-09)
+## Current state (alpha 0.0.6, 2026-10-09)
 
 - **The game is playable on Windows by the real path.** The retail front
   end, Arcade, the tower, the fight load, both rounds, the end of the
@@ -13,15 +13,15 @@ Current state of the project. Written so that someone can pick it up with no pri
   Releases: [0.0.1](RELEASE-0.0.1-alpha.md), [0.0.2](RELEASE-0.0.2-alpha.md),
   [0.0.3](RELEASE-0.0.3-alpha.md), [0.0.4](RELEASE-0.0.4-alpha.md). The GitHub
   releases of 0.0.1-0.0.3 were deleted on 2026-10-09 when the history was
-  rewritten; 0.0.5 is the current published build ([notes](RELEASE-0.0.5-alpha.md)).
+  rewritten; 0.0.6 is the current published build ([notes](RELEASE-0.0.6-alpha.md)).
 - **Every function is decompiled** (2,572 of 2,572) and the fight engine is
   behaviourally tested file by file (table below). The figure is
   **87.59%** by the README's weights; `python tools/progress.py` measures it
   (set `UMK3_FUNC_TO_FILE` to `OUTPUT/func-to-file.txt` if `work/` has no copy).
 - **What is wrong today** is the README's *Known problems* table: the menus
-  are incomplete and some sections crash, several texture errors remain,
-  the winner's name is not shown, audio fails after two fights, and
-  Arcade repeats its arena (Mary's list of 2026-10-09 is in the README). Every bug
+  are incomplete, modes other than Arcade can crash, texture errors remain
+  on some stages and fighters (Kung Lao's hat), fatalities miss animations
+  and frozen fighters draw white (Mary's queue, end of the README table). Every bug
   found since the game first ran was a transcription that did not quite
   match armv7, so each new symptom starts by re-reading the binary.
 - **No pull requests are open** (2026-10-09; everything up to #73 is merged).
@@ -29,6 +29,14 @@ Current state of the project. Written so that someone can pick it up with no pri
   the game runs, the code map, the bug method and the test tools.
 
 ## Release history
+
+- **0.0.6** (2026-10-09). The Electron launcher (`launcher/app`: resizable,
+  fullscreen, 5/6-button layout tab with separate keys); `LIME_RenderEvents`
+  rewritten from armv7 (0xa4a3c: follow matrix, mirror, cull, `SceneTint`
+  16 bytes), so Shao Kahn's death scene and stage effects draw; DrawHUD's
+  ending texts 0x39c-0x39e (0x2a5e0); `StringInString` is an exact compare
+  (0x5e27c), so the Waterfront floor is no longer freed; the treasure
+  timer condition (0x113ba); black under the game area with a frame.
 
 - **0.0.5** (2026-10-09). `DrawButtonNew` UV corner (0x57d8); `areAchievementsViewing`
   20 slots (0xa02ac); FINISH HIM `TriggerAnim(2)` (0x73f2a); MovesList zig-zag

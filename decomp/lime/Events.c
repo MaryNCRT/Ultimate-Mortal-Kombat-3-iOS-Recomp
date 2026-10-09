@@ -1187,13 +1187,31 @@ EVENTSINFO *LIME_LoadEvents(const char *filename, long arg1, long arg2)
  * pool, and `+0x48` is which group an event belongs to. `tools/protos.py`
  * found the missing parameter; the filter came from reading what it is for.
  */
+/* armv7 0x000a4a3c, transcribed whole. The body above it (from armv6)
+ * multiplied an uninitialised local matrix by itself and drew with that, so
+ * no event was ever placed where it belonged -- Shao Kahn's death scene
+ * (SK_ENDING / SK_LOOP) never appeared. What armv7 does per live event of
+ * the group, once its delay is out:
+ *
+ *      +0x4c == 1   the event follows a matrix (+0x64): if that matrix was
+ *                   killed (its +0x3c is 100) the event is killed the same
+ *                   way and skipped; otherwise +0x68 = +0xa8 * follow
+ *      glMatrixMode(0xba6)        GL_MODELVIEW_MATRIX, not a mode: a no-op
+ *                                 GL error on the device, kept as it is
+ *      RenderDebugCube, LIME_PushMatrix
+ *      +0x40 set    the translates negate x (a mirrored event)
+ *      glCullFace   back when +0x44 is 0, front when not; +0x40 swaps them
+ *      glMultMatrixf(+0x68)
+ *      SceneTint = the event's colour (+0x18, 16 bytes), the scene drawn
+ *      twice (opaque, then flush), SceneTint back to 1,1,1, LIME_PopMatrix(1)
+ */
 void LIME_RenderEvents(long group)
 {
     int i;
 
     for (i = 0; i < EVENT_SLOTS; i++) {
         EVENT *ev = &SceneEvents[i];        /* the pool, stride 0xf8 */
-        limeMATRIX44 m;
+        int mirror;
 
         if (ev->state <= 0)                 /* beq AND blt, so not just == 0 */
             continue;
@@ -1201,52 +1219,44 @@ void LIME_RenderEvents(long group)
             continue;
         if (ev->delay != 0)                 /* +0x38, still waiting */
             continue;
-        if (ev->field4c != 1)               /* +0x4c, a mode not a flag */
-            continue;
 
-        limeMatrixMult(m, m, m);   /* (a, b, out) -- the existing order */
-        glMatrixMode(GL_MODELVIEW);
-        RenderDebugCube();                  /* its only recovered caller */
+        if (ev->field4c == 1) {
+            if (ev->follow[15] == EVENT_KILL_VALUE) {   /* 0xa4a86 */
+                ev->state     = -2;
+                ev->world[15] = EVENT_KILL_VALUE;
+                ev->local[15] = EVENT_KILL_VALUE;
+                continue;
+            }
+            limeMatrixMult(ev->local, ev->follow, ev->world);
+        }
 
+        glMatrixMode(0xba6);
+        RenderDebugCube();
         LIME_PushMatrix();
 
-        if (ev->field40 != 0)               /* +0x40 */
-            glTranslatef(ev->scene->posX,   /* SCENEINFO +0x54..+0x5c */
-                         ev->scene->posY,
-                         ev->scene->posZ);
+        mirror = ev->field40 != 0;
+        glTranslatef(mirror ? -ev->scene->posX : ev->scene->posX,
+                     ev->scene->posY, ev->scene->posZ);
+        glTranslatef(mirror ? -ev->offX : ev->offX, ev->offY, ev->offZ);
+        if ((ev->field44 != 0) == mirror)
+            glCullFace(0x405);              /* GL_BACK */
+        else
+            glCullFace(0x404);              /* GL_FRONT */
 
-        glTranslatef(ev->offX, ev->offY, ev->offZ);   /* EVENT +0x50..+0x58 */
+        glMultMatrixf(ev->world);
 
-        if (ev->field44 != 0)
-            glCullFace(GL_BACK);
-
-        glMultMatrixf(m);
-
-        /* TWICE, and not by accident: the first pass draws the opaque meshes
-         * and the second collects the translucent ones and flushes them. The
-         * only difference is argument 8 -- 0x000a4b3a stores 0 into [sp,#0xc]
-         * and 0x000a4b62 stores 1. An earlier pass here saw two identical-
-         * looking calls and wrote them identically, which lost the entire
-         * two-pass structure.
-         *
-         * arg1 is the literal 26 (movs r0, #0x1a). It reaches LIME_printf,
-         * which is an eight-byte no-op in this build, so what it MEANS is not
-         * established -- but it is a constant, not a pointer.
-         *
-         * Both frame arguments get frameA (mov r3, r2), so this caller does
-         * not blend, and it passes a blend factor of zero to match. */
+        memcpy(SceneTint, ev->color, 16);
+        /* arg1 is the literal 26; the second pass (flush = 1) collects the
+         * translucent meshes and flushes them. */
         LIME_RenderScene(26, ev->scene, ev->frameA, ev->frameA, 0.0f, 0, 0,
                          0, ev->flushTexture, ev->fieldEC, NULL);
         LIME_RenderScene(26, ev->scene, ev->frameA, ev->frameA, 0.0f, 0, 0,
                          1, ev->flushTexture, ev->fieldEC, NULL);
+        SceneTint[0] = 1.0f;
+        SceneTint[1] = 1.0f;
+        SceneTint[2] = 1.0f;
 
         LIME_PopMatrix(1);
-
-        /* the same placement re-applied on the way out, not left to the stack */
-        glTranslatef(ev->scene->posX, ev->scene->posY, ev->scene->posZ);
-        glTranslatef(ev->offX, ev->offY, ev->offZ);
-        if (ev->field44 != 0)
-            glCullFace(GL_BACK);
     }
 }
 

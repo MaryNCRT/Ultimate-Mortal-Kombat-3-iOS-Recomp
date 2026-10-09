@@ -26,7 +26,7 @@ You need a legally obtained copy of *Ultimate Mortal Kombat 3* for iOS (version 
 
 ---
 
-## Where the project stands — 9 October 2026 (alpha 0.0.5)
+## Where the project stands — 9 October 2026 (alpha 0.0.6)
 
 | | |
 |---|---|
@@ -34,26 +34,31 @@ You need a legally obtained copy of *Ultimate Mortal Kombat 3* for iOS (version 
 | **Verified** | ✅ The engine core passes differential tests against the recompiled original with zero divergences. The fight engine passes a behavioural differential test file by file, with the exceptions listed in [Verification](#how-much-of-it-is-verified) — every one of them a known limit of the test harness, not a known bug. |
 | **Runs natively** | ✅ The real game runs natively on Windows (Linux/macOS from source): the front end with its 51 screens, Arcade with the tower to the end of the ladder, fights, sound, music and saves. How it fits together: [docs/HOW-THE-GAME-WORKS.md](docs/HOW-THE-GAME-WORKS.md). |
 | **Fight** | ✅ **Fights play to the end by the real path** (0.0.2): round 1, round 2, the end of the match, `Task_GameDestroy`, Continue and the next fight, with the camera following both fighters and the voices playing. Before that, **the first fight ran by the real path.** After the tower (or straight from the menu with `--fight`, below) the game runs `Task_GameInit` and `Task_GameMain`: the arena draws, both fighters fight with the CPU playing, with the HUD and touch controls, for thousands of frames without a crash ([#54](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/54), [#57](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/57)). |
-| **Playable** | 🔄 **Alpha 0.0.5** ([release](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/releases)): menus, Arcade to Shao Kahn and the treasure screen, whole fights, from the keyboard (rebindable in the launcher), a gamepad or the touch controls, with a debug menu (F2). Still wrong: see *Known problems*. The fight engine's 229 data tables are extracted from the user's own binary at build time and verified against it. |
+| **Playable** | 🔄 **Alpha 0.0.6** ([release](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/releases)): menus, Arcade to Shao Kahn and the treasure screen, whole fights, from the keyboard (rebindable in the launcher), a gamepad or the touch controls, with a debug menu (F2). Still wrong: see *Known problems*. The fight engine's 229 data tables are extracted from the user's own binary at build time and verified against it. |
 
-### How to play (alpha 0.0.5, Windows)
+### How to play (alpha 0.0.6, Windows)
 
-**Alpha 0.0.5** ([notes](docs/RELEASE-0.0.5-alpha.md); earlier: [0.0.4](docs/RELEASE-0.0.4-alpha.md), [0.0.3](docs/RELEASE-0.0.3-alpha.md), [0.0.2](docs/RELEASE-0.0.2-alpha.md), [0.0.1](docs/RELEASE-0.0.1-alpha.md)):
+**Alpha 0.0.6** ([notes](docs/RELEASE-0.0.6-alpha.md); earlier: [0.0.5](docs/RELEASE-0.0.5-alpha.md), [0.0.4](docs/RELEASE-0.0.4-alpha.md), [0.0.3](docs/RELEASE-0.0.3-alpha.md), [0.0.2](docs/RELEASE-0.0.2-alpha.md), [0.0.1](docs/RELEASE-0.0.1-alpha.md)):
 [Releases](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/releases)
 has the launcher and only the sources the build needs, no game data. Its
 known problems are the table below.
 
 1. Download this repository (or the alpha release) and keep the folder together.
-2. Run **`UMK3-Launcher.exe`** (in a release; from source, build the
-   `umk3-launcher` target). Choose your own `.ipa` of UMK3 1.2.59 for iPhone
-   and press **Compilar**. The launcher downloads a pinned compiler
+2. Run **`UMK3-Launcher.exe`** (in a release; from source, `npm install`
+   and `npm run portable` in `launcher/app`, see its README). In *COMPILE
+   YOUR .IPA* choose your own `.ipa` of UMK3 1.2.59 for iPhone and press
+   **Compilar**. The launcher downloads a pinned compiler
    (llvm-mingw 20260616, SHA-256 checked) and Python 3.12.10 embeddable into
    `toolchain\`, checks the binary (uuid `90d6f56a…`, not encrypted), extracts
    the data tables from it, compiles `umk3-game.exe` and copies `res\` out of
    the `.ipa`. About half a minute after the first download.
-3. Pick the 3D resolution (480×320 up to 3840×2560), fullscreen and language;
-   they are saved to `umk3.ini` the moment they change. Press **PLAY**. The
-   button at the top right switches the launcher between English and Spanish.
+3. In *GRAPHICS* pick the 3D resolution (480×320 up to 3840×2560),
+   fullscreen, language, debug mode and an optional frame picture for the
+   fullscreen bars; in *CONTROLS* the 6- or 5-button layout (the game starts
+   with it) and each layout's keys. Everything is saved to `umk3.ini` the
+   moment it changes. In *PLAY* press the big **PLAY** button. The launcher
+   window resizes freely (4:3 by default) and F11 makes it fullscreen; the
+   button at the top right switches it between English and Spanish.
 
 **Golden rule: the game depends only on its own folder.** `umk3-game.exe`
 reads `res\` beside itself and nothing outside it (no `../` lookups, no
@@ -98,9 +103,9 @@ Every session started by double-click writes `logs/umk3-<date>-<time>.log`
 beside the exe: task changes, loading steps and, on a crash, the addresses to
 symbolise. A log is deleted once the error it shows is fixed.
 
-### Known problems (9 October 2026, alpha 0.0.5)
+### Known problems (9 October 2026, alpha 0.0.6)
 
-Release notes: [0.0.5](docs/RELEASE-0.0.5-alpha.md), [0.0.4](docs/RELEASE-0.0.4-alpha.md), [0.0.3](docs/RELEASE-0.0.3-alpha.md), [0.0.2](docs/RELEASE-0.0.2-alpha.md), [0.0.1](docs/RELEASE-0.0.1-alpha.md).
+Release notes: [0.0.6](docs/RELEASE-0.0.6-alpha.md), [0.0.5](docs/RELEASE-0.0.5-alpha.md), [0.0.4](docs/RELEASE-0.0.4-alpha.md), [0.0.3](docs/RELEASE-0.0.3-alpha.md), [0.0.2](docs/RELEASE-0.0.2-alpha.md), [0.0.1](docs/RELEASE-0.0.1-alpha.md).
 
 What a player sees today, and what is known about each.
 
@@ -124,7 +129,7 @@ What a player sees today, and what is known about each.
 | Texture errors remain on some stages and in some modes; the menu has texture errors too. | Not investigated stage by stage. |
 | ~~Some menu sections crash.~~ | **Fixed** (checked by Mary, 2026-10-09: no menu section crashes). `FE_Task_Treasure` (18) and `FE_Task_Stats` (15) were spotlight screens; see the unlockables row. |
 | ~~Shao Kahn may be crashing the game.~~ | **Fixed** (checked by Mary, 2026-10-09). `t_rst5` (0x473d0), the hit-reaction dispatcher, stored the bosses' reaction tables as raw iOS addresses (0x17b8d0 `motaro_branches`, 0x17b884 `sk_branches`) and read them: the first reaction against Motaro or Shao Kahn crashed or ran garbage. A 4,000-tick fight against each now runs clean. |
-| The winner's name ("X WINS") is still not shown. | Seen by Mary after 0.0.3, so the `usprintf` fix was not the whole cause. |
+| ~~The winner's name ("X WINS") is still not shown.~~ | Shown (seen in 0.0.6 tests: "KITANA VENCE" at the end of Arcade, "SMOKE VENCE" in a fight). |
 | The menu is not complete (target: 100%), and some modes are missing. | Not inventoried yet. |
 | The game's ads open in separate windows, which forces leaving fullscreen. | Wanted: show them in windows drawn inside the game, in the same executable. |
 | **Reported by Mary 2026-10-09, after the debug menu:** | |
@@ -140,12 +145,20 @@ What a player sees today, and what is known about each.
 | Random crashes. | Seen by Mary 2026-10-09; logs needed. |
 | ~~Human Smoke cannot be chosen by holding Smoke's portrait.~~ | Works (checked by Mary, 2026-10-09): hold the click on Smoke for three seconds (`drawCharacterSelection`, `SmokeCounter` > 180). |
 | ~~The debug menu's win/lose round can give the round to both fighters.~~ | **Fixed** (2026-10-09): the round keys act only while a round is in play (`dbg_round_live`: no intro, round summary, finisher or pause, both fighters up); pressed during a round's end they ended it again with the other fighter. Win match on the last round leaves the fight, as a won match does. New: *Arcade: next is Motaro / Shao Kahn* (Arcade only). |
-| Shao Kahn's death at the end of Arcade shows an empty arena and its sound repeats. | Arcade can be completed and Shao Kahn no longer crashes (checked by Mary, 2026-10-09). `t_game_finished` now starts (the engine's win tally `H[]`); event 65 plays `SK_ENDING.scene` (loaded, placed at x -2.12) while `RenderLevelPlayers` hides the fighters -- why the scene does not draw, and why the sound repeats, is not found yet. |
+| ~~Shao Kahn's death at the end of Arcade shows an empty arena and its sound repeats.~~ | **Fixed for 0.0.6** (checked by Mary, 2026-10-09). `LIME_RenderEvents` (armv7 0xa4a3c), which draws every scene-driven effect, was an armv6 transcription that multiplied an uninitialised matrix and drew with it, so no event was placed where it belonged. Rewritten from armv7: an event that follows a matrix gets `+0x68 = +0xa8 * follow` (and dies with it), mirrored events negate x and swap the culled face, the event's colour goes into `SceneTint` (16 bytes; it was declared 12). `SK_ENDING` / `SK_LOOP` now play (Shao Kahn in green light, beams), and stage effects drawn as events (the graveyard's moon and sky) appear too. The death sound is `Skdiemix.wav` (tsound 0x88, 4.2 s), played once (0x73b7a); the scream repeats inside the file itself. The binary starts no tune there (this version has no "No More" track). Once the winner banner has slid up, `DrawHUD` (0x2a5e0) draws game texts 0x39c-0x39e (SHAO KAHN IS NO MORE / YOU ARE THE / ULTIMATE MK3 CHAMPION) at y 112, 144, 176; that block was missing and is restored. Arcade only: outside Arcade Shao Kahn has no death scene, as in the binary. Test: `UMK3_ARCADE="0,7" UMK3_DEBUG_KEYS=1 UMK3_DBG_KEY="1400:2" umk3-game.exe --fight kitana "shao kahn" 2`. |
+| ~~A custom frame (fullscreen) showed through the stage where it draws nothing (the sky).~~ | **Fixed for 0.0.6** (checked by Mary, 2026-10-09): the game's own area is cleared to black after the frame is drawn (`glScissor` + `glClear` in `runtime/game_main.c`). |
 | In a finisher against Reptile, the dizzy opponent walked towards the player instead of standing still. | Seen by Mary 2026-10-09. Not investigated. |
-| One stage (the spiked bridge, against Nightwolf) draws no background. | Seen by Mary 2026-10-09. Not investigated. |
+| ~~One stage (the spiked bridge, against Nightwolf) draws no background.~~ | **Fixed for 0.0.6** by the `LIME_RenderEvents` rewrite: the background draws again (all 16 stages checked). |
 | The loading screen's Kombat Kode icons are misplaced (two rows; the lower one covers "Loading"). | Seen by Mary 2026-10-09. Not investigated. |
 | Pausing sometimes shows the fight shrunk into a corner behind the pause menu. | Seen by Mary 2026-10-09. Not investigated. |
 | ~~Kitana kept blocking and behaved oddly in the fight against Motaro.~~ | **Fixed** with `t_rst5` (checked by Mary, 2026-10-09). |
+| **Mary's queue of 2026-10-09, after the launcher:** | |
+| ~~Choosing a reward on the treasure screen softlocks: it never returns to the main menu.~~ | **Fixed** (checked by Mary, 2026-10-09). `FE_Task_Select_Treasure` runs its 300-unit clock once a tile is picked: `(sel == -1) ? allDone : 1` at 0x113ba; the transcription had it inverted, so the clock stopped at the pick. |
+| ~~The Waterfront (pier) stage has a black floor.~~ | **Fixed for 0.0.6** (checked by Mary, 2026-10-09). `StringInString` (0x5e27c) is an exact comparison, not a substring search; `LIME_FindMeshByName` used `strstr`, so the floor node "Object04" found mesh "Object040", the floor (mesh 3, `WATERFRONT_NEWFLOOR`) was never marked visible and `LIME_FreeNonVisibleMeshes` freed it. All 16 stages checked after the fix. |
+| Texture errors on some stages and fighters; Kung Lao's hat black in places. | Partly fixed in 0.0.6 (stage effects, the pier floor); the rest not investigated stage by stage. |
+| Crashes in the modes other than Arcade. | Not investigated. |
+| Fatalities with missing animations; fighters frozen by Sub-Zero drawn white. | Not investigated. |
+| ~~Controls: the 5- and 6-button layouts need their own key settings, and a choice of layout that the game follows.~~ | **Done for 0.0.6** (checked by Mary, 2026-10-09): the launcher's CONTROLS tab picks the layout (`buttons=` in `umk3.ini`, written into `Settings[4]` after `Load_SettingsData`), with separate keys (`key_*` for six buttons; `key5_p/b/k/r` and `key_special` for five). |
 | **Windows only for the launcher.** | Linux/macOS still build from source with CMake. |
 | **Only the iPhone 1.2.59 .ipa works.** | The launcher refuses any other binary (uuid check); the iPad 1.2.56 build has different addresses. |
 
@@ -328,7 +341,7 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 | Native PC platform layer (161 fn to rewrite) | 17% | 27% | `███░░░░░░░` |
 | EA SDK stubs (27 fn the game calls) | 5% | 100% | `██████████` |
 
-**87.59% of the total estimated effort. Alpha 0.0.5 is playable:** whole
+**87.59% of the total estimated effort. Alpha 0.0.6 is playable:** whole
 fights by the real path, with known problems (see above).
 
 **Read that number for what it measures, and for what it leaves out.** It
