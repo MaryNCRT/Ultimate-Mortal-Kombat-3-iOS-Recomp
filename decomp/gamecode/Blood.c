@@ -746,8 +746,14 @@ void AddNewGameEvents(void)
                     PlaySoundId(get_tsound(arg));
                 break;
             case 1:
+                /* 0x7368a-0x73696: r0 = arg & 0xf (the sound kind, which
+                 * group_table row), r1 = arg >> 4 (the character's voice
+                 * group, which block of the row), r2 = limeRand() (which take
+                 * in the block). Passed as (kind, rand, voice) the random
+                 * number became the block index and read far past the row:
+                 * voices went missing and stray sounds played instead. */
                 if (Settings[3])
-                    PlaySoundId(get_gsound(arg & 0xf, limeRand(), arg >> 4));
+                    PlaySoundId(get_gsound(arg & 0xf, arg >> 4, limeRand()));
                 break;
             case 2:
                 if (Settings[3])
