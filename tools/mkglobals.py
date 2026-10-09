@@ -96,6 +96,10 @@ def symbol_extents():
         m = re.match(r"_ZL(\d+)(\w+)$", name)
         if m and len(m.group(2)) == int(m.group(1)):
             name = m.group(2)
+        # `_JoyOffset.11128`: a function-local static; see tools/mkdata.py.
+        m = re.match(r"(\w+)\.\d+$", name)
+        if m:
+            name = m.group(1)
         try:
             by_section.setdefault(sect, set()).add((int(parts[0], 16), name))
         except ValueError:

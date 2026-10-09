@@ -18184,7 +18184,17 @@ long JaxBeingSquashed;  /* 0x0010dedc */
 int JaxGrowCounter;  /* 0x0010ded8 */
 long JaxSquashFlip;  /* 0x001ab030 */
 char JaxSquashedPlayer[1520 / sizeof(char)];  /* 0x001ab034 */
-long JoyOffset[JOY_DIRECTIONS][2];  /* 0x000de09c, pixels, not scaled */
+long JoyOffset[JOY_DIRECTIONS][2] = {
+    { 0, 0 },
+    { 0, -56 },
+    { 39, -39 },
+    { 56, 0 },
+    { 39, 39 },
+    { 0, 56 },
+    { -39, 39 },
+    { -56, 0 },
+    { -39, -39 },
+};  /* 0x000de09c, pixels, not scaled */
 long JoystickState;  /* 0x0014febc */
 long JoystickStateP2;  /* 0x0014fecc */
 long JoystickStatePosX;  /* 0x0014fec0 */
