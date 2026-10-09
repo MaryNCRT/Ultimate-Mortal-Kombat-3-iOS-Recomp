@@ -802,7 +802,6 @@ long processString(char *dst, const char *fmt, long len, const long *args,
     for (;;) {
         const char *p = base + i;
         uint32_t c = decodeLHWord(p);
-        long idx;
 
         if (c == 0)
             break;
@@ -814,58 +813,56 @@ long processString(char *dst, const char *fmt, long len, const long *args,
             continue;
         }
 
-        if (getToken(p) == 0) {         /* a '%' that starts no token */
+        if (getToken(p) == 0) {
+            /* a '%' that starts no token: step over it.  The shared tail
+             * below still runs, but foundToken.type is 0, so it emits
+             * nothing. */
             i += 2;
-            if (pass)
-                continue;
+        } else {
+            /* a real token (0xa7694) */
+            base = foundToken.at;       /* rebase, and i restarts at 2 */
 
-            switch (foundToken.type) {
-            case 2:
-                dst += copyInt(dst,
-                               listOfTokens[foundToken.index].value.word);
-                break;
-            case 4: {
-                /* ldm r1, {r1, r2}: the two words ARE the double. */
-                union { struct { long lo, hi; } w; double d; } u;
-                u.w.lo = listOfTokens[foundToken.index].value.word;
-                u.w.hi = listOfTokens[foundToken.index].value2;
-                dst += copyFloat(dst, u.d);
-                break;
+            if (foundToken.index == -1)
+                foundToken.index = autoIndex;
+
+            if (pass) {
+                if (listOfTokens[foundToken.index].type != 0)
+                    printf("WRONG ARGUMENT! TOKEN #%d\n",
+                           (int)foundToken.index);  /* type NOT overwritten */
+                else
+                    listOfTokens[foundToken.index].type = foundToken.type;
             }
-            case 1:
-                dst += copyUnicodeString(dst,
-                        (const char *)(uintptr_t)(unsigned long)
-                            listOfTokens[foundToken.index].value.word);
-                break;
-            default:
-                break;
-            }
+
+            count++;
+            i = 2;
+            autoIndex++;
+        }
+
+        /* 0xa7650 -- the tail both paths share: on the emitting pass, write
+         * the value of whatever getToken found. */
+        if (pass)
             continue;
+
+        switch (foundToken.type) {
+        case 2:
+            dst += copyInt(dst, listOfTokens[foundToken.index].value.word);
+            break;
+        case 4: {
+            /* ldm r1, {r1, r2}: the two words ARE the double. */
+            union { struct { long lo, hi; } w; double d; } u;
+            u.w.lo = listOfTokens[foundToken.index].value.word;
+            u.w.hi = listOfTokens[foundToken.index].value2;
+            dst += copyFloat(dst, u.d);
+            break;
         }
-
-        /* a real token */
-        idx  = foundToken.index;
-        base = foundToken.at;           /* rebase, and i restarts at 2 */
-
-        if (idx == -1) {
-            idx = autoIndex;
-            foundToken.index = idx;
+        case 1:
+            dst += copyUnicodeString(dst,
+                    (const char *)(uintptr_t)(unsigned long)
+                        listOfTokens[foundToken.index].value.word);
+            break;
+        default:
+            break;
         }
-
-        if (pass) {
-            if (listOfTokens[foundToken.index].type != 0) {
-                printf("WRONG ARGUMENT! TOKEN #%d\n", (int)foundToken.index);
-                count++;
-                i = 2;
-                autoIndex++;
-                continue;               /* the type is NOT overwritten */
-            }
-            listOfTokens[foundToken.index].type = foundToken.type;
-        }
-
-        count++;
-        i = 2;
-        autoIndex++;
     }
 
     putUnicodeChar(dst, 0);             /* written on both passes */

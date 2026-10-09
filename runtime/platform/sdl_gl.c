@@ -105,7 +105,6 @@ bool plat_poll(void)
             g_quit = true;
             break;
         case SDL_KEYDOWN:
-            if (ev.key.keysym.sym == SDLK_ESCAPE) g_quit = true;
             break;
         case SDL_WINDOWEVENT:
             if (ev.window.event == SDL_WINDOWEVENT_CLOSE) {
@@ -169,7 +168,7 @@ int plat_mouse(int *x, int *y)
     return (buttons & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
 }
 
-static const SDL_Scancode g_scancode[PK_COUNT] = {
+static SDL_Scancode g_scancode[PK_COUNT] = {
     SDL_SCANCODE_W, SDL_SCANCODE_S, SDL_SCANCODE_A, SDL_SCANCODE_D,
     SDL_SCANCODE_U, SDL_SCANCODE_I, SDL_SCANCODE_O,
     SDL_SCANCODE_J, SDL_SCANCODE_K, SDL_SCANCODE_L,
@@ -179,8 +178,15 @@ static const SDL_Scancode g_scancode[PK_COUNT] = {
     SDL_SCANCODE_F5,
     SDL_SCANCODE_F1, SDL_SCANCODE_RETURN, SDL_SCANCODE_RIGHT,
     SDL_SCANCODE_LEFT, SDL_SCANCODE_F3, SDL_SCANCODE_F2,
-    SDL_SCANCODE_F9, SDL_SCANCODE_F10, SDL_SCANCODE_F11, SDL_SCANCODE_F12
+    SDL_SCANCODE_F9, SDL_SCANCODE_F10, SDL_SCANCODE_F11, SDL_SCANCODE_F12,
+    SDL_SCANCODE_P, SDL_SCANCODE_M
 };
+
+void plat_bind_key(int code, int key)
+{
+    if (code >= 0 && code < PK_COUNT && key > 0 && key < SDL_NUM_SCANCODES)
+        g_scancode[code] = (SDL_Scancode)key;
+}
 
 int plat_key(int code)
 {

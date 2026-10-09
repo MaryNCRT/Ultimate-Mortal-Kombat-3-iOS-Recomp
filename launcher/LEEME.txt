@@ -1,4 +1,4 @@
-ULTIMATE MORTAL KOMBAT 3 - PORT DE PC - 0.0.2 ALPHA
+ULTIMATE MORTAL KOMBAT 3 - PORT DE PC - 0.0.3 ALPHA
 ====================================================
 
 Port nativo para Windows de la version de iOS (1.2.59), hecho por
@@ -26,6 +26,9 @@ COMO JUGAR
    Tarda menos de un minuto despues de la descarga.
 3. Elige resolucion 3D, pantalla completa e idioma. Se guardan solos
    en umk3.ini en cuanto los cambias.
+   En "3. Controles del jugador 1" puedes cambiar las teclas: haz clic en
+   una accion y pulsa la tecla nueva (Esc cancela). Restablecer vuelve a
+   las de siempre.
 4. Pulsa JUGAR.
 
 El boton de arriba a la derecha (English / Espanol) cambia el idioma del
@@ -48,10 +51,25 @@ CONTROLES
     J  (o 4 del num.) ......... patada alta    (HK)
     K  (o 5 del num.) ......... patada baja    (LK)
     L  (o 6 del num.) ......... correr         (RUN)
-- Esc cierra el juego al instante.
+    P ......................... menu de pausa (otra vez: continuar)
+    M ......................... lista de movimientos / combos
+- Esc ya NO cierra el juego (cierralo con la X de la ventana).
 
 - Pruebas: con debug_keys=1 en umk3.ini, F9 / F10 terminan el round
   (KO del jugador 2 / del jugador 1) y F11 / F12 ganan / pierden la pelea.
+
+ARREGLADO EN 0.0.3
+- La torre muestra la escalera real: cada peldano con su rival (antes
+  todos salian como Jade).
+- La animacion de la torre: la camara vuela a tu columna, baja a tu
+  peldano, sube despues de ganar y pasa sola a la pelea. Los jefes tienen
+  su propio escenario.
+- Menu de pausa completo: numero de botones, layout, volumen de musica y
+  de efectos.
+- Lista de movimientos: cada pagina con sus movimientos y sus iconos.
+- Los botones "i" (combos) y pausa se ven en el HUD y se pueden pulsar.
+- Teclas P (pausa) y M (combos); teclas del jugador 1 configurables en el
+  launcher.
 
 ARREGLADO EN 0.0.2
 - Las peleas se juegan hasta el final: round 2, fin de la pelea, pantalla
@@ -62,16 +80,13 @@ ARREGLADO EN 0.0.2
 - La melena de Sindel aparece, con su textura.
 - El joystick en pantalla se mueve.
 
-ERRORES CONOCIDOS EN 0.0.2
+ERRORES CONOCIDOS EN 0.0.3
 - El menu no esta completo y algunas secciones del menu todavia provocan
   un crash.
-- Siguen apareciendo varios errores de texturas, aunque muchos otros se
-  arreglaron en esta version.
-- El texto del ganador ("X WINS") no aparece, aunque el narrador lo dice.
+- Siguen apareciendo varios errores de texturas.
+- El texto del ganador ("X WINS") puede que ya aparezca; sin confirmar.
 - El juego todavia puede cerrarse en otros sitios.
-- A veces todos los rivales de la torre son Jade.
-- La animacion de bajada de la torre no se muestra bien.
-- En Arcade el escenario es siempre el mismo (el original lo elige al azar).
+- En Arcade el escenario es siempre el mismo (salvo los jefes).
 - Solo Windows. Linux y macOS todavia no tienen launcher.
 - Si el juego falla, mira logs\ junto a umk3-game.exe y reportalo
   con ese archivo en GitHub (Issues).
@@ -87,12 +102,15 @@ fullscreen and language (saved in umk3.ini) and press PLAY. The button at
 the top right switches the launcher between English and Spanish.
 Fight keys: W A S D or arrows to move (two at once for diagonals);
 U high punch, I low punch, O block, J high kick, K low kick, L run
-(or numpad 7 8 9 / 4 5 6). Esc quits. New in 0.0.2: fights play to the
+(or numpad 7 8 9 / 4 5 6). P pause, M moves list; Esc no longer quits.
+Player 1 keys can be changed in the launcher (box 3). New in 0.0.3: the
+tower shows the real ladder (no more all-Jade) and animates as in the
+original, the pause menu is complete, the moves list has its icons on
+every page, the HUD "i" and pause buttons are back. New in 0.0.2: fights play to the
 end (round 2, Continue, next fight), the camera follows both fighters,
 voices and sounds, no more black fighters, Sindel's hair, the on-screen
 joystick moves. Known problems: the menus are incomplete and some menu
-sections crash; several texture errors remain; the winner text is not
-shown. Test keys: debug_keys=1 in umk3.ini -> F9/F10 end the round,
+sections crash; several texture errors remain. Test keys: debug_keys=1 in umk3.ini -> F9/F10 end the round,
 F11/F12 win/lose the match.
 
 Ultimate Mortal Kombat 3 is (c) Electronic Arts / Midway / Warner Bros.

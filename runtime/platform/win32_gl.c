@@ -35,7 +35,6 @@ static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         g_quit = true;
         return 0;
     case WM_KEYDOWN:
-        if (wp == VK_ESCAPE) g_quit = true;
         if (wp < 256) g_key[wp] = 1;
         return 0;
     case WM_KEYUP:
@@ -197,7 +196,7 @@ int plat_mouse(int *x, int *y)
  * These are the DEFAULTS and they are here, in the backend, rather than in the
  * engine, because the engine has no idea what a key is. It takes ten bits.
  */
-static const int g_vk[PK_COUNT] = {
+static int g_vk[PK_COUNT] = {
     'W', 'S', 'A', 'D',                 /* P1 directions */
     'U', 'I', 'O', 'J', 'K', 'L',       /* P1  HP LP BL HK LK RUN */
     VK_UP, VK_DOWN, VK_LEFT, VK_RIGHT,  /* P2 directions */
@@ -207,8 +206,15 @@ static const int g_vk[PK_COUNT] = {
     VK_F1, VK_RETURN, VK_RIGHT, VK_LEFT, /* the debug selector */
     VK_F3,                              /* leave the scene */
     VK_F2,                              /* enter the test mode */
-    VK_F9, VK_F10, VK_F11, VK_F12       /* fight debug: KO p2/p1, win/lose */
+    VK_F9, VK_F10, VK_F11, VK_F12,      /* fight debug: KO p2/p1, win/lose */
+    'P', 'M'                            /* the pause menu, the moves list */
 };
+
+void plat_bind_key(int code, int key)
+{
+    if (code >= 0 && code < PK_COUNT && key > 0 && key < 256)
+        g_vk[code] = key;
+}
 
 int plat_key(int code)
 {

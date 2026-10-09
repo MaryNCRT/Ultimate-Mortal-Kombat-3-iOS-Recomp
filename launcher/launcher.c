@@ -8,6 +8,8 @@
  *     the port, so until this has run there is nothing to play.
  *   - Resolution, fullscreen and language are written to umk3.ini the moment
  *     they change; the game reads them at start (runtime/game_main.c).
+ *   - Player 1's keys: click an action, press a key; saved as key_<name>=<VK>
+ *     lines that the game binds at start (plat_bind_key).
  *   - "Jugar" starts umk3-game.exe.
  *
  * Plain Win32, no resources: one window, built by hand.
@@ -20,16 +22,17 @@
 #include <stdio.h>
 #include <wchar.h>
 
-#define VERSION L"0.0.2 alpha"
+#define VERSION L"0.0.3 alpha"
 
 enum { ID_IPA = 100, ID_BROWSE, ID_BUILD, ID_RES, ID_FULL, ID_LANG, ID_PLAY,
-       ID_STATUS, ID_UILANG };
+       ID_STATUS, ID_UILANG, ID_KEYRESET, ID_KEY0 = 200 };
 
 /* The launcher's own texts, Spanish and English; the button at the top
  * switches between them and umk3.ini keeps the choice (ui=ES|EN). */
 enum { S_TITLE, S_GROUP_IPA, S_BROWSE, S_BUILD, S_GROUP_CFG, S_RES, S_FULL,
        S_LANG, S_PLAY, S_SWITCH, S_BUILDING, S_READY, S_NEED, S_FILTER,
-       S_PICK_IPA, S_NO_PS, S_NO_GAME, S_BUILT, S_AUTO, S_ENTER, S_COUNT };
+       S_PICK_IPA, S_NO_PS, S_NO_GAME, S_BUILT, S_AUTO, S_ENTER,
+       S_GROUP_KEYS, S_KEYRESET, S_PRESS, S_COUNT };
 
 static const wchar_t *const k_text[2][S_COUNT] = {
     {   /* ES */
@@ -49,6 +52,8 @@ static const wchar_t *const k_text[2][S_COUNT] = {
         L"Juego compilado. Ya puedes pulsar Jugar.",
         L"Automatico (Windows)",
         L"Pulsa Enter para cerrar",
+        L"3. Controles del jugador 1 (clic y pulsa una tecla)",
+        L"Restablecer", L"Pulsa una tecla...",
     },
     {   /* EN */
         L"Ultimate Mortal Kombat 3 -- PC port " VERSION,
@@ -67,6 +72,8 @@ static const wchar_t *const k_text[2][S_COUNT] = {
         L"Game compiled. You can press Play now.",
         L"Automatic (Windows)",
         L"Press Enter to close",
+        L"3. Player 1 controls (click, then press a key)",
+        L"Reset", L"Press a key...",
     },
 };
 static int g_ui;                       /* 0 Spanish, 1 English */
@@ -90,6 +97,26 @@ static const struct { const wchar_t *code, *name; } k_lang[] = {
     { L"ZH", L"中文" },
 };
 #define NLANG (int)(sizeof k_lang / sizeof k_lang[0])
+
+/* Player 1's keys, in the order game_main.c's key_* names take them. */
+#define NKEYS 12
+static const char *const k_key_ini[NKEYS] = {
+    "up", "down", "left", "right", "hp", "lp", "block", "hk", "lk", "run",
+    "pause", "moves"
+};
+static const wchar_t *const k_key_name[2][NKEYS] = {
+    { L"Arriba", L"Abajo", L"Izquierda", L"Derecha", L"Puño alto",
+      L"Puño bajo", L"Bloqueo", L"Patada alta", L"Patada baja",
+      L"Correr", L"Pausa", L"Combos" },
+    { L"Up", L"Down", L"Left", L"Right", L"High punch", L"Low punch",
+      L"Block", L"High kick", L"Low kick", L"Run", L"Pause", L"Moves" },
+};
+static const int k_key_default[NKEYS] = {
+    'W', 'S', 'A', 'D', 'U', 'I', 'O', 'J', 'K', 'L', 'P', 'M'
+};
+static int  g_key[NKEYS];
+static HWND g_key_btn[NKEYS], g_key_lbl[NKEYS];
+static int  g_key_wait = -1;           /* the action waiting for a key, or -1 */
 
 static wchar_t g_dir[MAX_PATH];        /* the launcher's folder, with '\' */
 static HWND    g_wnd, g_ipa, g_res, g_full, g_lang, g_play, g_build, g_status;
@@ -121,6 +148,8 @@ static void load_config(void)
     FILE *f;
     int w = 960, h = 640, i;
 
+    for (i = 0; i < NKEYS; i++)
+        g_key[i] = k_key_default[i];
     path_in_dir(p, MAX_PATH * 2, L"umk3.ini");
     f = _wfopen(p, L"r");
     if (!f)
@@ -150,6 +179,12 @@ static void load_config(void)
             g_ui = _stricmp(v, "EN") == 0;
         else if (strcmp(line, "ipa") == 0)
             MultiByteToWideChar(CP_UTF8, 0, v, -1, g_cfg_ipa, MAX_PATH);
+        else if (strncmp(line, "key_", 4) == 0) {
+            for (i = 0; i < NKEYS; i++)
+                if (strcmp(line + 4, k_key_ini[i]) == 0 && atoi(v) > 0
+                    && atoi(v) < 256)
+                    g_key[i] = atoi(v);
+        }
     }
     fclose(f);
     for (i = 0; i < NRES; i++)
@@ -173,6 +208,11 @@ static void save_config(void)
     fprintf(f, "width=%d\nheight=%d\nfullscreen=%d\nlanguage=%s\nui=%s\nipa=%s\n",
             k_res[g_cfg_res].w, k_res[g_cfg_res].h, g_cfg_full, lang,
             g_ui ? "EN" : "ES", ipa);
+    {
+        int i;
+        for (i = 0; i < NKEYS; i++)
+            fprintf(f, "key_%s=%d\n", k_key_ini[i], g_key[i]);
+    }
     fclose(f);
 }
 
@@ -290,6 +330,39 @@ static HWND add(const wchar_t *cls, const wchar_t *text, DWORD style,
     return c;
 }
 
+/* A key's name as Windows prints it ("W", "Up", "Space"). */
+static void key_name(int vk, wchar_t *out, int n)
+{
+    UINT sc = MapVirtualKeyW((UINT)vk, MAPVK_VK_TO_VSC);
+    LONG lp = (LONG)(sc << 16);
+
+    switch (vk) {                       /* the extended keys need bit 24 */
+    case VK_UP: case VK_DOWN: case VK_LEFT: case VK_RIGHT:
+    case VK_INSERT: case VK_DELETE: case VK_HOME: case VK_END:
+    case VK_PRIOR: case VK_NEXT:
+        lp |= 1 << 24;
+    }
+    if (!GetKeyNameTextW(lp, out, n))
+        _snwprintf(out, n, L"#%d", vk);
+    out[n - 1] = 0;
+}
+
+static void show_keys(void)
+{
+    wchar_t s[64];
+    int i;
+
+    for (i = 0; i < NKEYS; i++) {
+        SetWindowTextW(g_key_lbl[i], k_key_name[g_ui][i]);
+        if (i == g_key_wait)
+            SetWindowTextW(g_key_btn[i], T(S_PRESS));
+        else {
+            key_name(g_key[i], s, 64);
+            SetWindowTextW(g_key_btn[i], s);
+        }
+    }
+}
+
 /* Every text in the launcher's language; the combo boxes keep their
  * selection. */
 static void apply_texts(void)
@@ -302,6 +375,7 @@ static void apply_texts(void)
     SendMessageW(g_lang, CB_DELETESTRING, 0, 0);
     SendMessageW(g_lang, CB_INSERTSTRING, 0, (LPARAM)T(S_AUTO));
     SendMessageW(g_lang, CB_SETCURSEL, g_cfg_lang, 0);
+    show_keys();
     refresh();
 }
 
@@ -335,8 +409,19 @@ static void build_ui(void)
         SendMessageW(g_lang, CB_ADDSTRING, 0,
                      (LPARAM)(k_lang[i].name ? k_lang[i].name : T(S_AUTO)));
 
-    g_play = g_label[S_PLAY] = add(L"BUTTON", NULL, BS_DEFPUSHBUTTON, 10, 272, 460, 44, ID_PLAY);
-    g_status = add(L"STATIC", L"", 0, 12, 326, 456, 36, ID_STATUS);
+    /* three columns of four: a label and the key's button */
+    g_label[S_GROUP_KEYS] = add(L"BUTTON", NULL, BS_GROUPBOX, 10, 270, 460, 168, 0);
+    for (i = 0; i < NKEYS; i++) {
+        int x = 20 + (i / 4) * 150, y = 292 + (i % 4) * 30;
+        g_key_lbl[i] = add(L"STATIC", NULL, 0, x, y + 4, 70, 20, 0);
+        g_key_btn[i] = add(L"BUTTON", NULL, BS_PUSHBUTTON, x + 70, y, 72, 26,
+                           ID_KEY0 + i);
+    }
+    g_label[S_KEYRESET] = add(L"BUTTON", NULL, BS_PUSHBUTTON, 370, 410, 90, 24,
+                              ID_KEYRESET);
+
+    g_play = g_label[S_PLAY] = add(L"BUTTON", NULL, BS_DEFPUSHBUTTON, 10, 448, 460, 44, ID_PLAY);
+    g_status = add(L"STATIC", L"", 0, 12, 502, 456, 36, ID_STATUS);
     apply_texts();
 }
 
@@ -346,6 +431,12 @@ static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
     case WM_COMMAND:
         switch (LOWORD(wp)) {
         case ID_BROWSE: browse(); break;
+        default:
+            if (LOWORD(wp) >= ID_KEY0 && LOWORD(wp) < ID_KEY0 + NKEYS) {
+                g_key_wait = LOWORD(wp) - ID_KEY0;
+                show_keys();
+            }
+            break;
         case ID_BUILD:  build();  break;
         case ID_PLAY:   play();   break;
         case ID_UILANG:
@@ -369,6 +460,15 @@ static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
                 save_config();
             }
             break;
+        case ID_KEYRESET: {
+            int i;
+            for (i = 0; i < NKEYS; i++)
+                g_key[i] = k_key_default[i];
+            g_key_wait = -1;
+            show_keys();
+            save_config();
+            break;
+        }
         case ID_IPA:
             if (HIWORD(wp) == EN_KILLFOCUS) {
                 GetWindowTextW(g_ipa, g_cfg_ipa, MAX_PATH);
@@ -398,7 +498,7 @@ static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
 int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show)
 {
     WNDCLASSW wc;
-    RECT r = { 0, 0, 480, 370 };
+    RECT r = { 0, 0, 480, 546 };
     NONCLIENTMETRICSW ncm;
     MSG msg;
     wchar_t *slash;
@@ -432,6 +532,18 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show)
     ShowWindow(g_wnd, show);
 
     while (GetMessageW(&msg, NULL, 0, 0)) {
+        /* Waiting for a key: take it before the dialog manager does (Tab,
+         * Enter and the arrows would otherwise move the focus). Esc cancels. */
+        if (g_key_wait >= 0
+            && (msg.message == WM_KEYDOWN || msg.message == WM_SYSKEYDOWN)) {
+            if (msg.wParam != VK_ESCAPE && msg.wParam < 256) {
+                g_key[g_key_wait] = (int)msg.wParam;
+                save_config();
+            }
+            g_key_wait = -1;
+            show_keys();
+            continue;
+        }
         if (IsDialogMessageW(g_wnd, &msg))
             continue;
         TranslateMessage(&msg);
