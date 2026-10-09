@@ -48,7 +48,7 @@ function Fetch($url, $out, $algo, $hash) {
     }
     Write-Host "Descargando $url"
     $tmp = "$out.part"
-    & curl.exe -L --fail --retry 3 -o $tmp $url
+    & "$env:SystemRoot\System32\curl.exe" --progress-bar -L --fail --retry 3 -o $tmp $url
     if ($LASTEXITCODE -ne 0) { Fail "no se pudo descargar $url" }
     if ((Get-FileHash $tmp -Algorithm $algo).Hash -ne $hash.ToUpper()) {
         Remove-Item $tmp -Force
@@ -59,7 +59,7 @@ function Fetch($url, $out, $algo, $hash) {
 
 function Unzip($zip, $dest) {
     New-Item -ItemType Directory -Force -Path $dest | Out-Null
-    & tar.exe -xf $zip -C $dest
+    & "$env:SystemRoot\System32\tar.exe" -xf $zip -C $dest
     if ($LASTEXITCODE -ne 0) { Fail "no se pudo descomprimir $zip" }
 }
 
@@ -130,7 +130,7 @@ $src += 'logic_tables.c', 'level_info.c', 'seq_data.c' | ForEach-Object { Join-P
 
 $objdir = Join-Path $Work 'obj'
 New-Item -ItemType Directory -Force -Path $objdir | Out-Null
-$flags = @('-std=gnu11', '-DUMK3_HAVE_MK3', '-DUMK3_REAL_GL', '-DUMK3_SHELL',
+$flags = @('-std=gnu11', '-w', '-DUMK3_HAVE_MK3', '-DUMK3_REAL_GL', '-DUMK3_SHELL',
            '-I', (Join-Path $Root 'runtime'), '-I', (Join-Path $Root 'decomp\lime'),
            '-I', (Join-Path $Root 'decomp\gamecode\logic'))
 function Quote($s) { '"' + ($s -replace '\\', '/') + '"' }
