@@ -304,6 +304,61 @@ static void parse_taps(const char *s)
 
 void umk3_relocate_level_info(void);   /* build/level_info.c */
 
+/* umk3.ini beside the exe, written by the launcher (tools/launcher):
+ *
+ *     width=1440
+ *     height=960
+ *     fullscreen=0
+ *     language=ES
+ *
+ * The window size is the 3D resolution: the game draws straight into it.
+ * Missing file or keys keep the defaults. */
+static int  g_cfg_w = VIRT_W * SCALE, g_cfg_h = VIRT_H * SCALE, g_cfg_full;
+static char g_cfg_lang[8];
+
+static void read_config(const char *dir)
+{
+    char path[1100], line[128];
+    FILE *f;
+
+    snprintf(path, sizeof path, "%s%s", dir, "umk3.ini");
+    f = fopen(path, "r");
+    if (!f)
+        return;
+    while (fgets(line, sizeof line, f)) {
+        char *v = strchr(line, '='), *e;
+        if (!v)
+            continue;
+        *v++ = 0;
+        for (e = v + strlen(v); e > v && (unsigned char)e[-1] <= 32; )
+            *--e = 0;
+        if (strcmp(line, "width") == 0 && atoi(v) >= VIRT_W)
+            g_cfg_w = atoi(v);
+        else if (strcmp(line, "height") == 0 && atoi(v) >= VIRT_H)
+            g_cfg_h = atoi(v);
+        else if (strcmp(line, "fullscreen") == 0)
+            g_cfg_full = atoi(v) != 0;
+        else if (strcmp(line, "language") == 0)
+            snprintf(g_cfg_lang, sizeof g_cfg_lang, "%s", v);
+    }
+    fclose(f);
+}
+
+/* The largest 3:2 rectangle centred in the window: the game is drawn for a
+ * 480x320 screen, so a fullscreen 16:9 monitor gets bars, not a stretch. */
+static void fit_view(int ww, int wh, int *vx, int *vy, int *vw, int *vh)
+{
+    if ((long)ww * VIRT_H > (long)wh * VIRT_W) {
+        *vh = wh;
+        *vw = (int)((long)wh * VIRT_W / VIRT_H);
+    } else {
+        *vw = ww;
+        *vh = (int)((long)ww * VIRT_H / VIRT_W);
+    }
+    *vx = (ww - *vw) / 2;
+    *vy = (wh - *vh) / 2;
+}
+
 int main(int argc, char **argv)
 {
     const char *root = (argc > 1 && argv[1][0] != '-') ? argv[1] : "res";
@@ -323,9 +378,35 @@ int main(int argc, char **argv)
         DWORD len = GetModuleFileNameA(NULL, exe_res, MAX_PATH);
         char *slash = (len > 0 && len < MAX_PATH) ? strrchr(exe_res, '\\') : NULL;
         if (slash) {
+            slash[1] = 0;
+            read_config(exe_res);
             strcpy(slash + 1, "res");
             root = exe_res;
         }
+    }
+    if (g_cfg_lang[0] && !getenv("UMK3_LANG")) {
+        static char env[24];
+        snprintf(env, sizeof env, "UMK3_LANG=%s", g_cfg_lang);
+        _putenv(env);
+    }
+    /* The game reads only this folder. Say what to do instead of opening a
+     * black window when it is missing or was set up without Info.plist. */
+    {
+        char probe[MAX_PATH + 32];
+        FILE *f;
+        _snprintf(probe, sizeof probe, "%s\\Info.plist", root);
+        probe[sizeof probe - 1] = 0;
+        f = fopen(probe, "rb");
+        if (!f) {
+            MessageBoxA(NULL,
+                "No se encontro la carpeta res completa junto a umk3-game.exe.\n\n"
+                "Abre UMK3-Launcher.exe, elige tu UMK3 .ipa y pulsa Compilar.\n\n"
+                "The res folder beside umk3-game.exe is missing or incomplete.\n"
+                "Open UMK3-Launcher.exe, choose your UMK3 .ipa and press Compilar.",
+                "Ultimate Mortal Kombat 3", MB_OK | MB_ICONERROR);
+            return 1;
+        }
+        fclose(f);
     }
     SetUnhandledExceptionFilter(on_crash);
     if (open_session_log())
@@ -355,10 +436,12 @@ int main(int argc, char **argv)
         }
     }
 
-    if (!plat_open("Ultimate Mortal Kombat 3", VIRT_W * SCALE, VIRT_H * SCALE)) {
+    if (!plat_open("Ultimate Mortal Kombat 3", g_cfg_w, g_cfg_h)) {
         fprintf(stderr, "could not open a window\n");
         return 1;
     }
+    if (g_cfg_full)
+        plat_fullscreen();
     lime_platform_set_asset_root(root);
     lime_gl_set_screen(VIRT_W, VIRT_H);
 
@@ -374,7 +457,7 @@ int main(int argc, char **argv)
 
     last = plat_time();
     while (plat_poll()) {
-        int mx, my, down, ww, wh;
+        int mx, my, down, ww, wh, vx, vy, vw, vh;
 
         /* The window's focus is the app's foreground; see runtime/lime_app.c. */
         {
@@ -403,6 +486,7 @@ int main(int argc, char **argv)
             continue;
 
         plat_size(&ww, &wh);
+        fit_view(ww, wh, &vx, &vy, &vw, &vh);
 
         /* The mouse as one finger, on its edges; see runtime/menu_main.c. */
         /* A scripted run is the script's alone: a click on the window
@@ -410,8 +494,8 @@ int main(int argc, char **argv)
         down = plat_mouse(&mx, &my) && g_ntaps == 0;
         {
             static float prev_tx = -1.0f, prev_ty = -1.0f;
-            float tx = (float)mx * VIRT_W / (ww ? ww : 1);
-            float ty = (float)my * VIRT_H / (wh ? wh : 1);
+            float tx = (float)(mx - vx) * VIRT_W / (vw ? vw : 1);
+            float ty = (float)(my - vy) * VIRT_H / (vh ? vh : 1);
 
             if (down && !was_down)
                 lime_touch_began(tx, ty);
@@ -439,7 +523,7 @@ int main(int argc, char **argv)
             }
 
             /* -[EAGLView drawView]: one tick is one clear and one frame. */
-            glViewport(0, 0, ww, wh);
+            glViewport(vx, vy, vw, vh);
             glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             lime_menu_advance_clock(1.0 / 60.0);

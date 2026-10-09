@@ -44,6 +44,21 @@ pone números a las dos mitades y dice explícitamente qué dejan fuera.
 
 ---
 
+## Cómo jugar (alpha 0.0.1, Windows)
+
+1. Descarga este repositorio (o la release alpha) y deja la carpeta completa.
+2. Abre **`UMK3-Launcher.exe`**, elige tu propio `.ipa` de UMK3 1.2.59 para
+   iPhone y pulsa **Compilar**. El launcher descarga un compilador fijado
+   (llvm-mingw 20260616, comprobado por SHA-256) y Python 3.12.10 en
+   `toolchain\`, verifica el binario, extrae de él las tablas del juego,
+   compila `umk3-game.exe` y copia `res\` desde el `.ipa`.
+3. Elige resolución 3D, pantalla completa e idioma (se guardan solos en
+   `umk3.ini`) y pulsa **JUGAR**.
+
+**Regla de oro: el juego solo depende de su propia carpeta.** No se distribuye
+ningún dato ni ejecutable del juego: el exe existe solo después de compilar el
+`.ipa` del propio jugador.
+
 ## Qué es este proyecto
 
 En 2011 EA Mobile publicó *Ultimate Mortal Kombat 3* para iPhone. Estaba construido sobre un motor 3D propio llamado **LIME** y, como la mayoría de los juegos de iOS de aquella época, lleva años siendo imposible de jugar: necesita un iPhone con iOS 3–6 y hace mucho que se retiró de la App Store.
