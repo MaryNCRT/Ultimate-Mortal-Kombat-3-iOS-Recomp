@@ -40,6 +40,7 @@
  *   UMK3_DBG_OPEN=<n> open the debug menu at tick n (with debug_keys)
  *   UMK3_DBG_KEY=<tick:k;...>  press F9+k at that tick (with debug_keys)
  *   UMK3_SHOTS=<t,t,...>       write umk3-shot-<t>.ppm at each tick, go on
+ *   UMK3_ARCADE=<destiny,stage> with --fight: that rung of an Arcade ladder
  *   UMK3_SCREENS=<tick:n;...>  open front-end screen n at that tick, so one
  *                              session can walk the whole menu
  *
@@ -401,6 +402,7 @@ static void read_config(const char *dir)
  * round ends through the game's own path -- plus the HUD's Health[], which
  * DrawHUD's round-end test reads. */
 extern long RoundWins[2], WinsNeeded;
+extern char *H;                         /* the fight engine's state, 0x0038c674 */
 extern int  Health[2];
 
 /* P and M (umk3.ini can rebind them): the HUD's corner buttons, pressed the
@@ -447,15 +449,18 @@ static void hud_keys(void)
     }
 }
 
-/* A round is in play: past the intro, nobody down, no round summary or
+/* A round is in play: past the intro, nobody down, not between rounds, no
  * finisher on, not paused. The debug keys only act then -- pressed during
  * a round's end they ended it a second time, with the other fighter, and
  * both got the round. */
 extern long DoIntro, IsInFinishing, RoundSummary;
 int dbg_round_live(void)
 {
-    return CurrentTask == 6 && G != NULL && !DoIntro && !RoundSummary
-        && !IsInFinishing && !GamePaused && Health[0] > 0 && Health[1] > 0;
+    /* RoundSummary is 1 from a round's end to the next round's fade-in and
+     * 2 (RoundSummaryUpdate, 0x2abbc) while the next round plays -- not 0,
+     * which only the first round starts from. */
+    return CurrentTask == 6 && G != NULL && RoundSummary != 1
+        && Health[0] > 0 && Health[1] > 0;
 }
 
 /* Arcade, with a ladder chosen: GameMode 0 and Destiny 0..3. */
@@ -471,8 +476,15 @@ static void fight_key(int k)
     {
         if (!dbg_round_live())
             return;
-        if (k >= 2 && WinsNeeded > 0)                   /* F11 / F12 */
+        if (k >= 2 && WinsNeeded > 0) {                 /* F11 / F12 */
             RoundWins[k - 2] = WinsNeeded - 1;
+            /* ...and the engine's own tally, H[0] / H[1], which
+             * t_player_1_won / t_player_2_won count and t_results_retp
+             * compares with 2 before it starts t_game_finished -- Shao
+             * Kahn's death at the end of an Arcade ladder. Without it a
+             * debug win never ended the ladder the way a real one does. */
+            ((unsigned int *)H)[k - 2] = (unsigned int)(WinsNeeded - 1);
+        }
         *(unsigned int *)((char *)G + ((k & 1) ? 0x368 : 0x36c)) = 0;
         /* ...and the HUD's copy, which only a hit's MKEvent_Add(3, 0, ..)
          * refreshes: RoundEndedAgainst tests Health[], so without this the
@@ -805,6 +817,19 @@ int main(int argc, char **argv)
             if (g_cfg_debug_keys && getenv("UMK3_DBG_OPEN")
                 && ticks == atol(getenv("UMK3_DBG_OPEN")))
                 dbg_menu_toggle();      /* a test opens the menu by script */
+            if (g_cfg_debug_keys && getenv("UMK3_DBG_BOSS")) {
+                /* "tick:24|25" -- the menu's Arcade boss row, once, at the
+                 * first round in play from that tick on */
+                static int done;
+                const char *q = getenv("UMK3_DBG_BOSS");
+                if (!done && ticks >= atol(q) && strchr(q, ':')
+                    && dbg_round_live()) {
+                    struct dbg_request rq = { DBG_BOSS, 0, 0, 0 };
+                    rq.a = atoi(strchr(q, ':') + 1);
+                    debug_request(&rq);
+                    done = 1;
+                }
+            }
             if (g_cfg_debug_keys && getenv("UMK3_DBG_KEY")) {
                 /* "tick:k;tick:k" -- F9..F12 (k = 0..3) pressed by script */
                 const char *q = getenv("UMK3_DBG_KEY");
@@ -892,6 +917,14 @@ int main(int argc, char **argv)
                 printf("--fight: %s vs %s, stage %ld\n",
                        CharacterNames[g_fight_p1], CharacterNames[g_fight_p2],
                        g_fight_stage);
+                /* UMK3_ARCADE="destiny,stage": the fight as that rung of
+                 * an Arcade ladder, so a test reaches the last one */
+                if (getenv("UMK3_ARCADE")) {
+                    GameMode = 0;
+                    Destiny = atol(getenv("UMK3_ARCADE"));
+                    if (strchr(getenv("UMK3_ARCADE"), ','))
+                        Stage = atoi(strchr(getenv("UMK3_ARCADE"), ',') + 1);
+                }
                 CurrentTask = 4;                /* Task_FEDestroy */
                 g_fight_p1 = -1;
             }

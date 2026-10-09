@@ -26,7 +26,7 @@ You need a legally obtained copy of *Ultimate Mortal Kombat 3* for iOS (version 
 
 ---
 
-## Where the project stands — 9 October 2026 (alpha 0.0.4)
+## Where the project stands — 9 October 2026 (alpha 0.0.5)
 
 | | |
 |---|---|
@@ -36,9 +36,9 @@ You need a legally obtained copy of *Ultimate Mortal Kombat 3* for iOS (version 
 | **Fight** | ✅ **Fights play to the end by the real path** (0.0.2): round 1, round 2, the end of the match, `Task_GameDestroy`, Continue and the next fight, with the camera following both fighters and the voices playing. Before that, **the first fight ran by the real path.** After the tower (or straight from the menu with `--fight`, below) the game runs `Task_GameInit` and `Task_GameMain`: the arena draws, both fighters fight with the CPU playing, with the HUD and touch controls, for thousands of frames without a crash ([#54](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/54), [#57](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/57)). |
 | **Playable** | 🔄 **A first fight can be played** from the keyboard (W A S D or arrows; U I O J K L) or the touch controls, with the HUD, the FIGHT overlay and the CPU opponent. Not yet complete: see *Known problems*. The 229 data tables the fight engine reads are extracted from the user's own binary at build time and verified against it ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48)). |
 
-### How to play (alpha 0.0.4, Windows)
+### How to play (alpha 0.0.5, Windows)
 
-**Alpha 0.0.4** ([notes](docs/RELEASE-0.0.4-alpha.md); earlier: [0.0.3](docs/RELEASE-0.0.3-alpha.md), [0.0.2](docs/RELEASE-0.0.2-alpha.md), [0.0.1](docs/RELEASE-0.0.1-alpha.md)):
+**Alpha 0.0.5** ([notes](docs/RELEASE-0.0.5-alpha.md); earlier: [0.0.4](docs/RELEASE-0.0.4-alpha.md), [0.0.3](docs/RELEASE-0.0.3-alpha.md), [0.0.2](docs/RELEASE-0.0.2-alpha.md), [0.0.1](docs/RELEASE-0.0.1-alpha.md)):
 [Releases](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/releases)
 has the launcher and only the sources the build needs, no game data. Its
 known problems are the table below.
@@ -98,9 +98,9 @@ Every session started by double-click writes `logs/umk3-<date>-<time>.log`
 beside the exe: task changes, loading steps and, on a crash, the addresses to
 symbolise. A log is deleted once the error it shows is fixed.
 
-### Known problems (9 October 2026, alpha 0.0.4)
+### Known problems (9 October 2026, alpha 0.0.5)
 
-Release notes: [0.0.4](docs/RELEASE-0.0.4-alpha.md), [0.0.3](docs/RELEASE-0.0.3-alpha.md), [0.0.2](docs/RELEASE-0.0.2-alpha.md), [0.0.1](docs/RELEASE-0.0.1-alpha.md).
+Release notes: [0.0.5](docs/RELEASE-0.0.5-alpha.md), [0.0.4](docs/RELEASE-0.0.4-alpha.md), [0.0.3](docs/RELEASE-0.0.3-alpha.md), [0.0.2](docs/RELEASE-0.0.2-alpha.md), [0.0.1](docs/RELEASE-0.0.1-alpha.md).
 
 What a player sees today, and what is known about each.
 
@@ -140,7 +140,7 @@ What a player sees today, and what is known about each.
 | Random crashes. | Seen by Mary 2026-10-09; logs needed. |
 | ~~Human Smoke cannot be chosen by holding Smoke's portrait.~~ | Works (checked by Mary, 2026-10-09): hold the click on Smoke for three seconds (`drawCharacterSelection`, `SmokeCounter` > 180). |
 | ~~The debug menu's win/lose round can give the round to both fighters.~~ | **Fixed** (2026-10-09): the round keys act only while a round is in play (`dbg_round_live`: no intro, round summary, finisher or pause, both fighters up); pressed during a round's end they ended it again with the other fighter. Win match on the last round leaves the fight, as a won match does. New: *Arcade: next is Motaro / Shao Kahn* (Arcade only). |
-| Shao Kahn's death is not shown at the end of Arcade. | Arcade can be completed and Shao Kahn no longer crashes (checked by Mary, 2026-10-09); his death scene is still to restore. |
+| Shao Kahn's death at the end of Arcade shows an empty arena and its sound repeats. | Arcade can be completed and Shao Kahn no longer crashes (checked by Mary, 2026-10-09). `t_game_finished` now starts (the engine's win tally `H[]`); event 65 plays `SK_ENDING.scene` (loaded, placed at x -2.12) while `RenderLevelPlayers` hides the fighters -- why the scene does not draw, and why the sound repeats, is not found yet. |
 | In a finisher against Reptile, the dizzy opponent walked towards the player instead of standing still. | Seen by Mary 2026-10-09. Not investigated. |
 | One stage (the spiked bridge, against Nightwolf) draws no background. | Seen by Mary 2026-10-09. Not investigated. |
 | The loading screen's Kombat Kode icons are misplaced (two rows; the lower one covers "Loading"). | Seen by Mary 2026-10-09. Not investigated. |
@@ -328,7 +328,7 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 | Native PC platform layer (161 fn to rewrite) | 17% | 27% | `███░░░░░░░` |
 | EA SDK stubs (27 fn the game calls) | 5% | 100% | `██████████` |
 
-**87.59% of the total estimated effort. Alpha 0.0.4 is playable:** whole
+**87.59% of the total estimated effort. Alpha 0.0.5 is playable:** whole
 fights by the real path, with known problems (see above).
 
 **Read that number for what it measures, and for what it leaves out.** It

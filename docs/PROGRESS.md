@@ -4,7 +4,7 @@ Current state of the project. Written so that someone can pick it up with no pri
 
 **Last updated:** 2026-10-09 -- see [HANDOFF.md](HANDOFF.md) for the route.
 
-## Current state (alpha 0.0.4, 2026-10-09)
+## Current state (alpha 0.0.5, 2026-10-09)
 
 - **The game is playable on Windows by the real path.** The retail front
   end, Arcade, the tower, the fight load, both rounds, the end of the
@@ -13,7 +13,7 @@ Current state of the project. Written so that someone can pick it up with no pri
   Releases: [0.0.1](RELEASE-0.0.1-alpha.md), [0.0.2](RELEASE-0.0.2-alpha.md),
   [0.0.3](RELEASE-0.0.3-alpha.md), [0.0.4](RELEASE-0.0.4-alpha.md). The GitHub
   releases of 0.0.1-0.0.3 were deleted on 2026-10-09 when the history was
-  rewritten; 0.0.4 is the only published build.
+  rewritten; 0.0.5 is the current published build ([notes](RELEASE-0.0.5-alpha.md)).
 - **Every function is decompiled** (2,572 of 2,572) and the fight engine is
   behaviourally tested file by file (table below). The figure is
   **87.59%** by the README's weights; `python tools/progress.py` measures it
@@ -27,6 +27,12 @@ Current state of the project. Written so that someone can pick it up with no pri
 - **No pull requests are open** (2026-10-09).
 
 ## Release history
+
+- **0.0.5** (2026-10-09). `DrawButtonNew` UV corner (0x57d8); `areAchievementsViewing`
+  20 slots (0xa02ac); FINISH HIM `TriggerAnim(2)` (0x73f2a); MovesList zig-zag
+  (0x1eed2/0x1efee); achievement banner offsets; debug menu round guard,
+  engine win tally `H[]` and Arcade boss jump. Open: Shao Kahn's death scene
+  draws nothing and its sound repeats (see the README).
 
 - **0.0.4** (2026-10-09). Debug mode and the F2 menu (`runtime/debug_menu.c`);
   `UnLoadSoundList` (0xa7f08); `spotlight_*` tables and `DrawAnimAsSprite`
