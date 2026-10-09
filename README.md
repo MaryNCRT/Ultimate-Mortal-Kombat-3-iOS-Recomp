@@ -36,6 +36,30 @@ You need a legally obtained copy of *Ultimate Mortal Kombat 3* for iOS (version 
 | **Fight** | 🔄 **The first fight runs by the real path.** After the tower (or straight from the menu with `--fight`, below) the game runs `Task_GameInit` and `Task_GameMain`: the arena draws, both fighters fight with the CPU playing, with the HUD and touch controls, for thousands of frames without a crash ([#54](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/54), [#57](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/57)). |
 | **Playable** | 🔄 **A first fight can be played** from the keyboard (W A S D or arrows; U I O J K L) or the touch controls, with the HUD, the FIGHT overlay and the CPU opponent. Not yet complete: see *Known problems*. The 229 data tables the fight engine reads are extracted from the user's own binary at build time and verified against it ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48)). |
 
+### How to play (alpha 0.0.1, Windows)
+
+**Alpha 0.0.1 is out:** [Releases](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/releases)
+has `UMK3-PC-0.0.1-alpha.zip` -- the launcher and only the sources the build
+needs, no game data. Its known problems are the table below. Work continues
+as 0.0.2.
+
+1. Download this repository (or the alpha release) and keep the folder together.
+2. Run **`UMK3-Launcher.exe`** (in a release; from source, build the
+   `umk3-launcher` target). Choose your own `.ipa` of UMK3 1.2.59 for iPhone
+   and press **Compilar**. The launcher downloads a pinned compiler
+   (llvm-mingw 20260616, SHA-256 checked) and Python 3.12.10 embeddable into
+   `toolchain\`, checks the binary (uuid `90d6f56a…`, not encrypted), extracts
+   the data tables from it, compiles `umk3-game.exe` and copies `res\` out of
+   the `.ipa`. About half a minute after the first download.
+3. Pick the 3D resolution (480×320 up to 3840×2560), fullscreen and language;
+   they are saved to `umk3.ini` the moment they change. Press **JUGAR**.
+
+**Golden rule: the game depends only on its own folder.** `umk3-game.exe`
+reads `res\` beside itself and nothing outside it (no `../` lookups, no
+junctions; `Info.plist` is copied into `res\`). No game data and no game
+executable are distributed: the exe only exists after the player's own
+`.ipa` has been compiled. Build scripts: [`launcher/`](launcher/).
+
 ### Debug: straight into a fight
 
 ```
@@ -44,7 +68,7 @@ umk3-game.exe --fight kitana kunglao 0
 
 skips the menus: two fighters by name (as in the select screen, case and
 spaces ignored) or number 0-25, and an arena 0-15. `UMK3_FIGHT=kitana,kunglao,0`
-does the same. The game folder carries `pelea-rapida.bat` for a double-click.
+does the same.
 
 Every session started by double-click writes `logs/umk3-<date>-<time>.log`
 beside the exe: task changes, loading steps and, on a crash, the addresses to
@@ -63,6 +87,8 @@ What a player sees today, and what is known about each.
 | **Sometimes every fighter in the tower is Jade.** | Probably the tower ladder (`OpponentTowerList`, built by `PopulateTower`): a `--fight` without `Character2Override` loaded Jade. Not investigated further. |
 | **The tower's descent animation does not display correctly.** | Not investigated. |
 | **The arena is always the same in Arcade.** | The original picks it at random; that path is not wired yet. |
+| **Windows only for the launcher.** | Linux/macOS still build from source with CMake. |
+| **Only the iPhone 1.2.59 .ipa works.** | The launcher refuses any other binary (uuid check); the iPad 1.2.56 build has different addresses. |
 
 Fixed on 8 October, each against the armv7 binary: the black arena and the
 crash before the fight (scene loader, scene renderer, events module); hats

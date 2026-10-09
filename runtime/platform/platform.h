@@ -20,6 +20,10 @@
 /* Open a window with a GL context current on it. Returns false on failure. */
 bool plat_open(const char *title, int width, int height);
 
+/* Cover the whole monitor the window is on, without a border. The launcher's
+ * "pantalla completa" setting (umk3.ini). */
+void plat_fullscreen(void);
+
 /* Pump the OS event queue. Returns false once the user has asked to quit. */
 bool plat_poll(void);
 

@@ -12,6 +12,34 @@ Read this, then [METHODOLOGY.md](METHODOLOGY.md). Everything else is reference.
 
 ---
 
+## Alpha 0.0.1: the launcher (2026-10-08, night)
+
+- **Golden rule (user): the port works only from its own folder.** Assets
+  resolve inside `res\` only (`runtime/lime_platform.c` `resolve()`, no
+  `../` fallback; `draw_gl.c` no longer tries `../`; `Info.plist` is read from
+  `res\Info.plist`). The junction `GAME
+es -> EXTRACTED` is obsolete.
+- **`UMK3-Launcher.exe`** (`launcher/launcher.c`, CMake target
+  `umk3-launcher`): .ipa picker + **Compilar**, 3D resolution, fullscreen,
+  language, **JUGAR**. Settings saved to `umk3.ini` on every change.
+- **`launcher/build_game.ps1`**: downloads llvm-mingw 20260616 (x86_64 host,
+  SHA-256 pinned) and Python 3.12.10 embeddable (MD5 pinned) into
+  `toolchain\`, checks the binary with `launcher/check_binary.py` (uuid
+  `90d6f56a18e2303f8f2053b02a42742e`, cryptid 0; the iPad 1.2.56 .ipa is
+  refused), runs the three table generators, compiles the same sources as
+  the CMake `umk3-game` target (keep them in step) with `-mwindows`, then
+  `launcher/setup_res.ps1` copies `res\` + `Info.plist` out of the .ipa.
+  Verified end to end in a clean `git archive` folder: 32 s after download.
+- `umk3-game` reads `umk3.ini` (`width`, `height`, `fullscreen`, `language`),
+  letterboxes to 3:2 (`fit_view`; touch mapped through it), and shows a
+  message box pointing at the launcher when `res\Info.plist` is missing.
+- Released as GitHub Release `v0.0.1-alpha` (`UMK3-PC-0.0.1-alpha.zip`,
+  made by `python launcher/make_release.py <UMK3-Launcher.exe> <out> --zip`;
+  verified by building from the extracted zip in a clean folder). Next: 0.0.2.
+- Open: `runtime/gamecode_globals.c` still carries tables read out of the binary
+  (232 initialisers, e.g. `Level_Info`), which the "no game data" claim does
+  not yet cover.
+
 ## Where the project actually stands (2026-10-08)
 
 **Re-run `python tools/progress.py` before trusting a number here.**

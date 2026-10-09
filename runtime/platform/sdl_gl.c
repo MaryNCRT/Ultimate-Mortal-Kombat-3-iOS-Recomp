@@ -91,6 +91,11 @@ bool plat_focused(void)
     return g_focused;
 }
 
+void plat_fullscreen(void)
+{
+    SDL_SetWindowFullscreen(g_wnd, SDL_WINDOW_FULLSCREEN_DESKTOP);
+}
+
 bool plat_poll(void)
 {
     SDL_Event ev;
