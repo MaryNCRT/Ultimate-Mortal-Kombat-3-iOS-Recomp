@@ -77,9 +77,22 @@ skips the menus: two fighters by name (as in the select screen, case and
 spaces ignored) or number 0-25, and an arena 0-15. `UMK3_FIGHT=kitana,kunglao,0`
 does the same.
 
-**Test keys:** with `debug_keys=1` in `umk3.ini`, F9 / F10 end the round
-(KO player 2 / player 1) and F11 / F12 win / lose the whole match. Off by
-default.
+**Debug mode:** tick *Debug mode (F2 menu)* in the launcher (it writes
+`debug_keys=1` to `umk3.ini`; off by default). Then, in the game:
+
+| key | does |
+|---|---|
+| **F2** | the debug menu, drawn over the frozen game: any fight (both fighters, Motaro and Shao Kahn included, any stage), any of the front end's 51 screens, the main menu, win/lose the round or the match, the direct keys on/off, the info line |
+| F3 | the info line: task, screen, fighters, rounds |
+| F6 / F7 | previous / next front-end screen |
+| F8 | main menu |
+| F9 / F10 | end the round (KO player 2 / player 1) |
+| F11 / F12 | win / lose the whole match (F11 skips the fight) |
+
+F3 and F6-F12 are the *direct keys*; the F2 menu turns them off and on. A
+fight or screen picked while the game is still loading starts once the main
+menu is up. For scripts: `--screen <n|name>` (or `UMK3_SCREEN`) opens one
+screen at start, `UMK3_DBG_OPEN=<tick>` opens the menu.
 
 Every session started by double-click writes `logs/umk3-<date>-<time>.log`
 beside the exe: task changes, loading steps and, on a crash, the addresses to
@@ -105,7 +118,8 @@ What a player sees today, and what is known about each.
 | **Sometimes every fighter in the tower is Jade; the tower animation is wrong.** | **Fixed for 0.0.3** (checked in game by Mary, 2026-10-08). `Load_Tower` (0x23314) wrote the saved ladder into a `TowerData` table nothing read; the binary writes `OpponentTowerList` (0x14fcb4) itself, so every rung kept the image default, 16 (Jade). `FE_Task_Tower` (0x8310): states 2 and 4 bias x by `Destiny`, not `Stage`; state 2 fades into the fight once settled (0x8c56); state 4 fades after 360 units (0x8f6e); the climb entry snaps the camera and sets `MoveUpTower = JustWon ? 0 : 1` (0x8d98); survival picks `TowerRand[abs(rand) % 22]` and the boss rungs force their arenas (0x932e). |
 | **The arena is always the same in Arcade.** | Except the two boss rungs (0.0.3). `GetNextLevel` is called on each hand-over; why it repeats is not investigated. |
 | **Reported by Mary after 0.0.3 (2026-10-09), not investigated yet:** | |
-| Audio stops working properly after two fights in a row. | Not investigated. |
+| ~~Audio stops working properly after two fights in a row~~ (Arcade). | **Fixed** (checked by Mary, 2026-10-09). `UnLoadSoundList` (0xa7f08) searches `SoundListUniqueHandle` (0x38b8b0, the table `LoadSoundList` fills); the transcription read a `SoundListUniqueIds` that is not in the binary, so no fight sound was ever deleted and limeLoadSound's 512 slots were full after about two fights. Voices still playing a deleted sound are now stopped first (`plat_audio_stop_pcm`). |
+| The Motaro fight has audio problems. | Seen by Mary 2026-10-09; being investigated. |
 | Some special attacks have no sound, projectiles especially. | Not investigated. |
 | Texture errors remain on some stages and in some modes; the menu has texture errors too. | Not investigated stage by stage. |
 | Some menu sections crash. | The session logs of 2026-10-08 stop dead on entering `FE_Task_Treasure` (18, twice) and `FE_Task_Stats` (15) -- likely two of them. Not investigated. |
@@ -113,7 +127,12 @@ What a player sees today, and what is known about each.
 | The winner's name ("X WINS") is still not shown. | Seen by Mary after 0.0.3, so the `usprintf` fix was not the whole cause. |
 | The menu is not complete (target: 100%), and some modes are missing. | Not inventoried yet. |
 | The game's ads open in separate windows, which forces leaving fullscreen. | Wanted: show them in windows drawn inside the game, in the same executable. |
-| Debug mode should be switched on from the launcher (a checkbox), with a key that skips a whole fight (both rounds) and a way to jump to any screen or menu section. | Today: `debug_keys=1` in umk3.ini, F9-F12 end a round or win/lose the match. |
+| **Reported by Mary 2026-10-09, after the debug menu:** | |
+| Shao Kahn's death is not shown at the end of Arcade. | Not investigated. |
+| The end of Arcade does not go on to the unlockables screen. | Not investigated. |
+| Achievements draw wrong, with overlapping text. | Not investigated. |
+| The icons on the loading screen are misplaced. | Not investigated. |
+| The moves list ("i") icons are still misplaced. | Not investigated. |
 | **Windows only for the launcher.** | Linux/macOS still build from source with CMake. |
 | **Only the iPhone 1.2.59 .ipa works.** | The launcher refuses any other binary (uuid check); the iPad 1.2.56 build has different addresses. |
 

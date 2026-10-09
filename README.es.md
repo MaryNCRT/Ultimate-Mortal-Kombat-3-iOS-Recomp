@@ -71,9 +71,21 @@ pausa (otra vez: continuar) y **M** la lista de movimientos. Esc ya no cierra
 el juego. El ratón es el dedo. Las teclas del jugador 1 se cambian en el
 launcher, en «3. Controles del jugador 1» (se guardan en `umk3.ini`).
 
-**Teclas de prueba:** con `debug_keys=1` en `umk3.ini`, F9 / F10 terminan el
-round (KO del jugador 2 / del jugador 1) y F11 / F12 ganan / pierden la pelea
-entera. Para pruebas; apagadas por defecto.
+**Modo debug:** marca *Modo debug (menú con F2)* en el launcher (escribe
+`debug_keys=1` en `umk3.ini`; apagado por defecto). Luego, en el juego:
+
+| tecla | hace |
+|---|---|
+| **F2** | el menú debug, dibujado sobre el juego congelado: cualquier pelea (los dos luchadores, Motaro y Shao Kahn incluidos, cualquier escenario), cualquiera de las 51 pantallas del menú, el menú principal, ganar/perder el round o la pelea, teclas directas sí/no, la línea de info |
+| F3 | la línea de info: tarea, pantalla, luchadores, rounds |
+| F6 / F7 | pantalla anterior / siguiente del menú |
+| F8 | menú principal |
+| F9 / F10 | terminar el round (KO del jugador 2 / del 1) |
+| F11 / F12 | ganar / perder la pelea entera (F11 salta la pelea) |
+
+F3 y F6-F12 son las *teclas directas*; el menú F2 las apaga y enciende. Una
+pelea o pantalla elegida mientras el juego carga empieza en cuanto sale el
+menú principal.
 
 **Directo a una pelea:** `umk3-game.exe --fight kitana kunglao 0` (dos
 luchadores por nombre o número 0-25 y un escenario 0-15).
@@ -113,8 +125,8 @@ Cada arreglo se leyó del binario armv7 original y Mary lo comprobó en el juego
 
 **Anotado por Mary después de la 0.0.3 (9 de octubre), sin investigar todavía:**
 
-1. El modo debug (saltar peleas, ganarlas o perderlas) debe activarse o desactivarse con una casilla en el launcher; además, una tecla para saltar una pelea entera con sus dos rounds, y poder saltar a cualquier pantalla o parte del menú.
-2. Después de dos peleas seguidas el audio deja de funcionar bien.
+1. ~~Modo debug desde el launcher~~ -- hecho: casilla en el launcher y menú F2 (ver *Modo debug* arriba).
+2. ~~Después de dos peleas seguidas el audio deja de funcionar bien~~ -- arreglado (Arcade): `UnLoadSoundList` buscaba en una tabla que no existe en el binario y nunca borraba los sonidos. Queda: el audio de la pelea con Motaro.
 3. Siguen los errores de texturas en ciertos mapas y modos.
 4. Errores de texturas en el menú y secciones que crashean. Los logs del 8 de octubre se cortan al entrar en `FE_Task_Treasure` (dos veces) y `FE_Task_Stats`: probablemente dos de ellas.
 5. Shao Kahn podría estar provocando crashes.
@@ -124,6 +136,14 @@ Cada arreglo se leyó del binario armv7 original y Mary lo comprobó en el juego
 9. Terminar el menú al 100 %.
 10. Revisar el estado de los jefes y corregir sus errores.
 11. Arreglar los modos que faltan.
+
+**Anotado por Mary el 9 de octubre, con el menú debug:**
+
+12. No se ve la muerte de Shao Kahn al terminar el Arcade.
+13. Al terminar el Arcade no lleva a la pantalla de desbloqueables.
+14. Los logros salen mal, con texto superpuesto.
+15. En la pantalla de carga los iconos están mal puestos.
+16. En la lista de combos los iconos siguen mal puestos.
 
 - El launcher es solo para Windows (Linux/macOS: compilar desde el código con CMake).
 

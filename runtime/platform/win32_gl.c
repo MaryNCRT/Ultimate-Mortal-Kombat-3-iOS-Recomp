@@ -207,7 +207,8 @@ static int g_vk[PK_COUNT] = {
     VK_F3,                              /* leave the scene */
     VK_F2,                              /* enter the test mode */
     VK_F9, VK_F10, VK_F11, VK_F12,      /* fight debug: KO p2/p1, win/lose */
-    'P', 'M'                            /* the pause menu, the moves list */
+    'P', 'M',                           /* the pause menu, the moves list */
+    VK_F6, VK_F7, VK_F8                 /* debug: screen back/next, main menu */
 };
 
 void plat_bind_key(int code, int key)

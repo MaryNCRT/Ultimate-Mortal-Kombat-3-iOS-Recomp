@@ -538,7 +538,6 @@ extern void *SmokeStarFieldTexture;
 extern long SnapCam;
 extern long SoundListUniqueCounter;
 extern long SoundListUniqueHandle[2048 / sizeof(long)];
-extern long SoundListUniqueIds[UNSIZED_BYTES / sizeof(long)];
 extern char SoundListUniqueNames[16384 / sizeof(char)];
 extern float SpearEndPos[2][3];
 extern float SpearStartPos[2][3];
@@ -19033,7 +19032,6 @@ void *SmokeStarFieldTexture;  /* 0x001ab668 */
 long SnapCam;  /* 0x00150e90 */
 long SoundListUniqueCounter;  /* 0x0017b3b0 */
 long SoundListUniqueHandle[2048 / sizeof(long)];
-long SoundListUniqueIds[UNSIZED_BYTES / sizeof(long)];  /* the ids, one word each */
 char SoundListUniqueNames[16384 / sizeof(char)];  /* 0x003878b0, stride 32 */
 float SpearEndPos[2][3];  /* 0x001ab624 */
 float SpearStartPos[2][3];  /* 0x001ab63c */

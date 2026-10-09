@@ -494,8 +494,12 @@ long limeLoadSound(const char *name)
     for (i = 0; i < LIME_SOUNDS; i++)
         if (!g_sound[i].pcm)
             break;
-    if (i == LIME_SOUNDS)
+    if (i == LIME_SOUNDS) {
+        /* On device too; said here because it is silent otherwise. */
+        printf("limeLoadSound: all %d slots taken, %s not loaded\n",
+               LIME_SOUNDS, name);
         return -1;
+    }
 
     snprintf(rel, sizeof rel, "res/audio/%s.wav", name);
     lime_platform_resolve(rel, full, sizeof full);
@@ -508,6 +512,7 @@ void limeDeleteSound(long h)
 {
     if (h < 0 || h >= LIME_SOUNDS)
         return;
+    plat_audio_stop_pcm(g_sound[h].pcm);   /* a voice may still be on it */
     free(g_sound[h].pcm);
     g_sound[h].pcm = NULL;
 }

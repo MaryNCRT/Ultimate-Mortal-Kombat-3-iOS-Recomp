@@ -178,6 +178,19 @@ int plat_audio_play_at(const unsigned char *pcm, int frames, int rate, float gai
     return 0;
 }
 
+/* The voices play straight from the caller's buffer, so one still sounding
+ * when its sound is deleted -- the announcer at the end of a fight, say --
+ * would go on reading freed memory. Everything runs on the main thread (no
+ * callback), so clearing the voice here is enough. */
+void plat_audio_stop_pcm(const unsigned char *pcm)
+{
+    int i;
+
+    for (i = 0; i < VOICES; i++)
+        if (g_voice[i].active && g_voice[i].pcm == pcm)
+            g_voice[i].active = 0;
+}
+
 /* The old spelling, for callers whose source really is the device rate. */
 int plat_audio_play(const unsigned char *pcm, int frames, float gain)
 {

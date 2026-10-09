@@ -335,6 +335,7 @@ if(UMK3_BINARY)
         file(GLOB UMK3_GAME_RUNLIME  ${CMAKE_SOURCE_DIR}/runtime/lime/*.c)
         add_executable(umk3-game
             runtime/game_main.c
+            runtime/debug_menu.c
             runtime/draw_gl.c
             runtime/gamecode_globals.c
             runtime/gamecode_stubs.c

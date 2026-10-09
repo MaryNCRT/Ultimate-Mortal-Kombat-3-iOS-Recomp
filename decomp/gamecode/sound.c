@@ -143,7 +143,7 @@ long get_gsound(long group, long variant, long seed)
 #define SOUND_UNIQUE_NAME_STRIDE 32
 
 extern long  SoundListUniqueCounter;    /* 0x0017b3b0 */
-extern long  SoundListUniqueIds[];      /* the ids, one word each */
+extern long  SoundListUniqueHandle[];   /* 0x0038b8b0, one word each */
 extern char  SoundListUniqueNames[];    /* 0x003878b0, stride 32 */
 void limeDeleteSound(long id);
 
@@ -155,13 +155,22 @@ void limeDeleteSound(long id);
  *      for each entry until name == "end_of_list":
  *          if (entry->id != -1) {
  *              for (i = 0; i < SoundListUniqueCounter; i++)
- *                  if (SoundListUniqueIds[i] == entry->id) {
+ *                  if (SoundListUniqueHandle[i] == entry->id) {
  *                      limeDeleteSound(entry->id)
  *                      SoundListUniqueNames[i * 32] = 0
- *                      SoundListUniqueIds[i] = -1
+ *                      SoundListUniqueHandle[i] = -1
  *                  }
  *              entry->id = -1
  *          }
+ *
+ * **The table is `_SoundListUniqueHandle`, the one LoadSoundList fills**:
+ * 0xa7f5c-0xa7f60 build its address as 0x2e394e + pc (0xa7f62) = 0x0038b8b0.
+ * This used to read a `SoundListUniqueIds` that is not in the symbol table
+ * and that nothing wrote, so no match was ever found and no fight sound was
+ * ever deleted: every fight leaked its whole set into limeLoadSound's 512
+ * slots, the table was full after about two fights, and from then on the
+ * sounds loaded for the next fight came back -1 -- silent. Mary, 2026-10-09:
+ * "after two fights in a row the audio stops working properly".
  *
  * **The list ends on a STRING, not a null pointer**: every entry's name is
  * strcmp'd against "end_of_list". So a sound list is terminated by a sentinel
@@ -185,22 +194,18 @@ void UnLoadSoundList(SOUNDENTRY *list)
             continue;
 
         for (i = 0; i < SoundListUniqueCounter; i++) {
-            if (SoundListUniqueIds[i] != list->id)
+            if (SoundListUniqueHandle[i] != list->id)
                 continue;
 
             limeDeleteSound(list->id);
             SoundListUniqueNames[i * SOUND_UNIQUE_NAME_STRIDE] = 0;
-            SoundListUniqueIds[i] = -1;
+            SoundListUniqueHandle[i] = -1;
             /* no break: the original keeps scanning */
         }
         list->id = -1;
     }
 }
 
-
-/* `_SoundListUniqueHandle` -- 0x0038b8b0, one word each. The names table and
- * its 32-byte stride are already declared above. */
-extern long  SoundListUniqueHandle[];
 
 long limeLoadSound(const char *name);
 int  strcmp(const char *a, const char *b);

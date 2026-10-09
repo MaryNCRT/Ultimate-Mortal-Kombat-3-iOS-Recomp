@@ -55,8 +55,15 @@ CONTROLES
     M ......................... lista de movimientos / combos
 - Esc ya NO cierra el juego (cierralo con la X de la ventana).
 
-- Pruebas: con debug_keys=1 en umk3.ini, F9 / F10 terminan el round
-  (KO del jugador 2 / del jugador 1) y F11 / F12 ganan / pierden la pelea.
+- Modo debug: marca "Modo debug (menu con F2)" en el launcher. En el juego:
+    F2         menu debug: cualquier pelea (jefes incluidos) y escenario,
+               cualquier pantalla del menu, ganar/perder round o pelea,
+               teclas directas si/no, linea de info
+    F3         linea de info (tarea, pantalla, luchadores, rounds)
+    F6 / F7    pantalla anterior / siguiente      F8  menu principal
+    F9 / F10   terminar el round (KO jugador 2 / jugador 1)
+    F11 / F12  ganar / perder la pelea entera (F11 la salta)
+  F3 y F6-F12 son las teclas directas; el menu F2 las apaga.
 
 ARREGLADO EN 0.0.3
 - La torre muestra la escalera real: cada peldano con su rival (antes
@@ -110,8 +117,8 @@ every page, the HUD "i" and pause buttons are back. New in 0.0.2: fights play to
 end (round 2, Continue, next fight), the camera follows both fighters,
 voices and sounds, no more black fighters, Sindel's hair, the on-screen
 joystick moves. Known problems: the menus are incomplete and some menu
-sections crash; several texture errors remain. Test keys: debug_keys=1 in umk3.ini -> F9/F10 end the round,
-F11/F12 win/lose the match.
+sections crash; several texture errors remain. Debug mode: tick it in the launcher; F2 opens the in-game debug menu
+(any fight, bosses included, any screen), F3/F6-F12 are direct keys.
 
 Ultimate Mortal Kombat 3 is (c) Electronic Arts / Midway / Warner Bros.
 This project is not affiliated with them. Use only a copy you own.

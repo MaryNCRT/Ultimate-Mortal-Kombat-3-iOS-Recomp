@@ -104,6 +104,13 @@ void plat_audio_close(void)
     g_open = 0;
 }
 
+/* Each voice plays its own converted copy, so a caller freeing `pcm` is safe
+ * already; nothing to do. */
+void plat_audio_stop_pcm(const unsigned char *pcm)
+{
+    (void)pcm;
+}
+
 int plat_audio_play_at(const unsigned char *pcm, int frames, int rate, float gain)
 {
     SDL_AudioCVT cvt;

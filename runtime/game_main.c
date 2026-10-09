@@ -36,6 +36,8 @@
  *                     coordinates (480x320), each a press held for 3 ticks;
  *                     the mouse is ignored while a script runs
  *   UMK3_LOG_TASKS=1  print every change of CurrentTask and FE_CurrentTask
+ *   UMK3_SCREEN=<n|name>  open that front-end screen once the menu is up
+ *   UMK3_DBG_OPEN=<n> open the debug menu at tick n (with debug_keys)
  *
  * Keyboard, player 1, during a fight (runtime/platform's defaults):
  *   W A S D or the arrows   the joystick
@@ -67,6 +69,7 @@
 
 #include "platform/platform.h"
 #include "platform/gl.h"
+#include "debug_menu.h"
 
 #define VIRT_W 480
 #define VIRT_H 320
@@ -425,17 +428,11 @@ static void hud_keys(void)
     }
 }
 
-static void debug_keys(void)
+static void fight_key(int k)
 {
-    static int was[4];
-    int k;
-
-    for (k = 0; k < 4; k++) {
-        int down = plat_key(PK_DBG_KO_P2 + k);
-        int hit = down && !was[k];
-        was[k] = down;
-        if (!hit || CurrentTask != 6 || G == NULL)
-            continue;
+    {
+        if (CurrentTask != 6 || G == NULL)
+            return;
         if (k >= 2 && WinsNeeded > 0)                   /* F11 / F12 */
             RoundWins[k - 2] = WinsNeeded - 1;
         *(unsigned int *)((char *)G + ((k & 1) ? 0x368 : 0x36c)) = 0;
@@ -446,6 +443,127 @@ static void debug_keys(void)
         printf("debug key F%d: %s\n", 9 + k,
                k == 0 ? "KO player 2" : k == 1 ? "KO player 1"
              : k == 2 ? "win the match" : "lose the match");
+    }
+}
+
+static void debug_keys(void)
+{
+    static int was[4];
+    int k;
+
+    for (k = 0; k < 4; k++) {
+        int down = plat_key(PK_DBG_KO_P2 + k);
+        if (down && !was[k])
+            fight_key(k);
+        was[k] = down;
+    }
+}
+
+/* Debug mode (debug_keys=1, the launcher's "Debug mode" box):
+ *
+ *     F2   the debug menu, drawn over the game (runtime/debug_menu.c):
+ *          any fight -- both fighters, Motaro and Shao Kahn included, and
+ *          the stage -- any of the front end's 51 screens, the main menu,
+ *          and the four fight keys above
+ *     F3   the info line: task, front-end screen, fighters, rounds
+ *     F6   previous screen     F7   next screen     F8   main menu
+ *     F9..F12  as above (F11 wins the match: the whole fight skipped)
+ * The menu's DIRECT KEYS row turns F3 and F6..F12 off and on; F2 stays.
+ *
+ * A screen is opened with the game's own PushFETaskDeferred -- the fade, the
+ * push, then FE_Special_Inits -- so Back leaves it the normal way. A screen
+ * that needs state its menu would have set first (the tower, the VS screen,
+ * the summaries) may not draw right; that is the point of looking. From a
+ * fight, a screen or a new fight goes through the fight's own exit, the way
+ * QuitAsLose's mode 5 does it (0x269d0): FE_TaskStackPointer = 0, the screen
+ * in FE_CurrentTask, a fade out, and Task_GameMain's fade end hands over to
+ * Task_GameDestroy. --screen <n|name> (or UMK3_SCREEN) opens one screen once
+ * at start. */
+extern const char *FETaskNames[DBG_SCREENS];
+extern int   PendingPush, FE_TaskStackPointer;
+extern float FE_FadeAdd;
+extern long  DontQuitAfterFade;
+void PushFETaskDeferred(int task);
+
+static int g_screen_jump = -1;          /* --screen: the screen to open */
+
+static int parse_screen(const char *s)
+{
+    int i;
+
+    if (s[0] >= '0' && s[0] <= '9')
+        return atoi(s) < DBG_SCREENS ? atoi(s) : -1;
+    for (i = 0; i < DBG_SCREENS; i++)   /* "treasure" -> FE_Task_Treasure */
+        if (_stricmp(FETaskNames[i] + 8, s) == 0
+            || _stricmp(FETaskNames[i], s) == 0)
+            return i;
+    return -1;
+}
+
+/* Out of the fight to front-end screen `task`. */
+static void leave_fight(int task)
+{
+    FE_TaskStackPointer = 0;
+    FE_CurrentTask = task;
+    GamePaused = 0;
+    DontQuitAfterFade = 0;
+    FE_FadeAdd = -0.033333335f;
+}
+
+static void jump_screen(int task)
+{
+    printf("debug: screen %d %s\n", task, FETaskNames[task]);
+    if (CurrentTask == 6)
+        leave_fight(task);
+    else if (CurrentTask == 3)
+        PushFETaskDeferred(task);
+    else
+        g_screen_jump = task;           /* still loading: once the menu is up */
+}
+
+static void screen_keys(void)
+{
+    static int was[3];
+    int k;
+
+    for (k = 0; k < 3; k++) {
+        int down = plat_key(PK_DBG_SCR_PREV + k);
+        int hit = down && !was[k];
+        int t = FE_CurrentTask;
+
+        was[k] = down;
+        if (!hit || CurrentTask != 3 || PendingPush)
+            continue;
+        if (k == 0)
+            t = (t + DBG_SCREENS - 1) % DBG_SCREENS;
+        else if (k == 1)
+            t = (t + 1) % DBG_SCREENS;
+        else
+            t = 0;
+        jump_screen(t);
+    }
+}
+
+static void debug_request(const struct dbg_request *rq)
+{
+    switch (rq->what) {
+    case DBG_FIGHT:
+        g_fight_p1 = rq->a;
+        g_fight_p2 = rq->b;
+        g_fight_stage = rq->c;
+        printf("debug: fight %s vs %s, stage %d\n",
+               CharacterNames[rq->a], CharacterNames[rq->b], rq->c);
+        /* Started by the --fight code once the front end has been up for
+         * half a second -- so a pick made while loading just waits. */
+        if (CurrentTask == 6)
+            leave_fight(0);
+        break;
+    case DBG_SCREEN:
+        jump_screen(rq->a);
+        break;
+    case DBG_FIGHT_KEY:
+        fight_key(rq->a);
+        break;
     }
 }
 
@@ -519,6 +637,8 @@ int main(int argc, char **argv)
 #endif
     if (getenv("UMK3_DEBUG_KEYS"))
         g_cfg_debug_keys = 1;
+    if (getenv("UMK3_SCREEN"))
+        g_screen_jump = parse_screen(getenv("UMK3_SCREEN"));
     parse_taps(getenv("UMK3_TAPS"));
     {
         int i;
@@ -528,6 +648,9 @@ int main(int argc, char **argv)
                             i + 3 < argc ? argv[i + 3] : NULL);
                 break;
             }
+        for (i = 1; i + 1 < argc; i++)
+            if (strcmp(argv[i], "--screen") == 0)
+                g_screen_jump = parse_screen(argv[i + 1]);
         if (g_fight_p1 < 0 && getenv("UMK3_FIGHT")) {
             char buf[128], *a, *b, *c;
             snprintf(buf, sizeof buf, "%s", getenv("UMK3_FIGHT"));
@@ -598,7 +721,7 @@ int main(int argc, char **argv)
         /* The mouse as one finger, on its edges; see runtime/menu_main.c. */
         /* A scripted run is the script's alone: a click on the window
          * would be a second finger nobody asked for. */
-        down = plat_mouse(&mx, &my) && g_ntaps == 0;
+        down = plat_mouse(&mx, &my) && g_ntaps == 0 && !dbg_menu_is_open();
         {
             static float prev_tx = -1.0f, prev_ty = -1.0f;
             float tx = (float)(mx - vx) * VIRT_W / (vw ? vw : 1);
@@ -620,6 +743,33 @@ int main(int argc, char **argv)
         while (acc >= 1.0 / 60.0) {
             int i;
 
+            if (g_cfg_debug_keys && getenv("UMK3_DBG_OPEN")
+                && ticks == atol(getenv("UMK3_DBG_OPEN")))
+                dbg_menu_toggle();      /* a test opens the menu by script */
+            if (g_cfg_debug_keys) {
+                static int was_f2, was_f3;
+                int f2 = plat_key(PK_TEST), f3 = plat_key(PK_BACK);
+                if (f2 && !was_f2)
+                    dbg_menu_toggle();
+                if (f3 && !was_f3 && dbg_keys_on())
+                    dbg_info_toggle();
+                was_f2 = f2;
+                was_f3 = f3;
+            }
+            if (dbg_menu_is_open()) {
+                struct dbg_request rq;
+
+                glViewport(vx, vy, vw, vh);
+                glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+                if (dbg_menu_tick(&rq))
+                    debug_request(&rq);
+                dbg_menu_draw();
+                acc -= 1.0 / 60.0;
+                ticks++;                /* the clock UMK3_SHOT counts */
+                continue;               /* the game does not tick */
+            }
+
             /* Scripted taps: press on the tick, release three later. */
             for (i = 0; i < g_ntaps; i++) {
                 if (g_taps[i].tick == ticks)
@@ -636,9 +786,26 @@ int main(int argc, char **argv)
             lime_menu_advance_clock(1.0 / 60.0);
             keyboard_touches();
             hud_keys();
-            if (g_cfg_debug_keys)
+            if (g_cfg_debug_keys && dbg_keys_on()) {
                 debug_keys();
+                screen_keys();
+            }
             GameCodeMain();
+            if (g_cfg_debug_keys) {
+                if (dbg_info_on()) {
+                    char line[96];
+                    snprintf(line, sizeof line,
+                             "TASK %d  SCREEN %d %s  P1 %s  P2 %s  ROUNDS %ld-%ld",
+                             CurrentTask, FE_CurrentTask,
+                             FE_CurrentTask >= 0 && FE_CurrentTask < DBG_SCREENS
+                                 ? FETaskNames[FE_CurrentTask] + 8 : "?",
+                             CharacterNames[PLAYER1MODEL % 26],
+                             CharacterNames[PLAYER2MODEL % 26],
+                             RoundWins[0], RoundWins[1]);
+                    dbg_info_draw(line);
+                }
+                dbg_menu_after_frame(vx, vy, vw, vh, CurrentTask, FE_CurrentTask);
+            }
 
             /* --fight: once the main menu is up, do what the select screen
              * and the tower would, and leave the front end. */
@@ -659,6 +826,14 @@ int main(int argc, char **argv)
                 g_fight_p1 = -1;
             }
         no_fight_yet:
+            {
+                static long in_menu;
+                in_menu = (CurrentTask == 3) ? in_menu + 1 : 0;
+                if (g_screen_jump >= 0 && in_menu > 30 && !PendingPush) {
+                    jump_screen(g_screen_jump);
+                    g_screen_jump = -1;
+                }
+            }
 
             if (log_tasks && (CurrentTask != last_task
                               || FE_CurrentTask != last_fe)) {
