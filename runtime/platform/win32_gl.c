@@ -206,7 +206,8 @@ static const int g_vk[PK_COUNT] = {
     VK_F5,                              /* reset the scene */
     VK_F1, VK_RETURN, VK_RIGHT, VK_LEFT, /* the debug selector */
     VK_F3,                              /* leave the scene */
-    VK_F2                               /* enter the test mode */
+    VK_F2,                              /* enter the test mode */
+    VK_F9, VK_F10, VK_F11, VK_F12       /* fight debug: KO p2/p1, win/lose */
 };
 
 int plat_key(int code)

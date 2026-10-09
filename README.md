@@ -85,7 +85,8 @@ What a player sees today, and what is known about each.
 
 | Symptom | What is known |
 |---|---|
-| **No fight gets past round 1.** | The game softlocks when the first round ends (user report, alpha 0.0.1). Not investigated. |
+| **No fight gets past round 1.** | **Fixed for 0.0.2** (checked in game by Mary, 2026-10-08): round 2, the end of the match, Continue and the next fight all work. Five causes, each against armv7: `RoundSummaryUpdate` returned early on `WinnerMessage`/`IsInFinishing` (the binary keeps the timer running, 0x29a64/0x2a2d6); the fade-in after the summary went to `InfoScaleAdd` instead of `FE_FadeAdd` (0x2abaa); `GetScenePointingTo` returned the last node instead of NULL, so `Task_GameDestroy` turned the scene list into a ring and hung (0x5ef4c; `LIME_FreeScene` rewritten from 0x5efe0); `MeshSetLayers` was never initialised, so stage 1 crashed on load; `WinnerMessage` was 2 bytes, not 128. |
+| **The winner text ("X WINS") does not show.** | The announcer says it; the banner is not drawn. Seen by Mary 2026-10-08, not investigated. |
 | **The game crashes easily.** | User report, alpha 0.0.1; `logs/` beside the exe has the addresses. Not investigated as a whole. |
 | **Several texture errors.** | User report, alpha 0.0.1 (Sindel's hair below is one). Not investigated as a whole. |
 | **The camera angles in the fight look wrong.** | Not investigated yet (next). |

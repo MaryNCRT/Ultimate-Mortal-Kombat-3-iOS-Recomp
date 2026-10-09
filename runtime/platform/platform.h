@@ -80,6 +80,8 @@ enum {
     PK_RESET,
     /* the debug selector's own keys, kept apart from the fight's */
     PK_MENU, PK_OK, PK_NEXT, PK_PREV, PK_BACK, PK_TEST,
+    /* fight debug keys (umk3.ini debug_keys=1): end the round or the match */
+    PK_DBG_KO_P2, PK_DBG_KO_P1, PK_DBG_WIN, PK_DBG_LOSE,
     PK_COUNT
 };
 

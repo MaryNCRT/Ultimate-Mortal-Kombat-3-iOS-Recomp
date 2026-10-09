@@ -16,6 +16,27 @@ Current state of the project. Written so that someone can pick it up with no pri
 > `umk3.ini` (3D resolution, fullscreen with 3:2 bars, language). Known
 > problems are the README's table; work continues as 0.0.2.
 
+> **0.0.2, second fix (2026-10-08, branch `claude/round2-softlock`): the
+> match can be played to the end.** Round 2 starts, the match ends, Continue
+> appears and the next fight loads; Mary checked it in game. Five bugs, each
+> read from armv7: (1) `RoundSummaryUpdate` returned while `WinnerMessage` or
+> `IsInFinishing` was set -- the binary keeps adding to `RoundSummaryTime`
+> (0x29a64 -> 0x29c9c -> 0x29a7c; 0x2a2d6), and `WinnerMessage` is only
+> cleared by `ResetFightData` at the end of that same function; (2) the 1/30
+> written before round 2 goes to `FE_FadeAdd` through slot 0xf3540
+> (0x2abaa), not `InfoScaleAdd` -- round 2 played on black; (3)
+> `GetScenePointingTo` (0x5ef4c) returns NULL when there is no predecessor;
+> ours returned the last node, so freeing the head scene closed the list into
+> a ring and `Task_GameDestroy` hung on the next walk. `LIME_FreeScene` was
+> an armv6 reading that stopped after the unlink; rewritten from 0x5efe0
+> (moves the head, frees events, meshset, node tables and the scene); (4)
+> `MeshSetLayers` (0x14f910) points at `MeshSet_LEVEL_00..07`; undeclared,
+> mkglobals left it NULL and stage 1 crashed in `GameInit_LoadABit` step 30;
+> (5) `WinnerMessage` is 0x80 bytes (next symbol `_BabalityMessage`), not 2.
+> Still seen: the winner banner is not drawn (the announcer speaks).
+> New test aid: `debug_keys=1` in umk3.ini (or `UMK3_DEBUG_KEYS`) enables
+> F9/F10 (KO player 2/1) and F11/F12 (win/lose the match) in a fight.
+
 > **0.0.2, first fix (2026-10-08, branch `claude/audio-playback-issues-257c4d`):
 > the voices.** Mary heard fighters missing their voices and stray sounds on
 > some button presses. Cause, read from the binary: in `AddNewGameEvents` the
