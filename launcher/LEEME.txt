@@ -1,4 +1,4 @@
-ULTIMATE MORTAL KOMBAT 3 - PORT DE PC - 0.0.3 ALPHA
+ULTIMATE MORTAL KOMBAT 3 - PORT DE PC - 0.0.4 ALPHA
 ====================================================
 
 Port nativo para Windows de la version de iOS (1.2.59), hecho por
@@ -65,6 +65,15 @@ CONTROLES
     F11 / F12  ganar / perder la pelea entera (F11 la salta)
   F3 y F6-F12 son las teclas directas; el menu F2 las apaga.
 
+NUEVO EN 0.0.4
+- Modo debug (casilla en el launcher) con menu F2 dentro del juego:
+  cualquier pelea (Motaro y Shao Kahn incluidos), cualquier pantalla.
+- El audio ya no se pierde despues de dos peleas en Arcade.
+- La pantalla de desbloqueables al terminar el Arcade funciona (antes
+  crasheaba), igual que las demas pantallas con focos; el fondo metalico
+  ya no sale con una franja blanca.
+- Las peleas contra Motaro y Shao Kahn ya no crashean ni se comportan raro.
+
 ARREGLADO EN 0.0.3
 - La torre muestra la escalera real: cada peldano con su rival (antes
   todos salian como Jade).
@@ -87,11 +96,13 @@ ARREGLADO EN 0.0.2
 - La melena de Sindel aparece, con su textura.
 - El joystick en pantalla se mueve.
 
-ERRORES CONOCIDOS EN 0.0.3
-- El menu no esta completo y algunas secciones del menu todavia provocan
-  un crash.
-- Siguen apareciendo varios errores de texturas.
-- El texto del ganador ("X WINS") puede que ya aparezca; sin confirmar.
+ERRORES CONOCIDOS EN 0.0.4
+- El menu no esta completo y faltan modos.
+- Siguen apareciendo errores de texturas en algunos escenarios y menus.
+- El nombre del ganador ("X WINS") no aparece.
+- Algunos ataques especiales (sobre todo proyectiles) no tienen sonido.
+- No se ve la muerte de Shao Kahn al terminar el Arcade; los logros salen
+  con texto superpuesto; iconos mal puestos en la carga y en los combos.
 - El juego todavia puede cerrarse en otros sitios.
 - En Arcade el escenario es siempre el mismo (salvo los jefes).
 - Solo Windows. Linux y macOS todavia no tienen launcher.
@@ -110,7 +121,9 @@ the top right switches the launcher between English and Spanish.
 Fight keys: W A S D or arrows to move (two at once for diagonals);
 U high punch, I low punch, O block, J high kick, K low kick, L run
 (or numpad 7 8 9 / 4 5 6). P pause, M moves list; Esc no longer quits.
-Player 1 keys can be changed in the launcher (box 3). New in 0.0.3: the
+Player 1 keys can be changed in the launcher (box 3). New in 0.0.4: debug mode (launcher box, F2 menu in game: any fight,
+bosses included, any screen), audio no longer dies after two fights, the
+unlockables screen works, Motaro and Shao Kahn fights fixed. New in 0.0.3: the
 tower shows the real ladder (no more all-Jade) and animates as in the
 original, the pause menu is complete, the moves list has its icons on
 every page, the HUD "i" and pause buttons are back. New in 0.0.2: fights play to the

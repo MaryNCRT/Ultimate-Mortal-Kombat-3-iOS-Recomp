@@ -26,7 +26,7 @@ You need a legally obtained copy of *Ultimate Mortal Kombat 3* for iOS (version 
 
 ---
 
-## Where the project stands — 8 October 2026 (night, alpha 0.0.3)
+## Where the project stands — 9 October 2026 (alpha 0.0.4)
 
 | | |
 |---|---|
@@ -36,9 +36,9 @@ You need a legally obtained copy of *Ultimate Mortal Kombat 3* for iOS (version 
 | **Fight** | ✅ **Fights play to the end by the real path** (0.0.2): round 1, round 2, the end of the match, `Task_GameDestroy`, Continue and the next fight, with the camera following both fighters and the voices playing. Before that, **the first fight ran by the real path.** After the tower (or straight from the menu with `--fight`, below) the game runs `Task_GameInit` and `Task_GameMain`: the arena draws, both fighters fight with the CPU playing, with the HUD and touch controls, for thousands of frames without a crash ([#54](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/54), [#57](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/57)). |
 | **Playable** | 🔄 **A first fight can be played** from the keyboard (W A S D or arrows; U I O J K L) or the touch controls, with the HUD, the FIGHT overlay and the CPU opponent. Not yet complete: see *Known problems*. The 229 data tables the fight engine reads are extracted from the user's own binary at build time and verified against it ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48)). |
 
-### How to play (alpha 0.0.3, Windows)
+### How to play (alpha 0.0.4, Windows)
 
-**Alpha 0.0.3** ([notes](docs/RELEASE-0.0.3-alpha.md); 0.0.2 [notes](docs/RELEASE-0.0.2-alpha.md), 0.0.1 [notes](docs/RELEASE-0.0.1-alpha.md)):
+**Alpha 0.0.4** ([notes](docs/RELEASE-0.0.4-alpha.md); earlier: [0.0.3](docs/RELEASE-0.0.3-alpha.md), [0.0.2](docs/RELEASE-0.0.2-alpha.md), [0.0.1](docs/RELEASE-0.0.1-alpha.md)):
 [Releases](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/releases)
 has the launcher and only the sources the build needs, no game data. Its
 known problems are the table below.
@@ -98,9 +98,9 @@ Every session started by double-click writes `logs/umk3-<date>-<time>.log`
 beside the exe: task changes, loading steps and, on a crash, the addresses to
 symbolise. A log is deleted once the error it shows is fixed.
 
-### Known problems (8 October 2026, alpha 0.0.3)
+### Known problems (9 October 2026, alpha 0.0.4)
 
-Release notes: [0.0.3](docs/RELEASE-0.0.3-alpha.md), [0.0.2](docs/RELEASE-0.0.2-alpha.md), [0.0.1](docs/RELEASE-0.0.1-alpha.md).
+Release notes: [0.0.4](docs/RELEASE-0.0.4-alpha.md), [0.0.3](docs/RELEASE-0.0.3-alpha.md), [0.0.2](docs/RELEASE-0.0.2-alpha.md), [0.0.1](docs/RELEASE-0.0.1-alpha.md).
 
 What a player sees today, and what is known about each.
 
@@ -122,7 +122,7 @@ What a player sees today, and what is known about each.
 | The Motaro fight has audio problems. | Seen by Mary 2026-10-09. Probably the `t_rst5` fix below; to confirm. |
 | Some special attacks have no sound, projectiles especially. | Not investigated. |
 | Texture errors remain on some stages and in some modes; the menu has texture errors too. | Not investigated stage by stage. |
-| Some menu sections crash. | `FE_Task_Treasure` (18) and `FE_Task_Stats` (15) ended the 2026-10-08 logs; both draw the spotlights fixed above, so probably fixed too -- to confirm. |
+| ~~Some menu sections crash.~~ | **Fixed** (checked by Mary, 2026-10-09: no menu section crashes). `FE_Task_Treasure` (18) and `FE_Task_Stats` (15) were spotlight screens; see the unlockables row. |
 | Shao Kahn may be crashing the game; the bosses' state in general needs checking. | **Likely fixed, to confirm in game.** `t_rst5` (0x473d0), the hit-reaction dispatcher, stored the bosses' reaction tables as raw iOS addresses (0x17b8d0 `motaro_branches`, 0x17b884 `sk_branches`) and read them: the first reaction against Motaro or Shao Kahn crashed or ran garbage. A 4,000-tick fight against each now runs clean. |
 | The winner's name ("X WINS") is still not shown. | Seen by Mary after 0.0.3, so the `usprintf` fix was not the whole cause. |
 | The menu is not complete (target: 100%), and some modes are missing. | Not inventoried yet. |
@@ -316,7 +316,7 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 | Native PC platform layer (161 fn to rewrite) | 17% | 27% | `███░░░░░░░` |
 | EA SDK stubs (27 fn the game calls) | 5% | 100% | `██████████` |
 
-**87.59% of the total estimated effort. Alpha 0.0.3 is playable:** whole
+**87.59% of the total estimated effort. Alpha 0.0.4 is playable:** whole
 fights by the real path, with known problems (see above).
 
 **Read that number for what it measures, and for what it leaves out.** It

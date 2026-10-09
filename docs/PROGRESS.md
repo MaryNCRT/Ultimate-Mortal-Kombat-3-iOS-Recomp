@@ -4,14 +4,16 @@ Current state of the project. Written so that someone can pick it up with no pri
 
 **Last updated:** 2026-10-09 -- see [HANDOFF.md](HANDOFF.md) for the route.
 
-## Current state (alpha 0.0.3, 2026-10-09)
+## Current state (alpha 0.0.4, 2026-10-09)
 
 - **The game is playable on Windows by the real path.** The retail front
   end, Arcade, the tower, the fight load, both rounds, the end of the
   match, Continue and the next fight, all in `umk3-game.exe` (i686),
   compiled by the launcher from the player's own iPhone 1.2.59 `.ipa`.
   Releases: [0.0.1](RELEASE-0.0.1-alpha.md), [0.0.2](RELEASE-0.0.2-alpha.md),
-  [0.0.3](RELEASE-0.0.3-alpha.md).
+  [0.0.3](RELEASE-0.0.3-alpha.md), [0.0.4](RELEASE-0.0.4-alpha.md). The GitHub
+  releases of 0.0.1-0.0.3 were deleted on 2026-10-09 when the history was
+  rewritten; 0.0.4 is the only published build.
 - **Every function is decompiled** (2,572 of 2,572) and the fight engine is
   behaviourally tested file by file (table below). The figure is
   **87.59%** by the README's weights; `python tools/progress.py` measures it
@@ -25,6 +27,10 @@ Current state of the project. Written so that someone can pick it up with no pri
 - **No pull requests are open** (2026-10-09).
 
 ## Release history
+
+- **0.0.4** (2026-10-09). Debug mode and the F2 menu (`runtime/debug_menu.c`);
+  `UnLoadSoundList` (0xa7f08); `spotlight_*` tables and `DrawAnimAsSprite`
+  (0x1c8bc), `.pvr` first; `t_rst5`'s boss tables (0x473d0).
 
 Each fix was read from armv7; the README's *Known problems* table has the
 full cause for each.
