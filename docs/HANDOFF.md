@@ -42,6 +42,15 @@ es -> EXTRACTED` is obsolete.
   (232 initialisers, e.g. `Level_Info`), which the "no game data" claim does
   not yet cover.
 
+## 0.0.2 in progress
+
+1. **Voices / stray sounds -- fixed, waiting to be heard.** `get_gsound`'s
+   arguments in `AddNewGameEvents` were swapped (see PROGRESS.md). If Diego
+   still hears wrong sounds after this, the next places to read are the
+   `ochar_sound` call sites (per-move indices in `obj->field1c`) and the
+   front end's `SFXHandle` clicks -- not `fight_audio.c`, which is only the
+   old `umk3-fight` demo and is not linked into `umk3-game`.
+
 ## Where the project actually stands (2026-10-08)
 
 **Re-run `python tools/progress.py` before trusting a number here.**
