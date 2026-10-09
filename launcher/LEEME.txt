@@ -36,9 +36,25 @@ despues de compilar (se vuelven a descargar si compilas otra vez).
 
 CONTROLES
 - Raton: es el dedo (menus y controles tactiles en pantalla).
-- Jugador 1: W A S D o flechas para moverse; U I O J K L para golpes.
+- En la pelea (teclado):
+    W / flecha arriba ......... saltar
+    S / flecha abajo .......... agacharse
+    A / flecha izquierda ...... izquierda
+    D / flecha derecha ........ derecha
+    (diagonales: dos teclas a la vez, p. ej. W+D salta hacia delante)
+    U  (o 7 del num.) ......... puñetazo alto  (HP)
+    I  (o 8 del num.) ......... puñetazo bajo  (LP)
+    O  (o 9 del num.) ......... bloqueo        (BL)
+    J  (o 4 del num.) ......... patada alta    (HK)
+    K  (o 5 del num.) ......... patada baja    (LK)
+    L  (o 6 del num.) ......... correr         (RUN)
+- Esc cierra el juego al instante.
 
 ERRORES CONOCIDOS EN 0.0.1
+- NINGUNA PELEA PASA DEL ROUND 1: el juego se queda bloqueado (softlock)
+  al terminar el primer round.
+- El juego puede crashear con facilidad.
+- Varios errores de texturas.
 - Los angulos de camara durante la pelea se ven mal.
 - El joystick en pantalla no se anima.
 - El pelo de Sindel sale blanco.
@@ -59,7 +75,11 @@ press Compilar: it downloads a pinned compiler, checks your binary, builds
 umk3-game.exe and copies res\ out of your .ipa. Choose resolution,
 fullscreen and language (saved in umk3.ini) and press PLAY. The button at
 the top right switches the launcher between English and Spanish.
-Known problems are listed above.
+Fight keys: W A S D or arrows to move (two at once for diagonals);
+U high punch, I low punch, O block, J high kick, K low kick, L run
+(or numpad 7 8 9 / 4 5 6). Esc quits. Known problems (see above): no
+fight gets past round 1 (softlock), the game crashes easily, several
+texture errors, plus the list above.
 
 Ultimate Mortal Kombat 3 is (c) Electronic Arts / Midway / Warner Bros.
 This project is not affiliated with them. Use only a copy you own.
