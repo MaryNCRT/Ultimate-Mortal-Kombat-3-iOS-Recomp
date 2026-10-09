@@ -44,7 +44,7 @@ es -> EXTRACTED` is obsolete.
 
 ## 0.0.2 in progress
 
-1. **Voices / stray sounds -- fixed, waiting to be heard.** `get_gsound`'s
+1. **Voices / stray sounds -- fixed, checked in game by Mary.** `get_gsound`'s
    arguments in `AddNewGameEvents` were swapped (see PROGRESS.md). If Mary
    still hears wrong sounds after this, the next places to read are the
    `ochar_sound` call sites (per-move indices in `obj->field1c`) and the
