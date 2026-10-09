@@ -122,17 +122,18 @@ What a player sees today, and what is known about each.
 | The Motaro fight has audio problems. | Seen by Mary 2026-10-09; being investigated. |
 | Some special attacks have no sound, projectiles especially. | Not investigated. |
 | Texture errors remain on some stages and in some modes; the menu has texture errors too. | Not investigated stage by stage. |
-| Some menu sections crash. | The session logs of 2026-10-08 stop dead on entering `FE_Task_Treasure` (18, twice) and `FE_Task_Stats` (15) -- likely two of them. Not investigated. |
+| Some menu sections crash. | `FE_Task_Treasure` (18) and `FE_Task_Stats` (15) ended the 2026-10-08 logs; both draw the spotlights fixed above, so probably fixed too -- to confirm. |
 | Shao Kahn may be crashing the game; the bosses' state in general needs checking. | Not investigated. |
 | The winner's name ("X WINS") is still not shown. | Seen by Mary after 0.0.3, so the `usprintf` fix was not the whole cause. |
 | The menu is not complete (target: 100%), and some modes are missing. | Not inventoried yet. |
 | The game's ads open in separate windows, which forces leaving fullscreen. | Wanted: show them in windows drawn inside the game, in the same executable. |
 | **Reported by Mary 2026-10-09, after the debug menu:** | |
 | Shao Kahn's death is not shown at the end of Arcade. | Not investigated. |
-| The end of Arcade does not go on to the unlockables screen. | Not investigated. |
+| ~~The end of Arcade does not go on to the unlockables screen~~ (it crashed). | **Fixed** (checked by Mary, 2026-10-09). `FE_Task_Select_Treasure` and the seven other screens that draw the spotlights: `spotlight_SpriteDef` / `spotlight_Anim` are the tables themselves (0x175188, 0x175608), not pointers -- the port had an empty store; `DrawAnimAsSprite` (0x1c8bc) takes the texture from its sixth argument (0x1c956), computes `abs(counter) % frames` (0x1c8f6) and draws `record[2..3]` as the size with corner+extent UVs (0x1ca00). Menu textures now load the `.pvr` first, as the device does: `FE_METAL_BG.PNG` holds its art in a 480x320 corner and drew a white L. |
 | Achievements draw wrong, with overlapping text. | Not investigated. |
 | The icons on the loading screen are misplaced. | Not investigated. |
 | The moves list ("i") icons are still misplaced. | Not investigated. |
+| Kitana kept blocking and behaved oddly in the fight against Motaro. | Seen by Mary 2026-10-09. Not investigated. |
 | **Windows only for the launcher.** | Linux/macOS still build from source with CMake. |
 | **Only the iPhone 1.2.59 .ipa works.** | The launcher refuses any other binary (uuid check); the iPad 1.2.56 build has different addresses. |
 

@@ -274,7 +274,9 @@ in place, oracles regenerated from the fixed `recomp.py`.
 1. **Mary's list of 2026-10-09** (README, *Known problems*), one item at a
    time, each from the binary. Done: debug mode (launcher box, in-game F2
    menu, `runtime/debug_menu.c`); audio failing after two fights in Arcade
-   (`UnLoadSoundList`, 0xa7f08). Open: the Motaro fight's audio; projectile
+   (`UnLoadSoundList`, 0xa7f08); the unlockables screen (`spotlight_*`
+   tables, `DrawAnimAsSprite` 0x1c8bc, `.pvr` first). Open: the Motaro
+   fight's audio and Kitana's controls in it; projectile
    and special-move sounds; texture errors on some stages, modes and the
    menu; crashing menu sections (`FE_Task_Treasure` and `FE_Task_Stats` end
    the logs); Shao Kahn and the bosses; the winner's name (not fixed by

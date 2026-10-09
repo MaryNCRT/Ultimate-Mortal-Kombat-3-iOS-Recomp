@@ -5555,7 +5555,7 @@ extern float  exitTimeout;              /* 0x00182c80 */
 extern BUTTONNEW BUTTON_EXITBIG;        /* 0x001007d0 */
 
 long DrawAnimAsSprite(long x, long y, float scale, long ax,
-                      long ay, long unused,
+                      long ay, long textures,
                       const char *frames, const long *table,
                       long mirror, long modulus,
                       long first, long last, long wrap,

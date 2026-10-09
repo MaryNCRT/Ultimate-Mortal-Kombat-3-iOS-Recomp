@@ -140,10 +140,11 @@ Cada arreglo se leyó del binario armv7 original y Mary lo comprobó en el juego
 **Anotado por Mary el 9 de octubre, con el menú debug:**
 
 12. No se ve la muerte de Shao Kahn al terminar el Arcade.
-13. Al terminar el Arcade no lleva a la pantalla de desbloqueables.
+13. ~~Al terminar el Arcade no lleva a la pantalla de desbloqueables~~ -- arreglado: la pantalla crasheaba (datos de los focos vacíos, `DrawAnimAsSprite` con la textura, el módulo y el tamaño mal) y el fondo salía blanco (ahora se carga el `.pvr` primero, como en el iPhone).
 14. Los logros salen mal, con texto superpuesto.
 15. En la pantalla de carga los iconos están mal puestos.
 16. En la lista de combos los iconos siguen mal puestos.
+17. Contra Motaro, Kitana se cubría todo el tiempo y actuaba raro.
 
 - El launcher es solo para Windows (Linux/macOS: compilar desde el código con CMake).
 

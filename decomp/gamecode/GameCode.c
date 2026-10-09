@@ -3720,7 +3720,7 @@ long __modsi3(long a, long b);
  * Returns the frame index it used.
  */
 long DrawAnimAsSprite(long x, long y, float scale, long ax,
-                      long ay, long unused,
+                      long ay, long textures,
                       const char *frames, const long *table,
                       long mirror, long modulus,
                       long first, long last, long wrap,
@@ -3732,11 +3732,13 @@ long DrawAnimAsSprite(long x, long y, float scale, long ax,
     float ox, oy, tw, th;
     void *tex;
 
-    (void)unused;
-
     if (wrap != 0) {
         long m = (modulus ^ (modulus >> 31)) - (modulus >> 31);   /* abs */
-        idx = first + __modsi3(n + 1, m);
+        /* abs(counter) % frames: r0 = abs(modulus), r1 = n + 1 at
+         * 0x1c8e6-0x1c8f6. The two were swapped, which gave (n + 1) %
+         * counter -- an index past the end of the table once the counter
+         * passed the frame count. */
+        idx = first + __modsi3(m, n + 1);
     } else {
         idx = first + ((n >= modulus) ? modulus : n);
     }
@@ -3747,16 +3749,25 @@ long DrawAnimAsSprite(long x, long y, float scale, long ax,
     oy = (float)(r[5] - (r[10] - ay));
     tw = (float)r[7];
     th = (float)r[8];
-    tex = ((void *const *)frames)[r[6]];        /* the caller's texture array */
+    /* The sixth argument IS the texture array (sp+0x54, loaded at 0x1c900
+     * and indexed by record[6] at 0x1c956). This read `frames[record[6]]`,
+     * a word of the sprite definition, and handed it to limeDrawSprite as a
+     * texture -- the crash in every screen that draws the spotlights. */
+    tex = ((void *const *)(uintptr_t)textures)[r[6]];
 
+    /* record[0..1] is the cell's corner in the atlas and record[2..3] its
+     * size; limeDrawSprite takes a corner and an EXTENT in UV. Read from
+     * 0x1ca00 (plain) and 0x1c97c (mirrored): the mirrored cell starts at its
+     * right edge and runs back, -record[2]. This used to draw record[0..1]
+     * (8 x 8) as the size, which is what made the spotlights flicker. */
     limeDrawSprite((TEXTURE *)tex,
                    (float)x + ox * scale,
                    (float)y + oy * scale,
-                   (float)r[0] * scale,
-                   (float)r[1] * scale,
-                   mirror ?  (float)r[0] / tw : (float)r[2] / tw,
+                   (float)r[2] * scale,
+                   (float)r[3] * scale,
+                   mirror ? (float)(r[0] + r[2]) / tw : (float)r[0] / tw,
                    (float)r[1] / th,
-                   mirror ? -(float)r[2] / tw : (float)r[0] / tw,
+                   mirror ? -(float)r[2] / tw : (float)r[2] / tw,
                    (float)r[3] / th,
                    colour);
 

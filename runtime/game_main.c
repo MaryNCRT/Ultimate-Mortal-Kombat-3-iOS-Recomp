@@ -532,7 +532,7 @@ static void screen_keys(void)
         int t = FE_CurrentTask;
 
         was[k] = down;
-        if (!hit || CurrentTask != 3 || PendingPush)
+        if (!hit || CurrentTask != 3 || PendingPush != -1)
             continue;
         if (k == 0)
             t = (t + DBG_SCREENS - 1) % DBG_SCREENS;
@@ -829,7 +829,7 @@ int main(int argc, char **argv)
             {
                 static long in_menu;
                 in_menu = (CurrentTask == 3) ? in_menu + 1 : 0;
-                if (g_screen_jump >= 0 && in_menu > 30 && !PendingPush) {
+                if (g_screen_jump >= 0 && in_menu > 30 && PendingPush == -1) {
                     jump_screen(g_screen_jump);
                     g_screen_jump = -1;
                 }
