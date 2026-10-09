@@ -1,0 +1,61 @@
+ULTIMATE MORTAL KOMBAT 3 - PORT DE PC - 0.0.1 ALPHA
+====================================================
+
+Port nativo para Windows de la version de iOS (1.2.59), hecho por
+descompilacion. Esta carpeta NO contiene nada del juego: ni graficos, ni
+sonidos, ni el ejecutable. Todo sale de TU propio .ipa al compilar.
+
+REQUISITOS
+- Windows 10 u 11 (64 bits).
+- Tu propio .ipa de Ultimate Mortal Kombat 3 1.2.59 para iPhone
+  (el ejecutable dentro debe tener uuid 90d6f56a..., sin cifrar).
+  La version de iPad 1.2.56 NO sirve.
+- Internet la primera vez (descarga el compilador, unos 190 MB).
+- Unos 1,5 GB libres.
+
+COMO JUGAR
+1. Abre UMK3-Launcher.exe.
+2. En "1. Tu .ipa" pulsa Buscar..., elige tu .ipa y pulsa Compilar.
+   Se abre una consola que:
+     - descarga llvm-mingw 20260616 (GitHub, SHA-256 comprobado) y
+       Python 3.12.10 (python.org) en la carpeta toolchain\
+     - comprueba que tu binario es el correcto
+     - extrae las tablas del juego de tu binario
+     - compila umk3-game.exe
+     - copia la carpeta res\ desde tu .ipa
+   Tarda menos de un minuto despues de la descarga.
+3. Elige resolucion 3D, pantalla completa e idioma. Se guardan solos
+   en umk3.ini en cuanto los cambias.
+4. Pulsa JUGAR.
+
+El juego solo usa esta carpeta. Puedes borrar toolchain\ y build-game\
+despues de compilar (se vuelven a descargar si compilas otra vez).
+
+CONTROLES
+- Raton: es el dedo (menus y controles tactiles en pantalla).
+- Jugador 1: W A S D o flechas para moverse; U I O J K L para golpes.
+
+ERRORES CONOCIDOS EN 0.0.1
+- Los angulos de camara durante la pelea se ven mal.
+- El joystick en pantalla no se anima.
+- El pelo de Sindel sale blanco.
+- Algunos sonidos suenan en momentos equivocados.
+- A veces todos los rivales de la torre son Jade.
+- La animacion de bajada de la torre no se muestra bien.
+- En Arcade el escenario es siempre el mismo (el original lo elige al azar).
+- Solo Windows. Linux y macOS todavia no tienen launcher.
+- Si el juego no arranca, mira logs\ junto a umk3-game.exe y reportalo
+  con ese archivo en GitHub (Issues).
+
+-----------------------------------------------------------------------
+ENGLISH (short)
+
+Windows port of UMK3 for iOS 1.2.59, by decompilation. Nothing of the game
+is included. Open UMK3-Launcher.exe, pick your own iPhone .ipa (1.2.59),
+press Compilar: it downloads a pinned compiler, checks your binary, builds
+umk3-game.exe and copies res\ out of your .ipa. Choose resolution,
+fullscreen and language (saved in umk3.ini) and press JUGAR.
+Known problems are listed above.
+
+Ultimate Mortal Kombat 3 is (c) Electronic Arts / Midway / Warner Bros.
+This project is not affiliated with them. Use only a copy you own.

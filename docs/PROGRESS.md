@@ -5,6 +5,17 @@ Current state of the project. Written so that someone can pick it up with no pri
 **Last updated:** 2026-10-08 — see [HANDOFF.md](HANDOFF.md) for the route;
 "What is next" below is the current task ([ENCARGO.md](ENCARGO.md) is superseded).
 
+> **Alpha 0.0.1 released (2026-10-08, night).** The first public build:
+> `UMK3-Launcher.exe` + the sources the build needs (94 files, 1.5 MB zip,
+> made by `launcher/make_release.py`). The player picks their own iPhone
+> 1.2.59 .ipa and presses Compilar; `launcher/build_game.ps1` downloads a
+> pinned llvm-mingw and Python, checks the binary's uuid, extracts the
+> tables, compiles `umk3-game.exe` and copies `res\` out of the .ipa.
+> Verified from the extracted zip in a clean folder: builds, boots, draws.
+> The game now reads only its own folder (no `../`, no junction) and
+> `umk3.ini` (3D resolution, fullscreen with 3:2 bars, language). Known
+> problems are the README's table; work continues as 0.0.2.
+
 > Latest (2026-10-08 evening, branch `claude/fight-arena-draw`): **the first
 > fight runs and draws.** `--fight kitana kunglao 0` (or the tower) reaches
 > `Task_GameMain`, which runs thousands of frames with the arena, both

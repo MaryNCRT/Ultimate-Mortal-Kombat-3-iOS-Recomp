@@ -400,9 +400,9 @@ int main(int argc, char **argv)
         if (!f) {
             MessageBoxA(NULL,
                 "No se encontro la carpeta res completa junto a umk3-game.exe.\n\n"
-                "Pon tu UMK3 .ipa en esta carpeta y ejecuta instalar-res.bat.\n\n"
+                "Abre UMK3-Launcher.exe, elige tu UMK3 .ipa y pulsa Compilar.\n\n"
                 "The res folder beside umk3-game.exe is missing or incomplete.\n"
-                "Put your UMK3 .ipa in this folder and run instalar-res.bat.",
+                "Open UMK3-Launcher.exe, choose your UMK3 .ipa and press Compilar.",
                 "Ultimate Mortal Kombat 3", MB_OK | MB_ICONERROR);
             return 1;
         }

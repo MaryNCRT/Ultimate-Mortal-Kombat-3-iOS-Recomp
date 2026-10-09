@@ -103,3 +103,4 @@ dist/
 /logs/
 /toolchain/
 /build-game/
+*.ppm
