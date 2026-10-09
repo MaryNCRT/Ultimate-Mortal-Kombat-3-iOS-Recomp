@@ -766,7 +766,6 @@ void SaveUnclaimedTreasure(long treasure)
 #define TOWER_PER_TIER     11
 
 extern char  Level_Info[];              /* 0x0014e8d4 */
-extern int   TowerData[];               /* the table Load_Tower fills */
 void  limeFree(void *p);
 void *limeLoadFile(const char *name);
 void *limeLoadSaveFile(const char *name);
@@ -837,6 +836,12 @@ void LoadBGExtents(void)
  * The destination stride is 44 bytes per tier, built as `i*12 - i` shifted, and
  * the source advances 0x2c per tier, so the file and the table have the same
  * shape. A missing file leaves the table untouched.
+ *
+ * The destination is `_OpponentTowerList` itself (literal 0x12c972 + pc
+ * 0x23342 = 0x14fcb4), the table Write_Tower saves and DrawTower3D reads.
+ * It used to fill a separate `TowerData` that nothing read, so a saved
+ * ladder never reached the tower and every rung kept the image default,
+ * character 16, on every cell.
  */
 void Load_Tower(void)
 {
@@ -857,7 +862,7 @@ void Load_Tower(void)
 
             if (v < 0 || v > 0x19)
                 v = 1;                  /* clamped, not rejected */
-            TowerData[tier * TOWER_PER_TIER + i] = (int)v;
+            ((long *)OpponentTowerList)[tier * TOWER_PER_TIER + i] = v;
         }
         src += 0x2c / 4;
     }
