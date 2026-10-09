@@ -50,6 +50,11 @@ es -> EXTRACTED` is obsolete.
    `ochar_sound` call sites (per-move indices in `obj->field1c`) and the
    front end's `SFXHandle` clicks -- not `fight_audio.c`, which is only the
    old `umk3-fight` demo and is not linked into `umk3-game`.
+2. **Round-1 softlock -- fixed, checked in game by Diego.** Five causes, see
+   PROGRESS.md. Testing a round end no longer needs a whole fight: put
+   `debug_keys=1` in umk3.ini and press F9..F12 in a fight. Left open: the
+   winner banner ("X WINS") is not drawn although the voice plays.
+3. **Next: the camera** (Diego's order, 2026-10-08).
 
 ## Where the project actually stands (2026-10-08)
 

@@ -74,28 +74,32 @@ SCENEINFO *LIME_SceneExists(SCENEINFO *scene)
 
 /* ---------------------------------------------------- GetScenePointingTo
  *
- * armv6 0x00081b80, 48 bytes.  __Z18GetScenePointingToP9SCENEINFO
+ * armv7 0x0005ef4c, 26 bytes.  __Z18GetScenePointingToP9SCENEINFO
  *
- * Finds the node whose `next` is the given scene -- its predecessor. This is
- * the shape a singly linked list forces on you when something needs unlinking:
- * with no back pointer, removal has to find the previous node by walking.
+ *      s = ScenesHead
+ *      while (s) { if (s->next == scene) return s;  s = s->next; }
+ *      return NULL
  *
- * Returns the head unchanged if the list is empty, which is the caller's
- * problem rather than this function's.
+ * Finds the node whose `next` is the given scene -- its predecessor. **When
+ * there is none it returns NULL**, and that includes the scene being the head
+ * itself, which is how LIME_FreeScene knows to move the head instead.
+ *
+ * The armv6-era transcription returned the LAST node when nothing matched.
+ * Freeing the head scene then wrote `last->next = head->next` and closed the
+ * list into a ring; the next walk (LIME_SceneExists on the following free in
+ * Task_GameDestroy) never ended. That was the black screen after the last
+ * round of 0.0.1/0.0.2 on stage 0 (TrainDie1Scene).
  */
 SCENEINFO *GetScenePointingTo(SCENEINFO *scene)
 {
     SCENEINFO *s = g_sceneList;
 
-    if (s == NULL)
-        return NULL;
-
-    while (s->next != scene) {
-        if (s->next == NULL)
-            break;
+    while (s != NULL) {
+        if (s->next == scene)
+            return s;
         s = s->next;
     }
-    return s;
+    return NULL;
 }
 
 
@@ -215,7 +219,7 @@ void LIME_SetSceneTextures(MESHSETINFO *set, const void *table, TEXTURE **out)
 
 /* ----------------------------------------------------------- LIME_FreeScene
  *
- * armv6 0x00081c64, 156 bytes.
+ * armv7 0x0005efe0, 152 bytes (first read from armv6 0x00081c64).
  *
  * **The reference counting, in code.** This is what docs/SCENE-FORMAT.md
  * inferred from the loader, now visible from the other end:
@@ -236,22 +240,45 @@ void LIME_SetSceneTextures(MESHSETINFO *set, const void *table, TEXTURE **out)
  * which clears the debug overlay's six slider windows. Debug UI and scene
  * lifetime are tied together in the retail binary, not compiled apart.
  */
+void LIME_FreeEvents(SCENEEVENTS *events);    /* Events.c, 0xa44c4 */
+
 void LIME_FreeScene(SCENEINFO *scene)
 {
     SCENEINFO *prev;
+    long i;
 
-    if (LIME_SceneExists(scene) == NULL)
+    if (LIME_SceneExists(scene) == NULL)                /* 0x5efe6 */
         return;
 
-    scene->refCount--;                   /* +0x40 */
+    scene->refCount--;                                  /* +0x40 */
     if (scene->refCount != 0)
         return;
 
     LIME_KillSliders();
 
+    /* armv7 0x5effc-0x5f074: unlink, moving the head when there is no
+     * predecessor -- the armv6 reading stopped after the unlink and freed
+     * nothing, so every scene leaked and the head was never moved. */
     prev = GetScenePointingTo(scene);
     if (prev != NULL)
-        prev->next = scene->next;        /* +0x90 */
+        prev->next = scene->next;                       /* +0x90 */
+    else
+        g_sceneList = g_sceneList->next;                /* ScenesHead 0x17175c */
+
+    limeFree(scene->field4c);                           /* +0x4c */
+    limeFree(scene->tail);                              /* +0x7c */
+    if (scene->events != NULL)                          /* +0x84 */
+        LIME_FreeEvents((SCENEEVENTS *)scene->events);
+    if (scene->meshset != NULL)                         /* +0x80 */
+        LIME_FreeMeshSet(scene->meshset);
+
+    for (i = 0; i < scene->nodeCount; i++) {            /* +0x48 */
+        limeFree(scene->nodeKeys[i]);                   /* +0x88 */
+        limeFree(scene->nodeStream[i]);                 /* +0x8c */
+    }
+    limeFree(scene->nodeKeys);
+    limeFree(scene->nodeStream);
+    limeFree(scene);
 }
 
 

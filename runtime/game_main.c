@@ -95,6 +95,7 @@ extern long PLAYER1MODEL, PLAYER2MODEL, Character1, Character2, LevelSelect,
 extern const char *CharacterNames[26];
 
 extern float limeTouchScreenX[10], limeTouchScreenY[10];
+extern void *G;                         /* GAMESTATE *, the fight engine's state */
 extern long  ButtonsPos[];              /* 6 x { x, y, ?, ?, button index } */
 extern long  JoystickStatePosX, JoystickStatePosY;
 
@@ -314,6 +315,7 @@ void umk3_relocate_level_info(void);   /* build/level_info.c */
  * The window size is the 3D resolution: the game draws straight into it.
  * Missing file or keys keep the defaults. */
 static int  g_cfg_w = VIRT_W * SCALE, g_cfg_h = VIRT_H * SCALE, g_cfg_full;
+static int  g_cfg_debug_keys;          /* debug_keys=1: F9..F12, see debug_keys() */
 static char g_cfg_lang[8];
 
 static void read_config(const char *dir)
@@ -340,8 +342,49 @@ static void read_config(const char *dir)
             g_cfg_full = atoi(v) != 0;
         else if (strcmp(line, "language") == 0)
             snprintf(g_cfg_lang, sizeof g_cfg_lang, "%s", v);
+        else if (strcmp(line, "debug_keys") == 0)
+            g_cfg_debug_keys = atoi(v) != 0;
     }
     fclose(f);
+}
+
+/* Fight debug keys, a test aid and not part of the game -- off unless
+ * umk3.ini says debug_keys=1 (or UMK3_DEBUG_KEYS is set).
+ *
+ *     F9   player 2's health to 0: you win the round
+ *     F10  player 1's health to 0: you lose the round
+ *     F11  you win the match  (rounds to one short, then F9)
+ *     F12  you lose the match (rounds to one short, then F10) -> Continue
+ *
+ * The health written is the ENGINE's (G + 0x368 / 0x36c, 166 = full) --
+ * t_clock4 polls both for <= 0 every tick and goes to t_round_is_over, so the
+ * round ends through the game's own path -- plus the HUD's Health[], which
+ * DrawHUD's round-end test reads. */
+extern long RoundWins[2], WinsNeeded;
+extern int  Health[2];
+
+static void debug_keys(void)
+{
+    static int was[4];
+    int k;
+
+    for (k = 0; k < 4; k++) {
+        int down = plat_key(PK_DBG_KO_P2 + k);
+        int hit = down && !was[k];
+        was[k] = down;
+        if (!hit || CurrentTask != 6 || G == NULL)
+            continue;
+        if (k >= 2 && WinsNeeded > 0)                   /* F11 / F12 */
+            RoundWins[k - 2] = WinsNeeded - 1;
+        *(unsigned int *)((char *)G + ((k & 1) ? 0x368 : 0x36c)) = 0;
+        /* ...and the HUD's copy, which only a hit's MKEvent_Add(3, 0, ..)
+         * refreshes: RoundEndedAgainst tests Health[], so without this the
+         * winner banner came up and the round never closed. */
+        Health[(k & 1) ? 0 : 1] = 0;
+        printf("debug key F%d: %s\n", 9 + k,
+               k == 0 ? "KO player 2" : k == 1 ? "KO player 1"
+             : k == 2 ? "win the match" : "lose the match");
+    }
 }
 
 /* The largest 3:2 rectangle centred in the window: the game is drawn for a
@@ -412,6 +455,8 @@ int main(int argc, char **argv)
     if (open_session_log())
         log_tasks = 1;
 #endif
+    if (getenv("UMK3_DEBUG_KEYS"))
+        g_cfg_debug_keys = 1;
     parse_taps(getenv("UMK3_TAPS"));
     {
         int i;
@@ -528,6 +573,8 @@ int main(int argc, char **argv)
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             lime_menu_advance_clock(1.0 / 60.0);
             keyboard_touches();
+            if (g_cfg_debug_keys)
+                debug_keys();
             GameCodeMain();
 
             /* --fight: once the main menu is up, do what the select screen
