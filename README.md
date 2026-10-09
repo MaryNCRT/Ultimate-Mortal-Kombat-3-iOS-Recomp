@@ -138,7 +138,7 @@ What a player sees today, and what is known about each.
 | Frozen fighters (Sub-Zero's freeze) draw completely white. | Seen by Mary 2026-10-09. Not investigated. |
 | Sonya's fatality does not show properly. | Seen by Mary 2026-10-09. Not investigated. |
 | Random crashes. | Seen by Mary 2026-10-09; logs needed. |
-| Human Smoke cannot be chosen: holding the click on Smoke's portrait should pick him. | Wanted by Mary 2026-10-09. Not investigated. |
+| ~~Human Smoke cannot be chosen by holding Smoke's portrait.~~ | Works (checked by Mary, 2026-10-09): hold the click on Smoke for three seconds (`drawCharacterSelection`, `SmokeCounter` > 180). |
 | The debug menu's win/lose round can give the round to both fighters or leave the fight. | Seen by Mary 2026-10-09 (debug only). Not reproduced in a scripted test. |
 | ~~Kitana kept blocking and behaved oddly in the fight against Motaro.~~ | **Fixed** with `t_rst5` (checked by Mary, 2026-10-09). |
 | **Windows only for the launcher.** | Linux/macOS still build from source with CMake. |

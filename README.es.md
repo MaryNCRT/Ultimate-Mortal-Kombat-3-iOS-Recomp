@@ -150,7 +150,7 @@ Cada arreglo se leyó del binario armv7 original y Mary lo comprobó en el juego
 20. Los personajes congelados salen totalmente blancos.
 21. El fatality de Sonya no se ve bien.
 22. Crasheos aleatorios (hacen falta logs).
-23. Mantener pulsado el retrato de Smoke para elegir a Human Smoke.
+23. ~~Mantener pulsado el retrato de Smoke para elegir a Human Smoke~~ -- funciona: mantén el clic 3 segundos.
 24. En el menú debug, ganar/perder round a veces da el round a los dos o saca de la pelea.
 
 - El launcher es solo para Windows (Linux/macOS: compilar desde el código con CMake).

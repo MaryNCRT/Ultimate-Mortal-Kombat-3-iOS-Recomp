@@ -297,8 +297,9 @@ static int open_session_log(void)
 }
 #endif
 
-/* UMK3_TAPS: "120:240,160;300:100,40" taps (240,160) at tick 120, and so on. */
-typedef struct { long tick; float x, y; } TAP;
+/* UMK3_TAPS: "120:240,160;300:100,40" taps (240,160) at tick 120, and so on.
+ * A fourth number holds the press that many ticks: "120:240,160,200". */
+typedef struct { long tick; float x, y; long hold; } TAP;
 static TAP  g_taps[64];
 static int  g_ntaps;
 
@@ -306,7 +307,8 @@ static void parse_taps(const char *s)
 {
     while (s && *s && g_ntaps < 64) {
         TAP t;
-        if (sscanf(s, "%ld:%f,%f", &t.tick, &t.x, &t.y) != 3)
+        t.hold = 3;
+        if (sscanf(s, "%ld:%f,%f,%ld", &t.tick, &t.x, &t.y, &t.hold) < 3)
             break;
         g_taps[g_ntaps++] = t;
         s = strchr(s, ';');
@@ -794,7 +796,7 @@ int main(int argc, char **argv)
             for (i = 0; i < g_ntaps; i++) {
                 if (g_taps[i].tick == ticks)
                     lime_touch_began(g_taps[i].x, g_taps[i].y);
-                if (g_taps[i].tick + 3 == ticks)
+                if (g_taps[i].tick + g_taps[i].hold == ticks)
                     lime_touch_ended(g_taps[i].x, g_taps[i].y,
                                      g_taps[i].x, g_taps[i].y);
             }
