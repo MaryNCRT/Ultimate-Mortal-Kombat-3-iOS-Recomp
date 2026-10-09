@@ -38,6 +38,11 @@
  *   UMK3_LOG_TASKS=1  print every change of CurrentTask and FE_CurrentTask
  *   UMK3_SCREEN=<n|name>  open that front-end screen once the menu is up
  *   UMK3_DBG_OPEN=<n> open the debug menu at tick n (with debug_keys)
+ *   UMK3_DBG_KEY=<tick:k;...>  press F9+k at that tick (with debug_keys)
+ *   UMK3_SHOTS=<t,t,...>       write umk3-shot-<t>.ppm at each tick, go on
+ *   UMK3_ARCADE=<destiny,stage> with --fight: that rung of an Arcade ladder
+ *   UMK3_SCREENS=<tick:n;...>  open front-end screen n at that tick, so one
+ *                              session can walk the whole menu
  *
  * Keyboard, player 1, during a fight (runtime/platform's defaults):
  *   W A S D or the arrows   the joystick
@@ -70,6 +75,12 @@
 #include "platform/platform.h"
 #include "platform/gl.h"
 #include "debug_menu.h"
+
+/* A scripted run (UMK3_SHOT) ignores the real keyboard, as it ignores the
+ * mouse: a test window takes the focus when it opens, and whoever is typing
+ * in another window would otherwise be pressing keys in the test. */
+static int g_keys_off;
+#define plat_key(code) (g_keys_off ? 0 : (plat_key)(code))
 
 #define VIRT_W 480
 #define VIRT_H 320
@@ -191,7 +202,14 @@ static void parse_fight(const char *p1, const char *p2, const char *stage)
     }
 }
 
+static void save_shot_as(const char *name, int w, int h);
+
 static void save_shot(int w, int h)
+{
+    save_shot_as("umk3-game.ppm", w, h);
+}
+
+static void save_shot_as(const char *name, int w, int h)
 {
     unsigned char *px = (unsigned char *)malloc((size_t)w * h * 3);
     FILE *f;
@@ -201,13 +219,13 @@ static void save_shot(int w, int h)
         return;
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
     glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, px);
-    f = fopen("umk3-game.ppm", "wb");
+    f = fopen(name, "wb");
     if (f) {
         fprintf(f, "P6\n%d %d\n255\n", w, h);
         for (y = h - 1; y >= 0; y--)
             fwrite(px + (size_t)y * w * 3, 1, (size_t)w * 3, f);
         fclose(f);
-        printf("wrote umk3-game.ppm (%dx%d)\n", w, h);
+        printf("wrote %s (%dx%d)\n", name, w, h);
     }
     free(px);
 }
@@ -290,8 +308,9 @@ static int open_session_log(void)
 }
 #endif
 
-/* UMK3_TAPS: "120:240,160;300:100,40" taps (240,160) at tick 120, and so on. */
-typedef struct { long tick; float x, y; } TAP;
+/* UMK3_TAPS: "120:240,160;300:100,40" taps (240,160) at tick 120, and so on.
+ * A fourth number holds the press that many ticks: "120:240,160,200". */
+typedef struct { long tick; float x, y; long hold; } TAP;
 static TAP  g_taps[64];
 static int  g_ntaps;
 
@@ -299,7 +318,8 @@ static void parse_taps(const char *s)
 {
     while (s && *s && g_ntaps < 64) {
         TAP t;
-        if (sscanf(s, "%ld:%f,%f", &t.tick, &t.x, &t.y) != 3)
+        t.hold = 3;
+        if (sscanf(s, "%ld:%f,%f,%ld", &t.tick, &t.x, &t.y, &t.hold) < 3)
             break;
         g_taps[g_ntaps++] = t;
         s = strchr(s, ';');
@@ -382,6 +402,7 @@ static void read_config(const char *dir)
  * round ends through the game's own path -- plus the HUD's Health[], which
  * DrawHUD's round-end test reads. */
 extern long RoundWins[2], WinsNeeded;
+extern char *H;                         /* the fight engine's state, 0x0038c674 */
 extern int  Health[2];
 
 /* P and M (umk3.ini can rebind them): the HUD's corner buttons, pressed the
@@ -428,13 +449,42 @@ static void hud_keys(void)
     }
 }
 
+/* A round is in play: past the intro, nobody down, not between rounds, no
+ * finisher on, not paused. The debug keys only act then -- pressed during
+ * a round's end they ended it a second time, with the other fighter, and
+ * both got the round. */
+extern long DoIntro, IsInFinishing, RoundSummary;
+int dbg_round_live(void)
+{
+    /* RoundSummary is 1 from a round's end to the next round's fade-in and
+     * 2 (RoundSummaryUpdate, 0x2abbc) while the next round plays -- not 0,
+     * which only the first round starts from. */
+    return CurrentTask == 6 && G != NULL && RoundSummary != 1
+        && Health[0] > 0 && Health[1] > 0;
+}
+
+/* Arcade, with a ladder chosen: GameMode 0 and Destiny 0..3. */
+extern long GameMode, Destiny;
+extern int  Stage;
+int dbg_in_arcade(void)
+{
+    return GameMode == 0 && Destiny >= 0 && Destiny <= 3;
+}
+
 static void fight_key(int k)
 {
     {
-        if (CurrentTask != 6 || G == NULL)
+        if (!dbg_round_live())
             return;
-        if (k >= 2 && WinsNeeded > 0)                   /* F11 / F12 */
+        if (k >= 2 && WinsNeeded > 0) {                 /* F11 / F12 */
             RoundWins[k - 2] = WinsNeeded - 1;
+            /* ...and the engine's own tally, H[0] / H[1], which
+             * t_player_1_won / t_player_2_won count and t_results_retp
+             * compares with 2 before it starts t_game_finished -- Shao
+             * Kahn's death at the end of an Arcade ladder. Without it a
+             * debug win never ended the ladder the way a real one does. */
+            ((unsigned int *)H)[k - 2] = (unsigned int)(WinsNeeded - 1);
+        }
         *(unsigned int *)((char *)G + ((k & 1) ? 0x368 : 0x36c)) = 0;
         /* ...and the HUD's copy, which only a hit's MKEvent_Add(3, 0, ..)
          * refreshes: RoundEndedAgainst tests Health[], so without this the
@@ -482,7 +532,8 @@ static void debug_keys(void)
 extern const char *FETaskNames[DBG_SCREENS];
 extern int   PendingPush, FE_TaskStackPointer;
 extern float FE_FadeAdd;
-extern long  DontQuitAfterFade;
+extern long  DontQuitAfterFade, RoundSummary;
+extern float FE_Fade;
 void PushFETaskDeferred(int task);
 
 static int g_screen_jump = -1;          /* --screen: the screen to open */
@@ -564,6 +615,25 @@ static void debug_request(const struct dbg_request *rq)
     case DBG_FIGHT_KEY:
         fight_key(rq->a);
         break;
+    case DBG_BOSS:
+        /* PopulateTower puts Motaro at rung Destiny + 6 and Shao Kahn at
+         * Destiny + 7; QuitAsWin moves Stage up one on a win. In a fight:
+         * the rung below the boss, then win, and the game climbs to it by
+         * its own path. Elsewhere: that rung, and the tower again. */
+        if (!dbg_in_arcade())
+            break;
+        if (CurrentTask == 6) {
+            Stage = Destiny + (rq->a == 24 ? 6 : 7) - 1;
+            if (dbg_round_live())
+                fight_key(2);
+        } else {
+            Stage = Destiny + (rq->a == 24 ? 6 : 7);
+            if (CurrentTask == 3)
+                jump_screen(28);
+        }
+        printf("debug: arcade, next fight %s (rung %d)\n",
+               rq->a == 24 ? "Motaro" : "Shao Kahn", Stage);
+        break;
     }
 }
 
@@ -637,6 +707,7 @@ int main(int argc, char **argv)
 #endif
     if (getenv("UMK3_DEBUG_KEYS"))
         g_cfg_debug_keys = 1;
+    g_keys_off = shot_at != 0;
     if (getenv("UMK3_SCREEN"))
         g_screen_jump = parse_screen(getenv("UMK3_SCREEN"));
     parse_taps(getenv("UMK3_TAPS"));
@@ -746,6 +817,30 @@ int main(int argc, char **argv)
             if (g_cfg_debug_keys && getenv("UMK3_DBG_OPEN")
                 && ticks == atol(getenv("UMK3_DBG_OPEN")))
                 dbg_menu_toggle();      /* a test opens the menu by script */
+            if (g_cfg_debug_keys && getenv("UMK3_DBG_BOSS")) {
+                /* "tick:24|25" -- the menu's Arcade boss row, once, at the
+                 * first round in play from that tick on */
+                static int done;
+                const char *q = getenv("UMK3_DBG_BOSS");
+                if (!done && ticks >= atol(q) && strchr(q, ':')
+                    && dbg_round_live()) {
+                    struct dbg_request rq = { DBG_BOSS, 0, 0, 0 };
+                    rq.a = atoi(strchr(q, ':') + 1);
+                    debug_request(&rq);
+                    done = 1;
+                }
+            }
+            if (g_cfg_debug_keys && getenv("UMK3_DBG_KEY")) {
+                /* "tick:k;tick:k" -- F9..F12 (k = 0..3) pressed by script */
+                const char *q = getenv("UMK3_DBG_KEY");
+                while (q && *q) {
+                    if (atol(q) == ticks && strchr(q, ':'))
+                        fight_key(atoi(strchr(q, ':') + 1));
+                    q = strchr(q, ';');
+                    if (q)
+                        q++;
+                }
+            }
             if (g_cfg_debug_keys) {
                 static int was_f2, was_f3;
                 int f2 = plat_key(PK_TEST), f3 = plat_key(PK_BACK);
@@ -774,7 +869,7 @@ int main(int argc, char **argv)
             for (i = 0; i < g_ntaps; i++) {
                 if (g_taps[i].tick == ticks)
                     lime_touch_began(g_taps[i].x, g_taps[i].y);
-                if (g_taps[i].tick + 3 == ticks)
+                if (g_taps[i].tick + g_taps[i].hold == ticks)
                     lime_touch_ended(g_taps[i].x, g_taps[i].y,
                                      g_taps[i].x, g_taps[i].y);
             }
@@ -822,10 +917,28 @@ int main(int argc, char **argv)
                 printf("--fight: %s vs %s, stage %ld\n",
                        CharacterNames[g_fight_p1], CharacterNames[g_fight_p2],
                        g_fight_stage);
+                /* UMK3_ARCADE="destiny,stage": the fight as that rung of
+                 * an Arcade ladder, so a test reaches the last one */
+                if (getenv("UMK3_ARCADE")) {
+                    GameMode = 0;
+                    Destiny = atol(getenv("UMK3_ARCADE"));
+                    if (strchr(getenv("UMK3_ARCADE"), ','))
+                        Stage = atoi(strchr(getenv("UMK3_ARCADE"), ',') + 1);
+                }
                 CurrentTask = 4;                /* Task_FEDestroy */
                 g_fight_p1 = -1;
             }
         no_fight_yet:
+            if (getenv("UMK3_SCREENS")) {
+                const char *q = getenv("UMK3_SCREENS");
+                while (q && *q) {
+                    if (atol(q) == ticks && strchr(q, ':'))
+                        jump_screen(parse_screen(strchr(q, ':') + 1));
+                    q = strchr(q, ';');
+                    if (q)
+                        q++;
+                }
+            }
             {
                 static long in_menu;
                 in_menu = (CurrentTask == 3) ? in_menu + 1 : 0;
@@ -835,6 +948,18 @@ int main(int argc, char **argv)
                 }
             }
 
+            /* UMK3_LOG_FADE=1: every start of a screen fade, for finding
+             * who starts one. FE_FadeAdd < 0 fades out, > 0 back in. */
+            if (getenv("UMK3_LOG_FADE")) {
+                static float last_add;
+                static long  last_dq = -1;
+                if (FE_FadeAdd != last_add || DontQuitAfterFade != last_dq)
+                    printf("tick %ld: fade add %+.4f fade %.3f dontquit %ld task %d round summary %ld\n",
+                           ticks, FE_FadeAdd, FE_Fade, DontQuitAfterFade,
+                           CurrentTask, RoundSummary);
+                last_add = FE_FadeAdd;
+                last_dq = DontQuitAfterFade;
+            }
             if (log_tasks && (CurrentTask != last_task
                               || FE_CurrentTask != last_fe)) {
                 printf("tick %ld: task %d, front-end task %d\n",
@@ -847,6 +972,22 @@ int main(int argc, char **argv)
         }
         plat_audio_update();
 
+        if (getenv("UMK3_SHOTS")) {
+            static long done_upto = -1;
+            const char *q = getenv("UMK3_SHOTS");
+            while (q && *q) {
+                long t = atol(q);
+                if (t <= ticks && t > done_upto) {
+                    char nm[40];
+                    snprintf(nm, sizeof nm, "umk3-shot-%ld.ppm", t);
+                    save_shot_as(nm, ww, wh);
+                    done_upto = t;
+                }
+                q = strchr(q, ',');
+                if (q)
+                    q++;
+            }
+        }
         if (shot_at > 0 && ticks >= shot_at) {
             save_shot(ww, wh);
             break;

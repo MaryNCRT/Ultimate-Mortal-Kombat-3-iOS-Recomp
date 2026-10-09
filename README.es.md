@@ -26,7 +26,7 @@ Necesitas una copia obtenida legalmente de *Ultimate Mortal Kombat 3* para iOS (
 
 ---
 
-## Dónde está el proyecto — 9 de octubre de 2026 (alpha 0.0.4)
+## Dónde está el proyecto — 9 de octubre de 2026 (alpha 0.0.5)
 
 | | |
 |---|---|
@@ -34,7 +34,7 @@ Necesitas una copia obtenida legalmente de *Ultimate Mortal Kombat 3* para iOS (
 | **Verificado** | ✅ El núcleo del motor pasa tests diferenciales contra el original recompilado con cero divergencias. El motor de combate pasa un test diferencial de comportamiento fichero a fichero, con las excepciones listadas en [Verificación](#cuánto-está-verificado): todas son límites conocidos de la herramienta de test, no bugs conocidos. |
 | **Funciona en nativo** | 🔄 El front end real arranca en una ventana OpenGL: menús, textos, sonidos, música y partidas guardadas en Windows y Linux. Arcade llega a la selección de personaje, que dibuja al luchador en 3D con su animación, y recorre la torre. |
 | **Combate** | ✅ **Las peleas se juegan de principio a fin por el camino real.** `Task_GameInit` → `Task_GameMain` → round 1, round 2, fin del combate, `Task_GameDestroy`, pantalla de Continue y siguiente pelea, con la cámara siguiendo a los dos luchadores, voces y efectos de sonido. |
-| **Jugable** | 🔄 **Alpha 0.0.4**: se puede jugar con el teclado (W A S D o flechas; U I O J K L; P pausa, M combos; teclas configurables en el launcher) o con los controles táctiles, contra la CPU. Aún incompleto: ver *Problemas conocidos*. Las 229 tablas de datos del motor de combate se extraen del binario del propio usuario al compilar y están verificadas contra él ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48)). |
+| **Jugable** | 🔄 **Alpha 0.0.5**: se puede jugar con el teclado (W A S D o flechas; U I O J K L; P pausa, M combos; teclas configurables en el launcher) o con los controles táctiles, contra la CPU. Aún incompleto: ver *Problemas conocidos*. Las 229 tablas de datos del motor de combate se extraen del binario del propio usuario al compilar y están verificadas contra él ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48)). |
 
 **Qué significa aquí «decompilado» y qué no.** Significa que cada función que
 ejecuta el juego tiene un cuerpo escrito contra el disassembly y comprobado
@@ -45,9 +45,9 @@ La [sección de progreso](#progreso-general) pone números y dice qué dejan fue
 
 ---
 
-## Cómo jugar (alpha 0.0.4, Windows)
+## Cómo jugar (alpha 0.0.5, Windows)
 
-Notas de versión: [0.0.4](docs/RELEASE-0.0.4-alpha.md) · [0.0.3](docs/RELEASE-0.0.3-alpha.md) · [0.0.2](docs/RELEASE-0.0.2-alpha.md) · [0.0.1](docs/RELEASE-0.0.1-alpha.md).
+Notas de versión: [0.0.5](docs/RELEASE-0.0.5-alpha.md) · [0.0.4](docs/RELEASE-0.0.4-alpha.md) · [0.0.3](docs/RELEASE-0.0.3-alpha.md) · [0.0.2](docs/RELEASE-0.0.2-alpha.md) · [0.0.1](docs/RELEASE-0.0.1-alpha.md).
 Descargas en [Releases](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/releases).
 
 1. Descarga este repositorio (o la release alpha) y deja la carpeta completa.
@@ -116,7 +116,7 @@ Cada arreglo se leyó del binario armv7 original y Mary lo comprobó en el juego
 | **A Sindel le faltaba la melena** | `LIME_LoadSkin` descartaba el segundo bloque de los `.skin` que tienen dos; ese segundo skin es el pelo. |
 | **La palanca en pantalla no se movía** | La tabla `JoyOffset` (un `static` de función, `_JoyOffset.11128`) se generaba a ceros. |
 
-### Problemas conocidos (alpha 0.0.4)
+### Problemas conocidos (alpha 0.0.5)
 
 - **El menú no está completo**, y **algunas secciones del menú todavía provocan un crash**.
 - **Siguen apareciendo varios errores de texturas.**
@@ -141,10 +141,23 @@ Cada arreglo se leyó del binario armv7 original y Mary lo comprobó en el juego
 
 12. No se ve la muerte de Shao Kahn al terminar el Arcade.
 13. ~~Al terminar el Arcade no lleva a la pantalla de desbloqueables~~ -- arreglado: la pantalla crasheaba (datos de los focos vacíos, `DrawAnimAsSprite` con la textura, el módulo y el tamaño mal) y el fondo salía blanco (ahora se carga el `.pvr` primero, como en el iPhone).
-14. Los logros salen mal, con texto superpuesto.
+14. ~~Los logros salen mal, con texto superpuesto~~ -- arreglado (coordenadas cruzadas en `achievementsDraw`).
 15. En la pantalla de carga los iconos están mal puestos.
-16. En la lista de combos los iconos siguen mal puestos.
-17. Contra Motaro, Kitana se cubría todo el tiempo y actuaba raro.
+16. ~~En la lista de combos los iconos siguen mal puestos~~ -- arreglado (las filas alternan de lado, nombre e iconos juntos).
+17. ~~Contra Motaro, Kitana se cubría todo el tiempo y actuaba raro~~ -- arreglado.
+18. ~~Fundido a negro lento al empezar y acabar rounds~~ -- arreglado: un logro guardado en la posición 21 hacía que el juego creyera que había un aviso en pantalla y los fundidos iban 10 veces más lentos.
+19. ~~FINISH HER para personajes hombres~~ -- arreglado (la voz era correcta; el letrero era siempre HER).
+20. Los personajes congelados salen totalmente blancos.
+25. ~~Botones del menú mal puestos (Ajustes, Estadísticas, Logros, Marcadores, Compartir info...)~~ -- arreglado: `DrawButtonNew` tenía las coordenadas u y v de textura intercambiadas en todos los estilos.
+21. El fatality de Sonya no se ve bien.
+22. Crasheos aleatorios (hacen falta logs).
+23. ~~Mantener pulsado el retrato de Smoke para elegir a Human Smoke~~ -- funciona: mantén el clic 3 segundos.
+24. ~~En el menú debug, ganar/perder round a veces da el round a los dos~~ -- arreglado: solo actúan con el round en juego. Nuevo: *Arcade: siguiente Motaro / Shao Kahn*.
+26. Restaurar la muerte de Shao Kahn al terminar el Arcade: el Arcade ya se completa y Shao Kahn ya no crashea, pero durante su muerte no se ven su modelo ni sus efectos y el sonido se repite.
+27. En el finish him contra Reptile, el rival aturdido caminaba hacia el jugador.
+28. Un escenario (el puente con pinchos, contra Nightwolf) no muestra el fondo.
+29. Iconos del Kombat Kode mal puestos en la pantalla de carga.
+30. Al pausar, a veces la pelea se ve encogida en una esquina detrás del menú.
 
 - El launcher es solo para Windows (Linux/macOS: compilar desde el código con CMake).
 
@@ -268,7 +281,7 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 | Capa de plataforma PC nativa (161 fn a reescribir) | 17% | 27% | `███░░░░░░░` |
 | Stubs del EA SDK (27 fn que llama el juego) | 5% | 100% | `██████████` |
 
-**87,59% del esfuerzo total estimado. La alpha 0.0.4 es jugable:** peleas
+**87,59% del esfuerzo total estimado. La alpha 0.0.5 es jugable:** peleas
 completas por el camino real, con los problemas conocidos de arriba.
 
 **Hay que leer esa cifra por lo que mide y por lo que deja fuera.** Pondera las

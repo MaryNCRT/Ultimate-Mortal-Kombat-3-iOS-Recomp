@@ -3344,16 +3344,16 @@ void DrawRedHighlight(int x, int y, int w, int h, int thick);
  *
  * A `tbb` on `style` picks the UV window:
  *
- *      style  u0          v0          u1          v1          texture
- *      0      0.5078125   0           0.2890625   0.234375    FEBits1
+ *      style  u0          v0          u extent    v extent    texture
+ *      0      0           0.5078125   0.2890625   0.234375    FEBits1
  *      1      0           0           0.40625     0.09375     FEBits1
- *      2      0.1015625   0           0.5234375   0.09375     FEBits1
- *      3      0.359375    0           0.640625    0.171875    **FEBits2**
- *      4      0.578125    0.65234375  0.296875    0.0625      FEBits1
- *      5      0.5078125   0.65234375  0.296875    0.0625      FEBits1
- *      6      0.6484375   0.65234375  0.0859375   0.0625      FEBits1
- *      7      0           0.4140625   0.1484375   0.0625      FEBits1
- *      8      0           0.5703125   0.22265625  0.0625      FEBits1
+ *      2      0           0.1015625   0.5234375   0.09375     FEBits1
+ *      3      0           0.359375    0.640625    0.171875    **FEBits2**
+ *      4      0.65234375  0.578125    0.296875    0.0625      FEBits1
+ *      5      0.65234375  0.5078125   0.296875    0.0625      FEBits1
+ *      6      0.65234375  0.6484375   0.0859375   0.0625      FEBits1
+ *      7      0.4140625   0           0.1484375   0.0625      FEBits1
+ *      8      0.5703125   0           0.22265625  0.0625      FEBits1
  *      >8     0           0           1.0         1.0         FEBits1
  *
  * **Style 3 is the only one that reads `_FEBits2`**, and it is the only style
@@ -3390,21 +3390,26 @@ long DrawButtonNew(BUTTONNEW *b, int x, int y, int interactive)
     float px, py, pw, ph;
     long r = 0;
 
+    /* u0 is `fp` and v0 is [sp+0x28] when limeDrawSprite is called (0x5889a,
+     * 0x058a0): style 0 sets fp = 0 and v0 = 0x3f020000 (0x58d4-0x58e0),
+     * styles 4-6 set fp = 0x3f270000. Every style had the two swapped, and
+     * every button drew the wrong window of FE_BUTTONS_01 -- the Facebook
+     * Connect/Logout art on the settings boxes, slivers of frame elsewhere. */
     switch (b->style) {
-    case 0: u0 = 0.5078125f; u1 = 0.2890625f;  v1 = 0.234375f;  break;
+    case 0: v0 = 0.5078125f; u1 = 0.2890625f;  v1 = 0.234375f;  break;
     case 1:                  u1 = 0.40625f;    v1 = 0.09375f;   break;
-    case 2: u0 = 0.1015625f; u1 = 0.5234375f;  v1 = 0.09375f;   break;
-    case 3: u0 = 0.359375f;  u1 = 0.640625f;   v1 = 0.171875f;
+    case 2: v0 = 0.1015625f; u1 = 0.5234375f;  v1 = 0.09375f;   break;
+    case 3: v0 = 0.359375f;  u1 = 0.640625f;   v1 = 0.171875f;
             tex = *FEBits2;                                     break;
-    case 4: u0 = 0.578125f;  v0 = 0.65234375f; u1 = 0.296875f;
+    case 4: v0 = 0.578125f;  u0 = 0.65234375f; u1 = 0.296875f;
             v1 = 0.0625f;                                       break;
-    case 5: u0 = 0.5078125f; v0 = 0.65234375f; u1 = 0.296875f;
+    case 5: v0 = 0.5078125f; u0 = 0.65234375f; u1 = 0.296875f;
             v1 = 0.0625f;                                       break;
-    case 6: u0 = 0.6484375f; v0 = 0.65234375f; u1 = 0.0859375f;
+    case 6: v0 = 0.6484375f; u0 = 0.65234375f; u1 = 0.0859375f;
             v1 = 0.0625f;                                       break;
-    case 7:                  v0 = 0.4140625f;  u1 = 0.1484375f;
+    case 7:                  u0 = 0.4140625f;  u1 = 0.1484375f;
             v1 = 0.0625f;                                       break;
-    case 8:                  v0 = 0.5703125f;  u1 = 0.22265625f;
+    case 8:                  u0 = 0.5703125f;  u1 = 0.22265625f;
             v1 = 0.0625f;                                       break;
     default:                                                    break;
     }

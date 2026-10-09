@@ -899,7 +899,12 @@ void AddNewGameEvents(void)
                     achievementsUnlock(5);          /* mercy, then a finisher */
                 if (Settings[3])
                     PlaySoundId(get_tsound(ev->subtype == 17 ? 0x15 : 0x16));
-                HUDANIM_TriggerAnim(3);
+                /* Two copies in the binary: FinishHimHer = 1, tsound 0x15,
+                 * TriggerAnim(2) -- FINISH HIM (0x73eec, 0x7488e, 0x73f2a) --
+                 * and FinishHimHer = 2, tsound 0x16, TriggerAnim(3) -- FINISH
+                 * HER (0x73cee, 0x7483e, 0x73d28). Merged into one with a
+                 * constant 3, every finisher said HIM and showed HER. */
+                HUDANIM_TriggerAnim(ev->subtype == 17 ? 2 : 3);
                 IsInFinishing = 1;
                 RoundParam[14] = 1;
                 RoundParam[13] = 0;

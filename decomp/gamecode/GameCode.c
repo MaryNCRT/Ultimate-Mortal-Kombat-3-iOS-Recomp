@@ -7453,20 +7453,15 @@ long GameInit_LoadABit(long step)
  *                   limeScreenWidth, 32.0f * FE_HeightScale,
  *                   shade, shade, shade, 0.7f)
  *
- * with `shade` **0.0 on even rows and 0.15 on odd** -- both bars are drawn, at
+ * with `shade` **0.0 on rows 0, 2, 4 and 0.15 on rows 1, 3, 5** -- both bars are drawn, at
  * the same height and the same 0.7 alpha, and the alternation is the only
  * difference. That is the banding behind the list.
  *
- * The move name is drawn **right-aligned at `FE_X(432)`** at three-quarter
- * scale, and the notation starts from `DrawMoveListIcons`'s own `FE_X(48)`.
- *
- * And then the surprising part: the fourth argument to `DrawMoveListIcons` --
- * the one that anchors the notation to the right edge instead of the left --
- * is `(row + 1) & 1`, **the same alternation as the stripe**. So consecutive
- * rows anchor their notation at opposite ends of the screen. It is written out
- * once and used for both, in a single `ands` before the branch, so it is not a
- * transcription slip on this side; whether it was one in the original is not
- * something the disassembly can say.
+ * **The whole row alternates sides.** `(row + 1) & 1` chooses between two
+ * copies of the row: rows 0, 2, 4 draw the name right-aligned at `FE_X(432)`
+ * and anchor the notation to the right edge; rows 1, 3, 5 draw the name
+ * left-aligned at `FE_X(48)` and the notation from the left. Name and icons
+ * always share a side -- the list zig-zags.
  *
  * ### The y counter doubles as the row offset
  *
@@ -7544,25 +7539,30 @@ static void DrawMovesRow(long y, long row, const int *seq,
                          long nameId, long captionId, int withCaption)
 {
     char  caption[128];                 /* sp+0x70 */
-    long  odd   = (row + 1) & 1;
-    float shade = odd ? 0.15f : 0.0f;
+    /* fp = (row + 1) & 1 (0x1efe6) picks the whole row's side. fp != 0
+     * (0x1eed2): stripe 0.0, name right-aligned at FE_X(432) (0x43d80000),
+     * notation right-anchored. fp == 0 (0x1efee): stripe 0.15 (0x3e19999a),
+     * name LEFT-aligned at FE_X(48) (0x42400000, alignment = fp), notation
+     * from the left. The name used to stay right-aligned on every row and
+     * the stripe shades were swapped, so every other row's icons sat at the
+     * far side of the screen from their move. */
+    long  right = (row + 1) & 1;
+    float shade = right ? 0.0f : 0.15f;
 
     limeFillRect(0.0f, (float)(y + 0x2f) * FE_HeightScale,
                  (float)limeScreenWidth, 32.0f * FE_HeightScale,
                  shade, shade, shade, 0.7f);
 
     limeDrawFONT(&GameFont, limeUC(GameTextNoHeader(nameId + row)),
-                 (float)FE_X(432.0f),
+                 (float)FE_X(right ? 432.0f : 48.0f),
                  (float)(y + 0x30) * FE_HeightScale,
-                 2, 0.75f * FE_WidthScale, fontcol);
+                 right ? 2 : 0, 0.75f * FE_WidthScale, fontcol);
 
     if (withCaption)
         usprintf(caption, UC("%s"), GameTextNoHeader(captionId + row));
 
-    /* `odd` anchors the notation at the opposite end on alternate rows -- see
-     * the header. */
     DrawMoveListIcons((int)((float)(y + 0x40) * FE_HeightScale), seq,
-                      withCaption ? caption : 0, (int)odd);
+                      withCaption ? caption : 0, (int)right);
 }
 
 /* One page of the shared list; `first` is the row it starts at. */

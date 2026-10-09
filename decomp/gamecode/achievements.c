@@ -58,7 +58,13 @@ int areAchievementsViewing(void)
     int count = 0;
     int i;
 
-    for (i = 0; i < ACHIEVEMENT_SLOTS; i++) {
+    /* TWENTY slots, `cmp r2, #0x50` -- the twenty achievementsDraw walks --
+     * not the 24 the tracker holds. Counting 24, a slot past 19 left at 1
+     * (a save had slot 21 at 1) was "on screen" forever: nothing draws or
+     * retires slots 20-23, and every screen fade, which runs ten times slower
+     * while a banner shows (Task_GameMain), took five seconds instead of half
+     * a second. */
+    for (i = 0; i < 0x50 / 4; i++) {
         if (achievementTracker[i] == 1)
             count++;
     }
@@ -577,12 +583,16 @@ void achievementsDraw(void)
         limeFillRect(0.0f, y, (float)*limeScreenWidthP,
                      32.0f * FE_HeightScale, 0.0f, 0.0f, 0.0f, 0.5f);
 
+        /* Both lines at x = 20 * FE_WidthScale, the heading at y + 4 and the
+         * name at y + 14 (0xa0a18-0xa0a8c: 4.0 and 14.0 scale the HEIGHT,
+         * 20.0 the width). The constants were swapped -- x 4 and 14, both
+         * lines at y + 20 -- and the two lines drew on top of each other. */
         limeDrawFONT(GameFontSlot, GameText(0x65),
-                     4.0f * FE_WidthScale, y + 20.0f * FE_HeightScale,
+                     20.0f * FE_WidthScale, y + 4.0f * FE_HeightScale,
                      0, 0.65f * FE_WidthScale, grey);
 
         limeDrawFONT(GameFontSlot, GameText(achievementsDescr[i].id),
-                     14.0f * FE_WidthScale, y + 20.0f * FE_HeightScale,
+                     20.0f * FE_WidthScale, y + 14.0f * FE_HeightScale,
                      0, 0.9f * FE_WidthScale, white);
 
         if (*GamePausedPtr == 0) {
