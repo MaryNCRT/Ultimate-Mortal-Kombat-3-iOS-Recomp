@@ -6,7 +6,7 @@ First public build. **No game data and no game executable are included**: you co
 1. Descarga y descomprime `UMK3-PC-0.0.1-alpha.zip`.
 2. Abre `UMK3-Launcher.exe` → **Buscar...** → elige tu `.ipa` → **Compilar**.
    La primera vez descarga el compilador (llvm-mingw 20260616, ~190 MB, SHA-256 comprobado) y Python 3.12.10; luego verifica tu binario, extrae las tablas, compila `umk3-game.exe` y copia `res\` desde tu `.ipa` (menos de un minuto).
-3. Elige **resolución 3D**, **pantalla completa** e **idioma** (se guardan solos en `umk3.ini`) y pulsa **JUGAR**.
+3. Elige **resolución 3D**, **pantalla completa** e **idioma** (se guardan solos en `umk3.ini`) y pulsa **JUGAR**. El botón arriba a la derecha cambia el launcher entre español e inglés.
 
 Requisitos: Windows 10/11 64 bits, internet la primera vez, ~1,5 GB libres. El `.ipa` de iPad 1.2.56 no sirve.
 

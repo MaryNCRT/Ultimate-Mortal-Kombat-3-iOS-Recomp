@@ -28,6 +28,9 @@ COMO JUGAR
    en umk3.ini en cuanto los cambias.
 4. Pulsa JUGAR.
 
+El boton de arriba a la derecha (English / Espanol) cambia el idioma del
+launcher; tambien se guarda en umk3.ini.
+
 El juego solo usa esta carpeta. Puedes borrar toolchain\ y build-game\
 despues de compilar (se vuelven a descargar si compilas otra vez).
 
@@ -54,7 +57,8 @@ Windows port of UMK3 for iOS 1.2.59, by decompilation. Nothing of the game
 is included. Open UMK3-Launcher.exe, pick your own iPhone .ipa (1.2.59),
 press Compilar: it downloads a pinned compiler, checks your binary, builds
 umk3-game.exe and copies res\ out of your .ipa. Choose resolution,
-fullscreen and language (saved in umk3.ini) and press JUGAR.
+fullscreen and language (saved in umk3.ini) and press PLAY. The button at
+the top right switches the launcher between English and Spanish.
 Known problems are listed above.
 
 Ultimate Mortal Kombat 3 is (c) Electronic Arts / Midway / Warner Bros.

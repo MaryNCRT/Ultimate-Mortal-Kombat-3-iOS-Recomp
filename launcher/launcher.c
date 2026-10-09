@@ -23,7 +23,54 @@
 #define VERSION L"0.0.1 alpha"
 
 enum { ID_IPA = 100, ID_BROWSE, ID_BUILD, ID_RES, ID_FULL, ID_LANG, ID_PLAY,
-       ID_STATUS };
+       ID_STATUS, ID_UILANG };
+
+/* The launcher's own texts, Spanish and English; the button at the top
+ * switches between them and umk3.ini keeps the choice (ui=ES|EN). */
+enum { S_TITLE, S_GROUP_IPA, S_BROWSE, S_BUILD, S_GROUP_CFG, S_RES, S_FULL,
+       S_LANG, S_PLAY, S_SWITCH, S_BUILDING, S_READY, S_NEED, S_FILTER,
+       S_PICK_IPA, S_NO_PS, S_NO_GAME, S_BUILT, S_AUTO, S_ENTER, S_COUNT };
+
+static const wchar_t *const k_text[2][S_COUNT] = {
+    {   /* ES */
+        L"Ultimate Mortal Kombat 3 -- port de PC " VERSION,
+        L"1. Tu .ipa (se compila el juego con el)",
+        L"Buscar...", L"Compilar",
+        L"2. Configuracion (se guarda sola)",
+        L"Resolucion 3D:", L"Pantalla completa", L"Idioma del juego:", L"JUGAR",
+        L"English",
+        L"Compilando... sigue el progreso en la ventana de consola.",
+        L"Juego listo. Pulsa Jugar.",
+        L"Falta compilar: elige tu UMK3 .ipa (v1.2.59 iPhone) y pulsa Compilar.",
+        L"UMK3 .ipa\0*.ipa\0Todos\0*.*\0",
+        L"Elige primero tu archivo .ipa de UMK3.",
+        L"No se pudo iniciar PowerShell.",
+        L"No se pudo iniciar umk3-game.exe.",
+        L"Juego compilado. Ya puedes pulsar Jugar.",
+        L"Automatico (Windows)",
+        L"Pulsa Enter para cerrar",
+    },
+    {   /* EN */
+        L"Ultimate Mortal Kombat 3 -- PC port " VERSION,
+        L"1. Your .ipa (the game is compiled from it)",
+        L"Browse...", L"Compile",
+        L"2. Settings (saved automatically)",
+        L"3D resolution:", L"Fullscreen", L"Game language:", L"PLAY",
+        L"Espa\u00f1ol",
+        L"Compiling... follow the progress in the console window.",
+        L"Game ready. Press Play.",
+        L"Not compiled yet: choose your UMK3 .ipa (v1.2.59 iPhone) and press Compile.",
+        L"UMK3 .ipa\0*.ipa\0All files\0*.*\0",
+        L"Choose your UMK3 .ipa file first.",
+        L"Could not start PowerShell.",
+        L"Could not start umk3-game.exe.",
+        L"Game compiled. You can press Play now.",
+        L"Automatic (Windows)",
+        L"Press Enter to close",
+    },
+};
+static int g_ui;                       /* 0 Spanish, 1 English */
+#define T(id) k_text[g_ui][id]
 
 static const struct { int w, h; } k_res[] = {
     { 480, 320 }, { 960, 640 }, { 1440, 960 }, { 1920, 1280 },
@@ -33,7 +80,7 @@ static const struct { int w, h; } k_res[] = {
 
 /* The languages Info.plist maps (LANGUAGE_TEXT_xx); "" follows Windows. */
 static const struct { const wchar_t *code, *name; } k_lang[] = {
-    { L"",   L"Automatico (Windows)" },
+    { L"",   NULL },                    /* S_AUTO, in the launcher's language */
     { L"EN", L"English" },
     { L"ES", L"Español" },
     { L"FR", L"Français" },
@@ -46,6 +93,7 @@ static const struct { const wchar_t *code, *name; } k_lang[] = {
 
 static wchar_t g_dir[MAX_PATH];        /* the launcher's folder, with '\' */
 static HWND    g_wnd, g_ipa, g_res, g_full, g_lang, g_play, g_build, g_status;
+static HWND    g_label[S_COUNT];       /* the controls whose text is k_text[] */
 static HFONT   g_font;
 static int     g_cfg_res = 1, g_cfg_full, g_cfg_lang;
 static wchar_t g_cfg_ipa[MAX_PATH];
@@ -98,7 +146,9 @@ static void load_config(void)
                 if (_stricmp(c, v) == 0)
                     g_cfg_lang = i;
             }
-        } else if (strcmp(line, "ipa") == 0)
+        } else if (strcmp(line, "ui") == 0)
+            g_ui = _stricmp(v, "EN") == 0;
+        else if (strcmp(line, "ipa") == 0)
             MultiByteToWideChar(CP_UTF8, 0, v, -1, g_cfg_ipa, MAX_PATH);
     }
     fclose(f);
@@ -120,8 +170,9 @@ static void save_config(void)
     WideCharToMultiByte(CP_UTF8, 0, g_cfg_ipa, -1, ipa, sizeof ipa, NULL, NULL);
     WideCharToMultiByte(CP_UTF8, 0, k_lang[g_cfg_lang].code, -1, lang, sizeof lang,
                         NULL, NULL);
-    fprintf(f, "width=%d\nheight=%d\nfullscreen=%d\nlanguage=%s\nipa=%s\n",
-            k_res[g_cfg_res].w, k_res[g_cfg_res].h, g_cfg_full, lang, ipa);
+    fprintf(f, "width=%d\nheight=%d\nfullscreen=%d\nlanguage=%s\nui=%s\nipa=%s\n",
+            k_res[g_cfg_res].w, k_res[g_cfg_res].h, g_cfg_full, lang,
+            g_ui ? "EN" : "ES", ipa);
     fclose(f);
 }
 
@@ -139,11 +190,11 @@ static void refresh(void)
     EnableWindow(g_play, !building && game_ready());
     EnableWindow(g_build, !building);
     if (building)
-        SetWindowTextW(g_status, L"Compilando... sigue el progreso en la ventana de consola.");
+        SetWindowTextW(g_status, T(S_BUILDING));
     else if (game_ready())
-        SetWindowTextW(g_status, L"Juego listo. Pulsa Jugar.");
+        SetWindowTextW(g_status, T(S_READY));
     else
-        SetWindowTextW(g_status, L"Falta compilar: elige tu UMK3 .ipa (v1.2.59 iPhone) y pulsa Compilar.");
+        SetWindowTextW(g_status, T(S_NEED));
 }
 
 static void browse(void)
@@ -155,7 +206,7 @@ static void browse(void)
     ZeroMemory(&ofn, sizeof ofn);
     ofn.lStructSize = sizeof ofn;
     ofn.hwndOwner = g_wnd;
-    ofn.lpstrFilter = L"UMK3 .ipa\0*.ipa\0Todos\0*.*\0";
+    ofn.lpstrFilter = T(S_FILTER);
     ofn.lpstrFile = file;
     ofn.nMaxFile = MAX_PATH;
     ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
@@ -182,7 +233,7 @@ static void build(void)
 
     GetWindowTextW(g_ipa, g_cfg_ipa, MAX_PATH);
     if (!g_cfg_ipa[0] || GetFileAttributesW(g_cfg_ipa) == INVALID_FILE_ATTRIBUTES) {
-        MessageBoxW(g_wnd, L"Elige primero tu archivo .ipa de UMK3.", L"UMK3 Launcher",
+        MessageBoxW(g_wnd, T(S_PICK_IPA), L"UMK3 Launcher",
                     MB_OK | MB_ICONWARNING);
         return;
     }
@@ -191,14 +242,14 @@ static void build(void)
     _snwprintf(cmd, sizeof cmd / sizeof cmd[0],
                L"powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "
                L"\"& '%lslauncher\\build_game.ps1' -Ipa '%ls'; "
-               L"Write-Host ''; Read-Host 'Pulsa Enter para cerrar'; exit $LASTEXITCODE\"",
-               g_dir, g_cfg_ipa);
+               L"Write-Host ''; Read-Host '%ls'; exit $LASTEXITCODE\"",
+               g_dir, g_cfg_ipa, T(S_ENTER));
     cmd[sizeof cmd / sizeof cmd[0] - 1] = 0;
     ZeroMemory(&si, sizeof si);
     si.cb = sizeof si;
     if (!CreateProcessW(NULL, cmd, NULL, NULL, FALSE, CREATE_NEW_CONSOLE, NULL,
                         g_dir, &si, &pi)) {
-        MessageBoxW(g_wnd, L"No se pudo iniciar PowerShell.", L"UMK3 Launcher",
+        MessageBoxW(g_wnd, T(S_NO_PS), L"UMK3 Launcher",
                     MB_OK | MB_ICONERROR);
         return;
     }
@@ -219,7 +270,7 @@ static void play(void)
     ZeroMemory(&si, sizeof si);
     si.cb = sizeof si;
     if (!CreateProcessW(exe, NULL, NULL, NULL, FALSE, 0, NULL, g_dir, &si, &pi)) {
-        MessageBoxW(g_wnd, L"No se pudo iniciar umk3-game.exe.", L"UMK3 Launcher",
+        MessageBoxW(g_wnd, T(S_NO_GAME), L"UMK3 Launcher",
                     MB_OK | MB_ICONERROR);
         return;
     }
@@ -239,23 +290,36 @@ static HWND add(const wchar_t *cls, const wchar_t *text, DWORD style,
     return c;
 }
 
+/* Every text in the launcher's language; the combo boxes keep their
+ * selection. */
+static void apply_texts(void)
+{
+    int i;
+
+    for (i = 0; i < S_COUNT; i++)
+        if (g_label[i])
+            SetWindowTextW(g_label[i], T(i));
+    SendMessageW(g_lang, CB_DELETESTRING, 0, 0);
+    SendMessageW(g_lang, CB_INSERTSTRING, 0, (LPARAM)T(S_AUTO));
+    SendMessageW(g_lang, CB_SETCURSEL, g_cfg_lang, 0);
+    refresh();
+}
+
 static void build_ui(void)
 {
     int i;
     wchar_t s[64];
 
-    add(L"STATIC", L"Ultimate Mortal Kombat 3 -- port de PC " VERSION, 0,
-        16, 12, 440, 20, 0);
+    g_label[S_TITLE] = add(L"STATIC", NULL, 0, 16, 12, 340, 20, 0);
+    g_label[S_SWITCH] = add(L"BUTTON", NULL, BS_PUSHBUTTON, 370, 8, 100, 26, ID_UILANG);
 
-    add(L"BUTTON", L"1. Tu .ipa (se compila el juego con el)", BS_GROUPBOX,
-        10, 40, 460, 90, 0);
+    g_label[S_GROUP_IPA] = add(L"BUTTON", NULL, BS_GROUPBOX, 10, 40, 460, 90, 0);
     g_ipa = add(L"EDIT", g_cfg_ipa, WS_BORDER | ES_AUTOHSCROLL, 22, 62, 340, 24, ID_IPA);
-    add(L"BUTTON", L"Buscar...", BS_PUSHBUTTON, 370, 61, 88, 26, ID_BROWSE);
-    g_build = add(L"BUTTON", L"Compilar", BS_PUSHBUTTON, 22, 94, 120, 28, ID_BUILD);
+    g_label[S_BROWSE] = add(L"BUTTON", NULL, BS_PUSHBUTTON, 370, 61, 88, 26, ID_BROWSE);
+    g_build = g_label[S_BUILD] = add(L"BUTTON", NULL, BS_PUSHBUTTON, 22, 94, 120, 28, ID_BUILD);
 
-    add(L"BUTTON", L"2. Configuracion (se guarda sola)", BS_GROUPBOX,
-        10, 140, 460, 120, 0);
-    add(L"STATIC", L"Resolucion 3D:", 0, 22, 166, 110, 20, 0);
+    g_label[S_GROUP_CFG] = add(L"BUTTON", NULL, BS_GROUPBOX, 10, 140, 460, 120, 0);
+    g_label[S_RES] = add(L"STATIC", NULL, 0, 22, 166, 115, 20, 0);
     g_res = add(L"COMBOBOX", NULL, CBS_DROPDOWNLIST | WS_VSCROLL, 140, 162, 200, 300, ID_RES);
     for (i = 0; i < NRES; i++) {
         _snwprintf(s, 64, L"%d x %d%ls", k_res[i].w, k_res[i].h,
@@ -263,17 +327,17 @@ static void build_ui(void)
         SendMessageW(g_res, CB_ADDSTRING, 0, (LPARAM)s);
     }
     SendMessageW(g_res, CB_SETCURSEL, g_cfg_res, 0);
-    g_full = add(L"BUTTON", L"Pantalla completa", BS_AUTOCHECKBOX, 140, 194, 200, 22, ID_FULL);
+    g_full = g_label[S_FULL] = add(L"BUTTON", NULL, BS_AUTOCHECKBOX, 140, 194, 200, 22, ID_FULL);
     SendMessageW(g_full, BM_SETCHECK, g_cfg_full ? BST_CHECKED : BST_UNCHECKED, 0);
-    add(L"STATIC", L"Idioma:", 0, 22, 228, 110, 20, 0);
+    g_label[S_LANG] = add(L"STATIC", NULL, 0, 22, 228, 115, 20, 0);
     g_lang = add(L"COMBOBOX", NULL, CBS_DROPDOWNLIST | WS_VSCROLL, 140, 224, 200, 300, ID_LANG);
     for (i = 0; i < NLANG; i++)
-        SendMessageW(g_lang, CB_ADDSTRING, 0, (LPARAM)k_lang[i].name);
-    SendMessageW(g_lang, CB_SETCURSEL, g_cfg_lang, 0);
+        SendMessageW(g_lang, CB_ADDSTRING, 0,
+                     (LPARAM)(k_lang[i].name ? k_lang[i].name : T(S_AUTO)));
 
-    g_play = add(L"BUTTON", L"JUGAR", BS_DEFPUSHBUTTON, 10, 272, 460, 44, ID_PLAY);
+    g_play = g_label[S_PLAY] = add(L"BUTTON", NULL, BS_DEFPUSHBUTTON, 10, 272, 460, 44, ID_PLAY);
     g_status = add(L"STATIC", L"", 0, 12, 326, 456, 36, ID_STATUS);
-    refresh();
+    apply_texts();
 }
 
 static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
@@ -284,6 +348,11 @@ static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         case ID_BROWSE: browse(); break;
         case ID_BUILD:  build();  break;
         case ID_PLAY:   play();   break;
+        case ID_UILANG:
+            g_ui = !g_ui;
+            apply_texts();
+            save_config();
+            break;
         case ID_FULL:
             g_cfg_full = SendMessageW(g_full, BM_GETCHECK, 0, 0) == BST_CHECKED;
             save_config();
@@ -313,7 +382,7 @@ static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         g_build_proc = NULL;
         refresh();
         if (game_ready())
-            MessageBoxW(h, L"Juego compilado. Ya puedes pulsar Jugar.", L"UMK3 Launcher",
+            MessageBoxW(h, T(S_BUILT), L"UMK3 Launcher",
                         MB_OK | MB_ICONINFORMATION);
         return 0;
     case WM_CTLCOLORSTATIC:

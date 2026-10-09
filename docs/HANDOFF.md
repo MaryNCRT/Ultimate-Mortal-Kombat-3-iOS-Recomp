@@ -21,7 +21,9 @@ Read this, then [METHODOLOGY.md](METHODOLOGY.md). Everything else is reference.
 es -> EXTRACTED` is obsolete.
 - **`UMK3-Launcher.exe`** (`launcher/launcher.c`, CMake target
   `umk3-launcher`): .ipa picker + **Compilar**, 3D resolution, fullscreen,
-  language, **JUGAR**. Settings saved to `umk3.ini` on every change.
+  language, **JUGAR**; a top-right button switches the launcher between
+  Spanish and English (`ui=ES|EN` in `umk3.ini`; the build console stays
+  Spanish). Settings saved to `umk3.ini` on every change.
 - **`launcher/build_game.ps1`**: downloads llvm-mingw 20260616 (x86_64 host,
   SHA-256 pinned) and Python 3.12.10 embeddable (MD5 pinned) into
   `toolchain\`, checks the binary with `launcher/check_binary.py` (uuid
