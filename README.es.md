@@ -6,7 +6,7 @@
 
 **Decompilación completa de la versión iOS de 2011 de Ultimate Mortal Kombat 3 — las 2.572 funciones del juego ya son C legible — y un port nativo para Windows y Linux que sigue en marcha.**
 
-[Primeros pasos](docs/GETTING-STARTED.md) · [Metodología](docs/METHODOLOGY.md) · [Motor LIME](docs/LIME-ENGINE.md) · [Formatos de assets](docs/X-TABLES.md) · [Visor de mallas](docs/MESH-VIEWER.md) · [Bugs del juego](docs/GAME-BUGS.md) · [Contenido oculto](docs/HIDDEN-CONTENT.md) · [Escenarios](docs/STAGES.md) · [Plantel](docs/ROSTER.md) · [Tablas de golpes](docs/MOVES-TABLES.md) · [Iluminación](docs/LIGHTING.md) · [Formato de fuentes](docs/FONT-FORMAT.md) · [Formato .scene](docs/SCENE-FORMAT.md) · [Formato PVR](docs/PVR-FORMAT.md) · [Listas de frames](docs/FRAMELISTS.md) · [Referencia MAME](docs/MAME-ARCADE.md) · [Build de iPad](docs/IPAD-BUILD.md) · [Arquitectura](docs/ARCHITECTURE.md) · [Progreso](docs/PROGRESS.md) · [Relevo](docs/HANDOFF.md) · [Encargo](docs/ENCARGO.md) · [Declaración sobre IA](AI-DISCLOSURE.md) · [English](README.md)
+[Primeros pasos](docs/GETTING-STARTED.md) · [Metodología](docs/METHODOLOGY.md) · [Motor LIME](docs/LIME-ENGINE.md) · [Formatos de assets](docs/X-TABLES.md) · [Visor de mallas](docs/MESH-VIEWER.md) · [Bugs del juego](docs/GAME-BUGS.md) · [Contenido oculto](docs/HIDDEN-CONTENT.md) · [Escenarios](docs/STAGES.md) · [Plantel](docs/ROSTER.md) · [Tablas de golpes](docs/MOVES-TABLES.md) · [Iluminación](docs/LIGHTING.md) · [Formato de fuentes](docs/FONT-FORMAT.md) · [Formato .scene](docs/SCENE-FORMAT.md) · [Formato PVR](docs/PVR-FORMAT.md) · [Listas de frames](docs/FRAMELISTS.md) · [Referencia MAME](docs/MAME-ARCADE.md) · [Build de iPad](docs/IPAD-BUILD.md) · [Arquitectura](docs/ARCHITECTURE.md) · [Progreso](docs/PROGRESS.md) · [Relevo](docs/HANDOFF.md) · [Encargo original](docs/ENCARGO.md) · [Declaración sobre IA](AI-DISCLOSURE.md) · [English](README.md)
 
 </div>
 
@@ -26,7 +26,7 @@ Necesitas una copia obtenida legalmente de *Ultimate Mortal Kombat 3* para iOS (
 
 ---
 
-## Dónde está el proyecto — 8 de octubre de 2026 (noche, alpha 0.0.3)
+## Dónde está el proyecto — 9 de octubre de 2026 (alpha 0.0.4)
 
 | | |
 |---|---|
@@ -34,7 +34,7 @@ Necesitas una copia obtenida legalmente de *Ultimate Mortal Kombat 3* para iOS (
 | **Verificado** | ✅ El núcleo del motor pasa tests diferenciales contra el original recompilado con cero divergencias. El motor de combate pasa un test diferencial de comportamiento fichero a fichero, con las excepciones listadas en [Verificación](#cuánto-está-verificado): todas son límites conocidos de la herramienta de test, no bugs conocidos. |
 | **Funciona en nativo** | 🔄 El front end real arranca en una ventana OpenGL: menús, textos, sonidos, música y partidas guardadas en Windows y Linux. Arcade llega a la selección de personaje, que dibuja al luchador en 3D con su animación, y recorre la torre. |
 | **Combate** | ✅ **Las peleas se juegan de principio a fin por el camino real.** `Task_GameInit` → `Task_GameMain` → round 1, round 2, fin del combate, `Task_GameDestroy`, pantalla de Continue y siguiente pelea, con la cámara siguiendo a los dos luchadores, voces y efectos de sonido. |
-| **Jugable** | 🔄 **Alpha 0.0.3**: se puede jugar con el teclado (W A S D o flechas; U I O J K L; P pausa, M combos; teclas configurables en el launcher) o con los controles táctiles, contra la CPU. Aún incompleto: ver *Problemas conocidos*. Las 229 tablas de datos del motor de combate se extraen del binario del propio usuario al compilar y están verificadas contra él ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48)). |
+| **Jugable** | 🔄 **Alpha 0.0.4**: se puede jugar con el teclado (W A S D o flechas; U I O J K L; P pausa, M combos; teclas configurables en el launcher) o con los controles táctiles, contra la CPU. Aún incompleto: ver *Problemas conocidos*. Las 229 tablas de datos del motor de combate se extraen del binario del propio usuario al compilar y están verificadas contra él ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48)). |
 
 **Qué significa aquí «decompilado» y qué no.** Significa que cada función que
 ejecuta el juego tiene un cuerpo escrito contra el disassembly y comprobado
@@ -45,9 +45,9 @@ La [sección de progreso](#progreso-general) pone números y dice qué dejan fue
 
 ---
 
-## Cómo jugar (alpha 0.0.3, Windows)
+## Cómo jugar (alpha 0.0.4, Windows)
 
-Notas de versión: [0.0.3](docs/RELEASE-0.0.3-alpha.md) · [0.0.2](docs/RELEASE-0.0.2-alpha.md) · [0.0.1](docs/RELEASE-0.0.1-alpha.md).
+Notas de versión: [0.0.4](docs/RELEASE-0.0.4-alpha.md) · [0.0.3](docs/RELEASE-0.0.3-alpha.md) · [0.0.2](docs/RELEASE-0.0.2-alpha.md) · [0.0.1](docs/RELEASE-0.0.1-alpha.md).
 Descargas en [Releases](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/releases).
 
 1. Descarga este repositorio (o la release alpha) y deja la carpeta completa.
@@ -71,9 +71,21 @@ pausa (otra vez: continuar) y **M** la lista de movimientos. Esc ya no cierra
 el juego. El ratón es el dedo. Las teclas del jugador 1 se cambian en el
 launcher, en «3. Controles del jugador 1» (se guardan en `umk3.ini`).
 
-**Teclas de prueba:** con `debug_keys=1` en `umk3.ini`, F9 / F10 terminan el
-round (KO del jugador 2 / del jugador 1) y F11 / F12 ganan / pierden la pelea
-entera. Para pruebas; apagadas por defecto.
+**Modo debug:** marca *Modo debug (menú con F2)* en el launcher (escribe
+`debug_keys=1` en `umk3.ini`; apagado por defecto). Luego, en el juego:
+
+| tecla | hace |
+|---|---|
+| **F2** | el menú debug, dibujado sobre el juego congelado: cualquier pelea (los dos luchadores, Motaro y Shao Kahn incluidos, cualquier escenario), cualquiera de las 51 pantallas del menú, el menú principal, ganar/perder el round o la pelea, teclas directas sí/no, la línea de info |
+| F3 | la línea de info: tarea, pantalla, luchadores, rounds |
+| F6 / F7 | pantalla anterior / siguiente del menú |
+| F8 | menú principal |
+| F9 / F10 | terminar el round (KO del jugador 2 / del 1) |
+| F11 / F12 | ganar / perder la pelea entera (F11 salta la pelea) |
+
+F3 y F6-F12 son las *teclas directas*; el menú F2 las apaga y enciende. Una
+pelea o pantalla elegida mientras el juego carga empieza en cuanto sale el
+menú principal.
 
 **Directo a una pelea:** `umk3-game.exe --fight kitana kunglao 0` (dos
 luchadores por nombre o número 0-25 y un escenario 0-15).
@@ -104,13 +116,36 @@ Cada arreglo se leyó del binario armv7 original y Mary lo comprobó en el juego
 | **A Sindel le faltaba la melena** | `LIME_LoadSkin` descartaba el segundo bloque de los `.skin` que tienen dos; ese segundo skin es el pelo. |
 | **La palanca en pantalla no se movía** | La tabla `JoyOffset` (un `static` de función, `_JoyOffset.11128`) se generaba a ceros. |
 
-### Problemas conocidos (alpha 0.0.3)
+### Problemas conocidos (alpha 0.0.4)
 
 - **El menú no está completo**, y **algunas secciones del menú todavía provocan un crash**.
 - **Siguen apareciendo varios errores de texturas.**
-- El texto del ganador («X WINS») se construye con `usprintf`, arreglado en la 0.0.3: puede que ya aparezca, sin confirmar.
 - El juego todavía puede cerrarse en otros sitios: abre un Issue con el archivo de `logs\`.
 - En Arcade el escenario es siempre el mismo, salvo los jefes.
+
+**Anotado por Mary después de la 0.0.3 (9 de octubre), sin investigar todavía:**
+
+1. ~~Modo debug desde el launcher~~ -- hecho: casilla en el launcher y menú F2 (ver *Modo debug* arriba).
+2. ~~Después de dos peleas seguidas el audio deja de funcionar bien~~ -- arreglado (Arcade): `UnLoadSoundList` buscaba en una tabla que no existe en el binario y nunca borraba los sonidos. Queda: el audio de la pelea con Motaro.
+3. Siguen los errores de texturas en ciertos mapas y modos.
+4. Errores de texturas en el menú y ~~secciones que crashean~~ (ya no crashea ninguna, 9 de octubre). Los logs del 8 de octubre se cortan al entrar en `FE_Task_Treasure` (dos veces) y `FE_Task_Stats`: probablemente dos de ellas.
+5. Shao Kahn podría estar provocando crashes. -- probablemente arreglado, falta confirmarlo: `t_rst5` leía las tablas de reacción de Motaro y Shao Kahn en direcciones del iPhone.
+6. El nombre del personaje al ganar sigue sin salir (el arreglo de `usprintf` no bastó).
+7. El audio de ciertos ataques no funciona, sobre todo los proyectiles.
+8. Los anuncios del juego que salían en ventanas aparte deben verse en ventanas dentro del juego, en el mismo ejecutable, para no tener que salir de pantalla completa.
+9. Terminar el menú al 100 %.
+10. Revisar el estado de los jefes y corregir sus errores.
+11. Arreglar los modos que faltan.
+
+**Anotado por Mary el 9 de octubre, con el menú debug:**
+
+12. No se ve la muerte de Shao Kahn al terminar el Arcade.
+13. ~~Al terminar el Arcade no lleva a la pantalla de desbloqueables~~ -- arreglado: la pantalla crasheaba (datos de los focos vacíos, `DrawAnimAsSprite` con la textura, el módulo y el tamaño mal) y el fondo salía blanco (ahora se carga el `.pvr` primero, como en el iPhone).
+14. Los logros salen mal, con texto superpuesto.
+15. En la pantalla de carga los iconos están mal puestos.
+16. En la lista de combos los iconos siguen mal puestos.
+17. Contra Motaro, Kitana se cubría todo el tiempo y actuaba raro.
+
 - El launcher es solo para Windows (Linux/macOS: compilar desde el código con CMake).
 
 ## Qué es este proyecto
@@ -219,7 +254,7 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ## Progreso general
 
 ```
-███████████████████████████████████░░░░░  86,74%
+███████████████████████████████████░░░░░  87,59%
 ```
 
 | Área | Peso | Hecho | |
@@ -230,18 +265,20 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 | `lime/common` — núcleo del motor (109 fn) | 12% | **100%** | `██████████` |
 | `gamecode` — lógica de juego (291 fn) | 18% | **100%** | `██████████` |
 | `gamecode/logic` — motor de combate (2.172 fn) | 28% | **100%** | `██████████` |
-| Capa de plataforma PC nativa (161 fn a reescribir) | 17% | 22% | `██░░░░░░░░` |
+| Capa de plataforma PC nativa (161 fn a reescribir) | 17% | 27% | `███░░░░░░░` |
 | Stubs del EA SDK (27 fn que llama el juego) | 5% | 100% | `██████████` |
 
-**86,74% del esfuerzo total estimado. Todavía no hay nada jugable.**
+**87,59% del esfuerzo total estimado. La alpha 0.0.4 es jugable:** peleas
+completas por el camino real, con los problemas conocidos de arriba.
 
 **Hay que leer esa cifra por lo que mide y por lo que deja fuera.** Pondera las
 ocho áreas de la tabla, y hay dos trabajos que no están en ninguna:
 
 - **El runtime del combate.** La tabla cuenta las 2.172 funciones del motor de
   combate como escritas; nada cuenta el bucle, el planificador de hilos y el
-  pegamento que las hacen correr frame a frame en un PC. Hoy compilan y se
-  prueban por separado; todavía no funcionan como juego.
+  pegamento que las hacen correr frame a frame en un PC. **Ese runtime ya
+  existe y mueve el juego real** (alpha 0.0.2 y 0.0.3): front end, torre,
+  carga de la pelea, los dos rounds, el final, Continue y la siguiente pelea.
 - **229 tablas de datos.** Al enlazar el motor de combate por primera vez
   quedaron 423 símbolos sin definir, y 229 no son código sino arrays del
   binario: las listas de comandos de golpes especiales (`sm_*`), parámetros
@@ -251,10 +288,11 @@ ocho áreas de la tabla, y hay dos trabajos que no están en ninguna:
   copia de cada usuario al compilar, nunca se suben al repositorio — ver
   [docs/PROGRESS.md](docs/PROGRESS.md#the-other-axis-229-data-tables-nobody-has-counted).
 
-Así que el 86,74% es honesto sobre funciones y formatos, y **calla sobre las dos
-cosas que separan esto de un combate jugable.** Los pesos no se reajustan para
-hacerles sitio hasta que alguien pueda decir cuánto miden; este párrafo existe
-para que el hueco quede escrito.
+Así que el porcentaje es honesto sobre funciones y formatos, y **calla sobre
+las dos cosas que convirtieron el motor en un combate jugable.** Las dos ya están
+hechas, y los pesos nunca se reajustaron para hacerles sitio: la barra mide la
+decompilación y la capa de plataforma, no lo jugable que es el juego. Lo que ve
+un jugador está en *Problemas conocidos* y en las notas de versión.
 
 **Las tres filas del medio se cuentan; el resto son estimaciones.**
 `tools/progress.py` lee el árbol en cada ejecución para `lime/common`,
@@ -283,8 +321,10 @@ original recompilado.
 combate están escritas, incluido `mkdrone.c` (el oponente controlado por la
 máquina, 394 funciones), el último fichero en cerrarse. Lo que queda ya no es
 decompilación: el runtime del combate, las 229 tablas de arriba y la capa de
-plataforma. Las tablas ya están extraídas y verificadas ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48)); el
-runtime corre sin ventana ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46)); el arranque hasta la selección de personaje está en la PR abierta [#43](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/43). Los stubs del EA SDK ya están: el juego solo llama a 27 funciones
+plataforma. Las tablas están extraídas y verificadas ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48)), y el
+runtime juega peleas completas en el juego con ventana (alpha 0.0.3). Lo que
+queda es corregir las funciones cuya transcripción no coincide del todo con el
+binario, a medida que aparece cada síntoma. Los stubs del EA SDK ya están: el juego solo llama a 27 funciones
 del SDK (más el constructor de `LocaleManager`), todas en
 `runtime/gamecode_stubs.c`; las ~1.385 restantes son internas del SDK y no se
 enlazan.

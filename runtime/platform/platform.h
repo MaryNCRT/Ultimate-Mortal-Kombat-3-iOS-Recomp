@@ -84,6 +84,8 @@ enum {
     PK_DBG_KO_P2, PK_DBG_KO_P1, PK_DBG_WIN, PK_DBG_LOSE,
     /* the HUD's two corner buttons: the pause menu and the moves list */
     PK_PAUSE, PK_MOVES,
+    /* debug mode, front end: previous / next screen, back to the main menu */
+    PK_DBG_SCR_PREV, PK_DBG_SCR_NEXT, PK_DBG_SCR_MENU,
     PK_COUNT
 };
 
@@ -135,6 +137,9 @@ int  plat_audio_play(const unsigned char *pcm, int frames, float gain);
  * than assume. */
 int  plat_audio_play_at(const unsigned char *pcm, int frames, int rate,
                         float gain);
+
+/* Stop every voice still playing from `pcm`, before the caller frees it. */
+void plat_audio_stop_pcm(const unsigned char *pcm);
 
 /* Reclaim finished one-shot sound buffers. Call once a frame. */
 void plat_audio_update(void);

@@ -494,13 +494,20 @@ long limeLoadSound(const char *name)
     for (i = 0; i < LIME_SOUNDS; i++)
         if (!g_sound[i].pcm)
             break;
-    if (i == LIME_SOUNDS)
+    if (i == LIME_SOUNDS) {
+        /* On device too; said here because it is silent otherwise. */
+        printf("limeLoadSound: all %d slots taken, %s not loaded\n",
+               LIME_SOUNDS, name);
         return -1;
+    }
 
     snprintf(rel, sizeof rel, "res/audio/%s.wav", name);
     lime_platform_resolve(rel, full, sizeof full);
-    if (!wav_load_u8(full, &g_sound[i].pcm, &g_sound[i].frames, &g_sound[i].rate))
+    if (!wav_load_u8(full, &g_sound[i].pcm, &g_sound[i].frames, &g_sound[i].rate)) {
         g_sound[i].pcm = NULL;          /* as on device: the index, an empty slot */
+        if (getenv("UMK3_LOG_SOUND"))
+            printf("limeLoadSound: %s did not load (slot %ld)\n", name, i);
+    }
     return i;
 }
 
@@ -508,6 +515,7 @@ void limeDeleteSound(long h)
 {
     if (h < 0 || h >= LIME_SOUNDS)
         return;
+    plat_audio_stop_pcm(g_sound[h].pcm);   /* a voice may still be on it */
     free(g_sound[h].pcm);
     g_sound[h].pcm = NULL;
 }
@@ -518,8 +526,13 @@ void limePlaySound(long h, float v, float p, long f)
     if (h == -1)
         return;
     g_sounds_played++;
-    if (h < 0 || h >= LIME_SOUNDS || !g_sound[h].pcm)
+    if (h < 0 || h >= LIME_SOUNDS || !g_sound[h].pcm) {
+        if (getenv("UMK3_LOG_SOUND"))
+            printf("limePlaySound: %ld is empty\n", h);
         return;
+    }
+    if (getenv("UMK3_LOG_SOUND"))
+        printf("limePlaySound: %ld (%d frames, gain %.2f)\n", h, g_sound[h].frames, v);
     plat_audio_play_at(g_sound[h].pcm, g_sound[h].frames, g_sound[h].rate, v);
 }
 

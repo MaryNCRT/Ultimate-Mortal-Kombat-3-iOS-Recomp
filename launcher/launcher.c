@@ -22,17 +22,17 @@
 #include <stdio.h>
 #include <wchar.h>
 
-#define VERSION L"0.0.3 alpha"
+#define VERSION L"0.0.4 alpha"
 
 enum { ID_IPA = 100, ID_BROWSE, ID_BUILD, ID_RES, ID_FULL, ID_LANG, ID_PLAY,
-       ID_STATUS, ID_UILANG, ID_KEYRESET, ID_KEY0 = 200 };
+       ID_STATUS, ID_UILANG, ID_KEYRESET, ID_DEBUG, ID_KEY0 = 200 };
 
 /* The launcher's own texts, Spanish and English; the button at the top
  * switches between them and umk3.ini keeps the choice (ui=ES|EN). */
 enum { S_TITLE, S_GROUP_IPA, S_BROWSE, S_BUILD, S_GROUP_CFG, S_RES, S_FULL,
        S_LANG, S_PLAY, S_SWITCH, S_BUILDING, S_READY, S_NEED, S_FILTER,
        S_PICK_IPA, S_NO_PS, S_NO_GAME, S_BUILT, S_AUTO, S_ENTER,
-       S_GROUP_KEYS, S_KEYRESET, S_PRESS, S_COUNT };
+       S_GROUP_KEYS, S_KEYRESET, S_PRESS, S_DEBUG, S_COUNT };
 
 static const wchar_t *const k_text[2][S_COUNT] = {
     {   /* ES */
@@ -54,6 +54,7 @@ static const wchar_t *const k_text[2][S_COUNT] = {
         L"Pulsa Enter para cerrar",
         L"3. Controles del jugador 1 (clic y pulsa una tecla)",
         L"Restablecer", L"Pulsa una tecla...",
+        L"Modo debug (menu con F2)",
     },
     {   /* EN */
         L"Ultimate Mortal Kombat 3 -- PC port " VERSION,
@@ -74,6 +75,7 @@ static const wchar_t *const k_text[2][S_COUNT] = {
         L"Press Enter to close",
         L"3. Player 1 controls (click, then press a key)",
         L"Reset", L"Press a key...",
+        L"Debug mode (F2 menu)",
     },
 };
 static int g_ui;                       /* 0 Spanish, 1 English */
@@ -119,10 +121,10 @@ static HWND g_key_btn[NKEYS], g_key_lbl[NKEYS];
 static int  g_key_wait = -1;           /* the action waiting for a key, or -1 */
 
 static wchar_t g_dir[MAX_PATH];        /* the launcher's folder, with '\' */
-static HWND    g_wnd, g_ipa, g_res, g_full, g_lang, g_play, g_build, g_status;
+static HWND    g_wnd, g_ipa, g_res, g_full, g_debug, g_lang, g_play, g_build, g_status;
 static HWND    g_label[S_COUNT];       /* the controls whose text is k_text[] */
 static HFONT   g_font;
-static int     g_cfg_res = 1, g_cfg_full, g_cfg_lang;
+static int     g_cfg_res = 1, g_cfg_full, g_cfg_lang, g_cfg_debug;
 static wchar_t g_cfg_ipa[MAX_PATH];
 static HANDLE  g_build_proc;
 
@@ -167,6 +169,8 @@ static void load_config(void)
             h = atoi(v);
         else if (strcmp(line, "fullscreen") == 0)
             g_cfg_full = atoi(v) != 0;
+        else if (strcmp(line, "debug_keys") == 0)
+            g_cfg_debug = atoi(v) != 0;
         else if (strcmp(line, "language") == 0) {
             for (i = 0; i < NLANG; i++) {
                 char c[8];
@@ -208,6 +212,7 @@ static void save_config(void)
     fprintf(f, "width=%d\nheight=%d\nfullscreen=%d\nlanguage=%s\nui=%s\nipa=%s\n",
             k_res[g_cfg_res].w, k_res[g_cfg_res].h, g_cfg_full, lang,
             g_ui ? "EN" : "ES", ipa);
+    fprintf(f, "debug_keys=%d\n", g_cfg_debug);
     {
         int i;
         for (i = 0; i < NKEYS; i++)
@@ -401,8 +406,11 @@ static void build_ui(void)
         SendMessageW(g_res, CB_ADDSTRING, 0, (LPARAM)s);
     }
     SendMessageW(g_res, CB_SETCURSEL, g_cfg_res, 0);
-    g_full = g_label[S_FULL] = add(L"BUTTON", NULL, BS_AUTOCHECKBOX, 140, 194, 200, 22, ID_FULL);
+    g_full = g_label[S_FULL] = add(L"BUTTON", NULL, BS_AUTOCHECKBOX, 140, 194, 140, 22, ID_FULL);
     SendMessageW(g_full, BM_SETCHECK, g_cfg_full ? BST_CHECKED : BST_UNCHECKED, 0);
+    /* debug_keys=1: the in-game debug menu (F2) and the F6..F12 keys */
+    g_debug = g_label[S_DEBUG] = add(L"BUTTON", NULL, BS_AUTOCHECKBOX, 285, 194, 180, 22, ID_DEBUG);
+    SendMessageW(g_debug, BM_SETCHECK, g_cfg_debug ? BST_CHECKED : BST_UNCHECKED, 0);
     g_label[S_LANG] = add(L"STATIC", NULL, 0, 22, 228, 115, 20, 0);
     g_lang = add(L"COMBOBOX", NULL, CBS_DROPDOWNLIST | WS_VSCROLL, 140, 224, 200, 300, ID_LANG);
     for (i = 0; i < NLANG; i++)
@@ -446,6 +454,10 @@ static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             break;
         case ID_FULL:
             g_cfg_full = SendMessageW(g_full, BM_GETCHECK, 0, 0) == BST_CHECKED;
+            save_config();
+            break;
+        case ID_DEBUG:
+            g_cfg_debug = SendMessageW(g_debug, BM_GETCHECK, 0, 0) == BST_CHECKED;
             save_config();
             break;
         case ID_RES:

@@ -23,11 +23,12 @@ import zipfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 RUNTIME_FILES = [
-    "runtime/game_main.c", "runtime/draw_gl.c", "runtime/gamecode_globals.c",
+    "runtime/game_main.c", "runtime/debug_menu.c", "runtime/draw_gl.c",
+    "runtime/gamecode_globals.c",
     "runtime/gamecode_globals.h", "runtime/gamecode_stubs.c",
     "runtime/lime_menu.c", "runtime/lime_platform.c", "runtime/lime_app.c",
     "runtime/wav.c", "runtime/wav.h", "runtime/fight_runtime.c",
-    "runtime/fight_runtime.h", "runtime/arm_runtime.h",
+    "runtime/fight_runtime.h", "runtime/arm_runtime.h", "runtime/debug_menu.h",
     "runtime/platform/platform.h", "runtime/platform/gl.h",
     "runtime/platform/win32_gl.c", "runtime/platform/win32_gl_cdecl.c",
     "runtime/platform/win32_audio.c",

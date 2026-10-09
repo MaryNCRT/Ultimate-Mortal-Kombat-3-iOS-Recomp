@@ -16,7 +16,8 @@ Every fix was read from the original armv7 binary.
 ### Known problems (0.0.3)
 - **The menus are not complete**, and **some menu sections still crash the game.**
 - **Several texture errors remain.**
-- The winner text ("X WINS") may now appear thanks to the `usprintf` fix; not confirmed yet.
+- The winner's name ("X WINS") is still not shown.
+- Found after release: audio stops working properly after two fights in a row (fixed for the next build); some special attacks (projectiles especially) have no sound; Shao Kahn may crash the game.
 - In Arcade the arena is always the same, except for the boss fights.
 - The game can still crash in places not listed here; please send the log.
 - The launcher is Windows only (Linux/macOS: build from source with CMake).

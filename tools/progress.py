@@ -65,7 +65,7 @@ JUDGEMENT = {
     "analysis": 100.0,      # binary analysis and source-tree mapping
     "tooling": 100.0,       # tooling and the verification oracle
     "formats": 100.0,       # asset format specifications
-    "platform": 22.0,       # native PC platform layer: ~36 of lime.m's 49 C entry points do real work (36/161)
+    "platform": 27.0,       # native PC platform layer: 43 of lime.m's 49 C entry points do real work (43/161), recounted 2026-10-09
     "sdkstubs": 100.0,      # EA SDK boundary: 27 fn + LocaleManager, runtime/gamecode_stubs.c
 }
 
