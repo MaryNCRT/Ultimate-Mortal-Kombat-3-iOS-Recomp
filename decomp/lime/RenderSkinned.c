@@ -705,7 +705,7 @@ void UnpackAnimFrame(const uint8_t *src, BONEANIMFRAME *bones,
 
 /* ------------------------------------------------------------ LIME_LoadSkin
  *
- * armv6 0x00083a24, 100 bytes.
+ * armv7 0x00060650, 90 bytes (first read from armv6 0x00083a24).
  *
  * Loads a `.skin` and builds the SKININFO chain.
  *
@@ -723,25 +723,34 @@ void UnpackAnimFrame(const uint8_t *src, BONEANIMFRAME *bones,
 SKININFO *LIME_LoadSkin(const char *filename)
 {
     const uint8_t *data = limeLoadFile(filename);
+    const char *cursor;
     SKININFO *skin;
     int32_t count;
 
     if (data == NULL)
         return NULL;
 
-    skin = (SKININFO *)limeMalloc("skin", sizeof(SKININFO));   /* 0x30 in the image */
+    skin = (SKININFO *)limeMalloc("skin_container", sizeof(SKININFO)); /* 0x30 */
     skin->next = NULL;                   /* +0x00, before parsing anything */
 
-    /* The leading word is read and stepped over. Nothing here consumes it --
-     * LIME_LoadSkin1 re-reads the counts it needs from the block it is handed,
-     * so this is the file's own record count and the loader trusts the inner
-     * header instead. Kept, and marked, rather than deleted: a read the binary
-     * performs is part of the description even when its value goes unused. */
-    count = *(const int32_t *)data;
-    (void)count;
-    data += 4;
+    count = *(const int32_t *)data;      /* ldr r4, [r0], #4 */
+    cursor = LIME_LoadSkin1((const char *)data + 4, skin);
 
-    LIME_LoadSkin1((const char *)data, skin);
+    /* armv7 0x6067c-0x606a8: a file with TWO blocks gets a second SKININFO,
+     * chained at +0x00, loaded from where the first block ended. That second
+     * skin is what GenerateFrameVertsBySkinningSKIN2 draws through
+     * `*(c->[0x30])` -- Sindel's hair. The armv6-era transcription read the
+     * count and dropped it, so no character ever had a second skin. The
+     * second container's own +0x00 is left as limeMalloc returns it, as in
+     * the binary; LIME_FreeSkin never reads it. */
+    if (count == 2) {
+        SKININFO *second = (SKININFO *)limeMalloc("skin_containerSECOND",
+                                                   sizeof(SKININFO));
+        skin->next = second;
+        LIME_LoadSkin1(cursor, second);
+    }
+
+    limeFree((void *)data);              /* 0x60684: the file buffer goes */
     return skin;
 }
 
@@ -1040,7 +1049,7 @@ void GetSlerpedQ(const BONEANIMFRAME *a, const BONEANIMFRAME *b,
  * Every allocation is null-checked and bails to a common exit, so a partial
  * load leaves the SKININFO holding whatever succeeded. Nothing is rolled back.
  */
-void LIME_LoadSkin1(const char *data, SKININFO *skin)
+const char *LIME_LoadSkin1(const char *data, SKININFO *skin)
 {
     const uint8_t *src = (const uint8_t *)data;
     const float wscale = 1.0f / 65536.0f;
@@ -1048,7 +1057,7 @@ void LIME_LoadSkin1(const char *data, SKININFO *skin)
     int i;
 
     if (skin == NULL)
-        return;
+        return data;
 
     n = *(const int32_t *)src;          /* +0x04  matrices */
     skin->numMatrices = n;
@@ -1058,13 +1067,13 @@ void LIME_LoadSkin1(const char *data, SKININFO *skin)
 
     skin->indexes = limeMalloc("skin", (size_t)n * 4);          /* +0x20 */
     if (skin->indexes == NULL)
-        return;
+        return (const char *)src;
     memcpy(skin->indexes, src, (size_t)n * 4);
     src += (size_t)n * 4;
 
     skin->weights = limeMalloc("skin", (size_t)n * 16);         /* +0x24 */
     if (skin->weights == NULL)
-        return;
+        return (const char *)src;
     for (i = 0; i < n * 4; i++)         /* four per matrix, uint16 -> float */
         skin->weights[i] = (float)((const uint16_t *)src)[i] * wscale;
     src += (size_t)n * 8;
@@ -1072,7 +1081,7 @@ void LIME_LoadSkin1(const char *data, SKININFO *skin)
     skin->matricesA = limeMalloc("skin", (size_t)n * 48);       /* +0x14 */
     skin->matricesB = limeMalloc("skin", (size_t)n * 48);       /* +0x28 */
     if (skin->matricesA == NULL || skin->matricesB == NULL)
-        return;
+        return (const char *)src;
     for (i = 0; i < n; i++) {           /* 96 bytes per entry: first, second */
         memcpy(&skin->matricesA[i], src + (size_t)i * 96,        48);
         memcpy(&skin->matricesB[i], src + (size_t)i * 96 + 0x30, 48);
@@ -1081,14 +1090,20 @@ void LIME_LoadSkin1(const char *data, SKININFO *skin)
 
     skin->uvs = limeMalloc("skin", (size_t)m * 24);             /* +0x1c */
     if (skin->uvs == NULL)
-        return;
+        return (const char *)src;
     memcpy(skin->uvs, src, (size_t)m * 24);
     src += (size_t)m * 24;
 
     skin->vertExtra = limeMalloc("skin", (size_t)m * 6);        /* +0x18 */
     if (skin->vertExtra == NULL)
-        return;
+        return (const char *)src;
     memcpy(skin->vertExtra, src, (size_t)m * 6);
+    src += (size_t)m * 6;
+
+    /* armv7 0x6062a: the cursor past the block, which LIME_LoadSkin
+     * hands to the second call when the file has two. On a failed
+     * allocation the binary returns the cursor as far as it got. */
+    return (const char *)src;
 }
 
 

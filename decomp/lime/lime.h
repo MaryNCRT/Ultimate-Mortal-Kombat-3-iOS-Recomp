@@ -797,7 +797,7 @@ void   LightVert(const limeVECTOR3 *normal, float *out);
 void   DS_ScrollLines(DEBUGWINDOW *win);
 void   CreateMatrixPaletteForGeneratingMesh(char *a, long b, long c, long d,
                                             float e, BONESINFO *bones);
-void   LIME_LoadSkin1(const char *data, SKININFO *skin);
+const char *LIME_LoadSkin1(const char *data, SKININFO *skin);
 
 /* The matrix-stack wrappers and the blend-state helpers the renderers call.
  * All real symbols in the binary; the blend pair is what makes the transparent
