@@ -82,11 +82,18 @@ enum {
     PK_MENU, PK_OK, PK_NEXT, PK_PREV, PK_BACK, PK_TEST,
     /* fight debug keys (umk3.ini debug_keys=1): end the round or the match */
     PK_DBG_KO_P2, PK_DBG_KO_P1, PK_DBG_WIN, PK_DBG_LOSE,
+    /* the HUD's two corner buttons: the pause menu and the moves list */
+    PK_PAUSE, PK_MOVES,
     PK_COUNT
 };
 
 /* Is that key down right now? */
 int plat_key(int code);
+
+/* Rebind a code to a platform key (a Windows virtual-key code on win32; the
+ * SDL backend takes an SDL scancode). umk3.ini's key_* lines, written by the
+ * launcher, come through here. Out-of-range codes are ignored. */
+void plat_bind_key(int code, int key);
 
 /* The first attached gamepad, as the same ten bits the engine wants, or -1
  * when there is none. Bit order is the engine's: 0..3 directions, then HP, LP,

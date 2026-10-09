@@ -7526,9 +7526,11 @@ void DrawMoveListIcons(int y, const int *seq, const char *caption,
 
 /* One row: a banded background, the move's name right-aligned, and its notation
  * drawn by DrawMoveListIcons. `y` is the row's top in design units, stepping by
- * 0x20; `row` indexes both the id ranges and, doubled, the table. */
-static void DrawMovesRow(long y, long row, const long *table,
-                         long nameId, long captionId)
+ * 0x20; `row` indexes the id ranges. `seq` is the row's notation and `withCaption`
+ * says whether the row has a caption at all -- the generic pages pass NULL
+ * (0x1efb4: `movs r2, #0`), the character pages their own string. */
+static void DrawMovesRow(long y, long row, const int *seq,
+                         long nameId, long captionId, int withCaption)
 {
     char  caption[128];                 /* sp+0x70 */
     long  odd   = (row + 1) & 1;
@@ -7543,13 +7545,13 @@ static void DrawMovesRow(long y, long row, const long *table,
                  (float)(y + 0x30) * FE_HeightScale,
                  2, 0.75f * FE_WidthScale, fontcol);
 
-    usprintf(caption, UC("%s"), GameTextNoHeader(captionId + row));
+    if (withCaption)
+        usprintf(caption, UC("%s"), GameTextNoHeader(captionId + row));
 
-    /* `y << 1` is the 64-byte row stride, and `odd` anchors the notation at the
-     * opposite end on alternate rows -- see the header. */
-    DrawMoveListIcons((int)((float)(y + 0x40) * FE_HeightScale),
-                      (const int *)((const char *)table + (y << 1)),
-                      caption, (int)odd);
+    /* `odd` anchors the notation at the opposite end on alternate rows -- see
+     * the header. */
+    DrawMoveListIcons((int)((float)(y + 0x40) * FE_HeightScale), seq,
+                      withCaption ? caption : 0, (int)odd);
 }
 
 /* One page of the shared list; `first` is the row it starts at. */
@@ -7562,8 +7564,10 @@ static void DrawGenericPage(long first)
     for (row = 0; row < MOVESLIST_ROWS_PER_PAGE; row++) {
         if (first + row >= MOVESLIST_GENERIC_ROWS)
             break;
-        DrawMovesRow(row * 0x20, first + row, table,
-                     MOVESLIST_GENERIC_NAMES, MOVESLIST_GENERIC_NAMES);
+        /* the absolute row, `lsl r1, sl, #6` -- 64 bytes a row (0x1efb0) */
+        DrawMovesRow(row * 0x20, first + row,
+                     (const int *)((const char *)table + (first + row) * 0x40),
+                     MOVESLIST_GENERIC_NAMES, MOVESLIST_GENERIC_NAMES, 0);
     }
 }
 
@@ -7576,7 +7580,10 @@ static void DrawCharacterPage(long character, long section)
     long row;
 
     for (row = 0; row < s->rows; row++)
-        DrawMovesRow(row * 0x20, row, table, s->nameId, s->captionId);
+        /* `y << 1` is the 64-byte row stride (0x1f36e) */
+        DrawMovesRow(row * 0x20, row,
+                     (const int *)((const char *)table + ((row * 0x20) << 1)),
+                     s->nameId, s->captionId, 1);
 }
 
 void MovesList(void)
@@ -7616,6 +7623,9 @@ void MovesList(void)
                  (float)FE_Y(296.0f), 1, FE_WidthScale, fontcol);
 }
 
+
+/* `C.175` in DrawHUD, 0x000de07c: white, alpha replaced per frame. */
+static const float DrawHUD_PulseColour[4] = { 1.0f, 1.0f, 1.0f, 0.0f };
 
 /* --------------------------------------------------------------------- DrawHUD
  *
@@ -8105,29 +8115,46 @@ void DrawHUD(void)
             if (Health[0] != 100)
                 flawlessVictories = 0;
         }
-    } else if (GameMode > 1) {
-        if (!GamePaused) {
-            /* the pause button, and its slow pulse */
-            limeEnableAlphaBlending_Additive();
-            limeDrawSprite(InfoTexture, s * -4.0f, s * -7.0f,
-                           s * 36.0f, s * 36.0f, 0.0f, 0.0f, 1.0f, 1.0f, col);
+    } else if (!GamePaused) {
+        /* Every mode draws the two corner buttons while not paused (0x28910,
+         * 0x2a170). Modes 0 and 1 also count timeInGame, outside the intro. */
+        if (GameMode <= 1 && !DoIntro)
+            timeInGame += (1.0f / 60.0f) / limeFPSScaleFactor;
 
-            InfoScaleAdd += (1.0f / 60.0f) / limeFPSScaleFactor;
-            if ((GameTime > 95.0f ? 0.75f : 4.0f) < InfoScaleAdd) {
-                InfoScale += 0.05f / limeFPSScaleFactor;
-                if (InfoScale > 1.0f) {
-                    InfoScale    = 0.0f;
-                    InfoScaleAdd = 0.0f;
-                    limeDrawSprite(PauseTexture,
-                                   (float)limeScreenWidth - s * 32.0f,
-                                   s * -7.0f, s * 36.0f, s * 36.0f,
-                                   0.0f, 0.0f, 1.0f, 1.0f, col);
-                }
+        limeEnableAlphaBlending_Additive();
+
+        /* INFO, top left: the moves list */
+        limeDrawSprite(InfoTexture, s * -4.0f, s * -7.0f,
+                       s * 36.0f, s * 36.0f, 0.0f, 0.0f, 1.0f, 1.0f, col);
+
+        /* ...and its pulse: a second INFO that grows by 32 and fades out
+         * (0x29810, 0x2ab2a), every 4 units -- 0.75 in the first five
+         * seconds of the round. */
+        InfoScaleAdd += (1.0f / 60.0f) / limeFPSScaleFactor;
+        if ((GameTime > 95.0f ? 0.75f : 4.0f) < InfoScaleAdd) {
+            InfoScale += 0.05f / limeFPSScaleFactor;
+            if (InfoScale > 1.0f) {
+                InfoScale    = 0.0f;
+                InfoScaleAdd = 0.0f;
+            } else {
+                float fade[4];
+
+                memcpy(fade, DrawHUD_PulseColour, sizeof fade);
+                fade[3] = 1.0f - InfoScale;
+                limeDrawSprite(InfoTexture,
+                               s * (InfoScale * -16.0f - 4.0f),
+                               s * (InfoScale * -16.0f - 7.0f),
+                               s * (InfoScale * 32.0f + 36.0f),
+                               s * (InfoScale * 32.0f + 36.0f),
+                               0.0f, 0.0f, 1.0f, 1.0f, fade);
             }
-            limeEnableAlphaBlending_Basic();
         }
-    } else if (!GamePaused && !DoIntro) {
-        timeInGame += (1.0f / 60.0f) / limeFPSScaleFactor;
+
+        /* PAUSE, top right, every frame (0x289c6) */
+        limeDrawSprite(PauseTexture,
+                       (float)limeScreenWidth - s * 32.0f, s * -7.0f,
+                       s * 36.0f, s * 36.0f, 0.0f, 0.0f, 1.0f, 1.0f, col);
+        limeEnableAlphaBlending_Basic();
     }
 
     sprintf(strBuf, "%d", (int)GameTime);

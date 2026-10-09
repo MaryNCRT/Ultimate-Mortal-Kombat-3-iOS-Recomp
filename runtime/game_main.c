@@ -41,6 +41,8 @@
  *   W A S D or the arrows   the joystick
  *   U  high punch   I  low punch   O  block
  *   J  high kick    K  low kick    L  run
+ *   P  pause menu   M  moves list   (Esc no longer quits)
+ * umk3.ini key_up= ... key_moves= rebinds them (virtual-key codes).
  * Each key held is a synthetic touch on the real control -- the dial or the
  * on-screen button -- so it goes through ReadControls and CheckLeftDial
  * exactly as a finger does, and the button lights as if pressed.
@@ -344,6 +346,22 @@ static void read_config(const char *dir)
             snprintf(g_cfg_lang, sizeof g_cfg_lang, "%s", v);
         else if (strcmp(line, "debug_keys") == 0)
             g_cfg_debug_keys = atoi(v) != 0;
+        else if (strncmp(line, "key_", 4) == 0) {
+            /* key_<name>=<virtual-key code>, from the launcher's key setup */
+            static const char *const names[] = {
+                "up", "down", "left", "right",
+                "hp", "lp", "block", "hk", "lk", "run"
+            };
+            int i;
+
+            for (i = 0; i < 10; i++)
+                if (strcmp(line + 4, names[i]) == 0)
+                    plat_bind_key(PK_UP + i, atoi(v));
+            if (strcmp(line + 4, "pause") == 0)
+                plat_bind_key(PK_PAUSE, atoi(v));
+            else if (strcmp(line + 4, "moves") == 0)
+                plat_bind_key(PK_MOVES, atoi(v));
+        }
     }
     fclose(f);
 }
@@ -362,6 +380,50 @@ static void read_config(const char *dir)
  * DrawHUD's round-end test reads. */
 extern long RoundWins[2], WinsNeeded;
 extern int  Health[2];
+
+/* P and M (umk3.ini can rebind them): the HUD's corner buttons, pressed the
+ * way a finger presses them -- a three-tick tap on the spot TogglePauseMenu,
+ * UpdateInGamePauseMenu and the moves list test, in 480x320 units.
+ *
+ *      P   not paused: top right (pause)   menu open: RESUME   list: CANCEL
+ *      M   not paused: top left (list)     list open: CANCEL
+ */
+extern long GamePaused;
+
+static float g_ktap_x, g_ktap_y;
+static int   g_ktap_left;              /* ticks the synthetic finger stays down */
+
+static void hud_keys(void)
+{
+    static int was[2];
+    int k;
+
+    if (g_ktap_left > 0 && --g_ktap_left == 0)
+        lime_touch_ended(g_ktap_x, g_ktap_y, g_ktap_x, g_ktap_y);
+
+    for (k = 0; k < 2; k++) {
+        int down = plat_key(PK_PAUSE + k);
+        int hit = down && !was[k];
+        float x = -1.0f, y = 10.0f;
+
+        was[k] = down;
+        if (!hit || CurrentTask != 6 || g_ktap_left > 0)
+            continue;
+        if (k == 0) {
+            if (GamePaused == 0 || GamePaused == 2) x = 470.0f;
+            else if (GamePaused == 1) { x = 384.0f; y = 18.0f; }
+        } else {
+            if (GamePaused == 0) x = 10.0f;
+            else if (GamePaused == 2) x = 470.0f;
+        }
+        if (x < 0.0f)
+            continue;
+        g_ktap_x = x;
+        g_ktap_y = y;
+        g_ktap_left = 3;
+        lime_touch_began(x, y);
+    }
+}
 
 static void debug_keys(void)
 {
@@ -573,6 +635,7 @@ int main(int argc, char **argv)
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             lime_menu_advance_clock(1.0 / 60.0);
             keyboard_touches();
+            hud_keys();
             if (g_cfg_debug_keys)
                 debug_keys();
             GameCodeMain();

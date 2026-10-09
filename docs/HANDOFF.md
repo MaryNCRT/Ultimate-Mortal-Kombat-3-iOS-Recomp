@@ -12,6 +12,26 @@ Read this, then [METHODOLOGY.md](METHODOLOGY.md). Everything else is reference.
 
 ---
 
+## Alpha 0.0.3 (2026-10-08, night)
+
+- Tower: `Load_Tower` -> `OpponentTowerList` (0x23314, literal 0x12c972 +
+  pc 0x23342); `FE_Task_Tower` camera states rewritten from 0x8a18-0x8fdc
+  and the state-3 hand-over from 0x8898/0x9342 (survival, boss arenas,
+  `VSWait = 0` always). Both checked in game by Diego.
+- `decomp/gamecode/text.c` `processString`: the pass-0 emit is the shared
+  tail at 0xa7650, reached after a real token too. This was the root of
+  every templated string coming out empty.
+- `MovesList` generic rows: `table + row * 0x40` (absolute row), caption
+  NULL; character pages keep `table + (y << 1)` and their caption.
+- `DrawHUD` corner buttons: drawn whenever `!GamePaused` (modes <= 1 also
+  count `timeInGame` outside `DoIntro`); INFO pulse colour `C.175`
+  (0xde07c, {1,1,1,0}) with alpha `1 - InfoScale`.
+- Input: `PK_PAUSE`/`PK_MOVES` (P/M), `plat_bind_key`, `key_<name>=<VK>` in
+  umk3.ini (names: up down left right hp lp block hk lk run pause moves);
+  the launcher writes them (`launcher.c`, box 3, Reset). Esc no longer
+  quits either backend.
+- Next: confirm the winner banner; menus that crash; textures; Arcade arena.
+
 ## Alpha 0.0.1: the launcher (2026-10-08, night)
 
 - **Golden rule (user): the port works only from its own folder.** Assets

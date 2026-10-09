@@ -5,6 +5,26 @@ Current state of the project. Written so that someone can pick it up with no pri
 **Last updated:** 2026-10-08 — see [HANDOFF.md](HANDOFF.md) for the route;
 "What is next" below is the current task ([ENCARGO.md](ENCARGO.md) is superseded).
 
+> **Alpha 0.0.3 (2026-10-08, night, branch `claude/tower-icons-anim`).**
+> Each fix read from armv7. (1) `Load_Tower` (0x23314) fills
+> `OpponentTowerList` (0x14fcb4) itself; it filled a dead `TowerData`, so the
+> tower showed the image default (16, Jade) on every rung -- confirmed in game.
+> (2) `FE_Task_Tower` (0x8310): states 2/4 bias x by `Destiny`; state 2 fades
+> on arrival (0x8c56); state 4 fades after 360 (0x8f6e); climb entry snaps the
+> camera and sets `MoveUpTower = JustWon ? 0 : 1` (0x8d98); survival
+> `TowerRand[abs(rand) % 22]`; bosses force LevelSelect 0/3 (0x932e) --
+> confirmed in game. (3) `processString` (0xa7600): both paths share the
+> emitting tail at 0xa7650; the C emitted only on the no-token path, so every
+> `usprintf` lost its `%s`/`%d` (pause menu rows, moves-list title, "N/A";
+> probably the missing winner banner -- unconfirmed). (4) `MovesList` generic
+> pages: absolute row `row << 6`, NULL caption (0x1efb0). (5) `DrawHUD` draws
+> the INFO and PAUSE corner buttons in every mode while unpaused (0x28910,
+> 0x2a170), INFO pulse from 0x2ab2a. (6) Keys P (pause) / M (moves) as
+> synthetic corner taps (`hud_keys` in game_main.c); Esc no longer quits;
+> `plat_bind_key` + `key_*` in umk3.ini; launcher box "3. Controles del
+> jugador 1". Not done: winner banner unconfirmed, menus incomplete/crashing,
+> texture errors, arena repeats in Arcade.
+
 > **Alpha 0.0.1 released (2026-10-08, night).** The first public build:
 > `UMK3-Launcher.exe` + the sources the build needs (94 files, 1.5 MB zip,
 > made by `launcher/make_release.py`). The player picks their own iPhone

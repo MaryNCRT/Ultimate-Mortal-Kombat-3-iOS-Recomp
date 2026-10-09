@@ -26,7 +26,7 @@ You need a legally obtained copy of *Ultimate Mortal Kombat 3* for iOS (version 
 
 ---
 
-## Where the project stands — 8 October 2026 (night, alpha 0.0.2)
+## Where the project stands — 8 October 2026 (night, alpha 0.0.3)
 
 | | |
 |---|---|
@@ -36,9 +36,9 @@ You need a legally obtained copy of *Ultimate Mortal Kombat 3* for iOS (version 
 | **Fight** | ✅ **Fights play to the end by the real path** (0.0.2): round 1, round 2, the end of the match, `Task_GameDestroy`, Continue and the next fight, with the camera following both fighters and the voices playing. Before that, **the first fight ran by the real path.** After the tower (or straight from the menu with `--fight`, below) the game runs `Task_GameInit` and `Task_GameMain`: the arena draws, both fighters fight with the CPU playing, with the HUD and touch controls, for thousands of frames without a crash ([#54](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/54), [#57](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/57)). |
 | **Playable** | 🔄 **A first fight can be played** from the keyboard (W A S D or arrows; U I O J K L) or the touch controls, with the HUD, the FIGHT overlay and the CPU opponent. Not yet complete: see *Known problems*. The 229 data tables the fight engine reads are extracted from the user's own binary at build time and verified against it ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48)). |
 
-### How to play (alpha 0.0.2, Windows)
+### How to play (alpha 0.0.3, Windows)
 
-**Alpha 0.0.2** ([notes](docs/RELEASE-0.0.2-alpha.md); 0.0.1 [notes](docs/RELEASE-0.0.1-alpha.md)):
+**Alpha 0.0.3** ([notes](docs/RELEASE-0.0.3-alpha.md); 0.0.2 [notes](docs/RELEASE-0.0.2-alpha.md), 0.0.1 [notes](docs/RELEASE-0.0.1-alpha.md)):
 [Releases](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/releases)
 has the launcher and only the sources the build needs, no game data. Its
 known problems are the table below.
@@ -63,7 +63,9 @@ executable are distributed: the exe only exists after the player's own
 
 **Fight keys:** W A S D or arrows to move (two at once for diagonals); U high
 punch, I low punch, O block, J high kick, K low kick, L run (or numpad
-7 8 9 / 4 5 6). Esc quits. The mouse is the finger.
+7 8 9 / 4 5 6). **P** opens the pause menu (again: resume), **M** the moves
+list. Esc no longer quits. The mouse is the finger. Player 1's keys can be
+changed in the launcher (box 3; saved as `key_*` lines in `umk3.ini`).
 
 ### Debug: straight into a fight
 
@@ -83,16 +85,17 @@ Every session started by double-click writes `logs/umk3-<date>-<time>.log`
 beside the exe: task changes, loading steps and, on a crash, the addresses to
 symbolise. A log is deleted once the error it shows is fixed.
 
-### Known problems (8 October 2026, alpha 0.0.2)
+### Known problems (8 October 2026, alpha 0.0.3)
 
-Release notes: [0.0.2](docs/RELEASE-0.0.2-alpha.md), [0.0.1](docs/RELEASE-0.0.1-alpha.md).
+Release notes: [0.0.3](docs/RELEASE-0.0.3-alpha.md), [0.0.2](docs/RELEASE-0.0.2-alpha.md), [0.0.1](docs/RELEASE-0.0.1-alpha.md).
 
 What a player sees today, and what is known about each.
 
 | Symptom | What is known |
 |---|---|
 | **No fight gets past round 1.** | **Fixed for 0.0.2** (checked in game by Diego, 2026-10-08): round 2, the end of the match, Continue and the next fight all work. Five causes, each against armv7: `RoundSummaryUpdate` returned early on `WinnerMessage`/`IsInFinishing` (the binary keeps the timer running, 0x29a64/0x2a2d6); the fade-in after the summary went to `InfoScaleAdd` instead of `FE_FadeAdd` (0x2abaa); `GetScenePointingTo` returned the last node instead of NULL, so `Task_GameDestroy` turned the scene list into a ring and hung (0x5ef4c; `LIME_FreeScene` rewritten from 0x5efe0); `MeshSetLayers` was never initialised, so stage 1 crashed on load; `WinnerMessage` was 2 bytes, not 128. |
-| **The winner text ("X WINS") does not show.** | The announcer says it; the banner is not drawn. Seen by Diego 2026-10-08, not investigated. |
+| **The winner text ("X WINS") does not show.** | The announcer says it; the banner is not drawn. Seen by Diego 2026-10-08. `WinnerMessage` is built with `usprintf`, whose `%s` was dropped until 0.0.3 (row below) -- probably the cause, not confirmed in game yet. |
+| **Pause menu options invisible; moves-list pages wrong; HUD "i"/pause buttons missing.** | **Fixed for 0.0.3.** `processString` (`usprintf`'s engine, 0xa7600) only emitted a token's value on the no-token path; both paths share the tail at 0xa7650 that emits it, so every templated string lost its `%s`/`%d`. The generic moves-list pages index the table by absolute row (`row << 6`, 0x1efb0) and pass a NULL caption. `DrawHUD` draws both corner buttons in every mode while not paused (0x28910, 0x2a170); the C only did for `GameMode > 1`, and drew pause on one pulse frame (the pulse is a growing, fading second INFO icon, 0x2ab2a). New keys: P pause, M moves list; Esc no longer quits; player 1 keys configurable in the launcher. |
 | **The game crashes easily.** | User report, alpha 0.0.1; `logs/` beside the exe has the addresses. Not investigated as a whole. |
 | **Several texture errors.** | Many fixed in 0.0.2 (black fighters, hats, Sindel's hair -- row below); several remain. Report each with the stage and fighter. |
 | **The camera angles in the fight look wrong.** | **Fixed for 0.0.2** (checked in game by Diego, 2026-10-08): `UpdateArcadeCode` converted each arcade object at `GameObjects[0] + 16*i` instead of `GameObjects + 16*i` (0x21fde-0x22026), so one fighter's 3D position was garbage and the camera, which centres and zooms on both, followed only one. `TrackCam` also passes a difftest against the oracle (0 divergences / 20,000 cases) after keeping its `x + (y - x)` look-at commit. |
@@ -100,9 +103,8 @@ What a player sees today, and what is known about each.
 | **The menus are not complete; some menu sections crash.** | Seen by Diego, 2026-10-08. Not investigated section by section yet. |
 | **Sindel's hair missing; fighters, Kung Lao's hat and props drawn black.** | **Fixed for 0.0.2** (checked in game by Diego, 2026-10-08). Two causes, both against armv7: `LIME_LoadSkin` dropped the second block of a two-block `.skin` (0x6067c, `skin_containerSECOND`), so no character had a second skin -- Sindel's hair; and `LightPlayers` writes the player's texture every frame, `+0x530` or else `anim[0x14]` (0x1c0d8 / 0x1c2d8), where the C only wrote it for an alternate costume -- a fighter or attachment the intro had not textured was drawn with no texture, solid black. |
 | **Sounds play at the wrong moments; character voices missing.** | **Fixed for 0.0.2** (checked in game by Diego, 2026-10-08): `AddNewGameEvents` passed `get_gsound` its voice group and random seed swapped (binary 0x7368a: `get_gsound(arg & 0xf, arg >> 4, limeRand())`), so every attack/jump/grab/hit grunt read past its table and played a stray sound or none. |
-| **Sometimes every fighter in the tower is Jade.** | Probably the tower ladder (`OpponentTowerList`, built by `PopulateTower`): a `--fight` without `Character2Override` loaded Jade. Not investigated further. |
-| **The tower's descent animation does not display correctly.** | Not investigated. |
-| **The arena is always the same in Arcade.** | The original picks it at random; that path is not wired yet. |
+| **Sometimes every fighter in the tower is Jade; the tower animation is wrong.** | **Fixed for 0.0.3** (checked in game by Diego, 2026-10-08). `Load_Tower` (0x23314) wrote the saved ladder into a `TowerData` table nothing read; the binary writes `OpponentTowerList` (0x14fcb4) itself, so every rung kept the image default, 16 (Jade). `FE_Task_Tower` (0x8310): states 2 and 4 bias x by `Destiny`, not `Stage`; state 2 fades into the fight once settled (0x8c56); state 4 fades after 360 units (0x8f6e); the climb entry snaps the camera and sets `MoveUpTower = JustWon ? 0 : 1` (0x8d98); survival picks `TowerRand[abs(rand) % 22]` and the boss rungs force their arenas (0x932e). |
+| **The arena is always the same in Arcade.** | Except the two boss rungs (0.0.3). `GetNextLevel` is called on each hand-over; why it repeats is not investigated. |
 | **Windows only for the launcher.** | Linux/macOS still build from source with CMake. |
 | **Only the iPhone 1.2.59 .ipa works.** | The launcher refuses any other binary (uuid check); the iPad 1.2.56 build has different addresses. |
 
