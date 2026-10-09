@@ -119,11 +119,11 @@ What a player sees today, and what is known about each.
 | **The arena is always the same in Arcade.** | Except the two boss rungs (0.0.3). `GetNextLevel` is called on each hand-over; why it repeats is not investigated. |
 | **Reported by Mary after 0.0.3 (2026-10-09), not investigated yet:** | |
 | ~~Audio stops working properly after two fights in a row~~ (Arcade). | **Fixed** (checked by Mary, 2026-10-09). `UnLoadSoundList` (0xa7f08) searches `SoundListUniqueHandle` (0x38b8b0, the table `LoadSoundList` fills); the transcription read a `SoundListUniqueIds` that is not in the binary, so no fight sound was ever deleted and limeLoadSound's 512 slots were full after about two fights. Voices still playing a deleted sound are now stopped first (`plat_audio_stop_pcm`). |
-| The Motaro fight has audio problems. | Seen by Mary 2026-10-09; being investigated. |
+| The Motaro fight has audio problems. | Seen by Mary 2026-10-09. Probably the `t_rst5` fix below; to confirm. |
 | Some special attacks have no sound, projectiles especially. | Not investigated. |
 | Texture errors remain on some stages and in some modes; the menu has texture errors too. | Not investigated stage by stage. |
 | Some menu sections crash. | `FE_Task_Treasure` (18) and `FE_Task_Stats` (15) ended the 2026-10-08 logs; both draw the spotlights fixed above, so probably fixed too -- to confirm. |
-| Shao Kahn may be crashing the game; the bosses' state in general needs checking. | Not investigated. |
+| Shao Kahn may be crashing the game; the bosses' state in general needs checking. | **Likely fixed, to confirm in game.** `t_rst5` (0x473d0), the hit-reaction dispatcher, stored the bosses' reaction tables as raw iOS addresses (0x17b8d0 `motaro_branches`, 0x17b884 `sk_branches`) and read them: the first reaction against Motaro or Shao Kahn crashed or ran garbage. A 4,000-tick fight against each now runs clean. |
 | The winner's name ("X WINS") is still not shown. | Seen by Mary after 0.0.3, so the `usprintf` fix was not the whole cause. |
 | The menu is not complete (target: 100%), and some modes are missing. | Not inventoried yet. |
 | The game's ads open in separate windows, which forces leaving fullscreen. | Wanted: show them in windows drawn inside the game, in the same executable. |

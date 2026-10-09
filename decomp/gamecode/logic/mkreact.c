@@ -2167,6 +2167,8 @@ void face_opponent(MK3OBJ *obj);
 void flip_multi(MK3OBJ *obj);
 void stop_me_player(MK3OBJ *obj);
 long t_rst5(struct MK3THREAD *thread);
+extern const uint32_t motaro_branches[];  /* 0x0017b8d0 */
+extern const uint32_t sk_branches[];      /* 0x0017b884 */
 
 
 /* ----------------------------------------------------- reaction_start_chores
@@ -11308,11 +11310,17 @@ rst5_field34_check:
         return mk3_install(thread, (MK3THREADFUNC)t_local_reaction_exit);
     }
 
-    obj->field20 = 0x0017b8d0;
+    /* The literals are _motaro_branches (0x0017b8d0) and _sk_branches
+     * (0x0017b884), the bosses' reaction tables -- the same two mkdrone.c
+     * reads, generated with host addresses by tools/logic_tables.py. Written
+     * as raw iOS addresses they were read as a table at 0x17b884 of the PC's
+     * address space: the first hit reaction against Motaro or Shao Kahn
+     * crashed (or, when that page happened to be mapped, ran garbage). */
+    obj->field20 = (uint32_t)(uintptr_t)motaro_branches;
     obj->field38 = obj->field08->field24;
 
     if (obj->field38 != 0x18)
-        obj->field20 = 0x0017b884;
+        obj->field20 = (uint32_t)(uintptr_t)sk_branches;
 
     if (obj->field38 == 0x18 || obj->field38 == 0x19) {
         if ((int32_t)thread->frame > 0) {

@@ -129,7 +129,7 @@ Cada arreglo se leyó del binario armv7 original y Mary lo comprobó en el juego
 2. ~~Después de dos peleas seguidas el audio deja de funcionar bien~~ -- arreglado (Arcade): `UnLoadSoundList` buscaba en una tabla que no existe en el binario y nunca borraba los sonidos. Queda: el audio de la pelea con Motaro.
 3. Siguen los errores de texturas en ciertos mapas y modos.
 4. Errores de texturas en el menú y secciones que crashean. Los logs del 8 de octubre se cortan al entrar en `FE_Task_Treasure` (dos veces) y `FE_Task_Stats`: probablemente dos de ellas.
-5. Shao Kahn podría estar provocando crashes.
+5. Shao Kahn podría estar provocando crashes. -- probablemente arreglado, falta confirmarlo: `t_rst5` leía las tablas de reacción de Motaro y Shao Kahn en direcciones del iPhone.
 6. El nombre del personaje al ganar sigue sin salir (el arreglo de `usprintf` no bastó).
 7. El audio de ciertos ataques no funciona, sobre todo los proyectiles.
 8. Los anuncios del juego que salían en ventanas aparte deben verse en ventanas dentro del juego, en el mismo ejecutable, para no tener que salir de pantalla completa.
