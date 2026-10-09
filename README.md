@@ -91,7 +91,7 @@ What a player sees today, and what is known about each.
 | **The camera angles in the fight look wrong.** | Not investigated yet (next). |
 | **The on-screen joystick does not animate.** | Not investigated. |
 | **Sindel's hair draws white.** | She has her own hair texture (`ANIMATEDCHARACTER+0x20`); not investigated. |
-| **Sounds play at the wrong moments.** | Reported; not investigated. |
+| **Sounds play at the wrong moments; character voices missing.** | **Fixed for 0.0.2** (checked in game by Diego, 2026-10-08): `AddNewGameEvents` passed `get_gsound` its voice group and random seed swapped (binary 0x7368a: `get_gsound(arg & 0xf, arg >> 4, limeRand())`), so every attack/jump/grab/hit grunt read past its table and played a stray sound or none. |
 | **Sometimes every fighter in the tower is Jade.** | Probably the tower ladder (`OpponentTowerList`, built by `PopulateTower`): a `--fight` without `Character2Override` loaded Jade. Not investigated further. |
 | **The tower's descent animation does not display correctly.** | Not investigated. |
 | **The arena is always the same in Arcade.** | The original picks it at random; that path is not wired yet. |

@@ -16,6 +16,21 @@ Current state of the project. Written so that someone can pick it up with no pri
 > `umk3.ini` (3D resolution, fullscreen with 3:2 bars, language). Known
 > problems are the README's table; work continues as 0.0.2.
 
+> **0.0.2, first fix (2026-10-08, branch `claude/audio-playback-issues-257c4d`):
+> the voices.** Diego heard fighters missing their voices and stray sounds on
+> some button presses. Cause, read from the binary: in `AddNewGameEvents` the
+> sound event of subtype 1 (what `group_sound` sends: attack, jump, grab, slam,
+> trip, face hit, run, shook, death grunts) is `get_gsound(arg & 0xf,
+> arg >> 4, limeRand())` at 0x7368a-0x73696; `decomp/gamecode/Blood.c` had
+> `get_gsound(arg & 0xf, limeRand(), arg >> 4)`. The random number became the
+> block index, so the lookup read far past `group_table`'s rows. The other
+> three sound subtypes (tsound, rsound, csound) and the five fixed
+> `get_tsound` ids were checked against the same disassembly and match. No
+> differential test covers `AddNewGameEvents`; the fix is verified by reading
+> the disassembly and by the table layout (`gs_attack` = 2 takes x 9 voice
+> groups). Rebuilt `WORK/alpha-release/umk3-game.exe`; **Diego checked it in
+> game and signed it off on his checklist**.
+
 > Latest (2026-10-08 evening, branch `claude/fight-arena-draw`): **the first
 > fight runs and draws.** `--fight kitana kunglao 0` (or the tower) reaches
 > `Task_GameMain`, which runs thousands of frames with the arena, both
