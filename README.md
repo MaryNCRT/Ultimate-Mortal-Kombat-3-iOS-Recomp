@@ -89,7 +89,7 @@ What a player sees today, and what is known about each.
 | **The winner text ("X WINS") does not show.** | The announcer says it; the banner is not drawn. Seen by Diego 2026-10-08, not investigated. |
 | **The game crashes easily.** | User report, alpha 0.0.1; `logs/` beside the exe has the addresses. Not investigated as a whole. |
 | **Several texture errors.** | User report, alpha 0.0.1 (Sindel's hair below is one). Not investigated as a whole. |
-| **The camera angles in the fight look wrong.** | Not investigated yet (next). |
+| **The camera angles in the fight look wrong.** | **Fixed for 0.0.2** (checked in game by Diego, 2026-10-08): `UpdateArcadeCode` converted each arcade object at `GameObjects[0] + 16*i` instead of `GameObjects + 16*i` (0x21fde-0x22026), so one fighter's 3D position was garbage and the camera, which centres and zooms on both, followed only one. `TrackCam` also passes a difftest against the oracle (0 divergences / 20,000 cases) after keeping its `x + (y - x)` look-at commit. |
 | **The on-screen joystick does not animate.** | Not investigated. |
 | **Sindel's hair draws white.** | She has her own hair texture (`ANIMATEDCHARACTER+0x20`); not investigated. |
 | **Sounds play at the wrong moments; character voices missing.** | **Fixed for 0.0.2** (checked in game by Diego, 2026-10-08): `AddNewGameEvents` passed `get_gsound` its voice group and random seed swapped (binary 0x7368a: `get_gsound(arg & 0xf, arg >> 4, limeRand())`), so every attack/jump/grab/hit grunt read past its table and played a stray sound or none. |
