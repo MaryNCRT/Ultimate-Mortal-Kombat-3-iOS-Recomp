@@ -16,6 +16,20 @@ Current state of the project. Written so that someone can pick it up with no pri
 > `umk3.ini` (3D resolution, fullscreen with 3:2 bars, language). Known
 > problems are the README's table; work continues as 0.0.2.
 
+> **0.0.2, third fix (2026-10-08, branch `claude/fight-camera`): the
+> camera follows both fighters.** `UpdateArcadeCode` hands each arcade
+> object to `ArcadePosTo3dPos` at `GameObjects + 16*i` -- the value loaded
+> from 0x14dfec (0x21fde-0x22026). The C used `GameObjects[0] + 16*i`, one
+> dereference too many, so a pointer was read out of object 0's bytes and
+> one fighter's `Player*Pos` was garbage (player 2 sat at z 1.62 all fight).
+> `TrackCam` centres and pulls back on the two positions, so it hung far
+> away on one player. Found by tracing `Player1Pos/Player2Pos/Camera` per
+> second, then reading the loop. `TrackCam` itself was difftested against
+> its recompiled oracle (a work/ harness, not committed): one 1-ulp
+> divergence, the look-at commit is `x + (y - x)` and not `y`; fixed, 0 in
+> 20,000 cases. Diego checked it in game; the black Kitana in the earlier
+> capture was the same bug (wrong position -> wrong lighting).
+
 > **0.0.2, second fix (2026-10-08, branch `claude/round2-softlock`): the
 > match can be played to the end.** Round 2 starts, the match ends, Continue
 > appears and the next fight loads; Diego checked it in game. Five bugs, each

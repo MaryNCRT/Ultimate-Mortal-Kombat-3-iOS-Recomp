@@ -54,7 +54,11 @@ es -> EXTRACTED` is obsolete.
    PROGRESS.md. Testing a round end no longer needs a whole fight: put
    `debug_keys=1` in umk3.ini and press F9..F12 in a fight. Left open: the
    winner banner ("X WINS") is not drawn although the voice plays.
-3. **Next: the camera** (Diego's order, 2026-10-08).
+3. **Camera -- fixed, checked in game by Diego.** `GameObjects + 16*i`, see
+   PROGRESS.md.
+4. **Next, the last items before 0.0.2:** Sindel's hair not drawn, and some
+   fighters / props / textures drawn black on some stages (Diego suspects
+   lighting).
 
 ## Where the project actually stands (2026-10-08)
 
