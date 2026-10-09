@@ -6,7 +6,7 @@
 
 **A complete decompilation of the 2011 iOS release of Ultimate Mortal Kombat 3 — every one of the game's 2,572 functions is now readable C — and a native PC port for Windows and Linux that is still in progress.**
 
-[Getting started](docs/GETTING-STARTED.md) · [Browser experiment](web/README.md) · [Methodology](docs/METHODOLOGY.md) · [LIME engine](docs/LIME-ENGINE.md) · [Asset formats](docs/X-TABLES.md) · [Mesh viewer](docs/MESH-VIEWER.md) · [Game bugs](docs/GAME-BUGS.md) · [Hidden content](docs/HIDDEN-CONTENT.md) · [Stages](docs/STAGES.md) · [Roster](docs/ROSTER.md) · [Move tables](docs/MOVES-TABLES.md) · [Lighting](docs/LIGHTING.md) · [Font format](docs/FONT-FORMAT.md) · [Scene format](docs/SCENE-FORMAT.md) · [PVR format](docs/PVR-FORMAT.md) · [Frame lists](docs/FRAMELISTS.md) · [MAME reference](docs/MAME-ARCADE.md) · [iPad build](docs/IPAD-BUILD.md) · [Architecture](docs/ARCHITECTURE.md) · [Progress](docs/PROGRESS.md) · [Handoff](docs/HANDOFF.md) · [Next task](docs/ENCARGO.md) · [AI disclosure](AI-DISCLOSURE.md) · [Español](README.es.md)
+[Getting started](docs/GETTING-STARTED.md) · [Browser experiment](web/README.md) · [Methodology](docs/METHODOLOGY.md) · [LIME engine](docs/LIME-ENGINE.md) · [Asset formats](docs/X-TABLES.md) · [Mesh viewer](docs/MESH-VIEWER.md) · [Game bugs](docs/GAME-BUGS.md) · [Hidden content](docs/HIDDEN-CONTENT.md) · [Stages](docs/STAGES.md) · [Roster](docs/ROSTER.md) · [Move tables](docs/MOVES-TABLES.md) · [Lighting](docs/LIGHTING.md) · [Font format](docs/FONT-FORMAT.md) · [Scene format](docs/SCENE-FORMAT.md) · [PVR format](docs/PVR-FORMAT.md) · [Frame lists](docs/FRAMELISTS.md) · [MAME reference](docs/MAME-ARCADE.md) · [iPad build](docs/IPAD-BUILD.md) · [Architecture](docs/ARCHITECTURE.md) · [Progress](docs/PROGRESS.md) · [Handoff](docs/HANDOFF.md) · [Original brief](docs/ENCARGO.md) · [AI disclosure](AI-DISCLOSURE.md) · [Español](README.es.md)
 
 **Companion project:** [**UMK3 — Godot Remake**](https://github.com/MaryNCRT/UMK3-IOS-GODOT-REMAKE) — a playable remake built on what this repository measures. [How the two fit together](#the-companion-repository).
 
@@ -94,7 +94,6 @@ What a player sees today, and what is known about each.
 | Symptom | What is known |
 |---|---|
 | **No fight gets past round 1.** | **Fixed for 0.0.2** (checked in game by Mary, 2026-10-08): round 2, the end of the match, Continue and the next fight all work. Five causes, each against armv7: `RoundSummaryUpdate` returned early on `WinnerMessage`/`IsInFinishing` (the binary keeps the timer running, 0x29a64/0x2a2d6); the fade-in after the summary went to `InfoScaleAdd` instead of `FE_FadeAdd` (0x2abaa); `GetScenePointingTo` returned the last node instead of NULL, so `Task_GameDestroy` turned the scene list into a ring and hung (0x5ef4c; `LIME_FreeScene` rewritten from 0x5efe0); `MeshSetLayers` was never initialised, so stage 1 crashed on load; `WinnerMessage` was 2 bytes, not 128. |
-| **The winner text ("X WINS") does not show.** | The announcer says it; the banner is not drawn. Seen by Mary 2026-10-08. `WinnerMessage` is built with `usprintf`, whose `%s` was dropped until 0.0.3 (row below) -- probably the cause, not confirmed in game yet. |
 | **Pause menu options invisible; moves-list pages wrong; HUD "i"/pause buttons missing.** | **Fixed for 0.0.3.** `processString` (`usprintf`'s engine, 0xa7600) only emitted a token's value on the no-token path; both paths share the tail at 0xa7650 that emits it, so every templated string lost its `%s`/`%d`. The generic moves-list pages index the table by absolute row (`row << 6`, 0x1efb0) and pass a NULL caption. `DrawHUD` draws both corner buttons in every mode while not paused (0x28910, 0x2a170); the C only did for `GameMode > 1`, and drew pause on one pulse frame (the pulse is a growing, fading second INFO icon, 0x2ab2a). New keys: P pause, M moves list; Esc no longer quits; player 1 keys configurable in the launcher. |
 | **The game crashes easily.** | User report, alpha 0.0.1; `logs/` beside the exe has the addresses. Not investigated as a whole. |
 | **Several texture errors.** | Many fixed in 0.0.2 (black fighters, hats, Sindel's hair -- row below); several remain. Report each with the stage and fighter. |
@@ -105,6 +104,16 @@ What a player sees today, and what is known about each.
 | **Sounds play at the wrong moments; character voices missing.** | **Fixed for 0.0.2** (checked in game by Mary, 2026-10-08): `AddNewGameEvents` passed `get_gsound` its voice group and random seed swapped (binary 0x7368a: `get_gsound(arg & 0xf, arg >> 4, limeRand())`), so every attack/jump/grab/hit grunt read past its table and played a stray sound or none. |
 | **Sometimes every fighter in the tower is Jade; the tower animation is wrong.** | **Fixed for 0.0.3** (checked in game by Mary, 2026-10-08). `Load_Tower` (0x23314) wrote the saved ladder into a `TowerData` table nothing read; the binary writes `OpponentTowerList` (0x14fcb4) itself, so every rung kept the image default, 16 (Jade). `FE_Task_Tower` (0x8310): states 2 and 4 bias x by `Destiny`, not `Stage`; state 2 fades into the fight once settled (0x8c56); state 4 fades after 360 units (0x8f6e); the climb entry snaps the camera and sets `MoveUpTower = JustWon ? 0 : 1` (0x8d98); survival picks `TowerRand[abs(rand) % 22]` and the boss rungs force their arenas (0x932e). |
 | **The arena is always the same in Arcade.** | Except the two boss rungs (0.0.3). `GetNextLevel` is called on each hand-over; why it repeats is not investigated. |
+| **Reported by Mary after 0.0.3 (2026-10-09), not investigated yet:** | |
+| Audio stops working properly after two fights in a row. | Not investigated. |
+| Some special attacks have no sound, projectiles especially. | Not investigated. |
+| Texture errors remain on some stages and in some modes; the menu has texture errors too. | Not investigated stage by stage. |
+| Some menu sections crash. | The session logs of 2026-10-08 stop dead on entering `FE_Task_Treasure` (18, twice) and `FE_Task_Stats` (15) -- likely two of them. Not investigated. |
+| Shao Kahn may be crashing the game; the bosses' state in general needs checking. | Not investigated. |
+| The winner's name ("X WINS") is still not shown. | Seen by Mary after 0.0.3, so the `usprintf` fix was not the whole cause. |
+| The menu is not complete (target: 100%), and some modes are missing. | Not inventoried yet. |
+| The game's ads open in separate windows, which forces leaving fullscreen. | Wanted: show them in windows drawn inside the game, in the same executable. |
+| Debug mode should be switched on from the launcher (a checkbox), with a key that skips a whole fight (both rounds) and a way to jump to any screen or menu section. | Today: `debug_keys=1` in umk3.ini, F9-F12 end a round or win/lose the match. |
 | **Windows only for the launcher.** | Linux/macOS still build from source with CMake. |
 | **Only the iPhone 1.2.59 .ipa works.** | The launcher refuses any other binary (uuid check); the iPad 1.2.56 build has different addresses. |
 
@@ -273,7 +282,7 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ## Overall progress
 
 ```
-███████████████████████████████████░░░░░  86.74%
+███████████████████████████████████░░░░░  87.59%
 ```
 
 | Area | Weight | Done | |
@@ -284,10 +293,11 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 | `lime/common` — engine core (109 fn) | 12% | **100%** | `██████████` |
 | `gamecode` — game logic (291 fn) | 18% | **100%** | `██████████` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | **100%** | `██████████` |
-| Native PC platform layer (161 fn to rewrite) | 17% | 22% | `██░░░░░░░░` |
+| Native PC platform layer (161 fn to rewrite) | 17% | 27% | `███░░░░░░░` |
 | EA SDK stubs (27 fn the game calls) | 5% | 100% | `██████████` |
 
-**86.74% of the total estimated effort. Nothing is playable yet.**
+**87.59% of the total estimated effort. Alpha 0.0.3 is playable:** whole
+fights by the real path, with known problems (see above).
 
 **Read that number for what it measures, and for what it leaves out.** It
 weighs the eight areas in the table, and two pieces of work are in none of
@@ -295,8 +305,9 @@ them:
 
 - **The fight runtime.** The table counts the fight engine's 2,172 functions
   as written; nothing in it counts the loop, the thread scheduler and the
-  glue that make them run frame by frame on a PC. Today they compile and are
-  tested in isolation; they do not yet run as a game.
+  glue that make them run frame by frame on a PC. **That runtime now exists
+  and runs the real game** (alpha 0.0.2 and 0.0.3): front end, tower, fight
+  load, both rounds, the end of the match, Continue and the next fight.
 - **229 data tables.** Linking the fight engine for the first time left 423
   undefined symbols, and 229 of them are not code but arrays in the binary:
   the special-move command lists (`sm_*`), per-character parameters
@@ -306,10 +317,12 @@ them:
   each user's own copy at build time, never committed — see
   [docs/PROGRESS.md](docs/PROGRESS.md#the-other-axis-229-data-tables-nobody-has-counted).
 
-So 86.74% is honest about functions and formats, and **silent about the two
-things between here and a playable fight.** The weights are not being revised
-upward to make room for them until somebody can say how big they are; this
-paragraph exists so the gap is on the record instead.
+So the percentage is honest about functions and formats, and **silent about
+the two things that turned the engine into a playable fight.** Both are now
+done, and the weights were never revised to make room for them: the bar
+measures the decompilation and the platform layer, not how playable the game
+is. What a player sees is in *Known problems* above and in the release
+notes.
 
 **The middle three rows are counted, the rest are estimates.** `tools/progress.py`
 reads the tree on every run for `lime/common`, `gamecode` and `gamecode/logic`;
@@ -336,9 +349,10 @@ body; all nine of its files are also verified against the recompiled original.
 **Every function has a body.** All 2,172 functions of the fight engine are
 written, including `mkdrone.c` (the AI opponent, 394 functions), the last file
 to close. What is left is not decompilation: it is the fight runtime, the 229
-data tables above, and the platform layer. The tables are now extracted and
-verified ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48)); the runtime runs headless ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46)); booting to character select is
-in open PR [#43](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/43).
+data tables above, and the platform layer. The tables are extracted and
+verified ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48)), and the runtime plays whole fights in
+the windowed game (alpha 0.0.3). What is left is fixing the functions whose
+transcription does not quite match the binary, as each symptom turns up.
 
 **The EA SDK row is at 100% because of what the game calls, not because of
 the SDK's size.** Of the ~1,412 SDK functions, the game reaches exactly 27

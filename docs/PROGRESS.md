@@ -2,223 +2,63 @@
 
 Current state of the project. Written so that someone can pick it up with no prior context.
 
-**Last updated:** 2026-10-08 — see [HANDOFF.md](HANDOFF.md) for the route;
-"What is next" below is the current task ([ENCARGO.md](ENCARGO.md) is superseded).
+**Last updated:** 2026-10-09 -- see [HANDOFF.md](HANDOFF.md) for the route.
 
-> **Alpha 0.0.3 (2026-10-08, night, branch `claude/tower-icons-anim`).**
-> Each fix read from armv7. (1) `Load_Tower` (0x23314) fills
-> `OpponentTowerList` (0x14fcb4) itself; it filled a dead `TowerData`, so the
-> tower showed the image default (16, Jade) on every rung -- confirmed in game.
-> (2) `FE_Task_Tower` (0x8310): states 2/4 bias x by `Destiny`; state 2 fades
-> on arrival (0x8c56); state 4 fades after 360 (0x8f6e); climb entry snaps the
-> camera and sets `MoveUpTower = JustWon ? 0 : 1` (0x8d98); survival
-> `TowerRand[abs(rand) % 22]`; bosses force LevelSelect 0/3 (0x932e) --
-> confirmed in game. (3) `processString` (0xa7600): both paths share the
-> emitting tail at 0xa7650; the C emitted only on the no-token path, so every
-> `usprintf` lost its `%s`/`%d` (pause menu rows, moves-list title, "N/A";
-> probably the missing winner banner -- unconfirmed). (4) `MovesList` generic
-> pages: absolute row `row << 6`, NULL caption (0x1efb0). (5) `DrawHUD` draws
-> the INFO and PAUSE corner buttons in every mode while unpaused (0x28910,
-> 0x2a170), INFO pulse from 0x2ab2a. (6) Keys P (pause) / M (moves) as
-> synthetic corner taps (`hud_keys` in game_main.c); Esc no longer quits;
-> `plat_bind_key` + `key_*` in umk3.ini; launcher box "3. Controles del
-> jugador 1". Not done: winner banner unconfirmed, menus incomplete/crashing,
-> texture errors, arena repeats in Arcade.
+## Current state (alpha 0.0.3, 2026-10-09)
 
-> **Alpha 0.0.1 released (2026-10-08, night).** The first public build:
-> `UMK3-Launcher.exe` + the sources the build needs (94 files, 1.5 MB zip,
-> made by `launcher/make_release.py`). The player picks their own iPhone
-> 1.2.59 .ipa and presses Compilar; `launcher/build_game.ps1` downloads a
-> pinned llvm-mingw and Python, checks the binary's uuid, extracts the
-> tables, compiles `umk3-game.exe` and copies `res\` out of the .ipa.
-> Verified from the extracted zip in a clean folder: builds, boots, draws.
-> The game now reads only its own folder (no `../`, no junction) and
-> `umk3.ini` (3D resolution, fullscreen with 3:2 bars, language). Known
-> problems are the README's table; work continues as 0.0.2.
+- **The game is playable on Windows by the real path.** The retail front
+  end, Arcade, the tower, the fight load, both rounds, the end of the
+  match, Continue and the next fight, all in `umk3-game.exe` (i686),
+  compiled by the launcher from the player's own iPhone 1.2.59 `.ipa`.
+  Releases: [0.0.1](RELEASE-0.0.1-alpha.md), [0.0.2](RELEASE-0.0.2-alpha.md),
+  [0.0.3](RELEASE-0.0.3-alpha.md).
+- **Every function is decompiled** (2,572 of 2,572) and the fight engine is
+  behaviourally tested file by file (table below). The figure is
+  **87.59%** by the README's weights; `python tools/progress.py` measures it
+  (set `UMK3_FUNC_TO_FILE` to `OUTPUT/func-to-file.txt` if `work/` has no copy).
+- **What is wrong today** is the README's *Known problems* table: the menus
+  are incomplete and some sections crash, several texture errors remain,
+  the winner's name is not shown, audio fails after two fights, and
+  Arcade repeats its arena (Mary's list of 2026-10-09 is in the README). Every bug
+  found since the game first ran was a transcription that did not quite
+  match armv7, so each new symptom starts by re-reading the binary.
+- **No pull requests are open** (2026-10-09).
 
-> **0.0.2, fifth fix and release notes (2026-10-08, branch
-> `claude/joystick-anim`): the on-screen joystick moves.** `DrawControls`
-> offsets the knob by `JoyOffset[JoystickState]` (0xde09c, `__TEXT,__const`),
-> which the symbol table names `_JoyOffset.11128` -- a function-local static.
-> `tools/mkdata.py` / `mkglobals.py` never matched the `.NNNN` suffix, so the
-> table was emitted as zeros and the knob sat in the centre. Both now alias a
-> `name.NNNN` symbol to `name` when no real `name` exists; regenerating
-> changes only `JoyOffset`. Mary checked it in game. `docs/RELEASE-0.0.2-
-> alpha.md` lists every 0.0.2 fix and the known problems Mary asked to
-> record: the menus are incomplete, some menu sections crash, and several
-> texture errors remain although many were fixed.
+## Release history
 
-> **0.0.2, fourth fix (2026-10-08, branch `claude/sindel-hair-black-lighting`):
-> Sindel's hair and the black fighters.** Measured first: a per-frame dump of
-> each player's +0x528 showed player 0's texture NULL for the whole fight
-> while `anim->diffuse` was loaded, and `LIME_RenderMeshSingleIndexed` draws
-> a NULL texture as solid black. (1) `LightPlayers` (0x1c0d8-0x1c100,
-> 0x1c2d8) always writes +0x528 = +0x530 ?: anim[0x14] and +0x52c =
-> anim[0x28]; the C only did it when +0x530 was set, so the texture was
-> whatever the intro left -- black fighters, Kung Lao's black hat in select.
-> (2) `LIME_LoadSkin` (armv7 0x60650) loads a second block when the count is
-> 2, chained at +0x00 (`skin_containerSECOND`), from the cursor
-> `LIME_LoadSkin1` now returns (0x6062a); the armv6 reading ignored the count,
-> so Sindel's hair skin never existed. It also frees the file buffer, as the
-> binary does. Mary checked both in game.
+Each fix was read from armv7; the README's *Known problems* table has the
+full cause for each.
 
-> **0.0.2, third fix (2026-10-08, branch `claude/fight-camera`): the
-> camera follows both fighters.** `UpdateArcadeCode` hands each arcade
-> object to `ArcadePosTo3dPos` at `GameObjects + 16*i` -- the value loaded
-> from 0x14dfec (0x21fde-0x22026). The C used `GameObjects[0] + 16*i`, one
-> dereference too many, so a pointer was read out of object 0's bytes and
-> one fighter's `Player*Pos` was garbage (player 2 sat at z 1.62 all fight).
-> `TrackCam` centres and pulls back on the two positions, so it hung far
-> away on one player. Found by tracing `Player1Pos/Player2Pos/Camera` per
-> second, then reading the loop. `TrackCam` itself was difftested against
-> its recompiled oracle (a work/ harness, not committed): one 1-ulp
-> divergence, the look-at commit is `x + (y - x)` and not `y`; fixed, 0 in
-> 20,000 cases. Mary checked it in game; the black Kitana in the earlier
-> capture was the same bug (wrong position -> wrong lighting).
+- **0.0.3** (2026-10-08, night). `Load_Tower` fills `OpponentTowerList`
+  itself (0x23314; the all-Jade tower). `FE_Task_Tower` camera states and
+  hand-over (0x8310: x by `Destiny`, fades at 0x8c56 and 0x8f6e, climb entry
+  0x8d98, survival and boss arenas 0x9342/0x932e). `processString`'s shared
+  emitting tail (0xa7600/0xa7650; every `usprintf` lost its `%s`/`%d`).
+  `MovesList` generic rows (0x1efb0). `DrawHUD` corner buttons in every
+  mode (0x28910, 0x2a170, pulse 0x2ab2a). Keys P/M, Esc no longer quits,
+  `key_*` rebinding and the launcher's key box.
+- **0.0.2** (2026-10-08). `get_gsound` arguments (0x7368a; voices).
+  `RoundSummaryUpdate` early return removed (0x29a64/0x2a2d6),
+  `FE_FadeAdd` after the summary (0x2abaa), `GetScenePointingTo` returns
+  NULL and `LIME_FreeScene` from 0x5efe0 (the end-of-match hang),
+  `MeshSetLayers` initialised, `WinnerMessage[0x80]`; `UpdateArcadeCode`
+  reads `GameObjects + 16*i` (0x21fde; the camera); `LIME_LoadSkin`'s
+  second block (0x6067c; Sindel's hair) and `LightPlayers`' texture default
+  (0x1c0d8; black fighters); `_JoyOffset.11128` generated (0xde09c).
+  Debug keys F9-F12 (`debug_keys=1`).
+- **0.0.1** (2026-10-08). The launcher (`launcher/`), the build from the
+  player's `.ipa`, the game folder rule (only `res\` beside the exe),
+  `umk3.ini`. Before it, the same day: the first fight by the real path
+  ([#54](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/54), [#57](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/57)): scene loader and renderer, events, HUD text,
+  FIGHT overlay, keyboard for player 1, `GameObjects` handed to
+  `mk3_update` (0x222a2).
 
-> **0.0.2, second fix (2026-10-08, branch `claude/round2-softlock`): the
-> match can be played to the end.** Round 2 starts, the match ends, Continue
-> appears and the next fight loads; Mary checked it in game. Five bugs, each
-> read from armv7: (1) `RoundSummaryUpdate` returned while `WinnerMessage` or
-> `IsInFinishing` was set -- the binary keeps adding to `RoundSummaryTime`
-> (0x29a64 -> 0x29c9c -> 0x29a7c; 0x2a2d6), and `WinnerMessage` is only
-> cleared by `ResetFightData` at the end of that same function; (2) the 1/30
-> written before round 2 goes to `FE_FadeAdd` through slot 0xf3540
-> (0x2abaa), not `InfoScaleAdd` -- round 2 played on black; (3)
-> `GetScenePointingTo` (0x5ef4c) returns NULL when there is no predecessor;
-> ours returned the last node, so freeing the head scene closed the list into
-> a ring and `Task_GameDestroy` hung on the next walk. `LIME_FreeScene` was
-> an armv6 reading that stopped after the unlink; rewritten from 0x5efe0
-> (moves the head, frees events, meshset, node tables and the scene); (4)
-> `MeshSetLayers` (0x14f910) points at `MeshSet_LEVEL_00..07`; undeclared,
-> mkglobals left it NULL and stage 1 crashed in `GameInit_LoadABit` step 30;
-> (5) `WinnerMessage` is 0x80 bytes (next symbol `_BabalityMessage`), not 2.
-> Still seen: the winner banner is not drawn (the announcer speaks).
-> New test aid: `debug_keys=1` in umk3.ini (or `UMK3_DEBUG_KEYS`) enables
-> F9/F10 (KO player 2/1) and F11/F12 (win/lose the match) in a fight.
+## Natively, and how it is tested
 
-> **0.0.2, first fix (2026-10-08, branch `claude/audio-playback-issues-257c4d`):
-> the voices.** Mary heard fighters missing their voices and stray sounds on
-> some button presses. Cause, read from the binary: in `AddNewGameEvents` the
-> sound event of subtype 1 (what `group_sound` sends: attack, jump, grab, slam,
-> trip, face hit, run, shook, death grunts) is `get_gsound(arg & 0xf,
-> arg >> 4, limeRand())` at 0x7368a-0x73696; `decomp/gamecode/Blood.c` had
-> `get_gsound(arg & 0xf, limeRand(), arg >> 4)`. The random number became the
-> block index, so the lookup read far past `group_table`'s rows. The other
-> three sound subtypes (tsound, rsound, csound) and the five fixed
-> `get_tsound` ids were checked against the same disassembly and match. No
-> differential test covers `AddNewGameEvents`; the fix is verified by reading
-> the disassembly and by the table layout (`gs_attack` = 2 takes x 9 voice
-> groups). Rebuilt `WORK/alpha-release/umk3-game.exe`; **Mary checked it in
-> game and signed it off on his checklist**.
-
-> Latest (2026-10-08 evening, branch `claude/fight-arena-draw`): **the first
-> fight runs and draws.** `--fight kitana kunglao 0` (or the tower) reaches
-> `Task_GameMain`, which runs thousands of frames with the arena, both
-> fighters (the CPU fighting), the HUD and the touch controls. Transcribed
-> from armv7 to get there: `LIME_LoadScene` (0x5f0ac), `LIME_RenderScene`
-> (0x5f7a4) and `FlushTranspMeshList` (0x5f640); the whole events module
-> (`LIME_LoadEvents`, the four trigger functions, `LIME_UpdateEvents`, the
-> master offsets, `IsOnWWFrame`, `KillIllegalWhirlwinds`; `EVENT` re-laid,
-> it was 28 bytes off past +0x58). Data and wiring fixed: `GameObjects` is
-> read once and filled by `mk3_update(joy, &GameObjects)`; `PLAYER2MODEL`
-> is a plain long; `CharacterNames` had 0 entries; meshsets allocate with
-> limeMalloc; the vertex-colour scratch is `_TempRGBS`; the tint is
-> `_SceneTint`; `seq_lookup`'s scripts are extracted (`tools/seq_data.py`).
-> Each double-clicked session writes `logs/umk3-*.log`.
-> Later the same day: player two's intro (two translates, mirrored), the HUD
-> text (`limeDrawFONT` 0x7e5b8 reads ASCII), the FIGHT overlay
-> (`LIME_SetSceneTextures` 0x5f07c walks a table; `LIME_RenderSceneOverrideTextures`
-> 0x5f4d4), the round banner (`RoundSummary` cleared at 0x29f00), the dial's
-> up/down (0x261f4), `LIME_LoadMeshSetTextures` (0x5ed34), the button
-> handlers' second argument (`DoSwitchJump` 0x55f60), `t_rup3`'s slot; the
-> keyboard drives player 1; `tools/mkdata.py` reaches symbols by interior
-> pointers (the blood textures had 1 of 12).
-> **Open:** camera angles; joystick animation; Sindel's hair; sounds; all-Jade towers; tower descent; random arena.
-> README, "Known problems". Kitana drawing black no longer happens
-> (the user's report, 2026-10-08), after the GameObjects and texture-table
-> fixes; the flag-nibble cause was never pinned down.
->
-> Earlier (2026-10-08, [#54](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/54)): **Arcade goes from the tower into the
-> real fight load.** `Task_GameInit` runs to the end and the game enters
-> `Task_GameMain`, after fixing `LIME_FreeSkin` (0x6038c), the arena-name
-> table (`tools/level_info.py`), the sound table and its `"end_of_list"`
-> sentinel, the real `FrameID_GetBBox` for `mk3_init`, and `LevelMusic`.
-> **What the player sees:** the arena is black and the game crashes before
-> the fight starts (`GetReal6ButtonJoyBits` 0x1e3cc reads `*GameObjects`
-> after it was zeroed). Fighters with separate hair or hats are not drawn
-> correctly in character select (not investigated). Also open: all-Jade
-> towers, the tower descent animation, random arena choice. Details in
-> HANDOFF.md, "Where the project actually stands".
->
-> Earlier (2026-10-02): **the decompilation is complete and behaviourally
-> tested.** All 2,572 functions -- 109 engine core, 291 game logic, 2,172
-> fight engine -- have hand-written C, and the fight engine has been run file
-> by file against the recompiled original by `tools/difftest/`, which found
-> and fixed about 80 transcription bugs and several bugs in the recompiler. The
-> results table is in "Behavioural differential test" below; what remains in
-> it are harness limits, each checked by hand.
->
-> **Natively:** the real front end runs in a window with sound, music
-> (Windows) and save files, and pauses on losing focus;
-> `build/umk3-menu.exe <res>` opens it, the mouse stands in for a finger, and
-> `UMK3_SHOT=<n>` ticks n frames, writes `umk3-menu.ppm` and quits.
->
-> **Not playable yet.** The 229 data tables the fight engine reads are
-> extracted and verified ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48), 2026-10-08), and the
-> engine runs headless. What is missing on main is the runtime inside the
-> windowed game: the hand-over from the front end to `Task_GameInit`, and the
-> fight's input. See "Open pull requests" below for work that is written but
-> not merged.
->
-> Before that: **all 18 arenas render, textured, with their effects and an
-> animated fighter standing in them.**
-
-**Browser port (experimental):** `web/` contains an Emscripten/SDL2 build and
-a page that reads either the user's IPA or extracted app/resources directory
-locally. `build-web/umk3-browser-v6.html` is the latest build output; the
-browser page is being served on port 8000 in the current workspace. Web asset
-mounting must use the global Emscripten `FS`
-from the same generated module: the FS API is only present when
-`-sFORCE_FILESYSTEM=1` is enabled. The current mount keeps IPA resource paths
-and decompressed bytes unchanged in the virtual filesystem. Startup now reports
-progress through WebGL creation, general data, and each front-end asset step to
-pinpoint browser hangs. The Emscripten 3.1.6 build lowers a C function named
-`main` to `__main_argc_argv`, which its generated browser runtime does not
-recognize as the entry point; `runtime/emscripten_entry.c` exports a wrapper
-under the expected `main` symbol. Build output now includes `callMain(args)`
-and exports `main`, but the page has not yet been exercised in a browser. The
-renderer still uses the project's fixed-function OpenGL path through
-`LEGACY_GL_EMULATION`; the emulation warning alone does not establish that it
-causes the black screen. Get browser startup and GL error evidence before
-deciding whether to replace it with a shader-based renderer. The WebAssembly
-front-end meshset calls in steps 77-84 now pass `useLighting = 0`, matching the
-argument setup at the corresponding ARM call sites; the `LIME_LoadMeshSet`
-signature warning is gone. The link still reports mismatches for
-`LIME_LoadSceneWithTextures` and `LIME_RenderMeshSingleIndexed`; resolve those
-against the iOS binary before relying on the affected paths. F2 reaches the
-existing experimental fight scene, not a verified retail fight runtime.
-The page streams extracted assets into the virtual filesystem and has a button
-below the log to copy the complete accumulated output.
-SDL2 music now uses SDL2_mixer with its MP3 decoder enabled for Emscripten and
-native SDL builds; Linux menu and test targets compile with the new backend.
-The SDL backend now opens the music mixer independently of the queued
-sound-effects device, so an effects-device failure does not prevent menu music.
-The browser asset-mount readiness promise now resolves a plain API object rather
-than the Emscripten `Module` object, avoiding thenable assimilation that made
-`await umk3AssetMountReady` return `undefined`. The generated script URL is
-versioned after linking to prevent the browser from reusing a stale pre-fix
-runtime. IndexedDB persistence itself was already succeeding in the reported
-case; restoration was failing at the undefined mount API.
-
-The page now caches each validated IPA resource in IndexedDB while extracting.
-It marks the cache complete only after every listed file has been saved and
-verified, restores a complete resource cache before consulting the saved IPA,
-and falls back to the IPA if a cached-resource restore fails. Interrupted or
-quota-limited cache writes remain incomplete and therefore are never treated as
-a valid copy; the saved IPA remains the fallback.
-The Emscripten build allows heap growth up to the 4 GiB WebAssembly32 address
-limit so larger asset sets can grow beyond the compiler's default cap.
+**Browser port (experimental, not maintained since 2026-10-03):** `web/`
+holds an Emscripten/SDL2 build that reads the user's IPA in the page. It
+reached the splash and front-end loading, never a fight, and has not been
+exercised in a browser since; treat it as a starting point, not a target.
 
 The runtime now follows the binary's startup task table for the publisher
 intro: index 0 is `Task_LoadSplashScreen`, index 1 is
@@ -431,39 +271,21 @@ in place, oracles regenerated from the fixed `recomp.py`.
 
 ### What is next
 
-The menu is drawn. What is left, in order:
-
-1. **`gamecode/logic` is complete, 2,172 of 2,172** (`mkdrone.c`, 394
-   functions, closed 2026-10-01), and its behavioural triage is done
-   (2026-10-02). What is left is the fight runtime, the data tables and the
-   rest of the PC platform layer (the EA SDK boundary is stubbed). The notes that follow on the minimal playable scene are kept for the
-   link-closure measurement; the `plyrthread` / `repell_func` gaps they mention
-   are written.
-
-   **For a minimal playable scene the number is much smaller and it has been
-   measured, not estimated.** All fifteen logic files were compiled to objects
-   and linked against storage for the six globals; the undefined symbols were
-   then intersected with the transitive closure of the call graph from
-   `mk3_update`, `mk3_init`, `plyrthread`, `t_one_on_one`, `DisplayUpdate` and
-   the fifteen basic moves the button tables name. **110 symbols are reachable
-   and nine were missing.** Seven are now written. What remains is `plyrthread`
-   (2,124 bytes, the largest function in the directory -- its dispatch is
-   mapped: 43 tokens over 36 states) and `repell_func` (440 bytes).
-   `seq_lookup` is 7,608 bytes of special-move decoding that a keyboard scene
-   never reaches, because it only runs for input words with bit 10 set.
-2. **The menu's remaining pixel errors** — [#27](../../issues/27).
-   `limeGetStringWidth` and the three alignment cases in `limeDrawFONTAtAngle`
-   are not transcribed, so right-aligned strings land a few pixels wide. The
-   anchors are already exact. Deliberately deferred until more of the binary
-   has been read, because that function interleaves across the float registers.
-3. **Stub the online entries at the menu level** — leaderboards, achievements
-   and anything else that reaches EA's servers raise a modal alert when
-   *entered*, not at startup. A stub that returns "no connection" still ends up
-   in the alert, so the entries have to go.
-4. **Finish the type unification.** GameCode.c keeps its own copies of a dozen
-   lime types and functions, which is why `GAMEFONT` had to be copied instead of
-   included. Deleting the local copies and including `lime.h` is the real fix
-   and removes the whole class of disagreement above.
+1. **Mary's list of 2026-10-09** (README, *Known problems*), one item at a
+   time, each from the binary: debug mode from the launcher (skip a whole
+   fight, jump to any screen); audio failing after two fights; projectile
+   and special-move sounds; texture errors on some stages, modes and the
+   menu; crashing menu sections (`FE_Task_Treasure` and `FE_Task_Stats` end
+   the logs); Shao Kahn and the bosses; the winner's name (not fixed by
+   the `usprintf` fix); the game's ads in in-game windows; the menu to
+   100% and the missing modes. Also open: the Arcade arena (`GetNextLevel`).
+2. **The menu's remaining pixel errors** -- [#27](../../issues/27).
+3. **Stub the online entries at the menu level** -- leaderboards,
+   achievements and anything else that reaches EA's servers raise a modal
+   alert when *entered*.
+4. **Finish the type unification.** GameCode.c keeps its own copies of a
+   dozen lime types and functions; including `lime.h` instead removes a
+   whole class of disagreement.
 
 ## The other axis: 229 data tables nobody has counted
 
@@ -512,10 +334,11 @@ one**, and only one of them has ever been measured.
 ## Overall progress
 
 ```
-███████████████████████████████████░░░░░  86.74%
+███████████████████████████████████░░░░░  87.59%
 ```
 
-**86.74% of the total estimated effort. Nothing is playable yet.**
+**87.59% of the total estimated effort. Alpha 0.0.3 is playable:** whole
+fights by the real path, with the known problems the README lists.
 
 Weights are our judgement of how much of the total each area represents. The
 three decompilation figures are **measured from the tree** by
@@ -537,7 +360,7 @@ there is no function left to transcribe, only bodies left to prove.
 | `lime/common` — engine core (109 fn) | 12% | **100%** | `██████████` |
 | `gamecode` — game logic (291 fn) | 18% | **100%** | `██████████` |
 | `gamecode/logic` — fight engine (2,172 fn) | 28% | **100%** | `██████████` |
-| Native PC platform layer (161 fn to rewrite) | 17% | 22% | `██░░░░░░░░` |
+| Native PC platform layer (161 fn to rewrite) | 17% | 27% | `███░░░░░░░` |
 | EA SDK stubs (27 fn the game calls) | 5% | 100% | `██████████` |
 
 **The platform layer shrank twice.** It used to read "229 fn rewritten".
@@ -546,36 +369,24 @@ there is no function left to transcribe, only bodies left to prove.
 `ES1Renderer.m` and `ES2Renderer.m`, which are Apple's `GLES2Sample` template
 with the method sets matching exactly. Both have published, readable, legally
 reusable sources. **68 of 229 — 30% — need no reverse engineering**, leaving
-161. **22%, measured 2026-10-02:** of the 49 C entry points in `lime/iphone/lime.m`,
-all 49 have a native definition in `runtime/`, and about 36 of those do real work
+161. **27%, recounted 2026-10-09:** of the 49 C entry points in `lime/iphone/lime.m`,
+all 49 have a native definition in `runtime/`, and 43 of those do real work
 (GL state, sprite and rect drawing, texture and file loading, the heap, the
 language query, and since 2026-10-02 sound, music, save files and the log --
 each one
 transcribed from what the binary does, see `runtime/lime_menu.c`). Music plays
-on Win32 (MCI) and SDL2 via SDL2_mixer with MP3 decoding. The
-face-me sprites are still empty bodies -- 672 bytes of NEON per entry point,
-used only by the fight's particles -- and the ~180 Objective-C methods (views,
+on Win32 (MCI) and SDL2 via SDL2_mixer with MP3 decoding. The face-up and
+face-me sprites are drawn now. The six still empty have nothing to do on a
+PC: `limeMemoryReport`, `limeStartLoadingAnim`, `limeStopLoadingAnim`,
+`limeLoadURLInternal`, `limeDeleteTexture` and `limeSetVibrate`
+(`limeCheckForUserMusic` returns 0, which is right on a PC). The ~180
+Objective-C methods (views,
 controllers, renderers, Finch) are replaced by the SDL2/GL backend rather than
 rewritten one by one.
 
-### Open pull requests (2026-10-08)
+### Open pull requests (2026-10-09)
 
-Written, not on main. Nothing below counts toward any figure in this file
-until it is merged.
-
-| PR | What it does | State |
-|---|---|---|
-| [#42](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/42) | Platform layer: `limeBegin`, `limeFinish` and more of `lime.m`/`EAGLView` read off the binary | open |
-| [#43](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/43) | `umk3-game`: boots the whole game through `GameCodeMain` up to character select, i686 | open; its commits are carried by #50 |
-| [#44](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/44) | Character select: opens without crashing, the `?` cards draw, `IdleLists` filled from the image, a below-4 GB `limeMalloc` | open. **The fighter model still does not draw**: rendering crashes in `IsAFrameVisible` because `MESHREC` (Players.c) and `MESHINFO` (lime.h) disagree on the mesh record's `+0x18`; to be settled from `LoadAnimatedCharacter` (0x5c348) |
-| [#45](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/45) | "Maryncrt abrir menu umk3", no description | open, not reviewed |
-| [#49](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/49) | `tests/sdl2-lint/` declares what the browser port's SDL code uses, so `tools/check.sh` is back to 0 errors | open |
-| [#50](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/50) | First fight: `umk3-game` 32-bit target, Arcade crash fix (MP3 through ACM/`waveOut`), `Load_Tower` frees the right pointer, game folder with `res` and `save/` beside the exe; removes `tools/mklogicdata.py` | open; Arcade entry not re-tested with this exact build |
-
-**The character select screen draws a 3D fighter**, not only portraits:
-`Load1Character` loads an ANIMATEDCHARACTER per slot and the idle frame comes
-from `IdleLists`. So "fighters in the select screen" depends on #44's open
-mesh-record question, not only on the fight runtime.
+None. Everything up to [#68](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/68) is merged or closed.
 
 ### Milestones
 
@@ -589,9 +400,9 @@ mesh-record question, not only on the fight runtime.
 | **The engine core is verified** | ✅ **all nine files** |
 | Something renders on a PC screen | ✅ done — the menu and all 18 arenas |
 | **Every game function is decompiled** | ✅ **done — 2,572 of 2,572** (2026-10-01), behaviourally tested (2026-10-02) |
-| The game boots natively | 🔄 the front end boots, takes input, plays sound and music and saves; the fight has no runtime |
+| The game boots natively | ✅ done -- front end, tower, fight, Continue, next fight |
 | The fight's 229 data tables are extracted and verified | ✅ done ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48), 2026-10-08) — 1,118 objects, byte-exact, `ctest -R logic` |
-| The game is playable natively | 🔄 next: the hand-over from the front end to `Task_GameInit` — engine runs headless ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46)), booting to character select is in open PR [#43](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/43)/[#50](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/50) |
+| The game is playable natively | 🔄 alpha 0.0.3: whole fights play; menus incomplete, some textures wrong (README, *Known problems*) |
 
 ---
 
@@ -604,17 +415,17 @@ mesh-record question, not only on the fight runtime.
 | 2 — Verification oracle | ✅ complete and proven |
 | 3 — Ghidra automation | ✅ headless pipeline working |
 | 4 — Decompile `lime/common` | ✅ **complete — 109/109, every file verified** |
-| 5 — Native PC platform layer | 🔄 started — window, GL, textures, files, sound, music, saves and focus pause; the fight's input remains |
+| 5 — Native PC platform layer | 🔄 window, GL, textures, files, sound, music, saves, focus pause, keyboard and gamepad, the launcher; 43 of lime.m's 49 C entry points do real work |
 | 6 — EA SDK stubs | ✅ complete — the 27 entry points the game calls, plus `LocaleManager`, in `runtime/gamecode_stubs.c` |
 | 7 — Decompile `gamecode` | ✅ 291/291 |
 | 8 — Decompile fight logic | ✅ 2,172/2,172 — behavioural triage done (see the results table) |
 | 9 — Widescreen, gamepad, mods | ⬜ not started |
 
-**Honest framing:** 2,572 of 2,572 functions have a body. The percentage is not the
-interesting number — **nothing is playable**, because the fight engine has no
-runtime and its behavioural test is still being triaged. What the number does say is that the
-menu you can click on is not a mock-up: it is the retail front end, transcribed
-function by function, running on the retail assets.
+**Honest framing:** 2,572 of 2,572 functions have a body, and alpha 0.0.3
+plays whole fights. The percentage is not the interesting number: what
+matters is that the menus and the fight are the retail code, transcribed
+function by function, running on the retail assets -- and that every bug
+still open is a place where a transcription and the binary disagree.
 
 ---
 

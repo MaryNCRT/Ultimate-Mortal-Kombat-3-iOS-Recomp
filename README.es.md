@@ -6,7 +6,7 @@
 
 **Decompilación completa de la versión iOS de 2011 de Ultimate Mortal Kombat 3 — las 2.572 funciones del juego ya son C legible — y un port nativo para Windows y Linux que sigue en marcha.**
 
-[Primeros pasos](docs/GETTING-STARTED.md) · [Metodología](docs/METHODOLOGY.md) · [Motor LIME](docs/LIME-ENGINE.md) · [Formatos de assets](docs/X-TABLES.md) · [Visor de mallas](docs/MESH-VIEWER.md) · [Bugs del juego](docs/GAME-BUGS.md) · [Contenido oculto](docs/HIDDEN-CONTENT.md) · [Escenarios](docs/STAGES.md) · [Plantel](docs/ROSTER.md) · [Tablas de golpes](docs/MOVES-TABLES.md) · [Iluminación](docs/LIGHTING.md) · [Formato de fuentes](docs/FONT-FORMAT.md) · [Formato .scene](docs/SCENE-FORMAT.md) · [Formato PVR](docs/PVR-FORMAT.md) · [Listas de frames](docs/FRAMELISTS.md) · [Referencia MAME](docs/MAME-ARCADE.md) · [Build de iPad](docs/IPAD-BUILD.md) · [Arquitectura](docs/ARCHITECTURE.md) · [Progreso](docs/PROGRESS.md) · [Relevo](docs/HANDOFF.md) · [Encargo](docs/ENCARGO.md) · [Declaración sobre IA](AI-DISCLOSURE.md) · [English](README.md)
+[Primeros pasos](docs/GETTING-STARTED.md) · [Metodología](docs/METHODOLOGY.md) · [Motor LIME](docs/LIME-ENGINE.md) · [Formatos de assets](docs/X-TABLES.md) · [Visor de mallas](docs/MESH-VIEWER.md) · [Bugs del juego](docs/GAME-BUGS.md) · [Contenido oculto](docs/HIDDEN-CONTENT.md) · [Escenarios](docs/STAGES.md) · [Plantel](docs/ROSTER.md) · [Tablas de golpes](docs/MOVES-TABLES.md) · [Iluminación](docs/LIGHTING.md) · [Formato de fuentes](docs/FONT-FORMAT.md) · [Formato .scene](docs/SCENE-FORMAT.md) · [Formato PVR](docs/PVR-FORMAT.md) · [Listas de frames](docs/FRAMELISTS.md) · [Referencia MAME](docs/MAME-ARCADE.md) · [Build de iPad](docs/IPAD-BUILD.md) · [Arquitectura](docs/ARCHITECTURE.md) · [Progreso](docs/PROGRESS.md) · [Relevo](docs/HANDOFF.md) · [Encargo original](docs/ENCARGO.md) · [Declaración sobre IA](AI-DISCLOSURE.md) · [English](README.md)
 
 </div>
 
@@ -108,9 +108,23 @@ Cada arreglo se leyó del binario armv7 original y Mary lo comprobó en el juego
 
 - **El menú no está completo**, y **algunas secciones del menú todavía provocan un crash**.
 - **Siguen apareciendo varios errores de texturas.**
-- El texto del ganador («X WINS») se construye con `usprintf`, arreglado en la 0.0.3: puede que ya aparezca, sin confirmar.
 - El juego todavía puede cerrarse en otros sitios: abre un Issue con el archivo de `logs\`.
 - En Arcade el escenario es siempre el mismo, salvo los jefes.
+
+**Anotado por Mary después de la 0.0.3 (9 de octubre), sin investigar todavía:**
+
+1. El modo debug (saltar peleas, ganarlas o perderlas) debe activarse o desactivarse con una casilla en el launcher; además, una tecla para saltar una pelea entera con sus dos rounds, y poder saltar a cualquier pantalla o parte del menú.
+2. Después de dos peleas seguidas el audio deja de funcionar bien.
+3. Siguen los errores de texturas en ciertos mapas y modos.
+4. Errores de texturas en el menú y secciones que crashean. Los logs del 8 de octubre se cortan al entrar en `FE_Task_Treasure` (dos veces) y `FE_Task_Stats`: probablemente dos de ellas.
+5. Shao Kahn podría estar provocando crashes.
+6. El nombre del personaje al ganar sigue sin salir (el arreglo de `usprintf` no bastó).
+7. El audio de ciertos ataques no funciona, sobre todo los proyectiles.
+8. Los anuncios del juego que salían en ventanas aparte deben verse en ventanas dentro del juego, en el mismo ejecutable, para no tener que salir de pantalla completa.
+9. Terminar el menú al 100 %.
+10. Revisar el estado de los jefes y corregir sus errores.
+11. Arreglar los modos que faltan.
+
 - El launcher es solo para Windows (Linux/macOS: compilar desde el código con CMake).
 
 ## Qué es este proyecto
@@ -219,7 +233,7 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 ## Progreso general
 
 ```
-███████████████████████████████████░░░░░  86,74%
+███████████████████████████████████░░░░░  87,59%
 ```
 
 | Área | Peso | Hecho | |
@@ -230,18 +244,20 @@ El razonamiento completo está en [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 | `lime/common` — núcleo del motor (109 fn) | 12% | **100%** | `██████████` |
 | `gamecode` — lógica de juego (291 fn) | 18% | **100%** | `██████████` |
 | `gamecode/logic` — motor de combate (2.172 fn) | 28% | **100%** | `██████████` |
-| Capa de plataforma PC nativa (161 fn a reescribir) | 17% | 22% | `██░░░░░░░░` |
+| Capa de plataforma PC nativa (161 fn a reescribir) | 17% | 27% | `███░░░░░░░` |
 | Stubs del EA SDK (27 fn que llama el juego) | 5% | 100% | `██████████` |
 
-**86,74% del esfuerzo total estimado. Todavía no hay nada jugable.**
+**87,59% del esfuerzo total estimado. La alpha 0.0.3 es jugable:** peleas
+completas por el camino real, con los problemas conocidos de arriba.
 
 **Hay que leer esa cifra por lo que mide y por lo que deja fuera.** Pondera las
 ocho áreas de la tabla, y hay dos trabajos que no están en ninguna:
 
 - **El runtime del combate.** La tabla cuenta las 2.172 funciones del motor de
   combate como escritas; nada cuenta el bucle, el planificador de hilos y el
-  pegamento que las hacen correr frame a frame en un PC. Hoy compilan y se
-  prueban por separado; todavía no funcionan como juego.
+  pegamento que las hacen correr frame a frame en un PC. **Ese runtime ya
+  existe y mueve el juego real** (alpha 0.0.2 y 0.0.3): front end, torre,
+  carga de la pelea, los dos rounds, el final, Continue y la siguiente pelea.
 - **229 tablas de datos.** Al enlazar el motor de combate por primera vez
   quedaron 423 símbolos sin definir, y 229 no son código sino arrays del
   binario: las listas de comandos de golpes especiales (`sm_*`), parámetros
@@ -251,10 +267,11 @@ ocho áreas de la tabla, y hay dos trabajos que no están en ninguna:
   copia de cada usuario al compilar, nunca se suben al repositorio — ver
   [docs/PROGRESS.md](docs/PROGRESS.md#the-other-axis-229-data-tables-nobody-has-counted).
 
-Así que el 86,74% es honesto sobre funciones y formatos, y **calla sobre las dos
-cosas que separan esto de un combate jugable.** Los pesos no se reajustan para
-hacerles sitio hasta que alguien pueda decir cuánto miden; este párrafo existe
-para que el hueco quede escrito.
+Así que el porcentaje es honesto sobre funciones y formatos, y **calla sobre
+las dos cosas que convirtieron el motor en un combate jugable.** Las dos ya están
+hechas, y los pesos nunca se reajustaron para hacerles sitio: la barra mide la
+decompilación y la capa de plataforma, no lo jugable que es el juego. Lo que ve
+un jugador está en *Problemas conocidos* y en las notas de versión.
 
 **Las tres filas del medio se cuentan; el resto son estimaciones.**
 `tools/progress.py` lee el árbol en cada ejecución para `lime/common`,
@@ -283,8 +300,10 @@ original recompilado.
 combate están escritas, incluido `mkdrone.c` (el oponente controlado por la
 máquina, 394 funciones), el último fichero en cerrarse. Lo que queda ya no es
 decompilación: el runtime del combate, las 229 tablas de arriba y la capa de
-plataforma. Las tablas ya están extraídas y verificadas ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48)); el
-runtime corre sin ventana ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46)); el arranque hasta la selección de personaje está en la PR abierta [#43](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/43). Los stubs del EA SDK ya están: el juego solo llama a 27 funciones
+plataforma. Las tablas están extraídas y verificadas ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48)), y el
+runtime juega peleas completas en el juego con ventana (alpha 0.0.3). Lo que
+queda es corregir las funciones cuya transcripción no coincide del todo con el
+binario, a medida que aparece cada síntoma. Los stubs del EA SDK ya están: el juego solo llama a 27 funciones
 del SDK (más el constructor de `LocaleManager`), todas en
 `runtime/gamecode_stubs.c`; las ~1.385 restantes son internas del SDK y no se
 enlazan.

@@ -1,7 +1,7 @@
 # Handoff
 
 > **The status section below was rewritten on 2026-10-02 and updated on
-> 2026-10-08.** Most of the rest
+> 2026-10-09.** Most of the rest
 > of this file is a dated diary of what each finished module settled; it is
 > kept because the facts in it are still true, but its counts ("1,752 of
 > 2,172" and the like) are history. The live numbers are in
@@ -62,133 +62,43 @@ es -> EXTRACTED` is obsolete.
   (232 initialisers, e.g. `Level_Info`), which the "no game data" claim does
   not yet cover.
 
-## 0.0.2 in progress
+## 0.0.2 (released 2026-10-08)
 
-1. **Voices / stray sounds -- fixed, checked in game by Mary.** `get_gsound`'s
-   arguments in `AddNewGameEvents` were swapped (see PROGRESS.md). If Mary
-   still hears wrong sounds after this, the next places to read are the
-   `ochar_sound` call sites (per-move indices in `obj->field1c`) and the
-   front end's `SFXHandle` clicks -- not `fight_audio.c`, which is only the
-   old `umk3-fight` demo and is not linked into `umk3-game`.
-2. **Round-1 softlock -- fixed, checked in game by Mary.** Five causes, see
-   PROGRESS.md. Testing a round end no longer needs a whole fight: put
-   `debug_keys=1` in umk3.ini and press F9..F12 in a fight. Left open: the
-   winner banner ("X WINS") is not drawn although the voice plays.
-3. **Camera -- fixed, checked in game by Mary.** `GameObjects + 16*i`, see
-   PROGRESS.md.
-4. **Sindel's hair / black fighters -- fixed, checked by Mary.** See
-   PROGRESS.md (`LightPlayers` texture default, `LIME_LoadSkin` second block).
-5. **Joystick -- fixed, checked by Mary** (`JoyOffset`, a function-static
-   the generator missed; see PROGRESS.md).
-6. **0.0.2 is ready to package** (`docs/RELEASE-0.0.2-alpha.md`). Still open
-   after it: the menus are incomplete and some sections crash; several
-   texture errors remain; the winner banner is not drawn.
+Voices, the round-1 softlock (five causes), the camera, Sindel's hair and the
+black fighters, the joystick -- all checked in game by Mary. Causes and
+addresses: PROGRESS.md, "Release history", and the README's *Known problems*.
+Testing a round end does not need a whole fight: `debug_keys=1` in umk3.ini,
+then F9..F12 in a fight.
 
-## Where the project actually stands (2026-10-08)
+## Where the project actually stands (2026-10-09)
 
-**Re-run `python tools/progress.py` before trusting a number here.**
+**Re-run `python tools/progress.py` before trusting a number here** (set
+`UMK3_FUNC_TO_FILE` to `OUTPUT/func-to-file.txt` if `work/` has no copy).
 
-**The decompilation is finished. Nothing is playable yet.** The fight's data
-tables are extracted and verified ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48)); the fight runtime is the
-remaining blocker. **Decided (2026-10-08): the game executable, `umk3-game`,
-is i686** -- the fight stores addresses in 32-bit words. Python tools and the
-menu viewers may stay 64-bit. 86.74% of the
-estimated effort by the README's weights, which count functions and formats
-and leave out the fight runtime and the 229 data tables (see below).
+**Alpha 0.0.3 plays whole fights by the real path**, front end to Continue
+and the next fight, in `umk3-game.exe` (i686 -- the fight stores addresses in
+32-bit words; Python tools and the menu viewers may stay 64-bit). 87.59% of
+the estimated effort by the README's weights.
 
 | | |
 |---|---|
-| Asset formats | **100%** — solved, demonstrated, animating |
-| `lime/common` | **109 of 109** written, **all nine files verified** |
-| `gamecode` | **291 of 291** — the front end boots natively and takes input |
-| `gamecode/logic` (fight engine) | **2,172 of 2,172**, and behaviourally tested file by file by `tools/difftest/` (results table in PROGRESS.md) |
-| Native executables | `umk3-menu` (the real front end), `umk3-fight` (arenas and a skinned fighter), `umk3-test` (both) |
-| Platform layer | window, GL, textures, files, sound, music (Win32 and SDL2), save files, focus pause; the fight's input is not wired |
+| Asset formats | **100%** |
+| `lime/common` | **109 of 109**, all nine files verified |
+| `gamecode` | **291 of 291** |
+| `gamecode/logic` (fight engine) | **2,172 of 2,172**, behaviourally tested by `tools/difftest/` |
+| The fight's 229 data tables | extracted from the user's binary at build time and verified (`tools/logic_tables.py`, `tools/check_logic_tables.py`) |
+| Native executables | `umk3-game` (the whole game; built by the launcher), plus the older viewers `umk3-menu`, `umk3-fight`, `umk3-test` |
+| Platform layer | window, GL, textures, files, sound, music, saves, keyboard (rebindable) and gamepad, the launcher |
 
-**The front is no longer decompilation.** It is integration, in this order:
+**The front is fixing transcriptions, one symptom at a time.** Every bug since
+the game first ran was a function that did not quite match armv7 (a dropped
+branch, a swapped argument, a generated global left at zero). The open list is
+the README's *Known problems*; the method is in the rules below and in
+`umk3-game`'s debug options (`--fight`, `UMK3_SHOT`, `UMK3_TAPS`,
+`UMK3_LOG_TASKS`, `debug_keys=1`; see the header of `runtime/game_main.c`).
 
-1. **The fight runtime.** The fight engine is a set of cooperative threads
-   (`MK3THREAD`, frames, tokens, `fieldfc` sleeps) driven by a scheduler in
-   `other.c` and entered from the front end through `Task_GameInit`. Every
-   function of it exists and is tested; what does not exist is the loop that
-   runs them frame by frame in the native executable and hands them input.
-   `runtime/test_main.c` is where the bridge belongs (its header says why the
-   front end itself is not edited).
-   **Status (2026-10-08):** [#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46) runs the engine
-   headless (`runtime/fight_headless.c`: `mk3_init`, then `mk3_update` every
-   frame, fighters cycling their stances; its bbox callback is fake).
-   [#43](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/43) adds `umk3-game`, which boots the whole game through
-   `GameCodeMain` up to character select, built i686. Neither hands the front
-   end over to `Task_GameInit` yet.
-   **Merged (2026-10-08):** [#50](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/50) (with #43's commits), [#49](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/49)
-   and [#42](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/42); #45 closed as superseded. Arcade was re-tested from
-   `E:\MK3 PROJECT\GAME`: Play -> Arcade reaches character select.
-   **Character select draws and animates the 3D fighter** (branch
-   `claude/first-fight-select`, which carries #44). The `IsAFrameVisible`
-   crash was not one bug: MESHREC (the 88-byte frame record
-   LoadAnimatedCharacter builds, +0x18 a flag) and MESHINFO (+0x18 a vertex
-   pointer) are different records, and the lime C read the first as the
-   second. The skinning chain (`DrawSkinnedMesh2`, the matrix palette,
-   `LIME_RenderMeshSingleIndexed`, `CreateFadedRGBS`) and
-   LoadAnimatedCharacter's frame loop were transcribed from armv7; the pure
-   ones pass `tests/test_skinning_armv7_diff.c` and
-   `tests/test_rendermesh_indexed_gl_diff.c` with zero divergences.
-   **Next blocker:** confirming a fighter and a tower reaches
-   `CurrentTask = 4` (`Task_FEDestroy`) by the real path, and the process then
-   ends with a heap-corruption fast-fail (0xC0000374) before `Task_GameInit`.
-   **Update (2026-10-08, branch `claude/combat-system-scenarios-ec4c82`):**
-   the real path now runs `Task_GameInit` to the end (GameInit_LoadABit
-   returns 1, `CurrentTask` becomes 6) and enters `Task_GameMain`. Fixed on
-   the way, each against the armv7 binary: `LIME_FreeSkin` freed +0x18 twice
-   and skipped the `next` block (0x6038c; the 0xC0000374 heap fast-fail);
-   `Level_Info`'s scene/layer names point into anonymous `__data` strings
-   0x14e2a0..0x14e8d4 that were never emitted (`tools/level_info.py`
-   extracts and relocates them at build time); `triple_sndtab` is a
-   SOUNDENTRY list, not `long[][2]`; `LoadSoundList`'s sentinel is
-   "end_of_list" (literal 0x178be8), not ""; `FrameID_GetBBoxPtr` was the
-   non-lazy slot 0xf33f8 -> `_FrameID_GetBBox`, so `mk3_init` now gets the
-   real bbox callback; `LevelMusic` is a table of names.
-   **Update (2026-10-08 evening, branch `claude/fight-arena-draw`):** the
-   blocker below is fixed (`GameObjects` was read twice; `mk3_update` is
-   handed `&GameObjects`, 0x222a2) and the fight now RUNS and DRAWS: arena,
-   both fighters, HUD, touch controls. See PROGRESS.md "Latest" for the
-   list of functions transcribed. Use `umk3-game --fight <p1> <p2> [stage]`
-   to skip the menus. Next, in order: keyboard -> player 1 (bits as
-   GetReal6ButtonJoyBits builds them; 0x400 is the one-button special);
-   joystick not animating; camera; clean exit through Task_GameDestroy.
-   **Next blocker:** `GetReal6ButtonJoyBits` (0x1e3cc) dereferences
-   `*GameObjects` (0x14dfec) after Task_GameInit set it to 0 -- check in the
-   disassembly what `_GameObjects` really holds and who fills it.
-   **Seen by Mary in the build (2026-10-08):** the arena shows black and
-   the game crashes before the fight starts (the crash above, which comes
-   before anything draws the arena); fighters whose hair or hat is a
-   separate part (ponytails, Kung Lao's hat) are not drawn correctly in
-   character select -- not investigated; trace it in the binary's skinned
-   draw (extra meshes / bones), do not guess.
-   **Noted for later (Mary, not now):** the arena should be chosen at
-   random; sometimes every fighter in the tower is Jade; the tower's
-   descent animation does not display correctly.
-2. **The 229 data tables** the fight engine reads: `sm_*` special-move lists,
-   `ochar_*` per-character tables, `a_*` animation scripts, and singles such
-   as `reaction_table`. They are extracted from the user's own copy at build
-   time, never committed. PROGRESS.md, "The other axis", has the inventory
-   and the three already done.
-   **Done (2026-10-08):** [#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46)'s `tools/logic_tables.py` extracts all of
-   them -- 1,118 objects, 4,291 relocated words -- and [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48)'s
-   `tools/check_logic_tables.py` verifies them against the binary on every
-   build (`cmake -DUMK3_BINARY=...` with a 32-bit compiler, then
-   `ctest -R logic`). Byte-exact round trip; every relocation's target
-   checked; the image's layout kept in the linked program. Cross-checked
-   against [#43](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/43)'s independently written `tools/mklogicdata.py`: 53 words
-   differed, each settled by its reader, and the one this generator had
-   wrong (`ochar_headrip_lineups+0x8`) is fixed. Use `logic_tables.py`;
-   `mklogicdata.py` relocates `sm_*` button masks as addresses. Details in
-   PROGRESS.md, "Fight data tables: how they were verified".
-3. **The rest of the platform layer:** the fight's keyboard and gamepad input
-   (the engine takes one ten-bit word per player, see `platform.h`).
-
-`tools/difftest/` stays useful through all of it: any function touched while
-wiring the runtime can be re-run against the recompiled original in seconds.
+`tools/difftest/` stays useful: any function touched can be re-run against
+the recompiled original in seconds.
 
 ---
 
