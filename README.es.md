@@ -6,7 +6,7 @@
 
 **Decompilación completa de la versión iOS de 2011 de Ultimate Mortal Kombat 3 — las 2.572 funciones del juego ya son C legible — y un port nativo para Windows y Linux que sigue en marcha.**
 
-[Primeros pasos](docs/GETTING-STARTED.md) · [Metodología](docs/METHODOLOGY.md) · [Motor LIME](docs/LIME-ENGINE.md) · [Formatos de assets](docs/X-TABLES.md) · [Visor de mallas](docs/MESH-VIEWER.md) · [Bugs del juego](docs/GAME-BUGS.md) · [Contenido oculto](docs/HIDDEN-CONTENT.md) · [Escenarios](docs/STAGES.md) · [Plantel](docs/ROSTER.md) · [Tablas de golpes](docs/MOVES-TABLES.md) · [Iluminación](docs/LIGHTING.md) · [Formato de fuentes](docs/FONT-FORMAT.md) · [Formato .scene](docs/SCENE-FORMAT.md) · [Formato PVR](docs/PVR-FORMAT.md) · [Listas de frames](docs/FRAMELISTS.md) · [Referencia MAME](docs/MAME-ARCADE.md) · [Build de iPad](docs/IPAD-BUILD.md) · [Arquitectura](docs/ARCHITECTURE.md) · [Progreso](docs/PROGRESS.md) · [Relevo](docs/HANDOFF.md) · [Encargo original](docs/ENCARGO.md) · [Declaración sobre IA](AI-DISCLOSURE.md) · [English](README.md)
+[Primeros pasos](docs/GETTING-STARTED.md) · [Cómo funciona el juego](docs/HOW-THE-GAME-WORKS.md) · [Metodología](docs/METHODOLOGY.md) · [Motor LIME](docs/LIME-ENGINE.md) · [Formatos de assets](docs/X-TABLES.md) · [Visor de mallas](docs/MESH-VIEWER.md) · [Bugs del juego](docs/GAME-BUGS.md) · [Contenido oculto](docs/HIDDEN-CONTENT.md) · [Escenarios](docs/STAGES.md) · [Plantel](docs/ROSTER.md) · [Tablas de golpes](docs/MOVES-TABLES.md) · [Iluminación](docs/LIGHTING.md) · [Formato de fuentes](docs/FONT-FORMAT.md) · [Formato .scene](docs/SCENE-FORMAT.md) · [Formato PVR](docs/PVR-FORMAT.md) · [Listas de frames](docs/FRAMELISTS.md) · [Referencia MAME](docs/MAME-ARCADE.md) · [Build de iPad](docs/IPAD-BUILD.md) · [Arquitectura](docs/ARCHITECTURE.md) · [Progreso](docs/PROGRESS.md) · [Relevo](docs/HANDOFF.md) · [Encargo original](docs/ENCARGO.md) · [Declaración sobre IA](AI-DISCLOSURE.md) · [English](README.md)
 
 </div>
 
@@ -32,7 +32,7 @@ Necesitas una copia obtenida legalmente de *Ultimate Mortal Kombat 3* para iOS (
 |---|---|
 | **Decompilado** | ✅ **Todo.** Las 2.572 funciones del juego tienen C escrito a mano: el núcleo del motor LIME (109), la lógica de juego (291) y el motor de combate (2.172). No queda nada por transcribir. |
 | **Verificado** | ✅ El núcleo del motor pasa tests diferenciales contra el original recompilado con cero divergencias. El motor de combate pasa un test diferencial de comportamiento fichero a fichero, con las excepciones listadas en [Verificación](#cuánto-está-verificado): todas son límites conocidos de la herramienta de test, no bugs conocidos. |
-| **Funciona en nativo** | 🔄 El front end real arranca en una ventana OpenGL: menús, textos, sonidos, música y partidas guardadas en Windows y Linux. Arcade llega a la selección de personaje, que dibuja al luchador en 3D con su animación, y recorre la torre. |
+| **Funciona en nativo** | ✅ El juego real funciona en nativo en Windows (Linux/macOS desde el código): el front end con sus 51 pantallas, el Arcade con la torre hasta el final, las peleas, sonido, música y partidas guardadas. Cómo encaja todo: [docs/HOW-THE-GAME-WORKS.md](docs/HOW-THE-GAME-WORKS.md) (en inglés). |
 | **Combate** | ✅ **Las peleas se juegan de principio a fin por el camino real.** `Task_GameInit` → `Task_GameMain` → round 1, round 2, fin del combate, `Task_GameDestroy`, pantalla de Continue y siguiente pelea, con la cámara siguiendo a los dos luchadores, voces y efectos de sonido. |
 | **Jugable** | 🔄 **Alpha 0.0.5**: se puede jugar con el teclado (W A S D o flechas; U I O J K L; P pausa, M combos; teclas configurables en el launcher) o con los controles táctiles, contra la CPU. Aún incompleto: ver *Problemas conocidos*. Las 229 tablas de datos del motor de combate se extraen del binario del propio usuario al compilar y están verificadas contra él ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48)). |
 
@@ -520,7 +520,22 @@ Todo lo derivado del binario comercial —C recompilado, salida cruda de Ghidra,
 
 ## Primeros pasos
 
-Si nunca has trabajado en algo así, lee **[docs/GETTING-STARTED.md](docs/GETTING-STARTED.md)**. No da por supuesto ningún conocimiento previo de ingeniería inversa y explica para qué sirve cada pieza, por qué existe y qué harías tú primero.
+Si nunca has trabajado en algo así, lee **[docs/GETTING-STARTED.md](docs/GETTING-STARTED.md)** y después **[docs/HOW-THE-GAME-WORKS.md](docs/HOW-THE-GAME-WORKS.md)** (en inglés).
+
+**Cómo funciona el juego, en corto.** El launcher compila el juego en el PC del
+jugador a partir de su propio `.ipa`: extrae las tablas de datos de su binario,
+compila `decomp/` + `runtime/` y copia `res\`. El juego llama 60 veces por
+segundo a `GameCodeMain`, que ejecuta una tarea: carga, menús (`Task_FEMain`,
+51 pantallas apiladas), carga de la pelea (`Task_GameInit`, 53 pasos) o la pelea
+(`Task_GameMain`). En la pelea, el motor del arcade (`decomp/gamecode/logic/`,
+2.172 funciones, hilos cooperativos) decide todo y pide efectos con eventos
+(`MKEvent_Add`); `AddNewGameEvents` (`Blood.c`) los convierte en sonidos,
+escenas y textos del HUD. Cada fallo encontrado desde que el juego arrancó fue
+un sitio donde el C no coincidía con el binario: se reproduce, se lee el
+original con `tools/cd.py`, se corrige con las direcciones en el comentario y se
+prueba con el menú debug (F2) o con una ejecución por script. La guía en inglés
+lo explica con detalle, con los tipos de error que más se repiten y todas las
+variables de prueba. No da por supuesto ningún conocimiento previo de ingeniería inversa y explica para qué sirve cada pieza, por qué existe y qué harías tú primero.
 
 La versión corta, para impacientes:
 

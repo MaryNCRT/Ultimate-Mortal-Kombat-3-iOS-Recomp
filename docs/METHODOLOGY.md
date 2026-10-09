@@ -343,6 +343,23 @@ Same machine code, entirely different readability. Declaring `MESHINFO`, `MESHSE
 
 ---
 
+## Once the game runs: the symptom method
+
+Differential tests prove a function computes what the original computes. They
+cannot see a texture drawn from the wrong corner of an atlas, a table declared
+as a pointer, or two branches merged into one -- and once the game ran, those
+were what was left. Since then every fix has followed the same loop:
+
+1. Reproduce what a player saw; note the task and screen (`UMK3_LOG_TASKS`, F3).
+2. Find the function that draws or decides it.
+3. Read the original with `tools/cd.py` and compare line by line.
+4. Fix the C to match, with the proving addresses in the comment.
+5. Reproduce with a scripted run (`UMK3_SHOT`, `UMK3_TAPS`, `UMK3_DBG_KEY`...),
+   then a human checks it in the game.
+
+The recurring classes of transcription error, the tools and worked examples are
+in [HOW-THE-GAME-WORKS.md](HOW-THE-GAME-WORKS.md), sections 4 and 5.
+
 ## Summary
 
 1. Treat decompiler output as a **draft**, never as truth.
