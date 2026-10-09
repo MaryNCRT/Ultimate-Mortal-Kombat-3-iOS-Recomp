@@ -39,6 +39,9 @@
  *   UMK3_SCREEN=<n|name>  open that front-end screen once the menu is up
  *   UMK3_DBG_OPEN=<n> open the debug menu at tick n (with debug_keys)
  *   UMK3_DBG_KEY=<tick:k;...>  press F9+k at that tick (with debug_keys)
+ *   UMK3_SHOTS=<t,t,...>       write umk3-shot-<t>.ppm at each tick, go on
+ *   UMK3_SCREENS=<tick:n;...>  open front-end screen n at that tick, so one
+ *                              session can walk the whole menu
  *
  * Keyboard, player 1, during a fight (runtime/platform's defaults):
  *   W A S D or the arrows   the joystick
@@ -198,7 +201,14 @@ static void parse_fight(const char *p1, const char *p2, const char *stage)
     }
 }
 
+static void save_shot_as(const char *name, int w, int h);
+
 static void save_shot(int w, int h)
+{
+    save_shot_as("umk3-game.ppm", w, h);
+}
+
+static void save_shot_as(const char *name, int w, int h)
 {
     unsigned char *px = (unsigned char *)malloc((size_t)w * h * 3);
     FILE *f;
@@ -208,13 +218,13 @@ static void save_shot(int w, int h)
         return;
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
     glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, px);
-    f = fopen("umk3-game.ppm", "wb");
+    f = fopen(name, "wb");
     if (f) {
         fprintf(f, "P6\n%d %d\n255\n", w, h);
         for (y = h - 1; y >= 0; y--)
             fwrite(px + (size_t)y * w * 3, 1, (size_t)w * 3, f);
         fclose(f);
-        printf("wrote umk3-game.ppm (%dx%d)\n", w, h);
+        printf("wrote %s (%dx%d)\n", name, w, h);
     }
     free(px);
 }
@@ -848,6 +858,16 @@ int main(int argc, char **argv)
                 g_fight_p1 = -1;
             }
         no_fight_yet:
+            if (getenv("UMK3_SCREENS")) {
+                const char *q = getenv("UMK3_SCREENS");
+                while (q && *q) {
+                    if (atol(q) == ticks && strchr(q, ':'))
+                        jump_screen(parse_screen(strchr(q, ':') + 1));
+                    q = strchr(q, ';');
+                    if (q)
+                        q++;
+                }
+            }
             {
                 static long in_menu;
                 in_menu = (CurrentTask == 3) ? in_menu + 1 : 0;
@@ -881,6 +901,22 @@ int main(int argc, char **argv)
         }
         plat_audio_update();
 
+        if (getenv("UMK3_SHOTS")) {
+            static long done_upto = -1;
+            const char *q = getenv("UMK3_SHOTS");
+            while (q && *q) {
+                long t = atol(q);
+                if (t <= ticks && t > done_upto) {
+                    char nm[40];
+                    snprintf(nm, sizeof nm, "umk3-shot-%ld.ppm", t);
+                    save_shot_as(nm, ww, wh);
+                    done_upto = t;
+                }
+                q = strchr(q, ',');
+                if (q)
+                    q++;
+            }
+        }
         if (shot_at > 0 && ticks >= shot_at) {
             save_shot(ww, wh);
             break;

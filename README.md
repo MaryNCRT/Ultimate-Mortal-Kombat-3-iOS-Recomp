@@ -135,6 +135,7 @@ What a player sees today, and what is known about each.
 | ~~FINISH HER shown for male fighters.~~ | **Fixed** (checked by Mary, 2026-10-09). The voice was right; `AddNewGameEvents` has two copies, FINISH HIM = `TriggerAnim(2)` (0x73f2a) and FINISH HER = `TriggerAnim(3)` (0x73d28), merged into one with a constant 3. |
 | The icons on the loading screen are misplaced. | Not investigated. |
 | ~~The moves list ("i") icons are still misplaced.~~ | **Fixed** (2026-10-09). The rows zig-zag: rows 0, 2, 4 right-aligned at FE_X(432), rows 1, 3, 5 left-aligned at FE_X(48), name and icons on the same side (0x1eed2 / 0x1efee); the name stayed right on every row. |
+| ~~Menu buttons drawn wrong (Facebook art on the settings boxes, frame slivers on Stats, Achievements, Leaderboards, Share info...).~~ | **Fixed** (2026-10-09). `DrawButtonNew` (0x57d8): u0 is `fp` and v0 `[sp+0x28]` (style 0: fp = 0, v0 = 0x3f020000, 0x58d4); every style had them swapped and drew the wrong window of `FE_BUTTONS_01`. |
 | Frozen fighters (Sub-Zero's freeze) draw completely white. | Seen by Mary 2026-10-09. Not investigated. |
 | Sonya's fatality does not show properly. | Seen by Mary 2026-10-09. Not investigated. |
 | Random crashes. | Seen by Mary 2026-10-09; logs needed. |

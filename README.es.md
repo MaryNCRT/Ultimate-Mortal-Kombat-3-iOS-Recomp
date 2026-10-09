@@ -148,6 +148,7 @@ Cada arreglo se leyó del binario armv7 original y Mary lo comprobó en el juego
 18. ~~Fundido a negro lento al empezar y acabar rounds~~ -- arreglado: un logro guardado en la posición 21 hacía que el juego creyera que había un aviso en pantalla y los fundidos iban 10 veces más lentos.
 19. ~~FINISH HER para personajes hombres~~ -- arreglado (la voz era correcta; el letrero era siempre HER).
 20. Los personajes congelados salen totalmente blancos.
+25. ~~Botones del menú mal puestos (Ajustes, Estadísticas, Logros, Marcadores, Compartir info...)~~ -- arreglado: `DrawButtonNew` tenía las coordenadas u y v de textura intercambiadas en todos los estilos.
 21. El fatality de Sonya no se ve bien.
 22. Crasheos aleatorios (hacen falta logs).
 23. ~~Mantener pulsado el retrato de Smoke para elegir a Human Smoke~~ -- funciona: mantén el clic 3 segundos.
