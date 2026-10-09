@@ -56,9 +56,10 @@ es -> EXTRACTED` is obsolete.
    winner banner ("X WINS") is not drawn although the voice plays.
 3. **Camera -- fixed, checked in game by Mary.** `GameObjects + 16*i`, see
    PROGRESS.md.
-4. **Next, the last items before 0.0.2:** Sindel's hair not drawn, and some
-   fighters / props / textures drawn black on some stages (Mary suspects
-   lighting).
+4. **Sindel's hair / black fighters -- fixed, checked by Mary.** See
+   PROGRESS.md (`LightPlayers` texture default, `LIME_LoadSkin` second block).
+5. **Next, the last item before 0.0.2:** the on-screen joystick does not
+   animate.
 
 ## Where the project actually stands (2026-10-08)
 
