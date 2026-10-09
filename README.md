@@ -52,13 +52,18 @@ as 0.0.2.
    the data tables from it, compiles `umk3-game.exe` and copies `res\` out of
    the `.ipa`. About half a minute after the first download.
 3. Pick the 3D resolution (480×320 up to 3840×2560), fullscreen and language;
-   they are saved to `umk3.ini` the moment they change. Press **JUGAR**.
+   they are saved to `umk3.ini` the moment they change. Press **PLAY**. The
+   button at the top right switches the launcher between English and Spanish.
 
 **Golden rule: the game depends only on its own folder.** `umk3-game.exe`
 reads `res\` beside itself and nothing outside it (no `../` lookups, no
 junctions; `Info.plist` is copied into `res\`). No game data and no game
 executable are distributed: the exe only exists after the player's own
 `.ipa` has been compiled. Build scripts: [`launcher/`](launcher/).
+
+**Fight keys:** W A S D or arrows to move (two at once for diagonals); U high
+punch, I low punch, O block, J high kick, K low kick, L run (or numpad
+7 8 9 / 4 5 6). Esc quits. The mouse is the finger.
 
 ### Debug: straight into a fight
 
@@ -80,6 +85,9 @@ What a player sees today, and what is known about each.
 
 | Symptom | What is known |
 |---|---|
+| **No fight gets past round 1.** | The game softlocks when the first round ends (user report, alpha 0.0.1). Not investigated. |
+| **The game crashes easily.** | User report, alpha 0.0.1; `logs/` beside the exe has the addresses. Not investigated as a whole. |
+| **Several texture errors.** | User report, alpha 0.0.1 (Sindel's hair below is one). Not investigated as a whole. |
 | **The camera angles in the fight look wrong.** | Not investigated yet (next). |
 | **The on-screen joystick does not animate.** | Not investigated. |
 | **Sindel's hair draws white.** | She has her own hair texture (`ANIMATEDCHARACTER+0x20`); not investigated. |
