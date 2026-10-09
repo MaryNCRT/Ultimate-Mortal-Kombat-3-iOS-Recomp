@@ -1,4 +1,4 @@
-ULTIMATE MORTAL KOMBAT 3 - PORT DE PC - 0.0.1 ALPHA
+ULTIMATE MORTAL KOMBAT 3 - PORT DE PC - 0.0.2 ALPHA
 ====================================================
 
 Port nativo para Windows de la version de iOS (1.2.59), hecho por
@@ -50,20 +50,30 @@ CONTROLES
     L  (o 6 del num.) ......... correr         (RUN)
 - Esc cierra el juego al instante.
 
-ERRORES CONOCIDOS EN 0.0.1
-- NINGUNA PELEA PASA DEL ROUND 1: el juego se queda bloqueado (softlock)
-  al terminar el primer round.
-- El juego puede crashear con facilidad.
-- Varios errores de texturas.
-- Los angulos de camara durante la pelea se ven mal.
-- El joystick en pantalla no se anima.
-- El pelo de Sindel sale blanco.
-- Algunos sonidos suenan en momentos equivocados.
+- Pruebas: con debug_keys=1 en umk3.ini, F9 / F10 terminan el round
+  (KO del jugador 2 / del jugador 1) y F11 / F12 ganan / pierden la pelea.
+
+ARREGLADO EN 0.0.2
+- Las peleas se juegan hasta el final: round 2, fin de la pelea, pantalla
+  de Continue y siguiente pelea.
+- La camara sigue a los dos luchadores, como en el original.
+- Voces de los personajes y efectos de sonido en su momento.
+- Luchadores, el sombrero de Kung Lao y otros objetos ya no salen negros.
+- La melena de Sindel aparece, con su textura.
+- El joystick en pantalla se mueve.
+
+ERRORES CONOCIDOS EN 0.0.2
+- El menu no esta completo y algunas secciones del menu todavia provocan
+  un crash.
+- Siguen apareciendo varios errores de texturas, aunque muchos otros se
+  arreglaron en esta version.
+- El texto del ganador ("X WINS") no aparece, aunque el narrador lo dice.
+- El juego todavia puede cerrarse en otros sitios.
 - A veces todos los rivales de la torre son Jade.
 - La animacion de bajada de la torre no se muestra bien.
 - En Arcade el escenario es siempre el mismo (el original lo elige al azar).
 - Solo Windows. Linux y macOS todavia no tienen launcher.
-- Si el juego no arranca, mira logs\ junto a umk3-game.exe y reportalo
+- Si el juego falla, mira logs\ junto a umk3-game.exe y reportalo
   con ese archivo en GitHub (Issues).
 
 -----------------------------------------------------------------------
@@ -77,9 +87,13 @@ fullscreen and language (saved in umk3.ini) and press PLAY. The button at
 the top right switches the launcher between English and Spanish.
 Fight keys: W A S D or arrows to move (two at once for diagonals);
 U high punch, I low punch, O block, J high kick, K low kick, L run
-(or numpad 7 8 9 / 4 5 6). Esc quits. Known problems (see above): no
-fight gets past round 1 (softlock), the game crashes easily, several
-texture errors, plus the list above.
+(or numpad 7 8 9 / 4 5 6). Esc quits. New in 0.0.2: fights play to the
+end (round 2, Continue, next fight), the camera follows both fighters,
+voices and sounds, no more black fighters, Sindel's hair, the on-screen
+joystick moves. Known problems: the menus are incomplete and some menu
+sections crash; several texture errors remain; the winner text is not
+shown. Test keys: debug_keys=1 in umk3.ini -> F9/F10 end the round,
+F11/F12 win/lose the match.
 
 Ultimate Mortal Kombat 3 is (c) Electronic Arts / Midway / Warner Bros.
 This project is not affiliated with them. Use only a copy you own.
