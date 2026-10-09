@@ -15,6 +15,10 @@
  *     WIN / LOSE ROUND, WIN MATCH (skips the fight), LOSE MATCH   only while
  *                             a round is in play (not in the intro, the
  *                             round summary, a finisher or the pause)
+ *     FINISHER                only during FINISH HIM/HER: player 1 does a pit
+ *                             fatality, mercy, fatality 1 or 2, animality,
+ *                             babality or friendship (DoASpecial 0xd..0x13),
+ *                             whatever was typed
  *     ARCADE: MOTARO / SHAO KAHN  Arcade only: the next fight is that boss
  *     DIRECT KEYS             F3, F6..F12 on or off (on at start)
  *     INFO                    the task / screen line in the corner (also F3)
@@ -233,6 +237,7 @@ static void grab(int vx, int vy, int vw, int vh)
 enum {
     ROW_P1, ROW_P2, ROW_STAGE, ROW_FIGHT, ROW_SCREEN, ROW_MAIN,
     ROW_WIN_ROUND, ROW_LOSE_ROUND, ROW_WIN_MATCH, ROW_LOSE_MATCH,
+    ROW_FINISHER,
     ROW_MOTARO, ROW_SK,
     ROW_KEYS, ROW_INFO, ROW_CLOSE, N_ROWS
 };
@@ -240,6 +245,11 @@ enum {
 static int g_open, g_want_open, g_row;
 static int g_p1 = 15, g_p2 = 25, g_stage, g_screen;   /* Kitana vs Shao Kahn */
 static int g_info;
+static int g_fin = 2;                   /* FATALITY 1 */
+static const char *const k_fin[7] = {
+    "PIT / STAGE", "MERCY", "FATALITY 1", "FATALITY 2", "ANIMALITY",
+    "BABALITY", "FRIENDSHIP"
+};
 static int g_keys = 1;                 /* the direct keys F3, F6..F12 */
 static int g_task;                      /* CurrentTask while open */
 
@@ -288,6 +298,8 @@ static int row_enabled(int row)
 {
     if (row >= ROW_WIN_ROUND && row <= ROW_LOSE_MATCH)
         return g_task == 6 && dbg_round_live();
+    if (row == ROW_FINISHER)
+        return g_task == 6 && dbg_finishing();
     if (row == ROW_MOTARO || row == ROW_SK)
         return dbg_in_arcade();
     return 1;
@@ -330,6 +342,7 @@ int dbg_menu_tick(struct dbg_request *rq)
         case ROW_P2:     g_p2 = wrap(g_p2 + d, N_FIGHTERS); break;
         case ROW_STAGE:  g_stage = wrap(g_stage + d, N_STAGES); break;
         case ROW_SCREEN: g_screen = wrap(g_screen + d, DBG_SCREENS); break;
+        case ROW_FINISHER: g_fin = wrap(g_fin + d, 7); break;
         case ROW_INFO:   g_info = !g_info; break;
         case ROW_KEYS:   g_keys = !g_keys; break;
         }
@@ -357,6 +370,10 @@ int dbg_menu_tick(struct dbg_request *rq)
     case ROW_WIN_MATCH: case ROW_LOSE_MATCH:
         rq->what = DBG_FIGHT_KEY;               /* 0..3, as F9..F12 */
         rq->a = g_row - ROW_WIN_ROUND;
+        break;
+    case ROW_FINISHER:
+        rq->what = DBG_FINISHER;
+        rq->a = g_fin;
         break;
     case ROW_MOTARO: case ROW_SK:
         rq->what = DBG_BOSS;
@@ -390,6 +407,7 @@ static void row_value(int i, char *v, size_t n)
         snprintf(v, n, "< %s >  F3 F6-F12", g_keys ? "ON" : "OFF");
         break;
     case ROW_INFO: snprintf(v, n, "< %s >", g_info ? "ON" : "OFF"); break;
+    case ROW_FINISHER: snprintf(v, n, "< %s >", k_fin[g_fin]); break;
     }
 }
 
@@ -486,7 +504,7 @@ void dbg_menu_draw(void)
     static const char *const label[N_ROWS] = {
         "FIGHTER 1", "FIGHTER 2", "STAGE", "START FIGHT", "SCREEN",
         "MAIN MENU", "WIN ROUND", "LOSE ROUND", "WIN MATCH (SKIP FIGHT)",
-        "LOSE MATCH", "ARCADE: NEXT IS MOTARO", "ARCADE: NEXT IS SHAO KAHN",
+        "LOSE MATCH", "FINISHER (IN FINISH HIM)", "ARCADE: NEXT IS MOTARO", "ARCADE: NEXT IS SHAO KAHN",
         "DIRECT KEYS", "INFO LINE (F3)", "CLOSE"
     };
     const float px = 1.0f, x0 = 96.0f, y0 = 34.0f, lh = 15.0f;
@@ -521,19 +539,7 @@ void dbg_menu_draw(void)
         float y = y0 + i * lh;
         int on = row_enabled(i);
 
-        v[0] = 0;
-        switch (i) {
-        case ROW_P1: snprintf(v, sizeof v, "< %2d %s >", g_p1, CharacterNames[g_p1]); break;
-        case ROW_P2: snprintf(v, sizeof v, "< %2d %s >", g_p2, CharacterNames[g_p2]); break;
-        case ROW_STAGE: snprintf(v, sizeof v, "< %2d %s >", g_stage, stage_name(g_stage)); break;
-        case ROW_SCREEN:
-            snprintf(v, sizeof v, "< %2d %s >", g_screen, FETaskNames[g_screen] + 8);
-            break;
-        case ROW_KEYS:
-            snprintf(v, sizeof v, "< %s >  F3 F6-F12", g_keys ? "ON" : "OFF");
-            break;
-        case ROW_INFO: snprintf(v, sizeof v, "< %s >", g_info ? "ON" : "OFF"); break;
-        }
+        row_value(i, v, sizeof v);
         if (on)
             glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
         else

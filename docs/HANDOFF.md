@@ -14,12 +14,12 @@ Read this, then [METHODOLOGY.md](METHODOLOGY.md). Everything else is reference.
 
 ## Releases
 
-The current build is **0.0.6b alpha** ([notes](RELEASE-0.0.6b-alpha.md)); 0.0.6,
-0.0.5 and 0.0.4 are still published, 0.0.1-0.0.3 were deleted from GitHub when the history was
+The current build is **0.0.6c alpha** ([notes](RELEASE-0.0.6c-alpha.md)); 0.0.6b,
+0.0.6, 0.0.5 and 0.0.4 are still published, 0.0.1-0.0.3 were deleted from GitHub when the history was
 rewritten on 2026-10-09 (their notes stay in `docs/`). What each release fixed,
 with addresses, is in PROGRESS.md, "Release history".
 
-## Where the project actually stands (2026-10-09, alpha 0.0.6b)
+## Where the project actually stands (2026-10-09, alpha 0.0.6c)
 
 **Start with [HOW-THE-GAME-WORKS.md](HOW-THE-GAME-WORKS.md)** -- how the game
 runs, the code map, the bug method, the debug menu and every test variable.
@@ -31,6 +31,13 @@ runs, the code map, the bug method, the debug menu and every test variable.
   softlock, the pier floor. Next in Mary's queue: texture errors on other
   stages and fighters (Kung Lao's hat), crashes in modes other than Arcade,
   fatality animations, white frozen fighters.
+- **Next (Mary's list after 0.0.6b, findings in the README table):**
+  projectiles not drawn (start from the spear: `UMK3_DBG_SPECIAL="1000:0"`
+  `--fight scorpion reptile 13`, frame lookup -1 in `RenderLevelPlayers`);
+  typed finishers and the FATALITY banner/voice (force one with the F2
+  FINISHER row or `UMK3_DBG_KEY="1300:2" UMK3_DBG_FIN="1300:2"`);
+  Kung Lao's hat on the select screen; Survival crash after a win;
+  Sub-Zero's ice clone textures.
 - Two transcription traps found in 0.0.6 are worth checking elsewhere:
   armv6-era bodies that look complete but are not (`LIME_RenderEvents` drew
   with an uninitialised matrix), and helpers whose name misleads

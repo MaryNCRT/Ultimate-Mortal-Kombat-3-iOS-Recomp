@@ -653,9 +653,47 @@ static void screen_keys(void)
     }
 }
 
+extern char *Plyr;
+long t_dizzy_sleep(void *thread);
+
+/* Player two's thread sits in t_dizzy_sleep: mercy_xfer (moves.c, armv7
+ * 0x54ac4), which every finisher goes through, starts nothing until the loser
+ * is there -- q_is_he_dizzy's walk, Plyr[1] (stride 108) -> thread (+4) ->
+ * the handler of its current frame (+0xa4 the index, 8 bytes a frame). */
+static int opponent_dizzy(void)
+{
+    char *t = *(char **)(Plyr + 108 + 4);
+    unsigned f;
+
+    if (!t)
+        return 0;
+    f = *(unsigned *)(t + 0xa4);
+    return *(uintptr_t *)(t + f * 8 + 4) == (uintptr_t)t_dizzy_sleep;
+}
+
+int dbg_finishing(void)
+{
+    return CurrentTask == 6 && IsInFinishing != 0 && opponent_dizzy();
+}
+
+/* DoASpecial (moves.c, armv7 0x51830) is where a typed finisher lands: which
+ * 0xd..0x13 = pit, mercy, fatality 1, fatality 2, animality, babality,
+ * friendship. Called for player one as the joystick code would, with the
+ * finishing window open, so it takes the same gated path (the distance walk,
+ * the mercy and friendship conditions). */
+void DoASpecial(void *obj, unsigned int which);
+
 static void debug_request(const struct dbg_request *rq)
 {
     switch (rq->what) {
+    case DBG_FINISHER:
+        if (!dbg_finishing())
+            break;
+        printf("debug: finisher %d (DoASpecial 0x%x), G+0x45c %d G+0x450 %d\n",
+               rq->a, 0xd + rq->a, *(short *)((char *)G + 0x45c),
+               *(short *)((char *)G + 0x450));
+        DoASpecial(Plyr, 0xd + (unsigned int)rq->a);
+        break;
     case DBG_FIGHT:
         g_fight_p1 = rq->a;
         g_fight_p2 = rq->b;
@@ -895,6 +933,26 @@ int main(int argc, char **argv)
                 if (!done && ticks >= atol(q) && strchr(q, ':')
                     && dbg_round_live()) {
                     struct dbg_request rq = { DBG_BOSS, 0, 0, 0 };
+                    rq.a = atoi(strchr(q, ':') + 1);
+                    debug_request(&rq);
+                    done = 1;
+                }
+            }
+            if (g_cfg_debug_keys && getenv("UMK3_DBG_SPECIAL")) {
+                /* "tick:n" -- player one does special move n, the call the
+                 * joystick code makes (DoASpecial; 0 is Scorpion's spear) */
+                const char *q = getenv("UMK3_DBG_SPECIAL");
+                if (CurrentTask == 6 && atol(q) == ticks && strchr(q, ':'))
+                    DoASpecial(Plyr, (unsigned int)atoi(strchr(q, ':') + 1));
+            }
+            if (g_cfg_debug_keys && getenv("UMK3_DBG_FIN")) {
+                /* "tick:n" -- the menu's FINISHER row (0..6), once, at the
+                 * first FINISH HIM from that tick on */
+                static int done;
+                const char *q = getenv("UMK3_DBG_FIN");
+                if (!done && ticks >= atol(q) && strchr(q, ':')
+                    && dbg_finishing()) {
+                    struct dbg_request rq = { DBG_FINISHER, 0, 0, 0 };
                     rq.a = atoi(strchr(q, ':') + 1);
                     debug_request(&rq);
                     done = 1;

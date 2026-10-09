@@ -26,7 +26,7 @@ You need a legally obtained copy of *Ultimate Mortal Kombat 3* for iOS (version 
 
 ---
 
-## Where the project stands — 9 October 2026 (alpha 0.0.6b)
+## Where the project stands — 9 October 2026 (alpha 0.0.6c)
 
 | | |
 |---|---|
@@ -34,11 +34,11 @@ You need a legally obtained copy of *Ultimate Mortal Kombat 3* for iOS (version 
 | **Verified** | ✅ The engine core passes differential tests against the recompiled original with zero divergences. The fight engine passes a behavioural differential test file by file, with the exceptions listed in [Verification](#how-much-of-it-is-verified) — every one of them a known limit of the test harness, not a known bug. |
 | **Runs natively** | ✅ The real game runs natively on Windows (Linux/macOS from source): the front end with its 51 screens, Arcade with the tower to the end of the ladder, fights, sound, music and saves. How it fits together: [docs/HOW-THE-GAME-WORKS.md](docs/HOW-THE-GAME-WORKS.md). |
 | **Fight** | ✅ **Fights play to the end by the real path** (0.0.2): round 1, round 2, the end of the match, `Task_GameDestroy`, Continue and the next fight, with the camera following both fighters and the voices playing. Before that, **the first fight ran by the real path.** After the tower (or straight from the menu with `--fight`, below) the game runs `Task_GameInit` and `Task_GameMain`: the arena draws, both fighters fight with the CPU playing, with the HUD and touch controls, for thousands of frames without a crash ([#54](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/54), [#57](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/57)). |
-| **Playable** | 🔄 **Alpha 0.0.6b** ([release](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/releases)): menus, Arcade to Shao Kahn and the treasure screen, whole fights, from the keyboard (rebindable in the launcher), a gamepad or the touch controls, with a debug menu (F2). Still wrong: see *Known problems*. The fight engine's 229 data tables are extracted from the user's own binary at build time and verified against it. |
+| **Playable** | 🔄 **Alpha 0.0.6c** ([release](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/releases)): menus, Arcade to Shao Kahn and the treasure screen, whole fights, from the keyboard (rebindable in the launcher), a gamepad or the touch controls, with a debug menu (F2). Still wrong: see *Known problems*. The fight engine's 229 data tables are extracted from the user's own binary at build time and verified against it. |
 
-### How to play (alpha 0.0.6b, Windows)
+### How to play (alpha 0.0.6c, Windows)
 
-**Alpha 0.0.6b** ([notes](docs/RELEASE-0.0.6b-alpha.md); earlier: [0.0.6](docs/RELEASE-0.0.6-alpha.md), [0.0.5](docs/RELEASE-0.0.5-alpha.md), [0.0.4](docs/RELEASE-0.0.4-alpha.md), [0.0.3](docs/RELEASE-0.0.3-alpha.md), [0.0.2](docs/RELEASE-0.0.2-alpha.md), [0.0.1](docs/RELEASE-0.0.1-alpha.md)):
+**Alpha 0.0.6c** ([notes](docs/RELEASE-0.0.6c-alpha.md); earlier: [0.0.6b](docs/RELEASE-0.0.6b-alpha.md), [0.0.6](docs/RELEASE-0.0.6-alpha.md), [0.0.5](docs/RELEASE-0.0.5-alpha.md), [0.0.4](docs/RELEASE-0.0.4-alpha.md), [0.0.3](docs/RELEASE-0.0.3-alpha.md), [0.0.2](docs/RELEASE-0.0.2-alpha.md), [0.0.1](docs/RELEASE-0.0.1-alpha.md)):
 [Releases](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/releases)
 has the launcher and only the sources the build needs, no game data. Its
 known problems are the table below.
@@ -103,9 +103,9 @@ Every session started by double-click writes `logs/umk3-<date>-<time>.log`
 beside the exe: task changes, loading steps and, on a crash, the addresses to
 symbolise. A log is deleted once the error it shows is fixed.
 
-### Known problems (9 October 2026, alpha 0.0.6b)
+### Known problems (9 October 2026, alpha 0.0.6c)
 
-Release notes: [0.0.6b](docs/RELEASE-0.0.6b-alpha.md), [0.0.6](docs/RELEASE-0.0.6-alpha.md), [0.0.5](docs/RELEASE-0.0.5-alpha.md), [0.0.4](docs/RELEASE-0.0.4-alpha.md), [0.0.3](docs/RELEASE-0.0.3-alpha.md), [0.0.2](docs/RELEASE-0.0.2-alpha.md), [0.0.1](docs/RELEASE-0.0.1-alpha.md).
+Release notes: [0.0.6c](docs/RELEASE-0.0.6c-alpha.md), [0.0.6b](docs/RELEASE-0.0.6b-alpha.md), [0.0.6](docs/RELEASE-0.0.6-alpha.md), [0.0.5](docs/RELEASE-0.0.5-alpha.md), [0.0.4](docs/RELEASE-0.0.4-alpha.md), [0.0.3](docs/RELEASE-0.0.3-alpha.md), [0.0.2](docs/RELEASE-0.0.2-alpha.md), [0.0.1](docs/RELEASE-0.0.1-alpha.md).
 
 What a player sees today, and what is known about each.
 
@@ -159,6 +159,13 @@ What a player sees today, and what is known about each.
 | Texture errors on some stages and fighters; Kung Lao's hat black in places. | Partly fixed in 0.0.6 (stage effects, the pier floor); the rest not investigated stage by stage. |
 | Crashes in the modes other than Arcade. | Not investigated. |
 | Fatalities with missing animations; fighters frozen by Sub-Zero drawn white. | Not investigated. |
+| **Mary's list of 2026-10-09, after 0.0.6b:** | |
+| Typed finishers (fatality, friendship, babality, animality, mercy) do not seem to fire; after a fatality the announcer and the FATALITY HUD banner are missing. | Debug tool added in 0.0.6c (checked by Mary: the fatality runs). The banner and voice come from `FatalityMessage` (Blood.c's finisher event, `LogFinisher("Fatality")`); why they do not show after a forced one is not found yet. Tool: the F2 menu's FINISHER row, enabled during FINISH HIM once the loser is dizzy, calls `DoASpecial` (moves.c, 0x51830) for player one with `which` 0xd..0x13 (pit, mercy, fatality 1, fatality 2, animality, babality, friendship) -- the call the joystick code makes; scripted: `UMK3_DBG_FIN="tick:n"`. Finding: every finisher goes through `mercy_xfer` (0x54ac4), which starts nothing unless G+0x45c == 3, G+0x450 == 0, the winner is on the ground and the loser's thread sits in `t_dizzy_sleep`; a request made before the loser is dizzy is dropped silently. Forced this way, Scorpion's fatality 1 runs (`t_drone_do_fatality1` -> `t_fatality_align` -> `t_do_fatality_1`). Why typed ones fail is not found yet. |
+| After the last hit the loser keeps acting for a moment during FINISH HIM. | In a debug win the loser (CPU) enters `t_finish_him` and `t_dizzy_dude` about 20 engine passes after the winner -- it finishes what it was doing first. Mary reports the walking-towards-you case fixed in her test; to watch. |
+| Kung Lao's hat wrong on the character select screen. | Not investigated. |
+| Survival mode crashes after winning a fight. | Not investigated. |
+| Sub-Zero's ice clone has misplaced textures. | Not investigated. |
+| Models other than the fighters do not show: Scorpion's spear, items some attacks make appear. | Started. Scorpion's spear (`UMK3_DBG_SPECIAL="tick:0"` throws it) is projectile slot 4 with frames 0x1a7e then 0x1a80; in `RenderLevelPlayers` its frame lookup through the owner's animation record gives -1 (`w[0x14]`), so the object draws nothing, and `RenderExtras` gets `DrawSpear[0] = 1` for 0x1a7e but draws no visible shaft either. Next: check the projectile's frame table (`owner->anim + 0x2c`, `HavePreloadedCharacter`) and `limeDrawFaceMeSpriteWH` against armv7. |
 | ~~Controls: the 5- and 6-button layouts need their own key settings, and a choice of layout that the game follows.~~ | **Done for 0.0.6** (checked by Mary, 2026-10-09): the launcher's CONTROLS tab picks the layout (`buttons=` in `umk3.ini`, written into `Settings[4]` after `Load_SettingsData`), with separate keys (`key_*` for six buttons; `key5_p/b/k/r` and `key_special` for five). |
 | **Windows only for the launcher.** | Linux/macOS still build from source with CMake. |
 | **Only the iPhone 1.2.59 .ipa works.** | The launcher refuses any other binary (uuid check); the iPad 1.2.56 build has different addresses. |
@@ -342,7 +349,7 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 | Native PC platform layer (161 fn to rewrite) | 17% | 27% | `███░░░░░░░` |
 | EA SDK stubs (27 fn the game calls) | 5% | 100% | `██████████` |
 
-**87.59% of the total estimated effort. Alpha 0.0.6b is playable:** whole
+**87.59% of the total estimated effort. Alpha 0.0.6c is playable:** whole
 fights by the real path, with known problems (see above).
 
 **Read that number for what it measures, and for what it leaves out.** It
