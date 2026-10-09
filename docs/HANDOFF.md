@@ -12,93 +12,27 @@ Read this, then [METHODOLOGY.md](METHODOLOGY.md). Everything else is reference.
 
 ---
 
-## Alpha 0.0.3 (2026-10-08, night)
+## Releases
 
-- Tower: `Load_Tower` -> `OpponentTowerList` (0x23314, literal 0x12c972 +
-  pc 0x23342); `FE_Task_Tower` camera states rewritten from 0x8a18-0x8fdc
-  and the state-3 hand-over from 0x8898/0x9342 (survival, boss arenas,
-  `VSWait = 0` always). Both checked in game by Mary.
-- `decomp/gamecode/text.c` `processString`: the pass-0 emit is the shared
-  tail at 0xa7650, reached after a real token too. This was the root of
-  every templated string coming out empty.
-- `MovesList` generic rows: `table + row * 0x40` (absolute row), caption
-  NULL; character pages keep `table + (y << 1)` and their caption.
-- `DrawHUD` corner buttons: drawn whenever `!GamePaused` (modes <= 1 also
-  count `timeInGame` outside `DoIntro`); INFO pulse colour `C.175`
-  (0xde07c, {1,1,1,0}) with alpha `1 - InfoScale`.
-- Input: `PK_PAUSE`/`PK_MOVES` (P/M), `plat_bind_key`, `key_<name>=<VK>` in
-  umk3.ini (names: up down left right hp lp block hk lk run pause moves);
-  the launcher writes them (`launcher.c`, box 3, Reset). Esc no longer
-  quits either backend.
-- Next: confirm the winner banner; menus that crash; textures; Arcade arena.
+The current build is **0.0.5 alpha** ([notes](RELEASE-0.0.5-alpha.md)); 0.0.4
+is still published, 0.0.1-0.0.3 were deleted from GitHub when the history was
+rewritten on 2026-10-09 (their notes stay in `docs/`). What each release fixed,
+with addresses, is in PROGRESS.md, "Release history".
 
-## Alpha 0.0.1: the launcher (2026-10-08, night)
+## Where the project actually stands (2026-10-09, alpha 0.0.5)
 
-- **Golden rule (user): the port works only from its own folder.** Assets
-  resolve inside `res\` only (`runtime/lime_platform.c` `resolve()`, no
-  `../` fallback; `draw_gl.c` no longer tries `../`; `Info.plist` is read from
-  `res\Info.plist`). The junction `GAME
-es -> EXTRACTED` is obsolete.
-- **`UMK3-Launcher.exe`** (`launcher/launcher.c`, CMake target
-  `umk3-launcher`): .ipa picker + **Compilar**, 3D resolution, fullscreen,
-  language, **JUGAR**; a top-right button switches the launcher between
-  Spanish and English (`ui=ES|EN` in `umk3.ini`; the build console stays
-  Spanish). Settings saved to `umk3.ini` on every change.
-- **`launcher/build_game.ps1`**: downloads llvm-mingw 20260616 (x86_64 host,
-  SHA-256 pinned) and Python 3.12.10 embeddable (MD5 pinned) into
-  `toolchain\`, checks the binary with `launcher/check_binary.py` (uuid
-  `90d6f56a18e2303f8f2053b02a42742e`, cryptid 0; the iPad 1.2.56 .ipa is
-  refused), runs the three table generators, compiles the same sources as
-  the CMake `umk3-game` target (keep them in step) with `-mwindows`, then
-  `launcher/setup_res.ps1` copies `res\` + `Info.plist` out of the .ipa.
-  Verified end to end in a clean `git archive` folder: 32 s after download.
-- `umk3-game` reads `umk3.ini` (`width`, `height`, `fullscreen`, `language`),
-  letterboxes to 3:2 (`fit_view`; touch mapped through it), and shows a
-  message box pointing at the launcher when `res\Info.plist` is missing.
-- Released as GitHub Release `v0.0.1-alpha` (`UMK3-PC-0.0.1-alpha.zip`,
-  made by `python launcher/make_release.py <UMK3-Launcher.exe> <out> --zip`;
-  verified by building from the extracted zip in a clean folder). Next: 0.0.2.
-- Open: `runtime/gamecode_globals.c` still carries tables read out of the binary
-  (232 initialisers, e.g. `Level_Info`), which the "no game data" claim does
-  not yet cover.
+**Start with [HOW-THE-GAME-WORKS.md](HOW-THE-GAME-WORKS.md)** -- how the game
+runs, the code map, the bug method, the debug menu and every test variable.
 
-## 0.0.2 (released 2026-10-08)
-
-Voices, the round-1 softlock (five causes), the camera, Sindel's hair and the
-black fighters, the joystick -- all checked in game by Mary. Causes and
-addresses: PROGRESS.md, "Release history", and the README's *Known problems*.
-Testing a round end does not need a whole fight: `debug_keys=1` in umk3.ini,
-then F9..F12 in a fight.
-
-## Where the project actually stands (2026-10-09)
-
-**Re-run `python tools/progress.py` before trusting a number here** (set
-`UMK3_FUNC_TO_FILE` to `OUTPUT/func-to-file.txt` if `work/` has no copy).
-
-**Alpha 0.0.3 plays whole fights by the real path**, front end to Continue
-and the next fight, in `umk3-game.exe` (i686 -- the fight stores addresses in
-32-bit words; Python tools and the menu viewers may stay 64-bit). 87.59% of
-the estimated effort by the README's weights.
-
-| | |
-|---|---|
-| Asset formats | **100%** |
-| `lime/common` | **109 of 109**, all nine files verified |
-| `gamecode` | **291 of 291** |
-| `gamecode/logic` (fight engine) | **2,172 of 2,172**, behaviourally tested by `tools/difftest/` |
-| The fight's 229 data tables | extracted from the user's binary at build time and verified (`tools/logic_tables.py`, `tools/check_logic_tables.py`) |
-| Native executables | `umk3-game` (the whole game; built by the launcher), plus the older viewers `umk3-menu`, `umk3-fight`, `umk3-test` |
-| Platform layer | window, GL, textures, files, sound, music, saves, keyboard (rebindable) and gamepad, the launcher |
-
-**The front is fixing transcriptions, one symptom at a time.** Every bug since
-the game first ran was a function that did not quite match armv7 (a dropped
-branch, a swapped argument, a generated global left at zero). The open list is
-the README's *Known problems*; the method is in the rules below and in
-`umk3-game`'s debug options (`--fight`, `UMK3_SHOT`, `UMK3_TAPS`,
-`UMK3_LOG_TASKS`, `debug_keys=1`; see the header of `runtime/game_main.c`).
-
-`tools/difftest/` stays useful: any function touched can be re-run against
-the recompiled original in seconds.
+- Every function is decompiled (2,572 of 2,572); the game plays the menus,
+  Arcade to the end (treasure screen) and whole fights on Windows.
+- The open list is the README's *Known problems*. First in line: Shao Kahn's
+  death scene (`SK_ENDING.scene` loads and is started by event 65, but nothing
+  draws while `RenderLevelPlayers` hides the fighters, and its sound repeats).
+- Re-run `python tools/progress.py` before quoting a percentage (set
+  `UMK3_FUNC_TO_FILE` to `OUTPUT/func-to-file.txt`); it is 87.59%.
+- Fix locally in a built game folder (the fast rebuild in the guide, section
+  6), test with a scripted run, have a human check it, then commit.
 
 ---
 

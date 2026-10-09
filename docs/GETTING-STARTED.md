@@ -172,15 +172,28 @@ If that last command prints zero divergences, your setup is correct and you are 
 
 ## 5. Where you could actually help
 
-Look at [PROGRESS.md](PROGRESS.md) for the current state. In rough order of accessibility:
+The decompilation is finished and the game runs: alpha 0.0.5 plays the menus,
+Arcade to the end and whole fights on Windows. What is left is fixing the
+places where the C and the binary still disagree, as players find them.
 
-**If you are new to this:** pick a module from `lime/common` that is decompiled but not yet verified — `Events.cpp`, `DS_DebugWin.c`, `LIMEDS_Misc.cpp`. Write the clean C, write the differential test, prove it matches. `DS_DebugWin.c` has no NEON at all, which makes it the gentlest starting point.
+Read [HOW-THE-GAME-WORKS.md](HOW-THE-GAME-WORKS.md) next -- it explains how the
+game runs, where everything is, the method that fixed every bug so far, and the
+debug and test tools. Then pick a row from the README's *Known problems*:
 
-**If you know ARM assembly:** the functions marked as NEON-affected need their maths derived from the disassembly rather than from Ghidra's output. 29 of the 109 engine functions are in this category.
+**If you are new to this:** a visual bug -- a texture or icon in the wrong place.
+These are often a pair of swapped constants; the guide's section 4 walks
+through the method, and `tools/cd.py` shows you the original code.
 
-**If you like tooling:** the recompiler has two known limitations, both with known solutions. It does a linear sweep, so it stops at constant pools embedded in large functions (852 of 4,342 functions affected — the fix is recursive descent from the entry point). And it cannot yet resolve indirect jumps, which will be needed for the fight logic.
+**If you know ARM assembly:** the behaviour bugs (a fighter moving when it
+should not, a death scene that does not draw). They need reading the fight
+engine's handlers against the disassembly.
 
-**If you want to work on the port itself:** the 229 functions of the iOS platform layer are not reverse engineering at all — they are new code. Window handling, OpenGL, audio, input. That work can start now and in parallel.
+**If you like tooling:** the Linux/macOS launcher, or better coverage in
+`tools/difftest/`.
+
+**If you want to work on the port itself:** widescreen, frame rate, and the
+game's ads in in-game windows are features the original never had (issues
+#22-#24).
 
 ---
 

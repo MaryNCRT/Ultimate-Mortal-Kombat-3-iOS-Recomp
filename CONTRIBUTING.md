@@ -2,7 +2,7 @@
 
 Contributions are welcome. This document covers the rules that matter, how to pick up work, and what "done" means here.
 
-If you are new to reverse engineering, read [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md) first — it explains the whole pipeline from nothing.
+If you are new to reverse engineering, read [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md) first — it explains the whole pipeline from nothing. Then read [docs/HOW-THE-GAME-WORKS.md](docs/HOW-THE-GAME-WORKS.md): how the game runs, where each piece lives, how bugs are found and fixed, and the test tools.
 
 ---
 
@@ -46,23 +46,24 @@ The raw Ghidra output is a **draft**. It gets regenerated whenever signatures im
 
 ## Picking up work
 
-**Every function is decompiled** (2,572 of 2,572, October 2026), so there is no
-module left to claim in the old sense. Check [docs/PROGRESS.md](docs/PROGRESS.md)
-for the current state, then open an issue saying what you are taking so two
-people don't do the same thing. The open work, roughly in order of what it
-unlocks:
+**Every function is decompiled** (2,572 of 2,572) and **the game is playable**
+(alpha 0.0.5: menus, Arcade to the end, whole fights). The work now is fixing
+the places where a transcription and the binary disagree, one symptom at a
+time, and the port features the original never had. The open list is the
+README's *Known problems* table; open an issue saying what you are taking.
 
 | Area | What it is | Where to start |
 |---|---|---|
-| **Fight runtime** | Running the decompiled fight engine frame by frame: its cooperative thread scheduler, the per-frame logic, the bridge from `Task_GameInit`, input | `docs/HANDOFF.md`, "Where the project actually stands"; `runtime/test_main.c` |
-| **Data tables** | Measuring and extracting the 229 tables the fight engine reads (`sm_*`, `ochar_*`, `a_*`, `reaction_table`...) from the user's own copy at build time | `docs/PROGRESS.md`, "The other axis" |
-| **Platform layer** | MP3 music on SDL2; the fight's keyboard and gamepad input | `runtime/platform/` |
-| **Port decisions** | Widescreen, frame rate, mods: already written up as issues, waiting for a decision and an implementation | issues #22, #23, #24, #29 |
-| **Verification** | Raising coverage where the difftest reports `LOWCOV`, and reconciling the 15 prototype disagreements `tools/protos.py` lists | `tools/difftest/`, issue #26 |
+| **Known problems** | Visual, audio and behaviour bugs seen in the game, each with what is known | README, *Known problems*; [docs/HOW-THE-GAME-WORKS.md](docs/HOW-THE-GAME-WORKS.md), sections 4 and 5 |
+| **Port features** | Widescreen, frame rate, the game's ads in in-game windows, mods | issues #22, #23, #24, #29 |
+| **Platforms** | A launcher for Linux and macOS (the game itself builds there with CMake) | `launcher/`, `CMakeLists.txt` |
+| **Verification** | Raising coverage where the difftest reports `LOWCOV`; the prototype disagreements `tools/protos.py` lists | `tools/difftest/`, issue #26 |
 
-Correcting a decompiled function is still welcome and still follows the
-workflow below: read the disassembly, fix the C, and show the differential test
-passing.
+Correcting a decompiled function follows the method in
+[HOW-THE-GAME-WORKS.md](docs/HOW-THE-GAME-WORKS.md) section 4: reproduce, read
+the original with `tools/cd.py`, fix the C to match, write the proving
+addresses in the comment, test. For functions that compute rather than draw,
+the differential workflow below still applies.
 
 ### The workflow
 
@@ -146,7 +147,7 @@ We are explicit about this — see [AI-DISCLOSURE.md](AI-DISCLOSURE.md). Being u
 
 Not every useful contribution is a patch. All of these are valuable and welcome as issues:
 
-- A file format you have worked out (`.scene` and the `frames.x` / `moves_data.x` tables are the ones still open)
+- A file format you have worked out (the `frames.x` table is the one still open)
 - A correction to something in `docs/` — including things that are simply wrong
 - A function where the decompiler output is misleading, so others don't lose time to it
 - Behavioural observations from running the game

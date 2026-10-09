@@ -24,7 +24,9 @@ Current state of the project. Written so that someone can pick it up with no pri
   Arcade repeats its arena (Mary's list of 2026-10-09 is in the README). Every bug
   found since the game first ran was a transcription that did not quite
   match armv7, so each new symptom starts by re-reading the binary.
-- **No pull requests are open** (2026-10-09).
+- **No pull requests are open** (2026-10-09; everything up to #73 is merged).
+- **New contributors:** [HOW-THE-GAME-WORKS.md](HOW-THE-GAME-WORKS.md) explains how
+  the game runs, the code map, the bug method and the test tools.
 
 ## Release history
 
