@@ -14,21 +14,27 @@ Read this, then [METHODOLOGY.md](METHODOLOGY.md). Everything else is reference.
 
 ## Releases
 
-The current build is **0.0.5 alpha** ([notes](RELEASE-0.0.5-alpha.md)); 0.0.4
-is still published, 0.0.1-0.0.3 were deleted from GitHub when the history was
+The current build is **0.0.6 alpha** ([notes](RELEASE-0.0.6-alpha.md)); 0.0.5
+and 0.0.4 are still published, 0.0.1-0.0.3 were deleted from GitHub when the history was
 rewritten on 2026-10-09 (their notes stay in `docs/`). What each release fixed,
 with addresses, is in PROGRESS.md, "Release history".
 
-## Where the project actually stands (2026-10-09, alpha 0.0.5)
+## Where the project actually stands (2026-10-09, alpha 0.0.6)
 
 **Start with [HOW-THE-GAME-WORKS.md](HOW-THE-GAME-WORKS.md)** -- how the game
 runs, the code map, the bug method, the debug menu and every test variable.
 
 - Every function is decompiled (2,572 of 2,572); the game plays the menus,
   Arcade to the end (treasure screen) and whole fights on Windows.
-- The open list is the README's *Known problems*. First in line: Shao Kahn's
-  death scene (`SK_ENDING.scene` loads and is started by event 65, but nothing
-  draws while `RenderLevelPlayers` hides the fighters, and its sound repeats).
+- The open list is the README's *Known problems*. Done in 0.0.6: the
+  Electron launcher, Shao Kahn's death and the ending texts, the treasure
+  softlock, the pier floor. Next in Mary's queue: texture errors on other
+  stages and fighters (Kung Lao's hat), crashes in modes other than Arcade,
+  fatality animations, white frozen fighters.
+- Two transcription traps found in 0.0.6 are worth checking elsewhere:
+  armv6-era bodies that look complete but are not (`LIME_RenderEvents` drew
+  with an uninitialised matrix), and helpers whose name misleads
+  (`StringInString` is strcmp, not strstr).
 - Re-run `python tools/progress.py` before quoting a percentage (set
   `UMK3_FUNC_TO_FILE` to `OUTPUT/func-to-file.txt`); it is 87.59%.
 - Fix locally in a built game folder (the fast rebuild in the guide, section

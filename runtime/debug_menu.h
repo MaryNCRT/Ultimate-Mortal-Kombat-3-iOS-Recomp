@@ -26,6 +26,9 @@ void dbg_menu_draw(void);
  * Arcade boss jumps apply; game_main.c answers both. */
 int  dbg_round_live(void);
 int  dbg_in_arcade(void);
+/* The picture behind the bars in fullscreen (port only). */
+int  dbg_frame_load(const char *path);
+void dbg_frame_draw(int ww, int wh);
 int  dbg_keys_on(void);                /* the menu's DIRECT KEYS row */
 int  dbg_info_on(void);
 void dbg_info_toggle(void);

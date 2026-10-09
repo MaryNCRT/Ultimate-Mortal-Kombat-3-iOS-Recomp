@@ -440,6 +440,67 @@ void dbg_menu_draw(void)
     end_2d();
 }
 
+/* ---------------------------------------------------------------- frame
+ *
+ * Port only, not part of the game: in fullscreen the 3:2 game leaves bars at
+ * the sides of a wider screen; a picture of the player's choosing fills them
+ * (umk3.ini marco=<file>, or marco.png beside the exe). It is drawn over the
+ * whole window first and the game draws its 3:2 rectangle on top. "Cover"
+ * scaling: the picture fills the window and is cropped, never stretched. */
+#include "lime/png.h"
+
+static GLuint g_frame_tex;
+static int    g_frame_w, g_frame_h;
+
+int dbg_frame_load(const char *path)
+{
+    uint8_t *px = NULL;
+    int w = 0, h = 0;
+
+    if (!path || !lime_png_load(path, &px, &w, &h))
+        return 0;
+    glGenTextures(1, &g_frame_tex);
+    glBindTexture(GL_TEXTURE_2D, g_frame_tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA,
+                 GL_UNSIGNED_BYTE, px);
+    free(px);
+    g_frame_w = w;
+    g_frame_h = h;
+    printf("frame picture: %s (%dx%d)\n", path, w, h);
+    return 1;
+}
+
+/* The window is ww x wh pixels; the caller has set a full-window viewport. */
+void dbg_frame_draw(int ww, int wh)
+{
+    float u0 = 0, v0 = 0, u1 = 1, v1 = 1;
+
+    if (!g_frame_tex || ww <= 0 || wh <= 0)
+        return;
+    if ((float)g_frame_w / g_frame_h > (float)ww / wh) {
+        float keep = ((float)ww / wh) / ((float)g_frame_w / g_frame_h);
+        u0 = (1 - keep) / 2;
+        u1 = u0 + keep;
+    } else {
+        float keep = ((float)g_frame_w / g_frame_h) / ((float)ww / wh);
+        v0 = (1 - keep) / 2;
+        v1 = v0 + keep;
+    }
+    begin_2d();
+    glEnable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, g_frame_tex);
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+    glBegin(GL_QUADS);                  /* the 480x320 ortho of begin_2d */
+    glTexCoord2f(u0, v0); glVertex2f(0, 0);
+    glTexCoord2f(u1, v0); glVertex2f(480, 0);
+    glTexCoord2f(u1, v1); glVertex2f(480, 320);
+    glTexCoord2f(u0, v1); glVertex2f(0, 320);
+    glEnd();
+    end_2d();
+}
+
 void dbg_info_draw(const char *line)
 {
     begin_2d();

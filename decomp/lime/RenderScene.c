@@ -710,7 +710,7 @@ void AddToTranspMeshList(MESHSETINFO *meshset, const SCENENODE *node,
 
 int SceneRenderAlwaysTrans;             /* 0x00171760 */
 int SkipFrame86;                        /* 0x00171774 */
-float SceneTint[3] = { 1.0f, 1.0f, 1.0f };  /* 0x00171764 */
+float SceneTint[4] = { 1.0f, 1.0f, 1.0f, 1.0f };  /* 0x00171764, 16 bytes */
 float m44[16];                          /* 0x002c3e88, the scratch matrix */
 
 static int name_is(const char *s, const char *prefix)

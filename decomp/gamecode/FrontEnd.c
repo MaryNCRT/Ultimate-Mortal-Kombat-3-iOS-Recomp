@@ -11848,7 +11848,7 @@ void EditButtons(void)
  *
  * ### Leaving takes 300 units, and the destination depends on what you picked
  *
- *      if (TreasureSelected == -1 || everything claimed)
+ *      if (TreasureSelected != -1 || everything claimed)      0x113ba
  *          TreasureSelectTime += 1 / limeFPSScaleFactor;
  *
  *      once past 300:
@@ -11856,9 +11856,11 @@ void EditButtons(void)
  *          anything else          -> fade out into GameMode 5 with
  *                                    TreasurePlayed = TreasureSelected + 1
  *
- * The clock only runs while nothing is picked *or* everything already is, so
- * picking one of the playable treasures stops the timer and the screen waits on
- * the fade instead. Slots 0, 2 and 3 are the ones with nothing to play.
+ * The clock starts once a tile is picked (or at once, when this run's lot was
+ * already claimed and there is nothing to pick): `r3 = (sel == -1) ? allDone
+ * : 1` at 0x113ba. Transcribed inverted, the clock stopped at the pick and the
+ * screen never left (Mary, 2026-10-09). Slots 0, 2 and 3 have nothing to play
+ * and go back to the tower; the others fade into GameMode 5.
  *
  * ### Three different bottom lines
  *
@@ -12038,7 +12040,7 @@ void FE_Task_Select_Treasure(void)
 
     allDone = (n == count);
 
-    if (TreasureSelected == -1 || allDone)
+    if (TreasureSelected != -1 || allDone)     /* 0x113ba */
         TreasureSelectTime += 1.0f / limeFPSScaleFactor;
 
     if (TreasureSelectTime > ST_TIMEOUT) {

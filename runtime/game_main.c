@@ -48,6 +48,7 @@
  *   W A S D or the arrows   the joystick
  *   U  high punch   I  low punch   O  block
  *   J  high kick    K  low kick    L  run
+ *   H  special (the S button of the five-button layout)
  *   P  pause menu   M  moves list   (Esc no longer quits)
  * umk3.ini key_up= ... key_moves= rebinds them (virtual-key codes).
  * Each key held is a synthetic touch on the real control -- the dial or the
@@ -114,15 +115,31 @@ extern float limeTouchScreenX[10], limeTouchScreenY[10];
 extern void *G;                         /* GAMESTATE *, the fight engine's state */
 extern long  ButtonsPos[];              /* 6 x { x, y, ?, ?, button index } */
 extern long  JoystickStatePosX, JoystickStatePosY;
+extern long  Player1NumButtons;        /* 5 or 6, Settings[4] */
+extern int   Settings[10];
 
-/* Keyboard -> player 1, as touches. Slot 9 is the dial and slots 3..8 the
- * six buttons; the mouse takes the first free slot, from 0 up. */
+/* Keyboard -> player 1, as touches. Slot 9 is the dial, slots 3..8 the
+ * button indices 0..5 and slot 2 the special button (index 6); the mouse
+ * takes the first free slot, from 0 up.
+ *
+ * A key presses whichever on-screen button carries its index, so both
+ * layouts work: six buttons (HP LP BL HK LK RN = 0 1 2 3 4 5) and five
+ * (DEFAULT_CustomButtonsPos5: P = 0, B = 2, K = 3, R = 5 and S = 6, the
+ * special button, which had no key at all). Each layout has its own keys:
+ * key_hp .. key_run for six, key5_p/b/k/r and key_special for five. */
 static void keyboard_touches(void)
 {
-    static const int keys[6][2] = {     /* button index 0..5, two keys each */
+    static const int keys6[7][2] = {    /* button index 0..6, two keys each */
         { PK_HP, PK_P2_HP }, { PK_LP, PK_P2_LP }, { PK_BL, PK_P2_BL },
         { PK_HK, PK_P2_HK }, { PK_LK, PK_P2_LK }, { PK_RUN, PK_P2_RUN },
+        { PK_SPECIAL, PK_P2_SPECIAL },
     };
+    static const int keys5[7][2] = {    /* P - B K - R S; -1: no button */
+        { PK_5_P, PK_P2_HP }, { -1, -1 }, { PK_5_B, PK_P2_BL },
+        { PK_5_K, PK_P2_HK }, { -1, -1 }, { PK_5_R, PK_P2_RUN },
+        { PK_SPECIAL, PK_P2_SPECIAL },
+    };
+    const int (*keys)[2] = (Player1NumButtons == 6) ? keys6 : keys5;
     static int owned[10];
     int dx, dy, b, i;
 
@@ -143,8 +160,8 @@ static void keyboard_touches(void)
         owned[9] = 0;
     }
 
-    for (b = 0; b < 6; b++) {
-        int slot = 3 + b, down = 0;
+    for (b = 0; b < 7; b++) {
+        int slot = (b < 6) ? 3 + b : 2, down = 0;
 
         if (CurrentTask == 6 && (plat_key(keys[b][0]) || plat_key(keys[b][1])))
             for (i = 0; i < 6; i++)
@@ -230,6 +247,8 @@ static void save_shot_as(const char *name, int w, int h)
     free(px);
 }
 
+static int  g_cfg_buttons;            /* buttons=5|6: the launcher's layout */
+
 /* -[UMK3AppDelegate startAppWithOptions:application:], the part that is the
  * game's: the language, with English when the bundle has no terms-of-service
  * URL for it, and the settings. The rest is UIKit and the EA SDK. */
@@ -242,6 +261,10 @@ static void start_app(void)
     if (limeGetPropertyString(key) == NULL)
         memcpy(Language, "EN", 3);
     Load_SettingsData();
+    /* port: the layout chosen in the launcher wins over the saved one; the
+     * pause menu can still change it for the session */
+    if (g_cfg_buttons == 5 || g_cfg_buttons == 6)
+        Settings[4] = g_cfg_buttons;
 }
 
 #ifdef _WIN32
@@ -342,6 +365,7 @@ void umk3_relocate_level_info(void);   /* build/level_info.c */
 static int  g_cfg_w = VIRT_W * SCALE, g_cfg_h = VIRT_H * SCALE, g_cfg_full;
 static int  g_cfg_debug_keys;          /* debug_keys=1: F9..F12, see debug_keys() */
 static char g_cfg_lang[8];
+static char g_cfg_frame[1024];        /* marco=: the picture behind the bars */
 
 static void read_config(const char *dir)
 {
@@ -367,6 +391,18 @@ static void read_config(const char *dir)
             g_cfg_full = atoi(v) != 0;
         else if (strcmp(line, "language") == 0)
             snprintf(g_cfg_lang, sizeof g_cfg_lang, "%s", v);
+        else if (strcmp(line, "buttons") == 0)
+            g_cfg_buttons = atoi(v);
+        else if (strncmp(line, "key5_", 5) == 0) {
+            static const char *const names5[] = { "p", "b", "k", "r" };
+            int i;
+
+            for (i = 0; i < 4; i++)
+                if (strcmp(line + 5, names5[i]) == 0)
+                    plat_bind_key(PK_5_P + i, atoi(v));
+        }
+        else if (strcmp(line, "marco") == 0)
+            snprintf(g_cfg_frame, sizeof g_cfg_frame, "%s", v);
         else if (strcmp(line, "debug_keys") == 0)
             g_cfg_debug_keys = atoi(v) != 0;
         else if (strncmp(line, "key_", 4) == 0) {
@@ -384,6 +420,8 @@ static void read_config(const char *dir)
                 plat_bind_key(PK_PAUSE, atoi(v));
             else if (strcmp(line + 4, "moves") == 0)
                 plat_bind_key(PK_MOVES, atoi(v));
+            else if (strcmp(line + 4, "special") == 0)
+                plat_bind_key(PK_SPECIAL, atoi(v));
         }
     }
     fclose(f);
@@ -741,8 +779,20 @@ int main(int argc, char **argv)
         fprintf(stderr, "could not open a window\n");
         return 1;
     }
-    if (g_cfg_full)
+    if (g_cfg_full) {
         plat_fullscreen();
+        /* the picture for the bars: marco= in umk3.ini, else marco.png
+         * beside the exe; none, and the bars stay black */
+        if (!dbg_frame_load(g_cfg_frame[0] ? g_cfg_frame : NULL)) {
+            char p[1100];
+            snprintf(p, sizeof p, "%s", root);
+            if (strlen(p) > 3 && (strrchr(p, '\\') || strrchr(p, '/'))) {
+                char *sl = strrchr(p, '\\') ? strrchr(p, '\\') : strrchr(p, '/');
+                snprintf(sl + 1, sizeof p - (size_t)(sl + 1 - p), "marco.png");
+                dbg_frame_load(p);
+            }
+        }
+    }
     lime_platform_set_asset_root(root);
     lime_gl_set_screen(VIRT_W, VIRT_H);
 
@@ -874,10 +924,22 @@ int main(int argc, char **argv)
                                      g_taps[i].x, g_taps[i].y);
             }
 
-            /* -[EAGLView drawView]: one tick is one clear and one frame. */
-            glViewport(vx, vy, vw, vh);
+            /* -[EAGLView drawView]: one tick is one clear and one frame.
+             * The clear covers the whole window; in fullscreen the frame
+             * picture, if any, fills the bars before the game draws. */
+            glViewport(0, 0, ww, wh);
             glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            if (g_cfg_full && (vw != ww || vh != wh)) {
+                dbg_frame_draw(ww, wh);
+                /* black under the game's own area: a stage leaves gaps
+                 * (sky) it never draws, and the frame showed through them */
+                glEnable(GL_SCISSOR_TEST);
+                glScissor(vx, vy, vw, vh);
+                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+                glDisable(GL_SCISSOR_TEST);
+            }
+            glViewport(vx, vy, vw, vh);
             lime_menu_advance_clock(1.0 / 60.0);
             keyboard_touches();
             hud_keys();

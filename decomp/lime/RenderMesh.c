@@ -76,10 +76,15 @@ void LIME_FreeMeshSet(MESHSETINFO *set)
  * Returns the INDEX of the first mesh whose name contains `name`, or -1.
  *
  * Note it returns an index, not a pointer — easy to get wrong, since every
- * other function in this file deals in pointers. The original matches with
- * StringInString, a substring test, not an exact comparison: asking for
- * "SKULL" will match "SKULL3".
+ * other function in this file deals in pointers. The original (armv7
+ * 0x5e2b8) matches with StringInString, which despite its name is an EXACT
+ * comparison. This used strstr, so the Waterfront's floor node "Object04"
+ * found mesh "Object040" first: the floor was never marked visible,
+ * LIME_FreeNonVisibleMeshes freed it, and the stage had a black hole where
+ * the fighters stand.
  */
+int StringInString(const char *a, const char *b);
+
 int LIME_FindMeshByName(const MESHSETINFO *set, const char *name)
 {
     if (!set || !set->meshes) {
@@ -87,7 +92,7 @@ int LIME_FindMeshByName(const MESHSETINFO *set, const char *name)
     }
     for (int i = 0; i < set->numMeshes; i++) {
         const MESHINFO *m = set->meshes[i];
-        if (m && m->meshName && strstr(m->meshName, name) != NULL) {
+        if (m && m->meshName && StringInString(m->meshName, name)) {
             return i;
         }
     }
@@ -315,25 +320,34 @@ void RenderAxesLines(float x, float y, float z)
 
 /* ---------------------------------------------------------- StringInString
  *
- * armv6 0x0008093c, 60 bytes.
+ * armv7 0x0005e27c, 60 bytes.
  *
- * A hand-rolled substring search -- the engine carries its own rather than
- * calling strstr, which the C library it links against clearly provides, since
- * IsWhirlwindScene in Events.cpp uses it. Two implementations of the same idea
- * in one codebase, which usually means two authors.
+ * Not a substring search, whatever the name says: it walks both strings
+ * together and answers 1 only when they end at the same place with every
+ * byte equal -- strcmp(a, b) == 0, two empty strings included:
+ *
+ *      a[0] == 0            -> b[0] == 0
+ *      b[0] == 0            -> 0
+ *      a[i] != b[i]         -> 0
+ *      a ends at i          -> b[i] == 0
+ *
+ * The armv6 reading made it a prefix test ("SKULL" matched "SKULL3").
  */
-int StringInString(const char *haystack, const char *needle)
+int StringInString(const char *a, const char *b)
 {
-    int i;
+    int i = 0;
 
-    if (*haystack == 0 || *needle == 0)
+    if (a[0] == 0)
+        return b[0] == 0;
+    if (b[0] == 0 || a[0] != b[0])
         return 0;
-
-    for (i = 0; needle[i] != 0; i++) {
-        if (haystack[i] == 0 || haystack[i] != needle[i])
+    for (;;) {
+        i++;
+        if (a[i] == 0)
+            return b[i] == 0;
+        if (b[i] == 0 || b[i] != a[i])
             return 0;
     }
-    return 1;
 }
 
 
