@@ -57,6 +57,15 @@ bool plat_focused(void);
 int plat_ask(const unsigned short *msg, const unsigned short *ok,
              const unsigned short *cancel);
 
+/* The debug menu drawn as an iPhone OS 3 alert box (title, rows of label and
+ * value, the selected row in blue, greyed rows, a footer), at `s` pixels per
+ * point of the 480x320 screen: RGBA8 premultiplied, *w x *h, malloc'd. NULL
+ * where the backend cannot draw it; the menu then uses its own font. */
+unsigned char *plat_ui_menu(const char *title, const char *const *label,
+                            const char *const *value, const int *enabled,
+                            int n, int sel, const char *footer, float s,
+                            int *w, int *h);
+
 /* The user's interface language as an ISO 639-1 code ("es", "en", ...) in
  * `out`, at least 3 bytes; "" when it cannot be told. The iPhone's
  * [NSLocale preferredLanguages][0]. */

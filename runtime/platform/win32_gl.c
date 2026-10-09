@@ -295,18 +295,711 @@ int plat_pad(int which)
 }
 
 
-/* MessageBoxW takes the game's UTF-16 as it is. It cannot relabel its
- * buttons, so they read OK / Cancel in the system's language rather than the
- * game's `ok` / `cancel` text; the question itself is the game's. */
-int plat_ask(const unsigned short *msg, const unsigned short *ok,
-             const unsigned short *cancel)
-{
-    int r;
+/* ------------------------------------------------------------------ alerts
+ *
+ * The PC's UIAlertView, drawn inside the game window. On the device
+ * +[modalAlert askFull:textOK:textCANCEL:] / infoFull:textOK: (0xb5444 /
+ * 0xb541c) build one UIAlertView -- initWithTitle: the whole text (both
+ * GameText lines joined by "\n"), message: nil, the OK text as the
+ * cancelButtonTitle (index 0, on the left) and CANCEL as the other button
+ * (index 1, on the right) -- and spin a run loop until a button is pressed.
+ * The game is frozen meanwhile, so it is here too: this loop owns the window
+ * until the answer is in.
+ *
+ * The look is iPhone OS 3's: the screen dimmed, a translucent dark-blue box
+ * with a light border and a gloss across the top, bold white centred text,
+ * and glossy buttons. It is drawn in software into one texture (the shapes
+ * anti-aliased by their distance to the edge, the text rasterised by GDI so
+ * the game's accented UTF-16 shows as it is), over a copy of the frame the
+ * game had drawn when it asked. Mouse: press and release on a button.
+ * Keyboard: Enter is the left button (OK), Esc the right one (CANCEL), or
+ * OK when there is only one. */
 
-    (void)ok;
-    r = MessageBoxW(g_wnd, (const wchar_t *)msg, L"Ultimate Mortal Kombat 3",
-                    (cancel ? MB_OKCANCEL : MB_OK) | MB_TASKMODAL);
-    return (r == IDOK) ? 0 : 1;
+#include <math.h>
+#include <stdlib.h>
+
+typedef struct { float r, g, b, a; } al_px;     /* premultiplied */
+
+typedef struct {
+    int    w, h;            /* the box texture, pixels (box plus shadow margin) */
+    al_px *px;
+    float  s;               /* pixels per iPhone point */
+    float  bx0, by0, bx1, by1;          /* the box inside the texture */
+    float  btn[2][4];       /* x0 y0 x1 y1 of each button, texture pixels */
+    int    nbtn;
+} al_box;
+
+static void al_over(al_px *d, float r, float g, float b, float a)
+{
+    d->r = r * a + d->r * (1 - a);
+    d->g = g * a + d->g * (1 - a);
+    d->b = b * a + d->b * (1 - a);
+    d->a = a + d->a * (1 - a);
+}
+
+/* coverage of pixel (x, y) by a rounded rectangle, anti-aliased */
+static float al_rr(float x, float y, float x0, float y0, float x1, float y1,
+                   float rad)
+{
+    float px = x + 0.5f, py = y + 0.5f;
+    float cx = (x0 + x1) * 0.5f, cy = (y0 + y1) * 0.5f;
+    float qx = fabsf(px - cx) - ((x1 - x0) * 0.5f - rad);
+    float qy = fabsf(py - cy) - ((y1 - y0) * 0.5f - rad);
+    float ox = qx > 0 ? qx : 0, oy = qy > 0 ? qy : 0;
+    float in = (qx > qy ? qx : qy);
+    float d = sqrtf(ox * ox + oy * oy) + (in < 0 ? in : 0) - rad;
+    float c = 0.5f - d;
+    return c < 0 ? 0 : c > 1 ? 1 : c;
+}
+
+/* a GDI coverage mask of `text`, white on black, centred and word-wrapped in
+ * `tw` pixels; returns the mask (w = tw, *th rows), malloc'd. The wrapping
+ * is done here, at spaces and newlines only: DrawText's own broke words at
+ * accented letters ("PÁ / GINA"). */
+static unsigned char *al_text(const wchar_t *text, int tw, int fontpx, int *th)
+{
+    HDC dc = CreateCompatibleDC(g_dc);
+    HFONT f = CreateFontW(-fontpx, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET,
+                          OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                          ANTIALIASED_QUALITY, DEFAULT_PITCH, L"Arial");
+    HFONT of = (HFONT)SelectObject(dc, f);
+    BITMAPINFO bi;
+    void *bits = NULL;
+    HBITMAP bm, ob;
+    unsigned char *mask;
+    int h, i, n = 0, lh, len = (int)wcslen(text);
+    int ls[32], ll[32];
+    TEXTMETRICW tm;
+    SIZE sz;
+
+    GetTextMetricsW(dc, &tm);
+    lh = tm.tmHeight;
+    for (i = 0; i <= len && n < 32; ) {
+        int start = i, brk = -1, j = i;
+        /* the longest run of words from `start` that fits */
+        while (j < len && text[j] != '\n') {
+            if (text[j] == ' ') {
+                GetTextExtentPoint32W(dc, text + start, j - start, &sz);
+                if (sz.cx > tw && brk > start)
+                    break;
+                brk = j;
+            }
+            j++;
+        }
+        if (j >= len || text[j] == '\n') {
+            GetTextExtentPoint32W(dc, text + start, j - start, &sz);
+            if (sz.cx > tw && brk > start)
+                j = brk;
+        } else {
+            j = brk;
+        }
+        ls[n] = start;
+        ll[n] = j - start;
+        n++;
+        i = j + 1;                      /* past the space or the newline */
+        if (j >= len)
+            break;
+    }
+    h = n * lh > 1 ? n * lh : 1;
+    memset(&bi, 0, sizeof bi);
+    bi.bmiHeader.biSize = sizeof bi.bmiHeader;
+    bi.bmiHeader.biWidth = tw;
+    bi.bmiHeader.biHeight = -h;             /* top-down */
+    bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
+    bm = CreateDIBSection(dc, &bi, DIB_RGB_COLORS, &bits, NULL, 0);
+    ob = (HBITMAP)SelectObject(dc, bm);
+    memset(bits, 0, (size_t)tw * h * 4);
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, RGB(255, 255, 255));
+    for (i = 0; i < n; i++) {
+        GetTextExtentPoint32W(dc, text + ls[i], ll[i], &sz);
+        TextOutW(dc, (tw - sz.cx) / 2, i * lh, text + ls[i], ll[i]);
+    }
+    GdiFlush();
+    mask = (unsigned char *)malloc((size_t)tw * h);
+    for (i = 0; i < tw * h; i++)
+        mask[i] = ((unsigned char *)bits)[i * 4 + 1];
+    SelectObject(dc, ob);
+    SelectObject(dc, of);
+    DeleteObject(bm);
+    DeleteObject(f);
+    DeleteDC(dc);
+    *th = h;
+    return mask;
+}
+
+/* white text with the iPhone's dark shadow one point above it */
+static void al_put_text(al_box *b, const unsigned char *m, int tw, int th,
+                        int x, int y)
+{
+    int i, j, sh = (int)(b->s + 0.5f);
+
+    for (j = 0; j < th; j++)
+        for (i = 0; i < tw; i++) {
+            float c = m[j * tw + i] / 255.0f;
+            int X = x + i, Y = y + j - sh;
+            if (c > 0 && X >= 0 && X < b->w && Y >= 0 && Y < b->h)
+                al_over(&b->px[Y * b->w + X], 0, 0, 0, c * 0.55f);
+        }
+    for (j = 0; j < th; j++)
+        for (i = 0; i < tw; i++) {
+            float c = m[j * tw + i] / 255.0f;
+            int X = x + i, Y = y + j;
+            if (c > 0 && X >= 0 && X < b->w && Y >= 0 && Y < b->h)
+                al_over(&b->px[Y * b->w + X], 1, 1, 1, c);
+        }
+}
+
+static void al_button(al_box *b, int k, int pressed, int light,
+                      const wchar_t *label)
+{
+    float x0 = b->btn[k][0], y0 = b->btn[k][1];
+    float x1 = b->btn[k][2], y1 = b->btn[k][3];
+    float rad = 6 * b->s, mid = (y0 + y1) * 0.5f;
+    int x, y, tw, th;
+    unsigned char *m;
+
+    for (y = (int)y0 - 1; y <= (int)y1 + 1; y++)
+        for (x = (int)x0 - 1; x <= (int)x1 + 1; x++) {
+            float edge, fill, t, top, bot, r, g, bl;
+            al_px *d;
+            if (x < 0 || y < 0 || x >= b->w || y >= b->h)
+                continue;
+            d = &b->px[y * b->w + x];
+            edge = al_rr((float)x, (float)y, x0, y0, x1, y1, rad);
+            fill = al_rr((float)x, (float)y, x0 + b->s, y0 + b->s,
+                         x1 - b->s, y1 - b->s, rad - b->s);
+            if (edge <= 0)
+                continue;
+            al_over(d, 0.03f, 0.05f, 0.12f, (edge - fill > 0 ? edge - fill : 0) * 0.85f);   /* the dark rim */
+            if (fill <= 0)
+                continue;
+            /* a lighter upper half with a gloss, a darker lower half */
+            t = (y + 0.5f - y0) / (y1 - y0);
+            top = light ? 0.56f : 0.44f;
+            bot = light ? 0.30f : 0.22f;
+            if (y + 0.5f < mid) {
+                r = top + 0.10f * (1 - t * 2);
+                g = r + 0.02f;
+                bl = r + 0.08f;
+            } else {
+                r = bot - 0.06f * (t * 2 - 1);
+                g = r + 0.02f;
+                bl = r + 0.08f;
+            }
+            if (pressed) {                  /* the iPhone's blue press */
+                r = r * 0.4f;
+                g = g * 0.55f + 0.12f;
+                bl = bl * 0.6f + 0.38f;
+            }
+            al_over(d, r, g, bl, fill * 0.82f);
+            if (y < (int)(y0 + 2 * b->s))   /* the highlight along the top */
+                al_over(d, 1, 1, 1, fill * 0.25f);
+        }
+
+    tw = (int)(x1 - x0);
+    m = al_text(label, tw, (int)(17 * b->s), &th);
+    al_put_text(b, m, tw, th, (int)x0, (int)(mid - th * 0.5f));
+    free(m);
+}
+
+/* the box itself: drop shadow, light border ring, translucent dark blue,
+ * the gloss across the top */
+static void al_draw_bg(al_box *b)
+{
+    float s = b->s, rad = 10 * s, bw = 2 * s;
+    float gcx = (b->bx0 + b->bx1) * 0.5f;
+    float grx = (b->bx1 - b->bx0) * 0.75f, gry = 34 * s;
+    int x, y;
+
+    memset(b->px, 0, sizeof(al_px) * b->w * b->h);
+    for (y = 0; y < b->h; y++)
+        for (x = 0; x < b->w; x++) {
+            al_px *d = &b->px[y * b->w + x];
+            float sh = al_rr((float)x, (float)y - 3 * s, b->bx0, b->by0,
+                             b->bx1, b->by1, rad + 2 * s);
+            float out = al_rr((float)x, (float)y, b->bx0, b->by0, b->bx1,
+                              b->by1, rad);
+            float in = al_rr((float)x, (float)y, b->bx0 + bw, b->by0 + bw,
+                             b->bx1 - bw, b->by1 - bw, rad - bw);
+            float ex, ey;
+            if (sh > 0)
+                al_over(d, 0, 0, 0, sh * 0.25f);        /* the drop shadow */
+            if (out <= 0)
+                continue;
+            al_over(d, 0.86f, 0.88f, 0.93f, (out - in > 0 ? out - in : 0) * 0.9f);   /* the border ring */
+            if (in <= 0)
+                continue;
+            /* translucent dark blue, a touch lighter at the top */
+            al_over(d, 0.03f, 0.09f, 0.24f,
+                    in * (0.62f + 0.08f * (1 - (y - b->by0) / (b->by1 - b->by0))));
+            /* the gloss: an ellipse whose lower edge crosses the top */
+            ex = (x + 0.5f - gcx) / grx;
+            ey = (y + 0.5f - (b->by0 + gry - gry * 1.6f)) / (gry * 1.6f);
+            if (ex * ex + ey * ey < 1)
+                al_over(d, 1, 1, 1, in * 0.16f);
+        }
+}
+
+static void al_draw(al_box *b, const wchar_t *msg, const wchar_t *ok,
+                    const wchar_t *cancel, int pressed)
+{
+    float s = b->s;
+    int tw, th;
+    unsigned char *m;
+
+    al_draw_bg(b);
+    tw = (int)(b->bx1 - b->bx0 - 24 * s);
+    m = al_text(msg, tw, (int)(18 * s), &th);
+    al_put_text(b, m, tw, th, (int)(b->bx0 + 12 * s), (int)(b->by0 + 18 * s));
+    free(m);
+
+    al_button(b, 0, pressed == 0, 0, ok);
+    if (b->nbtn == 2)
+        al_button(b, 1, pressed == 1, 1, cancel);
+}
+
+/* one line of text, its exact width: a coverage mask *w x *h, malloc'd */
+static unsigned char *al_line(const char *s8, int fontpx, int bold,
+                              int *w, int *h)
+{
+    wchar_t ws[256];
+    HDC dc = CreateCompatibleDC(g_dc);
+    HFONT f = CreateFontW(-fontpx, 0, 0, 0, bold ? FW_BOLD : FW_NORMAL, 0, 0,
+                          0, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                          CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
+                          DEFAULT_PITCH, L"Arial");
+    HFONT of = (HFONT)SelectObject(dc, f);
+    BITMAPINFO bi;
+    void *bits = NULL;
+    HBITMAP bm, ob;
+    unsigned char *mask;
+    TEXTMETRICW tm;
+    SIZE sz;
+    int i, n;
+
+    for (n = 0; s8[n] && n < 255; n++)
+        ws[n] = (unsigned char)s8[n];
+    ws[n] = 0;
+    GetTextMetricsW(dc, &tm);
+    GetTextExtentPoint32W(dc, ws, n, &sz);
+    *w = sz.cx > 0 ? sz.cx : 1;
+    *h = tm.tmHeight;
+    memset(&bi, 0, sizeof bi);
+    bi.bmiHeader.biSize = sizeof bi.bmiHeader;
+    bi.bmiHeader.biWidth = *w;
+    bi.bmiHeader.biHeight = -*h;
+    bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
+    bm = CreateDIBSection(dc, &bi, DIB_RGB_COLORS, &bits, NULL, 0);
+    ob = (HBITMAP)SelectObject(dc, bm);
+    memset(bits, 0, (size_t)*w * *h * 4);
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, RGB(255, 255, 255));
+    TextOutW(dc, 0, 0, ws, n);
+    GdiFlush();
+    mask = (unsigned char *)malloc((size_t)*w * *h);
+    for (i = 0; i < *w * *h; i++)
+        mask[i] = ((unsigned char *)bits)[i * 4 + 1];
+    SelectObject(dc, ob);
+    SelectObject(dc, of);
+    DeleteObject(bm);
+    DeleteObject(f);
+    DeleteDC(dc);
+    return mask;
+}
+
+/* text in a colour, with the dark shadow above it, alpha `a` */
+static void al_put_line(al_box *b, const unsigned char *m, int tw, int th,
+                        int x, int y, float r, float g, float bl, float a)
+{
+    int i, j, sh = (int)(b->s + 0.5f);
+
+    for (j = 0; j < th; j++)
+        for (i = 0; i < tw; i++) {
+            float c = m[j * tw + i] / 255.0f;
+            int X = x + i, Y = y + j - sh;
+            if (c > 0 && X >= 0 && X < b->w && Y >= 0 && Y < b->h)
+                al_over(&b->px[Y * b->w + X], 0, 0, 0, c * 0.5f * a);
+        }
+    for (j = 0; j < th; j++)
+        for (i = 0; i < tw; i++) {
+            float c = m[j * tw + i] / 255.0f;
+            int X = x + i, Y = y + j;
+            if (c > 0 && X >= 0 && X < b->w && Y >= 0 && Y < b->h)
+                al_over(&b->px[Y * b->w + X], r, g, bl, c * a);
+        }
+}
+
+/* align: 0 left at x, 1 centred on x, 2 right-aligned to x */
+static void al_say(al_box *b, const char *s, int fontpx, int bold, float x,
+                   float ymid, int align, float r, float g, float bl, float a)
+{
+    int w, h;
+    unsigned char *m;
+
+    if (!s || !s[0])
+        return;
+    m = al_line(s, fontpx, bold, &w, &h);
+    if (align == 1)
+        x -= w * 0.5f;
+    else if (align == 2)
+        x -= w;
+    al_put_line(b, m, w, h, (int)x, (int)(ymid - h * 0.5f), r, g, bl, a);
+    free(m);
+}
+
+/* The debug menu (runtime/debug_menu.c) in the alerts' iPhone OS 3 dress:
+ * the same translucent box, the title on top, one row per entry -- the
+ * label on the left, its value on the right -- the selected row in the
+ * iPhone's blue selection bar, rows that cannot act now in grey, and the
+ * key help at the bottom. `s` is pixels per point of the 480x320 screen.
+ * Returns RGBA8, premultiplied, *w x *h, malloc'd. */
+unsigned char *plat_ui_menu(const char *title, const char *const *label,
+                            const char *const *value, const int *enabled,
+                            int n, int sel, const char *footer, float s,
+                            int *ow, int *oh)
+{
+    al_box b;
+    float m = 6 * s, top, rowh = 15 * s, x0, x1;
+    unsigned char *out;
+    int i;
+
+    memset(&b, 0, sizeof b);
+    b.s = s;
+    b.bx0 = m;
+    b.by0 = m;
+    b.bx1 = m + 330 * s;
+    top = b.by0 + 28 * s;                   /* under the title */
+    b.by1 = top + n * rowh + 26 * s;
+    b.w = (int)(b.bx1 + m + 1);
+    b.h = (int)(b.by1 + m + 1);
+    b.px = (al_px *)malloc(sizeof(al_px) * b.w * b.h);
+    al_draw_bg(&b);
+
+    al_say(&b, title, (int)(14 * s), 1, (b.bx0 + b.bx1) * 0.5f,
+           b.by0 + 15 * s, 1, 1, 1, 1, 1);
+
+    x0 = b.bx0 + 9 * s;
+    x1 = b.bx1 - 9 * s;
+    for (i = 0; i < n; i++) {
+        float y0 = top + i * rowh, a = enabled[i] ? 1.0f : 0.4f;
+        if (i == sel) {                     /* the blue selection bar */
+            int x, y;
+            for (y = (int)y0; y < (int)(y0 + rowh); y++)
+                for (x = (int)x0 - 1; x <= (int)x1 + 1; x++) {
+                    float c = al_rr((float)x, (float)y, x0, y0 + 0.5f * s,
+                                    x1, y0 + rowh - 0.5f * s, 4 * s);
+                    float t = (y + 0.5f - y0) / rowh;
+                    if (c > 0 && x >= 0 && x < b.w)
+                        al_over(&b.px[y * b.w + x],
+                                0.02f + 0.03f * (1 - t), 0.36f + 0.20f * (1 - t),
+                                0.90f + 0.06f * (1 - t), c * 0.92f);
+                }
+        }
+        al_say(&b, label[i], (int)(11 * s), 1, x0 + 6 * s, y0 + rowh * 0.5f,
+               0, 1, 1, 1, a);
+        al_say(&b, value[i], (int)(11 * s), 0, x1 - 6 * s, y0 + rowh * 0.5f,
+               2, 1, 1, 1, a);
+    }
+    al_say(&b, footer, (int)(9 * s), 0, (b.bx0 + b.bx1) * 0.5f,
+           top + n * rowh + 13 * s, 1, 0.80f, 0.84f, 0.92f, 1);
+
+    out = (unsigned char *)malloc((size_t)b.w * b.h * 4);
+    for (i = 0; i < b.w * b.h; i++) {
+        al_px *p = &b.px[i];
+        out[i * 4 + 0] = (unsigned char)(p->r * 255 + 0.5f);
+        out[i * 4 + 1] = (unsigned char)(p->g * 255 + 0.5f);
+        out[i * 4 + 2] = (unsigned char)(p->b * 255 + 0.5f);
+        out[i * 4 + 3] = (unsigned char)(p->a * 255 + 0.5f);
+    }
+    free(b.px);
+    *ow = b.w;
+    *oh = b.h;
+    return out;
+}
+
+static int al_pot(int n)
+{
+    int p = 1;
+    while (p < n)
+        p <<= 1;
+    return p;
+}
+
+/* upload w x h RGBA8 into a power-of-two texture (GL 1.1) */
+static GLuint al_upload(const unsigned char *rgba, int w, int h)
+{
+    GLuint t;
+    int pw = al_pot(w), ph = al_pot(h);
+
+    glGenTextures(1, &t);
+    glBindTexture(GL_TEXTURE_2D, t);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, pw, ph, 0, GL_RGBA,
+                 GL_UNSIGNED_BYTE, NULL);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE,
+                    rgba);
+    return t;
+}
+
+static GLuint al_box_tex(al_box *b)
+{
+    unsigned char *p = (unsigned char *)malloc((size_t)b->w * b->h * 4);
+    GLuint t;
+    int i;
+
+    for (i = 0; i < b->w * b->h; i++) {
+        al_px *s = &b->px[i];
+        p[i * 4 + 0] = (unsigned char)(s->r * 255 + 0.5f);
+        p[i * 4 + 1] = (unsigned char)(s->g * 255 + 0.5f);
+        p[i * 4 + 2] = (unsigned char)(s->b * 255 + 0.5f);
+        p[i * 4 + 3] = (unsigned char)(s->a * 255 + 0.5f);
+    }
+    t = al_upload(p, b->w, b->h);
+    free(p);
+    return t;
+}
+
+static void al_quad(GLuint t, float x0, float y0, float x1, float y1,
+                    float u1, float v1, int flip)
+{
+    glBindTexture(GL_TEXTURE_2D, t);
+    glBegin(GL_QUADS);
+    glTexCoord2f(0, flip ? v1 : 0);  glVertex2f(x0, y0);
+    glTexCoord2f(u1, flip ? v1 : 0); glVertex2f(x1, y0);
+    glTexCoord2f(u1, flip ? 0 : v1); glVertex2f(x1, y1);
+    glTexCoord2f(0, flip ? 0 : v1);  glVertex2f(x0, y1);
+    glEnd();
+}
+
+static void al_layout(al_box *b, int ww, int wh, const wchar_t *msg)
+{
+    float s = (float)ww / 480.0f, sy = (float)wh / 320.0f;
+    float m, bw, top, by;
+    int th;
+    unsigned char *mask;
+
+    if (sy < s)
+        s = sy;
+    s *= 0.8f;                  /* a little smaller than the device's */
+    b->s = s;
+    m = 8 * s;
+    bw = 284 * s;
+    mask = al_text(msg, (int)(bw - 24 * s), (int)(18 * s), &th);
+    free(mask);
+    b->bx0 = m;
+    b->by0 = m;
+    b->bx1 = m + bw;
+    top = 18 * s + th + 16 * s;             /* the text, then the buttons */
+    by = b->by0 + top;
+    b->by1 = by + 43 * s + 14 * s;
+    b->w = (int)(bw + 2 * m + 1);
+    b->h = (int)(b->by1 + m + 1);
+    if (b->nbtn == 2) {
+        float half = (bw - 22 * s - 8 * s) * 0.5f;
+        b->btn[0][0] = b->bx0 + 11 * s;  b->btn[0][2] = b->btn[0][0] + half;
+        b->btn[1][0] = b->btn[0][2] + 8 * s;  b->btn[1][2] = b->bx1 - 11 * s;
+    } else {
+        b->btn[0][0] = b->bx0 + 11 * s;  b->btn[0][2] = b->bx1 - 11 * s;
+    }
+    b->btn[0][1] = b->btn[1][1] = by;
+    b->btn[0][3] = b->btn[1][3] = by + 43 * s;
+    b->px = (al_px *)malloc(sizeof(al_px) * b->w * b->h);
+}
+
+int plat_ask(const unsigned short *msg16, const unsigned short *ok16,
+             const unsigned short *cancel16)
+{
+    const wchar_t *msg = (const wchar_t *)msg16;
+    const wchar_t *ok = ok16 ? (const wchar_t *)ok16 : L"OK";
+    const wchar_t *cancel = (const wchar_t *)cancel16;
+    int ww, wh, bgw, bgh, pressed = -1, drawn = -2, result = -1;
+    int armed_mouse = 0, armed_keys = 0, press_on = -1;
+    GLint vp[4];
+    unsigned char *bg;
+    GLuint bgt, boxt = 0;
+    al_box b;
+
+    plat_size(&ww, &wh);
+    if (ww <= 0 || wh <= 0)
+        return 0;
+    bgw = ww;
+    bgh = wh;
+
+    glPushAttrib(GL_ALL_ATTRIB_BITS);
+    glGetIntegerv(GL_VIEWPORT, vp);
+    glMatrixMode(GL_PROJECTION);
+    glPushMatrix();
+    glMatrixMode(GL_MODELVIEW);
+    glPushMatrix();
+
+    /* the frame the game had drawn so far: the back buffer, bottom-up */
+    bg = (unsigned char *)malloc((size_t)bgw * bgh * 4);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(0, 0, bgw, bgh, GL_RGBA, GL_UNSIGNED_BYTE, bg);
+    {
+        int i;
+        for (i = 0; i < bgw * bgh; i++)
+            bg[i * 4 + 3] = 255;
+    }
+    bgt = al_upload(bg, bgw, bgh);
+    free(bg);
+
+    memset(&b, 0, sizeof b);
+    b.nbtn = cancel ? 2 : 1;
+    al_layout(&b, ww, wh, msg);
+
+    for (;;) {
+        int mx, my, down, cw, ch, over = -1, k;
+        float ox, oy;
+
+        if (!plat_poll()) {
+            result = b.nbtn - 1;
+            break;
+        }
+        plat_size(&cw, &ch);
+        if (cw > 0 && ch > 0 && (cw != ww || ch != wh)) {
+            ww = cw;
+            wh = ch;
+            free(b.px);
+            {
+                int n = b.nbtn;
+                memset(&b, 0, sizeof b);
+                b.nbtn = n;
+            }
+            al_layout(&b, ww, wh, msg);
+            drawn = -2;
+        }
+        ox = (float)(int)((ww - b.w) * 0.5f);
+        oy = (float)(int)((wh - b.h) * 0.5f);
+
+        down = plat_mouse(&mx, &my) && g_focused;
+        for (k = 0; k < b.nbtn; k++)
+            if (mx >= ox + b.btn[k][0] && mx < ox + b.btn[k][2] &&
+                my >= oy + b.btn[k][1] && my < oy + b.btn[k][3])
+                over = k;
+        if (!down)
+            armed_mouse = 1;    /* the click that opened it does not count */
+        if (armed_mouse) {
+            if (down && press_on < 0)
+                press_on = over >= 0 ? over : 9;
+            if (!down && press_on >= 0) {
+                if (press_on == over) {
+                    result = over;
+                    break;
+                }
+                press_on = -1;
+            }
+        }
+        pressed = (down && press_on >= 0 && press_on == over) ? over : -1;
+
+        if (!g_key[VK_RETURN] && !g_key[VK_ESCAPE] && !g_key[VK_SPACE])
+            armed_keys = 1;
+        if (armed_keys && (g_key[VK_RETURN] || g_key[VK_SPACE])) {
+            result = 0;
+            break;
+        }
+        if (armed_keys && g_key[VK_ESCAPE]) {
+            result = b.nbtn - 1;
+            break;
+        }
+
+        if (pressed != drawn) {
+            if (boxt)
+                glDeleteTextures(1, &boxt);
+            al_draw(&b, msg, ok, cancel, pressed);
+            boxt = al_box_tex(&b);
+            drawn = pressed;
+        }
+
+        glViewport(0, 0, ww, wh);
+        glMatrixMode(GL_PROJECTION);
+        glLoadIdentity();
+        glOrtho(0, ww, wh, 0, -1, 1);
+        glMatrixMode(GL_MODELVIEW);
+        glLoadIdentity();
+        glDisable(GL_DEPTH_TEST);
+        glDisable(GL_CULL_FACE);
+        glDisable(GL_ALPHA_TEST);
+        glDisable(GL_FOG);
+        glDisable(GL_LIGHTING);
+        glDisable(GL_SCISSOR_TEST);
+        glDisable(GL_BLEND);
+        glEnable(GL_TEXTURE_2D);
+        glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+        glColor4f(1, 1, 1, 1);
+        al_quad(bgt, 0, 0, (float)ww, (float)wh,
+                (float)bgw / al_pot(bgw), (float)bgh / al_pot(bgh), 1);
+        glEnable(GL_BLEND);
+        glDisable(GL_TEXTURE_2D);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glColor4f(0, 0, 0, 0.3f);           /* the screen dims behind it */
+        glBegin(GL_QUADS);
+        glVertex2f(0, 0); glVertex2f((float)ww, 0);
+        glVertex2f((float)ww, (float)wh); glVertex2f(0, (float)wh);
+        glEnd();
+        glEnable(GL_TEXTURE_2D);
+        glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);   /* premultiplied */
+        glColor4f(1, 1, 1, 1);
+        al_quad(boxt, ox, oy, ox + b.w, oy + b.h,
+                (float)b.w / al_pot(b.w), (float)b.h / al_pot(b.h), 0);
+        /* UMK3_ALERT_SHOT=<file.ppm>: a scripted test saves the dialog and
+         * answers OK, since nothing else runs while it is up */
+        if (getenv("UMK3_ALERT_SHOT")) {
+            FILE *f = fopen(getenv("UMK3_ALERT_SHOT"), "wb");
+            unsigned char *p = (unsigned char *)malloc((size_t)ww * wh * 3);
+            int r;
+            glPixelStorei(GL_PACK_ALIGNMENT, 1);
+            glReadPixels(0, 0, ww, wh, GL_RGB, GL_UNSIGNED_BYTE, p);
+            if (f && p) {
+                fprintf(f, "P6\n%d %d\n255\n", ww, wh);
+                for (r = wh - 1; r >= 0; r--)
+                    fwrite(p + (size_t)r * ww * 3, 1, (size_t)ww * 3, f);
+            }
+            if (f)
+                fclose(f);
+            free(p);
+            result = 0;
+            break;
+        }
+        plat_swap();
+        Sleep(15);
+    }
+
+    /* Put the game's half-drawn frame back in the back buffer, so the rest
+     * of this frame lands on it rather than on the dialog. */
+    glViewport(0, 0, ww, wh);
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glOrtho(0, ww, wh, 0, -1, 1);
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+    glDisable(GL_BLEND);
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_TEXTURE_2D);
+    glColor4f(1, 1, 1, 1);
+    al_quad(bgt, 0, 0, (float)ww, (float)wh,
+            (float)bgw / al_pot(bgw), (float)bgh / al_pot(bgh), 1);
+
+    glDeleteTextures(1, &bgt);
+    if (boxt)
+        glDeleteTextures(1, &boxt);
+    free(b.px);
+    glMatrixMode(GL_PROJECTION);
+    glPopMatrix();
+    glMatrixMode(GL_MODELVIEW);
+    glPopMatrix();
+    glPopAttrib();
+    glViewport(vp[0], vp[1], vp[2], vp[3]);
+    return result < 0 ? 0 : result;
 }
 
 void plat_language(char *out, int n)

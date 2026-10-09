@@ -4,7 +4,7 @@ Current state of the project. Written so that someone can pick it up with no pri
 
 **Last updated:** 2026-10-09 -- see [HANDOFF.md](HANDOFF.md) for the route.
 
-## Current state (alpha 0.0.6, 2026-10-09)
+## Current state (alpha 0.0.6b, 2026-10-09)
 
 - **The game is playable on Windows by the real path.** The retail front
   end, Arcade, the tower, the fight load, both rounds, the end of the
@@ -13,7 +13,7 @@ Current state of the project. Written so that someone can pick it up with no pri
   Releases: [0.0.1](RELEASE-0.0.1-alpha.md), [0.0.2](RELEASE-0.0.2-alpha.md),
   [0.0.3](RELEASE-0.0.3-alpha.md), [0.0.4](RELEASE-0.0.4-alpha.md). The GitHub
   releases of 0.0.1-0.0.3 were deleted on 2026-10-09 when the history was
-  rewritten; 0.0.6 is the current published build ([notes](RELEASE-0.0.6-alpha.md)).
+  rewritten; 0.0.6b is the current published build ([notes](RELEASE-0.0.6b-alpha.md)).
 - **Every function is decompiled** (2,572 of 2,572) and the fight engine is
   behaviourally tested file by file (table below). The figure is
   **87.59%** by the README's weights; `python tools/progress.py` measures it
@@ -29,6 +29,12 @@ Current state of the project. Written so that someone can pick it up with no pri
   the game runs, the code map, the bug method and the test tools.
 
 ## Release history
+
+- **0.0.6b** (2026-10-09). The game's alerts drawn inside the window in the
+  iPhone OS 3 style (`plat_ask`, runtime/platform/win32_gl.c; the device's
+  `+[modalAlert askFull:...]`, 0xb5444: the text as the title, OK on the
+  left); the F2 debug menu in the same style (`plat_ui_menu`); the menu no
+  longer clears the fullscreen frame picture.
 
 - **0.0.6** (2026-10-09). The Electron launcher (`launcher/app`: resizable,
   fullscreen, 5/6-button layout tab with separate keys); `LIME_RenderEvents`

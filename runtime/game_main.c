@@ -509,6 +509,26 @@ int dbg_in_arcade(void)
     return GameMode == 0 && Destiny >= 0 && Destiny <= 3;
 }
 
+/* -[EAGLView drawView]: one tick is one clear and one frame. The clear
+ * covers the whole window; in fullscreen the frame picture, if any, fills
+ * the bars, and the game's own area is cleared to black again -- a stage
+ * leaves gaps (sky) it never draws, and the frame showed through them.
+ * Leaves the viewport on the game's area. */
+static void clear_frame(int ww, int wh, int vx, int vy, int vw, int vh)
+{
+    glViewport(0, 0, ww, wh);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    if (g_cfg_full && (vw != ww || vh != wh)) {
+        dbg_frame_draw(ww, wh);
+        glEnable(GL_SCISSOR_TEST);
+        glScissor(vx, vy, vw, vh);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glDisable(GL_SCISSOR_TEST);
+    }
+    glViewport(vx, vy, vw, vh);
+}
+
 static void fight_key(int k)
 {
     {
@@ -904,9 +924,9 @@ int main(int argc, char **argv)
             if (dbg_menu_is_open()) {
                 struct dbg_request rq;
 
-                glViewport(vx, vy, vw, vh);
-                glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+                /* glClear ignores the viewport: this cleared the whole
+                 * window and the frame picture with it */
+                clear_frame(ww, wh, vx, vy, vw, vh);
                 if (dbg_menu_tick(&rq))
                     debug_request(&rq);
                 dbg_menu_draw();
@@ -924,22 +944,7 @@ int main(int argc, char **argv)
                                      g_taps[i].x, g_taps[i].y);
             }
 
-            /* -[EAGLView drawView]: one tick is one clear and one frame.
-             * The clear covers the whole window; in fullscreen the frame
-             * picture, if any, fills the bars before the game draws. */
-            glViewport(0, 0, ww, wh);
-            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-            if (g_cfg_full && (vw != ww || vh != wh)) {
-                dbg_frame_draw(ww, wh);
-                /* black under the game's own area: a stage leaves gaps
-                 * (sky) it never draws, and the frame showed through them */
-                glEnable(GL_SCISSOR_TEST);
-                glScissor(vx, vy, vw, vh);
-                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-                glDisable(GL_SCISSOR_TEST);
-            }
-            glViewport(vx, vy, vw, vh);
+            clear_frame(ww, wh, vx, vy, vw, vh);
             lime_menu_advance_clock(1.0 / 60.0);
             keyboard_touches();
             hud_keys();
