@@ -24,7 +24,7 @@ Current state of the project. Written so that someone can pick it up with no pri
   and frozen fighters draw white (Mary's queue, end of the README table). Every bug
   found since the game first ran was a transcription that did not quite
   match armv7, so each new symptom starts by re-reading the binary.
-- **No pull requests are open** (2026-10-09; everything up to #76 is merged; 0.0.6 is released).
+- **No pull requests are open** (2026-10-09; everything up to #78 is merged; 0.0.6b is released).
 - **New contributors:** [HOW-THE-GAME-WORKS.md](HOW-THE-GAME-WORKS.md) explains how
   the game runs, the code map, the bug method and the test tools.
 
