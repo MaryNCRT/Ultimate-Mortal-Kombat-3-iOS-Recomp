@@ -31,6 +31,7 @@ runs, the code map, the bug method, the debug menu and every test variable.
   softlock, the pier floor. Next in Mary's queue: texture errors on other
   stages and fighters (Kung Lao's hat), crashes in modes other than Arcade,
   fatality animations, white frozen fighters.
+- **Start with [OPEN-ITEMS-STUDY.md](OPEN-ITEMS-STUDY.md)**: what the binary says about every open item, with the first step for each, and Noob Saibot's status.
 - **Next (Mary's list after 0.0.6b, findings in the README table):**
   projectiles not drawn (start from the spear: `UMK3_DBG_SPECIAL="1000:0"`
   `--fight scorpion reptile 13`, frame lookup -1 in `RenderLevelPlayers`);
