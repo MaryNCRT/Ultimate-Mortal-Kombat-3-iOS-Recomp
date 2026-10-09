@@ -103,6 +103,20 @@ class Image(object):
             self.sect[name] = p[3]
             by_addr.setdefault(a, []).append(name)
 
+        # A function-local `static` is emitted as `<name>.<number>` --
+        # DrawControls' nine knob offsets are `_JoyOffset.11128` in
+        # __TEXT,__const -- and under that spelling the decomp's `JoyOffset`
+        # was never found, so the table came out zero and the on-screen stick
+        # never moved. The plain name is added as an alias, unless a real
+        # symbol already has it.
+        for name in list(self.addr):
+            m = re.match(r"(\w+)\.\d+$", name)
+            if m and m.group(1) not in self.addr:
+                base = m.group(1)
+                self.addr[base] = self.addr[name]
+                self.sect[base] = self.sect[name]
+                by_addr.setdefault(self.addr[name], []).append(base)
+
         # One address can carry several names. Prefer the shortest, then
         # alphabetical: it is stable across runs and reads as the real name
         # rather than an alias.
