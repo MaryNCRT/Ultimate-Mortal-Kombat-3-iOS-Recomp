@@ -12,7 +12,10 @@
  *     START FIGHT             from the menus or from inside a fight
  *     SCREEN                  any of the front end's 51 screens
  *     MAIN MENU
- *     WIN / LOSE ROUND, WIN MATCH (skips the fight), LOSE MATCH   in a fight
+ *     WIN / LOSE ROUND, WIN MATCH (skips the fight), LOSE MATCH   only while
+ *                             a round is in play (not in the intro, the
+ *                             round summary, a finisher or the pause)
+ *     ARCADE: MOTARO / SHAO KAHN  Arcade only: the next fight is that boss
  *     DIRECT KEYS             F3, F6..F12 on or off (on at start)
  *     INFO                    the task / screen line in the corner (also F3)
  *
@@ -230,6 +233,7 @@ static void grab(int vx, int vy, int vw, int vh)
 enum {
     ROW_P1, ROW_P2, ROW_STAGE, ROW_FIGHT, ROW_SCREEN, ROW_MAIN,
     ROW_WIN_ROUND, ROW_LOSE_ROUND, ROW_WIN_MATCH, ROW_LOSE_MATCH,
+    ROW_MOTARO, ROW_SK,
     ROW_KEYS, ROW_INFO, ROW_CLOSE, N_ROWS
 };
 
@@ -283,7 +287,9 @@ static const char *stage_name(int i)
 static int row_enabled(int row)
 {
     if (row >= ROW_WIN_ROUND && row <= ROW_LOSE_MATCH)
-        return g_task == 6;
+        return g_task == 6 && dbg_round_live();
+    if (row == ROW_MOTARO || row == ROW_SK)
+        return dbg_in_arcade();
     return 1;
 }
 
@@ -352,6 +358,10 @@ int dbg_menu_tick(struct dbg_request *rq)
         rq->what = DBG_FIGHT_KEY;               /* 0..3, as F9..F12 */
         rq->a = g_row - ROW_WIN_ROUND;
         break;
+    case ROW_MOTARO: case ROW_SK:
+        rq->what = DBG_BOSS;
+        rq->a = g_row == ROW_MOTARO ? 24 : 25;
+        break;
     case ROW_INFO:
         g_info = !g_info;
         return 0;
@@ -370,9 +380,10 @@ void dbg_menu_draw(void)
     static const char *const label[N_ROWS] = {
         "FIGHTER 1", "FIGHTER 2", "STAGE", "START FIGHT", "SCREEN",
         "MAIN MENU", "WIN ROUND", "LOSE ROUND", "WIN MATCH (SKIP FIGHT)",
-        "LOSE MATCH", "DIRECT KEYS", "INFO LINE (F3)", "CLOSE"
+        "LOSE MATCH", "ARCADE: NEXT IS MOTARO", "ARCADE: NEXT IS SHAO KAHN",
+        "DIRECT KEYS", "INFO LINE (F3)", "CLOSE"
     };
-    const float px = 1.0f, x0 = 96.0f, y0 = 40.0f, lh = 16.0f;
+    const float px = 1.0f, x0 = 96.0f, y0 = 34.0f, lh = 15.0f;
     char v[64];
     int i;
 

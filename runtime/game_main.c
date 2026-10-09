@@ -447,10 +447,29 @@ static void hud_keys(void)
     }
 }
 
+/* A round is in play: past the intro, nobody down, no round summary or
+ * finisher on, not paused. The debug keys only act then -- pressed during
+ * a round's end they ended it a second time, with the other fighter, and
+ * both got the round. */
+extern long DoIntro, IsInFinishing, RoundSummary;
+int dbg_round_live(void)
+{
+    return CurrentTask == 6 && G != NULL && !DoIntro && !RoundSummary
+        && !IsInFinishing && !GamePaused && Health[0] > 0 && Health[1] > 0;
+}
+
+/* Arcade, with a ladder chosen: GameMode 0 and Destiny 0..3. */
+extern long GameMode, Destiny;
+extern int  Stage;
+int dbg_in_arcade(void)
+{
+    return GameMode == 0 && Destiny >= 0 && Destiny <= 3;
+}
+
 static void fight_key(int k)
 {
     {
-        if (CurrentTask != 6 || G == NULL)
+        if (!dbg_round_live())
             return;
         if (k >= 2 && WinsNeeded > 0)                   /* F11 / F12 */
             RoundWins[k - 2] = WinsNeeded - 1;
@@ -583,6 +602,25 @@ static void debug_request(const struct dbg_request *rq)
         break;
     case DBG_FIGHT_KEY:
         fight_key(rq->a);
+        break;
+    case DBG_BOSS:
+        /* PopulateTower puts Motaro at rung Destiny + 6 and Shao Kahn at
+         * Destiny + 7; QuitAsWin moves Stage up one on a win. In a fight:
+         * the rung below the boss, then win, and the game climbs to it by
+         * its own path. Elsewhere: that rung, and the tower again. */
+        if (!dbg_in_arcade())
+            break;
+        if (CurrentTask == 6) {
+            Stage = Destiny + (rq->a == 24 ? 6 : 7) - 1;
+            if (dbg_round_live())
+                fight_key(2);
+        } else {
+            Stage = Destiny + (rq->a == 24 ? 6 : 7);
+            if (CurrentTask == 3)
+                jump_screen(28);
+        }
+        printf("debug: arcade, next fight %s (rung %d)\n",
+               rq->a == 24 ? "Motaro" : "Shao Kahn", Stage);
         break;
     }
 }

@@ -152,7 +152,12 @@ Cada arreglo se leyó del binario armv7 original y Mary lo comprobó en el juego
 21. El fatality de Sonya no se ve bien.
 22. Crasheos aleatorios (hacen falta logs).
 23. ~~Mantener pulsado el retrato de Smoke para elegir a Human Smoke~~ -- funciona: mantén el clic 3 segundos.
-24. En el menú debug, ganar/perder round a veces da el round a los dos o saca de la pelea.
+24. ~~En el menú debug, ganar/perder round a veces da el round a los dos~~ -- arreglado: solo actúan con el round en juego. Nuevo: *Arcade: siguiente Motaro / Shao Kahn*.
+26. Restaurar la muerte de Shao Kahn al terminar el Arcade (el Arcade ya se completa y Shao Kahn ya no crashea).
+27. En el finish him contra Reptile, el rival aturdido caminaba hacia el jugador.
+28. Un escenario (el puente con pinchos, contra Nightwolf) no muestra el fondo.
+29. Iconos del Kombat Kode mal puestos en la pantalla de carga.
+30. Al pausar, a veces la pelea se ve encogida en una esquina detrás del menú.
 
 - El launcher es solo para Windows (Linux/macOS: compilar desde el código con CMake).
 

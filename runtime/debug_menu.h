@@ -4,12 +4,13 @@
 
 #define DBG_SCREENS 51                  /* FETaskFunctionList's screens */
 
-enum { DBG_NONE, DBG_FIGHT, DBG_SCREEN, DBG_FIGHT_KEY };
+enum { DBG_NONE, DBG_FIGHT, DBG_SCREEN, DBG_FIGHT_KEY, DBG_BOSS };
 
 struct dbg_request {
     int what;                           /* DBG_* */
     int a, b, c;                        /* fight: p1, p2, stage; screen: n;
-                                           fight key: 0..3 as F9..F12 */
+                                           fight key: 0..3 as F9..F12;
+                                           boss: 24 Motaro, 25 Shao Kahn */
 };
 
 int  dbg_menu_is_open(void);
@@ -21,6 +22,10 @@ void dbg_menu_after_frame(int vx, int vy, int vw, int vh, int task, int fe);
 int  dbg_menu_tick(struct dbg_request *rq);
 void dbg_menu_draw(void);
 
+/* Whether the fight keys can act now (a round in play) and whether the
+ * Arcade boss jumps apply; game_main.c answers both. */
+int  dbg_round_live(void);
+int  dbg_in_arcade(void);
 int  dbg_keys_on(void);                /* the menu's DIRECT KEYS row */
 int  dbg_info_on(void);
 void dbg_info_toggle(void);

@@ -123,12 +123,11 @@ What a player sees today, and what is known about each.
 | Some special attacks have no sound, projectiles especially. | Not investigated. |
 | Texture errors remain on some stages and in some modes; the menu has texture errors too. | Not investigated stage by stage. |
 | ~~Some menu sections crash.~~ | **Fixed** (checked by Mary, 2026-10-09: no menu section crashes). `FE_Task_Treasure` (18) and `FE_Task_Stats` (15) were spotlight screens; see the unlockables row. |
-| Shao Kahn may be crashing the game; the bosses' state in general needs checking. | **Likely fixed, to confirm in game.** `t_rst5` (0x473d0), the hit-reaction dispatcher, stored the bosses' reaction tables as raw iOS addresses (0x17b8d0 `motaro_branches`, 0x17b884 `sk_branches`) and read them: the first reaction against Motaro or Shao Kahn crashed or ran garbage. A 4,000-tick fight against each now runs clean. |
+| ~~Shao Kahn may be crashing the game.~~ | **Fixed** (checked by Mary, 2026-10-09). `t_rst5` (0x473d0), the hit-reaction dispatcher, stored the bosses' reaction tables as raw iOS addresses (0x17b8d0 `motaro_branches`, 0x17b884 `sk_branches`) and read them: the first reaction against Motaro or Shao Kahn crashed or ran garbage. A 4,000-tick fight against each now runs clean. |
 | The winner's name ("X WINS") is still not shown. | Seen by Mary after 0.0.3, so the `usprintf` fix was not the whole cause. |
 | The menu is not complete (target: 100%), and some modes are missing. | Not inventoried yet. |
 | The game's ads open in separate windows, which forces leaving fullscreen. | Wanted: show them in windows drawn inside the game, in the same executable. |
 | **Reported by Mary 2026-10-09, after the debug menu:** | |
-| Shao Kahn's death is not shown at the end of Arcade. | Not investigated. |
 | ~~The end of Arcade does not go on to the unlockables screen~~ (it crashed). | **Fixed** (checked by Mary, 2026-10-09). `FE_Task_Select_Treasure` and the seven other screens that draw the spotlights: `spotlight_SpriteDef` / `spotlight_Anim` are the tables themselves (0x175188, 0x175608), not pointers -- the port had an empty store; `DrawAnimAsSprite` (0x1c8bc) takes the texture from its sixth argument (0x1c956), computes `abs(counter) % frames` (0x1c8f6) and draws `record[2..3]` as the size with corner+extent UVs (0x1ca00). Menu textures now load the `.pvr` first, as the device does: `FE_METAL_BG.PNG` holds its art in a 480x320 corner and drew a white L. |
 | ~~Achievements draw wrong, with overlapping text.~~ | **Fixed** (2026-10-09). `achievementsDraw` (0xa09xx) draws both lines at x = 20, the heading at y + 4 and the name at y + 14; the constants were swapped. |
 | ~~A slow black fade at the start and end of rounds, in some fights.~~ | **Fixed** (checked by Mary, 2026-10-09). The fade runs ten times slower while an achievement banner shows; `areAchievementsViewing` (0xa02ac) counts 20 slots (`cmp r2, #0x50`), the transcription 24, and a save with slot 21 at 1 kept a banner "showing" forever: five-second fades. |
@@ -140,7 +139,12 @@ What a player sees today, and what is known about each.
 | Sonya's fatality does not show properly. | Seen by Mary 2026-10-09. Not investigated. |
 | Random crashes. | Seen by Mary 2026-10-09; logs needed. |
 | ~~Human Smoke cannot be chosen by holding Smoke's portrait.~~ | Works (checked by Mary, 2026-10-09): hold the click on Smoke for three seconds (`drawCharacterSelection`, `SmokeCounter` > 180). |
-| The debug menu's win/lose round can give the round to both fighters or leave the fight. | Seen by Mary 2026-10-09 (debug only). Not reproduced in a scripted test. |
+| ~~The debug menu's win/lose round can give the round to both fighters.~~ | **Fixed** (2026-10-09): the round keys act only while a round is in play (`dbg_round_live`: no intro, round summary, finisher or pause, both fighters up); pressed during a round's end they ended it again with the other fighter. Win match on the last round leaves the fight, as a won match does. New: *Arcade: next is Motaro / Shao Kahn* (Arcade only). |
+| Shao Kahn's death is not shown at the end of Arcade. | Arcade can be completed and Shao Kahn no longer crashes (checked by Mary, 2026-10-09); his death scene is still to restore. |
+| In a finisher against Reptile, the dizzy opponent walked towards the player instead of standing still. | Seen by Mary 2026-10-09. Not investigated. |
+| One stage (the spiked bridge, against Nightwolf) draws no background. | Seen by Mary 2026-10-09. Not investigated. |
+| The loading screen's Kombat Kode icons are misplaced (two rows; the lower one covers "Loading"). | Seen by Mary 2026-10-09. Not investigated. |
+| Pausing sometimes shows the fight shrunk into a corner behind the pause menu. | Seen by Mary 2026-10-09. Not investigated. |
 | ~~Kitana kept blocking and behaved oddly in the fight against Motaro.~~ | **Fixed** with `t_rst5` (checked by Mary, 2026-10-09). |
 | **Windows only for the launcher.** | Linux/macOS still build from source with CMake. |
 | **Only the iPhone 1.2.59 .ipa works.** | The launcher refuses any other binary (uuid check); the iPad 1.2.56 build has different addresses. |
