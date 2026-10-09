@@ -52,7 +52,8 @@ as 0.0.2.
    the data tables from it, compiles `umk3-game.exe` and copies `res\` out of
    the `.ipa`. About half a minute after the first download.
 3. Pick the 3D resolution (480×320 up to 3840×2560), fullscreen and language;
-   they are saved to `umk3.ini` the moment they change. Press **JUGAR**.
+   they are saved to `umk3.ini` the moment they change. Press **PLAY**. The
+   button at the top right switches the launcher between English and Spanish.
 
 **Golden rule: the game depends only on its own folder.** `umk3-game.exe`
 reads `res\` beside itself and nothing outside it (no `../` lookups, no
