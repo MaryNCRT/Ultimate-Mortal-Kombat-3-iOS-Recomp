@@ -28,8 +28,8 @@ Current state of the project. Written so that someone can pick it up with no pri
 > `get_tsound` ids were checked against the same disassembly and match. No
 > differential test covers `AddNewGameEvents`; the fix is verified by reading
 > the disassembly and by the table layout (`gs_attack` = 2 takes x 9 voice
-> groups). Rebuilt `WORK/alpha-release/umk3-game.exe`; **not yet listened to
-> in game**.
+> groups). Rebuilt `WORK/alpha-release/umk3-game.exe`; **Diego checked it in
+> game and signed it off on his checklist**.
 
 > Latest (2026-10-08 evening, branch `claude/fight-arena-draw`): **the first
 > fight runs and draws.** `--fight kitana kunglao 0` (or the tower) reaches
