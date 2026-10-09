@@ -79,7 +79,9 @@ Every session started by double-click writes `logs/umk3-<date>-<time>.log`
 beside the exe: task changes, loading steps and, on a crash, the addresses to
 symbolise. A log is deleted once the error it shows is fixed.
 
-### Known problems (8 October 2026)
+### Known problems (8 October 2026, alpha 0.0.2)
+
+Release notes: [0.0.2](docs/RELEASE-0.0.2-alpha.md), [0.0.1](docs/RELEASE-0.0.1-alpha.md).
 
 What a player sees today, and what is known about each.
 
@@ -88,9 +90,10 @@ What a player sees today, and what is known about each.
 | **No fight gets past round 1.** | **Fixed for 0.0.2** (checked in game by Diego, 2026-10-08): round 2, the end of the match, Continue and the next fight all work. Five causes, each against armv7: `RoundSummaryUpdate` returned early on `WinnerMessage`/`IsInFinishing` (the binary keeps the timer running, 0x29a64/0x2a2d6); the fade-in after the summary went to `InfoScaleAdd` instead of `FE_FadeAdd` (0x2abaa); `GetScenePointingTo` returned the last node instead of NULL, so `Task_GameDestroy` turned the scene list into a ring and hung (0x5ef4c; `LIME_FreeScene` rewritten from 0x5efe0); `MeshSetLayers` was never initialised, so stage 1 crashed on load; `WinnerMessage` was 2 bytes, not 128. |
 | **The winner text ("X WINS") does not show.** | The announcer says it; the banner is not drawn. Seen by Diego 2026-10-08, not investigated. |
 | **The game crashes easily.** | User report, alpha 0.0.1; `logs/` beside the exe has the addresses. Not investigated as a whole. |
-| **Several texture errors.** | The black fighters/attachments are fixed (row below). Report anything still wrong with the stage and fighter. |
+| **Several texture errors.** | Many fixed in 0.0.2 (black fighters, hats, Sindel's hair -- row below); several remain. Report each with the stage and fighter. |
 | **The camera angles in the fight look wrong.** | **Fixed for 0.0.2** (checked in game by Diego, 2026-10-08): `UpdateArcadeCode` converted each arcade object at `GameObjects[0] + 16*i` instead of `GameObjects + 16*i` (0x21fde-0x22026), so one fighter's 3D position was garbage and the camera, which centres and zooms on both, followed only one. `TrackCam` also passes a difftest against the oracle (0 divergences / 20,000 cases) after keeping its `x + (y - x)` look-at commit. |
-| **The on-screen joystick does not animate.** | Not investigated. |
+| **The on-screen joystick does not animate.** | **Fixed for 0.0.2** (checked in game by Diego, 2026-10-08): `DrawControls` offsets the knob by `JoyOffset[JoystickState]`, a function-local static the binary names `_JoyOffset.11128` (0xde09c). `tools/mkdata.py` did not match the `.NNNN` suffix, so the table was generated as zeros; it now aliases function statics, and the nine offsets come from the image. |
+| **The menus are not complete; some menu sections crash.** | Seen by Diego, 2026-10-08. Not investigated section by section yet. |
 | **Sindel's hair missing; fighters, Kung Lao's hat and props drawn black.** | **Fixed for 0.0.2** (checked in game by Diego, 2026-10-08). Two causes, both against armv7: `LIME_LoadSkin` dropped the second block of a two-block `.skin` (0x6067c, `skin_containerSECOND`), so no character had a second skin -- Sindel's hair; and `LightPlayers` writes the player's texture every frame, `+0x530` or else `anim[0x14]` (0x1c0d8 / 0x1c2d8), where the C only wrote it for an alternate costume -- a fighter or attachment the intro had not textured was drawn with no texture, solid black. |
 | **Sounds play at the wrong moments; character voices missing.** | **Fixed for 0.0.2** (checked in game by Diego, 2026-10-08): `AddNewGameEvents` passed `get_gsound` its voice group and random seed swapped (binary 0x7368a: `get_gsound(arg & 0xf, arg >> 4, limeRand())`), so every attack/jump/grab/hit grunt read past its table and played a stray sound or none. |
 | **Sometimes every fighter in the tower is Jade.** | Probably the tower ladder (`OpponentTowerList`, built by `PopulateTower`): a `--fight` without `Character2Override` loaded Jade. Not investigated further. |

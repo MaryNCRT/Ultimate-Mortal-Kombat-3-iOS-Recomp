@@ -16,6 +16,18 @@ Current state of the project. Written so that someone can pick it up with no pri
 > `umk3.ini` (3D resolution, fullscreen with 3:2 bars, language). Known
 > problems are the README's table; work continues as 0.0.2.
 
+> **0.0.2, fifth fix and release notes (2026-10-08, branch
+> `claude/joystick-anim`): the on-screen joystick moves.** `DrawControls`
+> offsets the knob by `JoyOffset[JoystickState]` (0xde09c, `__TEXT,__const`),
+> which the symbol table names `_JoyOffset.11128` -- a function-local static.
+> `tools/mkdata.py` / `mkglobals.py` never matched the `.NNNN` suffix, so the
+> table was emitted as zeros and the knob sat in the centre. Both now alias a
+> `name.NNNN` symbol to `name` when no real `name` exists; regenerating
+> changes only `JoyOffset`. Diego checked it in game. `docs/RELEASE-0.0.2-
+> alpha.md` lists every 0.0.2 fix and the known problems Diego asked to
+> record: the menus are incomplete, some menu sections crash, and several
+> texture errors remain although many were fixed.
+
 > **0.0.2, fourth fix (2026-10-08, branch `claude/sindel-hair-black-lighting`):
 > Sindel's hair and the black fighters.** Measured first: a per-frame dump of
 > each player's +0x528 showed player 0's texture NULL for the whole fight

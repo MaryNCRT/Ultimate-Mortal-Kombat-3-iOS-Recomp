@@ -58,8 +58,11 @@ es -> EXTRACTED` is obsolete.
    PROGRESS.md.
 4. **Sindel's hair / black fighters -- fixed, checked by Diego.** See
    PROGRESS.md (`LightPlayers` texture default, `LIME_LoadSkin` second block).
-5. **Next, the last item before 0.0.2:** the on-screen joystick does not
-   animate.
+5. **Joystick -- fixed, checked by Diego** (`JoyOffset`, a function-static
+   the generator missed; see PROGRESS.md).
+6. **0.0.2 is ready to package** (`docs/RELEASE-0.0.2-alpha.md`). Still open
+   after it: the menus are incomplete and some sections crash; several
+   texture errors remain; the winner banner is not drawn.
 
 ## Where the project actually stands (2026-10-08)
 
