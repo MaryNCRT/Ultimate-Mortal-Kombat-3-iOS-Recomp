@@ -1,4 +1,4 @@
-ULTIMATE MORTAL KOMBAT 3 - PORT DE PC - 0.0.6b ALPHA
+ULTIMATE MORTAL KOMBAT 3 - PORT DE PC - 0.0.6c ALPHA
 ====================================================
 
 Port nativo para Windows de la version de iOS (1.2.59), hecho por
@@ -71,6 +71,12 @@ CONTROLES
     F11 / F12  ganar / perder la pelea entera (F11 la salta)
   F3 y F6-F12 son las teclas directas; el menu F2 las apaga.
 
+NUEVO EN 0.0.6c
+- Menu debug (F2): nueva fila FINISHER. Durante el FINISH HIM, cuando el
+  rival ya esta mareado, hace que el jugador 1 ejecute un pit/escenario,
+  mercy, fatality 1 o 2, animality, babality o friendship, para ver como
+  se ven sin teclear la combinacion.
+
 NUEVO EN 0.0.6b
 - Los avisos del juego (sin conexion al pedir las clasificaciones,
   "ESTAS SEGURO?" al empezar partida nueva...) salen dentro del juego,
@@ -139,7 +145,15 @@ ARREGLADO EN 0.0.2
 - La melena de Sindel aparece, con su textura.
 - El joystick en pantalla se mueve.
 
-ERRORES CONOCIDOS EN 0.0.6b
+ERRORES CONOCIDOS EN 0.0.6c
+- Las combinaciones tecleadas de los fatalities (y friendships,
+  babalities...) no parecen funcionar; con el menu debug si se ejecutan.
+  Despues de un fatality falta la voz del narrador y el letrero FATALITY.
+- No se ven los objetos aparte de los luchadores: el arpon de Scorpion y
+  los objetos que aparecen en algunos ataques.
+- El sombrero de Kung Lao sale mal en la seleccion de personajes.
+- El modo Supervivencia se cierra al ganar una pelea.
+- El clon de hielo de Sub-Zero tiene texturas mal puestas.
 - Personajes congelados por Sub-Zero salen en blanco.
 - Faltan animaciones en algunos fatalities (el de Sonya no se ve bien).
 - Siguen apareciendo errores de texturas en algunos escenarios y
@@ -167,7 +181,8 @@ Fight keys: W A S D or arrows to move (two at once for diagonals);
 U high punch, I low punch, O block, J high kick, K low kick, L run
 (or numpad 7 8 9 / 4 5 6). P pause, M moves list; Esc no longer quits.
 Player 1 keys can be changed in the launcher (CONTROLS), for the 6- and
-the 5-button layout separately. New in 0.0.6b: the game's alerts and the F2 debug menu are drawn inside
+the 5-button layout separately. New in 0.0.6c: a FINISHER row in the F2 debug menu forces player one's
+finishers during FINISH HIM. New in 0.0.6b: the game's alerts and the F2 debug menu are drawn inside
 the game in the iPhone OS 3 style (they were Windows message boxes, hidden
 in fullscreen). New in 0.0.6: a new launcher (resizable,
 fullscreen, layout tab), Shao Kahn's death and the closing texts at the

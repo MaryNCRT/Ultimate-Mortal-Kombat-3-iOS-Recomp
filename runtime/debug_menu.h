@@ -4,13 +4,15 @@
 
 #define DBG_SCREENS 51                  /* FETaskFunctionList's screens */
 
-enum { DBG_NONE, DBG_FIGHT, DBG_SCREEN, DBG_FIGHT_KEY, DBG_BOSS };
+enum { DBG_NONE, DBG_FIGHT, DBG_SCREEN, DBG_FIGHT_KEY, DBG_BOSS, DBG_FINISHER };
 
 struct dbg_request {
     int what;                           /* DBG_* */
     int a, b, c;                        /* fight: p1, p2, stage; screen: n;
                                            fight key: 0..3 as F9..F12;
-                                           boss: 24 Motaro, 25 Shao Kahn */
+                                           boss: 24 Motaro, 25 Shao Kahn;
+                                           finisher: 0..6, DoASpecial's
+                                           0xd..0x13 */
 };
 
 int  dbg_menu_is_open(void);
@@ -26,6 +28,8 @@ void dbg_menu_draw(void);
  * Arcade boss jumps apply; game_main.c answers both. */
 int  dbg_round_live(void);
 int  dbg_in_arcade(void);
+/* Whether FINISH HIM/HER is up (IsInFinishing), so a finisher can be forced. */
+int  dbg_finishing(void);
 /* The picture behind the bars in fullscreen (port only). */
 int  dbg_frame_load(const char *path);
 void dbg_frame_draw(int ww, int wh);
