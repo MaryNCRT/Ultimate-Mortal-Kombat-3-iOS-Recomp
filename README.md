@@ -26,22 +26,22 @@ You need a legally obtained copy of *Ultimate Mortal Kombat 3* for iOS (version 
 
 ---
 
-## Where the project stands — 8 October 2026 (evening)
+## Where the project stands — 8 October 2026 (night, alpha 0.0.2)
 
 | | |
 |---|---|
 | **Decompiled** | ✅ **All of it.** 2,572 of 2,572 game functions have hand-written C: the LIME engine core (109), the game logic (291) and the fight engine (2,172). Nothing is left to transcribe. |
 | **Verified** | ✅ The engine core passes differential tests against the recompiled original with zero divergences. The fight engine passes a behavioural differential test file by file, with the exceptions listed in [Verification](#how-much-of-it-is-verified) — every one of them a known limit of the test harness, not a known bug. |
 | **Runs natively** | 🔄 The real front end boots in an OpenGL window: menus, text, sounds, music and save files on Windows and Linux. Arcade reaches character select, which draws the 3D fighter with its idle animation ([#53](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/53)), and plays the tower. |
-| **Fight** | 🔄 **The first fight runs by the real path.** After the tower (or straight from the menu with `--fight`, below) the game runs `Task_GameInit` and `Task_GameMain`: the arena draws, both fighters fight with the CPU playing, with the HUD and touch controls, for thousands of frames without a crash ([#54](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/54), [#57](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/57)). |
+| **Fight** | ✅ **Fights play to the end by the real path** (0.0.2): round 1, round 2, the end of the match, `Task_GameDestroy`, Continue and the next fight, with the camera following both fighters and the voices playing. Before that, **the first fight ran by the real path.** After the tower (or straight from the menu with `--fight`, below) the game runs `Task_GameInit` and `Task_GameMain`: the arena draws, both fighters fight with the CPU playing, with the HUD and touch controls, for thousands of frames without a crash ([#54](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/54), [#57](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/57)). |
 | **Playable** | 🔄 **A first fight can be played** from the keyboard (W A S D or arrows; U I O J K L) or the touch controls, with the HUD, the FIGHT overlay and the CPU opponent. Not yet complete: see *Known problems*. The 229 data tables the fight engine reads are extracted from the user's own binary at build time and verified against it ([#46](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/46), [#48](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/48)). |
 
-### How to play (alpha 0.0.1, Windows)
+### How to play (alpha 0.0.2, Windows)
 
-**Alpha 0.0.1 is out:** [Releases](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/releases)
-has `UMK3-PC-0.0.1-alpha.zip` -- the launcher and only the sources the build
-needs, no game data. Its known problems are the table below. Work continues
-as 0.0.2.
+**Alpha 0.0.2** ([notes](docs/RELEASE-0.0.2-alpha.md); 0.0.1 [notes](docs/RELEASE-0.0.1-alpha.md)):
+[Releases](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/releases)
+has the launcher and only the sources the build needs, no game data. Its
+known problems are the table below.
 
 1. Download this repository (or the alpha release) and keep the folder together.
 2. Run **`UMK3-Launcher.exe`** (in a release; from source, build the
@@ -74,6 +74,10 @@ umk3-game.exe --fight kitana kunglao 0
 skips the menus: two fighters by name (as in the select screen, case and
 spaces ignored) or number 0-25, and an arena 0-15. `UMK3_FIGHT=kitana,kunglao,0`
 does the same.
+
+**Test keys:** with `debug_keys=1` in `umk3.ini`, F9 / F10 end the round
+(KO player 2 / player 1) and F11 / F12 win / lose the whole match. Off by
+default.
 
 Every session started by double-click writes `logs/umk3-<date>-<time>.log`
 beside the exe: task changes, loading steps and, on a crash, the addresses to
