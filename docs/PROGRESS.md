@@ -16,6 +16,20 @@ Current state of the project. Written so that someone can pick it up with no pri
 > `umk3.ini` (3D resolution, fullscreen with 3:2 bars, language). Known
 > problems are the README's table; work continues as 0.0.2.
 
+> **0.0.2, fourth fix (2026-10-08, branch `claude/sindel-hair-black-lighting`):
+> Sindel's hair and the black fighters.** Measured first: a per-frame dump of
+> each player's +0x528 showed player 0's texture NULL for the whole fight
+> while `anim->diffuse` was loaded, and `LIME_RenderMeshSingleIndexed` draws
+> a NULL texture as solid black. (1) `LightPlayers` (0x1c0d8-0x1c100,
+> 0x1c2d8) always writes +0x528 = +0x530 ?: anim[0x14] and +0x52c =
+> anim[0x28]; the C only did it when +0x530 was set, so the texture was
+> whatever the intro left -- black fighters, Kung Lao's black hat in select.
+> (2) `LIME_LoadSkin` (armv7 0x60650) loads a second block when the count is
+> 2, chained at +0x00 (`skin_containerSECOND`), from the cursor
+> `LIME_LoadSkin1` now returns (0x6062a); the armv6 reading ignored the count,
+> so Sindel's hair skin never existed. It also frees the file buffer, as the
+> binary does. Mary checked both in game.
+
 > **0.0.2, third fix (2026-10-08, branch `claude/fight-camera`): the
 > camera follows both fighters.** `UpdateArcadeCode` hands each arcade
 > object to `ArcadePosTo3dPos` at `GameObjects + 16*i` -- the value loaded
