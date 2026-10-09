@@ -124,6 +124,20 @@ bool plat_open(const char *title, int width, int height)
     return true;
 }
 
+void plat_fullscreen(void)
+{
+    MONITORINFO mi;
+
+    mi.cbSize = sizeof mi;
+    if (!GetMonitorInfoA(MonitorFromWindow(g_wnd, MONITOR_DEFAULTTOPRIMARY), &mi))
+        return;
+    SetWindowLongA(g_wnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
+    SetWindowPos(g_wnd, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top,
+                 mi.rcMonitor.right - mi.rcMonitor.left,
+                 mi.rcMonitor.bottom - mi.rcMonitor.top,
+                 SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+}
+
 bool plat_poll(void)
 {
     MSG msg;
