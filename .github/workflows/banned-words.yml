@@ -1,0 +1,13 @@
+name: banned words
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No banned word in any tracked file
+        run: python3 tools/check_banned_words.py
