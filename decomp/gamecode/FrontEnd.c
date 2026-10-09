@@ -5536,8 +5536,15 @@ void FE_Task_Main_Menu(void)
  * all three conditions still hold at that moment. `"shaokahn_med"` is the
  * leaderboard key, and 12 is the size of the `stats` blob that rides along.
  */
-extern void **spotlight_SpriteDef;      /* pointer slot */
-extern long  *spotlight_Anim;           /* pointer slot -> 0x00175608 */
+/* The two spotlight tables ARE the data, as explosion_SpriteDef and
+ * explosion_Anim are in GameCode.c: the pointer slots hold the tables'
+ * addresses (0x00175188, 0x00175608), not pointers to them. Declared as
+ * pointers, mkglobals gave the sprite definition an empty 288-word store and
+ * every caller passed the address of the POINTER -- so the eight screens that
+ * draw the spotlights (the Karnage and Survival summaries, Stats, Treasure,
+ * Select Treasure and the rest) read garbage and crashed. */
+extern char  spotlight_SpriteDef[];     /* 0x00175188, 0x480 bytes */
+extern long  spotlight_Anim[];          /* 0x00175608 */
 extern float  GameCounter;              /* pointer slot */
 extern long   KarnageScore;             /* pointer slot -> 0x0014df88 */
 extern long   stats[];                  /* 0x00100fc8 */
@@ -5576,7 +5583,7 @@ void FE_Task_Karnage_Summary(void)
 
     DrawAnimAsSprite(0, 0, FE_WidthScale, 0x80,
                      0x80, (long)(uintptr_t)SpotlightTextures,
-                     (const char *)&spotlight_SpriteDef, spotlight_Anim,
+                     spotlight_SpriteDef, spotlight_Anim,
                      0, (long)GameCounter,
                      0, spotlight_Anim[0] - 1, 1,
                      col);
@@ -5585,7 +5592,7 @@ void FE_Task_Karnage_Summary(void)
                             + -128.0f * FE_WidthScale),
                      0, FE_WidthScale, 0x80,
                      0x80, (long)(uintptr_t)SpotlightTextures,
-                     (const char *)&spotlight_SpriteDef, spotlight_Anim,
+                     spotlight_SpriteDef, spotlight_Anim,
                      1, (long)GameCounter,
                      0, spotlight_Anim[0] - 1, 1,
                      col);
@@ -6112,7 +6119,7 @@ void FE_Task_Stats(void)
 
     DrawAnimAsSprite(0, 0, FE_WidthScale, 0x80,
                      0x80, (long)(uintptr_t)SpotlightTextures,
-                     (const char *)&spotlight_SpriteDef, spotlight_Anim,
+                     spotlight_SpriteDef, spotlight_Anim,
                      0, (long)GameCounter,
                      0, spotlight_Anim[0] - 1, 1, col);
 
@@ -6120,7 +6127,7 @@ void FE_Task_Stats(void)
                             + -128.0f * FE_WidthScale),
                      0, FE_WidthScale, 0x80,
                      0x80, (long)(uintptr_t)SpotlightTextures,
-                     (const char *)&spotlight_SpriteDef, spotlight_Anim,
+                     spotlight_SpriteDef, spotlight_Anim,
                      1, (long)GameCounter,
                      0, spotlight_Anim[0] - 1, 1, col);
 
@@ -6258,7 +6265,7 @@ void FE_Task_Survival_Summary(void)
 
     DrawAnimAsSprite(0, 0, FE_WidthScale, 0x80,
                      0x80, (long)(uintptr_t)SpotlightTextures,
-                     (const char *)&spotlight_SpriteDef, spotlight_Anim,
+                     spotlight_SpriteDef, spotlight_Anim,
                      0, (long)GameCounter,
                      0, spotlight_Anim[0] - 1, 1, col);
 
@@ -6266,7 +6273,7 @@ void FE_Task_Survival_Summary(void)
                             + -128.0f * FE_WidthScale),
                      0, FE_WidthScale, 0x80,
                      0x80, (long)(uintptr_t)SpotlightTextures,
-                     (const char *)&spotlight_SpriteDef, spotlight_Anim,
+                     spotlight_SpriteDef, spotlight_Anim,
                      1, (long)GameCounter,
                      0, spotlight_Anim[0] - 1, 1, col);
 
@@ -10099,7 +10106,7 @@ void FE_Task_VS_Screen(void)
 
     DrawAnimAsSprite(0, 0, FE_WidthScale, 0x80,
                      0x80, (long)(uintptr_t)SpotlightTextures,
-                     (const char *)&spotlight_SpriteDef, spotlight_Anim,
+                     spotlight_SpriteDef, spotlight_Anim,
                      0, (long)GameCounter,
                      0, spotlight_Anim[0] - 1, 1, col);
 
@@ -10107,7 +10114,7 @@ void FE_Task_VS_Screen(void)
                             + FE_WidthScale * -128.0f),
                      0, FE_WidthScale, 0x80,
                      0x80, (long)(uintptr_t)SpotlightTextures,
-                     (const char *)&spotlight_SpriteDef, spotlight_Anim,
+                     spotlight_SpriteDef, spotlight_Anim,
                      1, (long)GameCounter,
                      0, spotlight_Anim[0] - 1, 1, col);
 
@@ -10364,7 +10371,7 @@ void FE_Task_Treasure(void)
 
     DrawAnimAsSprite(0, 0, FE_WidthScale, 0x80,
                      0x80, (long)(uintptr_t)SpotlightTextures,
-                     (const char *)&spotlight_SpriteDef, spotlight_Anim,
+                     spotlight_SpriteDef, spotlight_Anim,
                      0, (long)GameCounter,
                      0, spotlight_Anim[0] - 1, 1, col);
 
@@ -10372,7 +10379,7 @@ void FE_Task_Treasure(void)
                             + FE_WidthScale * -128.0f),
                      0, FE_WidthScale, 0x80,
                      0x80, (long)(uintptr_t)SpotlightTextures,
-                     (const char *)&spotlight_SpriteDef, spotlight_Anim,
+                     spotlight_SpriteDef, spotlight_Anim,
                      1, (long)GameCounter,
                      0, spotlight_Anim[0] - 1, 1, col);
 
@@ -10650,7 +10657,7 @@ void FE_Task_Enter_Kode(void)
 
     DrawAnimAsSprite(0, 0, FE_WidthScale, 0x80,
                      0x80, (long)(uintptr_t)SpotlightTextures,
-                     (const char *)&spotlight_SpriteDef, spotlight_Anim,
+                     spotlight_SpriteDef, spotlight_Anim,
                      0, (long)GameCounter,
                      0, spotlight_Anim[0] - 1, 1, col);
 
@@ -10658,7 +10665,7 @@ void FE_Task_Enter_Kode(void)
                             + FE_WidthScale * -128.0f),
                      0, FE_WidthScale, 0x80,
                      0x80, (long)(uintptr_t)SpotlightTextures,
-                     (const char *)&spotlight_SpriteDef, spotlight_Anim,
+                     spotlight_SpriteDef, spotlight_Anim,
                      1, (long)GameCounter,
                      0, spotlight_Anim[0] - 1, 1, col);
 
@@ -11900,7 +11907,7 @@ void FE_Task_Select_Treasure(void)
 
     DrawAnimAsSprite(0, 0, FE_WidthScale, 0x80,
                      0x80, (long)(uintptr_t)SpotlightTextures,
-                     (const char *)&spotlight_SpriteDef, spotlight_Anim,
+                     spotlight_SpriteDef, spotlight_Anim,
                      0, (long)GameCounter,
                      0, spotlight_Anim[0] - 1, 1, col);
 
@@ -11908,7 +11915,7 @@ void FE_Task_Select_Treasure(void)
                             + FE_WidthScale * -128.0f),
                      0, FE_WidthScale, 0x80,
                      0x80, (long)(uintptr_t)SpotlightTextures,
-                     (const char *)&spotlight_SpriteDef, spotlight_Anim,
+                     spotlight_SpriteDef, spotlight_Anim,
                      1, (long)GameCounter,
                      0, spotlight_Anim[0] - 1, 1, col);
 
@@ -12252,7 +12259,7 @@ void FE_Task_Multiplayer_Versus_Screen(void)
     if (otherPlayerPaused == 0) {
         DrawAnimAsSprite(0, 0, FE_WidthScale, 0x80,
                          0x80, (long)(uintptr_t)SpotlightTextures,
-                         (const char *)&spotlight_SpriteDef, spotlight_Anim,
+                         spotlight_SpriteDef, spotlight_Anim,
                          0, (long)GameCounter,
                          0, spotlight_Anim[0] - 1, 1, col);
 
@@ -12260,7 +12267,7 @@ void FE_Task_Multiplayer_Versus_Screen(void)
                                 + FE_WidthScale * -128.0f),
                          0, FE_WidthScale, 0x80,
                          0x80, (long)(uintptr_t)SpotlightTextures,
-                         (const char *)&spotlight_SpriteDef, spotlight_Anim,
+                         spotlight_SpriteDef, spotlight_Anim,
                          1, (long)GameCounter,
                          0, spotlight_Anim[0] - 1, 1, col);
     }
