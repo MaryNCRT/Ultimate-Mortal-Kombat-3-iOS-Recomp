@@ -4142,7 +4142,7 @@ float fabsf(float x);
  *
  * Four flags on the player pick which texture goes into `p[0x528]`:
  *
- *      +0x530 non-null   that texture directly, and p[0x52c] = anim[0x28]
+ *      always            +0x530 if non-null, else anim[0x14]; p[0x52c] = anim[0x28]
  *      +0x538 set        anim[0x1c], and all four corners set to 1.0
  *      +0x53c set        `_WhiteTexture`, corners to 1.0
  *      +0x534 set        anim[0x18], corners to 1.0
@@ -4225,8 +4225,16 @@ void LightPlayers(void)
             const long *anim = (const long *)(uintptr_t)
                                (unsigned long)pw[1];
 
-            if (anim != 0 && pw[0x530 / 4] != 0) {
-                pw[0x528 / 4] = pw[0x530 / 4];
+            /* 0x1c0d8-0x1c100 and 0x1c2d8: with a character loaded the
+             * texture is ALWAYS written -- the alternate costume at +0x530
+             * when there is one, else anim[0x14], the character's own sheet.
+             * Read as "only when +0x530 is set", +0x528 kept whatever the
+             * intro left (nothing, for player one when the intro never
+             * reached IntroCamCount 2), and LIME_RenderMeshSingleIndexed
+             * drew the fighter with no texture: solid black. */
+            if (anim != 0) {
+                pw[0x528 / 4] = (pw[0x530 / 4] != 0) ? pw[0x530 / 4]
+                                                     : anim[0x14 / 4];
                 pw[0x52c / 4] = anim[0x28 / 4];
             }
             if (pw[0x538 / 4] != 0) {
