@@ -375,6 +375,112 @@ int dbg_menu_tick(struct dbg_request *rq)
     return rq->what != DBG_NONE;
 }
 
+/* A row's value, "" for none. */
+static void row_value(int i, char *v, size_t n)
+{
+    v[0] = 0;
+    switch (i) {
+    case ROW_P1: snprintf(v, n, "< %2d %s >", g_p1, CharacterNames[g_p1]); break;
+    case ROW_P2: snprintf(v, n, "< %2d %s >", g_p2, CharacterNames[g_p2]); break;
+    case ROW_STAGE: snprintf(v, n, "< %2d %s >", g_stage, stage_name(g_stage)); break;
+    case ROW_SCREEN:
+        snprintf(v, n, "< %2d %s >", g_screen, FETaskNames[g_screen] + 8);
+        break;
+    case ROW_KEYS:
+        snprintf(v, n, "< %s >  F3 F6-F12", g_keys ? "ON" : "OFF");
+        break;
+    case ROW_INFO: snprintf(v, n, "< %s >", g_info ? "ON" : "OFF"); break;
+    }
+}
+
+/* The menu in the iPhone OS 3 alert dress the in-game alerts wear
+ * (plat_ui_menu, runtime/platform/win32_gl.c), drawn at the game view's
+ * own pixel size so the text is sharp. The box is redrawn only when
+ * something in it changes. 0 when the backend has no such drawing; the
+ * caller then uses the 5x7 font below. */
+static int draw_ios(const char *const *label)
+{
+    static GLuint tex;
+    static char last[2048];
+    static int tw, th;
+    static float ts;
+    char vals[N_ROWS][64], sig[2048];
+    const char *vp[N_ROWS];
+    int en[N_ROWS], i, n = 0;
+    GLint view[4];
+    float s;
+
+    glGetIntegerv(GL_VIEWPORT, view);
+    s = view[2] / 480.0f;
+    if (s <= 0)
+        return 0;
+    for (i = 0; i < N_ROWS; i++) {
+        row_value(i, vals[i], sizeof vals[i]);
+        vp[i] = vals[i];
+        en[i] = row_enabled(i);
+        n += snprintf(sig + n, sizeof sig - n, "%s%d|", vals[i], en[i]);
+        if (n >= (int)sizeof sig - 80)
+            break;
+    }
+    snprintf(sig + n, sizeof sig - n, "%d %.3f", g_row, s);
+
+    if (!tex || strcmp(sig, last) != 0) {
+        int w, h;
+        unsigned char *px = plat_ui_menu("UMK3 DEBUG MENU", label, vp, en,
+                                         N_ROWS, g_row,
+                                         "ARROWS MOVE   LEFT/RIGHT CHANGE   ENTER PICK   F2 CLOSE",
+                                         s, &w, &h);
+        if (!px)
+            return 0;
+        if (!tex)
+            glGenTextures(1, &tex);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA,
+                     GL_UNSIGNED_BYTE, px);
+        free(px);
+        tw = w;
+        th = h;
+        ts = s;
+        strcpy(last, sig);
+    }
+
+    begin_2d();
+    if (g_shot) {                       /* the frozen frame, dimmed */
+        glEnable(GL_TEXTURE_2D);
+        glBindTexture(GL_TEXTURE_2D, g_shot);
+        glColor4f(0.6f, 0.6f, 0.6f, 1.0f);
+        glBegin(GL_QUADS);                      /* glReadPixels is bottom-up */
+        glTexCoord2f(0, 1); glVertex2f(0, 0);
+        glTexCoord2f(1, 1); glVertex2f(480, 0);
+        glTexCoord2f(1, 0); glVertex2f(480, 320);
+        glTexCoord2f(0, 0); glVertex2f(0, 320);
+        glEnd();
+    }
+    {
+        float w = tw / ts, h = th / ts;
+        float x = (480 - w) * 0.5f, y = (320 - h) * 0.5f;
+        glEnable(GL_TEXTURE_2D);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);    /* premultiplied */
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glColor4f(1, 1, 1, 1);
+        glBegin(GL_QUADS);
+        glTexCoord2f(0, 0); glVertex2f(x, y);
+        glTexCoord2f(1, 0); glVertex2f(x + w, y);
+        glTexCoord2f(1, 1); glVertex2f(x + w, y + h);
+        glTexCoord2f(0, 1); glVertex2f(x, y + h);
+        glEnd();
+        glDisable(GL_TEXTURE_2D);
+    }
+    end_2d();
+    return 1;
+}
+
 void dbg_menu_draw(void)
 {
     static const char *const label[N_ROWS] = {
@@ -387,6 +493,8 @@ void dbg_menu_draw(void)
     char v[64];
     int i;
 
+    if (draw_ios(label))
+        return;
     begin_2d();
     if (g_shot) {
         glEnable(GL_TEXTURE_2D);

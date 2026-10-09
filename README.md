@@ -26,7 +26,7 @@ You need a legally obtained copy of *Ultimate Mortal Kombat 3* for iOS (version 
 
 ---
 
-## Where the project stands — 9 October 2026 (alpha 0.0.6)
+## Where the project stands — 9 October 2026 (alpha 0.0.6b)
 
 | | |
 |---|---|
@@ -34,11 +34,11 @@ You need a legally obtained copy of *Ultimate Mortal Kombat 3* for iOS (version 
 | **Verified** | ✅ The engine core passes differential tests against the recompiled original with zero divergences. The fight engine passes a behavioural differential test file by file, with the exceptions listed in [Verification](#how-much-of-it-is-verified) — every one of them a known limit of the test harness, not a known bug. |
 | **Runs natively** | ✅ The real game runs natively on Windows (Linux/macOS from source): the front end with its 51 screens, Arcade with the tower to the end of the ladder, fights, sound, music and saves. How it fits together: [docs/HOW-THE-GAME-WORKS.md](docs/HOW-THE-GAME-WORKS.md). |
 | **Fight** | ✅ **Fights play to the end by the real path** (0.0.2): round 1, round 2, the end of the match, `Task_GameDestroy`, Continue and the next fight, with the camera following both fighters and the voices playing. Before that, **the first fight ran by the real path.** After the tower (or straight from the menu with `--fight`, below) the game runs `Task_GameInit` and `Task_GameMain`: the arena draws, both fighters fight with the CPU playing, with the HUD and touch controls, for thousands of frames without a crash ([#54](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/54), [#57](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/57)). |
-| **Playable** | 🔄 **Alpha 0.0.6** ([release](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/releases)): menus, Arcade to Shao Kahn and the treasure screen, whole fights, from the keyboard (rebindable in the launcher), a gamepad or the touch controls, with a debug menu (F2). Still wrong: see *Known problems*. The fight engine's 229 data tables are extracted from the user's own binary at build time and verified against it. |
+| **Playable** | 🔄 **Alpha 0.0.6b** ([release](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/releases)): menus, Arcade to Shao Kahn and the treasure screen, whole fights, from the keyboard (rebindable in the launcher), a gamepad or the touch controls, with a debug menu (F2). Still wrong: see *Known problems*. The fight engine's 229 data tables are extracted from the user's own binary at build time and verified against it. |
 
-### How to play (alpha 0.0.6, Windows)
+### How to play (alpha 0.0.6b, Windows)
 
-**Alpha 0.0.6** ([notes](docs/RELEASE-0.0.6-alpha.md); earlier: [0.0.5](docs/RELEASE-0.0.5-alpha.md), [0.0.4](docs/RELEASE-0.0.4-alpha.md), [0.0.3](docs/RELEASE-0.0.3-alpha.md), [0.0.2](docs/RELEASE-0.0.2-alpha.md), [0.0.1](docs/RELEASE-0.0.1-alpha.md)):
+**Alpha 0.0.6b** ([notes](docs/RELEASE-0.0.6b-alpha.md); earlier: [0.0.6](docs/RELEASE-0.0.6-alpha.md), [0.0.5](docs/RELEASE-0.0.5-alpha.md), [0.0.4](docs/RELEASE-0.0.4-alpha.md), [0.0.3](docs/RELEASE-0.0.3-alpha.md), [0.0.2](docs/RELEASE-0.0.2-alpha.md), [0.0.1](docs/RELEASE-0.0.1-alpha.md)):
 [Releases](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/releases)
 has the launcher and only the sources the build needs, no game data. Its
 known problems are the table below.
@@ -103,9 +103,9 @@ Every session started by double-click writes `logs/umk3-<date>-<time>.log`
 beside the exe: task changes, loading steps and, on a crash, the addresses to
 symbolise. A log is deleted once the error it shows is fixed.
 
-### Known problems (9 October 2026, alpha 0.0.6)
+### Known problems (9 October 2026, alpha 0.0.6b)
 
-Release notes: [0.0.6](docs/RELEASE-0.0.6-alpha.md), [0.0.5](docs/RELEASE-0.0.5-alpha.md), [0.0.4](docs/RELEASE-0.0.4-alpha.md), [0.0.3](docs/RELEASE-0.0.3-alpha.md), [0.0.2](docs/RELEASE-0.0.2-alpha.md), [0.0.1](docs/RELEASE-0.0.1-alpha.md).
+Release notes: [0.0.6b](docs/RELEASE-0.0.6b-alpha.md), [0.0.6](docs/RELEASE-0.0.6-alpha.md), [0.0.5](docs/RELEASE-0.0.5-alpha.md), [0.0.4](docs/RELEASE-0.0.4-alpha.md), [0.0.3](docs/RELEASE-0.0.3-alpha.md), [0.0.2](docs/RELEASE-0.0.2-alpha.md), [0.0.1](docs/RELEASE-0.0.1-alpha.md).
 
 What a player sees today, and what is known about each.
 
@@ -131,6 +131,7 @@ What a player sees today, and what is known about each.
 | ~~Shao Kahn may be crashing the game.~~ | **Fixed** (checked by Mary, 2026-10-09). `t_rst5` (0x473d0), the hit-reaction dispatcher, stored the bosses' reaction tables as raw iOS addresses (0x17b8d0 `motaro_branches`, 0x17b884 `sk_branches`) and read them: the first reaction against Motaro or Shao Kahn crashed or ran garbage. A 4,000-tick fight against each now runs clean. |
 | ~~The winner's name ("X WINS") is still not shown.~~ | Shown (seen in 0.0.6 tests: "KITANA VENCE" at the end of Arcade, "SMOKE VENCE" in a fight). |
 | The menu is not complete (target: 100%), and some modes are missing. | Not inventoried yet. |
+| ~~The game's alerts (no connection, "are you sure?") are Windows message boxes, hidden behind the game in fullscreen.~~ | **Fixed for 0.0.6b** (checked by Mary, 2026-10-09). `plat_ask` draws them inside the game window as an iPhone OS 3 `UIAlertView`: on the device `+[modalAlert askFull:textOK:textCANCEL:]` (0xb5444) passes the whole text as the title, message nil, OK as the cancel button (index 0, left) and CANCEL as the other (index 1, right), and blocks in a run loop; the port blocks the same way, over a copy of the frame. The F2 debug menu wears the same style (`plat_ui_menu`), and it no longer clears the fullscreen frame picture (`glClear` ignores the viewport). |
 | The game's ads open in separate windows, which forces leaving fullscreen. | Wanted: show them in windows drawn inside the game, in the same executable. |
 | **Reported by Mary 2026-10-09, after the debug menu:** | |
 | ~~The end of Arcade does not go on to the unlockables screen~~ (it crashed). | **Fixed** (checked by Mary, 2026-10-09). `FE_Task_Select_Treasure` and the seven other screens that draw the spotlights: `spotlight_SpriteDef` / `spotlight_Anim` are the tables themselves (0x175188, 0x175608), not pointers -- the port had an empty store; `DrawAnimAsSprite` (0x1c8bc) takes the texture from its sixth argument (0x1c956), computes `abs(counter) % frames` (0x1c8f6) and draws `record[2..3]` as the size with corner+extent UVs (0x1ca00). Menu textures now load the `.pvr` first, as the device does: `FE_METAL_BG.PNG` holds its art in a 480x320 corner and drew a white L. |
@@ -341,7 +342,7 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 | Native PC platform layer (161 fn to rewrite) | 17% | 27% | `███░░░░░░░` |
 | EA SDK stubs (27 fn the game calls) | 5% | 100% | `██████████` |
 
-**87.59% of the total estimated effort. Alpha 0.0.6 is playable:** whole
+**87.59% of the total estimated effort. Alpha 0.0.6b is playable:** whole
 fights by the real path, with known problems (see above).
 
 **Read that number for what it measures, and for what it leaves out.** It
