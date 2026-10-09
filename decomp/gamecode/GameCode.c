@@ -9039,9 +9039,15 @@ void UpdateArcadeCode(int *joy1, int *joy2)
         HUDANIM_Update();
 
         /* ---- every object's world position, into its player slot ---- */
-        if (GameObjects[0]) {
+        /* 0x21fde-0x22026: the object is `GameObjects + 16*i` -- the
+         * VALUE loaded from 0x14dfec, both for the first call (fp) and the
+         * rest (literal -> 0x14dfec, plus (i+1)*16). Written as
+         * GameObjects[0] it read a pointer out of object 0's own bytes, so
+         * only one fighter's 3D position was right and the camera followed
+         * one player. */
+        if (GameObjects) {
             for (i = 0; i < ARCADE_OBJECTS; i++)
-                ArcadePosTo3dPos((Mk3Obj_t *)((char *)GameObjects[0]
+                ArcadePosTo3dPos((Mk3Obj_t *)((char *)GameObjects
                                               + i * ARCADE_OBJECT_STRIDE),
                                  (float *)((char *)Players
                                            + i * ARCADE_PLAYER_STRIDE + 8), 0);
@@ -9184,8 +9190,8 @@ void UpdateArcadeCode(int *joy1, int *joy2)
  * `SnapCam` is cleared on every exit, so it is a one-shot.
  *
  * The direct commit writes the look-at as `x + (y - x)` -- **an ease with the
- * weight gone**, which the compiler could not fold because it is float. It is
- * an assignment, and it is written as one below.
+ * weight gone**, which the compiler could not fold because it is float -- and
+ * it is kept that way below, because in float it is not the same as `y`.
  */
 
 #define TRACKCAM_DIST_MIN     6.0f
@@ -9374,10 +9380,13 @@ void TrackCam(const float *a, const float *b, long withZ)
         Camera[1] = NewCamera[1];
         Camera[2] = NewCamera[2];
 
-        /* written as x + (y - x) in the original -- an ease with no weight */
-        CameraLookAt[0] = NewCameraLookAt[0];
-        CameraLookAt[1] = NewCameraLookAt[1];
-        CameraLookAt[2] = NewCameraLookAt[2];
+        /* x + (y - x), as the original computes it -- an ease with no
+         * weight, and NOT the same float as y: the difftest against the
+         * oracle (work/, 2026-10-08) showed 1-ulp differences when this was
+         * written as a plain assignment. */
+        CameraLookAt[0] = CameraLookAt[0] + (NewCameraLookAt[0] - CameraLookAt[0]);
+        CameraLookAt[1] = CameraLookAt[1] + (NewCameraLookAt[1] - CameraLookAt[1]);
+        CameraLookAt[2] = CameraLookAt[2] + (NewCameraLookAt[2] - CameraLookAt[2]);
     }
 
     SnapCam = 0;                        /* a one-shot, cleared on every exit */
