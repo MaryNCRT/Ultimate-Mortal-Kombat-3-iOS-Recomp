@@ -54,7 +54,7 @@ const T = {
         mPlay: 'PLAY', mQuit: 'QUIT',
         dBuild: 'The game is compiled on your PC from your own UMK3 iPhone .ipa (1.2.59).',
         dVideo: 'Resolution, fullscreen, game language and the bars frame.',
-        dControls: 'Player 1 keys, for the 5- and 6-button layouts, and debug mode's keys.',
+        dControls: 'Player 1 keys, for the 5- and 6-button layouts, and debug mode\'s keys.',
         dPlay: 'Starts Ultimate Mortal Kombat 3, with or without the intros and debug mode.',
         dQuit: 'Closes the launcher.',
         hBuild: 'COMPILE YOUR .IPA', ipaLbl: 'YOUR UMK3 .IPA (IPHONE 1.2.59)',
