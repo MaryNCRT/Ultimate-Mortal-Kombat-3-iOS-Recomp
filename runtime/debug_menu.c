@@ -2,12 +2,23 @@
  * debug_menu.c -- the in-game debug menu (F2), a test aid, not part of the game.
  *
  * Only there when umk3.ini says debug_keys=1 (the launcher's "Debug mode"
- * box). F2 opens it over the game, which freezes underneath -- the frame it
- * was showing stays as a dimmed backdrop and GameCodeMain is not called while
- * the menu is up. Arrows or W/S move, left/right change a value, Enter picks,
- * F2 closes.
+ * box, in PLAY). F2 opens it over the game, which freezes underneath -- the
+ * frame it was showing stays as a dimmed backdrop and GameCodeMain is not
+ * called while the menu is up. Arrows or W/S move, left/right change a
+ * value, Enter picks, Q / E turn the page, F2 closes; every one of those
+ * debug keys can be rebound in the launcher's CONTROLS (key_dbg_* in
+ * umk3.ini). The mouse works too: a click on the title turns the page, on a
+ * value row its left half lowers the value and its right half raises it,
+ * on any other row it picks.
+ *
+ * Four pages: FIGHTERS (the two fighters, their palettes, the stage, START
+ * FIGHT), DURING THE FIGHT (round and match keys, FINISHER, the Arcade
+ * bosses), MENUS (any screen, the main menu), OPTIONS (direct keys, info).
  *
  *     FIGHTER 1 / FIGHTER 2   any of CharacterNames' 26, the bosses included
+ *     PALETTE 1 / PALETTE 2   AUTO (the game's rule: the alternate only for
+ *                             the second of two identical fighters), 1 or 2,
+ *                             for every fight loaded from then on
  *     STAGE                   a Level_Info row, 0..15
  *     START FIGHT             from the menus or from inside a fight
  *     SCREEN                  any of the front end's 51 screens
@@ -235,14 +246,42 @@ static void grab(int vx, int vy, int vw, int vh)
 /* ----------------------------------------------------------------- menu */
 
 enum {
-    ROW_P1, ROW_P2, ROW_STAGE, ROW_FIGHT, ROW_SCREEN, ROW_MAIN,
+    ROW_P1, ROW_PAL1, ROW_P2, ROW_PAL2, ROW_STAGE, ROW_FIGHT,
+    ROW_SCREEN, ROW_MAIN,
     ROW_WIN_ROUND, ROW_LOSE_ROUND, ROW_WIN_MATCH, ROW_LOSE_MATCH,
     ROW_FINISHER,
     ROW_MOTARO, ROW_SK,
     ROW_KEYS, ROW_INFO, ROW_CLOSE, N_ROWS
 };
 
-static int g_open, g_want_open, g_row;
+/* One page per kind of thing, Q / E (the launcher can rebind them) or a
+ * click on the title to turn; CLOSE ends every page. */
+#define MAX_PAGE_ROWS 10
+static const struct {
+    const char *name;
+    int n;
+    int rows[MAX_PAGE_ROWS];
+} k_pages[] = {
+    { "FIGHTERS", 7,
+      { ROW_P1, ROW_PAL1, ROW_P2, ROW_PAL2, ROW_STAGE, ROW_FIGHT, ROW_CLOSE } },
+    { "DURING THE FIGHT", 8,
+      { ROW_WIN_ROUND, ROW_LOSE_ROUND, ROW_WIN_MATCH, ROW_LOSE_MATCH,
+        ROW_FINISHER, ROW_MOTARO, ROW_SK, ROW_CLOSE } },
+    { "MENUS", 3, { ROW_SCREEN, ROW_MAIN, ROW_CLOSE } },
+    { "OPTIONS", 3, { ROW_KEYS, ROW_INFO, ROW_CLOSE } },
+};
+#define N_PAGES (int)(sizeof k_pages / sizeof k_pages[0])
+enum { PAGE_FIGHTERS, PAGE_FIGHT, PAGE_MENUS, PAGE_OPTIONS };
+
+static const char *const k_label[N_ROWS] = {
+    "FIGHTER 1", "PALETTE 1", "FIGHTER 2", "PALETTE 2", "STAGE",
+    "START FIGHT", "SCREEN", "MAIN MENU", "WIN ROUND", "LOSE ROUND",
+    "WIN MATCH (SKIP FIGHT)", "LOSE MATCH", "FINISHER (IN FINISH HIM)",
+    "ARCADE: NEXT IS MOTARO", "ARCADE: NEXT IS SHAO KAHN",
+    "DIRECT KEYS", "INFO LINE", "CLOSE"
+};
+
+static int g_open, g_want_open, g_page, g_sel;
 static int g_p1 = 15, g_p2 = 25, g_stage, g_screen;   /* Kitana vs Shao Kahn */
 static int g_info;
 static int g_fin = 2;                   /* FATALITY 1 */
@@ -250,8 +289,18 @@ static const char *const k_fin[7] = {
     "PIT / STAGE", "MERCY", "FATALITY 1", "FATALITY 2", "ANIMALITY",
     "BABALITY", "FRIENDSHIP"
 };
-static int g_keys = 1;                 /* the direct keys F3, F6..F12 */
+static int g_keys = 1;                 /* the direct keys (F3, F6..F12) */
 static int g_task;                      /* CurrentTask while open */
+
+/* Each fighter's colours for the fights loaded from now on: 0 the game's
+ * own rule (palette 2 only for the second of two identical fighters), 1 the
+ * first palette, 2 the alternate. LoadLevelCharacters reads it (port only). */
+int DbgPalette[2];
+static const char *const k_pal[3] = { "AUTO", "1", "2 (ALTERNATE)" };
+
+/* Where the box was last drawn, in the 480x320 space, for the mouse. */
+static float g_bx, g_by, g_bw, g_top, g_rowh, g_title0;
+static int   g_mouse_was;
 
 int dbg_menu_is_open(void) { return g_open; }
 int dbg_info_on(void)      { return g_info; }
@@ -267,6 +316,8 @@ void dbg_menu_toggle(void)
         g_want_open = 1;                /* opened after the next frame */
 }
 
+static int row_enabled(int row);
+
 void dbg_menu_after_frame(int vx, int vy, int vw, int vh, int task, int fe)
 {
     if (!g_want_open)
@@ -275,8 +326,14 @@ void dbg_menu_after_frame(int vx, int vy, int vw, int vh, int task, int fe)
     grab(vx, vy, vw, vh);
     g_open = 1;
     g_task = task;
+    g_mouse_was = 1;                    /* the click that opened it is not a pick */
     if (fe >= 0 && fe < DBG_SCREENS)
         g_screen = fe;
+    /* in a fight that can take a fight key or a finisher, start there */
+    if (task == 6 && (row_enabled(ROW_WIN_ROUND) || row_enabled(ROW_FINISHER))) {
+        g_page = PAGE_FIGHT;
+        g_sel = row_enabled(ROW_FINISHER) ? 4 : 0;
+    }
     printf("debug menu: open (task %d, screen %d)\n", task, fe);
 }
 
@@ -307,6 +364,40 @@ static int row_enabled(int row)
 
 static int wrap(int v, int n) { return (v % n + n) % n; }
 
+static int has_value(int row)
+{
+    switch (row) {
+    case ROW_P1: case ROW_PAL1: case ROW_P2: case ROW_PAL2: case ROW_STAGE:
+    case ROW_SCREEN: case ROW_FINISHER: case ROW_KEYS: case ROW_INFO:
+        return 1;
+    }
+    return 0;
+}
+
+static void change(int row, int d)
+{
+    switch (row) {
+    case ROW_P1:       g_p1 = wrap(g_p1 + d, N_FIGHTERS); break;
+    case ROW_P2:       g_p2 = wrap(g_p2 + d, N_FIGHTERS); break;
+    case ROW_PAL1:     DbgPalette[0] = wrap(DbgPalette[0] + d, 3); break;
+    case ROW_PAL2:     DbgPalette[1] = wrap(DbgPalette[1] + d, 3); break;
+    case ROW_STAGE:    g_stage = wrap(g_stage + d, N_STAGES); break;
+    case ROW_SCREEN:   g_screen = wrap(g_screen + d, DBG_SCREENS); break;
+    case ROW_FINISHER: g_fin = wrap(g_fin + d, 7); break;
+    case ROW_INFO:     g_info = !g_info; break;
+    case ROW_KEYS:     g_keys = !g_keys; break;
+    }
+}
+
+static void turn_page(int d)
+{
+    g_page = wrap(g_page + d, N_PAGES);
+    g_sel = 0;
+    while (g_sel < k_pages[g_page].n - 1
+           && !row_enabled(k_pages[g_page].rows[g_sel]))
+        g_sel++;                        /* CLOSE, last, is always on */
+}
+
 /* Key edges, read here so the menu never reaches the fight's input. */
 static int edge(int k, int *was)
 {
@@ -315,44 +406,73 @@ static int edge(int k, int *was)
     return hit;
 }
 
+/* The mouse: game_main.c passes the pointer in the 480x320 space each
+ * frame the menu is open. A click on the title turns the page (left half
+ * back, right half on); on a row with a value, the left half lowers it and
+ * the right half raises it; on any other row it picks. */
+static float g_mx, g_my;
+static int   g_mdown;
+
+void dbg_menu_mouse(float x, float y, int down)
+{
+    g_mx = x;
+    g_my = y;
+    g_mdown = down;
+}
+
 int dbg_menu_tick(struct dbg_request *rq)
 {
-    static int was[9];
-    int up, down, left, right, ok;
+    static int was[11];
+    int up, down, left, right, ok, prev, next, row, click;
 
     up    = edge(PK_UP, &was[0])    | edge(PK_P2_UP, &was[1]);
     down  = edge(PK_DOWN, &was[2])  | edge(PK_P2_DOWN, &was[3]);
     left  = edge(PK_LEFT, &was[4])  | edge(PK_P2_LEFT, &was[5]);
     right = edge(PK_RIGHT, &was[6]) | edge(PK_P2_RIGHT, &was[7]);
     ok    = edge(PK_OK, &was[8]);
+    prev  = edge(PK_DBG_PAGE_PREV, &was[9]);
+    next  = edge(PK_DBG_PAGE_NEXT, &was[10]);
+    click = g_mdown && !g_mouse_was;
+    g_mouse_was = g_mdown;
 
     memset(rq, 0, sizeof *rq);
+    if (prev || next)
+        turn_page(next ? 1 : -1);
+
+    if (click && g_rowh > 0 && g_mx >= g_bx && g_mx < g_bx + g_bw) {
+        float mid = g_bx + g_bw * 0.5f;
+        if (g_my >= g_title0 && g_my < g_top) {
+            turn_page(g_mx < mid ? -1 : 1);
+        } else if (g_my >= g_top) {
+            int i = (int)((g_my - g_top) / g_rowh);
+            if (i < k_pages[g_page].n
+                && row_enabled(k_pages[g_page].rows[i])) {
+                g_sel = i;
+                if (has_value(k_pages[g_page].rows[i]))
+                    change(k_pages[g_page].rows[i], g_mx < mid ? -1 : 1);
+                else
+                    ok = 1;
+            }
+        }
+    }
+
     if (up || down) {
-        int i;
-        for (i = 0; i < N_ROWS; i++) {          /* skip the greyed rows */
-            g_row = wrap(g_row + (up ? -1 : 1), N_ROWS);
-            if (row_enabled(g_row))
+        int i, n = k_pages[g_page].n;
+        for (i = 0; i < n; i++) {               /* skip the greyed rows */
+            g_sel = wrap(g_sel + (up ? -1 : 1), n);
+            if (row_enabled(k_pages[g_page].rows[g_sel]))
                 break;
         }
     }
-    if (left || right) {
-        int d = right ? 1 : -1;
-        switch (g_row) {
-        case ROW_P1:     g_p1 = wrap(g_p1 + d, N_FIGHTERS); break;
-        case ROW_P2:     g_p2 = wrap(g_p2 + d, N_FIGHTERS); break;
-        case ROW_STAGE:  g_stage = wrap(g_stage + d, N_STAGES); break;
-        case ROW_SCREEN: g_screen = wrap(g_screen + d, DBG_SCREENS); break;
-        case ROW_FINISHER: g_fin = wrap(g_fin + d, 7); break;
-        case ROW_INFO:   g_info = !g_info; break;
-        case ROW_KEYS:   g_keys = !g_keys; break;
-        }
-    }
-    if (!ok || !row_enabled(g_row))
+    row = k_pages[g_page].rows[g_sel];
+    if (left || right)
+        change(row, right ? 1 : -1);
+    if (!ok || !row_enabled(row))
         return 0;
 
-    switch (g_row) {
-    case ROW_P1: case ROW_P2: case ROW_STAGE:
-        g_row = ROW_FIGHT;                      /* Enter on a value: go on */
+    switch (row) {
+    case ROW_P1: case ROW_PAL1: case ROW_P2: case ROW_PAL2: case ROW_STAGE:
+        g_sel = 5;                              /* Enter on a value: go on */
         return 0;
     case ROW_FIGHT:
         rq->what = DBG_FIGHT;
@@ -369,7 +489,7 @@ int dbg_menu_tick(struct dbg_request *rq)
     case ROW_WIN_ROUND: case ROW_LOSE_ROUND:
     case ROW_WIN_MATCH: case ROW_LOSE_MATCH:
         rq->what = DBG_FIGHT_KEY;               /* 0..3, as F9..F12 */
-        rq->a = g_row - ROW_WIN_ROUND;
+        rq->a = row - ROW_WIN_ROUND;
         break;
     case ROW_FINISHER:
         rq->what = DBG_FINISHER;
@@ -377,13 +497,10 @@ int dbg_menu_tick(struct dbg_request *rq)
         break;
     case ROW_MOTARO: case ROW_SK:
         rq->what = DBG_BOSS;
-        rq->a = g_row == ROW_MOTARO ? 24 : 25;
+        rq->a = row == ROW_MOTARO ? 24 : 25;
         break;
-    case ROW_INFO:
-        g_info = !g_info;
-        return 0;
-    case ROW_KEYS:
-        g_keys = !g_keys;
+    case ROW_INFO: case ROW_KEYS:
+        change(row, 1);
         return 0;
     case ROW_CLOSE:
         break;
@@ -395,20 +512,46 @@ int dbg_menu_tick(struct dbg_request *rq)
 /* A row's value, "" for none. */
 static void row_value(int i, char *v, size_t n)
 {
+    char a[24], b[24];
+
     v[0] = 0;
     switch (i) {
     case ROW_P1: snprintf(v, n, "< %2d %s >", g_p1, CharacterNames[g_p1]); break;
     case ROW_P2: snprintf(v, n, "< %2d %s >", g_p2, CharacterNames[g_p2]); break;
+    case ROW_PAL1: snprintf(v, n, "< %s >", k_pal[DbgPalette[0]]); break;
+    case ROW_PAL2: snprintf(v, n, "< %s >", k_pal[DbgPalette[1]]); break;
     case ROW_STAGE: snprintf(v, n, "< %2d %s >", g_stage, stage_name(g_stage)); break;
     case ROW_SCREEN:
         snprintf(v, n, "< %2d %s >", g_screen, FETaskNames[g_screen] + 8);
         break;
     case ROW_KEYS:
-        snprintf(v, n, "< %s >  F3 F6-F12", g_keys ? "ON" : "OFF");
+        plat_key_label(PK_DBG_KO_P2, a, sizeof a);
+        plat_key_label(PK_DBG_LOSE, b, sizeof b);
+        snprintf(v, n, "< %s >  %s-%s", g_keys ? "ON" : "OFF", a, b);
         break;
-    case ROW_INFO: snprintf(v, n, "< %s >", g_info ? "ON" : "OFF"); break;
+    case ROW_INFO:
+        plat_key_label(PK_BACK, a, sizeof a);
+        snprintf(v, n, "< %s >  %s", g_info ? "ON" : "OFF", a);
+        break;
     case ROW_FINISHER: snprintf(v, n, "< %s >", k_fin[g_fin]); break;
     }
+}
+
+static void title_text(char *t, size_t n)
+{
+    snprintf(t, n, "<   DEBUG: %s  %d/%d   >", k_pages[g_page].name,
+             g_page + 1, N_PAGES);
+}
+
+static void footer_text(char *f, size_t n)
+{
+    char p[24], q[24], c[24];
+
+    plat_key_label(PK_DBG_PAGE_PREV, p, sizeof p);
+    plat_key_label(PK_DBG_PAGE_NEXT, q, sizeof q);
+    plat_key_label(PK_TEST, c, sizeof c);
+    snprintf(f, n, "%s/%s PAGE   ARROWS OR MOUSE   ENTER PICK   %s CLOSE",
+             p, q, c);
 }
 
 /* The menu in the iPhone OS 3 alert dress the in-game alerts wear
@@ -416,15 +559,15 @@ static void row_value(int i, char *v, size_t n)
  * own pixel size so the text is sharp. The box is redrawn only when
  * something in it changes. 0 when the backend has no such drawing; the
  * caller then uses the 5x7 font below. */
-static int draw_ios(const char *const *label)
+static int draw_ios(void)
 {
     static GLuint tex;
     static char last[2048];
     static int tw, th;
     static float ts;
-    char vals[N_ROWS][64], sig[2048];
-    const char *vp[N_ROWS];
-    int en[N_ROWS], i, n = 0;
+    char vals[MAX_PAGE_ROWS][64], sig[2048], title[96], footer[128];
+    const char *vp[MAX_PAGE_ROWS], *lp[MAX_PAGE_ROWS];
+    int en[MAX_PAGE_ROWS], i, n = 0, rows = k_pages[g_page].n;
     GLint view[4];
     float s;
 
@@ -432,22 +575,25 @@ static int draw_ios(const char *const *label)
     s = view[2] / 480.0f;
     if (s <= 0)
         return 0;
-    for (i = 0; i < N_ROWS; i++) {
-        row_value(i, vals[i], sizeof vals[i]);
+    title_text(title, sizeof title);
+    footer_text(footer, sizeof footer);
+    n = snprintf(sig, sizeof sig, "%s|%s|", title, footer);
+    for (i = 0; i < rows; i++) {
+        int r = k_pages[g_page].rows[i];
+        row_value(r, vals[i], sizeof vals[i]);
         vp[i] = vals[i];
-        en[i] = row_enabled(i);
+        lp[i] = k_label[r];
+        en[i] = row_enabled(r);
         n += snprintf(sig + n, sizeof sig - n, "%s%d|", vals[i], en[i]);
         if (n >= (int)sizeof sig - 80)
             break;
     }
-    snprintf(sig + n, sizeof sig - n, "%d %.3f", g_row, s);
+    snprintf(sig + n, sizeof sig - n, "%d %.3f", g_sel, s);
 
     if (!tex || strcmp(sig, last) != 0) {
         int w, h;
-        unsigned char *px = plat_ui_menu("UMK3 DEBUG MENU", label, vp, en,
-                                         N_ROWS, g_row,
-                                         "ARROWS MOVE   LEFT/RIGHT CHANGE   ENTER PICK   F2 CLOSE",
-                                         s, &w, &h);
+        unsigned char *px = plat_ui_menu(title, lp, vp, en, rows, g_sel,
+                                         footer, s, &w, &h);
         if (!px)
             return 0;
         if (!tex)
@@ -482,6 +628,15 @@ static int draw_ios(const char *const *label)
     {
         float w = tw / ts, h = th / ts;
         float x = (480 - w) * 0.5f, y = (320 - h) * 0.5f;
+
+        /* plat_ui_menu's layout, in points: a 6 margin, the title band
+         * 28 tall, rows 15 tall inside a box 330 wide */
+        g_bx = x + 6;
+        g_bw = 330;
+        g_title0 = y + 6;
+        g_top = y + 6 + 28;
+        g_rowh = 15;
+
         glEnable(GL_TEXTURE_2D);
         glEnable(GL_BLEND);
         glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);    /* premultiplied */
@@ -501,18 +656,20 @@ static int draw_ios(const char *const *label)
 
 void dbg_menu_draw(void)
 {
-    static const char *const label[N_ROWS] = {
-        "FIGHTER 1", "FIGHTER 2", "STAGE", "START FIGHT", "SCREEN",
-        "MAIN MENU", "WIN ROUND", "LOSE ROUND", "WIN MATCH (SKIP FIGHT)",
-        "LOSE MATCH", "FINISHER (IN FINISH HIM)", "ARCADE: NEXT IS MOTARO", "ARCADE: NEXT IS SHAO KAHN",
-        "DIRECT KEYS", "INFO LINE (F3)", "CLOSE"
-    };
     const float px = 1.0f, x0 = 96.0f, y0 = 34.0f, lh = 15.0f;
-    char v[64];
-    int i;
+    char v[64], title[96], footer[128];
+    int i, rows = k_pages[g_page].n;
 
-    if (draw_ios(label))
+    if (draw_ios())
         return;
+    title_text(title, sizeof title);
+    footer_text(footer, sizeof footer);
+    g_bx = x0 - 12;
+    g_bw = 480 - 2 * (x0 - 12);
+    g_title0 = y0 - 26;
+    g_top = y0 - 4;
+    g_rowh = lh;
+
     begin_2d();
     if (g_shot) {
         glEnable(GL_TEXTURE_2D);
@@ -529,27 +686,27 @@ void dbg_menu_draw(void)
 
     glBegin(GL_QUADS);
     glColor4f(0.0f, 0.0f, 0.0f, 0.75f);
-    rect(x0 - 12, y0 - 26, 480 - 2 * (x0 - 12), N_ROWS * lh + 52);
+    rect(x0 - 12, y0 - 26, 480 - 2 * (x0 - 12), rows * lh + 52);
     glColor4f(0.8f, 0.1f, 0.1f, 0.9f);
-    rect(x0 - 8, y0 + g_row * lh - 4, 480 - 2 * (x0 - 8), lh - 1);
+    rect(x0 - 8, y0 + g_sel * lh - 4, 480 - 2 * (x0 - 8), lh - 1);
 
     glColor4f(1.0f, 0.85f, 0.2f, 1.0f);
-    text(x0, y0 - 20, px, "UMK3 DEBUG MENU");
-    for (i = 0; i < N_ROWS; i++) {
+    text(x0, y0 - 20, px, title);
+    for (i = 0; i < rows; i++) {
+        int r = k_pages[g_page].rows[i];
         float y = y0 + i * lh;
-        int on = row_enabled(i);
 
-        row_value(i, v, sizeof v);
-        if (on)
+        row_value(r, v, sizeof v);
+        if (row_enabled(r))
             glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
         else
             glColor4f(0.45f, 0.45f, 0.45f, 1.0f);
-        text(x0, y, px, label[i]);
+        text(x0, y, px, k_label[r]);
         if (v[0])
             text(x0 + 100, y, px, v);
     }
     glColor4f(0.7f, 0.7f, 0.7f, 1.0f);
-    text(x0, y0 + N_ROWS * lh + 6, px, "ARROWS MOVE  </> CHANGE  ENTER PICK  F2 CLOSE");
+    text(x0, y0 + rows * lh + 6, px, footer);
     glEnd();
     end_2d();
 }

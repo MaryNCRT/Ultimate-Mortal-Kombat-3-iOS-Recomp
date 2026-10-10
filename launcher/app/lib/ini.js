@@ -55,6 +55,11 @@ const KEY_NAMES = [
     'up', 'down', 'left', 'right',
     'hp', 'lp', 'block', 'hk', 'lk', 'run',
     'pause', 'moves', 'special',
+    /* debug mode's keys (debug_keys=1): the menu, its info line and pages,
+     * the four fight keys and the three front-end screen keys */
+    'dbg_menu', 'dbg_info', 'dbg_page_prev', 'dbg_page_next',
+    'dbg_ko_p2', 'dbg_ko_p1', 'dbg_win', 'dbg_lose',
+    'dbg_scr_prev', 'dbg_scr_next', 'dbg_scr_menu',
 ];
 /* The five-button layout's own keys: punch, block, kick, run. */
 const KEY5_NAMES = ['p', 'b', 'k', 'r'];
@@ -63,12 +68,17 @@ const KEY_DEFAULTS = {
     up: 'W', down: 'S', left: 'A', right: 'D',
     hp: 'U', lp: 'I', block: 'O', hk: 'J', lk: 'K', run: 'L',
     pause: 'P', moves: 'M', special: 'H',
+    /* virtual-key codes: F2 F3 Q E, F9..F12, F6 F7 F8 */
+    dbg_menu: 113, dbg_info: 114, dbg_page_prev: 81, dbg_page_next: 69,
+    dbg_ko_p2: 120, dbg_ko_p1: 121, dbg_win: 122, dbg_lose: 123,
+    dbg_scr_prev: 117, dbg_scr_next: 118, dbg_scr_menu: 119,
 };
 
 function defaultConfig() {
     const keys = {};
     for (const name of KEY_NAMES)
-        keys[name] = KEY_DEFAULTS[name].charCodeAt(0);
+        keys[name] = typeof KEY_DEFAULTS[name] === 'number'
+            ? KEY_DEFAULTS[name] : KEY_DEFAULTS[name].charCodeAt(0);
     const keys5 = {};
     for (const name of KEY5_NAMES)
         keys5[name] = KEY5_DEFAULTS[name].charCodeAt(0);

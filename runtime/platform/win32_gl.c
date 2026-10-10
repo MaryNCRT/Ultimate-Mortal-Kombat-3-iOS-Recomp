@@ -210,8 +210,31 @@ static int g_vk[PK_COUNT] = {
     'P', 'M',                           /* the pause menu, the moves list */
     VK_F6, VK_F7, VK_F8,                /* debug: screen back/next, main menu */
     'H', VK_NUMPAD0,                    /* the special button, P1 / P2 */
-    'U', 'O', 'J', 'L'                  /* five buttons: P B K R */
+    'U', 'O', 'J', 'L',                 /* five buttons: P B K R */
+    'Q', 'E'                            /* debug menu: page back / on */
 };
+
+void plat_key_label(int code, char *out, int n)
+{
+    int vk = (code >= 0 && code < PK_COUNT) ? g_vk[code] : 0;
+    LONG lp = (LONG)(MapVirtualKeyA((UINT)vk, MAPVK_VK_TO_VSC) << 16);
+    char *p;
+
+    switch (vk) {                       /* the extended keys need bit 24 */
+    case VK_UP: case VK_DOWN: case VK_LEFT: case VK_RIGHT:
+    case VK_INSERT: case VK_DELETE: case VK_HOME: case VK_END:
+    case VK_PRIOR: case VK_NEXT:
+        lp |= 1 << 24;
+    }
+    if (n <= 0)
+        return;
+    if (!vk || !GetKeyNameTextA(lp, out, n))
+        snprintf(out, (size_t)n, "#%d", vk);
+    out[n - 1] = 0;
+    for (p = out; *p; p++)
+        if (*p >= 'a' && *p <= 'z')
+            *p = (char)(*p - 32);
+}
 
 void plat_bind_key(int code, int key)
 {

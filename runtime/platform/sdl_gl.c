@@ -12,6 +12,7 @@
  * The window is resizable and reports its drawable size rather than the
  * requested one, so high-DPI displays get the right viewport.
  */
+#include <stdio.h>
 #include "platform.h"
 #include "gl.h"
 
@@ -182,8 +183,23 @@ static SDL_Scancode g_scancode[PK_COUNT] = {
     SDL_SCANCODE_P, SDL_SCANCODE_M,
     SDL_SCANCODE_F6, SDL_SCANCODE_F7, SDL_SCANCODE_F8,
     SDL_SCANCODE_H, SDL_SCANCODE_KP_0,
-    SDL_SCANCODE_U, SDL_SCANCODE_O, SDL_SCANCODE_J, SDL_SCANCODE_L
+    SDL_SCANCODE_U, SDL_SCANCODE_O, SDL_SCANCODE_J, SDL_SCANCODE_L,
+    SDL_SCANCODE_Q, SDL_SCANCODE_E
 };
+
+void plat_key_label(int code, char *out, int n)
+{
+    const char *s = (code >= 0 && code < PK_COUNT)
+                    ? SDL_GetScancodeName(g_scancode[code]) : "";
+    char *p;
+
+    if (n <= 0)
+        return;
+    snprintf(out, (size_t)n, "%s", s);
+    for (p = out; *p; p++)
+        if (*p >= 'a' && *p <= 'z')
+            *p = (char)(*p - 32);
+}
 
 void plat_bind_key(int code, int key)
 {

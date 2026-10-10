@@ -22,6 +22,12 @@ void dbg_menu_after_frame(int vx, int vy, int vw, int vh, int task, int fe);
 /* While open, instead of the game's tick: 1 and *rq filled when a pick
  * closes the menu. */
 int  dbg_menu_tick(struct dbg_request *rq);
+/* The pointer in the 480x320 space and whether a button is down, each
+ * frame the menu is open. */
+void dbg_menu_mouse(float x, float y, int down);
+/* Each fighter's palette for the fights loaded next: 0 the game's rule,
+ * 1 the first, 2 the alternate (LoadLevelCharacters, port only). */
+extern int DbgPalette[2];
 void dbg_menu_draw(void);
 
 /* Whether the fight keys can act now (a round in play) and whether the

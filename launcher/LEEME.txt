@@ -1,4 +1,4 @@
-ULTIMATE MORTAL KOMBAT 3 - PORT DE PC - 0.0.6c ALPHA
+ULTIMATE MORTAL KOMBAT 3 - PORT DE PC - 0.0.7 ALPHA
 ====================================================
 
 Port nativo para Windows de la version de iOS (1.2.59), hecho por
@@ -27,13 +27,15 @@ COMO JUGAR
      - copia la carpeta res\ desde tu .ipa
    Tarda menos de un minuto despues de la descarga.
 3. En "GRAFICOS" elige resolucion 3D, pantalla completa, idioma del
-   juego, modo debug y, si quieres, un marco (una imagen tuya) para los
-   lados en pantalla completa. Se guardan solos en umk3.ini.
+   juego y, si quieres, un marco (una imagen tuya) para los lados en
+   pantalla completa. Se guardan solos en umk3.ini.
    En "CONTROLES" eliges el esquema de 6 o de 5 botones (el juego empieza
    con el que elijas) y cambias las teclas de cada uno por separado: haz
    clic en una accion y pulsa la tecla nueva (Esc cancela). Restablecer
-   vuelve a las de siempre.
-4. En "JUGAR" pulsa el boton grande JUGAR.
+   vuelve a las de siempre. Debajo, en una seccion aparte, las teclas
+   y atajos del modo debug (abrir el menu, paginas, ganar/perder...).
+4. En "JUGAR" marca, si quieres, "Modo debug" y "Saltar las intros"
+   (sin los logos del inicio) y pulsa el boton grande JUGAR.
 
 El boton de arriba a la derecha (English / Espanol) cambia el idioma del
 launcher; tambien se guarda en umk3.ini.
@@ -61,15 +63,36 @@ CONTROLES
     M ......................... lista de movimientos / combos
 - Esc ya NO cierra el juego (cierralo con la X de la ventana).
 
-- Modo debug: marca "Modo debug (menu con F2)" en el launcher. En el juego:
-    F2         menu debug: cualquier pelea (jefes incluidos) y escenario,
-               cualquier pantalla del menu, ganar/perder round o pelea,
-               teclas directas si/no, linea de info
+- Modo debug: marca "Modo debug" en JUGAR. Teclas por defecto (todas se
+  cambian en CONTROLES):
+    F2         menu debug, en 4 paginas: LUCHADORES (luchadores, paleta
+               1 o 2 de cada uno, escenario), DURANTE LA PELEA (ganar o
+               perder round o pelea, finishers, jefes del Arcade), MENUS
+               (cualquier pantalla) y OPCIONES. Q / E cambian de pagina;
+               tambien se maneja con el raton (clic en el titulo cambia
+               de pagina; en una fila con valor, mitad izquierda baja y
+               mitad derecha sube).
     F3         linea de info (tarea, pantalla, luchadores, rounds)
     F6 / F7    pantalla anterior / siguiente      F8  menu principal
     F9 / F10   terminar el round (KO jugador 2 / jugador 1)
     F11 / F12  ganar / perder la pelea entera (F11 la salta)
   F3 y F6-F12 son las teclas directas; el menu F2 las apaga.
+
+NUEVO EN 0.0.7
+- Babality: sale el letrero BABALITY con sus bloques que rebotan, y
+  suena su musica. Animality, mercy y friendship tambien recuperan su
+  letrero y su musica.
+- El sombrero de Kung Lao ya no sale negro en la seleccion.
+- Los congelados por Sub-Zero y su clon de hielo ya tienen textura de
+  hielo (antes blancos).
+- Menu debug por paginas, con raton, y paleta 1 o 2 para cada luchador.
+- Launcher: "Saltar las intros" y "Modo debug" en JUGAR; teclas del
+  modo debug configurables en CONTROLES, tambien la que abre el menu.
+- (De la sesion anterior, sin version publicada:) Supervivencia ya no se
+  cierra al ganar; el arpon de Scorpion se ve; Shao Karniceria con su HUD
+  y su dificultad; letreros FATALITY / ANIMALITY / FRIENDSHIP y el
+  narrador ya no se cortan; las combinaciones tecleadas de los finishers
+  funcionan (5 y 6 botones).
 
 NUEVO EN 0.0.6c
 - Menu debug (F2): nueva fila FINISHER. Durante el FINISH HIM, cuando el
@@ -145,22 +168,16 @@ ARREGLADO EN 0.0.2
 - La melena de Sindel aparece, con su textura.
 - El joystick en pantalla se mueve.
 
-ERRORES CONOCIDOS EN 0.0.6c
-- Las combinaciones tecleadas de los fatalities (y friendships,
-  babalities...) no parecen funcionar; con el menu debug si se ejecutan.
-  Despues de un fatality falta la voz del narrador y el letrero FATALITY.
-- No se ven los objetos aparte de los luchadores: el arpon de Scorpion y
-  los objetos que aparecen en algunos ataques.
-- El sombrero de Kung Lao sale mal en la seleccion de personajes.
-- El modo Supervivencia se cierra al ganar una pelea.
-- El clon de hielo de Sub-Zero tiene texturas mal puestas.
-- Personajes congelados por Sub-Zero salen en blanco.
+ERRORES CONOCIDOS EN 0.0.7
+- Algunos objetos aparte de los luchadores aun pueden no verse (el arpon
+  de Scorpion ya si).
 - Faltan animaciones en algunos fatalities (el de Sonya no se ve bien).
 - Siguen apareciendo errores de texturas en algunos escenarios y
   personajes (partes del sombrero de Kung Lao salen negras).
 - Algunos modos aparte del Arcade pueden cerrarse; el menu no esta
   completo y faltan modos.
-- En un finisher contra Reptile, el rival mareado camina hacia ti.
+- A veces, en el FINISH HIM, el rival mareado se arrastra hacia ti
+  (visto otra vez, no reproducido; se sigue vigilando).
 - Iconos mal puestos en la pantalla de carga; al pausar a veces la pelea
   se ve encogida.
 - Algunos ataques especiales (sobre todo proyectiles) no tienen sonido.
@@ -181,7 +198,10 @@ Fight keys: W A S D or arrows to move (two at once for diagonals);
 U high punch, I low punch, O block, J high kick, K low kick, L run
 (or numpad 7 8 9 / 4 5 6). P pause, M moves list; Esc no longer quits.
 Player 1 keys can be changed in the launcher (CONTROLS), for the 6- and
-the 5-button layout separately. New in 0.0.6c: a FINISHER row in the F2 debug menu forces player one's
+the 5-button layout separately. New in 0.0.7: BABALITY banner and tune (and animality, mercy, friendship
+banners), Kung Lao's hat on the select screen, Sub-Zero's ice (frozen
+fighters, ice clone), a paged debug menu with mouse and palettes, skip the
+intros, debug keys in the launcher. New in 0.0.6c: a FINISHER row in the F2 debug menu forces player one's
 finishers during FINISH HIM. New in 0.0.6b: the game's alerts and the F2 debug menu are drawn inside
 the game in the iPhone OS 3 style (they were Windows message boxes, hidden
 in fullscreen). New in 0.0.6: a new launcher (resizable,

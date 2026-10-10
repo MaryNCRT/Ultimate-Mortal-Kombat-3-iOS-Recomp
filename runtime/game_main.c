@@ -479,6 +479,22 @@ static void read_config(const char *dir)
                 plat_bind_key(PK_MOVES, atoi(v));
             else if (strcmp(line + 4, "special") == 0)
                 plat_bind_key(PK_SPECIAL, atoi(v));
+            else {
+                /* debug mode's keys, from the launcher's CONTROLS section */
+                static const struct { const char *n; int code; } dbg[] = {
+                    { "dbg_menu", PK_TEST }, { "dbg_info", PK_BACK },
+                    { "dbg_page_prev", PK_DBG_PAGE_PREV },
+                    { "dbg_page_next", PK_DBG_PAGE_NEXT },
+                    { "dbg_ko_p2", PK_DBG_KO_P2 }, { "dbg_ko_p1", PK_DBG_KO_P1 },
+                    { "dbg_win", PK_DBG_WIN }, { "dbg_lose", PK_DBG_LOSE },
+                    { "dbg_scr_prev", PK_DBG_SCR_PREV },
+                    { "dbg_scr_next", PK_DBG_SCR_NEXT },
+                    { "dbg_scr_menu", PK_DBG_SCR_MENU },
+                };
+                for (i = 0; i < (int)(sizeof dbg / sizeof dbg[0]); i++)
+                    if (strcmp(line + 4, dbg[i].n) == 0)
+                        plat_bind_key(dbg[i].code, atoi(v));
+            }
         }
     }
     fclose(f);
@@ -966,6 +982,9 @@ int main(int argc, char **argv)
             static float prev_tx = -1.0f, prev_ty = -1.0f;
             float tx = (float)(mx - vx) * VIRT_W / (vw ? vw : 1);
             float ty = (float)(my - vy) * VIRT_H / (vh ? vh : 1);
+
+            if (dbg_menu_is_open())     /* the debug menu takes the mouse */
+                dbg_menu_mouse(tx, ty, plat_mouse(&mx, &my) && g_ntaps == 0);
 
             if (down && !was_down)
                 lime_touch_began(tx, ty);
