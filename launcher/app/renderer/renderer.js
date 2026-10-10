@@ -31,7 +31,7 @@ const T = {
         tab6: '6 BOTONES', tab5: '5 BOTONES', tabNote: 'EL JUEGO EMPIEZA CON ESTE ESQUEMA',
         reskey: 'RESTABLECER', press: 'PULSA UNA TECLA…  (ESC CANCELA)',
         hint: 'CLIC EN UNA ACCIÓN Y PULSA LA TECLA',
-        hPlay: 'JUGAR', play: 'JUGAR',
+        hPlay: 'JUGAR', play: 'JUGAR', skip: 'SALTAR LAS INTROS (LOGOS DEL INICIO)',
         cSelect: 'SELECCIONAR', cBack: 'ATRÁS', cFull: 'PANTALLA COMPLETA',
         auto: 'Automático (Windows)', original: '(original)',
         keys: { up: 'Arriba', down: 'Abajo', left: 'Izquierda', right: 'Derecha',
@@ -65,7 +65,7 @@ const T = {
         tab6: '6 BUTTONS', tab5: '5 BUTTONS', tabNote: 'THE GAME STARTS WITH THIS LAYOUT',
         reskey: 'RESET', press: 'PRESS A KEY…  (ESC CANCELS)',
         hint: 'CLICK AN ACTION, THEN PRESS A KEY',
-        hPlay: 'PLAY', play: 'PLAY',
+        hPlay: 'PLAY', play: 'PLAY', skip: 'SKIP THE INTROS (STARTUP LOGOS)',
         cSelect: 'SELECT', cBack: 'BACK', cFull: 'FULLSCREEN',
         auto: 'Automatic (Windows)', original: '(original)',
         keys: { up: 'Up', down: 'Down', left: 'Left', right: 'Right',
@@ -262,6 +262,7 @@ function applyConfig() {
     $('lang').selectedIndex = cfg.language || 0;
     $('full').checked = !!cfg.fullscreen;
     $('dbg').checked = !!cfg.debug;
+    $('skip').checked = !!cfg.skipIntro;
 }
 
 async function save(delta) {
@@ -440,6 +441,7 @@ async function init() {
     $('lang').addEventListener('change', () => save({ language: $('lang').selectedIndex }));
     $('full').addEventListener('change', () => save({ fullscreen: $('full').checked }));
     $('dbg').addEventListener('change', () => save({ debug: $('dbg').checked }));
+    $('skip').addEventListener('change', () => save({ skipIntro: $('skip').checked }));
 
     window.umk3.onBuildData(handleBuildData);
     $('build').addEventListener('click', startBuild);
