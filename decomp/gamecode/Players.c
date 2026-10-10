@@ -2070,12 +2070,6 @@ ANIMATEDCHARACTER *LoadAnimatedCharacter(char *scene, char *skinFile,
         else
             sprintf(texPath, "%s_DIFFUSE_LITE.PNG", texBase);
         c->diffuse = limeLoadTexture(texPath, 0, 0);
-
-        if (dummy)
-            strcpy(texPath, "DUMMY_DIFFUSE_ICE.PNG");
-        else
-            sprintf(texPath, "%s_DIFFUSE_ICE.PNG", texBase);
-        c->diffuseIce = limeLoadTexture(texPath, 0, 0);
     } else {
         int dummy = (strcmp(frameListName, "dummyframes.txt") == 0);
 
@@ -2092,8 +2086,21 @@ ANIMATEDCHARACTER *LoadAnimatedCharacter(char *scene, char *skinFile,
             else
                 sprintf(texPath, "%s_DIFFUSE.PNG", texBase);
         }
-        c->diffuse = limeLoadTexture(texPath, r, r);
+        /* (0, 0), not (r, r): every arm reaches limeLoadTexture with r1 =
+         * r2 = 0 (0x5cab8 r5 is 0 there, 0x5cb46 r is 0 there, 0x5c7ec). */
+        c->diffuse = limeLoadTexture(texPath, 0, 0);
     }
+
+    /* The ice sheet, for BOTH paths: the fight path's arms all branch back
+     * to 0x5c7f8 after the diffuse (0x5cac8, 0x5cb58, 0x5cbee). Read as
+     * front-end only, a fighter in a fight had no +0x18, so a frozen one
+     * (LightPlayers' +0x534 -> anim[0x18]) and Sub-Zero's ice clone drew
+     * with no texture: plain white. */
+    if (strcmp(frameListName, "dummyframes.txt") == 0)
+        strcpy(texPath, "DUMMY_DIFFUSE_ICE.PNG");
+    else
+        sprintf(texPath, "%s_DIFFUSE_ICE.PNG", texBase);
+    c->diffuseIce = limeLoadTexture(texPath, 0, 0);
 
     /* the babality sheet is the only texture with a fallback spelling */
     if (r != 0) {

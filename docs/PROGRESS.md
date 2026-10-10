@@ -20,8 +20,10 @@ Current state of the project. Written so that someone can pick it up with no pri
   (set `UMK3_FUNC_TO_FILE` to `OUTPUT/func-to-file.txt` if `work/` has no copy).
 - **What is wrong today** is the README's *Known problems* table: the menus
   are incomplete, modes other than Arcade can crash, texture errors remain
-  on some stages and fighters (Kung Lao's hat), fatalities miss animations
-  and frozen fighters draw white (Mary's queue, end of the README table). Every bug
+  on some stages and fighters, and fatalities miss animations (Mary's queue,
+  end of the README table). Fixed after 0.0.6c, checked by Mary, not released
+  yet: Kung Lao's hat on the select screen, white frozen fighters, Sub-Zero's
+  ice clone, and the launcher's *Skip the intros* box. Every bug
   found since the game first ran was a transcription that did not quite
   match armv7, so each new symptom starts by re-reading the binary.
 - **No pull requests are open** (2026-10-09; everything up to #80 is merged; 0.0.6c is released).

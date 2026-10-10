@@ -35,6 +35,7 @@
  *   UMK3_TAPS=<list>  scripted taps, "tick:x,y;tick:x,y;..." in game
  *                     coordinates (480x320), each a press held for 3 ticks;
  *                     the mouse is ignored while a script runs
+ *   UMK3_SKIP_INTRO=1 no publisher logos (umk3.ini skip_intro=1)
  *   UMK3_LOG_TASKS=1  print every change of CurrentTask and FE_CurrentTask
  *   UMK3_SCREEN=<n|name>  open that front-end screen once the menu is up
  *   UMK3_DBG_OPEN=<n> open the debug menu at tick n (with debug_keys)
@@ -156,6 +157,8 @@ void  lime_app_become_active(void);
 
 extern char Language[10];
 extern int  CurrentTask;
+extern long SplashCount;                /* Task_LoadSplashScreen's frame */
+extern float StaticMeshAmbient[3];      /* CreateFadedRGBS's offset */
 extern int  FE_CurrentTask;
 extern long PLAYER1MODEL, PLAYER2MODEL, Character1, Character2, LevelSelect,
             Character2Override;
@@ -414,6 +417,7 @@ void umk3_relocate_level_info(void);   /* build/level_info.c */
  * Missing file or keys keep the defaults. */
 static int  g_cfg_w = VIRT_W * SCALE, g_cfg_h = VIRT_H * SCALE, g_cfg_full;
 static int  g_cfg_debug_keys;          /* debug_keys=1: F9..F12, see debug_keys() */
+static int  g_cfg_skip_intro;          /* skip_intro=1: no publisher logos */
 static char g_cfg_lang[8];
 static char g_cfg_frame[1024];        /* marco=: the picture behind the bars */
 
@@ -455,6 +459,8 @@ static void read_config(const char *dir)
             snprintf(g_cfg_frame, sizeof g_cfg_frame, "%s", v);
         else if (strcmp(line, "debug_keys") == 0)
             g_cfg_debug_keys = atoi(v) != 0;
+        else if (strcmp(line, "skip_intro") == 0)
+            g_cfg_skip_intro = atoi(v) != 0;
         else if (strncmp(line, "key_", 4) == 0) {
             /* key_<name>=<virtual-key code>, from the launcher's key setup */
             static const char *const names[] = {
@@ -853,6 +859,8 @@ int main(int argc, char **argv)
 #endif
     if (getenv("UMK3_DEBUG_KEYS"))
         g_cfg_debug_keys = 1;
+    if (getenv("UMK3_SKIP_INTRO"))
+        g_cfg_skip_intro = 1;
     g_keys_off = shot_at != 0;
     if (getenv("UMK3_SCREEN"))
         g_screen_jump = parse_screen(getenv("UMK3_SCREEN"));
@@ -1060,7 +1068,29 @@ int main(int argc, char **argv)
                 debug_keys();
                 screen_keys();
             }
+            /* The front end has no stage, so LightPlayers (MaintainLevelScenes,
+             * Task_GameMain) never runs there and StaticMeshAmbient, its only
+             * writer, stays 0 (__common) until the first fight. A fighter's
+             * attachments take their colour from it (LIME_RenderMeshSingle ->
+             * CreateFadedRGBS over baked lighting averaging ~15/255), so Kung
+             * Lao's hat drew black on the select screen. Give it what
+             * LightPlayers would derive from the light RenderFECharacters
+             * already sets on the body (+0x5d8: 0.65 0.65 0.7) x 255. A port
+             * fix, not in the binary. */
+            if (CurrentTask == 3) {
+                StaticMeshAmbient[0] = 0.65f * 255.0f;
+                StaticMeshAmbient[1] = 0.65f * 255.0f;
+                StaticMeshAmbient[2] = 0.7f * 255.0f;
+            }
             GameCodeMain();
+            /* skip_intro=1 (the launcher's box, or UMK3_SKIP_INTRO): once
+             * Task_LoadSplashScreen's first frame has loaded both logos,
+             * jump its counter to 491, the frame that deletes them and
+             * hands over to the loading screen. The game's own path, only
+             * sooner; a port option, not in the binary. */
+            if (g_cfg_skip_intro && CurrentTask == 0 && SplashCount > 0
+                && SplashCount < 491)
+                SplashCount = 491;
             if (g_cfg_debug_keys) {
                 if (dbg_info_on()) {
                     char line[96];

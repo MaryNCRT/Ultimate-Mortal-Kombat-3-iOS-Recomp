@@ -3,13 +3,13 @@
  *
  *     width=960      height=640      fullscreen=0
  *     language=ES    ui=EN           ipa=C:\x\UMK3.ipa
- *     debug_keys=1   key_up=87 ... key_moves=77   key_special=72
+ *     debug_keys=1   skip_intro=1   key_up=87 ... key_moves=77   key_special=72
  *     marco=C:\x\picture.png   (the picture behind the bars in fullscreen)
  *     buttons=5|6    key5_p=85 key5_b=79 key5_k=74 key5_r=76
  *       (the layout, and the five-button layout's own keys; its S is
  *        key_special, the six-button layout's keys are key_hp .. key_run)
  *
- * The game only reads width/height/fullscreen/language/debug_keys and the
+ * The game only reads width/height/fullscreen/language/debug_keys/skip_intro and the
  * key_<name> lines (see runtime/game_main.c:read_config); ui= and ipa= are
  * the launcher's own.  Missing keys keep the defaults, exactly like the C
  * launcher did.  Pure Node, no Electron -- tested in tests/launcher.
@@ -77,6 +77,7 @@ function defaultConfig() {
         fullscreen: false,
         widescreen: false,           /* native: widen the 3D view, no stretch */
         debug: false,
+        skipIntro: false,            /* skip_intro=1: no publisher logos */
         language: 0,                 /* "" = follow Windows */
         ui: 'ES',                    /* the launcher's own language */
         ipa: '',
@@ -118,6 +119,7 @@ function load(p) {
         else if (key === 'fullscreen') cfg.fullscreen = num === 1;
         else if (key === 'widescreen') cfg.widescreen = num === 1;
         else if (key === 'debug_keys') cfg.debug = num === 1;
+        else if (key === 'skip_intro') cfg.skipIntro = num === 1;
         else if (key === 'language') {
             const i = LANGS.findIndex(l => l.code.toUpperCase() === val.toUpperCase());
             if (i >= 0)
@@ -159,6 +161,7 @@ function save(p, cfg) {
         'ui=' + (cfg.ui === 'EN' ? 'EN' : 'ES'),
         'ipa=' + cfg.ipa,
         'debug_keys=' + (cfg.debug ? 1 : 0),
+        'skip_intro=' + (cfg.skipIntro ? 1 : 0),
         'buttons=' + (cfg.buttons === 6 ? 6 : 5),
     ];
     if (cfg.marco)

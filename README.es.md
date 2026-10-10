@@ -61,7 +61,9 @@ Descargas en [Releases](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS
 3. En *GRÁFICOS* elige resolución 3D, pantalla completa, idioma, modo debug
    y, si quieres, un marco para los lados en pantalla completa; en
    *CONTROLES* el esquema de 6 o 5 botones (el juego empieza con él) y las
-   teclas de cada uno. Todo se guarda solo en `umk3.ini`. En *JUGAR* pulsa el
+   teclas de cada uno. Todo se guarda solo en `umk3.ini`. En *JUGAR*, la casilla
+   *Saltar las intros* arranca el juego sin los dos logos del inicio
+   (`skip_intro=1`). Pulsa el
    botón grande **JUGAR**. El botón de arriba a la derecha cambia el
    launcher entre inglés y español.
 
@@ -154,7 +156,7 @@ Cada arreglo se leyó del binario armv7 original y Mary lo comprobó en el juego
 17. ~~Contra Motaro, Kitana se cubría todo el tiempo y actuaba raro~~ -- arreglado.
 18. ~~Fundido a negro lento al empezar y acabar rounds~~ -- arreglado: un logro guardado en la posición 21 hacía que el juego creyera que había un aviso en pantalla y los fundidos iban 10 veces más lentos.
 19. ~~FINISH HER para personajes hombres~~ -- arreglado (la voz era correcta; el letrero era siempre HER).
-20. Los personajes congelados salen totalmente blancos.
+20. ~~Los personajes congelados salen totalmente blancos.~~ Arreglado (comprobado por Mary, 2026-10-09), y también el clon de hielo de Sub-Zero: la textura `_DIFFUSE_ICE` solo se cargaba en el menú. El sombrero de Kung Lao en la selección tampoco sale ya negro (le faltaba la luz ambiente, que el juego solo pone en combate).
 25. ~~Botones del menú mal puestos (Ajustes, Estadísticas, Logros, Marcadores, Compartir info...)~~ -- arreglado: `DrawButtonNew` tenía las coordenadas u y v de textura intercambiadas en todos los estilos.
 21. El fatality de Sonya no se ve bien.
 22. Crasheos aleatorios (hacen falta logs).

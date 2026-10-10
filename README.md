@@ -56,7 +56,9 @@ known problems are the table below.
    fullscreen, language, debug mode and an optional frame picture for the
    fullscreen bars; in *CONTROLS* the 6- or 5-button layout (the game starts
    with it) and each layout's keys. Everything is saved to `umk3.ini` the
-   moment it changes. In *PLAY* press the big **PLAY** button. The launcher
+   moment it changes. In *PLAY* press the big **PLAY** button; the box above
+   it, *Skip the intros*, starts the game past the two publisher logos
+   (`skip_intro=1`). The launcher
    window resizes freely (4:3 by default) and F11 makes it fullscreen; the
    button at the top right switches it between English and Spanish.
 
@@ -141,7 +143,7 @@ What a player sees today, and what is known about each.
 | The icons on the loading screen are misplaced. | Not investigated. |
 | ~~The moves list ("i") icons are still misplaced.~~ | **Fixed** (2026-10-09). The rows zig-zag: rows 0, 2, 4 right-aligned at FE_X(432), rows 1, 3, 5 left-aligned at FE_X(48), name and icons on the same side (0x1eed2 / 0x1efee); the name stayed right on every row. |
 | ~~Menu buttons drawn wrong (Facebook art on the settings boxes, frame slivers on Stats, Achievements, Leaderboards, Share info...).~~ | **Fixed** (2026-10-09). `DrawButtonNew` (0x57d8): u0 is `fp` and v0 `[sp+0x28]` (style 0: fp = 0, v0 = 0x3f020000, 0x58d4); every style had them swapped and drew the wrong window of `FE_BUTTONS_01`. |
-| Frozen fighters (Sub-Zero's freeze) draw completely white. | Seen by Mary 2026-10-09. Not investigated. |
+| ~~Frozen fighters (Sub-Zero's freeze) draw completely white.~~ | **Fixed** (checked by Mary, 2026-10-09). `LoadAnimatedCharacter` loaded `<name>_DIFFUSE_ICE` on the front-end path only; the binary loads it on both (the fight path's arms all return to 0x5c7f8), so in a fight `anim[0x18]` was NULL and a frozen fighter or the ice clone drew untextured. |
 | Sonya's fatality does not show properly. | Seen by Mary 2026-10-09. Not investigated. |
 | Random crashes. | Seen by Mary 2026-10-09; logs needed. |
 | ~~Human Smoke cannot be chosen by holding Smoke's portrait.~~ | Works (checked by Mary, 2026-10-09): hold the click on Smoke for three seconds (`drawCharacterSelection`, `SmokeCounter` > 180). |
@@ -165,9 +167,9 @@ What a player sees today, and what is known about each.
 | ~~Shao Karnage: player one's bar covers the score; difficulty broken.~~ | **Fixed** (checked by Mary, 2026-10-09). `DrawHUD` skips the whole plate block in mode 3 (0x284ec), player one's included; and Karnage's difficulty is `GameMode - 3` = 0 (0x2db1c: r3 still holds GameMode), not `Destiny - 3` (-4 outside a ladder). Time out ends the mode into its summary, as designed. |
 | ~~No FATALITY / ANIMALITY / FRIENDSHIP banner; the fight ends before the announcer finishes.~~ | **Fixed** (checked by Mary, 2026-10-09). The banners were never drawn: transcribed from DrawHUD 0x2a3c0..0x2ab26 (`DrawFinisherBanner`); their counters are floats. The round summary timer adds 0.7 a tick while `IsInFinishing` (0x2a2d6), not 1.25. Babality's twelve-sprite effect is still to write. |
 | ~~Typed finishers never fire.~~ | **Fixed for the 5-button layout** (checked by Mary, 2026-10-09). `GetArcadeJoyBits` compares later table entries against the word WITH the finishing bit 0x2000 (0x1b830 `mov r3, r0`); it reset to the bare bits, so no finisher entry could match. 5-button finishers are one gesture with S during FINISH HIM: toward+S fatality 1, toward+down+S fatality 2, down+S animality, away+S babality, S friendship, away+down+S pit, S+run mercy (`FourButtonMoves`). The 6-button layout uses the engine's own arcade sequences: to verify. Test tool: `UMK3_KEYS="tick:keys:hold;..."`. |
-| Kung Lao's hat wrong on the character select screen. | Not investigated. |
+| ~~Kung Lao's hat black on the character select screen.~~ | **Fixed** (checked by Mary, 2026-10-09). The hat's colour is its baked lighting (average 15/255) plus `StaticMeshAmbient`, which only `LightPlayers` writes, in a fight; the select screen has no stage, so it stayed 0 (__common). Port fix in `runtime/game_main.c`: in the front end it gets the light `RenderFECharacters` gives the body (0.65 0.65 0.7) x 255. |
 | ~~Survival mode crashes after winning a fight.~~ | **Fixed** (checked by Mary, 2026-10-09). `QuitAsWin` / `QuitAsLose` reach SurvivalStage and DisplaySurvivalStage through pointer slots (0x26804, 0x26b8c, 0x26b92); `SurvivalStageP` was left NULL and `DisplaySurvivalStage` was used as a pointer. Both slots now hold the addresses. |
-| Sub-Zero's ice clone has misplaced textures. | Not investigated. |
+| ~~Sub-Zero's ice clone drawn white.~~ | **Fixed** (checked by Mary, 2026-10-09): the same missing ice sheet as the frozen fighters. |
 | ~~Scorpion's spear is not drawn.~~ | **Fixed** (checked by Mary, 2026-10-09): `RenderExtras`' mirrored test was inverted (0x20ffc `bpl`), and `RenderLevelPlayers` set `DrawSpear` on one of the five spear frames only (every arm returns to 0x24962). Other props: to check one by one. Earlier notes: Started. Scorpion's spear (`UMK3_DBG_SPECIAL="tick:0"` throws it) is projectile slot 4 with frames 0x1a7e then 0x1a80; in `RenderLevelPlayers` its frame lookup through the owner's animation record gives -1 (`w[0x14]`), so the object draws nothing, and `RenderExtras` gets `DrawSpear[0] = 1` for 0x1a7e but draws no visible shaft either. Next: check the projectile's frame table (`owner->anim + 0x2c`, `HavePreloadedCharacter`) and `limeDrawFaceMeSpriteWH` against armv7. |
 | ~~Controls: the 5- and 6-button layouts need their own key settings, and a choice of layout that the game follows.~~ | **Done for 0.0.6** (checked by Mary, 2026-10-09): the launcher's CONTROLS tab picks the layout (`buttons=` in `umk3.ini`, written into `Settings[4]` after `Load_SettingsData`), with separate keys (`key_*` for six buttons; `key5_p/b/k/r` and `key_special` for five). |
 | **Windows only for the launcher.** | Linux/macOS still build from source with CMake. |

@@ -50,6 +50,7 @@ test('round-trip through save/load is lossless', () => {
     c.fullscreen = true;
     c.widescreen = true;
     c.debug = true;
+    c.skipIntro = true;
     c.language = 2;            /* ES */
     c.ui = 'EN';
     c.ipa = 'C:\\Juegos\\UMK3 v1.2.59.ipa';
