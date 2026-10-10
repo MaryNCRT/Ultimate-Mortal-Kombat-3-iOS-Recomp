@@ -84,14 +84,26 @@
     <h2 data-t="hVideo">GRÁFICOS</h2>
     <div class="fields">
       <div class="field">
-        <label class="lbl" for="res" data-t="res">RESOLUCIÓN</label>
+        <label class="lbl" for="res" data-t="res">RESOLUCIÓN DE VENTANA</label>
         <select id="res" class="sel"></select>
       </div>
       <div class="field">
-        <label class="lbl" for="lang" data-t="lang">IDIOMA DEL JUEGO</label>
-        <select id="lang" class="sel"></select>
+        <label class="lbl" for="rres" data-t="rres">RESOLUCIÓN 3D</label>
+        <select id="rres" class="sel"></select>
       </div>
-      <label class="chk"><input type="checkbox" id="full"><span data-t="full">PANTALLA COMPLETA</span></label>
+      <div class="field">
+        <label class="lbl" for="mode" data-t="mode">MODO DE PANTALLA</label>
+        <select id="mode" class="sel"></select>
+      </div>
+      <div class="field">
+        <label class="lbl" for="aspect" data-t="aspect">RELACIÓN DE ASPECTO</label>
+        <select id="aspect" class="sel"></select>
+      </div>
+      <div class="field">
+        <label class="lbl" for="aa" data-t="aa">ANTIALIASING</label>
+        <select id="aa" class="sel"></select>
+      </div>
+      <label class="chk"><input type="checkbox" id="hidectl"><span data-t="hidectl">OCULTAR LOS CONTROLES EN PANTALLA (JOYSTICK Y BOTONES)</span></label>
       <div class="field wide">
         <label class="lbl" data-t="frame">MARCO (PANTALLA COMPLETA)</label>
         <div class="row">
@@ -106,34 +118,46 @@
 
   <!-- 3. Controls -->
   <section class="sec" data-sec="controls">
-    <h2 data-t="hControls">CONTROLES DEL JUGADOR 1</h2>
     <div class="tabs">
-      <button class="tab" data-b="6" data-t="tab6">6 BOTONES</button>
-      <button class="tab" data-b="5" data-t="tab5">5 BOTONES</button>
-      <button id="reskeys" class="btn" data-t="reskey">RESTABLECER</button>
+      <button class="tab" data-c="p" data-t="tabP1">JUGADOR 1</button>
+      <button class="tab" data-c="dbg" data-t="tabDbg">DEBUG</button>
     </div>
+    <h2 id="hCtlP" data-t="hControls">CONTROLES DEL JUGADOR 1</h2>
+    <h2 id="hCtlD" class="hidden" data-t="hDbgKeys">TECLAS Y ATAJOS DEL MODO DEBUG</h2>
+    <div class="tabs">
+      <span id="ctlLayouts" class="tabs sub">
+        <button class="tab" data-b="6" data-t="tab6">6 BOTONES</button>
+        <button class="tab" data-b="5" data-t="tab5">5 BOTONES</button>
+      </span>
+      <button id="reskeys" class="btn" data-t="reskey">RESTABLECER</button>
+      <button id="resdbg" class="btn hidden" data-t="reskey">RESTABLECER</button>
+    </div>
+    <div id="ctlP">
     <div class="kgroups">
       <div class="kg"><h3 data-t="gMove">MOVIMIENTO</h3><div id="k-move" class="keys"></div></div>
       <div class="kg"><h3 data-t="gButtons">BOTONES</h3><div id="k-buttons" class="keys"></div></div>
       <div class="kg"><h3 data-t="gSystem">SISTEMA</h3><div id="k-system" class="keys"></div><p class="hint" id="keyhint"></p></div>
     </div>
     <p class="note" data-t="schemes"></p>
-    <h2 data-t="hDbgKeys">TECLAS Y ATAJOS DEL MODO DEBUG</h2>
-    <div class="tabs">
-      <button id="resdbg" class="btn" data-t="reskey">RESTABLECER</button>
     </div>
+    <div id="ctlD" class="hidden">
     <div class="kgroups">
       <div class="kg"><h3 data-t="gDbgMenu">MENÚ DEBUG</h3><div id="k-dbgmenu" class="keys"></div></div>
       <div class="kg"><h3 data-t="gDbgFight">PELEA</h3><div id="k-dbgfight" class="keys"></div></div>
       <div class="kg"><h3 data-t="gDbgScreens">PANTALLAS</h3><div id="k-dbgscr" class="keys"></div></div>
     </div>
     <p class="note" data-t="dbgKeysNote"></p>
+    </div>
   </section>
 
   <!-- 4. Play -->
   <section class="sec" data-sec="play">
     <h2 data-t="hPlay">JUGAR</h2>
     <div id="playstate" class="state"></div>
+    <div class="field">
+      <label class="lbl" for="lang" data-t="lang">IDIOMA DEL JUEGO</label>
+      <select id="lang" class="sel"></select>
+    </div>
     <label class="chk"><input type="checkbox" id="dbg"><span data-t="dbg">MODO DEBUG</span></label>
     <label class="chk"><input type="checkbox" id="skip"><span data-t="skip">SALTAR LAS INTROS (LOGOS DEL INICIO)</span></label>
     <button id="play" class="btn hot big" data-t="play">JUGAR</button>

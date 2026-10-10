@@ -14,10 +14,12 @@
 #include "platform.h"
 #include "gl.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
 static HWND      g_wnd;
+static DEVMODEA  g_mode;         /* see plat_fullscreen_exclusive */
 static HDC       g_dc;
 static HGLRC     g_rc;
 static bool      g_quit;
@@ -61,6 +63,16 @@ static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
     case WM_ACTIVATE:
         /* LOWORD: WA_INACTIVE (0), WA_ACTIVE or WA_CLICKACTIVE */
         g_focused = LOWORD(wp) != WA_INACTIVE;
+        if (g_mode.dmSize) {            /* exclusive fullscreen: see g_mode */
+            if (!g_focused) {
+                ChangeDisplaySettingsA(NULL, 0);
+                ShowWindow(h, SW_MINIMIZE);
+            } else {
+                ChangeDisplaySettingsA(&g_mode, CDS_FULLSCREEN);
+                ShowWindow(h, SW_RESTORE);
+                plat_fullscreen();
+            }
+        }
         if (!g_focused) {               /* no key stays held across a focus loss */
             memset(g_key, 0, sizeof g_key);
             g_mouse_down = false;
@@ -136,6 +148,40 @@ void plat_fullscreen(void)
                  mi.rcMonitor.bottom - mi.rcMonitor.top,
                  SWP_FRAMECHANGED | SWP_SHOWWINDOW);
 }
+
+/* The mode exclusive fullscreen asked for; dmSize 0 while not in it. Given
+ * back to Windows when the game loses focus (and the window minimised), and
+ * taken again when it comes back. CDS_FULLSCREEN makes the change temporary:
+ * Windows restores the desktop's mode if the game exits any way at all. */
+void plat_fullscreen_exclusive(void)
+{
+    RECT r;
+
+    GetClientRect(g_wnd, &r);
+    ZeroMemory(&g_mode, sizeof g_mode);
+    g_mode.dmSize       = sizeof g_mode;
+    g_mode.dmPelsWidth  = (DWORD)(r.right - r.left);
+    g_mode.dmPelsHeight = (DWORD)(r.bottom - r.top);
+    g_mode.dmFields     = DM_PELSWIDTH | DM_PELSHEIGHT;
+    if (ChangeDisplaySettingsA(&g_mode, CDS_FULLSCREEN) != DISP_CHANGE_SUCCESSFUL) {
+        g_mode.dmSize = 0;
+        plat_fullscreen();          /* no such mode: borderless instead */
+        return;
+    }
+    plat_fullscreen();              /* now the monitor is the window's size */
+}
+
+void *plat_gl_proc(const char *name)
+{
+    PROC p = wglGetProcAddress(name);
+
+    /* some drivers answer 1, 2, 3 or -1 for "no" */
+    if ((uintptr_t)p <= 3 || (intptr_t)p == -1)
+        return NULL;
+    return (void *)p;
+}
+
+void (*plat_ask_hook)(int begin);
 
 bool plat_poll(void)
 {
@@ -854,6 +900,8 @@ int plat_ask(const unsigned short *msg16, const unsigned short *ok16,
     plat_size(&ww, &wh);
     if (ww <= 0 || wh <= 0)
         return 0;
+    if (plat_ask_hook)
+        plat_ask_hook(1);
     bgw = ww;
     bgh = wh;
 
@@ -1022,6 +1070,8 @@ int plat_ask(const unsigned short *msg16, const unsigned short *ok16,
     glPopMatrix();
     glPopAttrib();
     glViewport(vp[0], vp[1], vp[2], vp[3]);
+    if (plat_ask_hook)
+        plat_ask_hook(0);
     return result < 0 ? 0 : result;
 }
 

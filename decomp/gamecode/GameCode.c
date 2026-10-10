@@ -8659,6 +8659,8 @@ static void DrawJoystick(long x, long y, long state,
                    0.25f, 0.5f, 0.125f, 0.25f, knob);
 }
 
+int PortHideControls;                   /* port: see the end of DrawControls */
+
 void DrawControls(void)
 {
     float buttonCol[4];                 /* sp+0x44 */
@@ -8721,6 +8723,12 @@ void DrawControls(void)
                    + (double)(small + (float)(limeScreenWidth / 2) + 48.0f));
         JoystickStatePosYP2 = (long)((float)limeScreenHeight - small);
     }
+
+    /* A port option (hide_controls=1, the launcher's box): the layout above
+     * is still worked out -- the touch code hit-tests against it -- but the
+     * stick and the buttons are not drawn. Not in the binary. */
+    if (PortHideControls)
+        return;
 
     DrawJoystick(JoystickStatePosX, JoystickStatePosY, JoystickState,
                  joyBaseCol, joyKnobCol);
