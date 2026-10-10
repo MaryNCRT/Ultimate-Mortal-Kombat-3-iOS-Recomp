@@ -7965,22 +7965,56 @@ static void DrawComboCounter(long p)
  *                  C.195[(int)(GameCounter * 0.25) & 7], C.195 being
  *                  0 1 2 3 4 3 2 1                                   (0x2a9c0)
  *
- * The babality's twelve bouncing sprites (0x29d56) are not written yet. */
+ *      babality    eight sprites, frames 12..19, x = centre - 140 + 40 i,
+ *                  each falling and bouncing on its own: BabalityVel[i]
+ *                  -= 0.1 a tick (in double), BabalityHeight[i] += vel,
+ *                  both over limeFPSScaleFactor; below 0 the height is
+ *                  set to 0 and the velocity divided by -1.5. y is the
+ *                  centre minus the height (0x29d56..0x29eba). The start
+ *                  heights are set where the flag is cleared (288 256 ...). */
 extern float GameCounter;               /* 0x0014fa5c */
 static const long DrawHUD_C195[8] = { 0, 1, 2, 3, 4, 3, 2, 1 };  /* 0xde05c */
 
-static void FinisherSprite(long x, long frame)
+static void FinisherSpriteAt(long x, long y, long frame)
 {
-    DrawAnimAsSprite(x, limeScreenHeight / 2, FE_WidthScale * 0.5f,
+    DrawAnimAsSprite(x, y, FE_WidthScale * 0.5f,
                      0x100, 0x100, (long)(uintptr_t)HUDFatalsTexture,
                      fatal_HUDgfx_SpriteDef, fatal_HUDgfx_Anim, 0, frame,
                      0, fatal_HUDgfx_Anim[0] - 1, 1, col);
 }
 
+static void FinisherSprite(long x, long frame)
+{
+    FinisherSpriteAt(x, limeScreenHeight / 2, frame);
+}
+
 static void DrawFinisherBanner(void)
 {
-    if (BabalityMessage)
-        return;                         /* its own effect, not written yet */
+    if (BabalityMessage) {
+        long i;
+
+        for (i = 0; i < 8; i++) {
+            float vel, h, x;
+
+            vel = (float)((double)BabalityVel[i]
+                          + -0.1 / (double)limeFPSScaleFactor);
+            BabalityVel[i] = vel;
+            h = BabalityHeight[i] + vel / limeFPSScaleFactor;
+            BabalityHeight[i] = h;
+            if (h < 0.0f) {             /* the bounce */
+                h = 0.0f;
+                BabalityHeight[i] = 0.0f;
+                BabalityVel[i] = vel / -1.5f;
+            }
+            x = (float)(limeScreenWidth / 2) + FE_WidthScale * -140.0f;
+            x = x + FE_WidthScale * (float)(i * 40);
+            FinisherSpriteAt((long)x,
+                             (long)((float)(limeScreenHeight / 2)
+                                    - h * FE_HeightScale),
+                             12 + i);
+        }
+        return;
+    }
 
     if (AnimalityMessage) {
         AnimalityMessageCounter = (float)((double)AnimalityMessageCounter

@@ -36,6 +36,7 @@
  *                     coordinates (480x320), each a press held for 3 ticks;
  *                     the mouse is ignored while a script runs
  *   UMK3_SKIP_INTRO=1 no publisher logos (umk3.ini skip_intro=1)
+ *   UMK3_BUTTONS=5|6  the button layout, over umk3.ini's buttons=
  *   UMK3_LOG_TASKS=1  print every change of CurrentTask and FE_CurrentTask
  *   UMK3_SCREEN=<n|name>  open that front-end screen once the menu is up
  *   UMK3_DBG_OPEN=<n> open the debug menu at tick n (with debug_keys)
@@ -861,6 +862,8 @@ int main(int argc, char **argv)
         g_cfg_debug_keys = 1;
     if (getenv("UMK3_SKIP_INTRO"))
         g_cfg_skip_intro = 1;
+    if (getenv("UMK3_BUTTONS"))         /* 5 or 6, over umk3.ini's buttons= */
+        g_cfg_buttons = atoi(getenv("UMK3_BUTTONS"));
     g_keys_off = shot_at != 0;
     if (getenv("UMK3_SCREEN"))
         g_screen_jump = parse_screen(getenv("UMK3_SCREEN"));

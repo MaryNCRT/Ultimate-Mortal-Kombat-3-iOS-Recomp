@@ -6983,7 +6983,13 @@ long t_fx_mercy(MK3THREAD *thread);
 
 void create_fx_param(MK3OBJ *obj, uint32_t param)
 {
-    switch (obj->field1c) {
+    /* Read ONCE, on entry (0x58b68 `ldr r5, [r0, #0x1c]`), and r5 is what
+     * MKEvent_Add gets. NewThread rewrites obj->field1c, so reading it again
+     * after the switch sent the four threaded effects' events with a stray
+     * code: no BABALITY / ANIMALITY / MERCY / FRIENDSHIP banner or tune. */
+    uint32_t code = obj->field1c;
+
+    switch (code) {
     case 0x16:
         tsound_func(obj, 0x62);
         break;
@@ -7007,8 +7013,7 @@ void create_fx_param(MK3OBJ *obj, uint32_t param)
         break;
     }
 
-    MKEvent_Add(4, (long)obj->field1c, (long)param,
-                obj->field00->field08);
+    MKEvent_Add(4, (long)code, (long)param, obj->field00->field08);
 }
 
 
