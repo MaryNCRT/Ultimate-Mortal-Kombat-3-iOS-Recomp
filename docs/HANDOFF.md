@@ -14,12 +14,12 @@ Read this, then [METHODOLOGY.md](METHODOLOGY.md). Everything else is reference.
 
 ## Releases
 
-The current build is **0.0.7b alpha** ([notes](RELEASE-0.0.7b-alpha.md)); 0.0.7, 0.0.6c, 0.0.6b,
+The current build is **0.0.8 alpha** ([notes](RELEASE-0.0.8-alpha.md)), announced as 100% playable; 0.0.7b, 0.0.7, 0.0.6c, 0.0.6b,
 0.0.6, 0.0.5 and 0.0.4 are still published, 0.0.1-0.0.3 were deleted from GitHub when the history was
 rewritten on 2026-10-09 (their notes stay in `docs/`). What each release fixed,
 with addresses, is in PROGRESS.md, "Release history".
 
-## Where the project actually stands (2026-10-09, alpha 0.0.7b)
+## Where the project actually stands (2026-10-10, alpha 0.0.8)
 
 **Start with [HOW-THE-GAME-WORKS.md](HOW-THE-GAME-WORKS.md)** -- how the game
 runs, the code map, the bug method, the debug menu and every test variable.
@@ -31,6 +31,7 @@ runs, the code map, the bug method, the debug menu and every test variable.
   softlock, the pier floor. Next in Mary's queue: texture errors on other
   stages and fighters (Kung Lao's hat), crashes in modes other than Arcade,
   fatality animations, white frozen fighters.
+- **Session of 2026-10-10 (released as 0.0.8):** video options done, as Mary asked: real 3D resolution (FBO, `render_init` / `render_present` in game_main.c), antialiasing up to x16, exclusive fullscreen (`plat_fullscreen_exclusive`) and borderless fullscreen, aspect 3:2 only (launcher; the game always uses 3:2), `hide_controls=1` (GameCode.c `PortHideControls`, the layout is still computed for touch), game language in PLAY, CONTROLS split into PLAYER 1 / DEBUG, Mary's logo code restored. Before that: the MERCY banner and tune last their full time (DrawHUD 0x2844e adds 0.2 a frame, not 13). Mercy and animality checked by Mary; every finisher works. Mary rebuilt and published v0.0.7b herself: use her launcher as the base and keep her logo. Next, as she asked: game language to PLAY; a video section with render resolution separate from window resolution (really rendered at that size, an engine change); fullscreen and borderless as separate options. `UMK3_DBG_FIN` takes `tick:n;tick:n` (a mercy, then the animality).
 - **Session of 2026-10-09 (after 0.0.6c), fixed and checked by Mary, not released yet** (branch `claude/survival-fix`): Survival crash, Scorpion's spear, Shao Karnage HUD and difficulty, finisher banners, finish timing, typed 5-button finishers. Also fixed after that: the BABALITY banner (8 bouncing blocks) and the missing babality/animality/mercy/friendship banner and tune (`create_fx_param` must use the code read on entry, 0x58b68); 6-button babality typed D,B,B,HK works (`UMK3_BUTTONS=6` for tests). Watch: the dizzy loser sliding toward the winner (seen once more by Mary, not reproduced since). Mary's next requests: debug menu with mouse, one page per category (Q/E to turn pages, keys configurable in the launcher), palette 1/2 per player when picking fighters, the debug box moved to the launcher's PLAY section. Fixed after that, checked by Mary: Kung Lao's hat on the select screen (StaticMeshAmbient is 0 outside a fight; game_main.c gives the front end the body's light), white frozen fighters and Sub-Zero's ice clone (LoadAnimatedCharacter now loads `_DIFFUSE_ICE` on the fight path too, as 0x5c7f8 does; the diffuse is loaded with (0, 0) as every arm does). REA (rea-agents 6.3.0) is built at `E:\rea-rea-agents-6.3.0` and registered in the worktree's `.mcp.json` (PowerShell: use `npm.cmd`, not `npm`). The launcher's *PLAY* section has a *Skip the intros* box (`skip_intro=1`, or `UMK3_SKIP_INTRO=1`): game_main.c jumps `SplashCount` to 491 after the first splash frame, so the menu is up at tick 94 instead of 584 (checked by Mary).
 - **Start with [OPEN-ITEMS-STUDY.md](OPEN-ITEMS-STUDY.md)**: what the binary says about every open item, with the first step for each, and Noob Saibot's status.
 - **Next (Mary's list after 0.0.6b, findings in the README table):**

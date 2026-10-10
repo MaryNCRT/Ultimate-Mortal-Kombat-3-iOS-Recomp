@@ -20,9 +20,22 @@
 /* Open a window with a GL context current on it. Returns false on failure. */
 bool plat_open(const char *title, int width, int height);
 
-/* Cover the whole monitor the window is on, without a border. The launcher's
- * "pantalla completa" setting (umk3.ini). */
+/* Cover the whole monitor the window is on, without a border, at the
+ * desktop's own mode: the launcher's "ventana sin bordes" (borderless=1). */
 void plat_fullscreen(void);
+
+/* Exclusive fullscreen: the monitor switched to the window's size. Falls
+ * back to plat_fullscreen when the monitor has no such mode. The launcher's
+ * "pantalla completa" (fullscreen=1). */
+void plat_fullscreen_exclusive(void);
+
+/* A GL entry point beyond 1.1 (the framebuffer objects the render
+ * resolution draws into), or NULL. Same calling convention as GL's own. */
+void *plat_gl_proc(const char *name);
+
+/* Called with 1 as plat_ask starts and 0 as it returns, so the game can put
+ * its frame on the window first and go back to where it draws after. */
+extern void (*plat_ask_hook)(int begin);
 
 /* Pump the OS event queue. Returns false once the user has asked to quit. */
 bool plat_poll(void);

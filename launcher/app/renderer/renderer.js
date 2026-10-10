@@ -16,14 +16,16 @@ const T = {
         mBuild: 'COMPILAR TU .IPA', mVideo: 'GRÁFICOS', mControls: 'CONTROLES',
         mPlay: 'JUGAR', mQuit: 'SALIR',
         dBuild: 'El juego se compila en tu PC a partir de tu propio .ipa de UMK3 para iPhone (1.2.59).',
-        dVideo: 'Resolución, pantalla completa, idioma del juego y el marco de las barras.',
+        dVideo: 'Resolución de ventana, resolución 3D, modo de pantalla y el marco de las barras.',
         dControls: 'Las teclas del jugador 1, para los esquemas de 5 y de 6 botones, y las del modo debug.',
-        dPlay: 'Arranca Ultimate Mortal Kombat 3, con o sin las intros y el modo debug.',
+        dPlay: 'Arranca Ultimate Mortal Kombat 3: idioma del juego, intros y modo debug.',
         dQuit: 'Cierra el launcher.',
         hBuild: 'COMPILAR TU .IPA', ipaLbl: 'TU .IPA DE UMK3 (IPHONE 1.2.59)',
         browse: 'BUSCAR…', build: 'COMPILAR', rebuild: 'RECOMPILAR', cancel: 'CANCELAR', clear: 'QUITAR',
         builtAt: 'JUEGO COMPILADO', notBuilt: 'TODAVÍA NO ESTÁ COMPILADO: ELIGE TU .IPA Y PULSA COMPILAR.',
-        hVideo: 'GRÁFICOS', res: 'RESOLUCIÓN', full: 'PANTALLA COMPLETA',
+        hVideo: 'GRÁFICOS', res: 'RESOLUCIÓN DE VENTANA', rres: 'RESOLUCIÓN 3D', mode: 'MODO DE PANTALLA',
+        modes: ['VENTANA', 'PANTALLA COMPLETA', 'VENTANA SIN BORDES'], sameRes: 'IGUAL QUE LA VENTANA', tabDbg: 'DEBUG', tabP1: 'JUGADOR 1',
+        aspect: 'RELACIÓN DE ASPECTO', aspects: ['3:2 (ORIGINAL)'], aa: 'ANTIALIASING', aaOff: 'DESACTIVADO', hidectl: 'OCULTAR LOS CONTROLES EN PANTALLA (JOYSTICK Y BOTONES)',
         lang: 'IDIOMA DEL JUEGO', frame: 'MARCO (PANTALLA COMPLETA)',
         dbg: 'MODO DEBUG (MENÚ Y ATAJOS, VER CONTROLES)', hDbgKeys: 'TECLAS Y ATAJOS DEL MODO DEBUG', gDbgMenu: 'MENÚ DEBUG', gDbgFight: 'PELEA', gDbgScreens: 'PANTALLAS', dbgKeysNote: 'SOLO ACTÚAN CON EL MODO DEBUG ACTIVADO (SECCIÓN JUGAR).', wsNote: 'PANTALLA ANCHA (16:9): EN DESARROLLO. EN PANTALLA COMPLETA, EL MARCO RELLENA LAS BARRAS.',
         hControls: 'CONTROLES DEL JUGADOR 1', gMove: 'MOVIMIENTO', gButtons: 'BOTONES', gSystem: 'SISTEMA',
@@ -33,7 +35,7 @@ const T = {
         hint: 'CLIC EN UNA ACCIÓN Y PULSA LA TECLA',
         hPlay: 'JUGAR', play: 'JUGAR', skip: 'SALTAR LAS INTROS (LOGOS DEL INICIO)',
         cSelect: 'SELECCIONAR', cBack: 'ATRÁS', cFull: 'PANTALLA COMPLETA',
-        auto: 'Automático (Windows)', original: '(original)',
+        auto: 'Automático (Windows)', original: '(IPHONE)',
         keys: { up: 'Arriba', down: 'Abajo', left: 'Izquierda', right: 'Derecha',
                 hp: 'Puño alto', lp: 'Puño bajo', block: 'Bloqueo', hk: 'Patada alta',
                 lk: 'Patada baja', run: 'Correr', special: 'Especial (S)',
@@ -53,14 +55,16 @@ const T = {
         mBuild: 'COMPILE YOUR .IPA', mVideo: 'GRAPHICS', mControls: 'CONTROLS',
         mPlay: 'PLAY', mQuit: 'QUIT',
         dBuild: 'The game is compiled on your PC from your own UMK3 iPhone .ipa (1.2.59).',
-        dVideo: 'Resolution, fullscreen, game language and the bars frame.',
+        dVideo: 'Window resolution, 3D resolution, display mode and the bars frame.',
         dControls: 'Player 1 keys, for the 5- and 6-button layouts, and debug mode\'s keys.',
-        dPlay: 'Starts Ultimate Mortal Kombat 3, with or without the intros and debug mode.',
+        dPlay: 'Starts Ultimate Mortal Kombat 3: game language, intros and debug mode.',
         dQuit: 'Closes the launcher.',
         hBuild: 'COMPILE YOUR .IPA', ipaLbl: 'YOUR UMK3 .IPA (IPHONE 1.2.59)',
         browse: 'BROWSE…', build: 'COMPILE', rebuild: 'REBUILD', cancel: 'CANCEL', clear: 'CLEAR',
         builtAt: 'GAME COMPILED', notBuilt: 'NOT COMPILED YET: CHOOSE YOUR .IPA AND PRESS COMPILE.',
-        hVideo: 'GRAPHICS', res: 'RESOLUTION', full: 'FULLSCREEN',
+        hVideo: 'GRAPHICS', res: 'WINDOW RESOLUTION', rres: '3D RESOLUTION', mode: 'DISPLAY MODE',
+        modes: ['WINDOW', 'FULLSCREEN', 'BORDERLESS WINDOW'], sameRes: 'SAME AS THE WINDOW', tabDbg: 'DEBUG', tabP1: 'PLAYER 1',
+        aspect: 'ASPECT RATIO', aspects: ['3:2 (ORIGINAL)'], aa: 'ANTIALIASING', aaOff: 'OFF', hidectl: 'HIDE THE ON-SCREEN CONTROLS (STICK AND BUTTONS)',
         lang: 'GAME LANGUAGE', frame: 'FRAME (FULLSCREEN)',
         dbg: 'DEBUG MODE (MENU AND SHORTCUTS, SEE CONTROLS)', hDbgKeys: 'DEBUG MODE KEYS AND SHORTCUTS', gDbgMenu: 'DEBUG MENU', gDbgFight: 'FIGHT', gDbgScreens: 'SCREENS', dbgKeysNote: 'THEY ONLY ACT WITH DEBUG MODE ON (PLAY SECTION).', wsNote: 'WIDESCREEN (16:9): IN DEVELOPMENT. IN FULLSCREEN THE FRAME FILLS THE BARS.',
         hControls: 'PLAYER 1 CONTROLS', gMove: 'MOVEMENT', gButtons: 'BUTTONS', gSystem: 'SYSTEM',
@@ -70,7 +74,7 @@ const T = {
         hint: 'CLICK AN ACTION, THEN PRESS A KEY',
         hPlay: 'PLAY', play: 'PLAY', skip: 'SKIP THE INTROS (STARTUP LOGOS)',
         cSelect: 'SELECT', cBack: 'BACK', cFull: 'FULLSCREEN',
-        auto: 'Automatic (Windows)', original: '(original)',
+        auto: 'Automatic (Windows)', original: '(IPHONE)',
         keys: { up: 'Up', down: 'Down', left: 'Left', right: 'Right',
                 hp: 'High punch', lp: 'Low punch', block: 'Block', hk: 'High kick',
                 lk: 'Low kick', run: 'Run', special: 'Special (S)',
@@ -95,6 +99,8 @@ const RES = [
     { w: 1280, h: 720 }, { w: 1600, h: 900 }, { w: 1920, h: 1080 },
     { w: 2560, h: 1440 }, { w: 3840, h: 2160 },
 ];
+/* antialiasing= in umk3.ini: the multisampling the game asks the card for */
+const AA = [0, 2, 4, 8, 16];
 const LANGS = [null, 'English', 'Español', 'Français', 'Deutsch', 'Italiano', '한국어', '中文'];
 /* "5:x" names a key of the five-button layout (umk3.ini key5_x); the rest
  * are key_<name>. The special button (S) exists only in the five. */
@@ -236,9 +242,18 @@ function vkLabel(vk) {
     return SPECIAL[vk] || '#' + vk;
 }
 
+/* CONTROLS has two categories: PLAYER 1 -- with the 6- and 5-button layouts
+ * (each its keys, and the one the game starts with) -- and DEBUG (the debug
+ * mode's keys). */
+let ctlTab = 'p';
+
 function paintKeys() {
     document.querySelectorAll('.tab').forEach(t =>
-        t.classList.toggle('active', Number(t.dataset.b) === (cfg.buttons === 6 ? 6 : 5)));
+        t.classList.toggle('active', t.dataset.c ? t.dataset.c === ctlTab
+            : Number(t.dataset.b) === (cfg.buttons === 6 ? 6 : 5)));
+    for (const [id, on] of [['hCtlP', 'p'], ['ctlP', 'p'], ['reskeys', 'p'], ['ctlLayouts', 'p'],
+                            ['hCtlD', 'dbg'], ['ctlD', 'dbg'], ['resdbg', 'dbg']])
+        $(id).classList.toggle('hidden', ctlTab !== on);
     for (const [box, names] of Object.entries(KGROUPS)) {
         const b = $(box);
         b.innerHTML = '';
@@ -262,10 +277,19 @@ function paintKeys() {
 /* ------------------------------------------------------------ config -- */
 
 function fillSelects() {
-    const res = $('res'), lang = $('lang');
+    const res = $('res'), rres = $('rres'), mode = $('mode'), lang = $('lang');
+    const label = (r, i) => r.w + ' × ' + r.h + (i === 0 ? '  ' + T[ui].original : '');
     res.innerHTML = '';
-    RES.forEach((r, i) => res.appendChild(el('option', null,
-        r.w + ' × ' + r.h + (i === 0 ? '  ' + T[ui].original : ''))));
+    RES.forEach((r, i) => res.appendChild(el('option', null, label(r, i))));
+    rres.innerHTML = '';
+    rres.appendChild(el('option', null, T[ui].sameRes));
+    RES.forEach((r, i) => rres.appendChild(el('option', null, label(r, i))));
+    mode.innerHTML = '';
+    T[ui].modes.forEach(m => mode.appendChild(el('option', null, m)));
+    $('aspect').innerHTML = '';
+    T[ui].aspects.forEach(a => $('aspect').appendChild(el('option', null, a)));
+    $('aa').innerHTML = '';
+    AA.forEach(n => $('aa').appendChild(el('option', null, n ? 'x' + n : T[ui].aaOff)));
     lang.innerHTML = '';
     LANGS.forEach(n => lang.appendChild(el('option', null, n || T[ui].auto)));
 }
@@ -275,9 +299,13 @@ function applyConfig() {
     $('marco').value = cfg.marco || '';
     $('res').selectedIndex = cfg.res >= 0 ? cfg.res : 1;
     $('lang').selectedIndex = cfg.language || 0;
-    $('full').checked = !!cfg.fullscreen;
+    $('rres').selectedIndex = cfg.rres > 0 ? cfg.rres : 0;
+    $('mode').selectedIndex = cfg.fullscreen ? 1 : cfg.borderless ? 2 : 0;
+    $('aspect').selectedIndex = 0;
+    $('aa').selectedIndex = Math.max(0, AA.indexOf(cfg.antialiasing || 0));
     $('dbg').checked = !!cfg.debug;
     $('skip').checked = !!cfg.skipIntro;
+    $('hidectl').checked = !!cfg.hideControls;
 }
 
 async function save(delta) {
@@ -454,9 +482,15 @@ async function init() {
     });
     $('res').addEventListener('change', () => save({ res: $('res').selectedIndex }));
     $('lang').addEventListener('change', () => save({ language: $('lang').selectedIndex }));
-    $('full').addEventListener('change', () => save({ fullscreen: $('full').checked }));
+    $('rres').addEventListener('change', () => save({ rres: $('rres').selectedIndex }));
+    $('aa').addEventListener('change', () => save({ antialiasing: AA[$('aa').selectedIndex] }));
+    $('mode').addEventListener('change', () => {
+        const m = $('mode').selectedIndex;
+        save({ fullscreen: m === 1, borderless: m === 2 });
+    });
     $('dbg').addEventListener('change', () => save({ debug: $('dbg').checked }));
     $('skip').addEventListener('change', () => save({ skipIntro: $('skip').checked }));
+    $('hidectl').addEventListener('change', () => save({ hideControls: $('hidectl').checked }));
 
     window.umk3.onBuildData(handleBuildData);
     $('build').addEventListener('click', startBuild);
@@ -488,8 +522,12 @@ async function init() {
         t.addEventListener('pointerenter', hoverBlip);
         t.addEventListener('click', () => {
             selectBlip();
-            cfg.buttons = Number(t.dataset.b);
-            save({ buttons: cfg.buttons });
+            if (t.dataset.c) {
+                ctlTab = t.dataset.c;
+            } else {
+                cfg.buttons = Number(t.dataset.b);
+                save({ buttons: cfg.buttons });
+            }
             waitingKey = null;
             paintKeys();
             t.blur();

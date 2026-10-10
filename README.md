@@ -26,7 +26,7 @@ You need a legally obtained copy of *Ultimate Mortal Kombat 3* for iOS (version 
 
 ---
 
-## Where the project stands — 9 October 2026 (alpha 0.0.7b)
+## Where the project stands — 10 October 2026 (alpha 0.0.8)
 
 | | |
 |---|---|
@@ -34,11 +34,11 @@ You need a legally obtained copy of *Ultimate Mortal Kombat 3* for iOS (version 
 | **Verified** | ✅ The engine core passes differential tests against the recompiled original with zero divergences. The fight engine passes a behavioural differential test file by file, with the exceptions listed in [Verification](#how-much-of-it-is-verified) — every one of them a known limit of the test harness, not a known bug. |
 | **Runs natively** | ✅ The real game runs natively on Windows (Linux/macOS from source): the front end with its 51 screens, Arcade with the tower to the end of the ladder, fights, sound, music and saves. How it fits together: [docs/HOW-THE-GAME-WORKS.md](docs/HOW-THE-GAME-WORKS.md). |
 | **Fight** | ✅ **Fights play to the end by the real path** (0.0.2): round 1, round 2, the end of the match, `Task_GameDestroy`, Continue and the next fight, with the camera following both fighters and the voices playing. Before that, **the first fight ran by the real path.** After the tower (or straight from the menu with `--fight`, below) the game runs `Task_GameInit` and `Task_GameMain`: the arena draws, both fighters fight with the CPU playing, with the HUD and touch controls, for thousands of frames without a crash ([#54](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/54), [#57](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/57)). |
-| **Playable** | 🔄 **Alpha 0.0.7b** ([release](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/releases)): menus, Arcade to Shao Kahn and the treasure screen, whole fights, from the keyboard (rebindable in the launcher), a gamepad or the touch controls, with a debug menu (F2). Still wrong: see *Known problems*. The fight engine's 229 data tables are extracted from the user's own binary at build time and verified against it. |
+| **Playable** | ✅ **Alpha 0.0.8: 100% playable** (it can still have bugs; they are being fixed) ([release](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/releases)): menus, Arcade to Shao Kahn and the treasure screen, whole fights, from the keyboard (rebindable in the launcher), a gamepad or the touch controls, with a debug menu (F2). Still wrong: see *Known problems*. The fight engine's 229 data tables are extracted from the user's own binary at build time and verified against it. |
 
 ### How to play (alpha 0.0.7, Windows)
 
-**Alpha 0.0.7b** ([notes](docs/RELEASE-0.0.7b-alpha.md); earlier: [0.0.7](docs/RELEASE-0.0.7-alpha.md), [0.0.6c](docs/RELEASE-0.0.6c-alpha.md), [0.0.6b](docs/RELEASE-0.0.6b-alpha.md), [0.0.6](docs/RELEASE-0.0.6-alpha.md), [0.0.5](docs/RELEASE-0.0.5-alpha.md), [0.0.4](docs/RELEASE-0.0.4-alpha.md), [0.0.3](docs/RELEASE-0.0.3-alpha.md), [0.0.2](docs/RELEASE-0.0.2-alpha.md), [0.0.1](docs/RELEASE-0.0.1-alpha.md)):
+**Alpha 0.0.8** ([notes](docs/RELEASE-0.0.8-alpha.md); earlier: [0.0.7b](docs/RELEASE-0.0.7b-alpha.md), [0.0.7](docs/RELEASE-0.0.7-alpha.md), [0.0.6c](docs/RELEASE-0.0.6c-alpha.md), [0.0.6b](docs/RELEASE-0.0.6b-alpha.md), [0.0.6](docs/RELEASE-0.0.6-alpha.md), [0.0.5](docs/RELEASE-0.0.5-alpha.md), [0.0.4](docs/RELEASE-0.0.4-alpha.md), [0.0.3](docs/RELEASE-0.0.3-alpha.md), [0.0.2](docs/RELEASE-0.0.2-alpha.md), [0.0.1](docs/RELEASE-0.0.1-alpha.md)):
 [Releases](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/releases)
 has the launcher and only the sources the build needs, no game data. Its
 known problems are the table below.
@@ -107,7 +107,7 @@ symbolise. A log is deleted once the error it shows is fixed.
 
 ### Known problems (9 October 2026, alpha 0.0.7)
 
-Release notes: [0.0.7b](docs/RELEASE-0.0.7b-alpha.md), [0.0.7](docs/RELEASE-0.0.7-alpha.md), [0.0.6c](docs/RELEASE-0.0.6c-alpha.md), [0.0.6b](docs/RELEASE-0.0.6b-alpha.md), [0.0.6](docs/RELEASE-0.0.6-alpha.md), [0.0.5](docs/RELEASE-0.0.5-alpha.md), [0.0.4](docs/RELEASE-0.0.4-alpha.md), [0.0.3](docs/RELEASE-0.0.3-alpha.md), [0.0.2](docs/RELEASE-0.0.2-alpha.md), [0.0.1](docs/RELEASE-0.0.1-alpha.md).
+Release notes: [0.0.8](docs/RELEASE-0.0.8-alpha.md), [0.0.7b](docs/RELEASE-0.0.7b-alpha.md), [0.0.7](docs/RELEASE-0.0.7-alpha.md), [0.0.6c](docs/RELEASE-0.0.6c-alpha.md), [0.0.6b](docs/RELEASE-0.0.6b-alpha.md), [0.0.6](docs/RELEASE-0.0.6-alpha.md), [0.0.5](docs/RELEASE-0.0.5-alpha.md), [0.0.4](docs/RELEASE-0.0.4-alpha.md), [0.0.3](docs/RELEASE-0.0.3-alpha.md), [0.0.2](docs/RELEASE-0.0.2-alpha.md), [0.0.1](docs/RELEASE-0.0.1-alpha.md).
 
 What a player sees today, and what is known about each.
 
@@ -166,6 +166,7 @@ What a player sees today, and what is known about each.
 | After the last hit the loser keeps acting for a moment during FINISH HIM. | In a debug win the loser (CPU) enters `t_finish_him` and `t_dizzy_dude` about 20 engine passes after the winner -- it finishes what it was doing first. Mary reports the walking-towards-you case fixed in her test; to watch. |
 | ~~Shao Karnage: player one's bar covers the score; difficulty broken.~~ | **Fixed** (checked by Mary, 2026-10-09). `DrawHUD` skips the whole plate block in mode 3 (0x284ec), player one's included; and Karnage's difficulty is `GameMode - 3` = 0 (0x2db1c: r3 still holds GameMode), not `Destiny - 3` (-4 outside a ladder). Time out ends the mode into its summary, as designed. |
 | ~~No FATALITY / ANIMALITY / FRIENDSHIP banner; the fight ends before the announcer finishes.~~ | **Fixed** (checked by Mary, 2026-10-09). The banners were never drawn: transcribed from DrawHUD 0x2a3c0..0x2ab26 (`DrawFinisherBanner`); their counters are floats. The round summary timer adds 0.7 a tick while `IsInFinishing` (0x2a2d6), not 1.25. The BABALITY banner is the eight bouncing blocks (0x29d56, `BabalityVel` / `BabalityHeight`). Babality, animality, mercy and friendship had no banner or tune because `create_fx_param` re-read `obj->field1c` after `NewThread` changed it; the binary keeps it in r5 from entry (0x58b68). Both checked by Mary, 2026-10-09. |
+| ~~MERCY banner flashes for a moment and Mercy.mp3 is cut off.~~ | **Fixed** (checked by Mary, 2026-10-10). DrawHUD's mercy counter rises 0.2 a frame (0x2844e, the double at 0x286f4); it rose 13, so the banner was gone in three frames and the stage music came back over the tune at once. Mercy itself was already right: the loser gets up with a sliver of health and the same round goes on (`t_master_proc_mercy`); the animality, which needs a mercy first (`q_mercy` in `DoASpecial`), then works with its banner and model. Scripted: `UMK3_DBG_FIN="1950:1;2450:4"` with KO keys for a round each, then a third. |
 | ~~Typed finishers never fire.~~ | **Fixed for the 5-button layout** (checked by Mary, 2026-10-09). `GetArcadeJoyBits` compares later table entries against the word WITH the finishing bit 0x2000 (0x1b830 `mov r3, r0`); it reset to the bare bits, so no finisher entry could match. 5-button finishers are one gesture with S during FINISH HIM: toward+S fatality 1, toward+down+S fatality 2, down+S animality, away+S babality, S friendship, away+down+S pit, S+run mercy (`FourButtonMoves`). The 6-button layout feeds the arcade code directly: Sub-Zero's babality typed as down, back, back, HK fires (scripted test, `UMK3_BUTTONS=6`). Test tool: `UMK3_KEYS="tick:keys:hold;..."`. |
 | ~~Kung Lao's hat black on the character select screen.~~ | **Fixed** (checked by Mary, 2026-10-09). The hat's colour is its baked lighting (average 15/255) plus `StaticMeshAmbient`, which only `LightPlayers` writes, in a fight; the select screen has no stage, so it stayed 0 (__common). Port fix in `runtime/game_main.c`: in the front end it gets the light `RenderFECharacters` gives the body (0.65 0.65 0.7) x 255. |
 | ~~Survival mode crashes after winning a fight.~~ | **Fixed** (checked by Mary, 2026-10-09). `QuitAsWin` / `QuitAsLose` reach SurvivalStage and DisplaySurvivalStage through pointer slots (0x26804, 0x26b8c, 0x26b92); `SurvivalStageP` was left NULL and `DisplaySurvivalStage` was used as a pointer. Both slots now hold the addresses. |
@@ -354,7 +355,7 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 | Native PC platform layer (161 fn to rewrite) | 17% | 27% | `███░░░░░░░` |
 | EA SDK stubs (27 fn the game calls) | 5% | 100% | `██████████` |
 
-**87.59% of the total estimated effort. Alpha 0.0.7b is playable:** whole
+**87.59% of the total estimated effort. Alpha 0.0.8 is 100% playable:** whole
 fights by the real path, with known problems (see above).
 
 **Read that number for what it measures, and for what it leaves out.** It

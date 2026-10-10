@@ -97,6 +97,19 @@ void plat_fullscreen(void)
     SDL_SetWindowFullscreen(g_wnd, SDL_WINDOW_FULLSCREEN_DESKTOP);
 }
 
+void plat_fullscreen_exclusive(void)
+{
+    if (SDL_SetWindowFullscreen(g_wnd, SDL_WINDOW_FULLSCREEN) != 0)
+        plat_fullscreen();
+}
+
+void *plat_gl_proc(const char *name)
+{
+    return SDL_GL_GetProcAddress(name);
+}
+
+void (*plat_ask_hook)(int begin);
+
 bool plat_poll(void)
 {
     SDL_Event ev;

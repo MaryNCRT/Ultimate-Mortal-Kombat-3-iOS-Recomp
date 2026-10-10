@@ -153,17 +153,26 @@ function createWindow() {
 
 /* ------------------------------------------------------------- ipc ---- */
 
-/* The title logo: logo.png in the game folder if the player put one there,
- * else the one shipped with the launcher (renderer/logo.png, from Wikipedia,
- * chosen by Mary); null only if both are missing, and the drawn title stays. */
+/* The title logo: logo.png in the game folder, if the player put one there;
+ * else the game's own, cut from the player's compiled res (the main menu's
+ * FE_TITLE_MAINLOGO.PNG atlas: the logo is its top 933 x 383 band). The
+ * launcher ships no game art; with neither, null, and the drawn title stays. */
 ipcMain.handle('logo:get', () => {
-    for (const p of [path.join(g_root, 'logo.png'),
-                     path.join(__dirname, 'renderer', 'logo.png')]) {
-        try {
-            return 'data:image/png;base64,' + fs.readFileSync(p).toString('base64');
-        } catch (err) { /* next */ }
+    try {
+        const p = path.join(g_root, 'logo.png');
+        return 'data:image/png;base64,' + fs.readFileSync(p).toString('base64');
+    } catch (err) { /* fall through */ }
+    try {
+        const p = path.join(g_root, 'res', 'Textures', 'FE_TITLE_MAINLOGO.PNG');
+        if (!fs.existsSync(p))
+            return null;
+        const img = nativeImage.createFromPath(p);
+        if (img.isEmpty())
+            return null;
+        return img.crop({ x: 0, y: 4, width: 933, height: 383 }).toDataURL();
+    } catch (err) {
+        return null;
     }
-    return null;
 });
 
 ipcMain.handle('root:get', () =>

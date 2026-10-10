@@ -1,7 +1,11 @@
 /* umk3.ini reader/writer -- byte-for-byte the same format launcher.c wrote
  * and runtime/game_main.c reads:
  *
- *     width=960      height=640      fullscreen=0
+ *     width=960      height=640      fullscreen=0   borderless=0
+ *     hide_controls=1   (no on-screen stick and buttons)
+ *     antialiasing=0|2|4|8|16   aspect=3:2 (the game's 3:2, the only one so far)
+ *     render_width=1920  render_height=1280   (the 3D resolution; absent =
+ *       the window's size)
  *     language=ES    ui=EN           ipa=C:\x\UMK3.ipa
  *     debug_keys=1   skip_intro=1   key_up=87 ... key_moves=77   key_special=72
  *     marco=C:\x\picture.png   (the picture behind the bars in fullscreen)
@@ -9,7 +13,8 @@
  *       (the layout, and the five-button layout's own keys; its S is
  *        key_special, the six-button layout's keys are key_hp .. key_run)
  *
- * The game only reads width/height/fullscreen/language/debug_keys/skip_intro and the
+ * The game only reads width/height/render_width/render_height/fullscreen/borderless/
+ * language/debug_keys/skip_intro and the
  * key_<name> lines (see runtime/game_main.c:read_config); ui= and ipa= are
  * the launcher's own.  Missing keys keep the defaults, exactly like the C
  * launcher did.  Pure Node, no Electron -- tested in tests/launcher.
@@ -83,11 +88,15 @@ function defaultConfig() {
     for (const name of KEY5_NAMES)
         keys5[name] = KEY5_DEFAULTS[name].charCodeAt(0);
     return {
-        res: 1,                      /* 960x640 */
+        res: 1,                      /* 960x640: the window */
+        rres: 0,                     /* the 3D resolution: 0 = the window's, else RES[rres - 1] */
         fullscreen: false,
+        borderless: false,           /* fullscreen without a border, at the desktop's mode */
+        antialiasing: 0,             /* 0, 2, 4, 8 or 16 samples */
         widescreen: false,           /* native: widen the 3D view, no stretch */
         debug: false,
         skipIntro: false,            /* skip_intro=1: no publisher logos */
+        hideControls: false,         /* hide_controls=1: no on-screen stick and buttons */
         language: 0,                 /* "" = follow Windows */
         ui: 'ES',                    /* the launcher's own language */
         ipa: '',
@@ -116,7 +125,7 @@ function load(p) {
             return cfg;              /* missing file, keep defaults */
         throw err;
     }
-    let w = 960, h = 640;
+    let w = 960, h = 640, rw = 0, rh = 0;
     for (const line of text.split(/\r?\n/)) {
         if (!line.includes('='))
             continue;
@@ -126,10 +135,15 @@ function load(p) {
         const num = parseInt(val, 10);
         if (key === 'width')        w = Number.isFinite(num) ? num : w;
         else if (key === 'height')  h = Number.isFinite(num) ? num : h;
+        else if (key === 'render_width')  rw = Number.isFinite(num) ? num : 0;
+        else if (key === 'render_height') rh = Number.isFinite(num) ? num : 0;
         else if (key === 'fullscreen') cfg.fullscreen = num === 1;
+        else if (key === 'borderless') cfg.borderless = num === 1;
+        else if (key === 'antialiasing') cfg.antialiasing = [2, 4, 8, 16].includes(num) ? num : 0;
         else if (key === 'widescreen') cfg.widescreen = num === 1;
         else if (key === 'debug_keys') cfg.debug = num === 1;
         else if (key === 'skip_intro') cfg.skipIntro = num === 1;
+        else if (key === 'hide_controls') cfg.hideControls = num === 1;
         else if (key === 'language') {
             const i = LANGS.findIndex(l => l.code.toUpperCase() === val.toUpperCase());
             if (i >= 0)
@@ -154,6 +168,7 @@ function load(p) {
     cfg.res = RES.findIndex(r => r.w === w && r.h === h);
     if (cfg.res < 0)
         cfg.res = 1;
+    cfg.rres = RES.findIndex(r => r.w === rw && r.h === rh) + 1;
     return cfg;
 }
 
@@ -166,14 +181,21 @@ function save(p, cfg) {
         'width=' + res.w,
         'height=' + res.h,
         'fullscreen=' + (cfg.fullscreen ? 1 : 0),
+        'borderless=' + (cfg.borderless ? 1 : 0),
+        'antialiasing=' + ([2, 4, 8, 16].includes(cfg.antialiasing) ? cfg.antialiasing : 0),
+        'aspect=3:2',
         'widescreen=' + (cfg.widescreen ? 1 : 0),
         'language=' + lang,
         'ui=' + (cfg.ui === 'EN' ? 'EN' : 'ES'),
         'ipa=' + cfg.ipa,
         'debug_keys=' + (cfg.debug ? 1 : 0),
         'skip_intro=' + (cfg.skipIntro ? 1 : 0),
+        'hide_controls=' + (cfg.hideControls ? 1 : 0),
         'buttons=' + (cfg.buttons === 6 ? 6 : 5),
     ];
+    if (cfg.rres > 0 && RES[cfg.rres - 1])
+        lines.push('render_width=' + RES[cfg.rres - 1].w,
+                   'render_height=' + RES[cfg.rres - 1].h);
     if (cfg.marco)
         lines.push('marco=' + cfg.marco);
     for (const name of KEY_NAMES)

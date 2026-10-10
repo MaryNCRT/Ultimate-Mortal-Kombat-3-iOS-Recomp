@@ -119,7 +119,8 @@ button, input, select { font: inherit; color: inherit; }
 }
 .tab:hover { color: #fff; border-color: rgba(160,190,255,.6); }
 .tab.active { color: #fff; background: linear-gradient(#3f6fd8, #1d3f9a); border-color: #8fb2ff; }
-.tabs #reskeys { margin-left: auto; }
+.tabs #reskeys, .tabs #resdbg { margin-left: auto; }
+.tabs.sub { margin-bottom: 0; }
 .kg .hint { margin: calc(var(--u) * 1.4) 0 0; }
 #logo {
     grid-area: logo; position: relative; justify-self: center;

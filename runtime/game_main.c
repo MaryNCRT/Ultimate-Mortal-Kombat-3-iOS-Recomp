@@ -406,6 +406,7 @@ static void parse_taps(const char *s)
 }
 
 void umk3_relocate_level_info(void);   /* build/level_info.c */
+extern int PortHideControls;           /* GameCode.c: hide_controls=1 */
 
 /* umk3.ini beside the exe, written by the launcher (tools/launcher):
  *
@@ -414,9 +415,23 @@ void umk3_relocate_level_info(void);   /* build/level_info.c */
  *     fullscreen=0
  *     language=ES
  *
- * The window size is the 3D resolution: the game draws straight into it.
+ *     render_width=960
+ *     render_height=640
+ *     borderless=0
+ *
+ *     antialiasing=4
+ *     aspect=3:2
+ *
+ * width/height are the window. render_width/render_height are the 3D
+ * resolution: the game draws into a buffer that size and it is scaled to the
+ * window (see render_init); missing or 0, the game's area on the window.
+ * antialiasing= is the multisampling, 0 or 2..16. fullscreen=1 is exclusive
+ * fullscreen at the window's size; borderless=1 covers the monitor without a
+ * border at the desktop's mode. aspect= is the launcher's: 3:2 (the
+ * iPhone's) is the only one so far, and what fit_view always uses.
  * Missing file or keys keep the defaults. */
 static int  g_cfg_w = VIRT_W * SCALE, g_cfg_h = VIRT_H * SCALE, g_cfg_full;
+static int  g_cfg_rw, g_cfg_rh, g_cfg_borderless, g_cfg_aa;
 static int  g_cfg_debug_keys;          /* debug_keys=1: F9..F12, see debug_keys() */
 static int  g_cfg_skip_intro;          /* skip_intro=1: no publisher logos */
 static char g_cfg_lang[8];
@@ -444,6 +459,14 @@ static void read_config(const char *dir)
             g_cfg_h = atoi(v);
         else if (strcmp(line, "fullscreen") == 0)
             g_cfg_full = atoi(v) != 0;
+        else if (strcmp(line, "borderless") == 0)
+            g_cfg_borderless = atoi(v) != 0;
+        else if (strcmp(line, "antialiasing") == 0)
+            g_cfg_aa = atoi(v) >= 2 ? (atoi(v) > 16 ? 16 : atoi(v)) : 0;
+        else if (strcmp(line, "render_width") == 0)
+            g_cfg_rw = atoi(v) >= VIRT_W ? atoi(v) : 0;
+        else if (strcmp(line, "render_height") == 0)
+            g_cfg_rh = atoi(v) >= VIRT_H ? atoi(v) : 0;
         else if (strcmp(line, "language") == 0)
             snprintf(g_cfg_lang, sizeof g_cfg_lang, "%s", v);
         else if (strcmp(line, "buttons") == 0)
@@ -462,6 +485,8 @@ static void read_config(const char *dir)
             g_cfg_debug_keys = atoi(v) != 0;
         else if (strcmp(line, "skip_intro") == 0)
             g_cfg_skip_intro = atoi(v) != 0;
+        else if (strcmp(line, "hide_controls") == 0)
+            PortHideControls = atoi(v) != 0;
         else if (strncmp(line, "key_", 4) == 0) {
             /* key_<name>=<virtual-key code>, from the launcher's key setup */
             static const char *const names[] = {
@@ -582,22 +607,227 @@ int dbg_in_arcade(void)
     return GameMode == 0 && Destiny >= 0 && Destiny <= 3;
 }
 
+static void fit_view(int ww, int wh, int *vx, int *vy, int *vw, int *vh);
+
+/* The 3D resolution (render_width/render_height) and antialiasing
+ * (antialiasing=2..16): the game's area is drawn into a framebuffer object
+ * at that size -- multisampled, then resolved, when antialiasing is on --
+ * and stretched onto its place in the window by render_present. Without a
+ * 3D resolution the buffer follows the game's area on the window, so
+ * antialiasing alone does not scale anything. GL 3.0 / ARB_framebuffer_object
+ * entry points, fetched at run time; a driver without them, or a buffer that
+ * will not complete, leaves g_rs_on 0 and the game draws into the window as
+ * before. A port feature, not in the binary (the iPhone drew at the screen's
+ * size, without antialiasing). */
+#ifdef _WIN32
+#define RS_API __stdcall
+#else
+#define RS_API
+#endif
+typedef void   (RS_API *rs_gen_t)(GLsizei, GLuint *);
+typedef void   (RS_API *rs_del_t)(GLsizei, const GLuint *);
+typedef void   (RS_API *rs_bind_t)(GLenum, GLuint);
+typedef void   (RS_API *rs_storage_t)(GLenum, GLenum, GLsizei, GLsizei);
+typedef void   (RS_API *rs_storage_ms_t)(GLenum, GLsizei, GLenum, GLsizei, GLsizei);
+typedef void   (RS_API *rs_attach_t)(GLenum, GLenum, GLenum, GLuint);
+typedef GLenum (RS_API *rs_status_t)(GLenum);
+typedef void   (RS_API *rs_blit_t)(GLint, GLint, GLint, GLint, GLint, GLint,
+                                   GLint, GLint, GLbitfield, GLenum);
+static rs_gen_t        g_rs_gen_fb, g_rs_gen_rb;
+static rs_del_t        g_rs_del_fb, g_rs_del_rb;
+static rs_bind_t       g_rs_bind_fb, g_rs_bind_rb;
+static rs_storage_t    g_rs_storage;
+static rs_storage_ms_t g_rs_storage_ms;
+static rs_attach_t     g_rs_attach;
+static rs_status_t     g_rs_status;
+static rs_blit_t       g_rs_blit;
+static int       g_rs_on;                       /* buffers in use */
+static int       g_rs_samples;                  /* 0, or 2..16 */
+static GLuint    g_rs_fbo, g_rs_ms_fbo;         /* resolved, multisampled */
+static GLuint    g_rs_rb[4];
+static int       g_rs_w, g_rs_h;                /* the buffers' size */
+static int       g_rs_vx, g_rs_vy, g_rs_vw, g_rs_vh;  /* where it goes */
+
+#define RS_FRAMEBUFFER       0x8D40
+#define RS_READ_FRAMEBUFFER  0x8CA8
+#define RS_DRAW_FRAMEBUFFER  0x8CA9
+#define RS_RENDERBUFFER      0x8D41
+#define RS_COLOR_ATTACHMENT0 0x8CE0
+#define RS_DEPTH_ATTACHMENT  0x8D00
+#define RS_COMPLETE          0x8CD5
+#define RS_RGBA8             0x8058
+#define RS_DEPTH24           0x81A6
+#define RS_MAX_SAMPLES       0x8D57
+
+static void render_init(void)
+{
+    GLint max = 0;
+
+    if (g_cfg_rw <= 0 && g_cfg_aa <= 0)
+        return;
+    g_rs_gen_fb     = (rs_gen_t)plat_gl_proc("glGenFramebuffers");
+    g_rs_gen_rb     = (rs_gen_t)plat_gl_proc("glGenRenderbuffers");
+    g_rs_del_fb     = (rs_del_t)plat_gl_proc("glDeleteFramebuffers");
+    g_rs_del_rb     = (rs_del_t)plat_gl_proc("glDeleteRenderbuffers");
+    g_rs_bind_fb    = (rs_bind_t)plat_gl_proc("glBindFramebuffer");
+    g_rs_bind_rb    = (rs_bind_t)plat_gl_proc("glBindRenderbuffer");
+    g_rs_storage    = (rs_storage_t)plat_gl_proc("glRenderbufferStorage");
+    g_rs_storage_ms = (rs_storage_ms_t)plat_gl_proc("glRenderbufferStorageMultisample");
+    g_rs_attach     = (rs_attach_t)plat_gl_proc("glFramebufferRenderbuffer");
+    g_rs_status     = (rs_status_t)plat_gl_proc("glCheckFramebufferStatus");
+    g_rs_blit       = (rs_blit_t)plat_gl_proc("glBlitFramebuffer");
+    if (!g_rs_gen_fb || !g_rs_gen_rb || !g_rs_del_fb || !g_rs_del_rb
+        || !g_rs_bind_fb || !g_rs_bind_rb || !g_rs_storage || !g_rs_attach
+        || !g_rs_status || !g_rs_blit) {
+        printf("render resolution: no framebuffer objects, drawing into the window\n");
+        return;
+    }
+    if (g_cfg_aa > 0 && g_rs_storage_ms) {
+        glGetIntegerv(RS_MAX_SAMPLES, &max);
+        g_rs_samples = g_cfg_aa < max ? g_cfg_aa : max;
+        if (g_rs_samples < 2)
+            g_rs_samples = 0;
+    }
+    printf("antialiasing x%d (asked x%d, the card allows x%d)\n",
+           g_rs_samples, g_cfg_aa, (int)max);
+    g_rs_on = 1;
+}
+
+/* (Re)make the buffers at w x h. 0 if they will not complete -- the game
+ * then draws into the window. */
+static int render_alloc(int w, int h)
+{
+    int ms = g_rs_samples > 0;
+
+    if (g_rs_fbo) {
+        g_rs_del_fb(1, &g_rs_fbo);
+        if (g_rs_ms_fbo)
+            g_rs_del_fb(1, &g_rs_ms_fbo);
+        g_rs_del_rb(4, g_rs_rb);
+        g_rs_fbo = g_rs_ms_fbo = 0;
+    }
+    g_rs_w = w;
+    g_rs_h = h;
+    g_rs_gen_rb(4, g_rs_rb);
+
+    /* the resolved buffer, the one that is shown: colour, and depth only
+     * when the game draws into it directly */
+    g_rs_gen_fb(1, &g_rs_fbo);
+    g_rs_bind_fb(RS_FRAMEBUFFER, g_rs_fbo);
+    g_rs_bind_rb(RS_RENDERBUFFER, g_rs_rb[0]);
+    g_rs_storage(RS_RENDERBUFFER, RS_RGBA8, w, h);
+    g_rs_attach(RS_FRAMEBUFFER, RS_COLOR_ATTACHMENT0, RS_RENDERBUFFER, g_rs_rb[0]);
+    if (!ms) {
+        g_rs_bind_rb(RS_RENDERBUFFER, g_rs_rb[1]);
+        g_rs_storage(RS_RENDERBUFFER, RS_DEPTH24, w, h);
+        g_rs_attach(RS_FRAMEBUFFER, RS_DEPTH_ATTACHMENT, RS_RENDERBUFFER, g_rs_rb[1]);
+    }
+    if (g_rs_status(RS_FRAMEBUFFER) != RS_COMPLETE)
+        goto fail;
+
+    if (ms) {
+        g_rs_gen_fb(1, &g_rs_ms_fbo);
+        g_rs_bind_fb(RS_FRAMEBUFFER, g_rs_ms_fbo);
+        g_rs_bind_rb(RS_RENDERBUFFER, g_rs_rb[2]);
+        g_rs_storage_ms(RS_RENDERBUFFER, g_rs_samples, RS_RGBA8, w, h);
+        g_rs_attach(RS_FRAMEBUFFER, RS_COLOR_ATTACHMENT0, RS_RENDERBUFFER, g_rs_rb[2]);
+        g_rs_bind_rb(RS_RENDERBUFFER, g_rs_rb[3]);
+        g_rs_storage_ms(RS_RENDERBUFFER, g_rs_samples, RS_DEPTH24, w, h);
+        g_rs_attach(RS_FRAMEBUFFER, RS_DEPTH_ATTACHMENT, RS_RENDERBUFFER, g_rs_rb[3]);
+        if (g_rs_status(RS_FRAMEBUFFER) != RS_COMPLETE)
+            goto fail;
+    }
+    g_rs_bind_fb(RS_FRAMEBUFFER, 0);
+    printf("render buffer %dx%d, antialiasing x%d\n", w, h, g_rs_samples);
+    return 1;
+
+fail:
+    printf("render resolution: framebuffer incomplete, drawing into the window\n");
+    g_rs_bind_fb(RS_FRAMEBUFFER, 0);
+    g_rs_on = 0;
+    return 0;
+}
+
+/* After the game's frame: the multisampled buffer resolved into the shown
+ * one, which is then bound -- the debug menu draws there and reads it back
+ * (glReadPixels cannot read a multisampled buffer). */
+static void render_resolve(void)
+{
+    if (!g_rs_on || !g_rs_ms_fbo)
+        return;
+    g_rs_bind_fb(RS_READ_FRAMEBUFFER, g_rs_ms_fbo);
+    g_rs_bind_fb(RS_DRAW_FRAMEBUFFER, g_rs_fbo);
+    g_rs_blit(0, 0, g_rs_w, g_rs_h, 0, 0, g_rs_w, g_rs_h,
+              GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    g_rs_bind_fb(RS_FRAMEBUFFER, g_rs_fbo);
+}
+
+/* The game's area on the window, filtered (GL_LINEAR): a smaller buffer is
+ * scaled up, a bigger one down (supersampling). */
+static void render_present(void)
+{
+    if (!g_rs_on || !g_rs_fbo)
+        return;
+    g_rs_bind_fb(RS_READ_FRAMEBUFFER, g_rs_fbo);
+    g_rs_bind_fb(RS_DRAW_FRAMEBUFFER, 0);
+    g_rs_blit(0, 0, g_rs_w, g_rs_h,
+              g_rs_vx, g_rs_vy, g_rs_vx + g_rs_vw, g_rs_vy + g_rs_vh,
+              GL_COLOR_BUFFER_BIT, GL_LINEAR);
+    g_rs_bind_fb(RS_FRAMEBUFFER, 0);
+}
+
+/* plat_ask draws its box on the window over the frame so far: put the
+ * frame there first, and draw into the buffer again after. */
+static void render_ask_hook(int begin)
+{
+    if (!g_rs_on || !g_rs_fbo)
+        return;
+    if (begin) {
+        render_resolve();
+        render_present();
+    } else {
+        g_rs_bind_fb(RS_FRAMEBUFFER, g_rs_ms_fbo ? g_rs_ms_fbo : g_rs_fbo);
+        glViewport(0, 0, g_rs_w, g_rs_h);
+    }
+}
+
 /* -[EAGLView drawView]: one tick is one clear and one frame. The clear
- * covers the whole window; in fullscreen the frame picture, if any, fills
- * the bars, and the game's own area is cleared to black again -- a stage
- * leaves gaps (sky) it never draws, and the frame showed through them.
- * Leaves the viewport on the game's area. */
+ * covers the whole window; in fullscreen (either kind) the frame picture,
+ * if any, fills the bars, and the game's own area is cleared to black
+ * again -- a stage leaves gaps (sky) it never draws, and the frame showed
+ * through them. Leaves the viewport on the game's area, or on the render
+ * buffer when there is one. */
 static void clear_frame(int ww, int wh, int vx, int vy, int vw, int vh)
 {
+    if (g_rs_on && g_rs_fbo)
+        g_rs_bind_fb(RS_FRAMEBUFFER, 0);
     glViewport(0, 0, ww, wh);
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    if (g_cfg_full && (vw != ww || vh != wh)) {
+    if ((g_cfg_full || g_cfg_borderless) && (vw != ww || vh != wh)) {
         dbg_frame_draw(ww, wh);
         glEnable(GL_SCISSOR_TEST);
         glScissor(vx, vy, vw, vh);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         glDisable(GL_SCISSOR_TEST);
+    }
+    if (g_rs_on) {
+        int bw = vw, bh = vh, x, y;
+
+        if (g_cfg_rw > 0 && g_cfg_rh > 0)
+            fit_view(g_cfg_rw, g_cfg_rh, &x, &y, &bw, &bh);
+        if ((bw != g_rs_w || bh != g_rs_h || !g_rs_fbo) && bw > 0 && bh > 0)
+            render_alloc(bw, bh);
+    }
+    if (g_rs_on) {
+        g_rs_vx = vx;
+        g_rs_vy = vy;
+        g_rs_vw = vw;
+        g_rs_vh = vh;
+        g_rs_bind_fb(RS_FRAMEBUFFER, g_rs_ms_fbo ? g_rs_ms_fbo : g_rs_fbo);
+        glViewport(0, 0, g_rs_w, g_rs_h);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        return;
     }
     glViewport(vx, vy, vw, vh);
 }
@@ -914,8 +1144,13 @@ int main(int argc, char **argv)
         fprintf(stderr, "could not open a window\n");
         return 1;
     }
-    if (g_cfg_full) {
-        plat_fullscreen();
+    render_init();
+    plat_ask_hook = render_ask_hook;
+    if (g_cfg_full || g_cfg_borderless) {
+        if (g_cfg_full)
+            plat_fullscreen_exclusive();
+        else
+            plat_fullscreen();
         /* the picture for the bars: marco= in umk3.ini, else marco.png
          * beside the exe; none, and the bars stay black */
         if (!dbg_frame_load(g_cfg_frame[0] ? g_cfg_frame : NULL)) {
@@ -1026,16 +1261,26 @@ int main(int argc, char **argv)
                     DoASpecial(Plyr, (unsigned int)atoi(strchr(q, ':') + 1));
             }
             if (g_cfg_debug_keys && getenv("UMK3_DBG_FIN")) {
-                /* "tick:n" -- the menu's FINISHER row (0..6), once, at the
-                 * first FINISH HIM from that tick on */
+                /* "tick:n;tick:n" -- the menu's FINISHER row (0..6), each
+                 * once, at the first FINISH HIM from its tick on (a mercy,
+                 * then the animality it allows) */
                 static int done;
                 const char *q = getenv("UMK3_DBG_FIN");
-                if (!done && ticks >= atol(q) && strchr(q, ':')
-                    && dbg_finishing()) {
-                    struct dbg_request rq = { DBG_FINISHER, 0, 0, 0 };
-                    rq.a = atoi(strchr(q, ':') + 1);
-                    debug_request(&rq);
-                    done = 1;
+                int i;
+
+                for (i = 0; q && *q && i < 8; i++) {
+                    if (!(done & (1 << i)) && ticks >= atol(q)
+                        && strchr(q, ':') && dbg_finishing()
+                        && (i == 0 || (done & (1 << (i - 1))))) {
+                        struct dbg_request rq = { DBG_FINISHER, 0, 0, 0 };
+                        rq.a = atoi(strchr(q, ':') + 1);
+                        debug_request(&rq);
+                        done |= 1 << i;
+                        break;
+                    }
+                    q = strchr(q, ';');
+                    if (q)
+                        q++;
                 }
             }
             if (g_cfg_debug_keys && getenv("UMK3_DBG_KEY")) {
@@ -1113,6 +1358,7 @@ int main(int argc, char **argv)
             if (g_cfg_skip_intro && CurrentTask == 0 && SplashCount > 0
                 && SplashCount < 491)
                 SplashCount = 491;
+            render_resolve();
             if (g_cfg_debug_keys) {
                 if (dbg_info_on()) {
                     char line[96];
@@ -1126,7 +1372,11 @@ int main(int argc, char **argv)
                              RoundWins[0], RoundWins[1]);
                     dbg_info_draw(line);
                 }
-                dbg_menu_after_frame(vx, vy, vw, vh, CurrentTask, FE_CurrentTask);
+                if (g_rs_on)        /* the menu draws in the game's buffer */
+                    dbg_menu_after_frame(0, 0, g_rs_w, g_rs_h,
+                                         CurrentTask, FE_CurrentTask);
+                else
+                    dbg_menu_after_frame(vx, vy, vw, vh, CurrentTask, FE_CurrentTask);
             }
 
             /* --fight: once the main menu is up, do what the select screen
@@ -1199,6 +1449,7 @@ int main(int argc, char **argv)
             g_tick = ticks;
         }
         plat_audio_update();
+        render_present();
 
         if (getenv("UMK3_SHOTS")) {
             static long done_upto = -1;
