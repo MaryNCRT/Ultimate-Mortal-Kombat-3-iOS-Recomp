@@ -1261,16 +1261,26 @@ int main(int argc, char **argv)
                     DoASpecial(Plyr, (unsigned int)atoi(strchr(q, ':') + 1));
             }
             if (g_cfg_debug_keys && getenv("UMK3_DBG_FIN")) {
-                /* "tick:n" -- the menu's FINISHER row (0..6), once, at the
-                 * first FINISH HIM from that tick on */
+                /* "tick:n;tick:n" -- the menu's FINISHER row (0..6), each
+                 * once, at the first FINISH HIM from its tick on (a mercy,
+                 * then the animality it allows) */
                 static int done;
                 const char *q = getenv("UMK3_DBG_FIN");
-                if (!done && ticks >= atol(q) && strchr(q, ':')
-                    && dbg_finishing()) {
-                    struct dbg_request rq = { DBG_FINISHER, 0, 0, 0 };
-                    rq.a = atoi(strchr(q, ':') + 1);
-                    debug_request(&rq);
-                    done = 1;
+                int i;
+
+                for (i = 0; q && *q && i < 8; i++) {
+                    if (!(done & (1 << i)) && ticks >= atol(q)
+                        && strchr(q, ':') && dbg_finishing()
+                        && (i == 0 || (done & (1 << (i - 1))))) {
+                        struct dbg_request rq = { DBG_FINISHER, 0, 0, 0 };
+                        rq.a = atoi(strchr(q, ':') + 1);
+                        debug_request(&rq);
+                        done |= 1 << i;
+                        break;
+                    }
+                    q = strchr(q, ';');
+                    if (q)
+                        q++;
                 }
             }
             if (g_cfg_debug_keys && getenv("UMK3_DBG_KEY")) {

@@ -8154,7 +8154,11 @@ void DrawHUD(void)
                                  + (long)MercyMessageCounter % MERCY_FRAMES,
                              0, fatal_HUDgfx_Anim[0] - 1, 1, col);
 
-        MercyMessageCounter += 13.0f / limeFPSScaleFactor;
+        /* 0.2 a frame (0x2844e: the double at 0x286f4), not 13: at 13 the
+         * banner was gone in three frames and the stage music came back
+         * over Mercy.mp3 at once. */
+        MercyMessageCounter = (float)((double)MercyMessageCounter
+                              + 0.2 / (double)limeFPSScaleFactor);
         if (MercyMessageCounter >= 30.0f) {
             MercyMessageCounter = 0.0f;
             MercyMessage        = 0;

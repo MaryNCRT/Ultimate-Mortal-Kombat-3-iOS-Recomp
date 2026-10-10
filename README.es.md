@@ -169,6 +169,7 @@ Cada arreglo se leyó del binario armv7 original y Mary lo comprobó en el juego
 32. ~~Softlock al elegir recompensa en los tesoros~~ -- arreglado en 0.0.6.
 33. ~~Esquemas de 5 y 6 botones con teclas propias y pestaña en el launcher~~ -- hecho en 0.0.6.
 35. ~~Los avisos del juego salían como ventanas de Windows (escondidas en pantalla completa)~~ -- arreglado en 0.0.6b: se dibujan dentro del juego con el estilo de iOS 3, igual que el menú debug F2, que además ya no borra el marco.
+37. 2026-10-10: el letrero MERCY y su música ya duran lo que deben (el contador sube 0,2 por frame, 0x2844e, no 13). Mercy y luego animality funcionan completos, con letrero, música y modelo (comprobado por Mary).
 36. Pendiente (lista de Mary tras la 0.0.6b): las combinaciones de fatalities, friendships, babalities, animalities y mercy no parecen funcionar (con la fila FINISHER del menú debug sí se ejecutan); tras el fatality falta la voz del narrador y el letrero FATALITY; no se ven los objetos aparte de los luchadores (arpón de Scorpion, objetos de ataques); sombrero de Kung Lao en la selección; Supervivencia se cierra al ganar; texturas del clon de hielo de Sub-Zero.
 34. Pendiente (cola de Mary): errores de texturas en otros escenarios y personajes (sombrero de Kung Lao), crasheos en modos aparte del Arcade, animaciones que faltan en fatalities, personajes congelados en blanco.
 29. Iconos del Kombat Kode mal puestos en la pantalla de carga.

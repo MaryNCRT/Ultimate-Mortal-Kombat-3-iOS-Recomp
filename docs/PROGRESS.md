@@ -6,6 +6,8 @@ Current state of the project. Written so that someone can pick it up with no pri
 
 ## Current state (alpha 0.0.7b, 2026-10-09)
 
+**2026-10-10, after 0.0.7b (checked by Mary, not released):** the MERCY banner and `Mercy.mp3` last their full time (DrawHUD's counter adds 0.2 a frame, 0x2844e / 0x286f4, not 13). Mercy, then animality, now run start to finish with banner, tune and model; with friendship, babality and the fatalities that is every finisher. Mary's 0.0.7b release is the base from here (its game sources equal main; she rebuilt the launcher). Queued next: game language moves to PLAY, a separate video section with a real render resolution apart from the window size (engine scaling), and fullscreen and borderless window as separate options.
+
 - **The game is playable on Windows by the real path.** The retail front
   end, Arcade, the tower, the fight load, both rounds, the end of the
   match, Continue and the next fight, all in `umk3-game.exe` (i686),
