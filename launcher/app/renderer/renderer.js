@@ -16,16 +16,16 @@ const T = {
         mBuild: 'COMPILAR TU .IPA', mVideo: 'GRÁFICOS', mControls: 'CONTROLES',
         mPlay: 'JUGAR', mQuit: 'SALIR',
         dBuild: 'El juego se compila en tu PC a partir de tu propio .ipa de UMK3 para iPhone (1.2.59).',
-        dVideo: 'Resolución, pantalla completa, idioma del juego, el marco de las barras y el modo debug.',
-        dControls: 'Las teclas del jugador 1, para los esquemas de 5 y de 6 botones.',
-        dPlay: 'Arranca Ultimate Mortal Kombat 3.',
+        dVideo: 'Resolución, pantalla completa, idioma del juego y el marco de las barras.',
+        dControls: 'Las teclas del jugador 1, para los esquemas de 5 y de 6 botones, y las del modo debug.',
+        dPlay: 'Arranca Ultimate Mortal Kombat 3, con o sin las intros y el modo debug.',
         dQuit: 'Cierra el launcher.',
         hBuild: 'COMPILAR TU .IPA', ipaLbl: 'TU .IPA DE UMK3 (IPHONE 1.2.59)',
         browse: 'BUSCAR…', build: 'COMPILAR', rebuild: 'RECOMPILAR', cancel: 'CANCELAR', clear: 'QUITAR',
         builtAt: 'JUEGO COMPILADO', notBuilt: 'TODAVÍA NO ESTÁ COMPILADO: ELIGE TU .IPA Y PULSA COMPILAR.',
         hVideo: 'GRÁFICOS', res: 'RESOLUCIÓN', full: 'PANTALLA COMPLETA',
         lang: 'IDIOMA DEL JUEGO', frame: 'MARCO (PANTALLA COMPLETA)',
-        dbg: 'MODO DEBUG (MENÚ CON F2)', wsNote: 'PANTALLA ANCHA (16:9): EN DESARROLLO. EN PANTALLA COMPLETA, EL MARCO RELLENA LAS BARRAS.',
+        dbg: 'MODO DEBUG (MENÚ Y ATAJOS, VER CONTROLES)', hDbgKeys: 'TECLAS Y ATAJOS DEL MODO DEBUG', gDbgMenu: 'MENÚ DEBUG', gDbgFight: 'PELEA', gDbgScreens: 'PANTALLAS', dbgKeysNote: 'SOLO ACTÚAN CON EL MODO DEBUG ACTIVADO (SECCIÓN JUGAR).', wsNote: 'PANTALLA ANCHA (16:9): EN DESARROLLO. EN PANTALLA COMPLETA, EL MARCO RELLENA LAS BARRAS.',
         hControls: 'CONTROLES DEL JUGADOR 1', gMove: 'MOVIMIENTO', gButtons: 'BOTONES', gSystem: 'SISTEMA',
         schemes: 'EL JUEGO EMPIEZA CON EL ESQUEMA ELEGIDO; CADA UNO GUARDA SUS TECLAS. EN PAUSA SE PUEDE CAMBIAR DURANTE LA PARTIDA.',
         tab6: '6 BOTONES', tab5: '5 BOTONES', tabNote: 'EL JUEGO EMPIEZA CON ESTE ESQUEMA',
@@ -38,7 +38,10 @@ const T = {
                 hp: 'Puño alto', lp: 'Puño bajo', block: 'Bloqueo', hk: 'Patada alta',
                 lk: 'Patada baja', run: 'Correr', special: 'Especial (S)',
                 '5:p': 'Puño (P)', '5:b': 'Bloqueo (B)', '5:k': 'Patada (K)', '5:r': 'Correr (R)',
-                pause: 'Pausa', moves: 'Combos' },
+                pause: 'Pausa', moves: 'Combos',
+                dbg_menu: 'Abrir menú', dbg_info: 'Línea de info', dbg_page_prev: 'Página anterior', dbg_page_next: 'Página siguiente',
+                dbg_ko_p2: 'Ganar ronda', dbg_ko_p1: 'Perder ronda', dbg_win: 'Ganar combate', dbg_lose: 'Perder combate',
+                dbg_scr_prev: 'Pantalla anterior', dbg_scr_next: 'Pantalla siguiente', dbg_scr_menu: 'Menú principal' },
         statusNeed: 'FALTA COMPILAR', statusReady: 'JUEGO LISTO',
         statusBuilding: 'COMPILANDO…', statusPlaying: 'JUGANDO…',
         needIpa: 'Primero elige tu archivo .ipa de UMK3.', playFail: 'No se pudo iniciar umk3-game.exe.',
@@ -50,16 +53,16 @@ const T = {
         mBuild: 'COMPILE YOUR .IPA', mVideo: 'GRAPHICS', mControls: 'CONTROLS',
         mPlay: 'PLAY', mQuit: 'QUIT',
         dBuild: 'The game is compiled on your PC from your own UMK3 iPhone .ipa (1.2.59).',
-        dVideo: 'Resolution, fullscreen, game language, the bars frame and debug mode.',
-        dControls: 'Player 1 keys, for the 5- and 6-button layouts.',
-        dPlay: 'Starts Ultimate Mortal Kombat 3.',
+        dVideo: 'Resolution, fullscreen, game language and the bars frame.',
+        dControls: 'Player 1 keys, for the 5- and 6-button layouts, and debug mode's keys.',
+        dPlay: 'Starts Ultimate Mortal Kombat 3, with or without the intros and debug mode.',
         dQuit: 'Closes the launcher.',
         hBuild: 'COMPILE YOUR .IPA', ipaLbl: 'YOUR UMK3 .IPA (IPHONE 1.2.59)',
         browse: 'BROWSE…', build: 'COMPILE', rebuild: 'REBUILD', cancel: 'CANCEL', clear: 'CLEAR',
         builtAt: 'GAME COMPILED', notBuilt: 'NOT COMPILED YET: CHOOSE YOUR .IPA AND PRESS COMPILE.',
         hVideo: 'GRAPHICS', res: 'RESOLUTION', full: 'FULLSCREEN',
         lang: 'GAME LANGUAGE', frame: 'FRAME (FULLSCREEN)',
-        dbg: 'DEBUG MODE (F2 MENU)', wsNote: 'WIDESCREEN (16:9): IN DEVELOPMENT. IN FULLSCREEN THE FRAME FILLS THE BARS.',
+        dbg: 'DEBUG MODE (MENU AND SHORTCUTS, SEE CONTROLS)', hDbgKeys: 'DEBUG MODE KEYS AND SHORTCUTS', gDbgMenu: 'DEBUG MENU', gDbgFight: 'FIGHT', gDbgScreens: 'SCREENS', dbgKeysNote: 'THEY ONLY ACT WITH DEBUG MODE ON (PLAY SECTION).', wsNote: 'WIDESCREEN (16:9): IN DEVELOPMENT. IN FULLSCREEN THE FRAME FILLS THE BARS.',
         hControls: 'PLAYER 1 CONTROLS', gMove: 'MOVEMENT', gButtons: 'BUTTONS', gSystem: 'SYSTEM',
         schemes: 'THE GAME STARTS WITH THE CHOSEN LAYOUT; EACH KEEPS ITS OWN KEYS. THE PAUSE MENU CAN SWITCH IT DURING A GAME.',
         tab6: '6 BUTTONS', tab5: '5 BUTTONS', tabNote: 'THE GAME STARTS WITH THIS LAYOUT',
@@ -72,7 +75,10 @@ const T = {
                 hp: 'High punch', lp: 'Low punch', block: 'Block', hk: 'High kick',
                 lk: 'Low kick', run: 'Run', special: 'Special (S)',
                 '5:p': 'Punch (P)', '5:b': 'Block (B)', '5:k': 'Kick (K)', '5:r': 'Run (R)',
-                pause: 'Pause', moves: 'Moves' },
+                pause: 'Pause', moves: 'Moves',
+                dbg_menu: 'Open menu', dbg_info: 'Info line', dbg_page_prev: 'Previous page', dbg_page_next: 'Next page',
+                dbg_ko_p2: 'Win round', dbg_ko_p1: 'Lose round', dbg_win: 'Win match', dbg_lose: 'Lose match',
+                dbg_scr_prev: 'Previous screen', dbg_scr_next: 'Next screen', dbg_scr_menu: 'Main menu' },
         statusNeed: 'NOT COMPILED', statusReady: 'GAME READY',
         statusBuilding: 'COMPILING…', statusPlaying: 'PLAYING…',
         needIpa: 'Choose your UMK3 .ipa file first.', playFail: 'Could not start umk3-game.exe.',
@@ -98,7 +104,13 @@ const KGROUPS = {
         ? ['5:p', '5:b', '5:k', '5:r', 'special']
         : ['hp', 'lp', 'block', 'hk', 'lk', 'run']),
     'k-system': () => ['pause', 'moves'],
+    'k-dbgmenu': () => ['dbg_menu', 'dbg_info', 'dbg_page_prev', 'dbg_page_next'],
+    'k-dbgfight': () => ['dbg_ko_p2', 'dbg_ko_p1', 'dbg_win', 'dbg_lose'],
+    'k-dbgscr': () => ['dbg_scr_prev', 'dbg_scr_next', 'dbg_scr_menu'],
 };
+const DBG_KEYS = ['dbg_menu', 'dbg_info', 'dbg_page_prev', 'dbg_page_next',
+    'dbg_ko_p2', 'dbg_ko_p1', 'dbg_win', 'dbg_lose',
+    'dbg_scr_prev', 'dbg_scr_next', 'dbg_scr_menu'];
 const KEY5_DEFAULT = { p: 85, b: 79, k: 74, r: 76 };
 function keyGet(name) {
     if (name.startsWith('5:'))
@@ -118,6 +130,9 @@ const KEY_DEFAULT = {
     up: 87, down: 83, left: 65, right: 68,
     hp: 85, lp: 73, block: 79, hk: 74, lk: 75, run: 76,
     pause: 80, moves: 77, special: 72,
+    dbg_menu: 113, dbg_info: 114, dbg_page_prev: 81, dbg_page_next: 69,
+    dbg_ko_p2: 120, dbg_ko_p1: 121, dbg_win: 122, dbg_lose: 123,
+    dbg_scr_prev: 117, dbg_scr_next: 118, dbg_scr_menu: 119,
 };
 const SECTIONS = ['build', 'video', 'controls', 'play', 'quit'];
 const DESC = { build: 'dBuild', video: 'dVideo', controls: 'dControls', play: 'dPlay', quit: 'dQuit' };
@@ -447,9 +462,22 @@ async function init() {
     $('build').addEventListener('click', startBuild);
     $('cancel').addEventListener('click', () => window.umk3.cancelBuild());
 
+    $('resdbg').addEventListener('click', () => {
+        selectBlip();
+        const d = {};
+        for (const n of DBG_KEYS) d[n] = KEY_DEFAULT[n];
+        Object.assign(cfg.keys, d);
+        save({ keys: d });
+        waitingKey = null;
+        $('keyhint').textContent = T[ui].hint;
+        paintKeys();
+    });
     $('reskeys').addEventListener('click', () => {
         selectBlip();
-        cfg.keys = Object.assign({}, KEY_DEFAULT);
+        /* the player's keys only; the debug keys have their own reset */
+        const d = Object.assign({}, KEY_DEFAULT);
+        for (const n of DBG_KEYS) d[n] = keyGet(n);
+        cfg.keys = d;
         cfg.keys5 = Object.assign({}, KEY5_DEFAULT);
         save({ keys: cfg.keys, keys5: cfg.keys5 });
         waitingKey = null;

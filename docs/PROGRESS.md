@@ -4,7 +4,7 @@ Current state of the project. Written so that someone can pick it up with no pri
 
 **Last updated:** 2026-10-09 -- see [HANDOFF.md](HANDOFF.md) for the route.
 
-## Current state (alpha 0.0.6c, 2026-10-09)
+## Current state (alpha 0.0.7, 2026-10-09)
 
 - **The game is playable on Windows by the real path.** The retail front
   end, Arcade, the tower, the fight load, both rounds, the end of the
@@ -13,7 +13,7 @@ Current state of the project. Written so that someone can pick it up with no pri
   Releases: [0.0.1](RELEASE-0.0.1-alpha.md), [0.0.2](RELEASE-0.0.2-alpha.md),
   [0.0.3](RELEASE-0.0.3-alpha.md), [0.0.4](RELEASE-0.0.4-alpha.md). The GitHub
   releases of 0.0.1-0.0.3 were deleted on 2026-10-09 when the history was
-  rewritten; 0.0.6c is the current published build ([notes](RELEASE-0.0.6c-alpha.md)).
+  rewritten; 0.0.7 is the current published build ([notes](RELEASE-0.0.7-alpha.md)).
 - **Every function is decompiled** (2,572 of 2,572) and the fight engine is
   behaviourally tested file by file (table below). The figure is
   **87.59%** by the README's weights; `python tools/progress.py` measures it
@@ -31,6 +31,15 @@ Current state of the project. Written so that someone can pick it up with no pri
   the game runs, the code map, the bug method and the test tools.
 
 ## Release history
+
+- **0.0.7** (2026-10-09). Everything fixed after 0.0.6c, all checked by Mary:
+  Survival crash, Scorpion's spear, Shao Karnage HUD and difficulty, typed
+  finishers (5 and 6 buttons), FATALITY/ANIMALITY/FRIENDSHIP banners and the
+  finish timing, the BABALITY banner, `create_fx_param`'s event code (the
+  babality/animality/mercy/friendship banners and tunes), Kung Lao's hat on
+  the select screen, Sub-Zero's ice sheet (frozen fighters, ice clone). Port:
+  skip the intros, a paged debug menu with mouse and per-player palettes,
+  every debug key configurable in the launcher (the debug box moved to PLAY).
 
 - **0.0.6c** (2026-10-09). F2 menu FINISHER row: `DoASpecial(Plyr, 0xd..0x13)`
   for player one once the loser is in `t_dizzy_sleep` (`mercy_xfer`, 0x54ac4,

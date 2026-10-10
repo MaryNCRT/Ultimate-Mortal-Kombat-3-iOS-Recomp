@@ -100,11 +100,17 @@ enum {
     /* player one's keys for the five-button layout: P B K R (S is
      * PK_SPECIAL); the six-button layout uses PK_HP .. PK_RUN */
     PK_5_P, PK_5_B, PK_5_K, PK_5_R,
+    /* debug menu: previous / next page */
+    PK_DBG_PAGE_PREV, PK_DBG_PAGE_NEXT,
     PK_COUNT
 };
 
 /* Is that key down right now? */
 int plat_key(int code);
+
+/* The key a code is bound to, as the platform names it ("F2", "Q"), in
+ * `out` of `n` bytes, upper case. */
+void plat_key_label(int code, char *out, int n);
 
 /* Rebind a code to a platform key (a Windows virtual-key code on win32; the
  * SDL backend takes an SDL scancode). umk3.ini's key_* lines, written by the

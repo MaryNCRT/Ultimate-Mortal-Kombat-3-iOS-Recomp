@@ -949,6 +949,8 @@ void LoadGameCharacterCheckCache(PLAYER *p, const PLAYERDEF *def,
  * The remap tables are cleared and the frame text reloaded BEFORE either
  * character is touched, so a level load always starts from a blank remap.
  */
+extern int DbgPalette[2];              /* runtime/debug_menu.c, port only */
+
 void LoadLevelCharacters(EPLAYER a, EPLAYER b)
 {
     PLAYER *p0 = (PLAYER *)Players;
@@ -962,8 +964,11 @@ void LoadLevelCharacters(EPLAYER a, EPLAYER b)
     ClearAnimRemapTables();
     LoadAllFramesTXT();
 
-    LoadGameCharacter(p0, da, 0, 0);
-    LoadGameCharacter(p1, db, 0, (a == b) ? 1 : 0);
+    /* Port only: the debug menu's PALETTE rows (DbgPalette, 0 = the
+     * binary's own rule below) pick each fighter's palette. */
+    LoadGameCharacter(p0, da, 0, DbgPalette[0] ? DbgPalette[0] == 2 : 0);
+    LoadGameCharacter(p1, db, 0, DbgPalette[1] ? DbgPalette[1] == 2
+                                               : (a == b) ? 1 : 0);
 
     p0->altCostume = 0;                 /* already cleared, twice over */
     p1->altCostume = 0;
