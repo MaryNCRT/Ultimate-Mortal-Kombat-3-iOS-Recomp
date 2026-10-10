@@ -80,7 +80,7 @@ extern char AboutSpiltText[4096 / sizeof(char)];
 extern char AllFramesTable[ALLFRAMES_COUNT * ALLFRAMES_STRIDE];
 extern long AnimSmoothWindowSize;
 extern long AnimalityMessage;
-extern long AnimalityMessageCounter;
+extern float AnimalityMessageCounter;
 extern float AttachTransforms[115200 / sizeof(float)];
 extern float AverageFPS;
 extern long AverageFPSCount;
@@ -256,7 +256,7 @@ extern float FE_YOffset;
 extern float FaceMeMatrix[64 / sizeof(float)];
 extern long FadeMusicOut;
 extern long FatalityMessage;
-extern long FatalityMessageCounter;
+extern float FatalityMessageCounter;
 extern long FightMessage;
 extern float FightMessageTimer;
 extern MESHANDTEXTURE Fight_MeshAndTexture[33];
@@ -558,7 +558,11 @@ extern long StrykerCharacters[4];
 extern long SurvivalCharacter1;
 extern long SurvivalHealth;
 extern long SurvivalStage;
-extern long *SurvivalStageP;
+extern /* The two survival slots QuitAsWin / QuitAsLose read through (armv7 0x26804,
+ * 0x26b8c, 0x26b92): each holds the ADDRESS of its long. SurvivalStageP was
+ * left NULL, so winning a Survival fight crashed in QuitAsWin. */
+long *SurvivalStageP = &SurvivalStage;
+long *DisplaySurvivalStageP = &DisplaySurvivalStage;
 extern float SwapLayers;
 extern void *TPages[6];
 extern void (*TaskFunctionList[41])(void);
@@ -3646,7 +3650,7 @@ char AboutSpiltText[4096 / sizeof(char)];  /* 0x0018dd5c, 256 bytes a line */
 char AllFramesTable[ALLFRAMES_COUNT * ALLFRAMES_STRIDE];  /* 0x00218cc4 */
 long AnimSmoothWindowSize = 2;  /* 0x00171368 */
 long AnimalityMessage;  /* 0x0014fb2c */
-long AnimalityMessageCounter;  /* 0x0014fb38 */
+float AnimalityMessageCounter;  /* 0x0014fb38 */
 float AttachTransforms[115200 / sizeof(float)];  /* 0x0018ee00 */
 float AverageFPS;  /* 0x0014e1d4 */
 long AverageFPSCount;  /* 0x0014e1d0 */
@@ -4204,7 +4208,7 @@ float FaceMeMatrix[64 / sizeof(float)] = {
 };  /* pointer slot */
 long FadeMusicOut;  /* 0x0010dee8 */
 long FatalityMessage;  /* 0x0014fb30 */
-long FatalityMessageCounter;  /* 0x0014fb3c */
+float FatalityMessageCounter;  /* 0x0014fb3c */
 long FightMessage;  /* pointer slot -> 0x0014e258 */
 float FightMessageTimer;  /* 0x0014e25c */
 MESHANDTEXTURE Fight_MeshAndTexture[33] = {

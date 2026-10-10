@@ -1773,7 +1773,12 @@ long GetArcadeJoyBits(long bits, MKMOVE *moves, long facing, long finishFlag)
         if (mask == 0xcf)
             return RemapKicksPunches(out);
 
-        cur = bits;
+        /* 0x1b830 `mov r3, r0`: the next entry is compared against the
+         * word WITH the finishing bit (r0 is bits | 0x2000 while
+         * IsInFinishing). Resetting to the bare bits meant no finisher
+         * entry -- every one carries 0x2000 -- could ever match, so no
+         * typed fatality, babality, friendship or animality fired. */
+        cur = out;
     }
 
     if (i == MKMOVE_SLOTS)
@@ -3309,8 +3314,11 @@ void limeDrawFaceMeSpriteWH(void *tex, const float *m, float x, float y,
  *
  * ### The direction test is inverted by the mirror flag
  *
- *      mirrored (+0x540 set):  draw only while start.x <  end.x
- *      not mirrored:           draw only while start.x >= end.x
+ *      mirrored (+0x540 set):  draw only while start.x >= end.x  (0x20ffc bpl)
+ *      not mirrored:           draw only while start.x <= end.x  (0x21044 bgt)
+ *
+ * The mirrored test was written inverted, and player one is the mirrored
+ * one, so Scorpion's spear was never drawn.
  *
  * The same +0x540 that flips the cull face in `RenderPlayer` and picks the
  * smoke offset in `DoSmokesSmoke`. Here it decides which way the spear is
@@ -3360,7 +3368,7 @@ void RenderExtras(void)
             continue;
 
         if (((const long *)p)[0x540 / 4] != 0) {
-            if (!(SpearStartPos[i][0] < SpearEndPos[i][0]))
+            if (SpearStartPos[i][0] < SpearEndPos[i][0])
                 continue;
         } else {
             if (SpearStartPos[i][0] > SpearEndPos[i][0])
@@ -4591,7 +4599,7 @@ extern long   FadeMusicOut;             /* 0x0010dee8 */
  * a slot. */
 extern const char *DestinyNames[];
 extern const char **DestinyNamesLoss;
-extern long  *DisplaySurvivalStage, *SurvivalStageP;
+extern long  *DisplaySurvivalStageP, *SurvivalStageP;   /* slots: &DisplaySurvivalStage, &SurvivalStage */
 /* Two words, not two pointers. FrontEnd.c declares both as plain `int` at
  * 0x001008ac and 0x001008bc, and the symbol table agrees -- four bytes each
  * in __DATA,__data. Written as one line with two declarators, this escaped
@@ -4730,7 +4738,7 @@ void QuitAsLose(void)
         points        = lastWinStreak;
         *FE_FadeAddP    = -0.033333335f;
         PushFETask(0x26);
-        *DisplaySurvivalStage = *SurvivalStageP;
+        *DisplaySurvivalStageP = *SurvivalStageP;
         *SurvivalStageP       = 0;
         Write_SaveData();
         exitTimeout = 600.0f;
@@ -6083,8 +6091,8 @@ extern long  BabalityMessage;           /* 0x0014fb28 */
 extern long  AnimalityMessage;          /* 0x0014fb2c */
 extern long  FatalityMessage;           /* 0x0014fb30 */
 extern long  FriendshipMessage;         /* 0x0014fb34 */
-extern long  AnimalityMessageCounter;   /* 0x0014fb38 */
-extern long  FatalityMessageCounter;    /* 0x0014fb3c */
+extern float AnimalityMessageCounter;   /* 0x0014fb38 -- float: DrawHUD's vldr */
+extern float FatalityMessageCounter;    /* 0x0014fb3c -- float: DrawHUD's vldr */
 extern long  DoingStageFatal;           /* 0x0010dee0 */
 extern float DoingStageFatalBringForward;   /* 0x0010dee4 -- a float; Task_GameMain
                                              * walks it down to -1.2 in double */
@@ -7329,8 +7337,12 @@ long GameInit_LoadABit(long step)
             RoundParam[0x0c / 4] = d > 9 ? 9 : d;
             RoundParam[0x14 / 4] = 0;
         } else if (GameMode == 3) {             /* karnage */
-            RoundParam[0x0c / 4] = Destiny - 3;
-            RoundParam[0x14 / 4] = Destiny - 3;
+            /* 0x2db1c `subs r3, #3` on the register still holding GameMode
+             * (just compared with 3): both are 0. This read Destiny - 3,
+             * which is -4 outside a ladder -- a negative difficulty and
+             * tower index for the whole Karnage fight. */
+            RoundParam[0x0c / 4] = GameMode - 3;
+            RoundParam[0x14 / 4] = GameMode - 3;
         }
 
         Player1Pos[0] = 1.36f;
@@ -7940,6 +7952,65 @@ static void DrawComboCounter(long p)
     }
 }
 
+/* The finisher banners, drawn under the winner's name (0x29d4a..0x2ab26).
+ * Missing until now: the four flags were set by Blood.c's events 22, 28, 42
+ * and 43 and nothing drew them. One at a time, in the binary's order --
+ * babality, animality, fatality, friendship -- each a DrawAnimAsSprite of
+ * the HUD finisher sheet at the centre of the screen, half scale:
+ *
+ *      animality   frame (int)counter, +0.2 a tick, held at 11   (0x2a4fc)
+ *      fatality    frame 0x19 + (int)counter, +0.2 a tick, back to 7 once
+ *                  it reaches 14 -- the last seven frames loop      (0x2a3d8)
+ *      friendship  two sprites at centre -/+ 128, frames 0x27 / 0x14 plus
+ *                  C.195[(int)(GameCounter * 0.25) & 7], C.195 being
+ *                  0 1 2 3 4 3 2 1                                   (0x2a9c0)
+ *
+ * The babality's twelve bouncing sprites (0x29d56) are not written yet. */
+extern float GameCounter;               /* 0x0014fa5c */
+static const long DrawHUD_C195[8] = { 0, 1, 2, 3, 4, 3, 2, 1 };  /* 0xde05c */
+
+static void FinisherSprite(long x, long frame)
+{
+    DrawAnimAsSprite(x, limeScreenHeight / 2, FE_WidthScale * 0.5f,
+                     0x100, 0x100, (long)(uintptr_t)HUDFatalsTexture,
+                     fatal_HUDgfx_SpriteDef, fatal_HUDgfx_Anim, 0, frame,
+                     0, fatal_HUDgfx_Anim[0] - 1, 1, col);
+}
+
+static void DrawFinisherBanner(void)
+{
+    if (BabalityMessage)
+        return;                         /* its own effect, not written yet */
+
+    if (AnimalityMessage) {
+        AnimalityMessageCounter = (float)((double)AnimalityMessageCounter
+                                  + 0.2 / (double)limeFPSScaleFactor);
+        if (AnimalityMessageCounter > 11.0f)
+            AnimalityMessageCounter = 11.0f;
+        FinisherSprite(limeScreenWidth / 2, (long)AnimalityMessageCounter);
+        return;
+    }
+
+    if (FatalityMessage) {
+        FatalityMessageCounter = (float)((double)FatalityMessageCounter
+                                 + 0.2 / (double)limeFPSScaleFactor);
+        if (FatalityMessageCounter >= 14.0f)
+            FatalityMessageCounter = 7.0f;
+        FinisherSprite(limeScreenWidth / 2,
+                       (long)FatalityMessageCounter + 0x19);
+        return;
+    }
+
+    if (FriendshipMessage) {
+        long k = DrawHUD_C195[(long)(GameCounter * 0.25f) & 7];
+
+        FinisherSprite((long)((float)(limeScreenWidth / 2)
+                              + FE_WidthScale * -128.0f), k + 0x27);
+        FinisherSprite((long)((float)(limeScreenWidth / 2)
+                              + FE_WidthScale * 128.0f), k + 0x14);
+    }
+}
+
 /* One half of the round-end test. `loser` is the player whose health hit zero,
  * so the round goes to the other one. */
 static void RoundEndedAgainst(long loser)
@@ -8078,9 +8149,14 @@ void DrawHUD(void)
     s = HUD_Scale;
 
     /* ---- the plates ---- */
-    if (*theKode != 0x11)
-        DrawPlayerPlate(0);
-    DrawRoundWinCoins(0);
+    /* Karnage skips player one's plate too (0x284ec: GameMode 3 jumps past
+     * the whole plate block to the streak line); drawn here, it covered
+     * the score at (8, 32). */
+    if (GameMode != 3) {
+        if (*theKode != 0x11)
+            DrawPlayerPlate(0);
+        DrawRoundWinCoins(0);
+    }
 
     if (GameMode == 0 && winStreak > 1) {
         usprintf(strBuf, UC("%s: %d"), GameTextNoHeader(0xb4), winStreak);
@@ -8206,6 +8282,8 @@ void DrawHUD(void)
                              FE_HeightScale * 176.0f, 1, FE_WidthScale, fontcol);
             }
         }
+
+        DrawFinisherBanner();
     }
 
     /* The last two of the tower. The indices are Motaro and Shao Kahn. */
@@ -8272,12 +8350,15 @@ static void RoundSummaryUpdate(void)
     /* No early return on WinnerMessage or IsInFinishing. With the winner
      * banner up the binary goes 0x29a64 -> 0x29c9c (draw it, then the
      * fatality/babality banners) -> back to 0x29a7c, and with IsInFinishing
-     * set 0x29a86 -> 0x2a2d6 adds the same 1.25 and rejoins at 0x29aba. The
-     * timer always runs; IsInFinishing only blocks the tap below. Returning
-     * here froze the summary forever: WinnerMessage is cleared only by
-     * ResetFightData (0x227ca), which runs at the end of this function --
-     * the round-1 softlock of 0.0.1. */
-    RoundSummaryTime += 1.25f / limeFPSScaleFactor;
+     * set 0x29a86 -> 0x2a2d6 adds 0.7 instead (the double at 0x2a32c) and
+     * rejoins at 0x29aba. The timer always runs; IsInFinishing only slows it
+     * and blocks the tap below. Returning here froze the summary forever:
+     * WinnerMessage is cleared only by ResetFightData (0x227ca), which runs
+     * at the end of this function -- the round-1 softlock of 0.0.1. Adding
+     * 1.25 during the finish too ended the fight before a fatality and its
+     * announcer were over. */
+    RoundSummaryTime = (float)((double)RoundSummaryTime
+                       + (IsInFinishing ? 0.7 : 1.25) / (double)limeFPSScaleFactor);
 
     /* A tap above the bottom band skips the rest of the wait. */
     if (GameMode != 4 && !IsInFinishing
@@ -10141,8 +10222,8 @@ void Task_GameMain(void)
  * `which` from **flags bit 7**, not from the slot. `SpearStartPos[which]` is
  * copied from `Players[which]`'s 3D position and `SpearEndPos[which]` from the
  * object's -- so the spear is a line from a fighter to the object.
- * `DrawSpear[which] = 1` is the fallback when no id matched, which is the
- * common case; the five ids pick a texture, everything else draws the default.
+ * `DrawSpear[which] = 1` follows every arm (0x24962): the ids only pick the
+ * texture.
  *
  * ### Character 24's mirror is inverted
  *
@@ -10495,7 +10576,9 @@ void RenderLevelPlayers(void)
                     else if (f2 == 0x129c) SpearWhichTexture[which] = 3;
                     else if (f2 == 0x129d) SpearWhichTexture[which] = 4;
                     else if (f2 == 0x129e) SpearWhichTexture[which] = 5;
-                    else                   DrawSpear[which] = 1;
+                    /* every arm comes back to 0x24962: the spear is drawn on
+                     * all five ids, not only when none matched */
+                    DrawSpear[which] = 1;
                 }
 
                 if (f2 == FRAME_STAGE_FATAL && DoSmokesEarthFatal == 0.0f)

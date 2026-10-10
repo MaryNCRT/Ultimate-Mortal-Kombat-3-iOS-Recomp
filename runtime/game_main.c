@@ -81,7 +81,57 @@
  * mouse: a test window takes the focus when it opens, and whoever is typing
  * in another window would otherwise be pressing keys in the test. */
 static int g_keys_off;
-#define plat_key(code) (g_keys_off ? 0 : (plat_key)(code))
+static long g_tick;                     /* the tick count, for UMK3_KEYS */
+
+/* UMK3_KEYS="tick:keys:hold;..." -- player one's keys pressed by script, so a
+ * test can type a move: keys joined with '+' from up down left right hp lp
+ * bl hk lk run s (the special button); held for `hold` ticks (default 4).
+ * Example, Scorpion's spear: "1000:left:4;1005:left:4;1010:lp:4". */
+static int scripted_key(int code)
+{
+    static const struct { const char *n; int code; } k_names[] = {
+        { "up", PK_UP }, { "down", PK_DOWN }, { "left", PK_LEFT },
+        { "right", PK_RIGHT }, { "hp", PK_HP }, { "lp", PK_LP },
+        { "bl", PK_BL }, { "hk", PK_HK }, { "lk", PK_LK },
+        { "run", PK_RUN }, { "s", PK_SPECIAL },
+    };
+    const char *q = getenv("UMK3_KEYS");
+
+    while (q && *q) {
+        long t = atol(q);
+        const char *a = strchr(q, ':'), *b, *end = strchr(q, ';');
+        long hold = 4;
+
+        if (!a || (end && a > end))
+            break;
+        a++;
+        b = strchr(a, ':');
+        if (b && (!end || b < end))
+            hold = atol(b + 1);
+        else
+            b = end ? end : a + strlen(a);
+        if (g_tick >= t && g_tick < t + hold) {
+            const char *p = a;
+            while (p < b) {
+                size_t i, n = strcspn(p, "+:;");
+                for (i = 0; i < sizeof k_names / sizeof k_names[0]; i++)
+                    if (strlen(k_names[i].n) == n
+                        && strncmp(p, k_names[i].n, n) == 0
+                        && k_names[i].code == code)
+                        return 1;
+                p += n;
+                if (*p == '+')
+                    p++;
+                else
+                    break;
+            }
+        }
+        q = end ? end + 1 : NULL;
+    }
+    return 0;
+}
+#define plat_key(code) (g_keys_off ? scripted_key(code) \
+                        : ((plat_key)(code) || scripted_key(code)))
 
 #define VIRT_W 480
 #define VIRT_H 320
@@ -1094,6 +1144,7 @@ int main(int argc, char **argv)
             }
             acc -= 1.0 / 60.0;
             ticks++;
+            g_tick = ticks;
         }
         plat_audio_update();
 
