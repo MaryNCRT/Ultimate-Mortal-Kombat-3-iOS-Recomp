@@ -153,15 +153,17 @@ function createWindow() {
 
 /* ------------------------------------------------------------- ipc ---- */
 
-/* The title logo: logo.png in the game folder, if the player put one there
- * (the launcher ships no game art); null, and the drawn title stays. */
+/* The title logo: logo.png in the game folder if the player put one there,
+ * else the one shipped with the launcher (renderer/logo.png, from Wikipedia,
+ * chosen by Mary); null only if both are missing, and the drawn title stays. */
 ipcMain.handle('logo:get', () => {
-    try {
-        const p = path.join(g_root, 'logo.png');
-        return 'data:image/png;base64,' + fs.readFileSync(p).toString('base64');
-    } catch (err) {
-        return null;
+    for (const p of [path.join(g_root, 'logo.png'),
+                     path.join(__dirname, 'renderer', 'logo.png')]) {
+        try {
+            return 'data:image/png;base64,' + fs.readFileSync(p).toString('base64');
+        } catch (err) { /* next */ }
     }
+    return null;
 });
 
 ipcMain.handle('root:get', () =>
@@ -218,17 +220,34 @@ ipcMain.handle('window:fullscreen', () => {
     return g_win.isFullScreen();
 });
 
+/* The file picker. On Windows a dialog owned by a fullscreen window opens
+ * BEHIND it, so BUSCAR looked dead in fullscreen: leave fullscreen while the
+ * picker is up and come back after, and bring it to the front. */
+async function pickFile(opts) {
+    const full = g_win.isFullScreen();
+    if (full)
+        g_win.setFullScreen(false);
+    g_win.focus();
+    try {
+        return await dialog.showOpenDialog(g_win, opts);
+    } finally {
+        if (full)
+            g_win.setFullScreen(true);
+    }
+}
+
 ipcMain.handle('ipa:browse', async () => {
     if (!g_win)
         return null;
-    const r = await dialog.showOpenDialog(g_win, {
+    const r = await pickFile({
         title: 'Elige tu UMK3 .ipa',
         properties: ['openFile'],
         filters: [
             { name: 'UMK3 .ipa', extensions: ['ipa'] },
             { name: 'Todos los archivos', extensions: ['*'] },
         ],
-        defaultPath: g_cfg && g_cfg.ipa ? g_cfg.ipa : undefined,
+        defaultPath: g_cfg && g_cfg.ipa && fs.existsSync(path.dirname(g_cfg.ipa))
+            ? g_cfg.ipa : undefined,
     });
     if (r.canceled || r.filePaths.length === 0)
         return null;
@@ -239,7 +258,7 @@ ipcMain.handle('ipa:browse', async () => {
 ipcMain.handle('frame:browse', async () => {
     if (!g_win)
         return null;
-    const r = await dialog.showOpenDialog(g_win, {
+    const r = await pickFile({
         title: 'Imagen para el marco / Frame picture',
         properties: ['openFile'],
         filters: [{ name: 'PNG', extensions: ['png'] }],

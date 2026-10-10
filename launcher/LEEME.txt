@@ -1,4 +1,4 @@
-ULTIMATE MORTAL KOMBAT 3 - PORT DE PC - 0.0.7 ALPHA
+ULTIMATE MORTAL KOMBAT 3 - PORT DE PC - 0.0.7b ALPHA
 ====================================================
 
 Port nativo para Windows de la version de iOS (1.2.59), hecho por
@@ -77,6 +77,12 @@ CONTROLES
     F9 / F10   terminar el round (KO jugador 2 / jugador 1)
     F11 / F12  ganar / perder la pelea entera (F11 la salta)
   F3 y F6-F12 son las teclas directas; el menu F2 las apaga.
+
+NUEVO EN 0.0.7b
+- El launcher trae el logo de UMK3 integrado (un logo.png propio en la
+  carpeta del juego lo sustituye).
+- BUSCAR (el .ipa y el marco) ya abre el explorador tambien con el
+  launcher en pantalla completa.
 
 NUEVO EN 0.0.7
 - Babality: sale el letrero BABALITY con sus bloques que rebotan, y
@@ -168,7 +174,7 @@ ARREGLADO EN 0.0.2
 - La melena de Sindel aparece, con su textura.
 - El joystick en pantalla se mueve.
 
-ERRORES CONOCIDOS EN 0.0.7
+ERRORES CONOCIDOS EN 0.0.7b
 - Algunos objetos aparte de los luchadores aun pueden no verse (el arpon
   de Scorpion ya si).
 - Faltan animaciones en algunos fatalities (el de Sonya no se ve bien).

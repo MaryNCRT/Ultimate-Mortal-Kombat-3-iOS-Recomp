@@ -14,12 +14,12 @@ Read this, then [METHODOLOGY.md](METHODOLOGY.md). Everything else is reference.
 
 ## Releases
 
-The current build is **0.0.7 alpha** ([notes](RELEASE-0.0.7-alpha.md)); 0.0.6c, 0.0.6b,
+The current build is **0.0.7b alpha** ([notes](RELEASE-0.0.7b-alpha.md)); 0.0.7, 0.0.6c, 0.0.6b,
 0.0.6, 0.0.5 and 0.0.4 are still published, 0.0.1-0.0.3 were deleted from GitHub when the history was
 rewritten on 2026-10-09 (their notes stay in `docs/`). What each release fixed,
 with addresses, is in PROGRESS.md, "Release history".
 
-## Where the project actually stands (2026-10-09, alpha 0.0.7)
+## Where the project actually stands (2026-10-09, alpha 0.0.7b)
 
 **Start with [HOW-THE-GAME-WORKS.md](HOW-THE-GAME-WORKS.md)** -- how the game
 runs, the code map, the bug method, the debug menu and every test variable.
