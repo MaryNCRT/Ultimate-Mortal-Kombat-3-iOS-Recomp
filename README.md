@@ -26,7 +26,7 @@ You need a legally obtained copy of *Ultimate Mortal Kombat 3* for iOS (version 
 
 ---
 
-## Where the project stands — 9 October 2026 (alpha 0.0.7b)
+## Where the project stands — 10 October 2026 (alpha 0.0.8)
 
 | | |
 |---|---|
@@ -34,11 +34,11 @@ You need a legally obtained copy of *Ultimate Mortal Kombat 3* for iOS (version 
 | **Verified** | ✅ The engine core passes differential tests against the recompiled original with zero divergences. The fight engine passes a behavioural differential test file by file, with the exceptions listed in [Verification](#how-much-of-it-is-verified) — every one of them a known limit of the test harness, not a known bug. |
 | **Runs natively** | ✅ The real game runs natively on Windows (Linux/macOS from source): the front end with its 51 screens, Arcade with the tower to the end of the ladder, fights, sound, music and saves. How it fits together: [docs/HOW-THE-GAME-WORKS.md](docs/HOW-THE-GAME-WORKS.md). |
 | **Fight** | ✅ **Fights play to the end by the real path** (0.0.2): round 1, round 2, the end of the match, `Task_GameDestroy`, Continue and the next fight, with the camera following both fighters and the voices playing. Before that, **the first fight ran by the real path.** After the tower (or straight from the menu with `--fight`, below) the game runs `Task_GameInit` and `Task_GameMain`: the arena draws, both fighters fight with the CPU playing, with the HUD and touch controls, for thousands of frames without a crash ([#54](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/54), [#57](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/pull/57)). |
-| **Playable** | 🔄 **Alpha 0.0.7b** ([release](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/releases)): menus, Arcade to Shao Kahn and the treasure screen, whole fights, from the keyboard (rebindable in the launcher), a gamepad or the touch controls, with a debug menu (F2). Still wrong: see *Known problems*. The fight engine's 229 data tables are extracted from the user's own binary at build time and verified against it. |
+| **Playable** | ✅ **Alpha 0.0.8: 100% playable** (it can still have bugs; they are being fixed) ([release](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/releases)): menus, Arcade to Shao Kahn and the treasure screen, whole fights, from the keyboard (rebindable in the launcher), a gamepad or the touch controls, with a debug menu (F2). Still wrong: see *Known problems*. The fight engine's 229 data tables are extracted from the user's own binary at build time and verified against it. |
 
 ### How to play (alpha 0.0.7, Windows)
 
-**Alpha 0.0.7b** ([notes](docs/RELEASE-0.0.7b-alpha.md); earlier: [0.0.7](docs/RELEASE-0.0.7-alpha.md), [0.0.6c](docs/RELEASE-0.0.6c-alpha.md), [0.0.6b](docs/RELEASE-0.0.6b-alpha.md), [0.0.6](docs/RELEASE-0.0.6-alpha.md), [0.0.5](docs/RELEASE-0.0.5-alpha.md), [0.0.4](docs/RELEASE-0.0.4-alpha.md), [0.0.3](docs/RELEASE-0.0.3-alpha.md), [0.0.2](docs/RELEASE-0.0.2-alpha.md), [0.0.1](docs/RELEASE-0.0.1-alpha.md)):
+**Alpha 0.0.8** ([notes](docs/RELEASE-0.0.8-alpha.md); earlier: [0.0.7b](docs/RELEASE-0.0.7b-alpha.md), [0.0.7](docs/RELEASE-0.0.7-alpha.md), [0.0.6c](docs/RELEASE-0.0.6c-alpha.md), [0.0.6b](docs/RELEASE-0.0.6b-alpha.md), [0.0.6](docs/RELEASE-0.0.6-alpha.md), [0.0.5](docs/RELEASE-0.0.5-alpha.md), [0.0.4](docs/RELEASE-0.0.4-alpha.md), [0.0.3](docs/RELEASE-0.0.3-alpha.md), [0.0.2](docs/RELEASE-0.0.2-alpha.md), [0.0.1](docs/RELEASE-0.0.1-alpha.md)):
 [Releases](https://github.com/MaryNCRT/Ultimate-Mortal-Kombat-3-iOS-Recomp/releases)
 has the launcher and only the sources the build needs, no game data. Its
 known problems are the table below.
@@ -107,7 +107,7 @@ symbolise. A log is deleted once the error it shows is fixed.
 
 ### Known problems (9 October 2026, alpha 0.0.7)
 
-Release notes: [0.0.7b](docs/RELEASE-0.0.7b-alpha.md), [0.0.7](docs/RELEASE-0.0.7-alpha.md), [0.0.6c](docs/RELEASE-0.0.6c-alpha.md), [0.0.6b](docs/RELEASE-0.0.6b-alpha.md), [0.0.6](docs/RELEASE-0.0.6-alpha.md), [0.0.5](docs/RELEASE-0.0.5-alpha.md), [0.0.4](docs/RELEASE-0.0.4-alpha.md), [0.0.3](docs/RELEASE-0.0.3-alpha.md), [0.0.2](docs/RELEASE-0.0.2-alpha.md), [0.0.1](docs/RELEASE-0.0.1-alpha.md).
+Release notes: [0.0.8](docs/RELEASE-0.0.8-alpha.md), [0.0.7b](docs/RELEASE-0.0.7b-alpha.md), [0.0.7](docs/RELEASE-0.0.7-alpha.md), [0.0.6c](docs/RELEASE-0.0.6c-alpha.md), [0.0.6b](docs/RELEASE-0.0.6b-alpha.md), [0.0.6](docs/RELEASE-0.0.6-alpha.md), [0.0.5](docs/RELEASE-0.0.5-alpha.md), [0.0.4](docs/RELEASE-0.0.4-alpha.md), [0.0.3](docs/RELEASE-0.0.3-alpha.md), [0.0.2](docs/RELEASE-0.0.2-alpha.md), [0.0.1](docs/RELEASE-0.0.1-alpha.md).
 
 What a player sees today, and what is known about each.
 
@@ -355,7 +355,7 @@ The full reasoning is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 | Native PC platform layer (161 fn to rewrite) | 17% | 27% | `███░░░░░░░` |
 | EA SDK stubs (27 fn the game calls) | 5% | 100% | `██████████` |
 
-**87.59% of the total estimated effort. Alpha 0.0.7b is playable:** whole
+**87.59% of the total estimated effort. Alpha 0.0.8 is 100% playable:** whole
 fights by the real path, with known problems (see above).
 
 **Read that number for what it measures, and for what it leaves out.** It

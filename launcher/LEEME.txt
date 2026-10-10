@@ -1,4 +1,4 @@
-ULTIMATE MORTAL KOMBAT 3 - PORT DE PC - 0.0.7b ALPHA
+ULTIMATE MORTAL KOMBAT 3 - PORT DE PC - 0.0.8 ALPHA
 ====================================================
 
 Port nativo para Windows de la version de iOS (1.2.59), hecho por
@@ -26,16 +26,22 @@ COMO JUGAR
      - compila umk3-game.exe
      - copia la carpeta res\ desde tu .ipa
    Tarda menos de un minuto despues de la descarga.
-3. En "GRAFICOS" elige resolucion 3D, pantalla completa, idioma del
-   juego y, si quieres, un marco (una imagen tuya) para los lados en
-   pantalla completa. Se guardan solos en umk3.ini.
-   En "CONTROLES" eliges el esquema de 6 o de 5 botones (el juego empieza
-   con el que elijas) y cambias las teclas de cada uno por separado: haz
-   clic en una accion y pulsa la tecla nueva (Esc cancela). Restablecer
-   vuelve a las de siempre. Debajo, en una seccion aparte, las teclas
-   y atajos del modo debug (abrir el menu, paginas, ganar/perder...).
-4. En "JUGAR" marca, si quieres, "Modo debug" y "Saltar las intros"
-   (sin los logos del inicio) y pulsa el boton grande JUGAR.
+3. En "GRAFICOS" elige la resolucion de ventana, la resolucion 3D (a la
+   que el juego dibuja de verdad; 480 x 320 es la del iPhone), el modo de
+   pantalla (ventana, pantalla completa o ventana sin bordes), la
+   relacion de aspecto (3:2, la original), el antialiasing (hasta x16),
+   si quieres ocultar el joystick y los botones en pantalla y, si
+   quieres, un marco (una imagen tuya) para los lados en pantalla
+   completa. Se guardan solos en umk3.ini.
+   En "CONTROLES", categoria JUGADOR 1, eliges el esquema de 6 o de 5
+   botones (el juego empieza con el que elijas) y cambias las teclas de
+   cada uno por separado: haz clic en una accion y pulsa la tecla nueva
+   (Esc cancela). Restablecer vuelve a las de siempre. En la categoria
+   DEBUG, las teclas y atajos del modo debug (abrir el menu, paginas,
+   ganar/perder...).
+4. En "JUGAR" elige el idioma del juego, marca, si quieres, "Modo debug"
+   y "Saltar las intros" (sin los logos del inicio) y pulsa el boton
+   grande JUGAR.
 
 El boton de arriba a la derecha (English / Espanol) cambia el idioma del
 launcher; tambien se guarda en umk3.ini.
@@ -78,11 +84,25 @@ CONTROLES
     F11 / F12  ganar / perder la pelea entera (F11 la salta)
   F3 y F6-F12 son las teclas directas; el menu F2 las apaga.
 
-NUEVO EN 0.0.7b
-- El launcher trae el logo de UMK3 integrado (un logo.png propio en la
-  carpeta del juego lo sustituye).
-- BUSCAR (el .ipa y el marco) ya abre el explorador tambien con el
+NUEVO EN 0.0.8
+- El juego ya es 100% jugable. Puede tener fallos; se iran arreglando.
+- Mercy completo, con su letrero y su musica; despues, el animality
+  (que exige un mercy) con su letrero, su musica y el animal. Ya
+  funcionan todos los finishers.
+- GRAFICOS: resolucion de ventana y resolucion 3D por separado (el juego
+  dibuja de verdad a la resolucion 3D y se escala a la ventana; 480 x 320
+  es la del iPhone), modo de pantalla (ventana, pantalla completa o
+  ventana sin bordes), relacion de aspecto (3:2, la original),
+  antialiasing hasta x16 y una casilla para ocultar el joystick y los
+  botones en pantalla.
+- El idioma del juego esta en JUGAR.
+- CONTROLES: dos categorias, JUGADOR 1 (6 y 5 botones) y DEBUG.
+- BUSCAR (el .ipa y el marco) abre el explorador tambien con el
   launcher en pantalla completa.
+
+NUEVO EN 0.0.7b
+- El launcher de la 0.0.7 con el logo de UMK3 (logo.png en la carpeta
+  del juego).
 
 NUEVO EN 0.0.7
 - Babality: sale el letrero BABALITY con sus bloques que rebotan, y
@@ -174,7 +194,7 @@ ARREGLADO EN 0.0.2
 - La melena de Sindel aparece, con su textura.
 - El joystick en pantalla se mueve.
 
-ERRORES CONOCIDOS EN 0.0.7b
+ERRORES CONOCIDOS EN 0.0.8
 - Algunos objetos aparte de los luchadores aun pueden no verse (el arpon
   de Scorpion ya si).
 - Faltan animaciones en algunos fatalities (el de Sonya no se ve bien).

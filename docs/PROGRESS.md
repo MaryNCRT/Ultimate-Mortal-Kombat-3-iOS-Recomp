@@ -4,9 +4,9 @@ Current state of the project. Written so that someone can pick it up with no pri
 
 **Last updated:** 2026-10-09 -- see [HANDOFF.md](HANDOFF.md) for the route.
 
-## Current state (alpha 0.0.7b, 2026-10-09)
+## Current state (alpha 0.0.8, 2026-10-10)
 
-**2026-10-10, after 0.0.7b (checked by Mary, not released):** the MERCY banner and `Mercy.mp3` last their full time (DrawHUD's counter adds 0.2 a frame, 0x2844e / 0x286f4, not 13). Mercy, then animality, now run start to finish with banner, tune and model; with friendship, babality and the fatalities that is every finisher. Mary's 0.0.7b release is the base from here (its game sources equal main; she rebuilt the launcher). Queued next: game language moves to PLAY, a separate video section with a real render resolution apart from the window size (engine scaling), and fullscreen and borderless window as separate options.
+**2026-10-10, released as 0.0.8 (checked by Mary):** the MERCY banner and `Mercy.mp3` last their full time (DrawHUD's counter adds 0.2 a frame, 0x2844e / 0x286f4, not 13). Mercy, then animality, now run start to finish with banner, tune and model; with friendship, babality and the fatalities that is every finisher. Mary's 0.0.7b release is the base from here (its game sources equal main; she rebuilt the launcher). Queued next: game language moves to PLAY, a separate video section with a real render resolution apart from the window size (engine scaling), and fullscreen and borderless window as separate options.
 
 - **The game is playable on Windows by the real path.** The retail front
   end, Arcade, the tower, the fight load, both rounds, the end of the
@@ -15,7 +15,7 @@ Current state of the project. Written so that someone can pick it up with no pri
   Releases: [0.0.1](RELEASE-0.0.1-alpha.md), [0.0.2](RELEASE-0.0.2-alpha.md),
   [0.0.3](RELEASE-0.0.3-alpha.md), [0.0.4](RELEASE-0.0.4-alpha.md). The GitHub
   releases of 0.0.1-0.0.3 were deleted on 2026-10-09 when the history was
-  rewritten; 0.0.7b is the current published build ([notes](RELEASE-0.0.7b-alpha.md)).
+  rewritten; 0.0.8 is the current published build ([notes](RELEASE-0.0.8-alpha.md)): 100% playable, bugs still being fixed.
 - **Every function is decompiled** (2,572 of 2,572) and the fight engine is
   behaviourally tested file by file (table below). The figure is
   **87.59%** by the README's weights; `python tools/progress.py` measures it
@@ -34,10 +34,20 @@ Current state of the project. Written so that someone can pick it up with no pri
 
 ## Release history
 
-- **0.0.7b** (2026-10-09). Launcher only: the UMK3 logo is built in
-  (renderer/logo.png, Mary's file from Wikipedia; a logo.png in the game
-  folder still overrides it), and BUSCAR works in fullscreen (a dialog owned
-  by a fullscreen window opened behind it on Windows).
+- **0.0.8** (2026-10-10). Announced as 100% playable. Mercy (banner and
+  tune last their time, DrawHUD 0x2844e) and so animality; every finisher
+  works. Engine: the 3D resolution is real (a framebuffer object at
+  render_width x render_height, scaled to the window), antialiasing up to
+  x16 (multisampled, resolved before the debug menu reads it back),
+  fullscreen=1 exclusive and borderless=1 borderless fullscreen (the frame
+  picture in both), hide_controls=1. Launcher: those options in GRAPHICS,
+  game language in PLAY, CONTROLS split into PLAYER 1 and DEBUG; the title
+  logo is Mary's code again (logo.png in the game folder, else the game's
+  own), with the fullscreen BUSCAR fix kept.
+
+- **0.0.7b** (2026-10-09). Built and published by Mary: the 0.0.7 launcher
+  with her logo.png (from Wikipedia) in the game folder. This release is the
+  base the 0.0.8 launcher was built on.
 
 - **0.0.7** (2026-10-09). Everything fixed after 0.0.6c, all checked by Mary:
   Survival crash, Scorpion's spear, Shao Karnage HUD and difficulty, typed
